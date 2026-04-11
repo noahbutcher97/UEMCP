@@ -5,7 +5,7 @@
 
 ## Why Dynamic Toolsets
 
-With 120 tools across 4 connection layers, a static tool list would consume 30,000-60,000 tokens (~25-30% of context) in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
+With 114 tools across 4 connection layers, a static tool list would consume 30,000-60,000 tokens (~25-30% of context) in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
 
 UEMCP uses a hybrid of GitHub's explicit toolsets and Speakeasy's progressive disclosure: 6 always-visible management tools + 15 on-demand toolsets + keyword search with auto-enable. Claude typically activates 2-3 toolsets per task (15-25 active tools), well within safe limits.
 

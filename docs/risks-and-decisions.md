@@ -19,6 +19,38 @@
 | Alias map gaps | `find_tools` misses obvious queries | Ship with conservative alias set (18 entries). Expand per-project in Phase 6 step 41. Alias map is a flat JS Map — trivial to add entries without code changes. |
 | Base64 image exceeds stdio limit | `visual-capture` tools crash server | Enforce max resolution cap (1024×1024 default). JPEG fallback for screenshots. Warn in tool description about ~1MB stdio payload limit. |
 
+### Audit-Discovered Risks (April 2026)
+
+Surfaced during plan audit. Dispositions: **IMPLEMENT** (budgeted), **DEFER** (add if needed), **SKIP** (not worth the cost).
+
+| Risk | Severity | Disposition | Mitigation |
+|------|----------|-------------|------------|
+| `run_python_command` arbitrary code execution | CRITICAL | **IMPLEMENT Phase 3** | Deny-list (`os.`, `subprocess`, `eval`, `exec`, `open`, `__import__`), confirmation dialog, execution logging. See D14. ~1.5 hrs. |
+| ProjectB plugin distribution undefined | CRITICAL | **IMPLEMENT Phase 5** | PowerShell `sync-uemcp-plugins.ps1` copies git plugin → both project Plugins/ folders → P4 submit. Confluence page for team. ~1 hr. |
+| `delete_asset` ignores dependency graph | WARNING | **IMPLEMENT Phase 3** | Query `IAssetRegistry::GetReferencers()` before delete. Refuse if hard refs exist unless `force=true`. Return referrer list. ~3 hrs. |
+| TCP command race on shared socket | WARNING | **IMPLEMENT Phase 1** | Command queue: TCP thread enqueues (FCriticalSection), game thread dequeues one per tick. Node.js serializes outbound. ~2 hrs. |
+| TCP timeout retry causes duplicate ops | WARNING | **IMPLEMENT Phase 1** | Request ID (SHA256 of command+params). Server + plugin cache results 5 min. Write ops deduplicated; reads are naturally idempotent. Included in command queue work. |
+| TCP reconnection on editor close/reopen | WARNING | **IMPLEMENT Phase 2** | Simple retry-on-failure in ConnectionManager. Try connect, if fail, retry on next tool call. No exponential backoff needed for localhost. ~1.5 hrs. |
+| Plugin dependency failures silent | WARNING | **IMPLEMENT Phase 1** | `list_toolsets` reports unavailable toolsets with reason + fix instruction. Query enabled plugins via TCP handshake. ~1 hr. |
+| RC API port hardcoded to 30010 | WARNING | **DEFER** | Add `UNREAL_RC_PORT` env var override in .mcp.json. Default 30010. Port scan and config parsing deferred — not needed for known setups. ~0.5 hrs if triggered. |
+| Reflected property writes without type validation | WARNING | **DEFER** | RC API does its own type coercion and returns errors. Wrap errors in clean messages. Full pre-validation cache deferred until RC API errors prove insufficient in practice. |
+| No rate limiting on MCP requests | WARNING | **SKIP** | Claude sends one tool call at a time. Game thread naturally serializes. Not a real problem on localhost. Revisit only if editor hangs observed. |
+| Concurrent RC API + TCP commands race | INFO | **SKIP** | Different transport layers, different threads. No shared state between HTTP and TCP paths. |
+| No undo for property writes | INFO | **DEFER** | Snapshot-before-write undo queue is ~35 hrs for marginal value. Use editor Ctrl+Z instead. Revisit if bulk property writes become common. |
+
+### UE5 API Verification (April 2026)
+
+All 6 critical APIs confirmed present in UE5.6. No plan changes needed.
+
+| API | Status | Notes |
+|-----|--------|-------|
+| `FTcpListener` | CONFIRMED | FRunnable-based, FTcpSocketBuilder fluent API. Networking module. |
+| `IAssetRegistry::GetReferencers/GetDependencies` | CONFIRMED | Multiple overloads with dependency type filtering. AssetRegistry module. |
+| `FRemoteControlModule` | CONFIRMED | HTTP + WebSocket, configurable ports. RemoteControl module. |
+| `UEdGraph` / `UK2Node` | CONFIRMED | Full graph traversal via Nodes array + pin connections. BlueprintGraph module. |
+| `GameplayAbilities` module | CONFIRMED | Plugin-based, enabled via .uproject. Correct module name. |
+| `FKismetEditorUtilities::CompileBlueprint` | CONFIRMED | Delegates to FBlueprintCompilationManager. UnrealEd module. |
+
 ---
 
 ## Future Enhancements (Not in Initial Build)
@@ -60,3 +92,6 @@
 | D11 | 6-phase implementation | C++ plugin is independent phase. Server works without it (Phases 1-2-4). |
 | D12 | Geometry Script plugin enabled | Procedural mesh generation, CSG booleans, UV manipulation. Adds 4 geometry tools. |
 | D13 | Slate Scripting not enabled | Read-only editor UI inspection — can't construct UI. UMG tools already handle UI creation. |
+| D14 | `run_python_command` ships with deny-list + confirmation | Balances flexibility with safety. Deny-list blocks `os`, `subprocess`, `eval`, `exec`, `open`, `__import__`. Confirmation dialog required. All executions logged. Full sandboxing (Tier 2) deferred — overkill for solo dev on localhost. |
+| D15 | ProjectB distribution via P4 (Option A) | Team benefits from expanded tools. Script copies git → P4. Matches existing UnrealMCP distribution pattern. Confluence page documents installation. |
+| D16 | Defer RC API port discovery, rate limiting, property pre-validation, undo system | Over-engineered for solo dev on localhost. RC API validates types internally. Claude sends one call at a time. Editor Ctrl+Z covers undo. Revisit if real problems emerge during daily use. |
