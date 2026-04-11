@@ -11,7 +11,7 @@
 {
   "unreal": {
     "command": "node",
-    "args": ["C:/Users/user/.claude/mcp-servers/unreal/server.mjs"],
+    "args": ["D:/DevTools/UEMCP/server/server.mjs"],
     "env": {
       "UNREAL_PROJECT_ROOT": "D:/UnrealProjects/5.6/ProjectA/ProjectA",
       "UNREAL_PROJECT_NAME": "ProjectA",
@@ -30,7 +30,7 @@
 {
   "unreal": {
     "command": "node",
-    "args": ["C:/Users/user/.claude/mcp-servers/unreal/server.mjs"],
+    "args": ["D:/DevTools/UEMCP/server/server.mjs"],
     "env": {
       "UNREAL_PROJECT_ROOT": "D:/UnrealProjects/5.6/BreakoutWeek/ProjectB",
       "UNREAL_PROJECT_NAME": "ProjectB",

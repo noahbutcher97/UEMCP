@@ -56,6 +56,15 @@
 | **Protocol** | JSON: `{"type": "command_name", "params": {...}}` (same as existing) |
 | **Platforms** | Win64 (Mac/Linux optional) |
 
+### Plugin Lifecycle
+
+1. **Startup**: `UEMCPSubsystem::Initialize()` — create `FRunnable` TCP listener thread on port 55558. Register command handlers. Log "UEMCP ready on :55558".
+2. **Command flow**: TCP thread receives JSON → enqueues to thread-safe `TArray` (FCriticalSection) → game thread `Tick()` dequeues one command per frame → dispatches to handler → sends JSON response on TCP thread.
+3. **Hot reload**: `UEMCPSubsystem::Deinitialize()` — set FRunnable stop flag → close listening socket → wait for thread exit (`FRunnableThread::Kill(true)`) → destroy socket. Re-initialization happens automatically on next module load.
+4. **Shutdown**: Same as hot reload. Editor close triggers `Deinitialize()` which cleans up TCP resources.
+5. **Thread safety**: Only the TCP thread touches the socket. Only the game thread touches UE APIs. The command queue is the single synchronization point (FCriticalSection-guarded). No other shared state.
+6. **Error handling**: If a command handler crashes (unhandled exception), catch at the dispatch level, return `{"error": "Internal error in <command>"}`, log to `UE_LOG(LogUEMCP)`. Never let a handler crash take down the TCP thread.
+
 ### Why a Separate Plugin
 
 1. **Perforce safety**: Existing UnrealMCP is team-shared. Zero risk of merge conflicts.

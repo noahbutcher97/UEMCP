@@ -84,6 +84,8 @@ This removes 6 redundant tools: 120 → 114. The 6 always-loaded management tool
 
 **Auto-enable behavior**: `find_tools` returns up to 15 matching tools. All parent toolsets of matches are automatically enabled. The response includes `toolsets_enabled: ["materials", "animation"]` so Claude knows what was activated. Server fires `tools/list_changed` notification.
 
+**Accumulation**: Multiple `find_tools` calls accumulate enabled toolsets — previously enabled toolsets stay enabled unless explicitly disabled via `disable_toolset`. There is no hard cap on active toolsets, but `list_toolsets` warns when active tool count exceeds 40 (the empirical accuracy degradation threshold). Use `disable_toolset` to shed toolsets no longer needed.
+
 ## Typical Workflows
 
 **GAS debugging session**:
