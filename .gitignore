@@ -1,0 +1,27 @@
+# Node.js (server/)
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# UE plugin build artifacts (plugin/)
+plugin/Binaries/
+plugin/Intermediate/
+plugin/DerivedDataCache/
+*.sln
+*.vcxproj*
+
+# Logs
+*.log

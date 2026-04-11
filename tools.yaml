@@ -1,0 +1,592 @@
+# tools.yaml — Single source of truth for UEMCP tool registry
+# All tool counts, toolset membership, and descriptions are derived from this file.
+# The Node.js MCP server loads this at startup. Plan markdown references it.
+#
+# Conventions:
+#   - Tool names are unique across the entire registry (MCP requirement)
+#   - Handler filename = UEMCP${PascalCase(toolsetName)}Commands.h/.cpp
+#     Exception: input-and-pie splits into UEMCPInputCommands + UEMCPPIECommands
+#   - params: stubs — populated incrementally during implementation
+#   - Existing plugin toolsets (tcp-55557) have priority: null (not ours to implement)
+
+# ─────────────────────────────────────────────────────────────
+# Always-loaded management tools (6)
+# Visible to Claude regardless of which toolsets are enabled
+# ─────────────────────────────────────────────────────────────
+management:
+  description: Always-loaded discovery and management tools
+  tools:
+    connection_info:
+      description: Show status of all 4 layers (TCP:55557, TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.
+      params:
+        force_reconnect: { type: boolean, required: false, default: false }
+
+    detect_project:
+      description: Run auto-detection chain and report which project's editor is open, with confidence score.
+      params: {}
+
+    find_tools:
+      description: Keyword search across all tools. Returns matching tool names, descriptions, and parent toolset. Auto-enables parent toolsets of matches.
+      params:
+        query:       { type: string, required: true }
+        max_results: { type: integer, required: false, default: 15 }
+
+    list_toolsets:
+      description: Show all toolsets with tool count, required layer, availability status, and enabled/disabled state. Orientation tool — call first to understand what's available.
+      params: {}
+
+    enable_toolset:
+      description: Explicitly enable one or more toolsets by name. Fires tools/list_changed notification.
+      params:
+        toolsets: { type: array, items: string, required: true }
+
+    disable_toolset:
+      description: Disable one or more toolsets to free context. Use when switching tasks or active tool count is high.
+      params:
+        toolsets: { type: array, items: string, required: true }
+
+
+# ─────────────────────────────────────────────────────────────
+# Toolsets (15 toolsets, 108 tools)
+# ─────────────────────────────────────────────────────────────
+toolsets:
+
+  # ── Offline Layer ─────────────────────────────────────────
+  offline:
+    layer: offline
+    priority: null   # built into Phase 1
+    description: Project file analysis — always works, no editor needed
+    tools:
+      project_info:
+        description: Read .uproject, list plugins, engine version, build config
+      list_gameplay_tags:
+        description: Parse DefaultGameplayTags.ini, return full tag hierarchy with comments
+      search_gameplay_tags:
+        description: Search tags by pattern (e.g., "Gameplay.State.*")
+      list_config_values:
+        description: Read any .ini config file, search for keys/sections
+      browse_content:
+        description: List content directories, filter by asset type (Blueprint, Material, etc.)
+      get_asset_info:
+        description: Read .uasset header metadata (type, size, class, references)
+      search_source:
+        description: Grep project Source/ directory for patterns
+      read_source_file:
+        description: Read a specific .h or .cpp file from Source/
+      list_plugins:
+        description: List installed plugins with enabled/disabled status and version
+      get_build_config:
+        description: Parse .Build.cs, .Target.cs — show module dependencies and build settings
+
+  # ── Existing Plugin (TCP:55557) ───────────────────────────
+  actors:
+    layer: tcp-55557
+    priority: null   # existing plugin, not ours to implement
+    description: Level editing, actor manipulation, viewport
+    tools:
+      get_actors:
+        description: List all actors in current level (with optional class filter)
+      find_actors:
+        description: Find actors by name pattern
+      spawn_actor:
+        description: Spawn primitive actor (StaticMesh, Light, Camera, etc.)
+      delete_actor:
+        description: Delete actor by name
+      set_actor_transform:
+        description: Set location/rotation/scale
+      get_actor_properties:
+        description: Get all properties of an actor
+      set_actor_property:
+        description: Set specific property by name
+      spawn_blueprint_actor:
+        description: Spawn instance of a Blueprint class
+      focus_viewport:
+        description: Move editor camera to location/actor
+      take_screenshot:
+        description: Capture editor viewport to PNG file
+        note: Legacy — get_viewport_screenshot in visual-capture returns inline base64
+
+  blueprints-write:
+    layer: tcp-55557
+    priority: null
+    description: Blueprint creation, components, nodes
+    note: >
+      7 more BP node tools (add_function_node, add_input_action_node, add_variable,
+      add_self_reference, add_component_reference, connect_nodes, find_nodes) may be
+      added here or split into blueprint-nodes sub-toolset at implementation time.
+    tools:
+      create_blueprint:
+        description: Create new Blueprint class
+      add_component:
+        description: Add component to Blueprint
+      set_component_property:
+        description: Set property on Blueprint component
+      compile_blueprint:
+        description: Compile a Blueprint
+      set_blueprint_property:
+        description: Set Blueprint default property
+      set_static_mesh_props:
+        description: Configure static mesh on component
+      set_physics_props:
+        description: Configure physics simulation
+      set_pawn_props:
+        description: Configure pawn settings
+      add_event_node:
+        description: Add event node (BeginPlay, Tick, etc.)
+
+  widgets:
+    layer: tcp-55557
+    priority: null
+    description: UMG widget creation and binding
+    tools:
+      create_widget:
+        description: Create UMG Widget Blueprint
+      add_text_block:
+        description: Add text block to widget
+      add_button:
+        description: Add button to widget
+      bind_widget_event:
+        description: Bind widget event to function
+      set_text_binding:
+        description: Set text block data binding
+      add_widget_to_viewport:
+        description: Show widget in game viewport
+      add_input_action_node:
+        description: Add input action event node (shared with blueprint editing)
+
+  # ── New Custom Plugin (TCP:55558) ─────────────────────────
+  gas:
+    layer: tcp-55558
+    priority: 1
+    description: GAS asset creation and live queries
+    tools:
+      create_gameplay_effect:
+        description: Create GE_ data asset with duration, modifiers, tags, stacking
+        params:
+          name:       { type: string, required: true }
+          path:       { type: string, required: false, default: "/Game/GAS/Effects/" }
+          duration:   { type: string, required: false }   # instant | has_duration | infinite
+          modifiers:  { type: array, required: false }
+          tags:       { type: array, required: false }
+          stacking:   { type: object, required: false }
+      create_gameplay_ability:
+        description: Create GA_ Blueprint with activation/blocked tags, cost, cooldown
+        params:
+          name:             { type: string, required: true }
+          path:             { type: string, required: false, default: "/Game/GAS/Abilities/" }
+          activation_tags:  { type: array, required: false }
+          blocked_tags:     { type: array, required: false }
+      modify_gameplay_effect:
+        description: Edit existing GE — add/remove modifiers, change tags, set period
+        params:
+          asset_path: { type: string, required: true }
+      list_gameplay_tags_runtime:
+        description: Query live tag hierarchy from editor (more accurate than offline parse)
+        params:
+          filter: { type: string, required: false }
+      create_attribute_set:
+        description: Generate AttributeSet class template with specified attributes
+        params:
+          name:       { type: string, required: true }
+          attributes: { type: array, items: string, required: true }
+
+  blueprint-read:
+    layer: tcp-55558
+    priority: 1
+    description: Blueprint introspection — read graph, variables, functions, components
+    tools:
+      get_blueprint_info:
+        description: Parent class, interfaces, component list, variable count, function count. Overview without loading full graph.
+        params:
+          asset_path: { type: string, required: true }
+      get_blueprint_variables:
+        description: All variables with types, default values, categories, replication flags, tooltips
+        params:
+          asset_path: { type: string, required: true }
+      get_blueprint_functions:
+        description: All functions with full signatures (params, return type, static/const/pure flags)
+        params:
+          asset_path: { type: string, required: true }
+      get_blueprint_graphs:
+        description: All graphs as JSON — event graphs, functions (including orphans), macros, delegate signatures. Nodes, pins, connections, default values. Optional graph_name filter.
+        note: Consolidated from old get_blueprint_graph + get_all_blueprint_graphs
+        aliases: [get_all_blueprint_graphs]
+        params:
+          asset_path:  { type: string, required: true }
+          graph_name:  { type: string, required: false }
+      get_blueprint_components:
+        description: Component hierarchy tree with classes, attached-to relationships, and default property values
+        params:
+          asset_path: { type: string, required: true }
+      get_blueprint_event_dispatchers:
+        description: All event dispatchers with parameter signatures
+        params:
+          asset_path: { type: string, required: true }
+      get_animbp_graph:
+        description: AnimBP state machines — states, transitions (with conditions), blend trees, blend parameters. Plus standard EventGraph.
+        params:
+          asset_path: { type: string, required: true }
+      get_widget_blueprint:
+        description: Widget hierarchy tree (designer view), property bindings, plus standard EventGraph and functions.
+        params:
+          asset_path: { type: string, required: true }
+      get_all_blueprint_graphs:
+        description: ALL graphs including orphan functions — alias for get_blueprint_graphs with no filter. Kept for discoverability.
+        note: Alias for get_blueprint_graphs. ToolIndex registers both names.
+        params:
+          asset_path: { type: string, required: true }
+      get_niagara_system_info:
+        description: UNiagaraSystem metadata — emitter names, user-exposed parameters, fixed bounds. Read-only.
+        params:
+          asset_path: { type: string, required: true }
+
+  asset-registry:
+    layer: tcp-55558
+    priority: 3
+    description: Project-wide asset discovery and dependency analysis
+    tools:
+      search_assets:
+        description: Find assets by class, path pattern, or tag. E.g., "all Blueprints under /Game/GAS/"
+        params:
+          class_filter: { type: string, required: false }
+          path_pattern: { type: string, required: false }
+          tag_filter:   { type: object, required: false }
+      get_asset_references:
+        description: Dependency graph — what this asset references and what references it. Essential for impact analysis.
+        params:
+          asset_path: { type: string, required: true }
+      get_class_hierarchy:
+        description: All Blueprint children of a given class. E.g., "all subclasses of UOSGameplayAbility"
+        params:
+          base_class: { type: string, required: true }
+      get_datatable_contents:
+        description: Read all rows from a DataTable asset as structured JSON (column names, types, values)
+        params:
+          asset_path: { type: string, required: true }
+      get_asset_metadata:
+        description: Full Asset Registry tags/metadata without loading the asset into memory
+        params:
+          asset_path: { type: string, required: true }
+
+  animation:
+    layer: tcp-55558
+    priority: 2
+    description: Animation creation and deep read — montages, sequences, blend spaces, curves
+    tools:
+      create_montage:
+        description: Create UAnimMontage from AnimSequence
+        params:
+          name:           { type: string, required: true }
+          anim_sequence:  { type: string, required: true }
+          path:           { type: string, required: false }
+      add_montage_section:
+        description: Add named section to montage at specified time
+        params:
+          asset_path:    { type: string, required: true }
+          section_name:  { type: string, required: true }
+          time:          { type: number, required: true }
+      add_montage_notify:
+        description: Add AnimNotify/AnimNotifyState at specified time
+        params:
+          asset_path:    { type: string, required: true }
+          notify_class:  { type: string, required: true }
+          time:          { type: number, required: true }
+      get_montage_full:
+        description: Deep montage read — sections, notifies, slots, blend settings, composite segments.
+        note: Supersedes old list_montage_sections
+        params:
+          asset_path: { type: string, required: true }
+      get_anim_sequence_info:
+        description: AnimSequence metadata — duration, frame count, rate, skeleton, notify tracks, curves, sync markers.
+        params:
+          asset_path: { type: string, required: true }
+      get_blend_space:
+        description: Blend axes, sample points, interpolation mode. Covers BlendSpace and BlendSpace1D.
+        params:
+          asset_path: { type: string, required: true }
+      get_anim_curve_data:
+        description: Float/vector/transform curve keyframes from any animation asset
+        params:
+          asset_path: { type: string, required: true }
+      get_audio_asset_info:
+        description: Metadata for audio assets — SoundCue, SoundWave, AkAudioEvent. Read-only.
+        params:
+          asset_path: { type: string, required: true }
+
+  materials:
+    layer: tcp-55558
+    priority: 2
+    description: Material creation, parameter access, and graph read
+    tools:
+      create_material:
+        description: Create UMaterial with domain and blend mode
+        params:
+          name:       { type: string, required: true }
+          path:       { type: string, required: false }
+          domain:     { type: string, required: false }
+          blend_mode: { type: string, required: false }
+      create_material_instance:
+        description: Create UMaterialInstanceConstant from parent
+        params:
+          name:          { type: string, required: true }
+          parent_path:   { type: string, required: true }
+          path:          { type: string, required: false }
+      set_material_parameter:
+        description: Set scalar/vector/texture param on material instance
+        params:
+          asset_path:     { type: string, required: true }
+          parameter_name: { type: string, required: true }
+          value:          { type: any, required: true }
+      list_material_parameters:
+        description: Get all parameters and current values from material
+        params:
+          asset_path: { type: string, required: true }
+      get_material_graph:
+        description: Full material expression node graph — nodes, connections, parameters. Covers UMaterial and UMaterialFunction.
+        note: Consolidated — was listed in both Material Commands and Expanded Graph Introspection.
+        params:
+          asset_path: { type: string, required: true }
+
+  data-assets:
+    layer: tcp-55558
+    priority: 3
+    description: Data asset creation/read, curves, string tables, struct definitions
+    tools:
+      create_data_asset:
+        description: Create UDataAsset of specified subclass
+        params:
+          name:      { type: string, required: true }
+          subclass:  { type: string, required: true }
+          path:      { type: string, required: false }
+      set_data_asset_property:
+        description: Set property on data asset by name and value
+        params:
+          asset_path:    { type: string, required: true }
+          property_name: { type: string, required: true }
+          value:         { type: any, required: true }
+      list_data_asset_types:
+        description: List available UDataAsset subclasses in project
+        params: {}
+      get_data_asset_properties:
+        description: Read all UPROPERTY values on any UDataAsset subclass as structured JSON
+        params:
+          asset_path: { type: string, required: true }
+      get_curve_asset:
+        description: Read UCurveFloat/Vector/Color keyframes with tangents and interpolation. Also UCurveTable.
+        params:
+          asset_path: { type: string, required: true }
+      get_string_table:
+        description: Read UStringTable key/value entries. Useful for localization and UI text review.
+        params:
+          asset_path: { type: string, required: true }
+      get_struct_definition:
+        description: Read UUserDefinedStruct members and UUserDefinedEnum values.
+        params:
+          asset_path: { type: string, required: true }
+
+  input-and-pie:
+    layer: tcp-55558
+    priority: 4
+    description: Enhanced Input asset creation + Play In Editor control
+    note: Splits into UEMCPInputCommands + UEMCPPIECommands at implementation time
+    tools:
+      create_input_action:
+        description: Create UInputAction asset with value type
+        params:
+          name:       { type: string, required: true }
+          value_type: { type: string, required: true }
+          path:       { type: string, required: false }
+      create_mapping_context:
+        description: Create UInputMappingContext
+        params:
+          name: { type: string, required: true }
+          path: { type: string, required: false }
+      add_mapping:
+        description: Add key-to-action binding to mapping context
+        params:
+          context_path: { type: string, required: true }
+          action_path:  { type: string, required: true }
+          key:          { type: string, required: true }
+      start_pie:
+        description: Launch Play In Editor (configurable — viewport, new window, standalone)
+        params:
+          mode: { type: string, required: false, default: viewport }
+      stop_pie:
+        description: End current PIE session
+        params: {}
+      execute_console_command:
+        description: Run console command in PIE or editor context
+        params:
+          command: { type: string, required: true }
+      is_pie_running:
+        description: Check PIE status
+        params: {}
+
+  geometry:
+    layer: tcp-55558
+    priority: 4
+    description: Procedural mesh and CSG (requires Geometry Script plugin)
+    tools:
+      create_procedural_mesh:
+        description: Create Dynamic Mesh actor with primitive shape (box, sphere, cylinder, cone)
+        params:
+          shape:    { type: string, required: true }
+          location: { type: array, required: false }
+          size:     { type: number, required: false }
+      mesh_boolean:
+        description: CSG operation (union, difference, intersection) between two meshes
+        params:
+          target:    { type: string, required: true }
+          tool:      { type: string, required: true }
+          operation: { type: string, required: true }
+      generate_uvs:
+        description: Auto-unwrap UVs on a dynamic mesh
+        params:
+          target: { type: string, required: true }
+      get_mesh_info:
+        description: Get vertex count, triangle count, bounds, material slots
+        params:
+          target: { type: string, required: true }
+
+  editor-utility:
+    layer: tcp-55558
+    priority: 4
+    description: Editor state, Python execution, editor utility Blueprints, asset management
+    note: >
+      Includes asset manipulation tools (duplicate/rename/delete). If 8 tools causes
+      selection issues, split into editor-utility + asset-management sub-toolset.
+    tools:
+      get_editor_state:
+        description: Current level, selected actors, viewport info
+        params: {}
+      run_python_command:
+        description: Execute Python script in editor (requires Python Editor Script Plugin). Security note — arbitrary code execution.
+        params:
+          command: { type: string, required: true }
+      get_editor_utility_blueprint:
+        description: Read EUB/EUW — standard BP introspection + run method + editor menu registration
+        params:
+          asset_path: { type: string, required: true }
+      run_editor_utility:
+        description: Execute an Editor Utility Blueprint's Run action
+        params:
+          asset_path: { type: string, required: true }
+      create_asset:
+        description: Generic asset creation via UFactory (specify class, path, name)
+        params:
+          name:        { type: string, required: true }
+          asset_class: { type: string, required: true }
+          path:        { type: string, required: true }
+      duplicate_asset:
+        description: Duplicate existing asset to new path
+        params:
+          source_path: { type: string, required: true }
+          dest_path:   { type: string, required: true }
+      rename_asset:
+        description: Rename/move asset with automatic reference fixup
+        params:
+          asset_path: { type: string, required: true }
+          new_name:   { type: string, required: true }
+      delete_asset_safe:
+        description: Delete asset after checking for dependencies
+        params:
+          asset_path: { type: string, required: true }
+          force:      { type: boolean, required: false, default: false }
+
+  visual-capture:
+    layer: tcp-55558
+    priority: 4
+    description: Screenshots, thumbnails, and asset previews as inline images
+    note: ~1MB stdio payload limit. Server enforces max resolution and JPEG fallback.
+    tools:
+      get_asset_thumbnail:
+        description: Content Browser thumbnail as inline PNG (256x256). Batch mode supported. Uses UThumbnailManager.
+        params:
+          asset_paths: { type: array, items: string, required: true }
+      get_viewport_screenshot:
+        description: Active viewport as inline base64 PNG. Configurable resolution.
+        params:
+          quality: { type: string, required: false, default: medium }
+      get_asset_preview_render:
+        description: Offscreen 3D preview via FPreviewScene. For meshes, materials, particles. Configurable camera/lighting.
+        params:
+          asset_path: { type: string, required: true }
+          quality:    { type: string, required: false, default: medium }
+      capture_active_editor_tab:
+        description: Active editor panel (BP graph, material editor, etc.) via FWidgetRenderer. Asset must be open.
+        params: {}
+      get_asset_visual_summary:
+        description: Combines text introspection JSON + inline thumbnail/preview in one MCP response.
+        params:
+          asset_path: { type: string, required: true }
+
+  # ── Remote Control API (HTTP:30010) ───────────────────────
+  remote-control:
+    layer: http-30010
+    priority: null   # Phase 4
+    description: Reflection-based property/function access on any UObject
+    tools:
+      rc_get_property:
+        description: Get any UPROPERTY by object path + property name
+        params:
+          object_path:   { type: string, required: true }
+          property_name: { type: string, required: true }
+      rc_set_property:
+        description: Set any UPROPERTY by object path + property name + value
+        params:
+          object_path:   { type: string, required: true }
+          property_name: { type: string, required: true }
+          value:         { type: any, required: true }
+      rc_call_function:
+        description: Call any UFUNCTION on any UObject
+        params:
+          object_path:   { type: string, required: true }
+          function_name: { type: string, required: true }
+          args:          { type: object, required: false }
+      rc_list_objects:
+        description: Search for UObjects by class name pattern
+        params:
+          class_pattern: { type: string, required: true }
+      rc_describe_object:
+        description: List all properties and functions on a specific object
+        params:
+          object_path: { type: string, required: true }
+      rc_batch:
+        description: Execute multiple RC operations atomically
+        params:
+          operations: { type: array, required: true }
+      rc_get_presets:
+        description: List Remote Control presets (requires RC Components plugin)
+        params: {}
+      rc_passthrough:
+        description: Raw HTTP request to any RC API endpoint
+        params:
+          method:   { type: string, required: true }
+          endpoint: { type: string, required: true }
+          body:     { type: object, required: false }
+
+
+# ─────────────────────────────────────────────────────────────
+# Alias map for ToolIndex search expansion
+# Keys are abbreviations. Values are canonical token arrays.
+# Applied after tokenization + stemming, before scoring.
+# ─────────────────────────────────────────────────────────────
+aliases:
+  ge:  [gameplay, effect]
+  ga:  [gameplay, ability]
+  gas: [gameplay, ability, system]
+  bp:  [blueprint]
+  abp: [animation, blueprint]
+  wbp: [widget, blueprint]
+  eub: [editor, utility, blueprint]
+  pie: [play, editor]
+  rc:  [remote, control]
+  mw:  [motion, warping]
+  mid: [material, instance]
+  sm:  [static, mesh]
+  sk:  [skeletal, mesh]
+  imc: [input, mapping, context]
+  vfx: [niagara, particle, effect]
+  sfx: [audio, sound]
+  ui:  [widget, umg]
+  hud: [widget, hud]
