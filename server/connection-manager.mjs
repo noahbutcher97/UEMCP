@@ -11,6 +11,7 @@
 //   - Health check caching with 30s TTL
 //   - Connect-per-command for TCP (matches existing plugin behavior)
 //   - Command queue: one in-flight command per TCP layer
+//   - Test seam: config.tcpCommandFn replaces real TCP for unit tests
 
 import net from 'node:net';
 import { createHash } from 'node:crypto';
@@ -164,6 +165,14 @@ export class ConnectionManager {
   constructor(config) {
     this.config = config;
 
+    /**
+     * Test seam: inject a replacement for the real tcpCommand function.
+     * Signature: (port, type, params, timeoutMs) => Promise<object>
+     * When set, no real TCP connections are made — all TCP calls route here.
+     * @type {((port: number, type: string, params: object, timeoutMs: number) => Promise<object>) | null}
+     */
+    this._tcpCommandFn = config.tcpCommandFn || null;
+
     /** @type {Record<string, {status: string, lastCheck: number, error?: string}>} */
     this.layers = {
       'offline':    { status: LayerStatus.UNKNOWN, lastCheck: 0 },
@@ -235,15 +244,17 @@ export class ConnectionManager {
     return this._queue.enqueue(layerKey, async () => {
       let result;
 
+      const tcpFn = this._tcpCommandFn || tcpCommand;
+
       if (layerKey === 'tcp-55557') {
-        result = await tcpCommand(
+        result = await tcpFn(
           this.config.tcpPortExisting,
           type,
           params,
           this.config.tcpTimeoutMs
         );
       } else if (layerKey === 'tcp-55558') {
-        result = await tcpCommand(
+        result = await tcpFn(
           this.config.tcpPortCustom,
           type,
           params,
@@ -391,8 +402,10 @@ export class ConnectionManager {
         return await this.checkOfflineAvailable();
       }
 
+      const tcpFn = this._tcpCommandFn || tcpCommand;
+
       if (layerKey === 'tcp-55557') {
-        await tcpCommand(this.config.tcpPortExisting, 'ping', {}, 3000);
+        await tcpFn(this.config.tcpPortExisting, 'ping', {}, 3000);
         layer.status = LayerStatus.AVAILABLE;
         layer.lastCheck = Date.now();
         layer.error = undefined;
@@ -400,7 +413,7 @@ export class ConnectionManager {
       }
 
       if (layerKey === 'tcp-55558') {
-        await tcpCommand(this.config.tcpPortCustom, 'ping', {}, 3000);
+        await tcpFn(this.config.tcpPortCustom, 'ping', {}, 3000);
         layer.status = LayerStatus.AVAILABLE;
         layer.lastCheck = Date.now();
         layer.error = undefined;

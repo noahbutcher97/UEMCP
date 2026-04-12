@@ -429,3 +429,59 @@ Don't just call tools directly — test via natural language prompts in Claude C
 
 ### 5. Regression after each phase
 After completing Phase N, re-run the critical tests from Phase N-1. TCP integration (Phase 2) could break offline behavior (Phase 1) if ConnectionManager initialization has side effects.
+
+---
+
+## Lessons Learned (Phase 1 Execution)
+
+Added 2026-04-12 after running Tests 1, 3, 4, 5, 8 via `test-phase1.mjs` (34 assertions) and mock seam verification via `test-mock-seam.mjs` (45 assertions).
+
+### Test Infrastructure
+
+**Mock seam pattern**: `ConnectionManager` accepts `config.tcpCommandFn` — a function with signature `(port, type, params, timeoutMs) => Promise<object>` that replaces real TCP. This enables unit-testing all TCP-layer tools without an editor. Test helpers in `server/test-helpers.mjs`:
+- `FakeTcpResponder` — spy + stub: records calls, returns canned or factory responses
+- `ErrorTcpResponder` — simulates failure modes (timeout, ECONNREFUSED, error_status, success:false, invalid_json)
+- `TestRunner` — assertion helper with `assertRejects()` for error path testing
+- `createTestConfig()` — factory wiring a FakeTcpResponder into a config object
+
+### Tool name mismatches (Test 4)
+
+The expected tool names in the Test 4 table above don't fully match `tools.yaml` reality. Actual names:
+- `capture_viewport` → actually `get_viewport_screenshot` or `take_screenshot`
+- `get_property` → actually `rc_get_property`
+- `modify_gameplay_effect` → actually `edit_gameplay_effect` or not present
+- `edit_montage` → actually `add_montage_section`
+- `capture_editor_panel` → not present
+
+When writing tests, always verify expected names against `tools.yaml`. The doc above reflects aspirational naming from early design; the canonical names are in YAML.
+
+### Parameter naming convention
+
+Offline tool parameters use **snake_case** (matching `tools.yaml`): `file_path`, `file_filter`, `config_file`. Not camelCase. The `config_file` parameter requires the full filename with extension (e.g., `'DefaultEngine.ini'`, not `'DefaultEngine'`). The `file_filter` for `search_source` uses `includes()` matching, not glob — pass `'.h'` not `'*.h'`.
+
+### ToolIndex API shape
+
+- `toolIndex.getToolsetTools(name)` returns `{toolName, description, layer}[]` — NOT strings. Code that iterates these as strings (e.g., `for (const toolName of tools)`) will silently fail Map lookups. This was a real production bug in `setToolsetVisibility`.
+- `toolIndex._entries.length` for count — no `.size()` method.
+- `toolIndex.getToolsetNames()` returns `string[]` excluding `'management'`.
+
+### ToolsetManager API
+
+- Constructor: `new ToolsetManager(connectionManager, toolIndex)` — order matters.
+- `enable()` returns `{enabled, alreadyEnabled, unavailable, unknown}`.
+- `disable()` returns `{disabled, wasNotEnabled, unknown}`.
+- No `getState()` method — use `getEnabledNames()`.
+
+### Environment quirks (CMD shell)
+
+- `set VAR=value` in CMD adds a trailing space if there's one before `&&`. Use `.trim()` on all `process.env` reads.
+- PowerShell may not have `git` or `node` in PATH. Use `cmd` shell for test execution.
+- Multiline `git commit -m "..."` fails in CMD. Write message to temp file, use `git commit -F file`.
+
+### Test file inventory
+
+| File | Scope | Assertions |
+|------|-------|------------|
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, edge cases | 34 |
+| `server/test-mock-seam.mjs` | Mock seam wiring, cache behavior, error normalization, queue serialization, FakeTcpResponder API | 45 |
+| `server/test-helpers.mjs` | Shared test infrastructure (not a test runner itself) | — |
