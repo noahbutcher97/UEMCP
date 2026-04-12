@@ -59,7 +59,7 @@ UEMCP follows conventions established by existing MCP servers at `~/.claude/mcp-
 | Server | Path | Purpose |
 |--------|------|---------|
 | `jira-bridge` | `~/.claude/mcp-servers/jira-bridge/server.mjs` | Jira + Confluence (Atlassian) |
-| `perforce` | `~/.claude/mcp-servers/perforce/server.mjs` | P4 read operations |
+| `perforce-bridge` | `~/.claude/mcp-servers/perforce-bridge/server.mjs` | P4 read operations |
 | `miro-bridge` | `~/.claude/mcp-servers/miro-bridge/server.mjs` | Miro board access |
 
 All are single `server.mjs` files, Node.js ES modules, stdio transport — same pattern UEMCP follows (D1, D17). In Cowork mode, these run with project-specific prefixes (e.g., `jira-projecta`, `jira-projectb`, `perforce-projecta`, `miro-projecta`).

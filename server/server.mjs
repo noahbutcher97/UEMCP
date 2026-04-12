@@ -212,7 +212,10 @@ server.tool(
         type: 'text',
         text: JSON.stringify({
           project: config.projectName || connectionManager.detectedProject || '(not detected)',
-          projectRoot: config.projectRoot || '(not set)',
+          projectRoot: connectionManager.resolvedProjectRoot || '(not set)',
+          ...(connectionManager.projectRootWarning
+            ? { projectRootConfigured: config.projectRoot, projectRootWarning: connectionManager.projectRootWarning }
+            : {}),
           layers,
           enabledToolsets: enabled,
           toolCount: toolIndex.size,
@@ -503,7 +506,7 @@ for (const [name, def] of Object.entries(offlineToolDefs)) {
     async (args, ctx) => {
       try {
         log('info', `Executing offline tool: ${name}`);
-        const result = await executeOfflineTool(name, args, config.projectRoot);
+        const result = await executeOfflineTool(name, args, connectionManager.resolvedProjectRoot);
         return {
           content: [{
             type: 'text',

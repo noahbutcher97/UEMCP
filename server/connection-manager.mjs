@@ -186,6 +186,19 @@ export class ConnectionManager {
     this._healthTtlMs = 30_000;
 
     this._detectedProject = null;
+
+    /**
+     * Resolved project root — may differ from config.projectRoot if the
+     * configured path was a workspace root (no .uproject) and auto-resolve
+     * found exactly one .uproject in a child directory.
+     * Set by checkOfflineAvailable(). Consumers should prefer this over
+     * config.projectRoot for file operations.
+     * @type {string}
+     */
+    this.resolvedProjectRoot = config.projectRoot || '';
+
+    /** @type {string|null} warning if auto-resolve changed the root */
+    this.projectRootWarning = null;
   }
 
   // ── Layer status ────────────────────────────────────────
@@ -392,7 +405,10 @@ export class ConnectionManager {
   // ── Offline layer ───────────────────────────────────────
 
   /**
-   * Check if offline layer is usable (i.e., projectRoot exists on disk).
+   * Check if offline layer is usable.
+   * Validates that resolvedProjectRoot contains a .uproject file.
+   * If not, scans one level down to auto-resolve the correct UE project root
+   * (handles the common case of pointing to a workspace root instead).
    * @returns {Promise<boolean>}
    */
   async checkOfflineAvailable() {
@@ -402,18 +418,94 @@ export class ConnectionManager {
       this.layers['offline'].lastCheck = Date.now();
       return false;
     }
+
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+
+    // Check if the configured root exists
     try {
-      const fs = await import('node:fs/promises');
       await fs.access(this.config.projectRoot);
-      this.layers['offline'].status = LayerStatus.AVAILABLE;
-      this.layers['offline'].lastCheck = Date.now();
-      this.layers['offline'].error = undefined;
-      return true;
     } catch {
       this.layers['offline'].status = LayerStatus.UNAVAILABLE;
       this.layers['offline'].error = `Path not found: ${this.config.projectRoot}`;
       this.layers['offline'].lastCheck = Date.now();
       return false;
+    }
+
+    // Look for .uproject at the configured root
+    const hasUproject = await this._findUprojectIn(fs, this.config.projectRoot);
+
+    if (hasUproject) {
+      // Configured root is correct
+      this.resolvedProjectRoot = this.config.projectRoot;
+      this.projectRootWarning = null;
+      this.layers['offline'].status = LayerStatus.AVAILABLE;
+      this.layers['offline'].lastCheck = Date.now();
+      this.layers['offline'].error = undefined;
+      return true;
+    }
+
+    // No .uproject at configured root — scan immediate children
+    const resolved = await this._resolveProjectRoot(fs, path, this.config.projectRoot);
+
+    if (resolved) {
+      this.resolvedProjectRoot = resolved.root;
+      this.projectRootWarning =
+        `UNREAL_PROJECT_ROOT has no .uproject file. ` +
+        `Auto-resolved to "${resolved.root}" (found ${resolved.uproject}). ` +
+        `Consider updating UNREAL_PROJECT_ROOT in .mcp.json to point directly to the UE project root.`;
+      process.stderr.write(`[uemcp] WARNING: ${this.projectRootWarning}\n`);
+      this.layers['offline'].status = LayerStatus.AVAILABLE;
+      this.layers['offline'].lastCheck = Date.now();
+      this.layers['offline'].error = undefined;
+      return true;
+    }
+
+    // No .uproject anywhere — fail with helpful error
+    this.layers['offline'].status = LayerStatus.UNAVAILABLE;
+    this.layers['offline'].error =
+      `No .uproject file found at "${this.config.projectRoot}" or in immediate subdirectories. ` +
+      `UNREAL_PROJECT_ROOT must point to the directory containing the .uproject file.`;
+    this.layers['offline'].lastCheck = Date.now();
+    return false;
+  }
+
+  /**
+   * Check if a directory contains a .uproject file.
+   * @returns {Promise<string|null>} the .uproject filename, or null
+   */
+  async _findUprojectIn(fs, dir) {
+    try {
+      const entries = await fs.readdir(dir);
+      return entries.find(e => e.endsWith('.uproject')) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Scan immediate child directories for exactly one .uproject file.
+   * Returns null if zero or multiple found (ambiguous).
+   * @returns {Promise<{root: string, uproject: string}|null>}
+   */
+  async _resolveProjectRoot(fs, path, parentDir) {
+    try {
+      const entries = await fs.readdir(parentDir, { withFileTypes: true });
+      const candidates = [];
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const childDir = path.join(parentDir, entry.name);
+        const uproject = await this._findUprojectIn(fs, childDir);
+        if (uproject) {
+          candidates.push({ root: childDir, uproject });
+        }
+      }
+
+      // Only auto-resolve if exactly one match — ambiguity means user must choose
+      return candidates.length === 1 ? candidates[0] : null;
+    } catch {
+      return null;
     }
   }
 
