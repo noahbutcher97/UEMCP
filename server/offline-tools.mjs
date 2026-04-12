@@ -5,7 +5,7 @@
 // No TCP or HTTP connections needed.
 
 import { readFile, readdir, stat, access } from 'node:fs/promises';
-import { join, extname, basename, relative } from 'node:path';
+import { join, extname, basename, relative, resolve as pathResolve } from 'node:path';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -130,7 +130,12 @@ async function projectInfo(projectRoot) {
  */
 async function listGameplayTags(projectRoot) {
   const iniPath = join(projectRoot, 'Config', 'DefaultGameplayTags.ini');
-  const sections = await parseIniFile(iniPath);
+  let sections;
+  try {
+    sections = await parseIniFile(iniPath);
+  } catch (err) {
+    throw new Error(`Cannot read gameplay tags: ${iniPath} not found. Ensure Config/DefaultGameplayTags.ini exists in the project.`);
+  }
 
   const tags = [];
   const tagSection = sections['/Script/GameplayTags.GameplayTagsSettings'] || {};
@@ -345,10 +350,9 @@ async function readSourceFile(projectRoot, filePath) {
     throw new Error(`File type not allowed: ${ext}. Allowed: ${allowedExts.join(', ')}`);
   }
 
-  const fullPath = resolve(projectRoot, filePath);
-  const normalizedRoot = projectRoot.replace(/\\/g, '/').toLowerCase();
-  const normalizedFull = fullPath.replace(/\\/g, '/').toLowerCase();
-  if (!normalizedFull.startsWith(normalizedRoot)) {
+  const fullPath = pathResolve(resolve(projectRoot, filePath));
+  const normalizedRoot = pathResolve(projectRoot);
+  if (!fullPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
     throw new Error('Path traversal not allowed');
   }
 

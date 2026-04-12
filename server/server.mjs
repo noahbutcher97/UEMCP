@@ -208,8 +208,21 @@ server.tool(
       };
     }
 
-    // Auto-enable toolsets that contain matching tools
-    const toolsetNames = [...new Set(results.map(r => r.toolsetName).filter(n => n !== 'management'))];
+    // Auto-enable toolsets that contain matching tools.
+    // Cap at top 3 toolsets per query (ranked by their best tool's score)
+    // to avoid enabling too many at once. Spec: dynamic-toolsets.md.
+    const toolsetBestScore = {};
+    for (const r of results) {
+      if (r.toolsetName === 'management') continue;
+      if (!toolsetBestScore[r.toolsetName] || r.score > toolsetBestScore[r.toolsetName]) {
+        toolsetBestScore[r.toolsetName] = r.score;
+      }
+    }
+    const toolsetNames = Object.entries(toolsetBestScore)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name]) => name);
+
     const previouslyEnabled = new Set(toolsetManager.getEnabledNames());
     if (toolsetNames.length > 0) {
       await toolsetManager.autoEnable(toolsetNames);
@@ -253,17 +266,27 @@ server.tool(
     log('info', 'Listing all toolsets...');
     const toolsets = await toolsetManager.listToolsets();
 
+    // Count active tools (6 management + enabled toolset tools)
+    const activeToolCount = 6 + toolsets
+      .filter(t => t.enabled)
+      .reduce((sum, t) => sum + t.toolCount, 0);
+
+    const summary = {
+      total: toolsets.length,
+      available: toolsets.filter(t => t.available).length,
+      enabled: toolsets.filter(t => t.enabled).length,
+      activeToolCount,
+    };
+
+    // Warn when active tools exceed the empirical accuracy threshold
+    if (activeToolCount > 40) {
+      summary.warning = `${activeToolCount} active tools exceeds the recommended 40-tool limit. Tool selection accuracy degrades beyond this threshold. Use disable_toolset to shed unneeded toolsets.`;
+    }
+
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify({
-          toolsets,
-          summary: {
-            total: toolsets.length,
-            available: toolsets.filter(t => t.available).length,
-            enabled: toolsets.filter(t => t.enabled).length,
-          },
-        }, null, 2),
+        text: JSON.stringify({ toolsets, summary }, null, 2),
       }],
     };
   }
@@ -413,22 +436,11 @@ const offlineToolDefs = {
 for (const [name, def] of Object.entries(offlineToolDefs)) {
   const schema = buildZodSchema(def.params);
 
-  server.tool(
+  const handle = server.tool(
     name,
     def.description,
     schema,
     async (args, ctx) => {
-      // Check if offline toolset is enabled
-      if (!toolsetManager.getEnabledNames().includes('offline')) {
-        return {
-          content: [{
-            type: 'text',
-            text: 'The "offline" toolset is not enabled. Call enable_toolset({"toolsets": ["offline"]}) or find_tools to enable it.',
-          }],
-          isError: true,
-        };
-      }
-
       try {
         log('info', `Executing offline tool: ${name}`);
         const result = await executeOfflineTool(name, args, config.projectRoot);
@@ -449,15 +461,21 @@ for (const [name, def] of Object.entries(offlineToolDefs)) {
       }
     }
   );
+
+  // Register the SDK handle so ToolsetManager can toggle visibility.
+  // Tools start disabled; ToolsetManager.load() enables the offline
+  // toolset if its layer is available.
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
 }
 
 // ── Wire tools/list_changed notification ───────────────────────────
 
+// NOTE: tools/list_changed notifications are now handled automatically by the
+// MCP SDK when handle.enable()/handle.disable() are called. We keep the
+// onListChanged hook available for future phases where toolsets may not yet
+// have registered SDK handles (e.g., TCP tools before Phase 2 implementation).
 toolsetManager.onListChanged(() => {
-  // The MCP SDK's McpServer handles tools/list_changed via its internal
-  // Server instance when tools are registered dynamically. Since we
-  // register all tools upfront but filter in tools/list, we need to
-  // trigger the notification through the low-level server.
   try {
     server.server.sendNotification({
       method: 'notifications/tools/list_changed',

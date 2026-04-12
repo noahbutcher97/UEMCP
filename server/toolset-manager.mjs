@@ -40,6 +40,9 @@ export class ToolsetManager {
 
     /** @type {(() => void)|null} callback to fire tools/list_changed notification */
     this._onListChanged = null;
+
+    /** @type {Map<string, {enable: () => void, disable: () => void}>} SDK tool handles */
+    this._toolHandles = new Map();
   }
 
   /**
@@ -62,10 +65,11 @@ export class ToolsetManager {
       }
     }
 
-    // Auto-enable 'offline' toolset if its layer is available
+    // Auto-enable 'offline' toolset if its layer is available.
+    // Uses enable() so SDK tool handles get toggled visible too.
     const offlineOk = await this.connectionManager.checkOfflineAvailable();
     if (offlineOk) {
-      this._enabled.add('offline');
+      await this.enable(['offline']);
     }
   }
 
@@ -76,6 +80,32 @@ export class ToolsetManager {
    */
   onListChanged(fn) {
     this._onListChanged = fn;
+  }
+
+  /**
+   * Store an SDK tool handle so we can toggle its visibility in tools/list.
+   * Called by server.mjs after each server.tool() registration.
+   * @param {string} toolName
+   * @param {{enable: () => void, disable: () => void}} handle — return value of server.tool()
+   */
+  registerToolHandle(toolName, handle) {
+    this._toolHandles.set(toolName, handle);
+  }
+
+  /**
+   * Set initial SDK visibility for all tools in a toolset.
+   * Called after all tools are registered but before server.connect().
+   * @param {string} toolsetName
+   * @param {boolean} visible
+   */
+  setToolsetVisibility(toolsetName, visible) {
+    const tools = this.toolIndex.getToolsetTools(toolsetName);
+    for (const toolName of tools) {
+      const handle = this._toolHandles.get(toolName);
+      if (handle) {
+        visible ? handle.enable() : handle.disable();
+      }
+    }
   }
 
   // ── Enable / Disable ──────────────────────────────────────
@@ -108,10 +138,14 @@ export class ToolsetManager {
       }
 
       this._enabled.add(name);
+      this.setToolsetVisibility(name, true);
       result.enabled.push(name);
       changed = true;
     }
 
+    // Note: tools/list_changed is fired by the SDK when handle.enable() is called,
+    // so we don't need _fireListChanged() here anymore. But we keep it for safety
+    // in case there are toolsets with no registered tool handles yet (future phases).
     if (changed) this._fireListChanged();
     return result;
   }
@@ -136,6 +170,7 @@ export class ToolsetManager {
       }
 
       this._enabled.delete(name);
+      this.setToolsetVisibility(name, false);
       result.disabled.push(name);
       changed = true;
     }
@@ -147,12 +182,14 @@ export class ToolsetManager {
   /**
    * Auto-enable toolsets that contain matching tools (called by find_tools).
    * @param {string[]} toolsetNames
+   * @returns {Promise<{enabled: string[], alreadyEnabled: string[], unavailable: string[], unknown: string[]}>}
    */
   async autoEnable(toolsetNames) {
     const toEnable = toolsetNames.filter(n => !this._enabled.has(n) && TOOLSET_LAYERS[n]);
     if (toEnable.length > 0) {
-      await this.enable(toEnable);
+      return await this.enable(toEnable);
     }
+    return { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
   }
 
   // ── Status queries ────────────────────────────────────────
@@ -236,16 +273,16 @@ export class ToolsetManager {
     if (!layerInfo) return `Unknown layer: ${layer}`;
 
     if (layer === 'offline') {
-      return layerInfo.error || 'UNREAL_PROJECT_ROOT not set or path not found';
+      return layerInfo.error || 'UNREAL_PROJECT_ROOT not set or path not found. Fix: set UNREAL_PROJECT_ROOT in .mcp.json env block to your .uproject directory.';
     }
     if (layer === 'tcp-55557') {
-      return layerInfo.error || 'Unreal Editor not running or existing UnrealMCP plugin not loaded';
+      return layerInfo.error || 'Unreal Editor not running or UnrealMCP plugin not loaded. Fix: open the project in Unreal Editor and enable UnrealMCP in Edit → Plugins.';
     }
     if (layer === 'tcp-55558') {
-      return layerInfo.error || 'Unreal Editor not running or UEMCP plugin not installed (Phase 3)';
+      return layerInfo.error || 'Unreal Editor not running or UEMCP plugin not installed. Fix: build and enable the UEMCP C++ plugin (see Phase 3 docs).';
     }
     if (layer === 'http-30010') {
-      return layerInfo.error || 'Remote Control API not enabled (Phase 4)';
+      return layerInfo.error || 'Remote Control API not enabled. Fix: enable the "Remote Control API" plugin in Edit → Plugins and restart the editor.';
     }
     return 'Unknown';
   }

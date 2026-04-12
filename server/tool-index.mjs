@@ -7,11 +7,11 @@
 //   - Returns ranked results with tool name, description, parent toolset
 
 // ── Alias map ───────────────────────────────────────────────
-// Expand common abbreviations to canonical terms.
-// Both the alias and expansion get indexed, so "bp" matches
-// tools with "blueprint" in their name/description.
+// Default aliases — expanded at query time. Merged with the
+// canonical aliases section from tools.yaml at build() time.
+// tools.yaml entries always win on conflict; these are supplements.
 
-const ALIASES = {
+let ALIASES = {
   bp:         ['blueprint'],
   fx:         ['effects', 'particle', 'niagara', 'emitter'],
   vfx:        ['effects', 'particle', 'niagara', 'visual'],
@@ -90,13 +90,16 @@ function tokenize(text) {
 }
 
 // ── Scoring weights ─────────────────────────────────────────
+// 6 tiers from dynamic-toolsets.md spec, plus alias bonus.
 
 const WEIGHT = {
-  NAME_EXACT:  10,   // query token matches a name token exactly
-  NAME_PREFIX:  6,   // query token is a prefix of a name token
-  DESC_EXACT:   3,   // query token matches a description token
-  DESC_PREFIX:  1.5, // query token is a prefix of a description token
-  ALIAS_BONUS:  2,   // alias expansion contributed a match
+  FULL_NAME:     100,  // Tier 1: exact full tool name match
+  NAME_EXACT:     10,  // Tier 2: query token matches a name token exactly
+  NAME_PREFIX:     6,  // Tier 3: query token is a prefix of a name token (≥3 chars)
+  NAME_SUBSTR:     4,  // Tier 4: query token is a substring of a name token (≥3 chars)
+  DESC_EXACT:      2,  // Tier 5: query token matches a description token exactly
+  DESC_PREFIX:     1,  // Tier 6: query token is a prefix of a description token (≥3 chars)
+  ALIAS_BONUS:     2,  // tool-level alias hit
 };
 
 // ── Index entry ─────────────────────────────────────────────
@@ -127,6 +130,17 @@ export class ToolIndex {
    */
   build(toolsData) {
     this._entries = [];
+
+    // Merge canonical aliases from tools.yaml (overrides defaults on conflict)
+    if (toolsData.aliases) {
+      for (const [abbrev, tokens] of Object.entries(toolsData.aliases)) {
+        // YAML tokens are already arrays (e.g., [gameplay, effect])
+        // Stem them to match our query pipeline
+        ALIASES[abbrev] = Array.isArray(tokens)
+          ? tokens.map(t => stem(t.toLowerCase()))
+          : tokenize(String(tokens));
+      }
+    }
 
     // Index management tools
     if (toolsData.management?.tools) {
@@ -186,51 +200,81 @@ export class ToolIndex {
 
     if (queryTokens.length === 0) return [];
 
+    // Normalize query string for Tier 1 (exact full tool name match)
+    const queryNormalized = query.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
     // Score each entry
     const scored = [];
     for (const entry of this._entries) {
       let score = 0;
       let aliasHit = false;
+      const matchedTokens = new Set(); // track which query tokens contributed
+
+      // Tier 1: exact full tool name match
+      if (entry.toolName === queryNormalized) {
+        score += WEIGHT.FULL_NAME;
+        // All original query tokens count as matched
+        for (const qt of queryTokens) matchedTokens.add(qt);
+      }
 
       for (const qt of queryTokens) {
-        // Check name tokens
+        let tokenMatched = false;
+
+        // Check name tokens (Tiers 2-4)
         for (const nt of entry.nameTokens) {
           if (nt === qt) {
-            score += WEIGHT.NAME_EXACT;
-          } else if (nt.startsWith(qt) || qt.startsWith(nt)) {
-            score += WEIGHT.NAME_PREFIX;
+            score += WEIGHT.NAME_EXACT;       // Tier 2
+            tokenMatched = true;
+          } else if (qt.length >= 3 && nt.startsWith(qt)) {
+            score += WEIGHT.NAME_PREFIX;      // Tier 3
+            tokenMatched = true;
+          } else if (qt.length >= 3 && nt.includes(qt)) {
+            score += WEIGHT.NAME_SUBSTR;      // Tier 4
+            tokenMatched = true;
           }
         }
 
-        // Check description tokens
+        // Check description tokens (Tiers 5-6)
         for (const dt of entry.descTokens) {
           if (dt === qt) {
-            score += WEIGHT.DESC_EXACT;
-          } else if (dt.startsWith(qt) || qt.startsWith(dt)) {
-            score += WEIGHT.DESC_PREFIX;
+            score += WEIGHT.DESC_EXACT;       // Tier 5
+            tokenMatched = true;
+          } else if (qt.length >= 3 && dt.startsWith(qt)) {
+            score += WEIGHT.DESC_PREFIX;      // Tier 6
+            tokenMatched = true;
           }
         }
 
-        // Check tool-level aliases (e.g., get_all_blueprint_graphs → get_blueprint_graphs)
+        // Check tool-level aliases
         for (const alias of entry.aliases) {
           const aliasTokens = tokenize(alias);
           for (const at of aliasTokens) {
-            if (at === qt || at.startsWith(qt)) {
+            if (at === qt || (qt.length >= 3 && at.startsWith(qt))) {
               aliasHit = true;
+              tokenMatched = true;
             }
           }
         }
+
+        if (tokenMatched) matchedTokens.add(qt);
       }
 
       if (aliasHit) score += WEIGHT.ALIAS_BONUS;
 
       if (score > 0) {
+        // Coverage bonus: reward tools matching ALL query terms.
+        // Formula: score × (0.5 + 0.5 × matched_ratio)
+        // Single-token queries: ratio=1.0 → multiplier=1.0 (no change)
+        // Multi-token queries: 1-of-3 matched → 0.667, 3-of-3 → 1.0
+        const matchedRatio = matchedTokens.size / queryTokens.length;
+        score = score * (0.5 + 0.5 * matchedRatio);
+
         scored.push({
           toolName: entry.toolName,
           toolsetName: entry.toolsetName,
           description: entry.description,
           layer: entry.layer,
-          score,
+          score: Math.round(score * 100) / 100, // clean up floating point
         });
       }
     }
