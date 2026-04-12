@@ -186,6 +186,20 @@
 | `capture_active_editor_tab` | FWidgetRenderer::DrawWidget on active editor panel → PNG. |
 | `get_asset_visual_summary` | Combines text JSON + inline image in one MCP response. |
 
+### Improvements Over Existing UnrealMCP (Actor Tools)
+
+These improvements apply to all actor-targeting commands reimplemented on TCP:55558:
+
+**Actor Name-or-Label Resolution (D29)**:
+- All actor JSON responses include a `label` field (`AActor::GetActorLabel()`) alongside the existing `name` field (FName)
+- All actor lookup commands accept either FName or Outliner display label — resolution tries exact FName match first, then exact label match
+- `find_actors_by_name` pattern matching checks both `GetName()` and `GetActorLabel()` via `FString::Contains()`
+- Helper: `FindActorByNameOrLabel(UWorld*, const FString&)` in shared utils — two-pass lookup (FName, then label)
+- If label matches multiple actors, return error with list of matches (labels aren't guaranteed unique)
+
+**Detailed Actor Serialization (D28)**:
+- `bDetailed=true` adds: component list, gameplay tag container, display label, folder path, net role
+
 ### Plugin Dependencies
 
 ```cpp
