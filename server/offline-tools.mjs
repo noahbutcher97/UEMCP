@@ -16,8 +16,8 @@ import { join, extname, basename, relative } from 'node:path';
  * @returns {string}
  */
 function resolve(projectRoot, relPath) {
-  // Normalize forward/back slashes
-  return join(projectRoot, relPath.replace(/\//g, '\\'));
+  // path.join handles platform-appropriate separators
+  return join(projectRoot, ...relPath.split(/[\\/]/));
 }
 
 /**
@@ -30,7 +30,9 @@ async function readUProject(projectRoot) {
   const uprojectFile = files.find(f => f.endsWith('.uproject'));
   if (!uprojectFile) throw new Error('No .uproject file found in project root');
   const raw = await readFile(join(projectRoot, uprojectFile), 'utf-8');
-  return { fileName: uprojectFile, ...JSON.parse(raw) };
+  // UE .uproject files allow trailing commas — strip them before parsing
+  const cleaned = raw.replace(/,\s*([\]}])/g, '$1');
+  return { fileName: uprojectFile, ...JSON.parse(cleaned) };
 }
 
 /**
@@ -157,7 +159,6 @@ async function listGameplayTags(projectRoot) {
       node = node[part]._children;
     }
     // Attach comment to the leaf
-    // (walk again to set it on the right node)
     let commentNode = hierarchy;
     for (let i = 0; i < parts.length; i++) {
       if (i === parts.length - 1) {
@@ -236,7 +237,6 @@ async function browseContent(projectRoot, path, typeFilter) {
   const entries = await listDirRecursive(targetDir, targetDir, 2);
 
   if (typeFilter) {
-    // Filter by extension that corresponds to asset type
     const typeExtMap = {
       blueprint: '.uasset',
       material: '.uasset',
@@ -280,8 +280,6 @@ async function getAssetInfo(projectRoot, assetPath) {
       sizeBytes: stats.size,
       sizeKB: Math.round(stats.size / 1024),
       modified: stats.mtime.toISOString(),
-      // Full .uasset header parsing would require binary reader —
-      // for now, return file metadata. Phase 3 adds editor-side introspection.
       note: 'Detailed class/reference info requires editor (use get_blueprint_info or search_assets when editor is running)',
     };
   } catch (err) {
@@ -305,7 +303,6 @@ async function searchSource(projectRoot, pattern, fileFilter) {
       const fullPath = join(dir, item.name);
 
       if (item.isDirectory()) {
-        // Skip common non-source directories
         if (['Intermediate', 'Binaries', 'ThirdParty'].includes(item.name)) continue;
         await searchDir(fullPath);
       } else {
@@ -327,7 +324,7 @@ async function searchSource(projectRoot, pattern, fileFilter) {
               });
               if (results.length >= maxResults) return;
             }
-            regex.lastIndex = 0; // reset for global regex
+            regex.lastIndex = 0;
           }
         } catch { /* skip unreadable files */ }
       }
@@ -342,7 +339,6 @@ async function searchSource(projectRoot, pattern, fileFilter) {
  * read_source_file — Read a specific .h or .cpp file
  */
 async function readSourceFile(projectRoot, filePath) {
-  // Security: must be under Source/ and must be a source file
   const allowedExts = ['.h', '.cpp', '.cs', '.ini', '.txt', '.md'];
   const ext = extname(filePath).toLowerCase();
   if (!allowedExts.includes(ext)) {
@@ -350,7 +346,6 @@ async function readSourceFile(projectRoot, filePath) {
   }
 
   const fullPath = resolve(projectRoot, filePath);
-  // Ensure path is under project root (basic path traversal prevention)
   const normalizedRoot = projectRoot.replace(/\\/g, '/').toLowerCase();
   const normalizedFull = fullPath.replace(/\\/g, '/').toLowerCase();
   if (!normalizedFull.startsWith(normalizedRoot)) {
@@ -374,20 +369,18 @@ async function listPlugins(projectRoot) {
     ...(p.SupportedTargetPlatforms && { platforms: p.SupportedTargetPlatforms }),
   }));
 
-  // Also scan the Plugins/ directory for local plugins
   const pluginsDir = join(projectRoot, 'Plugins');
   let localPlugins = [];
   try {
     const items = await readdir(pluginsDir, { withFileTypes: true });
     for (const item of items) {
       if (item.isDirectory()) {
-        // Look for .uplugin file
         try {
           const subItems = await readdir(join(pluginsDir, item.name));
           const uplugin = subItems.find(f => f.endsWith('.uplugin'));
           if (uplugin) {
             const raw = await readFile(join(pluginsDir, item.name, uplugin), 'utf-8');
-            const pluginData = JSON.parse(raw);
+            const pluginData = JSON.parse(raw.replace(/,\s*([\]}])/g, '$1'));
             localPlugins.push({
               name: item.name,
               friendlyName: pluginData.FriendlyName || item.name,
@@ -427,13 +420,11 @@ async function getBuildConfig(projectRoot) {
     return found;
   }
 
-  // Find .Build.cs files
   const buildFiles = await findFiles(sourceDir, /\.Build\.cs$/);
   for (const f of buildFiles) {
     const content = await readFile(f, 'utf-8');
     const relPath = relative(projectRoot, f).replace(/\\/g, '/');
 
-    // Extract module dependencies
     const publicDeps = [];
     const privateDeps = [];
     const depRegex = /(?:Public|Private)DependencyModuleNames\.AddRange\(new string\[\]\s*\{([^}]+)\}/g;
@@ -447,7 +438,6 @@ async function getBuildConfig(projectRoot) {
     results[relPath] = { publicDeps, privateDeps };
   }
 
-  // Find .Target.cs files
   const targetFiles = await findFiles(sourceDir, /\.Target\.cs$/);
   for (const f of targetFiles) {
     const content = await readFile(f, 'utf-8');
