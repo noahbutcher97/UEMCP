@@ -89,9 +89,11 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - ConnectionManager with 4-layer architecture (`server/connection-manager.mjs`)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, 79 total assertions passing
+- Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 
 ### What's NOT implemented yet:
-- TCP client for editor communication (Phase 2)
+- TCP client for editor communication (Phase 2) — conformance oracle contracts ready, implementation next
 - C++ editor plugin (Phase 3)
 - HTTP client for Remote Control API (Phase 4)
 - Distribution to ProjectB via P4 (Phase 5)
@@ -110,11 +112,14 @@ UEMCP/
 │   ├── offline-tools.mjs  ← 10 offline tools (project_info, search_source, etc.)
 │   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
 │   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
-│   └── connection-manager.mjs ← 4-layer connection management
+│   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
+│   ├── test-phase1.mjs    ← Phase 1 verification tests (34 assertions)
+│   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
+│   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
 ├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
 ├── docs/
 │   ├── README.md          ← directory map + reading orders
-│   ├── specs/             ← architecture, protocols, design (7 files)
+│   ├── specs/             ← architecture, protocols, design (8 files incl. conformance oracle)
 │   ├── plans/             ← implementation phases, test strategy (2 files)
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   └── tracking/          ← living docs: risks-and-decisions.md (D1-D23)
@@ -182,7 +187,29 @@ See `docs/audits/phase1-audit-2026-04-12.md` for the complete Phase 1 audit.
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-Phase 1 tests (2-8) have not yet been formally executed — next priority after current fixes.
+Phase 1 tests executed: 34 offline assertions + 45 mock seam assertions, all passing.
+
+### Test Files
+
+| File | Purpose | Run command |
+|------|---------|-------------|
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, edge cases (34 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
+| `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
+| `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
+
+**Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
+
+### Mock Seam Pattern
+
+`ConnectionManager` accepts `config.tcpCommandFn` — a `(port, type, params, timeoutMs) => Promise<object>` that replaces real TCP. This enables unit-testing TCP tool handlers without a running editor. `FakeTcpResponder` provides canned responses; `ErrorTcpResponder` simulates failure modes (timeout, ECONNREFUSED, error_status, success:false, invalid_json).
+
+### API Gotchas for Test Authors
+
+- `toolIndex.getToolsetTools(name)` returns `{toolName, description, layer}[]` — NOT strings
+- `ToolsetManager` constructor: `(connectionManager, toolIndex)` — order matters
+- `enable()` returns `{enabled, alreadyEnabled, unavailable, unknown}`; `disable()` returns `{disabled, wasNotEnabled, unknown}`
+- No `getState()` — use `getEnabledNames()`
+- Offline tool params are snake_case: `file_path`, `file_filter`, `config_file` (full filename with `.ini`)
 
 ## MCP Configuration Files
 
@@ -207,3 +234,5 @@ In Cowork mode (Claude Desktop), the config lives in `claude_desktop_config.json
 **First read**: `docs/specs/architecture.md` → `docs/specs/plugin-design.md` → `docs/specs/dynamic-toolsets.md` → `tools.yaml` → `docs/plans/implementation.md`
 
 **Quick reference**: `tools.yaml` → `docs/specs/dynamic-toolsets.md` → `docs/tracking/risks-and-decisions.md`
+
+**Phase 2 (TCP client)**: `docs/specs/conformance-oracle-contracts.md` → `docs/specs/tcp-protocol.md` → `docs/plans/testing-strategy.md` (Tests 9-13 + Lessons Learned)
