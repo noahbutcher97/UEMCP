@@ -47,7 +47,7 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (15 toolsets, 108 tools)
+# Toolsets (15 toolsets, 108 tools) — plus 6 management tools above = 114 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
@@ -147,7 +147,7 @@ toolsets:
         description: Add button to widget
       bind_widget_event:
         description: Bind widget event to function
-      set_text_binding:
+      set_text_block_binding:
         description: Set text block data binding
       add_widget_to_viewport:
         description: Show widget in game viewport

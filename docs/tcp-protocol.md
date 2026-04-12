@@ -104,6 +104,6 @@ Grouped by handler class (from `UnrealMCPBridge::ExecuteCommand`):
 
 **ProjectCommands**: `create_input_mapping`
 
-**UMGWidgetCommands**: `create_umg_widget_blueprint`, `add_text_block_to_widget`, `add_button_to_widget`, `bind_widget_event`, `set_text_binding`, `add_widget_to_viewport`
+**UMGWidgetCommands**: `create_umg_widget_blueprint`, `add_text_block_to_widget`, `add_button_to_widget`, `bind_widget_event`, `set_text_block_binding`, `add_widget_to_viewport`
 
 **Utility**: `ping`

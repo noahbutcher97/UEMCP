@@ -24,7 +24,7 @@ Two identical copies of a third-party Unreal MCP server exist across ProjectA an
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                   Centralized MCP Server (Node.js)                        │
-│                ~/.claude/mcp-servers/unreal/server.mjs                    │
+│              UEMCP/server/server.mjs  (D:/DevTools/UEMCP/server/)         │
 │                                                                           │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │                     Dynamic Toolset Manager                         │  │

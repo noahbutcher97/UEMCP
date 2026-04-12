@@ -30,7 +30,7 @@ Tool counts are derived from `tools.yaml` — never hardcode them in documentati
 | `add_text_block` | Add text block to widget |
 | `add_button` | Add button to widget |
 | `bind_widget_event` | Bind widget event to function |
-| `set_text_binding` | Set text block data binding |
+| `set_text_block_binding` | Set text block data binding |
 | `add_widget_to_viewport` | Show widget in game viewport |
 | `add_input_action_node` | Add input action event node (shared with blueprint editing) |
 

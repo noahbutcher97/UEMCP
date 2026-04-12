@@ -73,6 +73,22 @@ All 6 critical APIs confirmed present in UE5.6. No plan changes needed.
 
 9. **Control Rig Graph Introspection** — Serialize UControlRig animation rigging graphs. Not currently used in ProjectA.
 
+10. **MCP Resources** — Expose project metadata, asset catalogs, and build outputs as read-only MCP resources with URI-based access and subscriptions. Would enable efficient caching and Claude accessing project data without tool calls. High value, low effort. **Status: Deferred to Phase 1 end as optional polish (D21). Verify client support first.**
+
+11. **MCP Prompts** — Define reusable prompt templates for common Unreal workflows ("create a GAS ability for X", "set up a combo chain with N hits"). Would standardize quality of Claude's output for repeated patterns. **Status: Deferred to Phase 4+ (D22). Depends on working tools.**
+
+12. **MCP Logging** — Stream Unreal Editor diagnostic output (compilation, PIE, packaging) to Claude's UI with severity levels. Better visibility than text-only tool responses. **Status: Basic `logging: {}` capability included in Phase 1 (D19). Editor-specific log streaming deferred.**
+
+13. **Asset Import Pipeline** — `import_static_mesh` and `import_skeletal_mesh` tools wrapping UE's FBX import. Would bridge Blender MCP output → Unreal, enabling model-in-Blender → import-to-UE workflows without manual editor interaction.
+
+14. **Perforce Auto-Checkout** — Wrap `p4 edit` in a UEMCP tool that auto-checks out files before asset creation/modification. Eliminates bash context-switching during create workflows. Could be as simple as the server calling `p4 edit` before sending the create command to the plugin.
+
+15. **Collision & Physics Toolset** — Physics material editing, collision preset management, constraint configuration. ProjectA uses physics extensively but has no dedicated toolset.
+
+16. **Build/Cook/Package Automation** — Editor-side build triggering, cook status monitoring, package configuration. Important for CI/CD but not blocking for daily dev workflow.
+
+17. **Skeletal Mesh & LOD Management** — Bone/socket manipulation, LOD configuration, physics asset bodies. Useful for character pipeline but low priority vs. GAS workflow.
+
 ---
 
 ## Decision Log
@@ -97,3 +113,7 @@ All 6 critical APIs confirmed present in UE5.6. No plan changes needed.
 | D16 | Defer RC API port discovery, rate limiting, property pre-validation, undo system | Over-engineered for solo dev on localhost. RC API validates types internally. Claude sends one call at a time. Editor Ctrl+Z covers undo. Revisit if real problems emerge during daily use. |
 | D17 | Plain `.mjs` over TypeScript for MCP server | Matches existing MCP servers (jira-bridge, perforce, miro). No build step — edit and restart. Zod provides runtime validation where it matters (tool params). Trade-off: no IDE autocomplete on internal functions. Worth it for iteration speed with AI-assisted development. |
 | D18 | Develop in `UEMCP/server/`, point `.mcp.json` at repo path | Avoids copy-to-`~/.claude/` friction during development. `.mcp.json` points directly at `D:/DevTools/UEMCP/server/server.mjs`. Defer copying to `~/.claude/` until distribution (Phase 5) if needed at all. |
+| D19 | Include `logging: {}` capability from Phase 1 | Near-zero cost (~30 min). Enables `ctx.mcpReq.log()` in tool handlers for debugging auto-detection, TCP connections, toolset operations. Works with MCP Inspector. If Claude doesn't render logs, costs nothing. |
+| D20 | Include server `instructions` string from Phase 1 | 15-minute effort. Guides Claude through `find_tools` → `enable_toolset` → use tools workflow. High value for correct dynamic toolset usage. |
+| D21 | Defer MCP Resources to Phase 1 end (optional polish) | Resources duplicate management tools (`list_toolsets`, `detect_project`). Client support uncertain — Claude may not surface resources in UI. ~2 hrs effort. Add only after verifying client consumption. |
+| D22 | Defer MCP Prompts to Phase 4+ | Prompt templates depend on working tools existing first. ~3-4 hrs effort for quality templates. Same outcome achievable through tool descriptions and `find_tools` response content. |

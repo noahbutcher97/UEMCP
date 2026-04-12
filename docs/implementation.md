@@ -71,9 +71,9 @@
 ### Phase 1: Core Server + Dynamic Toolset Infrastructure (Node.js)
 
 **Build**:
-1. Create `~/.claude/mcp-servers/unreal/` directory
-2. Write `package.json` (deps: `@modelcontextprotocol/sdk`, `zod`, `sharp`), run `npm install`
-3. Implement `server.mjs` skeleton with ConnectionManager
+1. Set up `UEMCP/server/` directory (already scaffolded — `package.json` + `server.mjs` exist)
+2. Run `npm install` in `UEMCP/server/` to install deps (`@modelcontextprotocol/sdk`, `zod`)
+3. Implement `server.mjs` skeleton with ConnectionManager. Pass `{ capabilities: { logging: {} }, instructions: "..." }` to McpServer constructor (see D19, D20). Instructions string describes find_tools → enable_toolset → use tools workflow.
 4. Implement ToolIndex class (keyword search, alias map, stemmer, scoring)
 5. Implement ToolsetManager (enable/disable, `tools/list_changed` notifications, active tool tracking)
 6. Register 6 always-loaded tools: `connection_info`, `detect_project`, `find_tools`, `list_toolsets`, `enable_toolset`, `disable_toolset`
@@ -112,7 +112,7 @@
 14. **[AUDIT]** Basic reconnect-on-failure: if TCP send fails, mark layer disconnected, retry connect on next tool call. No backoff needed for localhost. (~1.5 hrs)
 15. Register 3 existing plugin toolsets with Zod schemas:
     - `actors` (10 tools)
-    - `blueprints-write` (9 tools + BP node tools — see Section 8.2 note)
+    - `blueprints-write` (9 tools + BP node tools — see `tool-surface.md` note on potential split)
     - `widgets` (7 tools)
 
 **Testing & Revision** (see `testing-strategy.md` Tests 9–13):
