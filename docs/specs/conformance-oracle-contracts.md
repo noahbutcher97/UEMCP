@@ -975,3 +975,63 @@ The UEMCP MCP server tools.yaml names are the **user-facing API** — these are 
 3. **The 7 orphan C++ handlers** need toolset assignment decisions before Phase 2 can expose them. The tools.yaml `note:` on `blueprints-write` already anticipates this.
 4. **`create_input_mapping`** (ProjectCommands) has no tools.yaml entry at all. It uses legacy input — consider whether UEMCP should expose it or replace it with Enhanced Input tools (already planned in `input-and-pie` toolset).
 5. **`add_widget_to_viewport`** maps correctly but the C++ handler is a no-op (Section 4.3). tools.yaml should either flag this or replace it with a functional implementation in Phase 3.
+
+---
+
+## 8. Orphan Handler Recommendations
+
+Section 7.2 identified 7 C++ handlers with no tools.yaml entry, plus `create_input_mapping` from ProjectCommands. This section resolves each one.
+
+### 8.1 Handlers → Added to `blueprints-write` Toolset (Phase 2)
+
+All 6 BlueprintNodeCommands orphans belong logically with the existing `blueprints-write` toolset. They operate on Blueprint event graphs — same context as `add_event_node`, `create_blueprint`, etc. Adding them avoids creating a separate `blueprint-nodes` sub-toolset (which would fragment the tool count without improving discoverability).
+
+| C++ Type String | tools.yaml Name | Rationale |
+|----------------|-----------------|-----------|
+| `add_blueprint_function_node` | `add_function_node` | Core BP graph editing — call any UFunction. Complex pin value handling. |
+| `add_blueprint_variable` | `add_variable` | Add member variables. 5 types only (Boolean, Int, Float, String, Vector). |
+| `add_blueprint_self_reference` | `add_self_reference` | Add Self node. Trivial but needed for node graph composition. |
+| `add_blueprint_get_self_component_reference` | `add_component_reference` | Add VariableGet for a component. Needed to wire component refs. |
+| `connect_blueprint_nodes` | `connect_nodes` | Connect any two pins. Essential — without this, individual nodes are useless. |
+| `find_blueprint_nodes` | `find_nodes` | Find nodes by type. Read-only. Currently Event type only. |
+
+Name shortening follows the Section 7.5 pattern (drop `blueprint_` prefix, abbreviate where clear).
+
+**Toolset size impact**: `blueprints-write` grows from 9 → 15 tools. Still well under the per-toolset threshold.
+
+### 8.2 `add_blueprint_input_action_node` — Already Listed
+
+This handler is already in tools.yaml under the `widgets` toolset as `add_input_action_node`. It's a cross-class tool (BlueprintNodeCommands handler listed in a UMG-focused toolset). The current placement is acceptable because:
+
+1. It's the only remaining input-related tool in a Phase 2 toolset
+2. Moving it to `blueprints-write` would make that toolset even larger
+3. The `input-and-pie` toolset (Phase 3+) will supersede it with Enhanced Input tools
+
+**No action needed.** Keeping it in `widgets` with a description noting it works on any Blueprint, not just widgets.
+
+### 8.3 `create_input_mapping` — Skip (Legacy, Superseded)
+
+| Field | Recommendation |
+|-------|---------------|
+| **C++ Type String** | `create_input_mapping` |
+| **Handler Class** | ProjectCommands |
+| **Decision** | **Skip — do not add to tools.yaml** |
+| **Rationale** | Uses legacy `FInputActionKeyMapping` (not Enhanced Input). Both target projects (ProjectA, ProjectB) use Enhanced Input exclusively. The `input-and-pie` toolset already has `create_input_action`, `create_mapping_context`, and `add_mapping` for Enhanced Input. Exposing the legacy system would confuse Claude. |
+
+### 8.4 `add_blueprint_get_component_node` — Dead Route, Skip
+
+Already documented as a dead route in Section 3.9. The Bridge dispatches it to BlueprintNodeCommands, but HandleCommand has no case for it — always returns "Unknown blueprint node command." Not worth adding to tools.yaml.
+
+### 8.5 Summary
+
+| Handler | Action | tools.yaml Location |
+|---------|--------|-------------------|
+| `add_blueprint_function_node` | ✅ Added | `blueprints-write` as `add_function_node` |
+| `add_blueprint_variable` | ✅ Added | `blueprints-write` as `add_variable` |
+| `add_blueprint_self_reference` | ✅ Added | `blueprints-write` as `add_self_reference` |
+| `add_blueprint_get_self_component_reference` | ✅ Added | `blueprints-write` as `add_component_reference` |
+| `connect_blueprint_nodes` | ✅ Added | `blueprints-write` as `connect_nodes` |
+| `find_blueprint_nodes` | ✅ Added | `blueprints-write` as `find_nodes` |
+| `add_blueprint_input_action_node` | Already exists | `widgets` as `add_input_action_node` |
+| `create_input_mapping` | ❌ Skipped | Legacy input — superseded by `input-and-pie` toolset |
+| `add_blueprint_get_component_node` | ❌ Skipped | Dead route — handler doesn't exist |

@@ -47,7 +47,7 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (15 toolsets, 108 tools) — plus 6 management tools above = 114 total
+# Toolsets (15 toolsets, 114 tools) — plus 6 management tools above = 120 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
@@ -85,54 +85,189 @@ toolsets:
     description: Level editing, actor manipulation, viewport
     tools:
       get_actors:
+        wire_type: get_actors_in_level
         description: List all actors in current level (with optional class filter)
+        params: {}
+        # NOTE: C++ handler accepts NO params — class_filter is aspirational (Phase 3)
       find_actors:
+        wire_type: find_actors_by_name
         description: Find actors by name pattern
+        params:
+          pattern: { type: string, required: true, description: "Substring match against actor name (case-sensitive)" }
       spawn_actor:
         description: Spawn primitive actor (StaticMesh, Light, Camera, etc.)
+        params:
+          type:     { type: string, required: true, description: "One of: StaticMeshActor, PointLight, SpotLight, DirectionalLight, CameraActor" }
+          name:     { type: string, required: true, description: "Actor label/name — must be unique in level" }
+          location: { type: array, required: false, description: "[x, y, z] world position, default [0,0,0]" }
+          rotation: { type: array, required: false, description: "[pitch, yaw, roll] in degrees, default [0,0,0]" }
+          scale:    { type: array, required: false, description: "[x, y, z] scale, default [1,1,1]" }
       delete_actor:
         description: Delete actor by name
+        params:
+          name: { type: string, required: true, description: "Exact actor name" }
       set_actor_transform:
-        description: Set location/rotation/scale
+        description: Set location/rotation/scale (partial updates OK — only specified fields change)
+        params:
+          name:     { type: string, required: true, description: "Exact actor name" }
+          location: { type: array, required: false, description: "[x, y, z] — preserves current if omitted" }
+          rotation: { type: array, required: false, description: "[pitch, yaw, roll] — preserves current if omitted" }
+          scale:    { type: array, required: false, description: "[x, y, z] — preserves current if omitted" }
       get_actor_properties:
         description: Get all properties of an actor
+        params:
+          name: { type: string, required: true, description: "Exact actor name" }
       set_actor_property:
-        description: Set specific property by name
+        description: Set specific property by name (supports bool, int, float, string, enum)
+        params:
+          name:           { type: string, required: true, description: "Exact actor name" }
+          property_name:  { type: string, required: true, description: "UProperty name on the actor" }
+          property_value: { type: any, required: true, description: "Value — type coerced to match UProperty" }
       spawn_blueprint_actor:
         description: Spawn instance of a Blueprint class
+        params:
+          blueprint_name: { type: string, required: true, description: "Asset name only (looked up under /Game/Blueprints/)" }
+          actor_name:     { type: string, required: true, description: "Name for the spawned actor" }
+          location:       { type: array, required: false, description: "[x, y, z] default [0,0,0]" }
+          rotation:       { type: array, required: false, description: "[pitch, yaw, roll] default [0,0,0]" }
+          scale:          { type: array, required: false, description: "[x, y, z] default [1,1,1]" }
       focus_viewport:
-        description: Move editor camera to location/actor
+        description: Move editor camera to location/actor (provide target OR location, not both)
+        params:
+          target:      { type: string, required: false, description: "Actor name to focus on" }
+          location:    { type: array, required: false, description: "[x, y, z] world position to focus on" }
+          distance:    { type: number, required: false, description: "Camera offset distance, default 1000" }
+          orientation: { type: array, required: false, description: "[pitch, yaw, roll] camera rotation" }
       take_screenshot:
         description: Capture editor viewport to PNG file
         note: Legacy — get_viewport_screenshot in visual-capture returns inline base64
+        params:
+          filepath: { type: string, required: true, description: "Output file path (.png appended if missing)" }
 
   blueprints-write:
     layer: tcp-55557
     priority: null
     description: Blueprint creation, components, nodes
     note: >
-      7 more BP node tools (add_function_node, add_input_action_node, add_variable,
-      add_self_reference, add_component_reference, connect_nodes, find_nodes) may be
-      added here or split into blueprint-nodes sub-toolset at implementation time.
+      7 more BP node tools (add_function_node, add_variable,
+      add_self_reference, add_component_reference, connect_nodes, find_nodes)
+      added below. See Section 8 of conformance-oracle-contracts.md for rationale.
+      add_input_action_node stays under widgets (already listed there).
     tools:
       create_blueprint:
-        description: Create new Blueprint class
+        description: Create new Blueprint class at /Game/Blueprints/<name>
+        params:
+          name:         { type: string, required: true, description: "Blueprint asset name" }
+          parent_class: { type: string, required: false, description: "Parent class name, default AActor. Supports Pawn/Actor shorthand." }
       add_component:
-        description: Add component to Blueprint
+        wire_type: add_component_to_blueprint
+        description: Add component to Blueprint (auto-compiles after adding)
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          component_type: { type: string, required: true, description: "Class name — flexible resolution (StaticMesh, UStaticMeshComponent, etc.)" }
+          component_name: { type: string, required: true, description: "Name for the new component" }
+          location:       { type: array, required: false, description: "[x, y, z] — only for SceneComponents" }
+          rotation:       { type: array, required: false, description: "[pitch, yaw, roll] — only for SceneComponents" }
+          scale:          { type: array, required: false, description: "[x, y, z] — only for SceneComponents" }
       set_component_property:
-        description: Set property on Blueprint component
+        description: Set property on Blueprint component template
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          component_name: { type: string, required: true, description: "SCS node variable name" }
+          property_name:  { type: string, required: true, description: "UProperty name" }
+          property_value: { type: any, required: true, description: "Value — special SpringArm handling for Vector/Rotator" }
       compile_blueprint:
-        description: Compile a Blueprint
+        description: Compile a Blueprint (does not report compile errors)
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
       set_blueprint_property:
-        description: Set Blueprint default property
+        description: Set Blueprint Class Default Object property
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          property_name:  { type: string, required: true, description: "UProperty name on the CDO" }
+          property_value: { type: any, required: true, description: "Value — type coerced via SetObjectProperty" }
       set_static_mesh_props:
-        description: Configure static mesh on component
+        wire_type: set_static_mesh_properties
+        description: Configure static mesh and material on component
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          component_name: { type: string, required: true, description: "Must be a UStaticMeshComponent" }
+          static_mesh:    { type: string, required: false, description: "Asset path e.g. /Game/Meshes/Cube" }
+          material:       { type: string, required: false, description: "Asset path — applied to slot 0 only" }
       set_physics_props:
-        description: Configure physics simulation
+        wire_type: set_physics_properties
+        description: Configure physics simulation on a UPrimitiveComponent
+        params:
+          blueprint_name:   { type: string, required: true, description: "Blueprint asset name" }
+          component_name:   { type: string, required: true, description: "Must be a UPrimitiveComponent" }
+          simulate_physics: { type: boolean, required: false, description: "Enable/disable physics simulation" }
+          mass:             { type: number, required: false, description: "Mass in kg (uses SetMassOverrideInKg)" }
+          linear_damping:   { type: number, required: false, description: "Linear damping factor" }
+          angular_damping:  { type: number, required: false, description: "Angular damping factor" }
       set_pawn_props:
-        description: Configure pawn settings
+        wire_type: set_pawn_properties
+        description: Configure pawn settings on CDO (per-property results — can partially succeed)
+        params:
+          blueprint_name:                { type: string, required: true, description: "Blueprint asset name" }
+          auto_possess_player:           { type: string, required: false, description: "Enum value e.g. Player0 (maps to EAutoReceiveInput::Player0)" }
+          use_controller_rotation_yaw:   { type: boolean, required: false, description: "Maps to bUseControllerRotationYaw" }
+          use_controller_rotation_pitch: { type: boolean, required: false, description: "Maps to bUseControllerRotationPitch" }
+          use_controller_rotation_roll:  { type: boolean, required: false, description: "Maps to bUseControllerRotationRoll" }
+          can_be_damaged:                { type: boolean, required: false, description: "Maps to bCanBeDamaged" }
       add_event_node:
-        description: Add event node (BeginPlay, Tick, etc.)
+        wire_type: add_blueprint_event_node
+        description: Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          event_name:     { type: string, required: true, description: "e.g. ReceiveBeginPlay, ReceiveTick" }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      # ── Orphan BP node handlers (added from conformance oracle Section 8) ──
+      add_function_node:
+        wire_type: add_blueprint_function_node
+        description: Add function call node to event graph. Complex resolution — supports target class, default pin values.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          function_name:  { type: string, required: true, description: "Function name to call" }
+          target:         { type: string, required: false, description: "Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP's own class." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+          params:         { type: object, required: false, description: "Default values for function input pins" }
+      add_variable:
+        wire_type: add_blueprint_variable
+        description: Add member variable to Blueprint (5 types supported)
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          variable_name:  { type: string, required: true, description: "Variable name" }
+          variable_type:  { type: string, required: true, description: "One of: Boolean, Integer/Int, Float, String, Vector" }
+          is_exposed:     { type: boolean, required: false, description: "If true, adds EditAnywhere flag. Default false." }
+      add_self_reference:
+        wire_type: add_blueprint_self_reference
+        description: Add Self reference node (UK2Node_Self) to event graph
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      add_component_reference:
+        wire_type: add_blueprint_get_self_component_reference
+        description: Add VariableGet node for a named component in event graph
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          component_name: { type: string, required: true, description: "Component variable name" }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      connect_nodes:
+        wire_type: connect_blueprint_nodes
+        description: Connect two Blueprint graph nodes by pin
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          source_node_id: { type: string, required: true, description: "Source node GUID string" }
+          target_node_id: { type: string, required: true, description: "Target node GUID string" }
+          source_pin:     { type: string, required: true, description: "Pin name on source node" }
+          target_pin:     { type: string, required: true, description: "Pin name on target node" }
+      find_nodes:
+        wire_type: find_blueprint_nodes
+        description: Find nodes in event graph by type (currently only Event type supported)
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          node_type:      { type: string, required: true, description: "Currently only 'Event' supported" }
+          event_name:     { type: string, required: false, description: "Required when node_type=Event" }
 
   widgets:
     layer: tcp-55557
@@ -140,19 +275,56 @@ toolsets:
     description: UMG widget creation and binding
     tools:
       create_widget:
-        description: Create UMG Widget Blueprint
+        wire_type: create_umg_widget_blueprint
+        description: Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel
+        params:
+          name: { type: string, required: true, description: "Widget blueprint name" }
       add_text_block:
-        description: Add text block to widget
+        wire_type: add_text_block_to_widget
+        description: Add text block to widget (requires root CanvasPanel)
+        params:
+          blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
+          widget_name:    { type: string, required: true, description: "Name for the TextBlock" }
+          text:           { type: string, required: false, description: "Initial text, default 'New Text Block'" }
+          position:       { type: array, required: false, description: "[x, y] canvas position" }
       add_button:
-        description: Add button to widget
+        wire_type: add_button_to_widget
+        description: Add button with child TextBlock to widget (requires root CanvasPanel)
+        params:
+          blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
+          widget_name:    { type: string, required: true, description: "Button widget name" }
+          text:           { type: string, required: true, description: "Button label text" }
+          position:       { type: array, required: false, description: "[x, y] canvas position" }
       bind_widget_event:
-        description: Bind widget event to function
+        description: Bind widget event (e.g. OnClicked) to function in event graph
+        params:
+          blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
+          widget_name:    { type: string, required: true, description: "Widget to bind event on" }
+          event_name:     { type: string, required: true, description: "Event name e.g. OnClicked" }
       set_text_block_binding:
-        description: Set text block data binding
+        # KNOWN ISSUE: C++ handler connects exec pin to data pin (invalid connection).
+        # The getter function graph is incomplete — binding will not work at runtime.
+        # See conformance-oracle-contracts.md Section 4.6.
+        description: Set text block data binding (BROKEN — see known issue)
+        params:
+          blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
+          widget_name:    { type: string, required: true, description: "TextBlock widget to bind" }
+          binding_name:   { type: string, required: true, description: "Variable name for the binding" }
       add_widget_to_viewport:
-        description: Show widget in game viewport
+        # KNOWN ISSUE: C++ handler is a NO-OP. Does NOT actually add widget to viewport.
+        # Returns class path with instructions to use Blueprint nodes instead.
+        # See conformance-oracle-contracts.md Section 4.3.
+        description: Show widget in game viewport (NO-OP — returns class path only, does not add to viewport)
+        params:
+          blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
+          z_order:        { type: integer, required: false, description: "Z-order, default 0 (unused — handler is a no-op)" }
       add_input_action_node:
-        description: Add input action event node (shared with blueprint editing)
+        wire_type: add_blueprint_input_action_node
+        description: Add input action event node (legacy Input Actions, NOT Enhanced Input)
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name (works on any BP, not just widgets)" }
+          action_name:    { type: string, required: true, description: "Input action name" }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
 
   # ── New Custom Plugin (TCP:55558) ─────────────────────────
   gas:
