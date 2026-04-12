@@ -100,8 +100,8 @@ export class ToolsetManager {
    */
   setToolsetVisibility(toolsetName, visible) {
     const tools = this.toolIndex.getToolsetTools(toolsetName);
-    for (const toolName of tools) {
-      const handle = this._toolHandles.get(toolName);
+    for (const tool of tools) {
+      const handle = this._toolHandles.get(tool.toolName);
       if (handle) {
         visible ? handle.enable() : handle.disable();
       }
