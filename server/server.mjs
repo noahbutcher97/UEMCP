@@ -16,7 +16,12 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
-import { getActorsToolDefs, executeActorsTool } from './tcp-tools.mjs';
+import {
+  initTcpTools,
+  getActorsToolDefs, executeActorsTool,
+  getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
+  getWidgetsToolDefs, executeWidgetsTool,
+} from './tcp-tools.mjs';
 
 // ── Config from environment (.mcp.json env block) ──────────────────
 
@@ -512,6 +517,88 @@ for (const [name, def] of Object.entries(actorsToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
+// ── Register blueprints-write tools (TCP:55557) ─────────────────────
+// Phase 2: blueprints-write toolset — 15 tools for BP creation, components, graph nodes.
+
+const bpWriteToolDefs = getBlueprintsWriteToolDefs();
+
+for (const [name, def] of Object.entries(bpWriteToolDefs)) {
+  const schema = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    schema[paramName] = zodField;
+  }
+
+  const handle = server.tool(
+    name,
+    def.description,
+    schema,
+    async (args, ctx) => {
+      try {
+        log('info', `Executing blueprints-write tool: ${name}`);
+        const result = await executeBlueprintsWriteTool(name, args, connectionManager);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error in ${name}: ${err.message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
+}
+
+// ── Register widgets tools (TCP:55557) ──────────────────────────────
+// Phase 2: widgets toolset — 7 tools for UMG widget creation and binding.
+
+const widgetsToolDefs = getWidgetsToolDefs();
+
+for (const [name, def] of Object.entries(widgetsToolDefs)) {
+  const schema = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    schema[paramName] = zodField;
+  }
+
+  const handle = server.tool(
+    name,
+    def.description,
+    schema,
+    async (args, ctx) => {
+      try {
+        log('info', `Executing widgets tool: ${name}`);
+        const result = await executeWidgetsTool(name, args, connectionManager);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error in ${name}: ${err.message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
+}
+
 // ── Wire tools/list_changed notification ───────────────────────────
 
 // NOTE: tools/list_changed notifications are now handled automatically by the
@@ -533,6 +620,9 @@ toolsetManager.onListChanged(() => {
 async function main() {
   // Load tools.yaml and build the search index
   await toolsetManager.load();
+
+  // Initialize TCP wire_type maps from parsed YAML
+  initTcpTools(toolsetManager.getToolsData());
 
   // Check offline layer availability
   await connectionManager.checkOfflineAvailable();

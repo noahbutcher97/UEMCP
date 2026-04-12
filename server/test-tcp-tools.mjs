@@ -1,19 +1,68 @@
-// Tests for Phase 2 TCP tools — actors toolset
+// Tests for Phase 2 TCP tools — actors, blueprints-write, widgets
 //
 // Exercises:
-//   1. Name translation (tools.yaml → C++ type string)
+//   1. Name translation via wire_type (tools.yaml → C++ type string)
 //   2. Param pass-through and stripping (class_filter on get_actors)
 //   3. Error normalization (all 3 formats: Bridge, CommonUtils, UMG ad-hoc)
 //   4. Read-op caching vs write-op skip-cache
-//   5. Tool registration completeness
+//   5. Tool registration completeness (all 3 toolsets)
+//   6. Port routing (all tools → tcp-55557)
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs
 
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
-import { executeActorsTool, getActorsToolDefs, ACTORS_SCHEMAS } from './tcp-tools.mjs';
+import {
+  initTcpTools,
+  executeActorsTool, getActorsToolDefs, ACTORS_SCHEMAS,
+  executeBlueprintsWriteTool, getBlueprintsWriteToolDefs, BLUEPRINTS_WRITE_SCHEMAS,
+  executeWidgetsTool, getWidgetsToolDefs, WIDGETS_SCHEMAS,
+} from './tcp-tools.mjs';
 
-const t = new TestRunner('Phase 2 — Actors TCP Tools');
+// ── Initialize wire_type maps from fake YAML structure ──────────
+// Must be called before any execute*Tool() that relies on wire_type translation.
+const fakeToolsYaml = {
+  toolsets: {
+    actors: {
+      tools: {
+        get_actors: { wire_type: 'get_actors_in_level' },
+        find_actors: { wire_type: 'find_actors_by_name' },
+        spawn_actor: {}, delete_actor: {}, set_actor_transform: {},
+        get_actor_properties: {}, set_actor_property: {},
+        spawn_blueprint_actor: {}, focus_viewport: {}, take_screenshot: {},
+      }
+    },
+    'blueprints-write': {
+      tools: {
+        create_blueprint: {},
+        add_component: { wire_type: 'add_component_to_blueprint' },
+        set_component_property: {}, compile_blueprint: {}, set_blueprint_property: {},
+        set_static_mesh_props: { wire_type: 'set_static_mesh_properties' },
+        set_physics_props: { wire_type: 'set_physics_properties' },
+        set_pawn_props: { wire_type: 'set_pawn_properties' },
+        add_event_node: { wire_type: 'add_blueprint_event_node' },
+        add_function_node: { wire_type: 'add_blueprint_function_node' },
+        add_variable: { wire_type: 'add_blueprint_variable' },
+        add_self_reference: { wire_type: 'add_blueprint_self_reference' },
+        add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
+        connect_nodes: { wire_type: 'connect_blueprint_nodes' },
+        find_nodes: { wire_type: 'find_blueprint_nodes' },
+      }
+    },
+    widgets: {
+      tools: {
+        create_widget: { wire_type: 'create_umg_widget_blueprint' },
+        add_text_block: { wire_type: 'add_text_block_to_widget' },
+        add_button: { wire_type: 'add_button_to_widget' },
+        bind_widget_event: {}, set_text_block_binding: {}, add_widget_to_viewport: {},
+        add_input_action_node: { wire_type: 'add_blueprint_input_action_node' },
+      }
+    },
+  }
+};
+initTcpTools(fakeToolsYaml);
+
+const t = new TestRunner('Phase 2 — TCP Tools (actors + blueprints-write + widgets)');
 
 // ═══════════════════════════════════════════════════════════════
 // Group 1: Tool definition completeness
@@ -424,6 +473,360 @@ console.log('\n── Group 11: Port Routing ──');
   const call = fake.lastCall('get_actors_in_level');
   t.assert(call.port === 55557,
     'Actors tools route to port 55557 (existing UnrealMCP plugin)');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 12: Blueprints-write — tool definitions
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
+
+{
+  const defs = getBlueprintsWriteToolDefs();
+  const expectedBpTools = [
+    'create_blueprint', 'add_component', 'set_component_property',
+    'compile_blueprint', 'set_blueprint_property', 'set_static_mesh_props',
+    'set_physics_props', 'set_pawn_props', 'add_event_node',
+    'add_function_node', 'add_variable', 'add_self_reference',
+    'add_component_reference', 'connect_nodes', 'find_nodes',
+  ];
+
+  t.assert(Object.keys(defs).length === 15, '15 blueprints-write tools defined');
+
+  for (const name of expectedBpTools) {
+    t.assert(defs[name] !== undefined, `BP tool "${name}" is defined`);
+    t.assert(typeof defs[name].description === 'string' && defs[name].description.length > 0,
+      `BP tool "${name}" has a non-empty description`);
+    t.assert(typeof defs[name].schema === 'object', `BP tool "${name}" has a schema object`);
+    t.assert(typeof defs[name].isReadOp === 'boolean', `BP tool "${name}" has isReadOp flag`);
+  }
+
+  // Read/write classification — only find_nodes is a read op
+  t.assert(defs.find_nodes.isReadOp === true, 'find_nodes is a read op');
+  t.assert(defs.create_blueprint.isReadOp === false, 'create_blueprint is a write op');
+  t.assert(defs.add_component.isReadOp === false, 'add_component is a write op');
+  t.assert(defs.compile_blueprint.isReadOp === false, 'compile_blueprint is a write op');
+  t.assert(defs.connect_nodes.isReadOp === false, 'connect_nodes is a write op');
+  t.assert(defs.add_variable.isReadOp === false, 'add_variable is a write op');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 13: Blueprints-write — name translation
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 13: Blueprints-write Name Translation ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const wireNames = {
+    'add_component_to_blueprint': { status: 'success', result: { success: true } },
+    'set_static_mesh_properties': { status: 'success', result: { success: true } },
+    'set_physics_properties': { status: 'success', result: { success: true } },
+    'set_pawn_properties': { status: 'success', result: { success: true } },
+    'add_blueprint_event_node': { status: 'success', result: { node_id: 'abc-123' } },
+    'add_blueprint_function_node': { status: 'success', result: { node_id: 'def-456' } },
+    'add_blueprint_variable': { status: 'success', result: { success: true } },
+    'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
+    'add_blueprint_get_self_component_reference': { status: 'success', result: { node_id: 'jkl-012' } },
+    'connect_blueprint_nodes': { status: 'success', result: { success: true } },
+    'find_blueprint_nodes': { status: 'success', result: { nodes: [] } },
+    'create_blueprint': { status: 'success', result: { path: '/Game/Blueprints/MyBP' } },
+    'set_component_property': { status: 'success', result: { success: true } },
+    'compile_blueprint': { status: 'success', result: { success: true } },
+    'set_blueprint_property': { status: 'success', result: { success: true } },
+  };
+
+  for (const [name, resp] of Object.entries(wireNames)) {
+    fake.on(name, resp);
+  }
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('add_component', { blueprint_name: 'BP', component_type: 'StaticMesh', component_name: 'Mesh' }, cm);
+  t.assert(fake.lastCall('add_component_to_blueprint') !== undefined, 'add_component -> add_component_to_blueprint');
+
+  await executeBlueprintsWriteTool('set_static_mesh_props', { blueprint_name: 'BP', component_name: 'Mesh' }, cm);
+  t.assert(fake.lastCall('set_static_mesh_properties') !== undefined, 'set_static_mesh_props -> set_static_mesh_properties');
+
+  await executeBlueprintsWriteTool('set_physics_props', { blueprint_name: 'BP', component_name: 'Mesh' }, cm);
+  t.assert(fake.lastCall('set_physics_properties') !== undefined, 'set_physics_props -> set_physics_properties');
+
+  await executeBlueprintsWriteTool('set_pawn_props', { blueprint_name: 'BP' }, cm);
+  t.assert(fake.lastCall('set_pawn_properties') !== undefined, 'set_pawn_props -> set_pawn_properties');
+
+  await executeBlueprintsWriteTool('add_event_node', { blueprint_name: 'BP', event_name: 'ReceiveBeginPlay' }, cm);
+  t.assert(fake.lastCall('add_blueprint_event_node') !== undefined, 'add_event_node -> add_blueprint_event_node');
+
+  await executeBlueprintsWriteTool('add_function_node', { blueprint_name: 'BP', function_name: 'PrintString' }, cm);
+  t.assert(fake.lastCall('add_blueprint_function_node') !== undefined, 'add_function_node -> add_blueprint_function_node');
+
+  await executeBlueprintsWriteTool('add_variable', { blueprint_name: 'BP', variable_name: 'Speed', variable_type: 'Float' }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable') !== undefined, 'add_variable -> add_blueprint_variable');
+
+  await executeBlueprintsWriteTool('add_self_reference', { blueprint_name: 'BP' }, cm);
+  t.assert(fake.lastCall('add_blueprint_self_reference') !== undefined, 'add_self_reference -> add_blueprint_self_reference');
+
+  await executeBlueprintsWriteTool('add_component_reference', { blueprint_name: 'BP', component_name: 'Mesh' }, cm);
+  t.assert(fake.lastCall('add_blueprint_get_self_component_reference') !== undefined, 'add_component_reference -> add_blueprint_get_self_component_reference');
+
+  await executeBlueprintsWriteTool('connect_nodes', { blueprint_name: 'BP', source_node_id: 'a', target_node_id: 'b', source_pin: 'then', target_pin: 'execute' }, cm);
+  t.assert(fake.lastCall('connect_blueprint_nodes') !== undefined, 'connect_nodes -> connect_blueprint_nodes');
+
+  await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
+  t.assert(fake.lastCall('find_blueprint_nodes') !== undefined, 'find_nodes -> find_blueprint_nodes');
+
+  await executeBlueprintsWriteTool('create_blueprint', { name: 'MyBP' }, cm);
+  t.assert(fake.lastCall('create_blueprint') !== undefined, 'create_blueprint is identity-mapped');
+
+  await executeBlueprintsWriteTool('set_component_property', { blueprint_name: 'BP', component_name: 'Mesh', property_name: 'Mobility', property_value: 'Movable' }, cm);
+  t.assert(fake.lastCall('set_component_property') !== undefined, 'set_component_property is identity-mapped');
+
+  await executeBlueprintsWriteTool('compile_blueprint', { blueprint_name: 'BP' }, cm);
+  t.assert(fake.lastCall('compile_blueprint') !== undefined, 'compile_blueprint is identity-mapped');
+
+  await executeBlueprintsWriteTool('set_blueprint_property', { blueprint_name: 'BP', property_name: 'bCanBeDamaged', property_value: false }, cm);
+  t.assert(fake.lastCall('set_blueprint_property') !== undefined, 'set_blueprint_property is identity-mapped');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 14: Blueprints-write — param pass-through
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_component_to_blueprint', { status: 'success', result: { success: true } });
+  fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'n1' } });
+  fake.on('connect_blueprint_nodes', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('add_component', {
+    blueprint_name: 'BP_Car', component_type: 'StaticMeshComponent',
+    component_name: 'Body', location: [0, 0, 50], scale: [2, 2, 2],
+  }, cm);
+  const addCompCall = fake.lastCall('add_component_to_blueprint');
+  t.assert(addCompCall.params.blueprint_name === 'BP_Car', 'add_component: blueprint_name passed');
+  t.assert(addCompCall.params.component_type === 'StaticMeshComponent', 'add_component: component_type passed');
+  t.assert(addCompCall.params.component_name === 'Body', 'add_component: component_name passed');
+  t.assert(JSON.stringify(addCompCall.params.location) === '[0,0,50]', 'add_component: location vector passed');
+  t.assert(JSON.stringify(addCompCall.params.scale) === '[2,2,2]', 'add_component: scale vector passed');
+
+  await executeBlueprintsWriteTool('add_function_node', {
+    blueprint_name: 'BP_Test', function_name: 'PrintString',
+    target: 'KismetSystemLibrary', params: { InString: 'Hello' },
+  }, cm);
+  const fnCall = fake.lastCall('add_blueprint_function_node');
+  t.assert(fnCall.params.target === 'KismetSystemLibrary', 'add_function_node: target passed');
+  t.assert(fnCall.params.params.InString === 'Hello', 'add_function_node: nested params object passed');
+
+  await executeBlueprintsWriteTool('connect_nodes', {
+    blueprint_name: 'BP_Test', source_node_id: 'guid-1', target_node_id: 'guid-2',
+    source_pin: 'then', target_pin: 'execute',
+  }, cm);
+  const connCall = fake.lastCall('connect_blueprint_nodes');
+  t.assert(connCall.params.source_node_id === 'guid-1', 'connect_nodes: source_node_id passed');
+  t.assert(connCall.params.target_pin === 'execute', 'connect_nodes: target_pin passed');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 15: Blueprints-write — caching (find_nodes = read, others = write)
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 15: Blueprints-write Caching ──');
+
+{
+  let callCount = 0;
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('find_blueprint_nodes', () => { callCount++; return { status: 'success', result: { nodes: [] } }; });
+  fake.on('create_blueprint', () => { callCount++; return { status: 'success', result: { path: '/Game/Blueprints/BP' } }; });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  callCount = 0;
+  await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
+  await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
+  t.assert(callCount === 1, 'find_nodes (read op) is cached — second call skips TCP');
+
+  callCount = 0;
+  await executeBlueprintsWriteTool('create_blueprint', { name: 'BP1' }, cm);
+  await executeBlueprintsWriteTool('create_blueprint', { name: 'BP1' }, cm);
+  t.assert(callCount === 2, 'create_blueprint (write op) skips cache — both calls hit TCP');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 16: Blueprints-write — port routing
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 16: Blueprints-write Port Routing ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_component_to_blueprint', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('add_component', { blueprint_name: 'BP', component_type: 'SM', component_name: 'M' }, cm);
+  const call = fake.lastCall('add_component_to_blueprint');
+  t.assert(call.port === 55557, 'Blueprints-write tools route to port 55557');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 17: Widgets — tool definitions
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 17: Widgets Tool Definitions ──');
+
+{
+  const defs = getWidgetsToolDefs();
+  const expectedWidgetTools = [
+    'create_widget', 'add_text_block', 'add_button',
+    'bind_widget_event', 'set_text_block_binding',
+    'add_widget_to_viewport', 'add_input_action_node',
+  ];
+
+  t.assert(Object.keys(defs).length === 7, '7 widgets tools defined');
+
+  for (const name of expectedWidgetTools) {
+    t.assert(defs[name] !== undefined, `Widget tool "${name}" is defined`);
+    t.assert(typeof defs[name].description === 'string' && defs[name].description.length > 0,
+      `Widget tool "${name}" has a non-empty description`);
+    t.assert(typeof defs[name].schema === 'object', `Widget tool "${name}" has a schema object`);
+    t.assert(typeof defs[name].isReadOp === 'boolean', `Widget tool "${name}" has isReadOp flag`);
+  }
+
+  for (const name of expectedWidgetTools) {
+    t.assert(defs[name].isReadOp === false, `Widget tool "${name}" is a write op`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 18: Widgets — name translation
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 18: Widgets Name Translation ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const wireNames = {
+    'create_umg_widget_blueprint': { status: 'success', result: { path: '/Game/Widgets/MyWidget' } },
+    'add_text_block_to_widget': { status: 'success', result: { success: true } },
+    'add_button_to_widget': { status: 'success', result: { success: true } },
+    'add_blueprint_input_action_node': { status: 'success', result: { node_id: 'n1' } },
+    'bind_widget_event': { status: 'success', result: { success: true } },
+    'set_text_block_binding': { status: 'success', result: { success: true } },
+    'add_widget_to_viewport': { status: 'success', result: { class_path: '/Game/Widgets/MyWidget.MyWidget_C' } },
+  };
+
+  for (const [name, resp] of Object.entries(wireNames)) {
+    fake.on(name, resp);
+  }
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('create_widget', { name: 'MyWidget' }, cm);
+  t.assert(fake.lastCall('create_umg_widget_blueprint') !== undefined, 'create_widget -> create_umg_widget_blueprint');
+
+  await executeWidgetsTool('add_text_block', { blueprint_name: 'W', widget_name: 'Title', text: 'Hello' }, cm);
+  t.assert(fake.lastCall('add_text_block_to_widget') !== undefined, 'add_text_block -> add_text_block_to_widget');
+
+  await executeWidgetsTool('add_button', { blueprint_name: 'W', widget_name: 'Btn', text: 'Click' }, cm);
+  t.assert(fake.lastCall('add_button_to_widget') !== undefined, 'add_button -> add_button_to_widget');
+
+  await executeWidgetsTool('add_input_action_node', { blueprint_name: 'W', action_name: 'Jump' }, cm);
+  t.assert(fake.lastCall('add_blueprint_input_action_node') !== undefined, 'add_input_action_node -> add_blueprint_input_action_node');
+
+  await executeWidgetsTool('bind_widget_event', { blueprint_name: 'W', widget_name: 'Btn', event_name: 'OnClicked' }, cm);
+  t.assert(fake.lastCall('bind_widget_event') !== undefined, 'bind_widget_event is identity-mapped');
+
+  await executeWidgetsTool('set_text_block_binding', { blueprint_name: 'W', widget_name: 'Title', binding_name: 'ScoreText' }, cm);
+  t.assert(fake.lastCall('set_text_block_binding') !== undefined, 'set_text_block_binding is identity-mapped');
+
+  await executeWidgetsTool('add_widget_to_viewport', { blueprint_name: 'W' }, cm);
+  t.assert(fake.lastCall('add_widget_to_viewport') !== undefined, 'add_widget_to_viewport is identity-mapped');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 19: Widgets — param pass-through
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 19: Widgets Param Pass-through ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_button_to_widget', { status: 'success', result: { success: true } });
+  fake.on('add_widget_to_viewport', { status: 'success', result: { class_path: '/Game/Widgets/W.W_C' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('add_button', {
+    blueprint_name: 'HUD', widget_name: 'StartBtn', text: 'Start Game', position: [100, 200],
+  }, cm);
+  const btnCall = fake.lastCall('add_button_to_widget');
+  t.assert(btnCall.params.blueprint_name === 'HUD', 'add_button: blueprint_name passed');
+  t.assert(btnCall.params.text === 'Start Game', 'add_button: text passed');
+  t.assert(JSON.stringify(btnCall.params.position) === '[100,200]', 'add_button: position vector passed');
+
+  await executeWidgetsTool('add_widget_to_viewport', { blueprint_name: 'HUD', z_order: 5 }, cm);
+  const vpCall = fake.lastCall('add_widget_to_viewport');
+  t.assert(vpCall.params.z_order === 5, 'add_widget_to_viewport: z_order passed');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 20: Widgets — port routing
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 20: Widgets Port Routing ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_umg_widget_blueprint', { status: 'success', result: { path: '/Game/Widgets/W' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('create_widget', { name: 'W' }, cm);
+  const call = fake.lastCall('create_umg_widget_blueprint');
+  t.assert(call.port === 55557, 'Widgets tools route to port 55557');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 21: initTcpTools — wire_type map building
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 21: initTcpTools Wire Map Building ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_component', { status: 'success', result: { success: true } });
+
+  initTcpTools({ toolsets: {} });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('add_component', { blueprint_name: 'BP', component_type: 'SM', component_name: 'M' }, cm);
+  t.assert(fake.lastCall('add_component') !== undefined,
+    'With empty wire map, tool name is used as-is (identity fallback)');
+
+  initTcpTools(fakeToolsYaml);
 }
 
 // ═══════════════════════════════════════════════════════════════

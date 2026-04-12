@@ -223,6 +223,14 @@ export class ToolsetManager {
   }
 
   /**
+   * Get the raw parsed tools.yaml data (for wire_type map building, etc.).
+   * @returns {object|null}
+   */
+  getToolsData() {
+    return this._toolsData;
+  }
+
+  /**
    * Get the set of currently enabled toolset names.
    * @returns {string[]}
    */
