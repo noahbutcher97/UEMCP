@@ -67,14 +67,68 @@ const SERVER_INSTRUCTIONS = [
 // WORKFLOW_TIPS array with query-intent matching via find_tools.
 
 const TOOLSET_TIPS = {
-  // Phase 2+ toolsets add entries here. Example shape:
-  //
-  // 'blueprint-read': {
-  //   core: 'get_blueprint_info returns overview without loading full graph. ...',
-  //   workflows: [
-  //     { requires: ['offline'], tip: 'Use search_source to find C++ base classes behind Blueprint subclasses.' },
-  //   ],
-  // },
+
+  'actors': {
+    core: [
+      'spawn_actor supports only 5 types: StaticMeshActor, PointLight, SpotLight, DirectionalLight, CameraActor.',
+      'Actor names are exact-match lookups (case-sensitive). Use find_actors(pattern) for substring search, get_actors() for full list.',
+      'set_actor_property supports bool/int/float/string/enum only — no Vector, Rotator, or struct types. Use set_actor_transform for position/rotation/scale.',
+      'focus_viewport needs either target (actor name) OR location — not both. Camera offsets on X axis at the given distance.',
+      'spawn_blueprint_actor looks up blueprints under /Game/Blueprints/ only — pass just the asset name, not a full path.',
+      'take_screenshot saves to the editor machine filesystem. For inline base64, use get_viewport_screenshot (visual-capture toolset).',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['blueprints-write'],
+        tip: 'Typical actor workflow: create_blueprint → add_component → set_component_property → compile_blueprint → spawn_blueprint_actor. Always compile before spawning.',
+      },
+      {
+        requires: ['offline'],
+        tip: 'Use search_source to find C++ class names behind actors, then get_actor_properties to inspect instances in the level.',
+      },
+    ],
+  },
+
+  'blueprints-write': {
+    core: [
+      'All blueprint commands use name-only lookup under /Game/Blueprints/ — pass "MyBP", not "/Game/Blueprints/MyBP".',
+      'add_component auto-compiles the blueprint. Other mutations (set_component_property, set_blueprint_property) do NOT — call compile_blueprint explicitly.',
+      'compile_blueprint always returns compiled:true even if there are compile errors — no error output in response.',
+      'set_pawn_props returns per-property results — partial success is possible. Check the results object.',
+      'Node graph commands return node GUIDs. Use connect_nodes with source/target GUIDs + pin names to wire them together.',
+      'find_nodes currently supports only node_type="Event". Other types are not yet searchable.',
+      'add_function_node has complex resolution: specify target class (e.g., "GameplayStatics") to find library functions, or omit for BP-local functions.',
+      'add_variable supports only 5 types: Boolean, Integer/Int, Float, String, Vector.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['actors'],
+        tip: 'After modifying a blueprint (add_component, set_component_property, etc.), compile_blueprint then re-spawn_blueprint_actor to see changes in the level.',
+      },
+      {
+        requires: ['offline'],
+        tip: 'Use search_source to find C++ base class signatures before adding function/event nodes. Confirm event names match exactly (e.g., ReceiveBeginPlay, not BeginPlay).',
+      },
+    ],
+  },
+
+  'widgets': {
+    core: [
+      'Widget blueprints live under /Game/Widgets/ (not /Game/Blueprints/). Pass name only.',
+      'create_widget auto-adds a root CanvasPanel. add_text_block and add_button require this root — they fail if the root is not a CanvasPanel.',
+      'add_button creates a child TextBlock named <widget_name>_Text automatically.',
+      'WARNING: add_widget_to_viewport is a NO-OP — it returns the widget class path but does NOT add to viewport. Use Blueprint nodes (CreateWidget + AddToViewport) instead.',
+      'WARNING: set_text_block_binding has a broken pin connection (exec→data). The binding will not work at runtime.',
+      'bind_widget_event checks for existing events first — safe to call multiple times without creating duplicates.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['blueprints-write'],
+        tip: 'add_input_action_node (in this toolset) uses legacy Input Actions, NOT Enhanced Input. For Enhanced Input, use the input-and-pie toolset instead.',
+      },
+    ],
+  },
+
 };
 
 /**

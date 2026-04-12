@@ -17,6 +17,7 @@
 | `tools/list_changed` not supported by client | Claude doesn't see newly enabled tools | Fallback: `find_tools` response includes full tool schemas for matches, usable even if client ignores notification. Document which MCP clients support dynamic tool lists. |
 | Toolset auto-enable confusion | Claude enables too many toolsets, approaching tool limit | `list_toolsets` shows active count and warns when approaching 40-tool threshold. `disable_toolset` available. `find_tools` caps auto-enable at top 3 matching toolsets per query. |
 | Alias map gaps | `find_tools` misses obvious queries | Ship with conservative alias set (18 entries). Expand per-project in Phase 6 step 41. Alias map is a flat JS Map — trivial to add entries without code changes. |
+| D24 ad-hoc error detection fragile | UMG handler adds extra field to error response → false negative (error looks like success) | Current guard checks `resultKeys.length === 1`. All 18 UMG error sites return `{error: "msg"}` only — safe today. Phase 3 fix: normalize error format in C++ plugin (use CommonUtils::CreateErrorResponse consistently). If relaxing the JS guard, risk false positives on legitimate responses with informational `error` fields. |
 | Base64 image exceeds stdio limit | `visual-capture` tools crash server | Enforce max resolution cap (1024×1024 default). JPEG fallback for screenshots. Warn in tool description about ~1MB stdio payload limit. |
 
 ### Audit-Discovered Risks (April 2026)
