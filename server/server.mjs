@@ -16,6 +16,7 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
+import { getActorsToolDefs, executeActorsTool } from './tcp-tools.mjs';
 
 // ── Config from environment (.mcp.json env block) ──────────────────
 
@@ -465,6 +466,48 @@ for (const [name, def] of Object.entries(offlineToolDefs)) {
   // Register the SDK handle so ToolsetManager can toggle visibility.
   // Tools start disabled; ToolsetManager.load() enables the offline
   // toolset if its layer is available.
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
+}
+
+// ── Register actors tools (TCP:55557) ─────────────────────────────
+// Phase 2: actors toolset — 10 tools that talk to the existing UnrealMCP plugin.
+// Same pattern as offline tools: capture handle, start disabled, register with ToolsetManager.
+
+const actorsToolDefs = getActorsToolDefs();
+
+for (const [name, def] of Object.entries(actorsToolDefs)) {
+  const schema = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    schema[paramName] = zodField;
+  }
+
+  const handle = server.tool(
+    name,
+    def.description,
+    schema,
+    async (args, ctx) => {
+      try {
+        log('info', `Executing actors tool: ${name}`);
+        const result = await executeActorsTool(name, args, connectionManager);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error in ${name}: ${err.message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   handle.disable();
   toolsetManager.registerToolHandle(name, handle);
 }

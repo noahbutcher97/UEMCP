@@ -267,10 +267,36 @@ export class ConnectionManager {
         throw new Error(`Unknown layer: ${layerKey}`);
       }
 
-      // Normalize error responses (two formats exist — see tcp-protocol.md)
-      if (result && (result.status === 'error' || result.success === false)) {
+      // Normalize error responses (three formats exist — see conformance-oracle-contracts.md)
+      //
+      //   Format 1 (Bridge envelope): { status: "error", error: "msg" }
+      //     → Bridge detected the handler error and rewrapped it
+      //   Format 2 (CommonUtils):     { success: false, error: "msg" }
+      //     → Bridge detects success:false and converts to Format 1
+      //   Format 3 (UMG ad-hoc):      { error: "msg" } (no success field)
+      //     → Bridge does NOT detect this — it wraps as:
+      //       { status: "success", result: { error: "msg" } }
+      //
+      // Format 1 & 2 are caught by the first two checks.
+      // Format 3 arrives as a "success" with error buried in result.
+      // We detect it by checking: status is "success", result is an object with
+      // ONLY an "error" field and no other data fields.
+      if (result && (
+        result.status === 'error' ||
+        result.success === false
+      )) {
         const msg = result.error || result.message || 'Unknown error from Unreal';
         throw new Error(`${layerKey}: ${msg}`);
+      }
+
+      // Format 3: ad-hoc error wrapped by Bridge as success
+      // { status: "success", result: { error: "msg" } } where result has no other keys
+      if (result && result.status === 'success' && result.result &&
+          typeof result.result === 'object' && typeof result.result.error === 'string') {
+        const resultKeys = Object.keys(result.result);
+        if (resultKeys.length === 1 && resultKeys[0] === 'error') {
+          throw new Error(`${layerKey}: ${result.result.error}`);
+        }
       }
 
       // Cache successful results
