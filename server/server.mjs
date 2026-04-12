@@ -36,13 +36,67 @@ const config = Object.freeze({
 // See docs/risks-and-decisions.md D20 for context.
 
 const SERVER_INSTRUCTIONS = [
-  'This server provides Unreal Engine tools organized into dynamic toolsets.',
-  'Only 6 management tools are visible by default — use find_tools with a keyword query to discover capabilities and auto-enable relevant toolsets.',
-  'Use list_toolsets for a full overview of available toolsets, their required layers, and enabled state.',
-  'When switching tasks, call disable_toolset to free context by hiding toolsets you no longer need.',
-  'Some toolsets require the Unreal Editor to be running (TCP layers); others work offline against project files.',
-  'Call connection_info to check which layers are connected and detect_project to identify the active project.',
+  'Unreal Engine project tools organized into dynamic toolsets.',
+  'Call find_tools(query) to discover and auto-enable relevant toolsets.',
+  'Disable unneeded toolsets to free context.',
+  'Some toolsets require the editor; offline tools work against project files on disk.',
+  // Offline toolset is always-on, so its key constraints live here:
+  'Offline constraints: search_source → read_source_file (50 match cap, regex, .h/.cpp/.cs/.ini/.txt/.md only).',
+  'list_config_values is progressive: () → files, (file) → sections, (file, section, key) → values.',
+  'search_gameplay_tags globs: * = one level, ** = across levels.',
 ].join(' ');
+
+// ── Per-toolset tips ──────────────────────────────────────────
+// Delivered in enable_toolset and find_tools responses when a toolset
+// is newly activated. These cover cross-tool workflows and constraints
+// that individual tool descriptions can't convey.
+//
+// Structure:
+//   core:      string — tips for this toolset in isolation
+//   workflows: array  — cross-toolset tips, each with requires[]
+//                        (only delivered when all required toolsets are active)
+//
+// Offline tips live in SERVER_INSTRUCTIONS instead (always-on toolset).
+// Future upgrade path (D): extract all workflows[] entries into a flat
+// WORKFLOW_TIPS array with query-intent matching via find_tools.
+
+const TOOLSET_TIPS = {
+  // Phase 2+ toolsets add entries here. Example shape:
+  //
+  // 'blueprint-read': {
+  //   core: 'get_blueprint_info returns overview without loading full graph. ...',
+  //   workflows: [
+  //     { requires: ['offline'], tip: 'Use search_source to find C++ base classes behind Blueprint subclasses.' },
+  //   ],
+  // },
+};
+
+/**
+ * Collect tips for newly enabled toolsets.
+ * Returns formatted tip strings ready to include in MCP response content.
+ * @param {string[]} newlyEnabled — toolset names just activated
+ * @param {Set<string>} allEnabled — full set of currently enabled toolsets (including newlyEnabled)
+ * @returns {string[]}
+ */
+function collectTips(newlyEnabled, allEnabled) {
+  const tips = [];
+  for (const name of newlyEnabled) {
+    const entry = TOOLSET_TIPS[name];
+    if (!entry) continue;
+
+    const parts = [];
+    if (entry.core) parts.push(entry.core);
+    if (entry.workflows) {
+      for (const wf of entry.workflows) {
+        if (wf.requires.every(r => allEnabled.has(r))) {
+          parts.push(wf.tip);
+        }
+      }
+    }
+    if (parts.length > 0) tips.push(`[${name}] ${parts.join(' ')}`);
+  }
+  return tips;
+}
 
 // ── Create MCP server ──────────────────────────────────────────────
 
@@ -156,28 +210,37 @@ server.tool(
 
     // Auto-enable toolsets that contain matching tools
     const toolsetNames = [...new Set(results.map(r => r.toolsetName).filter(n => n !== 'management'))];
+    const previouslyEnabled = new Set(toolsetManager.getEnabledNames());
     if (toolsetNames.length > 0) {
-      const enableResult = await toolsetManager.autoEnable(toolsetNames);
+      await toolsetManager.autoEnable(toolsetNames);
       log('info', `Auto-enabled toolsets: ${toolsetNames.join(', ')}`);
     }
 
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          query,
-          resultCount: results.length,
-          results: results.map(r => ({
-            tool: r.toolName,
-            toolset: r.toolsetName,
-            description: r.description,
-            layer: r.layer,
-            score: r.score,
-          })),
-          autoEnabled: toolsetNames,
-        }, null, 2),
-      }],
-    };
+    // Collect tips for newly enabled toolsets (not already enabled before this call)
+    const newlyEnabled = toolsetNames.filter(n => !previouslyEnabled.has(n));
+    const allEnabled = new Set(toolsetManager.getEnabledNames());
+    const tips = collectTips(newlyEnabled, allEnabled);
+
+    const content = [{
+      type: 'text',
+      text: JSON.stringify({
+        query,
+        resultCount: results.length,
+        results: results.map(r => ({
+          tool: r.toolName,
+          toolset: r.toolsetName,
+          description: r.description,
+          layer: r.layer,
+          score: r.score,
+        })),
+        autoEnabled: toolsetNames,
+      }, null, 2),
+    }];
+    if (tips.length > 0) {
+      content.push({ type: 'text', text: `Tips:\n${tips.join('\n')}` });
+    }
+
+    return { content };
   }
 );
 
@@ -217,12 +280,15 @@ server.tool(
     log('info', `Enabling toolsets: ${names.join(', ')}`);
     const result = await toolsetManager.enable(names);
 
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      }],
-    };
+    const allEnabled = new Set(toolsetManager.getEnabledNames());
+    const tips = collectTips(result.enabled, allEnabled);
+
+    const content = [{ type: 'text', text: JSON.stringify(result, null, 2) }];
+    if (tips.length > 0) {
+      content.push({ type: 'text', text: `Tips:\n${tips.join('\n')}` });
+    }
+
+    return { content };
   }
 );
 
