@@ -79,24 +79,25 @@ The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (rele
 
 Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-main\` — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin at `ProjectA\Plugins\NodeToCode-main\` is a separate BP-to-code tool, also not part of UEMCP.
 
-## Current State — Phase 2 In Progress
+## Current State — Phase 2 Complete (TCP Client)
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
 - 10 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `browse_content`, `get_asset_info`, `search_source`, `read_source_file`, `list_plugins`, `get_build_config`
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
-- ToolsetManager with SDK handle integration (`server/toolset-manager.mjs`)
+- ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, 154 total assertions passing
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, 263 total assertions passing
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
-- **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching, 75 test assertions
-- **tools.yaml fully populated**: all 120 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; 6 orphan handlers resolved into blueprints-write
+- **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
+- **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
+- **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
+- **tools.yaml fully populated**: all 120 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
+- **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
 
 ### What's NOT implemented yet:
-- TCP client for blueprints-write toolset (15 tools) — Phase 2 continuation
-- TCP client for widgets toolset (7 tools) — Phase 2 continuation
 - C++ editor plugin (Phase 3)
 - HTTP client for Remote Control API (Phase 4)
 - Distribution to ProjectB via P4 (Phase 5)
@@ -192,7 +193,7 @@ See `docs/audits/phase1-audit-2026-04-12.md` for the complete Phase 1 audit.
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-154 total assertions passing: 34 offline + 45 mock seam + 75 TCP actors tools.
+263 total assertions passing: 34 offline + 45 mock seam + 218 TCP tools (actors + blueprints-write + widgets).
 
 ### Test Files
 
@@ -200,7 +201,7 @@ Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by
 |------|---------|-------------|
 | `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, edge cases (34 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
-| `server/test-tcp-tools.mjs` | Phase 2 actors TCP tools: name translation, param stripping, 3 error formats, caching, port routing (75 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
+| `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (218 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 **Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
