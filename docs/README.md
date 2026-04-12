@@ -1,50 +1,66 @@
-# Unreal MCP Hybrid Server — Comprehensive Plan v2
+# UEMCP Documentation
 
-**Date**: 2026-04-11
-**Author**: Noah / Claude
-**Status**: DRAFT v2 — Updated with clarifications and expanded research
-**Supersedes**: `unreal-mcp-hybrid-plan.md` (v1)
-
-> **Source of truth for tool definitions**: [tools.yaml](../tools.yaml)
-> All tool names, descriptions, toolset membership, layers, priorities, and param stubs are defined there. Markdown files reference it instead of duplicating tables.
+**Source of truth for tool definitions**: [tools.yaml](../tools.yaml)
 
 ---
 
-## Summary of Changes from v1
+## Directory Structure
 
-| Decision | v1 | v2 |
-|----------|----|----|
-| ProjectB feature parity | Open question | **Full parity** — both projects get everything |
-| Existing C++ plugin | Left untouched | **Still untouched** — new custom plugin alongside it |
-| Python MCP server files | Open question | **Leave as-is** in Perforce — new server is separate |
-| Multi-project routing | Static port config | **Auto-detection** via process inspection + fallback chain |
-| RC Components plugin | Open question | **Yes, enable** in both projects |
-| Additional UE5 plugins | Not researched | **Researched** — recommendations below |
-| New C++ plugin | Not in scope | **In scope** — separate plugin on port 55558 |
-| Implementation order | 5 phases | **6 phases** (added C++ plugin phase) |
-
----
-
-## Table of Contents
-
-| File | Covers | Description |
-|------|--------|-------------|
-| [tools.yaml](../tools.yaml) | Tool definitions | **Single source of truth** — 6 management tools + 15 toolsets (108 tools) = 114 total. Includes aliases, params stubs, layer assignments, priorities. |
-| [architecture.md](architecture.md) | Architecture & Auto-Detection | Problem statement, 4-layer architecture diagram, design decisions D1-D6, auto-detection chain, caching strategy. |
-| [plugin-design.md](plugin-design.md) | UE5 Plugins & C++ Plugin | Recommended editor plugins (RC, Python, Geometry Script), custom UEMCP C++ plugin design, TCP protocol, command routing. |
-| [dynamic-toolsets.md](dynamic-toolsets.md) | Dynamic Toolset Design | Why dynamic toolsets, always-loaded tools, toolset registry, ToolIndex search algorithm, scoring tiers, alias expansion, typical workflows. |
-| [tool-surface.md](tool-surface.md) | Tool Surface Area | Lightweight summary pointing to tools.yaml. Quick-reference count table, notes on existing plugin tools. |
-| [blueprint-introspection.md](blueprint-introspection.md) | Blueprint Introspection & Visual Capture | NodeToCode comparison, serialization design for all graph types (AnimBP, Widget, Material), visual capture architecture. Largest file. |
-| [implementation.md](implementation.md) | File Changes & Phases | New/modified file manifest, 6-phase implementation sequence with step-by-step instructions. |
-| [configuration.md](configuration.md) | Configuration & Connection | `.mcp.json` configs for both projects, environment variables, ConnectionManager class design, health check caching. |
-| [risks-and-decisions.md](risks-and-decisions.md) | Risks, Future & Decisions | Risk analysis table (21 rows), future enhancement ideas, decision log D1-D13. |
-
----
+```
+docs/
+├── README.md              ← you are here
+├── specs/                 — what the system IS (architecture, protocols, design)
+│   ├── architecture.md        4-layer architecture, design decisions D1-D6, auto-detection
+│   ├── blueprint-introspection.md  Graph serialization, NodeToCode comparison, visual capture
+│   ├── configuration.md       .mcp.json configs, env vars, ConnectionManager design
+│   ├── dynamic-toolsets.md    ToolIndex search algorithm, scoring tiers, alias expansion
+│   ├── plugin-design.md       UE5 plugins, custom C++ plugin, TCP protocol, command routing
+│   ├── tcp-protocol.md        Wire format, command/response schema, connection lifecycle
+│   └── tool-surface.md        Tool count summary, toolset registry (points to tools.yaml)
+├── plans/                 — what we're DOING (phases, testing)
+│   ├── implementation.md      6-phase build sequence with step-by-step instructions
+│   └── testing-strategy.md    Test cases 1-43 organized by phase
+├── audits/                — what we FOUND (point-in-time snapshots, never edited after)
+│   └── (audit reports go here)
+└── tracking/              — living state (updated continuously across sessions)
+    └── risks-and-decisions.md  Risk table, decision log D1-D23, future enhancements
+```
 
 ## Reading Order
 
-For **first read**: architecture.md -> plugin-design.md -> dynamic-toolsets.md -> tools.yaml -> implementation.md
+**First read**: specs/architecture.md → specs/plugin-design.md → specs/dynamic-toolsets.md → tools.yaml → plans/implementation.md
 
-For **quick reference**: tools.yaml (tool lookup) -> dynamic-toolsets.md (how search works) -> risks-and-decisions.md (decision rationale)
+**Quick reference**: tools.yaml (tool lookup) → specs/dynamic-toolsets.md (search algorithm) → tracking/risks-and-decisions.md (decision rationale)
 
-For **implementation**: implementation.md (phases) -> configuration.md (setup) -> plugin-design.md (C++ details) -> blueprint-introspection.md (serialization specs)
+**Implementation**: plans/implementation.md (phases) → specs/configuration.md (setup) → specs/plugin-design.md (C++ details) → specs/blueprint-introspection.md (serialization)
+
+## File Index
+
+### specs/ — System Design
+
+| File | Covers |
+|------|--------|
+| [architecture.md](specs/architecture.md) | Problem statement, 4-layer architecture diagram, design decisions D1-D6, auto-detection chain, caching strategy |
+| [plugin-design.md](specs/plugin-design.md) | Recommended editor plugins (RC, Python, Geometry Script), custom UEMCP C++ plugin design, TCP protocol, command routing |
+| [dynamic-toolsets.md](specs/dynamic-toolsets.md) | Why dynamic toolsets, always-loaded tools, toolset registry, ToolIndex search algorithm, scoring tiers, alias expansion, typical workflows |
+| [tool-surface.md](specs/tool-surface.md) | Lightweight summary pointing to tools.yaml. Quick-reference count table, notes on existing plugin tools |
+| [blueprint-introspection.md](specs/blueprint-introspection.md) | NodeToCode comparison, serialization design for all graph types (AnimBP, Widget, Material), visual capture architecture |
+| [configuration.md](specs/configuration.md) | `.mcp.json` configs for both projects, environment variables, ConnectionManager class design, health check caching |
+| [tcp-protocol.md](specs/tcp-protocol.md) | Wire format, command/response schema, connection lifecycle, error handling |
+
+### plans/ — Implementation
+
+| File | Covers |
+|------|--------|
+| [implementation.md](plans/implementation.md) | New/modified file manifest, 6-phase implementation sequence with step-by-step instructions |
+| [testing-strategy.md](plans/testing-strategy.md) | Phase-by-phase test cases (Tests 1-43), acceptance criteria |
+
+### audits/ — Point-in-Time Reports
+
+Audit reports are snapshots — they record what was found at a specific time and are never edited after creation.
+
+### tracking/ — Living Documents
+
+| File | Covers |
+|------|--------|
+| [risks-and-decisions.md](tracking/risks-and-decisions.md) | Risk analysis table (20+ rows), audit-discovered risks with dispositions, UE5 API verification, future enhancements (17 items), decision log D1-D23 |

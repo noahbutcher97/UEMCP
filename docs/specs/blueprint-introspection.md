@@ -1,6 +1,6 @@
 # Blueprint Introspection Design
 
-> Source of truth for tool definitions: [tools.yaml](../tools.yaml)
+> Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 
 ### Why This Section Exists
 
@@ -769,5 +769,4 @@ async function budgetImage(pngBuffer, tool, userMaxWidth) {
 - Prefer text introspection + single thumbnail over multiple high-res captures
 - When reviewing multiple assets, use batch thumbnails rather than individual preview renders
 
----
-
+--

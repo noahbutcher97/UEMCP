@@ -1,6 +1,6 @@
 # Tool Surface
 
-> **This section is fully defined in [tools.yaml](../tools.yaml).**
+> **This section is fully defined in [tools.yaml](../../tools.yaml).**
 > All tool names, descriptions, toolset membership, layer assignments, and parameter stubs live there.
 > The YAML is the single source of truth — do not duplicate tool tables in markdown.
 
@@ -34,4 +34,4 @@ Tool counts are derived from `tools.yaml` — never hardcode them in documentati
 | `add_widget_to_viewport` | Show widget in game viewport |
 | `add_input_action_node` | Add input action event node (shared with blueprint editing) |
 
-**Not carried forward to UEMCP**: `create_input_mapping` (legacy input system — handler still exists in UnrealMCP source but superseded by `create_input_action` + `create_mapping_context` in UEMCP's `input-and-pie` toolset). The existing plugin retains it for backward compatibility; UEMCP does not expose it.
+**Not carried forward to UEMCP**: `create_input_mapping` (legacy input system — handler still exists in UnrealMCP source but superseded by `create_input_action` + `creat

@@ -1,6 +1,6 @@
 # UE5 Plugin Design
 
-> Source of truth for tool definitions: [tools.yaml](../tools.yaml)
+> Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 
 ## UE5 Plugin Recommendations
 

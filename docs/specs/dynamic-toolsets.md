@@ -1,6 +1,6 @@
 # Dynamic Toolset Design
 
-> Source of truth for tool definitions: [tools.yaml](../tools.yaml)
+> Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 > Toolset registry, tool counts, and alias map are defined in tools.yaml. This document covers the design rationale, search algorithm, and typical workflows.
 
 ## Why Dynamic Toolsets

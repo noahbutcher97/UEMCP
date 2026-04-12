@@ -1,6 +1,6 @@
 # Implementation Plan
 
-> Source of truth for tool definitions: [tools.yaml](../tools.yaml)
+> Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 > Handler filenames derived by convention: `UEMCP${PascalCase(toolsetName)}Commands.h/.cpp`
 
 ## File Changes
@@ -108,11 +108,11 @@
 ### Phase 2: TCP Layer — Existing Plugin (port 55557)
 
 **Build**:
-13. Implement TCP send/receive — see `docs/tcp-protocol.md` for exact wire format (field name is `type` not `command`, no newline on request, connect-per-command pattern)
+13. Implement TCP send/receive — see `docs/specs/tcp-protocol.md` for exact wire format (field name is `type` not `command`, no newline on request, connect-per-command pattern)
 14. **[AUDIT]** Basic reconnect-on-failure: if TCP send fails, mark layer disconnected, retry connect on next tool call. No backoff needed for localhost. (~1.5 hrs)
 15. Register 3 existing plugin toolsets with Zod schemas:
     - `actors` (10 tools)
-    - `blueprints-write` (9 tools + BP node tools — see `tool-surface.md` note on potential split)
+    - `blueprints-write` (9 tools + BP node tools — see `../specs/tool-surface.md` note on potential split)
     - `widgets` (7 tools)
 
 **Testing & Revision** (see `testing-strategy.md` Tests 9–13):
@@ -194,12 +194,12 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 31. Delete safety: asset with referencers refused, `force=true` overrides, referrer list returned
 32. TCP command queue: rapid sequential calls serialized correctly, no interleaving
 33. **Regression**: Re-run Phase 1 Tests 2–5, Phase 2 Tests 16–18 — three TCP layers must not interfere
-34. **Revision**: If any toolset consistently fails, check command dispatch routing in UEMCPSubsystem. If a UE API behaves differently than documented, note it in risks-and-decisions.md and adapt.
+34. **Revision**: If any toolset consistently fails, check command dispatch routing in UEMCPSubsystem. If a UE API behaves differently than documented, note it in ../tracking/risks-and-decisions.md and adapt.
 
 **Documentation**:
 35. Commit plugin code and Node.js toolset registrations
 36. For each toolset: verify tool descriptions in `tools.yaml` match actual behavior. Update descriptions if implementation revealed better wording.
-37. Document any UE API surprises in `docs/risks-and-decisions.md` (new "Implementation Notes" section)
+37. Document any UE API surprises in `docs/../tracking/risks-and-decisions.md` (new "Implementation Notes" section)
 
 **Outcome Analysis**:
 - Estimated time: ~4.5 hrs (audit) + implementation time
@@ -228,7 +228,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 
 **Documentation**:
 40. Commit HTTP client code
-41. If RC API required any workarounds (auth headers, non-standard endpoints), document in `docs/configuration.md` error behavior table
+41. If RC API required any workarounds (auth headers, non-standard endpoints), document in `../specs/configuration.md` error behavior table
 
 **Outcome Analysis**:
 - Estimated time: ~0.5 hrs (audit) + implementation time
@@ -260,7 +260,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 **Documentation**:
 48. Commit config changes and distribution script
 49. Document the final config (both `.mcp.json` files, `claude_desktop_config.json`) in a brief setup section so future-you can recreate it
-50. If any config values changed from plan (ports, env vars, key names), update `docs/configuration.md`
+50. If any config values changed from plan (ports, env vars, key names), update `../specs/configuration.md`
 
 **Outcome Analysis**:
 - Estimated time: ~1 hr (audit) + implementation time
@@ -299,7 +299,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 - Tools added that weren't in the original plan: ___
 - Biggest time sink: ___
 - What would you do differently: ___
-- Deferred items from risks-and-decisions.md that should be promoted to real work: ___
+- Deferred items from ../tracking/risks-and-decisions.md that should be promoted to real work: ___
 - Deferred items that confirmed YAGNI: ___
 
 ---
@@ -320,7 +320,7 @@ Estimates assume AI code generation for all implementation. Steps marked **[AUDI
 
 Testing and documentation steps add no significant hours — they're verification of work already done, not new implementation. The time cost is in *fixing* what the tests reveal.
 
-**Deferred items** (see risks-and-decisions.md D16): RC port discovery (~0.5 hrs if triggered), property type pre-validation, rate limiting, undo system. Total deferred: ~40+ raw hours of work that is unlikely to be needed for a solo dev on localhost.
+**Deferred items** (see ../tracking/risks-and-decisions.md D16): RC port discovery (~0.5 hrs if triggered), property type pre-validation, rate limiting, undo system. Total deferred: ~40+ raw hours of work that is unlikely to be needed for a solo dev on localhost.
 
 ---
 
