@@ -47,7 +47,7 @@ const SERVER_INSTRUCTIONS = [
   'Disable unneeded toolsets to free context.',
   'Some toolsets require the editor; offline tools work against project files on disk.',
   // Offline toolset is always-on, so its key constraints live here:
-  'Offline constraints: search_source → read_source_file (50 match cap, regex, .h/.cpp/.cs/.ini/.txt/.md only).',
+  'For source file reading use `Read`; for source search use `Grep`; for content tree browsing use `Glob`. UEMCP offline tools cover UE-specific parsing that native tools cannot do (gameplay tags, config drill-down, Target.cs parsing, binary asset registry).',
   'list_config_values is progressive: () → files, (file) → sections, (file, section, key) → values.',
   'search_gameplay_tags globs: * = one level, ** = across levels.',
 ].join(' ');
@@ -470,27 +470,26 @@ const offlineToolDefs = {
       key: { type: 'string', required: false, description: 'Key name to filter' },
     },
   },
-  browse_content: {
-    description: 'List content directories, filter by asset type (Blueprint, Material, etc.)',
-    params: {
-      path: { type: 'string', required: false, description: 'Subdirectory under Content/ (e.g., "GAS/Effects")' },
-      type_filter: { type: 'string', required: false, description: 'Filter by type: blueprint, material, texture, map' },
-    },
-  },
   get_asset_info: {
     description: 'Read .uasset metadata (type, size, class, references)',
     params: { asset_path: { type: 'string', required: true, description: 'Asset path (/Game/... or relative to project)' } },
   },
-  search_source: {
-    description: 'Grep project Source/ directory for patterns',
+  list_data_sources: {
+    description: 'Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs',
+    params: {},
+  },
+  read_datatable_source: {
+    description: 'Parse a DataTable source CSV with UE conventions (first column = row name). Optional row_struct_header introspects companion USTRUCT fields.',
     params: {
-      pattern: { type: 'string', required: true, description: 'Regex pattern to search for' },
-      file_filter: { type: 'string', required: false, description: 'Filter to files containing this string in name' },
+      file_path: { type: 'string', required: true, description: 'Project-relative path to .csv (e.g., Content/Data/Foo.csv)' },
+      row_struct_header: { type: 'string', required: false, description: 'Project-relative path to .h defining the FTableRowBase USTRUCT' },
     },
   },
-  read_source_file: {
-    description: 'Read a specific .h or .cpp file from Source/',
-    params: { file_path: { type: 'string', required: true, description: 'Relative path from project root (e.g., Source/ProjectA/Public/GAS/Abilities/GA_OSAttack.h)' } },
+  read_string_table_source: {
+    description: 'Parse a StringTable source CSV — returns namespace (if present), Key/SourceString/Comment entries',
+    params: {
+      file_path: { type: 'string', required: true, description: 'Project-relative path to the StringTable .csv' },
+    },
   },
   list_plugins: { description: 'List installed plugins with enabled/disabled status and version', params: {} },
   get_build_config: { description: 'Parse .Build.cs, .Target.cs — show module dependencies and build settings', params: {} },

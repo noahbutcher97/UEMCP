@@ -83,7 +83,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 10 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `browse_content`, `get_asset_info`, `search_source`, `read_source_file`, `list_plugins`, `get_build_config`
+- 10 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info`, `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config` (D31 dropped `browse_content`/`search_source`/`read_source_file` — use `Glob`/`Grep`/`Read` respectively)
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)

@@ -172,16 +172,6 @@ if (!PROJECT_ROOT) {
     assert(false, 'search_gameplay_tags', e.message);
   }
 
-  // search_source
-  try {
-    const src = await executeOfflineTool('search_source',
-      { pattern: 'AbilitySystemComponent', file_filter: '.h' }, PROJECT_ROOT);
-    assert(src && (src.matches?.length > 0 || src.length > 0),
-      'search_source finds AbilitySystemComponent in headers');
-  } catch (e) {
-    assert(false, 'search_source', e.message);
-  }
-
   // list_plugins
   try {
     const plugins = await executeOfflineTool('list_plugins', {}, PROJECT_ROOT);
@@ -192,13 +182,33 @@ if (!PROJECT_ROOT) {
     assert(false, 'list_plugins', e.message);
   }
 
-  // browse_content
+  // list_data_sources (D36: new tool)
   try {
-    const content = await executeOfflineTool('browse_content',
-      { path: '/' }, PROJECT_ROOT);
-    assert(content, 'browse_content returns content root');
+    const sources = await executeOfflineTool('list_data_sources', {}, PROJECT_ROOT);
+    assert(sources && typeof sources.fileCount === 'number' && Array.isArray(sources.entries),
+      'list_data_sources returns {fileCount, entries}');
   } catch (e) {
-    assert(false, 'browse_content', e.message);
+    assert(false, 'list_data_sources', e.message);
+  }
+
+  // read_datatable_source path traversal prevention
+  try {
+    await executeOfflineTool('read_datatable_source',
+      { file_path: '../../some/other/path.csv' }, PROJECT_ROOT);
+    assert(false, 'read_datatable_source path traversal should throw');
+  } catch (e) {
+    assert(e.message.includes('traversal') || e.message.includes('not allowed'),
+      `read_datatable_source path traversal blocked: "${e.message}"`);
+  }
+
+  // read_string_table_source requires .csv extension
+  try {
+    await executeOfflineTool('read_string_table_source',
+      { file_path: 'Content/foo.txt' }, PROJECT_ROOT);
+    assert(false, 'read_string_table_source non-csv should throw');
+  } catch (e) {
+    assert(e.message.includes('.csv') || e.message.includes('traversal') || e.message.includes('not allowed'),
+      `read_string_table_source rejects non-csv: "${e.message}"`);
   }
 
   // get_build_config
@@ -218,24 +228,15 @@ if (!PROJECT_ROOT) {
     assert(false, 'list_config_values', e.message);
   }
 
-  // read_source_file
-  try {
-    const src = await executeOfflineTool('read_source_file',
-      { file_path: 'Source/ProjectA/ProjectA.Build.cs' }, PROJECT_ROOT);
-    assert(src && JSON.stringify(src).includes('ProjectA'),
-      'read_source_file reads Build.cs');
-  } catch (e) {
-    assert(false, 'read_source_file', e.message);
-  }
-
-  // Path traversal prevention (C2 fix verification)
-  try {
-    await executeOfflineTool('read_source_file',
-      { file_path: '../../some/other/path' }, PROJECT_ROOT);
-    assert(false, 'path traversal should throw');
-  } catch (e) {
-    assert(e.message.includes('traversal') || e.message.includes('not allowed'),
-      `path traversal blocked: "${e.message}"`);
+  // Dropped tools are no longer routed (D31): browse_content, search_source, read_source_file
+  for (const dropped of ['browse_content', 'search_source', 'read_source_file']) {
+    try {
+      await executeOfflineTool(dropped, {}, PROJECT_ROOT);
+      assert(false, `${dropped} should be dropped (D31)`);
+    } catch (e) {
+      assert(e.message.includes('Unknown offline tool'),
+        `${dropped} dispatch removed (D31): "${e.message}"`);
+    }
   }
 }
 

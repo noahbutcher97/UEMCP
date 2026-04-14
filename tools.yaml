@@ -65,14 +65,20 @@ toolsets:
         description: Search tags by pattern (e.g., "Gameplay.State.*")
       list_config_values:
         description: Read any .ini config file, search for keys/sections
-      browse_content:
-        description: List content directories, filter by asset type (Blueprint, Material, etc.)
       get_asset_info:
         description: Read .uasset header metadata (type, size, class, references)
-      search_source:
-        description: Grep project Source/ directory for patterns
-      read_source_file:
-        description: Read a specific .h or .cpp file from Source/
+      list_data_sources:
+        description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
+        params: {}
+      read_datatable_source:
+        description: Parse a DataTable source CSV with UE conventions (first column = row name). Optional row_struct_header introspects companion USTRUCT fields.
+        params:
+          file_path:         { type: string, required: true, description: "Project-relative path to .csv (e.g., Content/Data/Foo.csv)" }
+          row_struct_header: { type: string, required: false, description: "Project-relative path to .h defining the FTableRowBase USTRUCT" }
+      read_string_table_source:
+        description: Parse a StringTable source CSV — returns namespace (if present), Key/SourceString/Comment entries
+        params:
+          file_path: { type: string, required: true, description: "Project-relative path to the StringTable .csv" }
       list_plugins:
         description: List installed plugins with enabled/disabled status and version
       get_build_config:

@@ -7,6 +7,96 @@
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 import { join, extname, basename, relative, resolve as pathResolve } from 'node:path';
 
+// ── Asset Header Cache (Option D: Hybrid TTL + mtime + write-suspicion) ─────
+//
+// The asset index is an in-memory map of parsed FAssetRegistryData blocks
+// extracted from .uasset headers. Bulk queries (find_blueprints_implementing_interface,
+// search_assets, get_asset_references) serve from this cache.
+//
+// Invalidation strategy (per D33, revised 2026-04-13):
+//   - TTL backstop: bulk queries trust cache if younger than BULK_TTL_MS
+//   - mtime diff: on TTL expiry, readdir + stat, re-parse only files where
+//     fs mtime > cached mtime
+//   - Write-suspicion flag: TCP write-ops (Phase 3) set indexDirty = true,
+//     forcing next bulk query to re-validate regardless of TTL
+//   - Pointed queries (inspect_blueprint /Game/Foo) always stat + re-parse if
+//     mtime newer — no TTL, no flag
+//
+// Why not fs.watch: Windows recursive watch is unreliable; UE atomic-renames
+// during save generate event storms. Stat-based diffing is O(changed-dirs),
+// runs in <1s even on 10k-asset projects.
+
+const BULK_TTL_MS = 60_000;
+
+/** @typedef {{ path: string, mtimeMs: number, sizeBytes: number, data: object }} AssetCacheEntry */
+
+export const assetCache = {
+  /** @type {Map<string, AssetCacheEntry>} */
+  entries: new Map(),
+  /** Timestamp of last full bulk validation. */
+  lastBulkCheckMs: 0,
+  /** Set by TCP write-ops to force re-validation on next bulk query. */
+  indexDirty: false,
+};
+
+/**
+ * Decide whether a specific cached entry needs to be re-parsed.
+ *
+ * Research-backed decisions (2026-04-13):
+ *
+ *   (a) EQUAL MTIMES ARE NOT SAFE CACHE HITS. Node's stat() on Windows
+ *       rounds mtimeMs to 1-2 second resolution even though NTFS stores
+ *       100ns precision. Two UE saves within the same second can produce
+ *       identical mtimeMs values. Fix: compare file size as a secondary
+ *       signal. UE's SavePackage writes name/export table offsets that
+ *       shift on virtually every save — size equality is a strong hint
+ *       the file content is genuinely unchanged. stat() already returns
+ *       size, so this costs nothing.
+ *
+ *   (b) indexDirty APPLIES TO BOTH POINTED AND BULK QUERIES. Pointed
+ *       queries stat+diff, but under coarse Windows mtime resolution
+ *       stat-diff alone can miss same-second writes. indexDirty is the
+ *       only signal for those cases. Honoring it on pointed queries
+ *       costs one re-parse per flagged call — acceptable.
+ *
+ *   (c) EBUSY IS NOT shouldRescan's PROBLEM. UE's atomic MoveFileW
+ *       rename means we never observe half-written headers. The
+ *       microsecond race window during rename can surface EBUSY on
+ *       readFile, but shouldRescan only decides yes/no on re-parse —
+ *       the caller handles read-time errors (retry once, then fail).
+ *
+ *   (d) EQUAL MTIME + EQUAL SIZE IS TRUSTED AS A HIT. The alternative
+ *       (content hash) would cost a full file read every check, defeating
+ *       the point of caching. Size collision with real content change is
+ *       vanishingly rare for .uasset files and will self-heal on the next
+ *       mtime tick or indexDirty flip.
+ *
+ * @param {AssetCacheEntry | undefined} cacheEntry
+ * @param {number} fsMtimeMs - current filesystem mtime from stat()
+ * @param {number} fsSizeBytes - current filesystem size from stat()
+ * @param {{ indexDirty: boolean }} context
+ * @returns {boolean} true = re-parse from disk, false = serve cached
+ */
+export function shouldRescan(cacheEntry, fsMtimeMs, fsSizeBytes, context) {
+  // Never seen — must parse.
+  if (!cacheEntry) return true;
+
+  // Write-op flagged the index dirty. Covers the coarse-mtime blind spot.
+  if (context.indexDirty) return true;
+
+  // Disk mtime advanced past cache — file is newer.
+  if (fsMtimeMs > cacheEntry.mtimeMs) return true;
+
+  // Equal mtime is not trusted alone (Windows/Node rounds to 1-2s).
+  // Size mismatch under equal mtime ⇒ same-second second-save happened.
+  if (fsMtimeMs === cacheEntry.mtimeMs && fsSizeBytes !== cacheEntry.sizeBytes) {
+    return true;
+  }
+
+  // Cache wins.
+  return false;
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 /**
@@ -233,37 +323,13 @@ async function listConfigValues(projectRoot, configFile, section, key) {
 }
 
 /**
- * browse_content — List content directories, filter by asset type
- */
-async function browseContent(projectRoot, path, typeFilter) {
-  const contentDir = join(projectRoot, 'Content');
-  const targetDir = path ? join(contentDir, path) : contentDir;
-
-  const entries = await listDirRecursive(targetDir, targetDir, 2);
-
-  if (typeFilter) {
-    const typeExtMap = {
-      blueprint: '.uasset',
-      material: '.uasset',
-      texture: '.uasset',
-      map: '.umap',
-      level: '.umap',
-    };
-    const ext = typeExtMap[typeFilter.toLowerCase()];
-    if (ext) {
-      return {
-        path: path || '/',
-        filter: typeFilter,
-        entries: entries.filter(e => e.ext === ext),
-      };
-    }
-  }
-
-  return { path: path || '/', entries };
-}
-
-/**
  * get_asset_info — Read .uasset header metadata
+ *
+ * NOTE (D31/D36): Current implementation is fs.stat-based and produces
+ * low-value output (size + mtime only). Scheduled to be reframed as a
+ * registry-metadata query (class, parent, dependencies, tags) in the same
+ * changelist that lands query_asset_registry, per handoff §Track 2b.
+ * Kept as-is here to avoid a capability gap between drops and reframe.
  */
 async function getAssetInfo(projectRoot, assetPath) {
   // Resolve /Game/ paths to Content/
@@ -292,73 +358,329 @@ async function getAssetInfo(projectRoot, assetPath) {
   }
 }
 
+// ── CSV-source tools (DataTable / StringTable) ──────────────
+//
+// Authoring CSVs. The .uasset DataTable/StringTable is a compiled binary
+// asset produced by editor import from a .csv. These tools operate on the
+// source CSV and encode UE import conventions so callers don't re-derive
+// them. No binary parsing — raw CSV text.
+//
+// DataTable CSV convention:
+//   - Header row. First column is the row-name column. UE commonly labels
+//     it `---` but any name is accepted; we treat column index 0 as the key.
+//   - Subsequent columns map to UPROPERTY fields on the companion RowStruct
+//     (a USTRUCT declared in C++). Struct introspection is optional — if
+//     row_struct_header is passed, we read that file and extract field
+//     declarations so the caller sees column→property→type mapping.
+//
+// StringTable CSV convention:
+//   - Header row. Columns: Key, SourceString (required); Comment (optional).
+//     Namespace is typically set at the asset level, not per-row.
+//
+// CSV parser: minimal RFC-4180-ish — handles quoted fields with embedded
+// commas, doubled-quote escape, CRLF/LF line endings. Not a full RFC
+// implementation; UE-authored CSVs are well-behaved.
+
 /**
- * search_source — Grep project Source/ directory for patterns
+ * Parse CSV text into rows of string arrays.
+ * @param {string} text
+ * @returns {string[][]}
  */
-async function searchSource(projectRoot, pattern, fileFilter) {
-  const sourceDir = join(projectRoot, 'Source');
-  const results = [];
-  const maxResults = 50;
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+  const n = text.length;
 
-  async function searchDir(dir) {
-    if (results.length >= maxResults) return;
-    const items = await readdir(dir, { withFileTypes: true });
-    for (const item of items) {
-      if (results.length >= maxResults) return;
-      const fullPath = join(dir, item.name);
-
-      if (item.isDirectory()) {
-        if (['Intermediate', 'Binaries', 'ThirdParty'].includes(item.name)) continue;
-        await searchDir(fullPath);
-      } else {
-        const ext = extname(item.name).toLowerCase();
-        if (!['.h', '.cpp', '.cs', '.ini'].includes(ext)) continue;
-        if (fileFilter && !item.name.toLowerCase().includes(fileFilter.toLowerCase())) continue;
-
-        try {
-          const content = await readFile(fullPath, 'utf-8');
-          const lines = content.split(/\r?\n/);
-          const regex = new RegExp(pattern, 'gi');
-
-          for (let i = 0; i < lines.length; i++) {
-            if (regex.test(lines[i])) {
-              results.push({
-                file: relative(projectRoot, fullPath).replace(/\\/g, '/'),
-                line: i + 1,
-                text: lines[i].trim(),
-              });
-              if (results.length >= maxResults) return;
-            }
-            regex.lastIndex = 0;
-          }
-        } catch { /* skip unreadable files */ }
+  while (i < n) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (i + 1 < n && text[i + 1] === '"') {
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
       }
+      field += c;
+      i += 1;
+      continue;
     }
+    if (c === '"') {
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (c === ',') {
+      row.push(field);
+      field = '';
+      i += 1;
+      continue;
+    }
+    if (c === '\r') {
+      // CRLF: consume LF too
+      if (i + 1 < n && text[i + 1] === '\n') i += 1;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      i += 1;
+      continue;
+    }
+    if (c === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      i += 1;
+      continue;
+    }
+    field += c;
+    i += 1;
   }
-
-  await searchDir(sourceDir);
-  return { pattern, fileFilter: fileFilter || null, matches: results, truncated: results.length >= maxResults };
+  // Trailing field / row (no final newline)
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  // Strip trailing empty rows (common with trailing newline)
+  while (rows.length > 0 && rows[rows.length - 1].every(c => c === '')) {
+    rows.pop();
+  }
+  return rows;
 }
 
 /**
- * read_source_file — Read a specific .h or .cpp file
+ * Walk a directory recursively and yield .csv files.
+ * @param {string} dir
+ * @param {string} baseDir
+ * @param {string[]} out
  */
-async function readSourceFile(projectRoot, filePath) {
-  const allowedExts = ['.h', '.cpp', '.cs', '.ini', '.txt', '.md'];
-  const ext = extname(filePath).toLowerCase();
-  if (!allowedExts.includes(ext)) {
-    throw new Error(`File type not allowed: ${ext}. Allowed: ${allowedExts.join(', ')}`);
+async function collectCsvFiles(dir, baseDir, out) {
+  let items;
+  try {
+    items = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
   }
+  for (const item of items) {
+    const full = join(dir, item.name);
+    if (item.isDirectory()) {
+      if (['Collections', 'Developers', '__ExternalActors__', '__ExternalObjects__'].includes(item.name)) continue;
+      await collectCsvFiles(full, baseDir, out);
+    } else if (item.name.toLowerCase().endsWith('.csv')) {
+      out.push(full);
+    }
+  }
+}
 
-  const fullPath = pathResolve(resolve(projectRoot, filePath));
-  const normalizedRoot = pathResolve(projectRoot);
-  if (!fullPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+/**
+ * Classify a CSV by filename prefix/suffix. UE naming conventions:
+ *   DT_*  = DataTable source
+ *   ST_*  = StringTable source
+ *   otherwise = generic CSV (treated as datatable by default)
+ */
+function classifyCsv(fileName) {
+  const base = basename(fileName);
+  if (/^ST[_-]/i.test(base)) return 'stringtable';
+  if (/^DT[_-]/i.test(base)) return 'datatable';
+  return 'csv';
+}
+
+/**
+ * list_data_sources — Enumerate .csv authoring files under Content/
+ *
+ * Returns DataTable/StringTable source CSVs so callers can discover
+ * "what data does this project have" without poking at binary .uassets.
+ */
+async function listDataSources(projectRoot) {
+  const contentDir = join(projectRoot, 'Content');
+  const found = [];
+  await collectCsvFiles(contentDir, contentDir, found);
+
+  const entries = [];
+  for (const full of found) {
+    let size = 0;
+    try {
+      const s = await stat(full);
+      size = s.size;
+    } catch { /* skip */ }
+    entries.push({
+      path: relative(projectRoot, full).replace(/\\/g, '/'),
+      type: classifyCsv(full),
+      sizeBytes: size,
+    });
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+
+  const byType = { datatable: 0, stringtable: 0, csv: 0 };
+  for (const e of entries) byType[e.type] += 1;
+
+  return {
+    contentDir: 'Content/',
+    fileCount: entries.length,
+    byType,
+    entries,
+  };
+}
+
+/**
+ * Resolve and validate a project-relative source path.
+ * Rejects traversal outside projectRoot. Returns absolute path.
+ * @param {string} projectRoot
+ * @param {string} filePath
+ * @returns {string}
+ */
+function resolveSafePath(projectRoot, filePath) {
+  const full = pathResolve(resolve(projectRoot, filePath));
+  const normRoot = pathResolve(projectRoot);
+  if (!full.toLowerCase().startsWith(normRoot.toLowerCase())) {
     throw new Error('Path traversal not allowed');
   }
+  return full;
+}
 
-  const content = await readFile(fullPath, 'utf-8');
-  const lines = content.split(/\r?\n/).length;
-  return { path: filePath, lines, content };
+/**
+ * Extract UPROPERTY fields from a USTRUCT in a .h file, if present.
+ * Pure text parsing — does not invoke any compiler. Best-effort.
+ * @param {string} headerPath
+ * @returns {Promise<{structName?: string, fields: {name: string, type: string}[], note?: string}>}
+ */
+async function extractRowStructFields(headerPath) {
+  const text = await readFile(headerPath, 'utf-8');
+  // Find the first USTRUCT(...) struct declaration block.
+  const structMatch = text.match(/USTRUCT\s*\([^)]*\)\s*struct\s+(?:[A-Z_]+_API\s+)?(F\w+)\s*(?::[^{]+)?\{([\s\S]*?)^\};/m);
+  if (!structMatch) {
+    return { fields: [], note: 'No USTRUCT found in header' };
+  }
+  const structName = structMatch[1];
+  const body = structMatch[2];
+  const fields = [];
+  // Match UPROPERTY(...) lines followed by `<type> <name>;`. Keep types verbatim.
+  const re = /UPROPERTY\s*\([^)]*\)\s*([^;\n]+?)\s+(\w+)\s*(?:=\s*[^;]+)?\s*;/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    fields.push({ name: m[2], type: m[1].trim() });
+  }
+  return { structName, fields };
+}
+
+/**
+ * read_datatable_source — Parse a DataTable source CSV.
+ *
+ * First column is the row-name key (UE convention; column label often `---`).
+ * Returns headers, row-keyed rows, and — if row_struct_header is provided —
+ * the companion USTRUCT field declarations.
+ */
+async function readDatatableSource(projectRoot, filePath, rowStructHeader) {
+  const full = resolveSafePath(projectRoot, filePath);
+  if (!full.toLowerCase().endsWith('.csv')) {
+    throw new Error('read_datatable_source requires a .csv file');
+  }
+  const text = await readFile(full, 'utf-8');
+  const parsed = parseCsv(text);
+  if (parsed.length === 0) {
+    return { path: filePath, headers: [], rowCount: 0, rows: [] };
+  }
+  const headers = parsed[0];
+  const rowKeyHeader = headers[0]; // typically `---` or `Name`
+  const columnHeaders = headers.slice(1);
+
+  const rows = [];
+  for (let i = 1; i < parsed.length; i++) {
+    const r = parsed[i];
+    if (r.length === 1 && r[0] === '') continue;
+    const rowName = r[0];
+    const values = {};
+    for (let c = 0; c < columnHeaders.length; c++) {
+      values[columnHeaders[c]] = r[c + 1] ?? '';
+    }
+    rows.push({ rowName, values });
+  }
+
+  /** @type {{structName?: string, fields: {name:string,type:string}[], note?: string} | undefined} */
+  let rowStruct;
+  if (rowStructHeader) {
+    try {
+      const headerPath = resolveSafePath(projectRoot, rowStructHeader);
+      rowStruct = await extractRowStructFields(headerPath);
+      rowStruct.headerPath = rowStructHeader;
+    } catch (err) {
+      rowStruct = { fields: [], note: `Could not read row struct header: ${err.message}` };
+    }
+  }
+
+  return {
+    path: filePath,
+    rowKeyHeader,
+    headers: columnHeaders,
+    rowCount: rows.length,
+    rows,
+    ...(rowStruct ? { rowStruct } : {}),
+  };
+}
+
+/**
+ * read_string_table_source — Parse a StringTable source CSV.
+ *
+ * Expected columns: Key, SourceString (required); Comment (optional).
+ * Namespace is usually set at the asset level; returned if a Namespace
+ * column exists.
+ */
+async function readStringTableSource(projectRoot, filePath) {
+  const full = resolveSafePath(projectRoot, filePath);
+  if (!full.toLowerCase().endsWith('.csv')) {
+    throw new Error('read_string_table_source requires a .csv file');
+  }
+  const text = await readFile(full, 'utf-8');
+  const parsed = parseCsv(text);
+  if (parsed.length === 0) {
+    return { path: filePath, entryCount: 0, entries: [] };
+  }
+  const headers = parsed[0].map(h => h.trim());
+  const idx = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const keyIdx = idx('Key');
+  const valueIdx = idx('SourceString');
+  const commentIdx = idx('Comment');
+  const namespaceIdx = idx('Namespace');
+
+  if (keyIdx === -1 || valueIdx === -1) {
+    return {
+      path: filePath,
+      entryCount: 0,
+      entries: [],
+      warning: `StringTable CSV missing required columns. Found headers: [${headers.join(', ')}]. Expected: Key, SourceString`,
+    };
+  }
+
+  const entries = [];
+  let namespace;
+  for (let i = 1; i < parsed.length; i++) {
+    const r = parsed[i];
+    if (r.length === 1 && r[0] === '') continue;
+    const entry = {
+      key: r[keyIdx] ?? '',
+      sourceString: r[valueIdx] ?? '',
+    };
+    if (commentIdx !== -1 && r[commentIdx]) entry.comment = r[commentIdx];
+    if (namespaceIdx !== -1 && r[namespaceIdx]) {
+      entry.namespace = r[namespaceIdx];
+      if (!namespace) namespace = r[namespaceIdx];
+    }
+    entries.push(entry);
+  }
+
+  return {
+    path: filePath,
+    ...(namespace ? { namespace } : {}),
+    entryCount: entries.length,
+    entries,
+  };
 }
 
 /**
@@ -484,20 +806,20 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'list_config_values':
       return await listConfigValues(projectRoot, params.config_file, params.section, params.key);
 
-    case 'browse_content':
-      return await browseContent(projectRoot, params.path, params.type_filter);
-
     case 'get_asset_info':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await getAssetInfo(projectRoot, params.asset_path);
 
-    case 'search_source':
-      if (!params.pattern) throw new Error('Missing required parameter: pattern');
-      return await searchSource(projectRoot, params.pattern, params.file_filter);
+    case 'list_data_sources':
+      return await listDataSources(projectRoot);
 
-    case 'read_source_file':
+    case 'read_datatable_source':
       if (!params.file_path) throw new Error('Missing required parameter: file_path');
-      return await readSourceFile(projectRoot, params.file_path);
+      return await readDatatableSource(projectRoot, params.file_path, params.row_struct_header);
+
+    case 'read_string_table_source':
+      if (!params.file_path) throw new Error('Missing required parameter: file_path');
+      return await readStringTableSource(projectRoot, params.file_path);
 
     case 'list_plugins':
       return await listPlugins(projectRoot);
