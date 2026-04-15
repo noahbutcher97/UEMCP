@@ -11,6 +11,9 @@ import {
   Cursor,
   parseSummary,
   readNameTable,
+  readImportTable,
+  readExportTable,
+  resolvePackageIndex,
   readAssetRegistryData,
 } from './uasset-parser.mjs';
 
@@ -1003,6 +1006,118 @@ async function getBuildConfig(projectRoot) {
  * @param {string} projectRoot
  * @returns {Promise<object>}
  */
+
+// ── Export-table-aware pointed queries (re-parse, not cached) ────────
+//
+// parseAssetHeader caches summary+names+AR but not the export/import
+// tables (D36 decision — they're big and only needed by pointed lookups).
+// Both tools below re-read the file and parse the tables fresh. The AR
+// portion is served from the cache via parseAssetHeader.
+
+async function parseAssetTables(diskPath) {
+  const buf = await readFile(diskPath);
+  const cur = new Cursor(buf);
+  const summary = parseSummary(cur);
+  const names = readNameTable(cur, summary);
+  const imports = readImportTable(cur, summary, names);
+  const exports = readExportTable(cur, summary, names);
+  return { summary, names, imports, exports };
+}
+
+/**
+ * inspect_blueprint — Deep introspection of a Blueprint .uasset.
+ *
+ * Returns full export table with resolved class/super/outer names plus
+ * asset-registry tags. Callers use this to identify parent class, CDO,
+ * generated class, and component/variable exports without the editor.
+ *
+ * Works on any .uasset — named for the common case (Blueprint), but UMG
+ * widgets, AnimBPs, DataAssets all parse identically.
+ */
+async function inspectBlueprint(projectRoot, assetPath) {
+  const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
+  const stats = await stat(diskPath);
+  const header = await parseAssetHeader(projectRoot, assetPath);
+  const { imports, exports } = await parseAssetTables(diskPath);
+  const primary = header.data.assetRegistry.objects[0] || null;
+
+  const exportRows = exports.map((e, i) => ({
+    index: i + 1, // FPackageIndex (positive = export N-1)
+    objectName: e.objectName,
+    className: resolvePackageIndex(e.classIndex, exports, imports, 'objectName'),
+    classPackage: e.classIndex < 0
+      ? (imports[-e.classIndex - 1]?.classPackage ?? null)
+      : null,
+    superClass: resolvePackageIndex(e.superIndex, exports, imports, 'objectName'),
+    outerName: resolvePackageIndex(e.outerIndex, exports, imports, 'objectName'),
+    bIsAsset: e.bIsAsset,
+    serialSize: e.serialSize,
+  }));
+
+  // Locate the BlueprintGeneratedClass export — its SuperIndex resolves
+  // to the parent class (native or another BP's generated class).
+  const genClassNames = new Set([
+    'BlueprintGeneratedClass',
+    'WidgetBlueprintGeneratedClass',
+    'AnimBlueprintGeneratedClass',
+  ]);
+  const generated = exportRows.find(r => genClassNames.has(r.className));
+  const parentClass = generated ? generated.superClass : null;
+
+  return {
+    path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    sizeBytes: stats.size,
+    modified: stats.mtime.toISOString(),
+    objectClassName: primary ? primary.objectClassName : null,
+    objectPath: primary ? primary.objectPath : null,
+    parentClass,
+    generatedClass: generated ? generated.objectName : null,
+    tags: primary ? primary.tags : {},
+    exportCount: exports.length,
+    importCount: imports.length,
+    exports: exportRows,
+  };
+}
+
+/**
+ * list_level_actors — Enumerate actors in a .umap.
+ *
+ * Returns each export's {objectName, className, outer, bIsAsset}. Per D37
+ * YAGNI: class + name only, no transforms, no components tree. Callers
+ * that need transforms go through Layer 2/3 TCP tools.
+ */
+async function listLevelActors(projectRoot, assetPath) {
+  // Levels live in .umap, not .uasset. If caller passed a bare /Game/... path
+  // without extension, resolve to .umap instead of the resolver default.
+  const mapPath = assetPath.endsWith(".umap") || assetPath.endsWith(".uasset")
+    ? assetPath
+    : assetPath + ".umap";
+  const diskPath = resolveAssetDiskPath(projectRoot, mapPath);
+  const stats = await stat(diskPath);
+  const { imports, exports } = await parseAssetTables(diskPath);
+
+  const actors = exports.map(e => ({
+    name: e.objectName,
+    className: resolvePackageIndex(e.classIndex, exports, imports, 'objectName'),
+    classPackage: e.classIndex < 0
+      ? (imports[-e.classIndex - 1]?.classPackage ?? null)
+      : null,
+    outer: resolvePackageIndex(e.outerIndex, exports, imports, 'objectName'),
+    bIsAsset: e.bIsAsset,
+  }));
+
+  return {
+    path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    sizeBytes: stats.size,
+    modified: stats.mtime.toISOString(),
+    exportCount: exports.length,
+    importCount: imports.length,
+    actors,
+  };
+}
+
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
     throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
@@ -1028,6 +1143,14 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'query_asset_registry':
       return await queryAssetRegistry(projectRoot, params);
+
+    case 'inspect_blueprint':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await inspectBlueprint(projectRoot, params.asset_path);
+
+    case 'list_level_actors':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await listLevelActors(projectRoot, params.asset_path);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);

@@ -485,6 +485,18 @@ const offlineToolDefs = {
       max_scan: { type: 'number', required: false, description: 'Max files walked (default 5000, cap 20000)' },
     },
   },
+  inspect_blueprint: {
+    description: 'Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class, and asset-registry tags.',
+    params: {
+      asset_path: { type: 'string', required: true, description: '/Game/... path (with or without .uasset) or project-relative Content/... path' },
+    },
+  },
+  list_level_actors: {
+    description: 'Enumerate exports in a .umap. Returns {name, className, classPackage, outer, bIsAsset} per export — class + name only, no transforms.',
+    params: {
+      asset_path: { type: 'string', required: true, description: '/Game/... path to a .umap (with or without .umap extension)' },
+    },
+  },
   list_data_sources: {
     description: 'Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs',
     params: {},
@@ -712,4 +724,27 @@ async function main() {
 main().catch(err => {
   process.stderr.write(`[uemcp] Fatal: ${err.message}\n${err.stack}\n`);
   process.exit(1);
+});
+
+  // Auto-detect project if configured
+  if (config.autoDetect) {
+    // Non-blocking — don't fail startup if detection fails
+    connectionManager.detectProject().catch(() => {});
+  }
+
+  // Connect to stdio transport
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // NOTE: Do NOT use console.log after this point — stdout is the
+  // MCP protocol stream. Use log() helper or write to stderr.
+  process.stderr.write(`[uemcp] Server started for project: ${config.projectName || '(auto-detect)'}\n`);
+  process.stderr.write(`[uemcp] Tools indexed: ${toolIndex.size}\n`);
+}
+
+main().catch(err => {
+  process.stderr.write(`[uemcp] Fatal: ${err.message}\n${err.stack}\n`);
+  process.exit(1);
+});
+cess.exit(1);
 });

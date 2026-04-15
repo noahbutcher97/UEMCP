@@ -76,6 +76,14 @@ toolsets:
           tag_value:   { type: string, required: false, description: "When provided, tag_key must equal this value. Omit for presence-only check." }
           limit:       { type: number, required: false, description: "Max matches returned (default 200, cap 2000)" }
           max_scan:    { type: number, required: false, description: "Max files walked (default 5000, cap 20000). Response sets truncated:true when hit." }
+      inspect_blueprint:
+        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class, and asset-registry tags. Pointed query — re-parses export/import tables (not cached).
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path (with or without .uasset extension) or project-relative Content/... path" }
+      list_level_actors:
+        description: Enumerate exports in a .umap. Returns {name, className, classPackage, outer, bIsAsset} per export — class + name only, no transforms. Pointed query — re-parses export/import tables (not cached).
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to a .umap (with or without .umap extension)" }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
         params: {}

@@ -440,6 +440,58 @@ export function readNameTable(cur, summary) {
 }
 
 /**
+ * Walk the import table at summary.importOffset.
+ * FObjectImport layout for UE 5.6 (40 bytes, since OPTIONAL_RESOURCES bump):
+ *   FName ClassPackage  (int32 idx + int32 number)    [8]
+ *   FName ClassName     (int32 idx + int32 number)    [8]
+ *   int32 OuterIndex    (FPackageIndex)               [4]
+ *   FName ObjectName    (int32 idx + int32 number)    [8]
+ *   FName PackageName   (int32 idx + int32 number)    [8]   — UE 5.0+
+ *   int32 bImportOptional                              [4]
+ * @param {Cursor} cur
+ * @param {{ importOffset: number, importCount: number }} summary
+ * @param {string[]} [names]
+ */
+export function readImportTable(cur, summary, names) {
+  const { importOffset, importCount } = summary;
+  if (!importCount) return [];
+  cur.seek(importOffset);
+  const imports = new Array(importCount);
+  for (let i = 0; i < importCount; i++) {
+    const classPackageIdx = cur.readInt32(); cur.skip(4);
+    const classNameIdx = cur.readInt32(); cur.skip(4);
+    const outerIndex = cur.readInt32();
+    const objectNameIdx = cur.readInt32(); cur.skip(4);
+    const packageNameIdx = cur.readInt32(); cur.skip(4);
+    const bImportOptional = cur.readInt32();
+    imports[i] = {
+      classPackage: names?.[classPackageIdx] ?? `[name ${classPackageIdx}]`,
+      className: names?.[classNameIdx] ?? `[name ${classNameIdx}]`,
+      outerIndex,
+      objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
+      packageName: names?.[packageNameIdx] ?? null,
+      bImportOptional: !!bImportOptional,
+    };
+  }
+  return imports;
+}
+
+/**
+ * Resolve an FPackageIndex (int32) against the export and import tables.
+ * Positive N → exports[N-1]. Negative N → imports[-N-1]. Zero → null.
+ * Returns the resolved entry's objectName or className (best effort).
+ * @param {number} idx
+ * @param {object[]} exports
+ * @param {object[]} imports
+ * @param {'objectName'|'className'} field
+ */
+export function resolvePackageIndex(idx, exports, imports, field = 'objectName') {
+  if (idx === 0) return null;
+  if (idx > 0) return exports[idx - 1]?.[field] ?? null;
+  return imports[-idx - 1]?.[field] ?? null;
+}
+
+/**
  * Walk the export table at summary.exportOffset.
  * FObjectExport layout for UE 5.6 uncooked packages (112 bytes each):
  *   int32 ClassIndex, SuperIndex, TemplateIndex, OuterIndex (FPackageIndex each)

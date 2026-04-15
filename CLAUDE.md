@@ -83,7 +83,8 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 10 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info`, `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config` (D31 dropped `browse_content`/`search_source`/`read_source_file` — use `Glob`/`Grep`/`Read` respectively)
+- 13 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader, D31 reframed), `query_asset_registry` (bulk scan over `.uasset`/`.umap` headers with hybrid cache per D33), `inspect_blueprint` (BP export-table walk), `list_level_actors` (enumerate `.umap` exports — YAGNI, class+name only, no transforms), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config` (D31 dropped `browse_content`/`search_source`/`read_source_file` — use `Glob`/`Grep`/`Read` respectively)
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block. Pure JS, no UE dependency. Powers the 4 registry/introspection tools above (D37).
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
@@ -113,7 +114,8 @@ UEMCP/
 ├── server/
 │   ├── package.json       ← deps: @modelcontextprotocol/sdk, js-yaml, zod
 │   ├── server.mjs         ← MCP server entry, management tools, tool registration
-│   ├── offline-tools.mjs  ← 10 offline tools (project_info, search_source, etc.)
+│   ├── offline-tools.mjs  ← 13 offline tools incl. query_asset_registry, inspect_blueprint, list_level_actors
+│   ├── uasset-parser.mjs  ← binary .uasset/.umap header parser (FPackageFileSummary, import/export tables, AR tags)
 │   ├── tcp-tools.mjs      ← Phase 2 TCP tool handlers (actors: 10 tools, name translation, Zod schemas)
 │   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
 │   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
