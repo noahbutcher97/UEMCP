@@ -7,6 +7,13 @@
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 import { join, extname, basename, relative, resolve as pathResolve } from 'node:path';
 
+import {
+  Cursor,
+  parseSummary,
+  readNameTable,
+  readAssetRegistryData,
+} from './uasset-parser.mjs';
+
 // ── Asset Header Cache (Option D: Hybrid TTL + mtime + write-suspicion) ─────
 //
 // The asset index is an in-memory map of parsed FAssetRegistryData blocks
@@ -323,16 +330,13 @@ async function listConfigValues(projectRoot, configFile, section, key) {
 }
 
 /**
- * get_asset_info — Read .uasset header metadata
- *
- * NOTE (D31/D36): Current implementation is fs.stat-based and produces
- * low-value output (size + mtime only). Scheduled to be reframed as a
- * registry-metadata query (class, parent, dependencies, tags) in the same
- * changelist that lands query_asset_registry, per handoff §Track 2b.
- * Kept as-is here to avoid a capability gap between drops and reframe.
+ * Resolve an asset path (/Game/..., or a fs-relative path) to an absolute
+ * disk path. Appends .uasset if neither .uasset nor .umap is present.
+ * @param {string} projectRoot
+ * @param {string} assetPath
+ * @returns {string}
  */
-async function getAssetInfo(projectRoot, assetPath) {
-  // Resolve /Game/ paths to Content/
+function resolveAssetDiskPath(projectRoot, assetPath) {
   let diskPath = assetPath;
   if (assetPath.startsWith('/Game/')) {
     diskPath = join(projectRoot, 'Content', assetPath.replace('/Game/', ''));
@@ -342,20 +346,104 @@ async function getAssetInfo(projectRoot, assetPath) {
   } else {
     diskPath = resolve(projectRoot, assetPath);
   }
+  return diskPath;
+}
 
+/**
+ * Parse a .uasset/.umap header (summary + names + asset-registry tag block)
+ * with caching. Serves cached entry when fs mtime/size match and the index
+ * is not flagged dirty; otherwise re-parses and updates the cache.
+ *
+ * Pointed-query path — no TTL, stat+diff every call (cheap), honors
+ * indexDirty to cover Windows same-second-write blind spots.
+ *
+ * @param {string} projectRoot
+ * @param {string} assetPath  either /Game/... or a fs-relative path
+ * @returns {Promise<{ diskPath: string, sizeBytes: number, mtimeMs: number,
+ *                    modified: string,
+ *                    data: { summary: object, names: string[],
+ *                            assetRegistry: { dependencyDataOffset: number,
+ *                                             objects: object[] } } }>}
+ */
+export async function parseAssetHeader(projectRoot, assetPath) {
+  const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
+
+  let stats;
   try {
-    const stats = await stat(diskPath);
-    return {
-      path: assetPath,
-      diskPath: diskPath.replace(/\\/g, '/'),
-      sizeBytes: stats.size,
-      sizeKB: Math.round(stats.size / 1024),
-      modified: stats.mtime.toISOString(),
-      note: 'Detailed class/reference info requires editor (use get_blueprint_info or search_assets when editor is running)',
-    };
+    stats = await stat(diskPath);
   } catch (err) {
     throw new Error(`Asset not found: ${assetPath} (${err.message})`);
   }
+
+  const cached = assetCache.entries.get(diskPath);
+  if (!shouldRescan(cached, stats.mtimeMs, stats.size, assetCache)) {
+    return {
+      diskPath,
+      sizeBytes: cached.sizeBytes,
+      mtimeMs: cached.mtimeMs,
+      modified: new Date(cached.mtimeMs).toISOString(),
+      data: cached.data,
+    };
+  }
+
+  // Re-parse. Read once, parse summary / names / AR in sequence.
+  const buf = await readFile(diskPath);
+  const cur = new Cursor(buf);
+  const summary = parseSummary(cur);
+  const names = readNameTable(cur, summary);
+  // Export table isn't included in the cached payload — callers that need
+  // it (inspect_blueprint, list_level_actors) re-parse lazily. Keeping AR
+  // as the baseline makes the cache row small and broadly useful.
+  const assetRegistry = summary.assetRegistryDataOffset
+    ? readAssetRegistryData(cur, summary)
+    : { dependencyDataOffset: 0, objects: [] };
+
+  const data = { summary, names, assetRegistry };
+  assetCache.entries.set(diskPath, {
+    path: diskPath,
+    mtimeMs: stats.mtimeMs,
+    sizeBytes: stats.size,
+    data,
+  });
+
+  return {
+    diskPath,
+    sizeBytes: stats.size,
+    mtimeMs: stats.mtimeMs,
+    modified: stats.mtime.toISOString(),
+    data,
+  };
+}
+
+/**
+ * get_asset_info — Read .uasset header metadata
+ *
+ * Returns parsed registry metadata (class, objectPath, tags, counts) plus
+ * size/mtime. Uses the shared asset cache — repeat queries on the same
+ * unchanged file skip re-parse.
+ *
+ * Closes D36: reframes the stat-only placeholder into a registry query.
+ */
+async function getAssetInfo(projectRoot, assetPath) {
+  const parsed = await parseAssetHeader(projectRoot, assetPath);
+  const { summary, names, assetRegistry } = parsed.data;
+  const primary = assetRegistry.objects[0] || null;
+  return {
+    path: assetPath,
+    diskPath: parsed.diskPath.replace(/\\/g, '/'),
+    sizeBytes: parsed.sizeBytes,
+    sizeKB: Math.round(parsed.sizeBytes / 1024),
+    modified: parsed.modified,
+    packageName: summary.packageName || null,
+    objectPath: primary ? primary.objectPath : null,
+    objectClassName: primary ? primary.objectClassName : null,
+    tags: primary ? primary.tags : {},
+    assetRegistryObjects: assetRegistry.objects.length,
+    exportCount: summary.exportCount,
+    importCount: summary.importCount,
+    nameCount: names.length,
+    fileVersionUE5: summary.fileVersionUE5,
+  };
 }
 
 // ── CSV-source tools (DataTable / StringTable) ──────────────
