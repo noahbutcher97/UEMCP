@@ -8,6 +8,7 @@ import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
+import { ErrorTcpResponder } from './test-helpers.mjs';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
 let passed = 0;
@@ -73,12 +74,17 @@ for (const t of searchTests) {
 // ── Test 5: Accumulation and shedding ────────────────────
 console.log('\n═══ Test 5: Accumulation and shedding ═══');
 
+// Force TCP layers to report unavailable regardless of editor state.
+// Test 5 is a plumbing unit test for enable/disable shedding, not an integration check.
+const tcpDown = new ErrorTcpResponder('connection_refused');
+
 const config = {
   projectRoot: PROJECT_ROOT,
   tcpPortExisting: 55557,
   tcpPortCustom: 55558,
   httpPort: 30010,
   tcpTimeoutMs: 5000,
+  tcpCommandFn: tcpDown.handler(),
 };
 const connMgr = new ConnectionManager(config);
 const toolsetMgr = new ToolsetManager(connMgr, toolIndex);
