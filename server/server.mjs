@@ -725,26 +725,3 @@ main().catch(err => {
   process.stderr.write(`[uemcp] Fatal: ${err.message}\n${err.stack}\n`);
   process.exit(1);
 });
-
-  // Auto-detect project if configured
-  if (config.autoDetect) {
-    // Non-blocking — don't fail startup if detection fails
-    connectionManager.detectProject().catch(() => {});
-  }
-
-  // Connect to stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
-  // NOTE: Do NOT use console.log after this point — stdout is the
-  // MCP protocol stream. Use log() helper or write to stderr.
-  process.stderr.write(`[uemcp] Server started for project: ${config.projectName || '(auto-detect)'}\n`);
-  process.stderr.write(`[uemcp] Tools indexed: ${toolIndex.size}\n`);
-}
-
-main().catch(err => {
-  process.stderr.write(`[uemcp] Fatal: ${err.message}\n${err.stack}\n`);
-  process.exit(1);
-});
-cess.exit(1);
-});
