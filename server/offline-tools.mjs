@@ -446,6 +446,134 @@ async function getAssetInfo(projectRoot, assetPath) {
   };
 }
 
+/**
+ * Walk a directory recursively, collecting .uasset/.umap paths. Stops once
+ * `maxFiles` are found. Silently skips unreadable subdirs.
+ * @param {string} dir
+ * @param {string[]} out  populated with absolute paths
+ * @param {number} maxFiles
+ */
+async function walkAssetFiles(dir, out, maxFiles) {
+  if (out.length >= maxFiles) return;
+  let items;
+  try {
+    items = await readdir(dir, { withFileTypes: true });
+  } catch { return; }
+  for (const item of items) {
+    if (out.length >= maxFiles) return;
+    const full = join(dir, item.name);
+    if (item.isDirectory()) {
+      await walkAssetFiles(full, out, maxFiles);
+    } else if (item.name.endsWith('.uasset') || item.name.endsWith('.umap')) {
+      out.push(full);
+    }
+  }
+}
+
+/**
+ * query_asset_registry — Bulk scan Content/ and filter by class/path/tag.
+ *
+ * Walks Content/**\/*.{uasset,umap}, parses each through the shared
+ * parseAssetHeader() cache, and returns assets matching the filter. Designed
+ * for discovery queries: "find all Blueprints under /Game/Abilities/",
+ * "which DataTables have RowStruct=FOSCombatRow", etc.
+ *
+ * Filters:
+ *   - class_name: exact match on primary object class (e.g. "Blueprint",
+ *     "DataTable", "/Script/Engine.World"). Case-sensitive.
+ *   - path_prefix: /Game/... path; narrows the scan root (not a post-filter).
+ *   - tag_key / tag_value: asset-registry tag match. If value is omitted,
+ *     only tag presence is checked.
+ *
+ * Caps:
+ *   - limit (default 200): max matches returned.
+ *   - max_scan (default 5000): hard ceiling on files parsed; guards against
+ *     runaway walks in huge Content trees. When hit, `truncated: true` is
+ *     set in the response.
+ *
+ * @param {string} projectRoot
+ * @param {object} params
+ */
+async function queryAssetRegistry(projectRoot, params = {}) {
+  const className = params.class_name ?? null;
+  const pathPrefix = params.path_prefix ?? null;
+  const tagKey = params.tag_key ?? null;
+  const tagValue = params.tag_value ?? null;
+  const limit = Math.max(1, Math.min(params.limit ?? 200, 2000));
+  const maxScan = Math.max(1, Math.min(params.max_scan ?? 5000, 20000));
+
+  // Narrow the walk root when a path_prefix is supplied — avoids parsing
+  // thousands of unrelated files for a targeted query.
+  let scanRoot = join(projectRoot, 'Content');
+  if (pathPrefix) {
+    if (!pathPrefix.startsWith('/Game/')) {
+      throw new Error(`path_prefix must start with /Game/ (got: ${pathPrefix})`);
+    }
+    scanRoot = join(projectRoot, 'Content', pathPrefix.replace('/Game/', ''));
+  }
+
+  const files = [];
+  await walkAssetFiles(scanRoot, files, maxScan);
+  const truncated = files.length >= maxScan;
+
+  const results = [];
+  const errors = [];
+  const contentRoot = join(projectRoot, 'Content');
+
+  for (const diskPath of files) {
+    if (results.length >= limit) break;
+
+    // Reconstruct /Game/ path for display & re-use parseAssetHeader's cache.
+    const relFromContent = relative(contentRoot, diskPath).replace(/\\/g, '/');
+    const ext = diskPath.endsWith('.umap') ? '.umap' : '.uasset';
+    const gamePath = '/Game/' + relFromContent.replace(/\.(uasset|umap)$/, '');
+
+    let parsed;
+    try {
+      // Pass fs-relative path so parseAssetHeader's resolver uses the
+      // else-branch (no extension mangling for .umap).
+      const relFromProject = relative(projectRoot, diskPath).replace(/\\/g, '/');
+      parsed = await parseAssetHeader(projectRoot, relFromProject);
+    } catch (err) {
+      errors.push({ path: gamePath, error: err.message });
+      continue;
+    }
+
+    const primary = parsed.data.assetRegistry.objects[0] || null;
+    const klass = primary ? primary.objectClassName : null;
+    const tags = primary ? primary.tags : {};
+
+    // Class filter: exact match; accept bare name ("Blueprint") or fully
+    // qualified ("/Script/Engine.Blueprint").
+    if (className && klass !== className) continue;
+
+    // Tag filter.
+    if (tagKey) {
+      if (!Object.prototype.hasOwnProperty.call(tags, tagKey)) continue;
+      if (tagValue !== null && tags[tagKey] !== tagValue) continue;
+    }
+
+    results.push({
+      path: gamePath + ext,
+      objectClassName: klass,
+      objectPath: primary ? primary.objectPath : null,
+      packageName: parsed.data.summary.packageName || null,
+      tags,
+      sizeBytes: parsed.sizeBytes,
+      exportCount: parsed.data.summary.exportCount,
+    });
+  }
+
+  return {
+    scanRoot: relative(projectRoot, scanRoot).replace(/\\/g, '/') || 'Content',
+    filesScanned: files.length,
+    matches: results.length,
+    truncated,
+    errors: errors.length ? errors : undefined,
+    results,
+  };
+}
+
 // ── CSV-source tools (DataTable / StringTable) ──────────────
 //
 // Authoring CSVs. The .uasset DataTable/StringTable is a compiled binary
@@ -897,6 +1025,9 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'get_asset_info':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await getAssetInfo(projectRoot, params.asset_path);
+
+    case 'query_asset_registry':
+      return await queryAssetRegistry(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);

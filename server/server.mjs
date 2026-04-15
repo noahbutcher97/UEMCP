@@ -474,6 +474,17 @@ const offlineToolDefs = {
     description: 'Read .uasset metadata (type, size, class, references)',
     params: { asset_path: { type: 'string', required: true, description: 'Asset path (/Game/... or relative to project)' } },
   },
+  query_asset_registry: {
+    description: 'Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` matches with objectClassName, tags, package name, export count.',
+    params: {
+      class_name: { type: 'string', required: false, description: 'Exact match on primary object class (e.g., Blueprint, DataTable, /Script/Engine.World)' },
+      path_prefix: { type: 'string', required: false, description: '/Game/... path to narrow the scan root' },
+      tag_key: { type: 'string', required: false, description: 'Asset-registry tag key to require' },
+      tag_value: { type: 'string', required: false, description: 'When provided, tag_key must equal this value' },
+      limit: { type: 'number', required: false, description: 'Max matches returned (default 200, cap 2000)' },
+      max_scan: { type: 'number', required: false, description: 'Max files walked (default 5000, cap 20000)' },
+    },
+  },
   list_data_sources: {
     description: 'Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs',
     params: {},
@@ -676,7 +687,6 @@ toolsetManager.onListChanged(() => {
 async function main() {
   // Load tools.yaml and build the search index
   await toolsetManager.load();
-
   // Initialize TCP wire_type maps from parsed YAML
   initTcpTools(toolsetManager.getToolsData());
 

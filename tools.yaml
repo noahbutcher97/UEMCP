@@ -67,6 +67,15 @@ toolsets:
         description: Read any .ini config file, search for keys/sections
       get_asset_info:
         description: Read .uasset header metadata (type, size, class, references)
+      query_asset_registry:
+        description: Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` results with objectClassName, tags, package name, export count.
+        params:
+          class_name:  { type: string, required: false, description: "Exact match on primary object class (e.g., Blueprint, DataTable, /Script/Engine.World)" }
+          path_prefix: { type: string, required: false, description: "/Game/... path to narrow the scan root (not a post-filter)" }
+          tag_key:     { type: string, required: false, description: "Asset-registry tag key to require (e.g., BlueprintType, ParentClass)" }
+          tag_value:   { type: string, required: false, description: "When provided, tag_key must equal this value. Omit for presence-only check." }
+          limit:       { type: number, required: false, description: "Max matches returned (default 200, cap 2000)" }
+          max_scan:    { type: number, required: false, description: "Max files walked (default 5000, cap 20000). Response sets truncated:true when hit." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
         params: {}
