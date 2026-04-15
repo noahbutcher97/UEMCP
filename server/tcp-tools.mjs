@@ -183,10 +183,16 @@ export async function executeActorsTool(toolName, args, connectionManager) {
   const def = ACTORS_SCHEMAS[toolName];
   const skipCache = def ? !def.isReadOp : true;
 
+  // Defensive validation (P0-9 required-param, P0-10 vector shape). The SDK
+  // already parses at tools/call, but direct callers (tests, internal reuse)
+  // bypass that layer — parsing here guarantees bad shapes never hit the wire
+  // where the plugin's GetVectorFromJson silently zeroes them.
+  const validated = def ? z.object(def.schema).parse(args) : args;
+
   // The C++ handler for get_actors_in_level takes no params,
   // but tools.yaml adds class_filter for future UEMCP Phase 3.
   // Strip it out so the existing plugin doesn't choke on unknown fields.
-  let wireParams = { ...args };
+  let wireParams = { ...validated };
   if (toolName === 'get_actors') {
     delete wireParams.class_filter;
   }
@@ -371,7 +377,10 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
   const def = BLUEPRINTS_WRITE_SCHEMAS[toolName];
   const skipCache = def ? !def.isReadOp : true;
 
-  const result = await connectionManager.send('tcp-55557', typeString, { ...args }, { skipCache });
+  // P0-9 / P0-10 defense-in-depth parse — see executeActorsTool for rationale.
+  const validated = def ? z.object(def.schema).parse(args) : args;
+
+  const result = await connectionManager.send('tcp-55557', typeString, { ...validated }, { skipCache });
   return result;
 }
 
@@ -452,12 +461,44 @@ export const WIDGETS_SCHEMAS = {
   },
 };
 
+/**
+ * Strip a self-doubled asset suffix like "MyWidget.MyWidget" → "MyWidget" (P0-7).
+ * The plugin's UMG handlers split into two groups: commands 1-3 expect
+ * "/Game/Widgets/<name>" while commands 4-6 append ".<name>" internally.
+ * Users who read plugin source and pre-double their name now hit the 4-6
+ * handlers with "<name>.<name>.<name>" and load fails. Normalize here so
+ * users can always pass the short form regardless of which handler they hit.
+ * Plugin-side full fix (standardize all paths) documented as Phase 3D input.
+ * @param {string} value
+ * @returns {string}
+ */
+function stripDoubledAssetSuffix(value) {
+  if (typeof value !== 'string') return value;
+  const dotIdx = value.indexOf('.');
+  if (dotIdx <= 0) return value;
+  const left = value.slice(0, dotIdx);
+  const right = value.slice(dotIdx + 1);
+  return left === right ? left : value;
+}
+
 export async function executeWidgetsTool(toolName, args, connectionManager) {
   const typeString = WIDGETS_WIRE_MAP[toolName] || toolName;
   const def = WIDGETS_SCHEMAS[toolName];
   const skipCache = def ? !def.isReadOp : true;
 
-  const result = await connectionManager.send('tcp-55557', typeString, { ...args }, { skipCache });
+  // P0-9 / P0-10 defense-in-depth parse.
+  const validated = def ? z.object(def.schema).parse(args) : args;
+
+  // P0-7: normalize "Name.Name" → "Name" on widget blueprint params.
+  const wireParams = { ...validated };
+  if (typeof wireParams.blueprint_name === 'string') {
+    wireParams.blueprint_name = stripDoubledAssetSuffix(wireParams.blueprint_name);
+  }
+  if (toolName === 'create_widget' && typeof wireParams.name === 'string') {
+    wireParams.name = stripDoubledAssetSuffix(wireParams.name);
+  }
+
+  const result = await connectionManager.send('tcp-55557', typeString, wireParams, { skipCache });
   return result;
 }
 

@@ -830,6 +830,242 @@ console.log('\n── Group 21: initTcpTools Wire Map Building ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 22: P0-1 expanded — additional wire-error shapes
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
+
+{
+  // Format 1 using "message" (not "error") field
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('delete_actor', { status: 'error', message: 'Level not loaded' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeActorsTool('delete_actor', { name: 'Ghost' }, cm),
+    'Level not loaded',
+    'Format 1 (status:error) with message field throws correctly'
+  );
+}
+
+{
+  // Raw ad-hoc single-key escape — {error:"msg"} with no envelope flags
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('some_umg_command', { error: 'Raw ad-hoc escape' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => cm.send('tcp-55557', 'some_umg_command', {}, { skipCache: true }),
+    'Raw ad-hoc escape',
+    'Raw single-key {error} (no envelope) detected as wire error'
+  );
+}
+
+{
+  // Sibling error on success envelope — {status:"success", error:"msg"}
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('some_cmd', { status: 'success', error: 'Sibling-error leak' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => cm.send('tcp-55557', 'some_cmd', {}, { skipCache: true }),
+    'Sibling-error leak',
+    'Success envelope with sibling error field detected as wire error'
+  );
+}
+
+{
+  // False-positive guard: {result:{error:"msg", ...more fields}} is NOT an error
+  // (only single-key {error:"..."} inside result triggers ad-hoc detection)
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('some_cmd', {
+    status: 'success',
+    result: { error: 'validation note', widget: 'OK', ok: true }
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await cm.send('tcp-55557', 'some_cmd', {}, { skipCache: true });
+  t.assert(r.status === 'success',
+    'Multi-key result with error field is not treated as ad-hoc error');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 23: P0-7 — widget path suffix normalization
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 23: P0-7 Widget Path Suffix Strip ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_umg_widget_blueprint', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('create_widget', { name: 'MyHUD.MyHUD' }, cm);
+  const call = fake.lastCall('create_umg_widget_blueprint');
+  t.assert(call.params.name === 'MyHUD',
+    'create_widget strips "Name.Name" self-doubled suffix on name param');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_text_block_to_widget', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('add_text_block',
+    { blueprint_name: 'MyHUD.MyHUD', widget_name: 'TitleText' }, cm);
+  const call = fake.lastCall('add_text_block_to_widget');
+  t.assert(call.params.blueprint_name === 'MyHUD',
+    'add_text_block strips "Name.Name" on blueprint_name');
+  t.assert(call.params.widget_name === 'TitleText',
+    'add_text_block leaves widget_name untouched');
+}
+
+{
+  // No-op: plain name unchanged
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_umg_widget_blueprint', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('create_widget', { name: 'MyHUD' }, cm);
+  const call = fake.lastCall('create_umg_widget_blueprint');
+  t.assert(call.params.name === 'MyHUD',
+    'Plain name (no dot) is unchanged by suffix stripper');
+}
+
+{
+  // No-op: Name.Other (different halves) unchanged
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_text_block_to_widget', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeWidgetsTool('add_text_block',
+    { blueprint_name: 'MyHUD.Other', widget_name: 'T' }, cm);
+  const call = fake.lastCall('add_text_block_to_widget');
+  t.assert(call.params.blueprint_name === 'MyHUD.Other',
+    'Non-self-doubled dot pattern (Name.Other) is unchanged');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 24: P0-9 — required-param rejection at Zod layer
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 24: P0-9 Required Param Validation ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // spawn_actor requires both `type` and `name` — omit `name`
+  await t.assertRejects(
+    () => executeActorsTool('spawn_actor', { type: 'PointLight' }, cm),
+    /name/i,
+    'spawn_actor rejects when required `name` is missing (before wire)'
+  );
+
+  t.assert(fake.lastCall('spawn_actor') === undefined,
+    'Invalid request never reached the wire (no spawn_actor call made)');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // add_text_block requires blueprint_name + widget_name
+  await t.assertRejects(
+    () => executeWidgetsTool('add_text_block', { blueprint_name: 'HUD' }, cm),
+    /widget_name/i,
+    'add_text_block rejects when required `widget_name` is missing'
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 25: P0-10 — vector/rotator shape validation
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Vec3 must be length 3 — length 2 should reject
+  await t.assertRejects(
+    () => executeActorsTool('spawn_actor',
+      { type: 'StaticMeshActor', name: 'Cube', location: [1, 2] }, cm),
+    /array/i,
+    'spawn_actor rejects 2-element location (Vec3 requires length 3)'
+  );
+
+  t.assert(fake.lastCall('spawn_actor') === undefined,
+    'Malformed vector never reached the wire');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Vec3 length 4 should also reject
+  await t.assertRejects(
+    () => executeActorsTool('set_actor_transform',
+      { name: 'Cube', rotation: [1, 2, 3, 4] }, cm),
+    /array/i,
+    'set_actor_transform rejects 4-element rotation vector'
+  );
+}
+
+{
+  // Happy path: valid Vec3 passes through
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('set_actor_transform', { status: 'success', result: { success: true } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeActorsTool('set_actor_transform',
+    { name: 'Cube', location: [1, 2, 3], rotation: [0, 90, 0] }, cm);
+  const call = fake.lastCall('set_actor_transform');
+  t.assert(Array.isArray(call.params.location) && call.params.location.length === 3,
+    'Valid Vec3 passes through to wire unmodified');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

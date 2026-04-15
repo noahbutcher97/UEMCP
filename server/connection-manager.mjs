@@ -156,6 +156,74 @@ class CommandQueue {
   }
 }
 
+// ── Wire-error extraction (P0-1) ────────────────────────────
+
+/**
+ * Normalize the three error-response formats produced by the frozen UnrealMCP
+ * plugin (D23: deprecated post-Phase 3, no C++ fixes). Returns the error
+ * message if the response indicates failure, or null if it represents success.
+ *
+ * Format 1 — Bridge envelope:   { status: "error", error|message: "..." }
+ * Format 2 — CommonUtils flag:  { success: false, error|message: "..." }
+ * Format 3 — UMG ad-hoc, wrapped by Bridge:
+ *                               { status: "success", result: { error: "..." } }
+ *            where result is effectively just the error payload (no other keys).
+ *
+ * Defensive extras (not in audit but cheap insurance against format drift):
+ *   - Raw ad-hoc escaping Bridge entirely: { error: "..." } with no status/success.
+ *   - Sibling error at success envelope:   { status: "success", error: "..." }.
+ *
+ * @param {any} result
+ * @returns {string | null}
+ */
+function extractWireError(result) {
+  if (!result || typeof result !== 'object') return null;
+
+  const pickMsg = (o) =>
+    (typeof o.error === 'string' && o.error) ||
+    (typeof o.message === 'string' && o.message) ||
+    'Unknown error from Unreal';
+
+  // Format 1: explicit error status
+  if (result.status === 'error') return pickMsg(result);
+
+  // Format 2: success flag false
+  if (result.success === false) return pickMsg(result);
+
+  // Format 3: Bridge-wrapped ad-hoc — status:"success" with an error-only inner result.
+  // Only one known shape in the wild (inner object has a single "error" key), but
+  // we also accept any inner object whose only string-error value is "error" — this
+  // matches D24's existing heuristic without over-matching legitimate payloads that
+  // happen to carry an `error` field alongside real data.
+  if (result.status === 'success' && result.result && typeof result.result === 'object') {
+    const inner = result.result;
+    const keys = Object.keys(inner);
+    if (keys.length === 1 && keys[0] === 'error' && typeof inner.error === 'string') {
+      return inner.error;
+    }
+  }
+
+  // Defensive: sibling error at envelope level (status:"success" with a top-level error)
+  if (result.status === 'success' && typeof result.error === 'string' && result.error) {
+    return result.error;
+  }
+
+  // Defensive: raw ad-hoc with no envelope at all — only trigger when there is
+  // literally nothing else indicating success. Avoids false positives on payloads
+  // that legitimately include an `error` field as data.
+  if (
+    !('status' in result) &&
+    !('success' in result) &&
+    typeof result.error === 'string' &&
+    result.error &&
+    Object.keys(result).length === 1
+  ) {
+    return result.error;
+  }
+
+  return null;
+}
+
 // ── ConnectionManager ───────────────────────────────────────
 
 export class ConnectionManager {
@@ -280,36 +348,21 @@ export class ConnectionManager {
         throw new Error(`Unknown layer: ${layerKey}`);
       }
 
-      // Normalize error responses (three formats exist — see conformance-oracle-contracts.md)
+      // Normalize error responses — P0-1 (audit 2026-04-12). Three formats exist on the
+      // wire; Bridge catches two, leaks the third as a success-wrapped payload. We defend
+      // here because the plugin is frozen (D23: UnrealMCP deprecated post-Phase 3).
       //
-      //   Format 1 (Bridge envelope): { status: "error", error: "msg" }
-      //     → Bridge detected the handler error and rewrapped it
-      //   Format 2 (CommonUtils):     { success: false, error: "msg" }
-      //     → Bridge detects success:false and converts to Format 1
-      //   Format 3 (UMG ad-hoc):      { error: "msg" } (no success field)
-      //     → Bridge does NOT detect this — it wraps as:
-      //       { status: "success", result: { error: "msg" } }
-      //
-      // Format 1 & 2 are caught by the first two checks.
-      // Format 3 arrives as a "success" with error buried in result.
-      // We detect it by checking: status is "success", result is an object with
-      // ONLY an "error" field and no other data fields.
-      if (result && (
-        result.status === 'error' ||
-        result.success === false
-      )) {
-        const msg = result.error || result.message || 'Unknown error from Unreal';
-        throw new Error(`${layerKey}: ${msg}`);
-      }
-
-      // Format 3: ad-hoc error wrapped by Bridge as success
-      // { status: "success", result: { error: "msg" } } where result has no other keys
-      if (result && result.status === 'success' && result.result &&
-          typeof result.result === 'object' && typeof result.result.error === 'string') {
-        const resultKeys = Object.keys(result.result);
-        if (resultKeys.length === 1 && resultKeys[0] === 'error') {
-          throw new Error(`${layerKey}: ${result.result.error}`);
-        }
+      //   Format 1 (Bridge envelope): { status: "error", error|message: "msg" }
+      //     → handler signaled error, Bridge rewrapped; direct status check
+      //   Format 2 (CommonUtils):     { success: false, error|message: "msg" }
+      //     → status absent but success=false; direct success check
+      //   Format 3 (UMG ad-hoc):      { error: "msg" } (no status, no success)
+      //     → Bridge wraps as: { status: "success", result: { error: "msg" } }
+      //     → Also defend against the raw form escaping Bridge entirely and against
+      //       status:"success" with a sibling error (belt-and-braces for format drift).
+      const errMessage = extractWireError(result);
+      if (errMessage !== null) {
+        throw new Error(`${layerKey}: ${errMessage}`);
       }
 
       // Cache successful results
