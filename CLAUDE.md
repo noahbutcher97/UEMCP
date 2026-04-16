@@ -79,7 +79,7 @@ The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (rele
 
 Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-main\` — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin at `ProjectA\Plugins\NodeToCode-main\` is a separate BP-to-code tool, also not part of UEMCP.
 
-## Current State — Phase 2 Complete + Handler Fixes Landed
+## Current State — Phase 2 Complete + Level 1+2 Design Settled + Agent 10 In Flight
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
@@ -99,17 +99,26 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - **tools.yaml fully populated**: all 120 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
 - **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
 - **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
+- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for all 13 offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata.
+- **Supplementary test suite wired into CI rotation** (M6 fix, 2026-04-16): 42 parser + 15 asset-info + 16 registry + 30 inspect/level-actors assertions now part of the standard test sweep. Baseline is **436/436**, not 333.
 
-### In progress — Level 1+2 Parser Enhancement (D39):
-- **Goal**: Read serialized object properties from .uasset export data, extending the existing parser
-- **Level 1**: FPropertyTag iteration — read tagged properties for simple types (int, float, bool, string, enum, object refs)
-- **Level 2**: Struct deserialization — handlers for FVector, FRotator, FTransform, FQuat, FLinearColor, FColor, FGameplayTag, FGameplayTagContainer, FSoftObjectPath, FGuid
-- **Research complete**: 14 projects surveyed (`docs/research/uasset-property-parsing-references.md`), audit done (`docs/research/uasset-parser-audit-and-recommendation.md`). Top references: CUE4Parse (port source), UAssetAPI (validation oracle). JS ecosystem empty — our parser will be first Node.js implementation.
-- **Next**: Tool surface design (Agent 9), then parser implementation (Agent 10)
+### In progress — Agent 10: Level 1+2+2.5 parser + 3 Option C tools (D39/D44/D46):
+- **Scope**: FPropertyTag iteration (Level 1) + ~10 struct handlers (Level 2) + simple-element `TArray`/`TSet` containers (Level 2.5, authorized by D46).
+- **Design settled (2026-04-16)**:
+  - Agent 9 delivered **Option C hybrid** — modify `list_level_actors` (transforms) + `inspect_blueprint` (CDO property defaults); add new `read_asset_properties` tool. See `docs/research/level12-tool-surface-design.md`.
+  - Agent 9.5 verified with **4 implementation-critical corrections**: transform chain resolves via `outerIndex` reverse scan (not `RootComponent` ObjectProperty — only ~10% of placed actors serialize that tag); UE 5.6 FPropertyTag layout has `FPropertyTypeName` + `EPropertyTagFlags` extensions that break a straight pre-5.4 CUE4Parse port; sparse transforms are intended behaviour (~63% null); Bridges2 346 KB unpaginated so pagination is mandatory. See `docs/research/level12-verification-pass.md` §6.
+- **Level 3 scope locked** (D45/D46/D47/D48):
+  - **D45**: L3A full-fidelity UEdGraph byte parsing is permanently EDITOR-ONLY. 3F sidecar spec is the offline-read path for BP logic introspection.
+  - **D46**: L3B simple-element containers (`TArray<int/float/FVector/FGameplayTag/...>`) ship with Agent 10 as L2.5. Complex-element containers (`TMap<K,V>`, `TArray<FMyCustomStruct>`) deferred to Agent 10.5.
+  - **D47**: `UUserDefinedStruct` resolution PURSUE (two-pass struct-registry extension) — scheduled for Agent 10.5. ProjectA spot-check confirmed pervasive usage.
+  - **D48**: L3A skeletal parse split — **Tier S-A** (name-only, tagged-property coverage of ~10-13 K2Node types) PURSUE; **Tier S-B** (pin-tracing with `LinkedTo` edges) FOLD-INTO-3F (zero reference coverage, duplicates sidecar at 4-8× cost). S-A bundled into Agent 10.5 per Q-1 Mode A.
+- **Agent 10.5 queued — bundled follow-on session** covering D46 complex containers + D47 UUserDefinedStruct + D48 S-A skeletal K2Node surface. All three share the struct-registry extension pattern; bundling is more coherent than splitting S-A into a separate 10.75 agent.
 
 ### What's NOT implemented yet:
-- Level 1+2 property parser code (in design phase — see above)
-- C++ editor plugin (Phase 3 — deferred per D39 until Level 1+2 reveals what the plugin actually needs)
+- Agent 10 parser deliverable (in flight)
+- Agent 10.5 bundled follow-on (queued)
+- 3F sidecar writer (editor plugin) — spec exists in `docs/specs/blueprints-as-picture-amendment.md`; becomes critical path after Agent 10.5 ships the name-level floor
+- C++ editor plugin (Phase 3 — deferred per D39; scope has shrunk progressively via D32/D35/D45/D48)
 - HTTP client for Remote Control API (Phase 4)
 - Distribution to ProjectB via P4 (Phase 5)
 - Per-project tuning (Phase 6)
@@ -130,7 +139,7 @@ UEMCP/
 │   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
 │   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
 │   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
-│   ├── test-phase1.mjs    ← Phase 1 verification tests (36 assertions)
+│   ├── test-phase1.mjs    ← Phase 1 verification tests (54 assertions)
 │   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
 │   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests (234 assertions)
 │   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
@@ -142,7 +151,7 @@ UEMCP/
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   ├── research/          ← parser survey, audit, design options (5 files)
 │   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D43)
+│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D48)
 └── .claude/               ← project-level Claude settings
 ```
 
@@ -216,7 +225,7 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D43).
+See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D48).
 See `docs/audits/phase1-audit-2026-04-12.md` for the Phase 1 audit.
 See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 tier-2 audit (parser production-grade, 7 handler findings).
 
