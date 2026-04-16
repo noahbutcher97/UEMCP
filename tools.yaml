@@ -171,7 +171,9 @@ toolsets:
         description: Capture editor viewport to PNG file
         note: Legacy — get_viewport_screenshot in visual-capture returns inline base64
         params:
-          filepath: { type: string, required: true, description: "Output file path (.png appended if missing)" }
+          filepath:     { type: string, required: true, description: "Output file path (.png appended if missing)" }
+          resolution_x: { type: number, required: false, description: "Screenshot width in pixels" }
+          resolution_y: { type: number, required: false, description: "Screenshot height in pixels" }
 
   blueprints-write:
     layer: tcp-55557
@@ -429,11 +431,6 @@ toolsets:
           asset_path: { type: string, required: true }
       get_widget_blueprint:
         description: Widget hierarchy tree (designer view), property bindings, plus standard EventGraph and functions.
-        params:
-          asset_path: { type: string, required: true }
-      get_all_blueprint_graphs:
-        description: ALL graphs including orphan functions — alias for get_blueprint_graphs with no filter. Kept for discoverability.
-        note: Alias for get_blueprint_graphs. ToolIndex registers both names.
         params:
           asset_path: { type: string, required: true }
       get_niagara_system_info:
