@@ -85,6 +85,42 @@ Target structs (from Agent 8's §3 matrix — use their confirmed layouts):
 
 Unknown struct → log warning, return `{_raw: true, _size: N}`, skip bytes.
 
+### Struct byte sizes (reference)
+
+| Struct | Bytes | Notes |
+|--------|-------|-------|
+| FVector | 24 | 3 × float64 (UE5 uses doubles, not floats) |
+| FRotator | 24 | 3 × float64 |
+| FQuat | 32 | 4 × float64 |
+| FTransform | 80 | FQuat(32) + FVector(24) Translation + FVector(24) Scale3D |
+| FLinearColor | 16 | 4 × float32 |
+| FColor | 4 | 4 × uint8 |
+| FGameplayTag | 8 (5.6+) or varies (<5.6) | See version-gating below |
+| FGameplayTagContainer | 4 + 8×N | uint32 count + N × FGameplayTag |
+| FSoftObjectPath | varies | FName + FString (5.1+) |
+| FGuid | 16 | 4 × uint32 |
+
+### Version-gating details
+
+Two struct formats changed across UE versions. The implementer MUST handle both:
+
+**FGameplayTag (changed in UE 5.6)**:
+- **Before 5.6**: Stored as FString (int32 length + UTF-8/UTF-16 chars)
+- **5.6+**: Stored as FName (4-byte name index + 4-byte number suffix)
+- **Detection**: Check UE version from file header or CustomVersions block
+
+**FSoftObjectPath (changed in UE 5.1)**:
+- **Before 5.1**: Older encoding (needs investigation if we ever parse pre-5.1 assets)
+- **5.1+**: FName (asset path) + FString (sub-object path)
+- **For UEMCP**: Both ProjectA (5.6) and ProjectB (5.7) are post-5.1, so the new format is sufficient. Add a version guard that logs a warning on pre-5.1 files rather than silently misreading.
+
+### Known unknowns
+
+1. **EnumProperty inner encoding**: May require reading an enum name FName prefix in addition to the uint8 value byte. If the first pass reads wrong values for enums, investigate whether the tag header contains an extra FName for the enum type.
+2. **Custom Version GUIDs**: Verify that the existing parser's header data (CustomVersions from FPackageFileSummary) is accessible to the property reading functions. If not, thread it through.
+3. **Custom GAS property types**: ProjectA/ProjectB may use custom property types not in the standard handler set. The bulk validation pass (see Testing below) will surface these — handle as skip-by-size initially.
+4. **Container types (Array/Map/Set)**: Deferred to Level 3. Level 1+2 handlers MUST skip these gracefully using the size field, not attempt partial parsing that could desync the cursor.
+
 ---
 
 ## Tool wiring
@@ -118,6 +154,12 @@ Follow Agent 9's approved design. The likely outcomes:
 - `inspect_blueprint` on a BP → `variableDefaults` present (if Option A/C)
 - Response sizes stay under MCP cap after property addition
 
+### Bulk validation pass
+- After Level 1+2 are implemented, run property parsing on ALL 19,062 ProjectA + ProjectB .uasset/.umap files
+- Collect property type frequency distribution (which types appear, how often) — this surfaces any custom types we missed
+- Log any parse errors (unknown type, struct handler failure, bounds violation) — target zero errors
+- Measure per-file parse time — target <50ms per file on SSD (full corpus should complete in <16 minutes)
+
 ### Regression
 - All existing test-phase1.mjs assertions still pass
 - All Agent 6 assertions still pass
@@ -125,11 +167,18 @@ Follow Agent 9's approved design. The likely outcomes:
 
 ---
 
+## Performance target
+
+- <50ms per file on SSD for full property parse (header + tables + properties)
+- Bulk validation of 19K+ files should complete in <16 minutes
+- Include timing in the final report
+
 ## Commit convention
 
 - Commit 1: Level 1 FPropertyTag iteration + tests
 - Commit 2: Level 2 struct handlers + tests
 - Commit 3: Tool wiring (per Agent 9's design) + integration tests
+- Commit 4: Bulk validation pass + any fixes discovered
 - No AI attribution.
 
 ---
