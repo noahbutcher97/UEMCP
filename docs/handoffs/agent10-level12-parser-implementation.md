@@ -331,15 +331,18 @@ Agent 9 §3 references `actors.get_actor_transform` — this tool does not exist
 
 ## Out of scope
 
-- Level 3A UEdGraph (permanently EDITOR-ONLY per D45; 3F sidecar is the canonical offline path).
+- Level 3A full-fidelity UEdGraph (permanently EDITOR-ONLY per D45; 3F sidecar is the canonical offline path).
+- Level 3A skeletal K2Node name-only surface (Tier S-A per D48) — deferred to bundled Agent 10.5. Not Agent 10's scope.
 - Level 3B complex-element containers (`TMap`, `TArray<FMyCustomStruct>`) — deferred to Agent 10.5 per D46.
-- Level 3C UUserDefinedStruct resolution — deferred to Agent 10.5+ per D47.
+- Level 3C UUserDefinedStruct resolution — deferred to Agent 10.5 per D47.
 - Level 3C DelegateProperty, FInstancedStruct, cross-package ref walks — KEEP-DEFERRED per Agent 11.
 - Phase 3 C++ plugin code (D39).
-- D-log edits — orchestrator writes D48+ after you land.
+- D-log edits — orchestrator writes D49+ after you land.
 - `server.mjs:offlineToolDefs` — that const was eliminated in D44. Do not re-introduce it.
 - Custom Serialize() overrides for class-specific formats (e.g., Blueprint's UClass::Serialize).
 - FText deserialization with localization tables (complex; skip and emit `{unsupported, reason: "localized_text"}` marker per Agent 9 §1).
+
+**Post-Agent-10 follow-on** (informational — not your concern): a single bundled Agent 10.5 session will handle D46 complex containers + D47 UUserDefinedStruct resolver + D48 S-A skeletal K2Node surface. All three share the same struct-registry extension pattern. Your Level 1+2+2.5 foundation is the prerequisite; you don't need to design for them.
 
 ---
 
