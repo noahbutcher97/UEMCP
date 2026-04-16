@@ -40,7 +40,12 @@ Minor: Test D4 — no `hint` field on unrecognized class names (UX polish, not b
 ## What's Next (in order)
 
 1. ~~Manual testing~~ → **DONE** (F0 bug fixed in `5aaa290`)
-2. **Agent 9 — Tool Surface Design** (`docs/handoffs/agent9-tool-surface-design.md`) ← **NEXT**
+2. **Codebase Audit** (`docs/handoffs/pre-agent9-codebase-audit.md`) ← **NEXT**
+   - Read-only audit of all UEMCP server source. Produces `docs/audits/uemcp-server-codebase-audit-2026-04-16.md`.
+   - Covers: architecture summary, module dependencies, code quality, handler audit table, test coverage, risks.
+   - Purpose: ground the orchestrator and catch issues before more features land.
+   - **Read the audit deliverable before dispatching Agent 9.**
+3. **Agent 9 — Tool Surface Design** (`docs/handoffs/agent9-tool-surface-design.md`)
    - Design research only, no code. Decides how Level 1+2 property data reaches callers (fold into existing tools vs new tool vs hybrid).
    - Deliverable: `docs/research/level12-tool-surface-design.md`
    - Dispatch in Claude Code, Agent 9 reads the handoff.
