@@ -294,12 +294,14 @@ if (PROJECT_ROOT) {
   }
 
   // F4: list_level_actors filters to placed actors
+  // Agent 10 renamed placedActorCount → total_placed_actors as part of the
+  // transforms+pagination response-shape update (Option C).
   try {
     const lvl = await executeOfflineTool('list_level_actors',
       { asset_path: '/Game/Maps/Deployable/MarketPlace/MarketPlace_P' }, PROJECT_ROOT);
-    assert(lvl.placedActorCount !== undefined, 'F4: response has placedActorCount');
-    assert(lvl.placedActorCount < lvl.exportCount,
-      `F4: placed actors (${lvl.placedActorCount}) < total exports (${lvl.exportCount})`);
+    assert(lvl.total_placed_actors !== undefined, 'F4: response has total_placed_actors (Option C rename)');
+    assert(lvl.total_placed_actors < lvl.exportCount,
+      `F4: placed actors (${lvl.total_placed_actors}) < total exports (${lvl.exportCount})`);
     // Verify no K2Node or Function entries leaked through
     const leaks = lvl.actors.filter(a =>
       a.className && (a.className.includes('K2Node_') || a.className === 'Function'));
@@ -336,6 +338,213 @@ if (PROJECT_ROOT) {
     }
   } catch (e) {
     assert(false, 'F1: truncation signalling', e.message);
+  }
+}
+
+// ── Test 10: Agent 10 Option C — transforms + pagination + include_defaults + read_asset_properties ──
+if (PROJECT_ROOT) {
+  console.log(`\n═══ Test 10: Option C tool wiring ═══`);
+
+  // list_level_actors: transforms always-on, outer-index reverse scan (V9.5 #1).
+  try {
+    const lvl = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 50 }, PROJECT_ROOT);
+    assert(lvl.total_placed_actors > 0, 'Option C: total_placed_actors > 0');
+    assert(lvl.actors.every(a => 'transform' in a),
+           'Option C: every actor row has a transform field (may be null)');
+    // At least some actors on a real dev map should have transforms.
+    const withTransforms = lvl.actors.filter(a => a.transform !== null);
+    assert(withTransforms.length > 0,
+           `Option C: some actors have non-null transforms (got ${withTransforms.length} of ${lvl.actors.length})`);
+    // Sparse transforms at class default should round-trip as transform:null
+    // per V9.5 correction #3 (intended behaviour, not error).
+    const nullTransforms = lvl.actors.filter(a => a.transform === null);
+    assert(nullTransforms.length + withTransforms.length === lvl.actors.length,
+           'Option C: transform is either a shape or null, never undefined');
+    // Spot-check one transform's shape: {location:[3], rotation:[3]|null, scale:[3]|null}
+    if (withTransforms.length > 0) {
+      const t = withTransforms[0].transform;
+      const hasLoc = Array.isArray(t.location) && t.location.length === 3;
+      const hasRot = t.rotation === null || (Array.isArray(t.rotation) && t.rotation.length === 3);
+      const hasScale = t.scale === null || (Array.isArray(t.scale) && t.scale.length === 3);
+      assert(hasLoc || t.location === null, 'Option C: transform.location is [x,y,z] or null');
+      assert(hasRot, 'Option C: transform.rotation is [p,y,r] or null');
+      assert(hasScale, 'Option C: transform.scale is [x,y,z] or null');
+    }
+  } catch (e) {
+    assert(false, 'Option C: list_level_actors transforms', e.message);
+  }
+
+  // Pagination: limit + offset work, truncated flag set correctly.
+  try {
+    const page1 = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 3, offset: 0 }, PROJECT_ROOT);
+    assert(page1.limit === 3, 'Option C: limit echoed');
+    assert(page1.offset === 0, 'Option C: offset echoed');
+    assert(page1.actors.length === 3, 'Option C: page size respects limit');
+    if (page1.total_placed_actors > 3) {
+      assert(page1.truncated === true, 'Option C: truncated=true when total > limit');
+    }
+    const page2 = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 3, offset: 3 }, PROJECT_ROOT);
+    assert(page2.offset === 3, 'Option C: page 2 offset echoed');
+    if (page1.actors.length === 3 && page2.actors.length > 0) {
+      assert(page2.actors[0].name !== page1.actors[0].name,
+             'Option C: page 2 returns different actors than page 1');
+    }
+  } catch (e) {
+    assert(false, 'Option C: list_level_actors pagination', e.message);
+  }
+
+  // limit cap at 500.
+  try {
+    const huge = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 99999 }, PROJECT_ROOT);
+    assert(huge.limit === 500, 'Option C: limit capped at 500');
+  } catch (e) {
+    assert(false, 'Option C: limit cap', e.message);
+  }
+
+  // summarize_by_class: returns summary dict, no actors array.
+  try {
+    const sum = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Developers/steve/Steve_TestMap', summarize_by_class: true }, PROJECT_ROOT);
+    assert(sum.summary !== undefined && typeof sum.summary === 'object',
+           'Option C: summarize_by_class returns summary dict');
+    assert(sum.actors === undefined, 'Option C: summarize_by_class omits actors array');
+    const classCount = Object.keys(sum.summary).length;
+    assert(classCount > 0, `Option C: summary has at least one class (got ${classCount})`);
+    // Totals should match actor count.
+    const summed = Object.values(sum.summary).reduce((a, b) => a + b, 0);
+    assert(summed === sum.total_placed_actors,
+           `Option C: summary totals (${summed}) match total_placed_actors (${sum.total_placed_actors})`);
+  } catch (e) {
+    assert(false, 'Option C: summarize_by_class', e.message);
+  }
+
+  // inspect_blueprint: include_defaults=false (default) does NOT include variable_defaults.
+  try {
+    const bp = await executeOfflineTool('inspect_blueprint',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+    assert(bp.variable_defaults === undefined,
+           'Option C: inspect_blueprint default has no variable_defaults');
+  } catch (e) {
+    assert(false, 'Option C: inspect_blueprint default', e.message);
+  }
+
+  // inspect_blueprint: include_defaults=true attaches CDO UPROPERTY values.
+  try {
+    const bp = await executeOfflineTool('inspect_blueprint',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block', include_defaults: true }, PROJECT_ROOT);
+    assert(bp.variable_defaults !== undefined,
+           'Option C: include_defaults=true attaches variable_defaults');
+    assert(bp.cdo_export_name === 'Default__BPGA_Block_C',
+           'Option C: cdo_export_name resolves to Default__<GeneratedClass>');
+    assert(bp.variable_defaults.IsBlocking?.tagName === 'Gameplay.State.Guard.IsActive',
+           'Option C: variable_defaults decode FGameplayTag correctly');
+    assert(Array.isArray(bp.variable_defaults.ActivationOwnedTags?.tags),
+           'Option C: variable_defaults decode FGameplayTagContainer');
+    assert(Array.isArray(bp.unsupported_defaults),
+           'Option C: unsupported_defaults parallel list is present');
+  } catch (e) {
+    assert(false, 'Option C: inspect_blueprint include_defaults', e.message);
+  }
+
+  // inspect_blueprint: old `verbose` param now rejects (Zod validation would fail at MCP boundary;
+  // at the executeOfflineTool level it's silently ignored — document expected behaviour).
+  try {
+    const bp = await executeOfflineTool('inspect_blueprint',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block', verbose: true }, PROJECT_ROOT);
+    // The handler ignores `verbose`; include_defaults is the only gate now.
+    assert(bp.variable_defaults === undefined,
+           'Option C: legacy `verbose` param does not trigger include_defaults semantics');
+  } catch (e) {
+    assert(false, 'Option C: legacy verbose param', e.message);
+  }
+
+  // read_asset_properties: default export for BP-subclass asset is the CDO.
+  try {
+    const rap = await executeOfflineTool('read_asset_properties',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+    assert(rap.export_name === 'Default__BPGA_Block_C',
+           'Option C: read_asset_properties default export = Default__<Name>_C');
+    assert(rap.struct_type === 'BPGA_Block_C',
+           `Option C: struct_type resolves to the CDO's direct class (got ${rap.struct_type})`);
+    assert(rap.property_count_total === rap.property_count_returned,
+           'Option C: unfiltered query returns all properties');
+    assert(rap.properties.IsBlocking !== undefined,
+           'Option C: read_asset_properties returns IsBlocking');
+  } catch (e) {
+    assert(false, 'Option C: read_asset_properties default', e.message);
+  }
+
+  // read_asset_properties: property_names filter narrows output.
+  try {
+    const filtered = await executeOfflineTool('read_asset_properties',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block', property_names: ['ActivationOwnedTags'] },
+      PROJECT_ROOT);
+    assert(filtered.property_count_returned === 1,
+           `Option C: filter narrows to 1 property (got ${filtered.property_count_returned})`);
+    assert(filtered.property_count_total > 1,
+           'Option C: property_count_total reflects the full set');
+    assert(filtered.properties.ActivationOwnedTags !== undefined,
+           'Option C: filtered response includes the requested property');
+    assert(filtered.properties.IsBlocking === undefined,
+           'Option C: non-matching properties are omitted');
+  } catch (e) {
+    assert(false, 'Option C: read_asset_properties filter', e.message);
+  }
+
+  // read_asset_properties: max_bytes triggers truncation.
+  try {
+    const trunc = await executeOfflineTool('read_asset_properties',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block', max_bytes: 50 }, PROJECT_ROOT);
+    assert(trunc.truncated === true,
+           'Option C: max_bytes=50 triggers truncated=true');
+    const budgetMarkers = trunc.unsupported.filter(u => u.reason === 'size_budget_exceeded');
+    assert(budgetMarkers.length > 0,
+           'Option C: size_budget_exceeded markers emitted');
+    assert(budgetMarkers.length <= 20,
+           `Option C: marker count capped at 20 per Q5 spec (got ${budgetMarkers.length})`);
+  } catch (e) {
+    assert(false, 'Option C: max_bytes truncation', e.message);
+  }
+
+  // read_asset_properties: explicit export_name that doesn't exist rejects.
+  try {
+    let caught = null;
+    try {
+      await executeOfflineTool('read_asset_properties',
+        { asset_path: '/Game/GAS/Abilities/BPGA_Block', export_name: 'DoesNotExist' }, PROJECT_ROOT);
+    } catch (e) { caught = e; }
+    assert(caught !== null && /Export not found/.test(caught.message),
+           'Option C: unknown export_name throws "Export not found"');
+  } catch (e) {
+    assert(false, 'Option C: bad export_name', e.message);
+  }
+
+  // D44 invariant: tools.yaml is single source of truth for descriptions.
+  // Verify the three modified/new tools show up in the offline toolset with
+  // their Option C descriptions.
+  try {
+    const offlineTools = toolsData.toolsets.offline.tools;
+    assert(/include_defaults=true/.test(offlineTools.inspect_blueprint.description),
+           'D44: inspect_blueprint yaml description mentions include_defaults');
+    assert(/transforms/i.test(offlineTools.list_level_actors.description),
+           'D44: list_level_actors yaml description mentions transforms');
+    assert(offlineTools.read_asset_properties !== undefined,
+           'D44: read_asset_properties entry exists in yaml');
+    assert(/Level 2 engine structs|engine structs/i.test(offlineTools.read_asset_properties.description),
+           'D44: read_asset_properties description calls out engine struct coverage');
+    // Params line up with yaml (tools/list and find_tools read from the same source).
+    assert(offlineTools.list_level_actors.params.limit !== undefined,
+           'D44: list_level_actors.params.limit declared in yaml');
+    assert(offlineTools.inspect_blueprint.params.include_defaults !== undefined,
+           'D44: inspect_blueprint.params.include_defaults declared in yaml');
+    assert(offlineTools.inspect_blueprint.params.verbose === undefined,
+           'D44: inspect_blueprint.params.verbose removed per Q1 rename');
+  } catch (e) {
+    assert(false, 'D44: yaml invariant check', e.message);
   }
 }
 

@@ -15,7 +15,13 @@ import {
   readExportTable,
   resolvePackageIndex,
   readAssetRegistryData,
+  readExportProperties,
+  makePackageIndexResolver,
 } from './uasset-parser.mjs';
+import {
+  buildStructHandlers,
+  buildContainerHandlers,
+} from './uasset-structs.mjs';
 
 // ── Asset Header Cache (Option D: Hybrid TTL + mtime + write-suspicion) ─────
 //
@@ -1100,27 +1106,56 @@ async function parseAssetTables(diskPath) {
 }
 
 /**
- * inspect_blueprint — Deep introspection of a Blueprint .uasset.
+ * Classes that identify an asset as a Blueprint subclass whose CDO name
+ * follows the `Default__<AssetName>_C` convention. Includes GAS as a
+ * defensive add (Agent 9 §4 Q4) even though ProjectA compiles GAS as plain
+ * BlueprintGeneratedClass today.
+ */
+const BP_GENERATED_CLASSES = new Set([
+  'BlueprintGeneratedClass',
+  'WidgetBlueprintGeneratedClass',
+  'AnimBlueprintGeneratedClass',
+  'GameplayAbilityBlueprintGeneratedClass',
+]);
+
+/**
+ * Parse an asset's header + tables and return a shared context for property
+ * reading. Consumes the file once; all struct/container dispatch reuses
+ * the same buffer and name table.
+ */
+async function parseAssetForPropertyRead(projectRoot, assetPath) {
+  const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
+  const stats = await stat(diskPath);
+  const buf = await readFile(diskPath);
+  const cur = new Cursor(buf);
+  const summary = parseSummary(cur);
+  const names = readNameTable(cur, summary);
+  const imports = readImportTable(cur, summary, names);
+  const exports = readExportTable(cur, summary, names);
+  return {
+    diskPath, stats, buf, summary, names, imports, exports,
+    resolve: makePackageIndexResolver(exports, imports),
+    structHandlers: buildStructHandlers(),
+    containerHandlers: buildContainerHandlers(),
+  };
+}
+
+/**
+ * inspect_blueprint — Deep introspection of a .uasset (BP, UMG, AnimBP, DataAsset).
  *
- * Returns full export table with resolved class/super/outer names.
- * Callers use this to identify parent class, CDO, generated class, and
- * component/variable exports without the editor. For asset-registry
- * metadata, call get_asset_info separately.
- *
- * Works on any .uasset — named for the common case (Blueprint), but UMG
- * widgets, AnimBPs, DataAssets all parse identically.
+ * Returns full export table with resolved class/super/outer names, parent class,
+ * and generated class. With include_defaults=true, also returns CDO UPROPERTY
+ * values via Level 1+2+2.5 parser dispatch.
  *
  * @param {string} projectRoot
- * @param {object} params - { asset_path: string, verbose?: boolean }
- * @returns {Promise<object>}
+ * @param {object} params - { asset_path: string, include_defaults?: boolean }
  */
 async function inspectBlueprint(projectRoot, params) {
   const assetPath = params.asset_path;
-  const verbose = params.verbose ?? false;
-  const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
-  const stats = await stat(diskPath);
+  const includeDefaults = params.include_defaults ?? false;
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const header = await parseAssetHeader(projectRoot, assetPath);
-  const { imports, exports } = await parseAssetTables(diskPath);
+  const { diskPath, stats, buf, exports, imports, names, resolve, structHandlers, containerHandlers } = ctx;
   const primary = header.data.assetRegistry.objects[0] || null;
 
   const exportRows = exports.map((e, i) => ({
@@ -1136,17 +1171,10 @@ async function inspectBlueprint(projectRoot, params) {
     serialSize: e.serialSize,
   }));
 
-  // Locate the BlueprintGeneratedClass export — its SuperIndex resolves
-  // to the parent class (native or another BP's generated class).
-  const genClassNames = new Set([
-    'BlueprintGeneratedClass',
-    'WidgetBlueprintGeneratedClass',
-    'AnimBlueprintGeneratedClass',
-  ]);
-  const generated = exportRows.find(r => genClassNames.has(r.className));
+  const generated = exportRows.find(r => BP_GENERATED_CLASSES.has(r.className));
   const parentClass = generated ? generated.superClass : null;
 
-  return {
+  const result = {
     path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     sizeBytes: stats.size,
@@ -1159,6 +1187,21 @@ async function inspectBlueprint(projectRoot, params) {
     importCount: imports.length,
     exports: exportRows,
   };
+
+  if (includeDefaults) {
+    const cdoName = generated ? `Default__${generated.objectName}` : null;
+    const cdoExport = cdoName ? exports.find(e => e.objectName === cdoName) : null;
+    if (!cdoExport) {
+      result.variable_defaults = {};
+      result.unsupported_defaults = [{ name: '__cdo__', reason: 'no_cdo_export_found' }];
+    } else {
+      const r = readExportProperties(buf, cdoExport, names, { resolve, structHandlers, containerHandlers });
+      result.variable_defaults = r.properties;
+      result.unsupported_defaults = r.unsupported;
+      result.cdo_export_name = cdoName;
+    }
+  }
+  return result;
 }
 
 /**
@@ -1193,46 +1236,237 @@ function isPlacedActor(exportEntry, exports, imports) {
   return outerName && (outerName.includes('PersistentLevel') || outerName === 'Level');
 }
 
+// Component names we preferentially pick as the "root" when an actor has
+// multiple children. Order matches UE's default SceneComponent naming for
+// common actor subclasses.
+const KNOWN_ROOT_COMPONENT_NAMES = new Set([
+  'DefaultSceneRoot', 'CollisionCylinder', 'CollisionCapsule', 'CollisionBox',
+  'CapsuleComponent', 'StaticMeshComponent0', 'SkeletalMeshComponent0',
+  'LightComponent0', 'RootComponent',
+]);
+
+// Editor-only auxiliary components we'd rather skip when selecting a root —
+// they carry transform overrides only in rare cases, but they're not the
+// actor's spatial root.
+const AUX_COMPONENT_CLASS_PATTERNS = [
+  /^ArrowComponent$/, /^BillboardComponent$/, /^BillBoardComponent$/,
+  /^TextRenderComponent$/,
+];
+
 /**
- * list_level_actors — Enumerate placed actors in a .umap.
+ * Given a placed actor export at position `i` (0-based), find its root
+ * component export by outerIndex reverse scan. Returns the root component's
+ * export row, or null if no children resolve.
  *
- * Returns each placed actor's {objectName, className, outer, bIsAsset}.
- * Filters to actual level actors (outerIndex resolves to PersistentLevel/Level),
- * excluding component subobjects, editor metadata, and BP machinery.
- * Per D37 YAGNI: class + name only, no transforms, no components tree.
- * Callers that need transforms go through Layer 2/3 TCP tools.
+ * V9.5 correction #1: only ~10% of placed actors serialize a RootComponent
+ * ObjectProperty; the dominant path is outerIndex reverse lookup.
  */
-async function listLevelActors(projectRoot, assetPath) {
-  // Levels live in .umap, not .uasset. If caller passed a bare /Game/... path
-  // without extension, resolve to .umap instead of the resolver default.
-  const mapPath = assetPath.endsWith(".umap") || assetPath.endsWith(".uasset")
-    ? assetPath
-    : assetPath + ".umap";
-  const diskPath = resolveAssetDiskPath(projectRoot, mapPath);
-  const stats = await stat(diskPath);
-  const { imports, exports } = await parseAssetTables(diskPath);
+function findRootComponentExport(actorIdx, exports, imports) {
+  const actorPackageIndex = actorIdx + 1;  // 1-based FPackageIndex
+  const children = exports.filter(c => c.outerIndex === actorPackageIndex);
+  if (children.length === 0) return null;
+  // Preference 1: known root-component name match.
+  const byName = children.find(c => KNOWN_ROOT_COMPONENT_NAMES.has(c.objectName));
+  if (byName) return byName;
+  // Preference 2: non-auxiliary component (strip ArrowComponent/Billboard/etc).
+  const nonAux = children.filter(c => {
+    const cls = resolvePackageIndex(c.classIndex, exports, imports, 'objectName');
+    if (!cls) return true;
+    return !AUX_COMPONENT_CLASS_PATTERNS.some(p => p.test(cls));
+  });
+  if (nonAux.length === 1) return nonAux[0];
+  if (nonAux.length > 1) return nonAux[0];
+  // Fall back to the first child.
+  return children[0];
+}
 
-  const actors = exports
-    .filter(e => isPlacedActor(e, exports, imports))
-    .map(e => ({
-      name: e.objectName,
-      className: resolvePackageIndex(e.classIndex, exports, imports, 'objectName'),
-      classPackage: e.classIndex < 0
-        ? (imports[-e.classIndex - 1]?.classPackage ?? null)
-        : null,
-      outer: resolvePackageIndex(e.outerIndex, exports, imports, 'objectName'),
-      bIsAsset: e.bIsAsset,
-    }));
-
+/**
+ * Read RelativeLocation/RelativeRotation/RelativeScale3D from a component
+ * export. Returns a transform object or null if all three are at class default.
+ */
+function readComponentTransform(buf, compExport, names, ctx) {
+  const r = readExportProperties(buf, compExport, names, ctx);
+  const loc = r.properties.RelativeLocation;
+  const rot = r.properties.RelativeRotation;
+  const scl = r.properties.RelativeScale3D;
+  // When ALL three are missing the actor is at class default — return null per
+  // V9.5 correction #3 (sparse transforms are intended behaviour, not errors).
+  if (!loc && !rot && !scl) return null;
   return {
+    location: loc ? [loc.x, loc.y, loc.z] : null,
+    rotation: rot ? [rot.pitch, rot.yaw, rot.roll] : null,
+    scale:    scl ? [scl.x, scl.y, scl.z] : null,
+  };
+}
+
+/**
+ * list_level_actors — Enumerate placed actors in a .umap with transforms.
+ *
+ * Transforms are resolved via outerIndex reverse scan (V9.5 #1): for each
+ * placed actor, scan the export table for entries whose outerIndex points
+ * back to the actor, pick the root component among those children, and read
+ * its RelativeLocation/Rotation/Scale3D properties. Actors at class default
+ * (no transform override serialized) return `transform: null` — this is the
+ * expected behaviour for ~50-60% of real map actors, not an error.
+ *
+ * Pagination (limit/offset) keeps dense maps (Bridges2 has 2,519 actors,
+ * 346 KB unpaginated) callable within MCP response caps. The
+ * summarize_by_class mode returns just `{className: count}` for the cheap
+ * orientation case.
+ */
+async function listLevelActors(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const summarizeByClass = params.summarize_by_class ?? false;
+  const rawLimit = params.limit ?? 100;
+  const limit = Math.max(1, Math.min(rawLimit, 500));
+  const offset = Math.max(0, params.offset ?? 0);
+
+  // Levels live in .umap — resolve without-extension paths to .umap.
+  const mapPath = assetPath.endsWith('.umap') || assetPath.endsWith('.uasset')
+    ? assetPath : assetPath + '.umap';
+  const ctx = await parseAssetForPropertyRead(projectRoot, mapPath);
+  const { diskPath, stats, buf, names, imports, exports, resolve, structHandlers, containerHandlers } = ctx;
+
+  // Collect placed actors with their original export index for outerIndex lookup.
+  const placed = [];
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    if (isPlacedActor(e, exports, imports)) placed.push({ index: i, entry: e });
+  }
+
+  const summary = {};
+  for (const { entry } of placed) {
+    const cls = resolvePackageIndex(entry.classIndex, exports, imports, 'objectName') ?? '<unknown>';
+    summary[cls] = (summary[cls] || 0) + 1;
+  }
+
+  const response = {
     path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     sizeBytes: stats.size,
     modified: stats.mtime.toISOString(),
     exportCount: exports.length,
     importCount: imports.length,
-    placedActorCount: actors.length,
-    actors,
+    total_placed_actors: placed.length,
+    offset,
+    limit,
+  };
+
+  if (summarizeByClass) {
+    response.summary = summary;
+    response.truncated = false;
+    return response;
+  }
+
+  const page = placed.slice(offset, offset + limit);
+  response.truncated = offset + limit < placed.length;
+
+  const actors = page.map(({ index, entry }) => {
+    const row = {
+      name: entry.objectName,
+      className: resolvePackageIndex(entry.classIndex, exports, imports, 'objectName'),
+      classPackage: entry.classIndex < 0
+        ? (imports[-entry.classIndex - 1]?.classPackage ?? null)
+        : null,
+      outer: resolvePackageIndex(entry.outerIndex, exports, imports, 'objectName'),
+      bIsAsset: entry.bIsAsset,
+      transform: null,
+    };
+    const root = findRootComponentExport(index, exports, imports);
+    if (root) {
+      try {
+        row.transform = readComponentTransform(buf, root, names,
+          { resolve, structHandlers, containerHandlers });
+      } catch (err) {
+        row.unsupported = [{ name: 'transform', reason: 'root_component_parse_failed' }];
+      }
+    }
+    return row;
+  });
+
+  response.actors = actors;
+  return response;
+}
+
+/**
+ * read_asset_properties — Read serialized UPROPERTY values from a specific
+ * export in a .uasset/.umap.
+ *
+ * Default export:
+ *   - For assets whose primary class is a BlueprintGeneratedClass
+ *     subclass, pick the `Default__<Name>_C` CDO export.
+ *   - Otherwise, the first export with bIsAsset=true, falling back to
+ *     the main export at index 0.
+ *
+ * property_names filter runs AFTER full-stream parse — the stream has to
+ * be walked sequentially (FPropertyTag sizes are declared inline), so
+ * the filter trims output without changing parse cost.
+ */
+async function readAssetProperties(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const requestedExportName = params.export_name || null;
+  const filterNames = Array.isArray(params.property_names) && params.property_names.length
+    ? new Set(params.property_names) : null;
+  const maxBytes = params.max_bytes ?? 65_536;
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
+
+  // Pick the target export.
+  let target = null;
+  let exportIndex = -1;
+  if (requestedExportName) {
+    exportIndex = exports.findIndex(e => e.objectName === requestedExportName);
+    if (exportIndex < 0) {
+      throw new Error(`Export not found: ${requestedExportName}`);
+    }
+    target = exports[exportIndex];
+  } else {
+    // Auto-default: prefer Default__<generatedClass> for BP-subclass assets.
+    const generated = exports.find(e => {
+      const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+      return cls && BP_GENERATED_CLASSES.has(cls);
+    });
+    if (generated) {
+      const cdoName = `Default__${generated.objectName}`;
+      exportIndex = exports.findIndex(e => e.objectName === cdoName);
+      if (exportIndex >= 0) target = exports[exportIndex];
+    }
+    if (!target) {
+      // Fall back to main bIsAsset export.
+      exportIndex = exports.findIndex(e => e.bIsAsset);
+      if (exportIndex < 0) { exportIndex = 0; }
+      target = exports[exportIndex];
+    }
+  }
+
+  if (!target) throw new Error('No exports found in asset');
+
+  const structType = resolvePackageIndex(target.classIndex, exports, imports, 'objectName');
+  const parsed = readExportProperties(buf, target, names,
+    { resolve, structHandlers, containerHandlers, maxBytes });
+
+  let properties = parsed.properties;
+  let propertyCountReturned = parsed.propertyCount;
+  if (filterNames) {
+    properties = {};
+    for (const name of Object.keys(parsed.properties)) {
+      if (filterNames.has(name)) properties[name] = parsed.properties[name];
+    }
+    propertyCountReturned = Object.keys(properties).length;
+  }
+
+  return {
+    path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    export_name: target.objectName,
+    export_index: exportIndex + 1,
+    struct_type: structType,
+    properties,
+    unsupported: parsed.unsupported,
+    truncated: parsed.truncated,
+    property_count_returned: propertyCountReturned,
+    property_count_total: parsed.propertyCount,
   };
 }
 
@@ -1268,7 +1502,11 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'list_level_actors':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await listLevelActors(projectRoot, params.asset_path);
+      return await listLevelActors(projectRoot, params);
+
+    case 'read_asset_properties':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await readAssetProperties(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);
