@@ -1,103 +1,100 @@
-# Orchestrator State — 2026-04-16
+# Orchestrator State — 2026-04-16 (v2)
 
-> **Purpose**: Bootstrap a fresh orchestrator session. Read this file, then CLAUDE.md, then the codebase audit, then pick up where we left off.
-> **Last updated**: 2026-04-16T22:00Z
+> **Purpose**: Bootstrap a fresh orchestrator session. Read this file, then CLAUDE.md, then pick up where we left off.
+> **Last updated**: 2026-04-16 end-of-day (post-Agent-10-dispatch + housekeeping sweep)
+> **Revision**: v2 — supersedes pre-dispatch snapshot (see git log for prior content).
 
 ---
 
 ## Git State
 
-All work is on `main`. Key commits this session (chronological):
+All work is on `main`. HEAD at `00a0a81` (pre-housekeeping-commits). Recent commits (newest first):
 
 | Commit | Content |
 |--------|---------|
-| `7f26260` | D38-D43 D-log entries, 5 handoff docs (Agents 6-10), sealed tier-2 audit |
-| `d365b05` | Agent 6 handler fixes (F0/F1/F2/F4/F6) + Agent 7 research + 18 new test assertions (333 total) |
-| `236265b` | Agent 8 audit and build recommendation |
-| `70c0933` | CLAUDE.md update (Desktop Commander requirement, current state, test counts) |
-| `2c17cb0` | Manual testing handoff for handler fixes |
-| `b4304b6` | Patch Agent 10 handoff with struct byte sizes, version-gating, known unknowns, bulk validation, perf targets |
-| `af32a2d` | Orchestrator state handoff (this file, initial version) |
-| `5aaa290` | Fix F0: pass verbose param through to getAssetInfo (bug found by manual testing) |
-| `7756270` | Update orchestrator state with testing results |
-| `799fd7a` | Add pre-Agent 9 codebase audit handoff + update orchestrator sequencing |
+| `00a0a81` | Add Housekeeping Worker handoff for post-Agent-10-dispatch backlog |
+| `e1cfb8b` | Lock Q-1 = Mode A; footnote Agent 10 handoff with 10.5 bundling plan (D48 amendment) |
+| `8bd78af` | Land Agent 11.5 deliverable + D48 L3A skeletal split verdict |
+| `e1ef570` | Update Agent 10 handoff with Option C + V9.5 corrections + D46 L3B scope |
+| `009e435` | Land research deliverables: Agent 9 (design), Agent 11 (L3 feasibility), Agent 9.5 (verification) |
+| `bd69e3d` | Add Agent 11.5 handoff + D45/D46/D47 to close L3 categorization |
+| `4ba61a2` | Add Agent 11 handoff: Level 3 feasibility study (revisit) |
+| `7599131` | Add Agent 9.5 verification pass handoff |
+| `f517f96` | D44: eliminate offlineToolDefs duplication; yaml is now source of truth |
+| `33a2de5` | Phase A cleanup: M3 fix, M6 rotation, D44 decision, Agent 9 handoff patch |
+| `72661b0` | Fix 2 MEDIUM yaml issues (take_screenshot params, get_all_blueprint_graphs dupe) |
 | `937b02c` | Add mandatory verification pass to codebase audit handoff |
-| *(pending)* | 2 MEDIUM yaml fixes (take_screenshot params, get_all_blueprint_graphs dupe) + handoff updates |
+| `799fd7a` | Add pre-Agent 9 codebase audit handoff, update orchestrator sequencing |
 
-**333 primary assertions passing**: 54 phase1 + 45 mock-seam + 234 TCP.
-**71/74 supplementary assertions**: 3 stale failures in untracked test files (see audit).
+**Tests**: 436/436 total — 333 primary (54 phase1 + 45 mock-seam + 234 TCP) + 103 supplementary (42 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Supplementary suite wired into rotation 2026-04-16 (M6 fix).
 
----
-
-## Manual Testing — COMPLETE
-
-**Result**: 18/19 PASS on first run, 25/25 PASS on second run (post-fix).
-**Report**: `docs/testing/2026-04-16-handler-fixes-manual-results.md`
-
-Ship-ready: F1 (pagination), F2 (inspect_blueprint tag removal), F4 (placed-actor filter), F6 (short class names).
-
-**F0 bug found and fixed** (commit `5aaa290`): `verbose:true` on `get_asset_info` was silently ignored. Root cause: the `executeOfflineTool` switch case called `getAssetInfo(projectRoot, params.asset_path)` — dropping the `params` object so `verbose` never reached the function. Fix: pass `params` as third arg. Integration test added to catch regression.
-
-**F0-class false-confidence lesson**: Unit tests call `executeOfflineTool` directly, bypassing Zod schema + SDK handler wrapper + MCP wire path. Param-passthrough bugs between the switch dispatch and the handler function are invisible to unit tests. The audit found more instances of this pattern.
+**Pending housekeeping commits** (lands after this rewrite as a separate task series):
+- Commit lingering manual-testing result files (`docs/handoffs/testing-handler-fixes-results-2026-04-16.md`, `docs/testing/2026-04-16-handler-fixes-manual-results.md`)
+- CLAUDE.md "Current State" refresh
+- Agent 9.5 scratch script cleanup (`server/tmp-probe-proptag.mjs`)
+- ProjectB 5.7 smoke-test findings note
 
 ---
 
-## Codebase Audit — COMPLETE (2nd run, with verification)
+## Manual Testing — COMPLETE (sealed)
+
+**Result**: 25/25 PASS on second run (post-F0 fix at `5aaa290`).
+**Reports**:
+- `docs/testing/2026-04-16-handler-fixes-manual-results.md` (Noah's first run, 18/19 + F0 regression)
+- `docs/handoffs/testing-handler-fixes-results-2026-04-16.md` (second run, 25/25 PASS)
+
+Ship-ready verification complete for F0 (verbose blob stripping), F1 (pagination), F2 (tags removed from inspect_blueprint), F4 (placed-actor filter), F6 (short class-name matching).
+
+**F0-class false-confidence lesson (living)**: Unit tests calling `executeOfflineTool` directly bypass the Zod schema + SDK handler wrapper + MCP wire path. Param-passthrough bugs between switch dispatch and handler function are invisible to unit tests. Agent 10 should add an MCP-wire integration harness per the audit recommendation.
+
+---
+
+## Codebase Audit — SEALED (2nd run, with verification)
 
 **Deliverable**: `docs/audits/uemcp-server-codebase-audit-2026-04-16.md` (~580 lines)
 **Confidence**: HIGH (self-verified — all 45 handler param chains traced at file:line, all test suites run)
+**Findings**: 0 CRITICAL, 0 HIGH, 6 MEDIUM, 4 LOW
 
-### Findings: 0 CRITICAL, 0 HIGH, 6 MEDIUM, 4 LOW
+### MEDIUM disposition
 
-| # | Severity | Finding | Status | Fix scope |
-|---|----------|---------|--------|-----------|
-| M1 | MEDIUM | `take_screenshot` yaml declares only `filepath`; Zod also accepts `resolution_x`/`resolution_y` | **FIXED** in tools.yaml (pending commit) | yaml edit |
-| M2 | MEDIUM | `get_all_blueprint_graphs` declared twice in yaml (alias + standalone) | **FIXED** in tools.yaml (pending commit) | yaml edit — removed standalone, kept alias |
-| M3 | MEDIUM | `inspect_blueprint.verbose` — handler reads param but never uses it; server.mjs description **lies** ("include full AR tags") while yaml correctly says "Currently unused" | OPEN | Fix server.mjs description to match yaml; optionally remove dead param from handler |
-| M4 | MEDIUM | Description drift between `server.mjs:offlineToolDefs` and `tools.yaml` for 13 offline tools — violates "tools.yaml is single source of truth" contract | OPEN | Either make server.mjs read descriptions from yaml, or sync the 13 descriptions manually |
-| M5 | MEDIUM | 3 near-identical TCP dispatchers in tcp-tools.mjs | OPEN | DRY into generic dispatcher (post-Phase 3) |
-| M6 | MEDIUM | 2 supplementary test files have 3 stale assertions from F1/F2 fixes not propagated | OPEN | Update `test-query-asset-registry.mjs:50,68` (`filesScanned` → `total_scanned`) and `test-inspect-and-level-actors.mjs:43` (remove `bp.tags` assertion) |
+| # | Finding | Status | Landing commit |
+|---|---------|--------|----------------|
+| M1 | `take_screenshot` yaml missing `resolution_x`/`resolution_y` | **FIXED** | `72661b0` |
+| M2 | `get_all_blueprint_graphs` declared twice in yaml | **FIXED** | `72661b0` |
+| M3 | `inspect_blueprint.verbose` description drift (server.mjs lied, yaml correct) | **FIXED** | `33a2de5` (Phase A) |
+| M4 | `server.mjs:offlineToolDefs` vs `tools.yaml` description drift (13 tools) | **FIXED — D44** | `f517f96` (offlineToolDefs eliminated; yaml is single source of truth) |
+| M5 | 3 near-identical TCP dispatchers in tcp-tools.mjs | OPEN | Deferred — post-Phase 3 DRY refactor |
+| M6 | 2 supplementary test files had 3 stale assertions from F1/F2 fixes | **FIXED** | `33a2de5` (Phase A — tests wired into rotation) |
 
-### LOW items (4):
+**5 of 6 MEDIUMs closed; M5 is a post-Phase-3 refactor, not a current blocker.**
+
+### LOW items (all 4 still OPEN, non-blocking):
+
 - `getToolDef` dead code in toolset-manager.mjs:247
-- `SERVER_INSTRUCTIONS` inlined in server.mjs (compact ~6 lines, not the issue previous audit implied)
+- `SERVER_INSTRUCTIONS` inlined in server.mjs (~6 lines — compact, not the issue previous audit implied)
 - `detectProject` uses PowerShell-only auto-detection (Windows-only project, not blocking)
 - `parseBuffer` export only returns `{ summary }` — richer parsers must be composed manually
-
-### Supplementary test files discovered by audit (not in CLAUDE.md rotation):
-- `test-uasset-parser.mjs` — 42/42 PASS
-- `test-offline-asset-info.mjs` — 15/15 PASS
-- `test-query-asset-registry.mjs` — **14/16 PASS** (2 stale: `filesScanned` → `total_scanned`)
-- `test-inspect-and-level-actors.mjs` — **29/30 PASS** (1 stale: `bp.tags` removed by F2)
-
-### Key audit insight:
-The `inspectBlueprint` function's `genClassNames` set only covers 3 generated-class types (BlueprintGeneratedClass, WidgetBlueprintGeneratedClass, AnimBlueprintGeneratedClass). For other BP subclasses (e.g., GameplayAbilityBlueprintGeneratedClass), `parentClass` will be `null`. ProjectA's BPGA_*/BPGE_* happen to use plain BlueprintGeneratedClass so tests pass, but this is a latent issue.
-
-### Audit recommendations:
-1. **Before Agent 10 ships new tools**: fix M3 (inspect_blueprint.verbose lie), M4 (description drift), M6 (stale tests)
-2. **MCP-wire integration test harness** for Agent 10+ to close the F0-class false-confidence gap
-3. **Agent 9 should note** the description-drift issue when designing new tool surfaces — any new Level 1+2 tools must declare every param in yaml AND ensure server.mjs doesn't duplicate definitions
 
 ---
 
 ## What's Next (in order)
 
-1. ~~Manual testing~~ → **DONE** (25/25 PASS, F0 bug fixed in `5aaa290`)
-2. ~~Codebase Audit~~ → **DONE** (0C/0H/6M/4L — 2 MEDIUM fixed, 4 MEDIUM open)
-3. ~~MEDIUM yaml fixes (M1, M2)~~ → **DONE** (take_screenshot params, get_all_blueprint_graphs dupe)
-4. **Fix remaining MEDIUMs (M3, M4, M6)** — orchestrator should dispatch or fix directly before Agent 9
-   - M3: Fix `inspect_blueprint.verbose` lie in server.mjs:497 (one-line description fix)
-   - M4: Sync server.mjs offlineToolDefs descriptions with yaml (or refactor to read from yaml)
-   - M6: Update 3 stale test assertions in supplementary test files
-5. **Agent 9 — Tool Surface Design** (`docs/handoffs/agent9-tool-surface-design.md`)
-   - Design research only, no code. Decides how Level 1+2 property data reaches callers.
-   - Deliverable: `docs/research/level12-tool-surface-design.md`
-   - No D-number needed (design doc, no code or decisions).
-   - **Input-file risk**: verify all 9 files listed in the handoff exist before dispatching.
-6. **Agent 10 — Level 1+2 Parser Implementation** (`docs/handoffs/agent10-level12-parser-implementation.md`)
-   - Depends on Agent 9's design decision.
-   - Should add MCP-wire integration test harness (audit recommendation).
-7. **Phase 3 C++ plugin** — deferred until Level 1+2 reveals what the plugin actually needs (D39).
+1. **Agent 10 in flight** — Level 1+2+2.5 parser + 3 Option C tools
+   - File scope: `server/uasset-parser.mjs`, new `server/uasset-structs.mjs`, `server/offline-tools.mjs`, `server/test-phase1.mjs`, `server/test-uasset-parser.mjs`, `tools.yaml`, `server/server.mjs` (one registration block)
+   - Handoff: `docs/handoffs/agent10-level12-parser-implementation.md`
+   - Absorbed scope: Level 1 (FPropertyTag iteration), Level 2 (~10 struct handlers), Level 2.5 simple-element containers (D46 — `TArray`/`TSet` of scalars/engine structs/enums/gameplay tags)
+   - Non-scope (deferred to 10.5): `TMap<K,V>`, `TArray<FMyUserStruct>`, `UUserDefinedStruct` resolution, S-A skeletal K2Node parse
+   - Depends on: Agent 8 (research audit), Agent 9 (Option C tool surface), Agent 9.5 (4 V9.5 corrections), Agent 11 (L3 feasibility), Agent 11.5 (L3A split verdict)
+   - Estimated multi-day session
+2. **Agent 10.5 — bundled follow-on (Q-1 Mode A resolved in D48)** — single session covering:
+   - D46 complex containers: `TMap<K,V>`, `TArray<FMyCustomStruct>`
+   - D47 UUserDefinedStruct resolution (two-pass struct-registry extension)
+   - D48 S-A skeletal K2Node parse — name-only tagged-property coverage of ~10-13 K2Node types (events, variable access, function calls, core control flow)
+   - All three share the struct-registry extension pattern → bundling is more coherent than Mode B (standalone 10.75)
+   - Handoff: not yet drafted. Orchestrator should write it after Agent 10 ships — foundation known only then.
+3. **3F sidecar (spec exists)** — editor plugin dumps JSON on BP save; offline tools read the dump. See `docs/specs/blueprints-as-picture-amendment.md`. Editor-soft-dependency acknowledged per D45. Becomes critical path once Agent 10.5 lands and S-A provides the name-level floor.
+4. **Phase 3 C++ plugin** — deferred per D39 until Level 1+2+L2.5+10.5 reveals what the plugin actually needs. Scope has shrunk progressively: D32 (registry-backed tools move offline permanently), D35 (P0-1/7/9/10 absorbed server-side, rest deferred plugin-only), D45 (L3A permanently editor-only → 3F sidecar, not pure parser), D48 (S-A name-only covered offline → 3F covers spatial+trace).
+5. **Oracle retirement (single milestone flip, D40)** — post-Phase 3: flip `actors` / `blueprints-write` / `widgets` toolsets from `tcp-55557` to `tcp-55558` in tools.yaml, drop 55557 layer from ConnectionManager. One commit.
 
 ---
 
@@ -106,35 +103,43 @@ The `inspectBlueprint` function's `genClassNames` set only covers 3 generated-cl
 ### Agent Dispatch
 - **Orchestrator writes handoffs**, Noah dispatches them as separate Claude Code sessions.
 - Handoffs live in `docs/handoffs/` and are self-contained — agents read them, not chat history.
-- Each agent's handoff specifies: mission, file scope, input files, deliverables, constraints, final report format.
+- Each handoff specifies: mission, file scope, input files, deliverables, constraints, final report format.
+- Parallel dispatch is supported when scopes don't overlap (D34 pattern: Agents 2 + 3). Housekeeping Worker (this cycle) runs in parallel with Agent 10 on non-overlapping scopes.
 
 ### D-Number Allocation
 - Orchestrator pre-allocates D-numbers to prevent parallel-worker races.
-- Current D-log is at D43. Next available: D44.
+- **Current D-log is at D48. Next available: D49.**
 - D-log lives in `docs/tracking/risks-and-decisions.md`.
 
 ### Git Operations
-- **Desktop Commander is MANDATORY** for git and filesystem writes. Sandbox bash mount cannot acquire `.git/index.lock`.
+- **Desktop Commander is MANDATORY** for git and filesystem writes from within Cowork sandbox sessions. Sandbox bash mount cannot acquire `.git/index.lock`.
 - Use `mcp__Desktop_Commander__start_process` with `shell: "cmd"` (not PowerShell — PATH issues).
-- **Commit message workaround**: CMD mangles quoted strings. Write to temp file: `echo message> commit-msg.txt && git commit -F commit-msg.txt && del commit-msg.txt`
+- **Commit message workaround**: CMD mangles quoted strings. Write to temp file: `echo message> commit-msg.txt && git commit -F commit-msg.txt && del commit-msg.txt`.
+- Native Claude Code CLI sessions outside Cowork can use the built-in `Bash` tool directly; the lock issue is specific to the sandbox mount.
 
 ### Conventions
 - **Sealed audits**: never edit after creation. Amendments use blockquote format.
 - **D-log**: revised in place (living doc).
 - **No AI attribution** in commits, PRs, or review docs.
 - **YAGNI** — don't create files for future work unless tasked.
+- **Single source of truth for tools** (per D44): `tools.yaml` owns descriptions + params; no duplicate registries in server code.
 
 ---
 
 ## Completed Agents
 
 | Agent | Type | Status | Key Deliverable |
-|-------|------|--------|----------------|
-| 1-5 | Various (Phase 1-2) | Done | Phase 1+2 complete, 333 assertions |
+|-------|------|--------|-----------------|
+| 1-5 | Various (Phase 1-2) | Done | Phase 1+2 complete, 333 primary assertions |
 | 6 | Handler fixes | Done | F0/F1/F2/F4/F6 in offline-tools.mjs |
 | 7 | Research collection | Done | `docs/research/uasset-property-parsing-references.md` (14 projects surveyed) |
 | 8 | Research audit | Done | `docs/research/uasset-parser-audit-and-recommendation.md` (CUE4Parse + UAssetAPI recommended) |
-| Grounding | Codebase audit (2 runs) | Done | `docs/audits/uemcp-server-codebase-audit-2026-04-16.md` (0C/0H/6M/4L) |
+| Grounding audit (2 runs) | Codebase audit | Done | `docs/audits/uemcp-server-codebase-audit-2026-04-16.md` (0C/0H/6M/4L) |
+| 9 | Tool surface design | Done 2026-04-16 | `docs/research/level12-tool-surface-design.md` — Option C hybrid (modify `list_level_actors` + `inspect_blueprint`; add `read_asset_properties`) |
+| 9.5 | Verification pass | Done 2026-04-16 | `docs/research/level12-verification-pass.md` — 4 V9.5 corrections: transform chain via outerIndex reverse scan (not RootComponent ObjectProperty); UE 5.6 FPropertyTag layout differs from pre-5.4 CUE4Parse; sparse transforms are intended behaviour (~63% null); corrected size numbers (Metric_Geo 29.4 KB post-F4, Bridges2 346 KB → pagination mandatory) |
+| 11 | L3 feasibility | Done 2026-04-16 | `docs/research/level3-feasibility-study.md` — L3A full-fidelity EDITOR-ONLY (D45); L3B simple-element containers bundle with Agent 10 as L2.5 (D46); L3C UserDefinedStruct PURSUE (D47) |
+| 11.5 | L3A skeletal split study | Done 2026-04-16 | `docs/research/level3a-skeletal-parse-study.md` — S-A PURSUE (name-only, 62-100% K2Node coverage via tagged-property reference ports); S-B FOLD-INTO-3F (pin-tracing has zero reference coverage; duplicates sidecar at 4-8× cost). D48 locks the split. |
+| Housekeeping Worker | Docs/git/smoke | In-flight 2026-04-16 | This cycle — refresh orchestrator state + CLAUDE.md + commit testing results + ProjectB smoke + scratch cleanup |
 
 ---
 
@@ -143,10 +148,14 @@ The `inspectBlueprint` function's `genClassNames` set only covers 3 generated-cl
 | File | Role |
 |------|------|
 | `CLAUDE.md` | Project overview, architecture, current state, code standards |
-| `tools.yaml` | Single source of truth for all 120 tools (M1+M2 fixed, pending commit) |
-| `docs/tracking/risks-and-decisions.md` | D-log (D1-D43) |
-| `docs/handoffs/` | All agent handoff docs |
-| `docs/research/` | Parser survey, audit, design options |
-| `docs/audits/uemcp-server-codebase-audit-2026-04-16.md` | Codebase grounding audit (0C/0H/6M/4L, verified) |
+| `tools.yaml` | **Single source of truth (D44)** for all 120 tools — descriptions, params, toolset membership, aliases, wire_type |
+| `docs/tracking/risks-and-decisions.md` | D-log (D1-D48) |
+| `docs/handoffs/` | All agent handoff docs (self-contained briefs) |
+| `docs/handoffs/agent10-level12-parser-implementation.md` | Active agent's brief (multi-day session) |
+| `docs/handoffs/housekeeping-worker-2026-04-16.md` | Parallel-session backlog clear |
+| `docs/research/` | Parser survey + audit; Level 1+2 tool surface design; L3 + L3A skeletal feasibility |
+| `docs/audits/uemcp-server-codebase-audit-2026-04-16.md` | Codebase grounding audit (0C/0H/6M/4L; 5 MEDIUMs closed) |
 | `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` | Sealed Phase 2 audit with 7 findings (all fixed) |
-| `docs/testing/2026-04-16-handler-fixes-manual-results.md` | Manual testing report (25/25 PASS) |
+| `docs/testing/2026-04-16-handler-fixes-manual-results.md` | Manual testing report, first run (18/19 + F0 regression surfaced) |
+| `docs/handoffs/testing-handler-fixes-results-2026-04-16.md` | Manual testing report, second run (25/25 PASS post-F0-fix) |
+| `docs/specs/blueprints-as-picture-amendment.md` | 3F sidecar spec (editor-dependent but covers spatial + exec-trace workflows) |
