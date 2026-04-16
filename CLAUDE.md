@@ -79,27 +79,37 @@ The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (rele
 
 Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-main\` — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin at `ProjectA\Plugins\NodeToCode-main\` is a separate BP-to-code tool, also not part of UEMCP.
 
-## Current State — Phase 2 Complete (TCP Client)
+## Current State — Phase 2 Complete + Handler Fixes Landed
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 13 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader, D31 reframed), `query_asset_registry` (bulk scan over `.uasset`/`.umap` headers with hybrid cache per D33), `inspect_blueprint` (BP export-table walk), `list_level_actors` (enumerate `.umap` exports — YAGNI, class+name only, no transforms), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config` (D31 dropped `browse_content`/`search_source`/`read_source_file` — use `Glob`/`Grep`/`Read` respectively)
-- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block. Pure JS, no UE dependency. Powers the 4 registry/introspection tools above (D37).
+- 13 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk — tags removed, structural only, D38), `list_level_actors` (placed actors only via `isPlacedActor` filter, D38), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block. Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files per D38 audit). Powers the 4 registry/introspection tools above (D37).
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, 315 total assertions passing
+- Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **333 total assertions passing** (54 phase1 + 45 mock-seam + 234 TCP)
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
 - **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
 - **tools.yaml fully populated**: all 120 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
 - **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
+- **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
+
+### In progress — Level 1+2 Parser Enhancement (D39):
+- **Goal**: Read serialized object properties from .uasset export data, extending the existing parser
+- **Level 1**: FPropertyTag iteration — read tagged properties for simple types (int, float, bool, string, enum, object refs)
+- **Level 2**: Struct deserialization — handlers for FVector, FRotator, FTransform, FQuat, FLinearColor, FColor, FGameplayTag, FGameplayTagContainer, FSoftObjectPath, FGuid
+- **Research complete**: 14 projects surveyed (`docs/research/uasset-property-parsing-references.md`), audit done (`docs/research/uasset-parser-audit-and-recommendation.md`). Top references: CUE4Parse (port source), UAssetAPI (validation oracle). JS ecosystem empty — our parser will be first Node.js implementation.
+- **Next**: Tool surface design (Agent 9), then parser implementation (Agent 10)
 
 ### What's NOT implemented yet:
-- C++ editor plugin (Phase 3)
+- Level 1+2 property parser code (in design phase — see above)
+- C++ editor plugin (Phase 3 — deferred per D39 until Level 1+2 reveals what the plugin actually needs)
 - HTTP client for Remote Control API (Phase 4)
 - Distribution to ProjectB via P4 (Phase 5)
 - Per-project tuning (Phase 6)
@@ -130,9 +140,26 @@ UEMCP/
 │   ├── specs/             ← architecture, protocols, design (8 files incl. conformance oracle)
 │   ├── plans/             ← implementation phases, test strategy (2 files)
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D28)
+│   ├── research/          ← parser survey, audit, design options (5 files)
+│   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
+│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D43)
 └── .claude/               ← project-level Claude settings
 ```
+
+## Shell & Tooling Requirements
+
+**Desktop Commander is MANDATORY for git and filesystem write operations.** The Cowork sandbox bash (`mcp__workspace__bash`) mounts the repo via a FUSE-like layer that cannot acquire `.git/index.lock` or `.git/HEAD.lock` files, causing git commits to fail or leave stale locks. All agents, workers, and conversations working in this repo MUST use Desktop Commander (`mcp__Desktop_Commander__start_process` with `shell: "cmd"`) for:
+
+- Git operations (add, commit, status, diff, log, etc.)
+- Any filesystem writes that need to persist reliably
+
+Read operations (grep, glob, file reads) can use sandbox bash or Claude's built-in tools — those work fine through the mount.
+
+**CMD, not PowerShell** — git and node are not in PATH on PowerShell. Always pass `shell: "cmd"` to Desktop Commander.
+
+**Commit message workaround** — CMD mangles quoted strings. For multi-line commit messages, write to a temp file in the repo root and use `git commit -F file.txt && del file.txt`.
+
+**Handoff documents must include this guidance** — any handoff that involves git operations should note the Desktop Commander requirement.
 
 ## Code Standards
 
@@ -189,19 +216,20 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D28).
-See `docs/audits/phase1-audit-2026-04-12.md` for the complete Phase 1 audit.
+See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D43).
+See `docs/audits/phase1-audit-2026-04-12.md` for the Phase 1 audit.
+See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 tier-2 audit (parser production-grade, 7 handler findings).
 
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-315 total assertions passing: 36 offline + 45 mock seam + 234 TCP tools (actors + blueprints-write + widgets).
+333 total assertions passing: 54 offline + 45 mock seam + 234 TCP tools (actors + blueprints-write + widgets).
 
 ### Test Files
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, edge cases (36 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, edge cases (54 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
