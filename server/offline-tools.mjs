@@ -1257,7 +1257,7 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'get_asset_info':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await getAssetInfo(projectRoot, params.asset_path);
+      return await getAssetInfo(projectRoot, params.asset_path, params);
 
     case 'query_asset_registry':
       return await queryAssetRegistry(projectRoot, params);

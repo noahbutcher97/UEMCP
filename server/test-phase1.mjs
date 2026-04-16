@@ -267,6 +267,17 @@ if (PROJECT_ROOT) {
       { asset_path: '/Game/GAS/Abilities/BPGA_Block', verbose: true }, PROJECT_ROOT);
     assert(infoV.tags !== undefined, 'F0: verbose=true returns tags');
     assert(!infoV.heavyTagsOmitted, 'F0: verbose=true has no heavyTagsOmitted');
+    // Verify verbose actually passes through: if any heavy tag existed in default mode,
+    // verbose mode must include it unstripped (blob length > 1024)
+    const infoDefault = await executeOfflineTool('get_asset_info',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+    if (infoDefault.heavyTagsOmitted && infoDefault.heavyTagsOmitted.length > 0) {
+      const firstOmitted = infoDefault.heavyTagsOmitted[0];
+      assert(infoV.tags[firstOmitted] !== undefined,
+        `F0: verbose=true restores stripped tag '${firstOmitted}'`);
+      assert(String(infoV.tags[firstOmitted]).length > 1024,
+        `F0: verbose=true blob '${firstOmitted}' is full-size (>1KB)`);
+    }
   } catch (e) {
     assert(false, 'F0: get_asset_info verbose', e.message);
   }
