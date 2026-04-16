@@ -47,7 +47,7 @@ async function run() {
     projectRoot
   );
   check('bogus class returns 0 matches', empty.results.length === 0);
-  check('empty result still reports filesScanned', empty.filesScanned > 0);
+  check('empty result still reports total_scanned', empty.total_scanned > 0);
 
   // 3. Limit cap respected
   reset();
@@ -65,7 +65,7 @@ async function run() {
     { max_scan: 5, limit: 100 },
     projectRoot
   );
-  check('max_scan truncates files list', truncated.filesScanned === 5);
+  check('max_scan truncates files list', truncated.total_scanned === 5);
   check('truncated flag set', truncated.truncated === true);
 
   // 5. Tag filter: BlueprintType presence

@@ -494,7 +494,7 @@ const offlineToolDefs = {
     description: 'Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class. BREAKING CHANGE: tags field removed — use get_asset_info for Asset Registry metadata.',
     params: {
       asset_path: { type: 'string', required: true, description: '/Game/... path (with or without .uasset) or project-relative Content/... path' },
-      verbose: { type: 'boolean', required: false, default: false, description: 'If true, include full Asset Registry tags. Default false removes tags field from response.' },
+      verbose: { type: 'boolean', required: false, default: false, description: 'Currently unused; reserved for future feature expansion.' },
     },
   },
   list_level_actors: {

@@ -40,7 +40,7 @@ async function run() {
   check('inspect: parentClass is GA_OSBlock', bp.parentClass === 'GA_OSBlock', bp.parentClass);
   check('inspect: exportCount > 0',        bp.exportCount > 0, `exports=${bp.exportCount}`);
   check('inspect: importCount > 0',        bp.importCount > 0, `imports=${bp.importCount}`);
-  check('inspect: tags is object',         bp.tags && typeof bp.tags === 'object');
+  check('inspect: tags field removed (F2)', bp.tags === undefined);
   check('inspect: exports is array',       Array.isArray(bp.exports));
   check('inspect: exports have className',  bp.exports.every(e => typeof e.className === 'string'));
   check('inspect: exports have objectName', bp.exports.every(e => typeof e.objectName === 'string'));

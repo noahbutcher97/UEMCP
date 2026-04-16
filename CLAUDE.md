@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **333 total assertions passing** (54 phase1 + 45 mock-seam + 234 TCP)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **436 total assertions passing** — 333 primary (54 phase1 + 45 mock-seam + 234 TCP) + 103 supplementary (42 parser + 15 asset-info + 16 registry + 30 inspect/level-actors)
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -223,9 +223,11 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-333 total assertions passing: 54 offline + 45 mock seam + 234 TCP tools (actors + blueprints-write + widgets).
+**Primary rotation**: 333 assertions (54 offline + 45 mock seam + 234 TCP tools).
+**Supplementary rotation**: 103 assertions (42 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Added to rotation 2026-04-16 (M6 fix).
+**Total: 436 assertions across 7 test files.**
 
-### Test Files
+### Test Files — Primary Rotation
 
 | File | Purpose | Run command |
 |------|---------|-------------|
@@ -233,6 +235,17 @@ Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
+
+### Test Files — Supplementary Rotation
+
+These exercise real ProjectA fixtures (`.uasset`/`.umap` bytes on disk) and require `UNREAL_PROJECT_ROOT`. Wired into rotation 2026-04-16 after M6 fix propagated F1/F2 changes.
+
+| File | Purpose | Run command |
+|------|---------|-------------|
+| `server/test-uasset-parser.mjs` | Binary parser format correctness against real fixtures (42 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-uasset-parser.mjs` |
+| `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-offline-asset-info.mjs` |
+| `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-query-asset-registry.mjs` |
+| `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-inspect-and-level-actors.mjs` |
 
 **Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
 
