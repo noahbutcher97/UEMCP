@@ -9,6 +9,10 @@
 //   Launched by Claude via .mcp.json — not run manually in production.
 //   For development: UNREAL_PROJECT_ROOT="D:/path/to/project" node server.mjs
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import yaml from 'js-yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -22,6 +26,14 @@ import {
   getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
   getWidgetsToolDefs, executeWidgetsTool,
 } from './tcp-tools.mjs';
+
+// ── Synchronous yaml preload (D44) ─────────────────────────────────
+// tools.yaml is the single source of truth for tool descriptions and params.
+// Offline registration (below) reads from this instead of a duplicated local
+// const. ToolsetManager.load() does its own async re-read during main() —
+// this is an acceptable ~5KB double-parse for a zero-API-surface refactor.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TOOLS_YAML = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
 
 // ── Config from environment (.mcp.json env block) ──────────────────
 
@@ -454,75 +466,9 @@ function buildZodSchema(params) {
   return schema;
 }
 
-// Register offline tools
-const offlineToolDefs = {
-  project_info: { description: 'Read .uproject, list plugins, engine version, build config', params: {} },
-  list_gameplay_tags: { description: 'Parse DefaultGameplayTags.ini, return full tag hierarchy with comments', params: {} },
-  search_gameplay_tags: {
-    description: 'Search tags by pattern (e.g., "Gameplay.State.*")',
-    params: { pattern: { type: 'string', required: true, description: 'Glob pattern to match tags (supports * and **)' } },
-  },
-  list_config_values: {
-    description: 'Read any .ini config file, search for keys/sections',
-    params: {
-      config_file: { type: 'string', required: false, description: 'Config file name (e.g., DefaultEngine.ini). Omit to list available files.' },
-      section: { type: 'string', required: false, description: 'Section name to filter' },
-      key: { type: 'string', required: false, description: 'Key name to filter' },
-    },
-  },
-  get_asset_info: {
-    description: 'Read .uasset metadata (type, size, class, references). By default, strips any Asset Registry tag whose decoded value exceeds 1 KB to reduce payload on complex blueprints.',
-    params: {
-      asset_path: { type: 'string', required: true, description: 'Asset path (/Game/... or relative to project)' },
-      verbose: { type: 'boolean', required: false, default: false, description: 'If true, return all tags including large blobs (>1 KB). Default false strips verbose tags.' },
-    },
-  },
-  query_asset_registry: {
-    description: 'Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` matches with objectClassName, tags, package name, export count. Supports short class names (e.g., DataTable matches /Script/Engine.DataTable). Responses include pagination signals: truncated, total_scanned, total_matched.',
-    params: {
-      class_name: { type: 'string', required: false, description: 'Class name filter. Supports short names (e.g., DataTable) which match /Script/Engine.DataTable, or full paths (/Script/Engine.DataTable) for exact match.' },
-      path_prefix: { type: 'string', required: false, description: '/Game/... path to narrow the scan root' },
-      tag_key: { type: 'string', required: false, description: 'Asset-registry tag key to require' },
-      tag_value: { type: 'string', required: false, description: 'When provided, tag_key must equal this value' },
-      limit: { type: 'number', required: false, description: 'Max matches returned (default 200, cap 2000)' },
-      max_scan: { type: 'number', required: false, description: 'Max files walked (default 5000, cap 20000)' },
-      offset: { type: 'number', required: false, default: 0, description: 'Starting index for pagination (default 0). Use with limit for multi-page queries.' },
-      verbose: { type: 'boolean', required: false, default: false, description: 'If true, include full Asset Registry tags in response. Default false for efficiency.' },
-    },
-  },
-  inspect_blueprint: {
-    description: 'Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class. BREAKING CHANGE: tags field removed — use get_asset_info for Asset Registry metadata.',
-    params: {
-      asset_path: { type: 'string', required: true, description: '/Game/... path (with or without .uasset) or project-relative Content/... path' },
-      verbose: { type: 'boolean', required: false, default: false, description: 'Currently unused; reserved for future feature expansion.' },
-    },
-  },
-  list_level_actors: {
-    description: 'Enumerate exports in a .umap. Returns {name, className, classPackage, outer, bIsAsset} per export — class + name only, no transforms.',
-    params: {
-      asset_path: { type: 'string', required: true, description: '/Game/... path to a .umap (with or without .umap extension)' },
-    },
-  },
-  list_data_sources: {
-    description: 'Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs',
-    params: {},
-  },
-  read_datatable_source: {
-    description: 'Parse a DataTable source CSV with UE conventions (first column = row name). Optional row_struct_header introspects companion USTRUCT fields.',
-    params: {
-      file_path: { type: 'string', required: true, description: 'Project-relative path to .csv (e.g., Content/Data/Foo.csv)' },
-      row_struct_header: { type: 'string', required: false, description: 'Project-relative path to .h defining the FTableRowBase USTRUCT' },
-    },
-  },
-  read_string_table_source: {
-    description: 'Parse a StringTable source CSV — returns namespace (if present), Key/SourceString/Comment entries',
-    params: {
-      file_path: { type: 'string', required: true, description: 'Project-relative path to the StringTable .csv' },
-    },
-  },
-  list_plugins: { description: 'List installed plugins with enabled/disabled status and version', params: {} },
-  get_build_config: { description: 'Parse .Build.cs, .Target.cs — show module dependencies and build settings', params: {} },
-};
+// Register offline tools — descriptions and params sourced from tools.yaml (D44).
+// Previously this was a duplicated const that drifted from yaml over time.
+const offlineToolDefs = TOOLS_YAML.toolsets.offline.tools;
 
 for (const [name, def] of Object.entries(offlineToolDefs)) {
   const schema = buildZodSchema(def.params);
