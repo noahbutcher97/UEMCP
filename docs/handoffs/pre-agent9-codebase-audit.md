@@ -107,6 +107,48 @@ Compact tables for orchestrator/agent use:
 
 ---
 
+## §8 Verification Pass (MANDATORY)
+
+After completing sections §1-§7, you MUST run a verification pass over your own findings before finalizing the deliverable. The orchestrator will not re-verify — your audit is taken as ground truth for future agent dispatch decisions.
+
+### Verification procedure
+
+1. **Re-read every finding rated CRITICAL or HIGH.** For each one:
+   - Go back to the exact file:line you cited. Re-read the surrounding context (at least ±20 lines).
+   - Confirm the finding is real, not a misreading of the code flow.
+   - Check if there's a compensating mechanism elsewhere (e.g., validation at a different layer, a test that covers it, a D-log entry that acknowledges it).
+   - If the finding doesn't hold up on second read, downgrade or remove it. Note the downgrade in §8 with reason.
+
+2. **Verify every param-passthrough mismatch from §4.** For each mismatch:
+   - Trace the param from `tools.yaml` → `server.mjs` Zod schema → handler switch case → handler function signature.
+   - Confirm the mismatch exists at the actual call site, not just in a stale comment or unused branch.
+   - The F0 verbose bug (`5aaa290`) was exactly this class of bug — a param defined in yaml, accepted by Zod, but dropped at the switch dispatch. These are high-value findings but easy to get wrong.
+
+3. **Spot-check 3 random MEDIUM/LOW findings** using the same re-read procedure.
+
+4. **Run the existing test suites** to confirm current state:
+   - `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs`
+   - `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs`
+   - `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs`
+   - Report pass/fail counts. If any test fails that wasn't failing before, that's a CRITICAL finding (indicates something changed between commits).
+
+### Verification output (append to deliverable as §8)
+
+```
+§8 Verification Pass
+
+Findings re-verified: [N] CRITICAL, [N] HIGH, [N] MEDIUM spot-checked
+Downgraded: [list any findings that didn't hold up, with reason]
+Upgraded: [list any findings that turned out worse than initially assessed]
+Param-passthrough mismatches confirmed: [N of N]
+Test suite results: [54/54 phase1, 45/45 mock-seam, 234/234 TCP] or [failures listed]
+Confidence: [HIGH/MEDIUM/LOW] — self-assessment of audit accuracy
+```
+
+If any CRITICAL or HIGH finding is downgraded during verification, explain why in enough detail that the orchestrator can judge whether the downgrade is justified.
+
+---
+
 ## Constraints
 
 - **Read-only** — no code changes, no git commits
@@ -124,9 +166,11 @@ Pre-Agent 9 Codebase Audit — Final Report
 
 Files read: [N source + N test + N context]
 Total lines reviewed: [N]
-Findings: [N] CRITICAL, [N] HIGH, [N] MEDIUM, [N] LOW
-Test coverage assessment: [summary]
-Param-passthrough mismatches found: [N]
+Findings (post-verification): [N] CRITICAL, [N] HIGH, [N] MEDIUM, [N] LOW
+Findings downgraded during verification: [N] (details in §8)
+Param-passthrough mismatches confirmed: [N of N checked]
+Test suites: [54/54 phase1, 45/45 mock-seam, 234/234 TCP]
 Architecture concerns for Level 1+2: [summary]
+Verification confidence: [HIGH/MEDIUM/LOW]
 Deliverable: docs/audits/uemcp-server-codebase-audit-2026-04-16.md ([N] lines)
 ```
