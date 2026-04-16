@@ -246,6 +246,88 @@ if (!PROJECT_ROOT) {
   }
 }
 
+// ── Test 9: Phase 2 handler fixes (F0, F2, F4, F6, F1) ──
+if (PROJECT_ROOT) {
+  console.log(`\n═══ Test 9: Handler fixes (F0, F2, F4, F6, F1) ═══`);
+
+  // F0: get_asset_info strips verbose blob tags by default
+  try {
+    const info = await executeOfflineTool('get_asset_info',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+    // Default (verbose=false): heavy tags should be omitted or absent
+    assert(info.tags !== undefined, 'F0: get_asset_info still has tags field');
+    assert(!info.tags.FiBData || (info.tags.FiBData && String(info.tags.FiBData).length <= 1024),
+      'F0: FiBData stripped or small when verbose=false');
+  } catch (e) {
+    assert(false, 'F0: get_asset_info default', e.message);
+  }
+
+  try {
+    const infoV = await executeOfflineTool('get_asset_info',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block', verbose: true }, PROJECT_ROOT);
+    assert(infoV.tags !== undefined, 'F0: verbose=true returns tags');
+    assert(!infoV.heavyTagsOmitted, 'F0: verbose=true has no heavyTagsOmitted');
+  } catch (e) {
+    assert(false, 'F0: get_asset_info verbose', e.message);
+  }
+
+  // F2: inspect_blueprint no longer returns tags
+  try {
+    const bp = await executeOfflineTool('inspect_blueprint',
+      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+    assert(bp.tags === undefined, 'F2: inspect_blueprint has no tags field');
+    assert(bp.exports !== undefined, 'F2: inspect_blueprint still has exports');
+    assert(bp.parentClass !== undefined, 'F2: inspect_blueprint still has parentClass');
+  } catch (e) {
+    assert(false, 'F2: inspect_blueprint', e.message);
+  }
+
+  // F4: list_level_actors filters to placed actors
+  try {
+    const lvl = await executeOfflineTool('list_level_actors',
+      { asset_path: '/Game/Maps/Deployable/MarketPlace/MarketPlace_P' }, PROJECT_ROOT);
+    assert(lvl.placedActorCount !== undefined, 'F4: response has placedActorCount');
+    assert(lvl.placedActorCount < lvl.exportCount,
+      `F4: placed actors (${lvl.placedActorCount}) < total exports (${lvl.exportCount})`);
+    // Verify no K2Node or Function entries leaked through
+    const leaks = lvl.actors.filter(a =>
+      a.className && (a.className.includes('K2Node_') || a.className === 'Function'));
+    assert(leaks.length === 0, 'F4: no K2Node/Function exports in placed actors');
+  } catch (e) {
+    assert(false, 'F4: list_level_actors filter', e.message);
+  }
+
+  // F6: query_asset_registry accepts short class names
+  try {
+    const dtShort = await executeOfflineTool('query_asset_registry',
+      { class_name: 'DataTable', limit: 5 }, PROJECT_ROOT);
+    assert(dtShort.results.length > 0, 'F6: short name "DataTable" finds results');
+    const dtFull = await executeOfflineTool('query_asset_registry',
+      { class_name: '/Script/Engine.DataTable', limit: 5 }, PROJECT_ROOT);
+    assert(dtFull.results.length > 0, 'F6: full path also finds results');
+  } catch (e) {
+    assert(false, 'F6: short class name', e.message);
+  }
+
+  // F1: query_asset_registry truncation signalling + pagination
+  try {
+    const page1 = await executeOfflineTool('query_asset_registry',
+      { limit: 3 }, PROJECT_ROOT);
+    assert(page1.total_scanned !== undefined, 'F1: response has total_scanned');
+    assert(page1.total_matched !== undefined, 'F1: response has total_matched');
+    assert(page1.offset === 0, 'F1: default offset is 0');
+    if (page1.total_matched > 3) {
+      assert(page1.truncated === true, 'F1: truncated=true when results exceed limit');
+      const page2 = await executeOfflineTool('query_asset_registry',
+        { limit: 3, offset: 3 }, PROJECT_ROOT);
+      assert(page2.offset === 3, 'F1: offset=3 echoed in page 2');
+      assert(page2.results[0].path !== page1.results[0].path, 'F1: page 2 has different results');
+    }
+  } catch (e) {
+    assert(false, 'F1: truncation signalling', e.message);
+  }
+}
+
 // ── Summary ──────────────────────────────────────────────
 console.log(`\n═══ Summary ═══`);
 console.log(`  Passed: ${passed}`);

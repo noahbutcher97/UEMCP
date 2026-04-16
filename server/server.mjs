@@ -471,24 +471,30 @@ const offlineToolDefs = {
     },
   },
   get_asset_info: {
-    description: 'Read .uasset metadata (type, size, class, references)',
-    params: { asset_path: { type: 'string', required: true, description: 'Asset path (/Game/... or relative to project)' } },
+    description: 'Read .uasset metadata (type, size, class, references). By default, strips any Asset Registry tag whose decoded value exceeds 1 KB to reduce payload on complex blueprints.',
+    params: {
+      asset_path: { type: 'string', required: true, description: 'Asset path (/Game/... or relative to project)' },
+      verbose: { type: 'boolean', required: false, default: false, description: 'If true, return all tags including large blobs (>1 KB). Default false strips verbose tags.' },
+    },
   },
   query_asset_registry: {
-    description: 'Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` matches with objectClassName, tags, package name, export count.',
+    description: 'Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` matches with objectClassName, tags, package name, export count. Supports short class names (e.g., DataTable matches /Script/Engine.DataTable). Responses include pagination signals: truncated, total_scanned, total_matched.',
     params: {
-      class_name: { type: 'string', required: false, description: 'Exact match on primary object class (e.g., Blueprint, DataTable, /Script/Engine.World)' },
+      class_name: { type: 'string', required: false, description: 'Class name filter. Supports short names (e.g., DataTable) which match /Script/Engine.DataTable, or full paths (/Script/Engine.DataTable) for exact match.' },
       path_prefix: { type: 'string', required: false, description: '/Game/... path to narrow the scan root' },
       tag_key: { type: 'string', required: false, description: 'Asset-registry tag key to require' },
       tag_value: { type: 'string', required: false, description: 'When provided, tag_key must equal this value' },
       limit: { type: 'number', required: false, description: 'Max matches returned (default 200, cap 2000)' },
       max_scan: { type: 'number', required: false, description: 'Max files walked (default 5000, cap 20000)' },
+      offset: { type: 'number', required: false, default: 0, description: 'Starting index for pagination (default 0). Use with limit for multi-page queries.' },
+      verbose: { type: 'boolean', required: false, default: false, description: 'If true, include full Asset Registry tags in response. Default false for efficiency.' },
     },
   },
   inspect_blueprint: {
-    description: 'Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class, and asset-registry tags.',
+    description: 'Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class. BREAKING CHANGE: tags field removed — use get_asset_info for Asset Registry metadata.',
     params: {
       asset_path: { type: 'string', required: true, description: '/Game/... path (with or without .uasset) or project-relative Content/... path' },
+      verbose: { type: 'boolean', required: false, default: false, description: 'If true, include full Asset Registry tags. Default false removes tags field from response.' },
     },
   },
   list_level_actors: {

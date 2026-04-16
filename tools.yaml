@@ -66,22 +66,28 @@ toolsets:
       list_config_values:
         description: Read any .ini config file, search for keys/sections
       get_asset_info:
-        description: Read .uasset header metadata (type, size, class, references)
-      query_asset_registry:
-        description: Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` results with objectClassName, tags, package name, export count.
+        description: Read .uasset header metadata (type, size, class, references). By default strips large blob tags (>1KB). Set verbose:true to return all tags.
         params:
-          class_name:  { type: string, required: false, description: "Exact match on primary object class (e.g., Blueprint, DataTable, /Script/Engine.World)" }
+          asset_path: { type: string, required: true, description: "Asset path (/Game/... or relative to project)" }
+          verbose:    { type: boolean, required: false, default: false, description: "When false, strips blob tags exceeding 1KB. When true, returns all tags." }
+      query_asset_registry:
+        description: Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` results with objectClassName, tags, package name, export count. Supports pagination via offset/limit.
+        params:
+          class_name:  { type: string, required: false, description: "Exact match on primary object class (e.g., Blueprint, /Script/Engine.DataTable). Short names supported (e.g., DataTable for /Script/Engine.DataTable)." }
           path_prefix: { type: string, required: false, description: "/Game/... path to narrow the scan root (not a post-filter)" }
           tag_key:     { type: string, required: false, description: "Asset-registry tag key to require (e.g., BlueprintType, ParentClass)" }
           tag_value:   { type: string, required: false, description: "When provided, tag_key must equal this value. Omit for presence-only check." }
           limit:       { type: number, required: false, description: "Max matches returned (default 200, cap 2000)" }
+          offset:      { type: number, required: false, description: "Result offset for pagination (default 0). Use with limit to page through results." }
           max_scan:    { type: number, required: false, description: "Max files walked (default 5000, cap 20000). Response sets truncated:true when hit." }
+          verbose:     { type: boolean, required: false, default: false, description: "When false, strips blob tags exceeding 1KB. When true, returns all tags." }
       inspect_blueprint:
-        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns full export table with resolved class/super/outer names, parent class, generated class, and asset-registry tags. Pointed query — re-parses export/import tables (not cached).
+        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns export table with resolved class/super/outer names, parent class, generated class. NOTE - tags removed; use get_asset_info for asset-registry metadata. Pointed query — re-parses export/import tables (not cached).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path (with or without .uasset extension) or project-relative Content/... path" }
+          verbose:    { type: boolean, required: false, default: false, description: "Currently unused; reserved for future feature expansion." }
       list_level_actors:
-        description: Enumerate exports in a .umap. Returns {name, className, classPackage, outer, bIsAsset} per export — class + name only, no transforms. Pointed query — re-parses export/import tables (not cached).
+        description: Enumerate placed actors in a .umap (PlayerStart, BP instances, WorldSettings, etc.). Filters to actors whose outerIndex resolves to PersistentLevel/Level. Returns {name, className, classPackage, outer, bIsAsset} — class + name only, no transforms. Excludes component subobjects, editor metadata, and BP machinery. Pointed query — re-parses export/import tables (not cached).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a .umap (with or without .umap extension)" }
       list_data_sources:

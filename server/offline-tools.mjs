@@ -427,11 +427,30 @@ export async function parseAssetHeader(projectRoot, assetPath) {
  *
  * Closes D36: reframes the stat-only placeholder into a registry query.
  */
-async function getAssetInfo(projectRoot, assetPath) {
+async function getAssetInfo(projectRoot, assetPath, params = {}) {
+  const verbose = params.verbose ?? false;
   const parsed = await parseAssetHeader(projectRoot, assetPath);
   const { summary, names, assetRegistry } = parsed.data;
   const primary = assetRegistry.objects[0] || null;
-  return {
+
+  let tags = primary ? primary.tags : {};
+  const heavyTagsOmitted = [];
+
+  if (!verbose) {
+    // Strip tags whose decoded value exceeds 1 KB
+    const filteredTags = {};
+    for (const [key, value] of Object.entries(tags)) {
+      const valueStr = String(value);
+      if (valueStr.length > 1024) {
+        heavyTagsOmitted.push(key);
+      } else {
+        filteredTags[key] = value;
+      }
+    }
+    tags = filteredTags;
+  }
+
+  const result = {
     path: assetPath,
     diskPath: parsed.diskPath.replace(/\\/g, '/'),
     sizeBytes: parsed.sizeBytes,
@@ -440,13 +459,19 @@ async function getAssetInfo(projectRoot, assetPath) {
     packageName: summary.packageName || null,
     objectPath: primary ? primary.objectPath : null,
     objectClassName: primary ? primary.objectClassName : null,
-    tags: primary ? primary.tags : {},
+    tags,
     assetRegistryObjects: assetRegistry.objects.length,
     exportCount: summary.exportCount,
     importCount: summary.importCount,
     nameCount: names.length,
     fileVersionUE5: summary.fileVersionUE5,
   };
+
+  if (!verbose && heavyTagsOmitted.length > 0) {
+    result.heavyTagsOmitted = heavyTagsOmitted;
+  }
+
+  return result;
 }
 
 /**
@@ -482,8 +507,9 @@ async function walkAssetFiles(dir, out, maxFiles) {
  * "which DataTables have RowStruct=FOSCombatRow", etc.
  *
  * Filters:
- *   - class_name: exact match on primary object class (e.g. "Blueprint",
- *     "DataTable", "/Script/Engine.World"). Case-sensitive.
+ *   - class_name: exact match on primary object class. Accepts short names
+ *     (e.g., "DataTable" matches "/Script/Engine.DataTable") or full paths
+ *     (e.g., "/Script/Engine.World"). Case-sensitive.
  *   - path_prefix: /Game/... path; narrows the scan root (not a post-filter).
  *   - tag_key / tag_value: asset-registry tag match. If value is omitted,
  *     only tag presence is checked.
@@ -493,6 +519,13 @@ async function walkAssetFiles(dir, out, maxFiles) {
  *   - max_scan (default 5000): hard ceiling on files parsed; guards against
  *     runaway walks in huge Content trees. When hit, `truncated: true` is
  *     set in the response.
+ *   - offset (default 0): pagination offset; skip first N matches.
+ *
+ * Response includes:
+ *   - truncated: whether result set was capped by limit
+ *   - total_scanned: files walked
+ *   - total_matched: files that passed all filters (may be > limit)
+ *   - offset: current offset (echoed back for pagination tracking)
  *
  * @param {string} projectRoot
  * @param {object} params
@@ -502,8 +535,10 @@ async function queryAssetRegistry(projectRoot, params = {}) {
   const pathPrefix = params.path_prefix ?? null;
   const tagKey = params.tag_key ?? null;
   const tagValue = params.tag_value ?? null;
+  const verbose = params.verbose ?? false;
   const limit = Math.max(1, Math.min(params.limit ?? 200, 2000));
   const maxScan = Math.max(1, Math.min(params.max_scan ?? 5000, 20000));
+  const offset = Math.max(0, params.offset ?? 0);
 
   // Narrow the walk root when a path_prefix is supplied — avoids parsing
   // thousands of unrelated files for a targeted query.
@@ -517,15 +552,13 @@ async function queryAssetRegistry(projectRoot, params = {}) {
 
   const files = [];
   await walkAssetFiles(scanRoot, files, maxScan);
-  const truncated = files.length >= maxScan;
+  const hitMaxScan = files.length >= maxScan;
 
-  const results = [];
+  const allMatches = [];
   const errors = [];
   const contentRoot = join(projectRoot, 'Content');
 
   for (const diskPath of files) {
-    if (results.length >= limit) break;
-
     // Reconstruct /Game/ path for display & re-use parseAssetHeader's cache.
     const relFromContent = relative(contentRoot, diskPath).replace(/\\/g, '/');
     const ext = diskPath.endsWith('.umap') ? '.umap' : '.uasset';
@@ -546,9 +579,21 @@ async function queryAssetRegistry(projectRoot, params = {}) {
     const klass = primary ? primary.objectClassName : null;
     const tags = primary ? primary.tags : {};
 
-    // Class filter: exact match; accept bare name ("Blueprint") or fully
-    // qualified ("/Script/Engine.Blueprint").
-    if (className && klass !== className) continue;
+    // Class filter: exact match for full paths, suffix match for short names.
+    // "DataTable" matches "/Script/Engine.DataTable" (suffix after final dot).
+    if (className) {
+      let matches = false;
+      if (className.startsWith('/')) {
+        // Full path — exact match
+        matches = klass === className;
+      } else {
+        // Short name — suffix match after final dot
+        const suffix = className;
+        const klassSegment = klass ? klass.split('.').pop() : null;
+        matches = klassSegment === suffix;
+      }
+      if (!matches) continue;
+    }
 
     // Tag filter.
     if (tagKey) {
@@ -556,22 +601,52 @@ async function queryAssetRegistry(projectRoot, params = {}) {
       if (tagValue !== null && tags[tagKey] !== tagValue) continue;
     }
 
-    results.push({
+    // Build match object with tag filtering
+    let fileTags = tags;
+    const heavyTagsOmitted = [];
+
+    if (!verbose) {
+      const filteredTags = {};
+      for (const [key, value] of Object.entries(tags)) {
+        const valueStr = String(value);
+        if (valueStr.length > 1024) {
+          heavyTagsOmitted.push(key);
+        } else {
+          filteredTags[key] = value;
+        }
+      }
+      fileTags = filteredTags;
+    }
+
+    const match = {
       path: gamePath + ext,
       objectClassName: klass,
       objectPath: primary ? primary.objectPath : null,
       packageName: parsed.data.summary.packageName || null,
-      tags,
+      tags: fileTags,
       sizeBytes: parsed.sizeBytes,
       exportCount: parsed.data.summary.exportCount,
-    });
+    };
+
+    if (!verbose && heavyTagsOmitted.length > 0) {
+      match.heavyTagsOmitted = heavyTagsOmitted;
+    }
+
+    allMatches.push(match);
   }
+
+  // Apply pagination
+  const totalMatched = allMatches.length;
+  const results = allMatches.slice(offset, offset + limit);
+  const truncated = hitMaxScan || (allMatches.length > offset + limit);
 
   return {
     scanRoot: relative(projectRoot, scanRoot).replace(/\\/g, '/') || 'Content',
-    filesScanned: files.length,
-    matches: results.length,
+    total_scanned: files.length,
+    total_matched: totalMatched,
     truncated,
+    offset,
+    matches: results.length,
     errors: errors.length ? errors : undefined,
     results,
   };
@@ -1027,14 +1102,21 @@ async function parseAssetTables(diskPath) {
 /**
  * inspect_blueprint — Deep introspection of a Blueprint .uasset.
  *
- * Returns full export table with resolved class/super/outer names plus
- * asset-registry tags. Callers use this to identify parent class, CDO,
- * generated class, and component/variable exports without the editor.
+ * Returns full export table with resolved class/super/outer names.
+ * Callers use this to identify parent class, CDO, generated class, and
+ * component/variable exports without the editor. For asset-registry
+ * metadata, call get_asset_info separately.
  *
  * Works on any .uasset — named for the common case (Blueprint), but UMG
  * widgets, AnimBPs, DataAssets all parse identically.
+ *
+ * @param {string} projectRoot
+ * @param {object} params - { asset_path: string, verbose?: boolean }
+ * @returns {Promise<object>}
  */
-async function inspectBlueprint(projectRoot, assetPath) {
+async function inspectBlueprint(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const verbose = params.verbose ?? false;
   const diskPath = resolveAssetDiskPath(projectRoot, assetPath);
   const stats = await stat(diskPath);
   const header = await parseAssetHeader(projectRoot, assetPath);
@@ -1073,7 +1155,6 @@ async function inspectBlueprint(projectRoot, assetPath) {
     objectPath: primary ? primary.objectPath : null,
     parentClass,
     generatedClass: generated ? generated.objectName : null,
-    tags: primary ? primary.tags : {},
     exportCount: exports.length,
     importCount: imports.length,
     exports: exportRows,
@@ -1081,11 +1162,45 @@ async function inspectBlueprint(projectRoot, assetPath) {
 }
 
 /**
- * list_level_actors — Enumerate actors in a .umap.
+ * Determine if an export is a placed actor in the level.
+ * Placed actors have outerIndex resolving to PersistentLevel or Level.
+ * Also includes WorldSettings (always one per level).
+ * Excludes component subobjects, editor metadata, and BP machinery.
  *
- * Returns each export's {objectName, className, outer, bIsAsset}. Per D37
- * YAGNI: class + name only, no transforms, no components tree. Callers
- * that need transforms go through Layer 2/3 TCP tools.
+ * @param {object} exportEntry - FObjectExport
+ * @param {Array} exports - Full export table
+ * @param {Array} imports - Full import table
+ * @returns {boolean}
+ */
+function isPlacedActor(exportEntry, exports, imports) {
+  const className = resolvePackageIndex(exportEntry.classIndex, exports, imports, 'objectName');
+  const outerName = resolvePackageIndex(exportEntry.outerIndex, exports, imports, 'objectName');
+
+  // WorldSettings is always a placed actor
+  if (className === 'WorldSettings') return true;
+
+  // Exclude editor-only data, metadata, and BP machinery
+  const excludeClasses = [
+    'Function', 'K2Node_', 'EdGraph', 'BlueprintGeneratedClass',
+    'Texture2D', 'MaterialInstance', 'BodySetup', 'Model', 'Polys',
+    'LandscapeTextureHash', 'BookMarks', 'AssetImportData', 'EditorOnlyData'
+  ];
+  for (const excl of excludeClasses) {
+    if (className && className.includes(excl)) return false;
+  }
+
+  // Placed actors have outer = PersistentLevel or Level
+  return outerName && (outerName.includes('PersistentLevel') || outerName === 'Level');
+}
+
+/**
+ * list_level_actors — Enumerate placed actors in a .umap.
+ *
+ * Returns each placed actor's {objectName, className, outer, bIsAsset}.
+ * Filters to actual level actors (outerIndex resolves to PersistentLevel/Level),
+ * excluding component subobjects, editor metadata, and BP machinery.
+ * Per D37 YAGNI: class + name only, no transforms, no components tree.
+ * Callers that need transforms go through Layer 2/3 TCP tools.
  */
 async function listLevelActors(projectRoot, assetPath) {
   // Levels live in .umap, not .uasset. If caller passed a bare /Game/... path
@@ -1097,15 +1212,17 @@ async function listLevelActors(projectRoot, assetPath) {
   const stats = await stat(diskPath);
   const { imports, exports } = await parseAssetTables(diskPath);
 
-  const actors = exports.map(e => ({
-    name: e.objectName,
-    className: resolvePackageIndex(e.classIndex, exports, imports, 'objectName'),
-    classPackage: e.classIndex < 0
-      ? (imports[-e.classIndex - 1]?.classPackage ?? null)
-      : null,
-    outer: resolvePackageIndex(e.outerIndex, exports, imports, 'objectName'),
-    bIsAsset: e.bIsAsset,
-  }));
+  const actors = exports
+    .filter(e => isPlacedActor(e, exports, imports))
+    .map(e => ({
+      name: e.objectName,
+      className: resolvePackageIndex(e.classIndex, exports, imports, 'objectName'),
+      classPackage: e.classIndex < 0
+        ? (imports[-e.classIndex - 1]?.classPackage ?? null)
+        : null,
+      outer: resolvePackageIndex(e.outerIndex, exports, imports, 'objectName'),
+      bIsAsset: e.bIsAsset,
+    }));
 
   return {
     path: assetPath,
@@ -1114,6 +1231,7 @@ async function listLevelActors(projectRoot, assetPath) {
     modified: stats.mtime.toISOString(),
     exportCount: exports.length,
     importCount: imports.length,
+    placedActorCount: actors.length,
     actors,
   };
 }
@@ -1146,7 +1264,7 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'inspect_blueprint':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await inspectBlueprint(projectRoot, params.asset_path);
+      return await inspectBlueprint(projectRoot, params);
 
     case 'list_level_actors':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
