@@ -81,6 +81,10 @@ class Cursor {
     return Number(v);
   }
   readUInt16() { this.ensure(2); const v = this.buf.readUInt16LE(this.pos); this.pos += 2; return v; }
+  readUInt8() { this.ensure(1); const v = this.buf.readUInt8(this.pos); this.pos += 1; return v; }
+  readInt8() { this.ensure(1); const v = this.buf.readInt8(this.pos); this.pos += 1; return v; }
+  readFloat() { this.ensure(4); const v = this.buf.readFloatLE(this.pos); this.pos += 4; return v; }
+  readDouble() { this.ensure(8); const v = this.buf.readDoubleLE(this.pos); this.pos += 8; return v; }
   readBytes(n) { this.ensure(n); const v = this.buf.subarray(this.pos, this.pos + n); this.pos += n; return v; }
   skip(n) { this.ensure(n); this.pos += n; }
   seek(n) {
@@ -604,4 +608,366 @@ export function readAssetRegistryData(cur, summary) {
     objects[i] = { objectPath, objectClassName, tags };
   }
   return { dependencyDataOffset, objects };
+}
+
+// ── FPropertyTag / tagged property stream (UE 5.6) ──────────────
+//
+// Extends the parser to walk the serialized property tag stream within a
+// FObjectExport's body. Supports the UE 5.4+ layout:
+//
+//   [export body start]
+//   uint8 preamble                                 (observed 0x00 on all fixtures)
+//   [loop until "None" FName]
+//     FName PropertyName                           (8 bytes)
+//     FPropertyTypeName TypeName                   (recursive; see readPropertyTypeName)
+//     int32 Size                                   (value byte count)
+//     uint8 Flags                                  (EPropertyTagFlags)
+//     [if flags & HAS_ARRAY_INDEX] int32 ArrayIndex
+//     [if flags & HAS_PROPERTY_GUID] FGuid PropertyGuid (16 bytes)
+//     [if flags & HAS_PROPERTY_EXTENSIONS] FPropertyTagExtensions (unsupported — emits marker)
+//     [value bytes, length Size]
+//   FName "None"                                   (terminates stream; 4-byte trailer not consumed)
+//
+// Empirically verified against ProjectA fixtures BPGA_Block, GA_Sprint,
+// BP_OSPlayerR on 2026-04-16 (fileVersionUE5=1017).
+//
+// References:
+//   Engine/Source/Runtime/CoreUObject/Public/UObject/PropertyTag.h (EPropertyTagFlags)
+//   CUE4Parse master branch (post-5.4 FPropertyTypeName encoding)
+
+// EPropertyTagFlags bitfield values.
+export const PTAG_HAS_ARRAY_INDEX       = 0x01;
+export const PTAG_HAS_PROPERTY_GUID     = 0x02;
+export const PTAG_HAS_PROPERTY_EXTS     = 0x04;
+export const PTAG_BINARY_OR_NATIVE_SER  = 0x08;
+export const PTAG_BOOL_TRUE             = 0x10;
+export const PTAG_SKIPPED_SERIALIZE     = 0x20;
+
+/**
+ * Read an FName (int32 nameIdx + int32 number) from the cursor.
+ * @param {Cursor} cur
+ * @param {string[]} names
+ * @returns {string}  resolved name (with `_N-1` suffix when number > 0)
+ */
+export function readFNameAtCursor(cur, names) {
+  const idx = cur.readInt32();
+  const num = cur.readInt32();
+  if (idx < 0 || idx >= names.length) return `[bad-fname-idx=${idx}]`;
+  const base = names[idx];
+  return num > 0 ? `${base}_${num - 1}` : base;
+}
+
+/**
+ * Read a recursive FPropertyTypeName. Format:
+ *   FName Name + int32 ParamCount + ParamCount × FPropertyTypeName
+ * @param {Cursor} cur
+ * @param {string[]} names
+ * @returns {{name: string, params: object[]}}
+ */
+function readPropertyTypeName(cur, names) {
+  const name = readFNameAtCursor(cur, names);
+  const paramCount = cur.readInt32();
+  // Bound recursion defensively — real UE type trees never exceed ~4 levels.
+  if (paramCount < 0 || paramCount > 8) {
+    throw new Error(`unreasonable paramCount=${paramCount} at offset ${cur.tell() - 4}`);
+  }
+  const params = [];
+  for (let i = 0; i < paramCount; i++) {
+    params.push(readPropertyTypeName(cur, names));
+  }
+  return { name, params };
+}
+
+/**
+ * Read one FPropertyTag header from cursor. Consumes the header only —
+ * the caller reads or skips the `size`-byte value.
+ *
+ * @param {Cursor} cur
+ * @param {string[]} names
+ * @returns {{terminator: true} | {
+ *   terminator: false, name: string, type: string, typeParams: object[],
+ *   size: number, flags: number, arrayIndex: number, propertyGuid: string | null,
+ *   unsupportedExtensions: boolean
+ * }}
+ */
+export function readPropertyTag(cur, names) {
+  const name = readFNameAtCursor(cur, names);
+  if (name === 'None') return { terminator: true };
+  const typeName = readPropertyTypeName(cur, names);
+  const size = cur.readInt32();
+  const flags = cur.readUInt8();
+  let arrayIndex = 0;
+  if (flags & PTAG_HAS_ARRAY_INDEX) arrayIndex = cur.readInt32();
+  let propertyGuid = null;
+  if (flags & PTAG_HAS_PROPERTY_GUID) propertyGuid = cur.readGuid();
+  // FPropertyTagExtensions is variable-size and rare; we flag + skip-by-size.
+  const unsupportedExtensions = Boolean(flags & PTAG_HAS_PROPERTY_EXTS);
+  return {
+    terminator: false,
+    name,
+    type: typeName.name,
+    typeParams: typeName.params,
+    size,
+    flags,
+    arrayIndex,
+    propertyGuid,
+    unsupportedExtensions,
+  };
+}
+
+/**
+ * Read scalar/reference property values. Returns the decoded value or throws
+ * if it doesn't know the type. Struct/Array/Set/Map are NOT handled here —
+ * they're dispatched by readExportProperties via the structHandlers /
+ * container handlers registries (wired in commits 2 + 3).
+ *
+ * The caller is responsible for ensuring the cursor lands at valueStart+size
+ * whether or not this reader consumes exactly `size` bytes.
+ */
+function readScalarPropertyValue(cur, tag, names, opts) {
+  const { type, size, flags } = tag;
+  switch (type) {
+    case 'IntProperty':    return size === 4 ? cur.readInt32() : null;
+    case 'Int8Property':   return cur.readInt8();
+    case 'Int16Property':  return cur.readInt32();  // UE serializes int16 as int32-sized slot? safe default
+    case 'Int64Property':  return cur.readInt64AsNumber();
+    case 'UInt16Property': return cur.readUInt16();
+    case 'UInt32Property': return cur.readUInt32();
+    case 'UInt64Property': return cur.readInt64AsNumber();
+    case 'FloatProperty':  return cur.readFloat();
+    case 'DoubleProperty': return cur.readDouble();
+    case 'BoolProperty':
+      // For BoolProperty, size is typically 0 and value comes from BoolTrue flag bit.
+      return Boolean(flags & PTAG_BOOL_TRUE);
+    case 'ByteProperty':
+      // Size=1 → raw uint8; size=8 → FName (enum value).
+      if (size === 1) return cur.readUInt8();
+      if (size === 8) return readFNameAtCursor(cur, names);
+      return null;
+    case 'EnumProperty':
+      // Value is an FName (the enum entry name).
+      return readFNameAtCursor(cur, names);
+    case 'NameProperty':
+      return readFNameAtCursor(cur, names);
+    case 'StrProperty':
+      return cur.readFString();
+    case 'ObjectProperty':
+    case 'ClassProperty':
+    case 'WeakObjectProperty':
+    case 'LazyObjectProperty':
+    case 'InterfaceProperty': {
+      // Value is an FPackageIndex (int32). Resolution happens via opts.resolve.
+      const idx = cur.readInt32();
+      if (!opts.resolve) return { packageIndex: idx };
+      return opts.resolve(idx);
+    }
+    default:
+      return null; // dispatcher throws → caller emits unsupported marker
+  }
+}
+
+/**
+ * Walk the FPropertyTag stream of an export and return a map of property
+ * name → decoded value (or `{unsupported, reason, ...}` marker).
+ *
+ * Contract: never silently skip. Unknown types, unreadable bytes, or flag
+ * bits we don't understand emit a marker entry preserving the property name.
+ * Callers can use the marker to decide whether to fall back to TCP / RC.
+ *
+ * @param {Buffer} buf  full .uasset / .umap buffer
+ * @param {object} exportEntry  FObjectExport row (from readExportTable)
+ * @param {string[]} names  resolved name table
+ * @param {object} [opts]
+ * @param {(idx: number) => any} [opts.resolve]  FPackageIndex resolver for Object refs
+ * @param {Map<string, (cur, size, names, ctx) => any>} [opts.structHandlers]  struct dispatch (commit 2)
+ * @param {Map<string, (cur, size, names, ctx) => any>} [opts.containerHandlers] container dispatch (commit 3)
+ * @param {number} [opts.maxBytes]  response budget; truncates property list when exceeded
+ * @returns {{
+ *   properties: Record<string, any>,
+ *   unsupported: Array<{name: string, reason: string, type?: string, size_bytes?: number}>,
+ *   propertyCount: number,
+ *   truncated: boolean,
+ *   bytesConsumed: number
+ * }}
+ */
+export function readExportProperties(buf, exportEntry, names, opts = {}) {
+  const cur = new Cursor(buf);
+  const start = exportEntry.serialOffset;
+  const end = start + exportEntry.serialSize;
+  if (end > buf.length || start + 1 > buf.length) {
+    return { properties: {}, unsupported: [{ name: '__stream__', reason: 'serial_range_out_of_bounds' }], propertyCount: 0, truncated: false, bytesConsumed: 0 };
+  }
+  cur.seek(start);
+  const preamble = cur.readUInt8();
+  // We only tolerate preamble=0x00 empirically. Non-zero → likely a different
+  // export format (UClass subclass preamble, etc.) — bail out with a marker.
+  if (preamble !== 0x00) {
+    return {
+      properties: {},
+      unsupported: [{ name: '__stream__', reason: 'unexpected_preamble', size_bytes: preamble }],
+      propertyCount: 0, truncated: false, bytesConsumed: 1,
+    };
+  }
+  const res = readTaggedPropertyStream(cur, end, names, opts);
+  return { ...res, bytesConsumed: cur.tell() - start };
+}
+
+/**
+ * Core tagged-property loop. Reads from cursor's current position until
+ * either the `None` terminator or `endOffset` is reached. No preamble —
+ * for exports' top-level stream, the 1-byte preamble is consumed before
+ * calling this (see readExportProperties).
+ *
+ * Exported so struct handlers (uasset-structs.mjs) can parse nested tagged
+ * sub-streams using the same dispatch logic.
+ */
+export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
+  const maxBytes = opts.maxBytes ?? Infinity;
+  const properties = {};
+  const unsupported = [];
+  let propertyCount = 0;
+  let responseBytes = 0;
+  let truncated = false;
+
+  while (cur.tell() < endOffset) {
+    let tag;
+    try {
+      tag = readPropertyTag(cur, names);
+    } catch (err) {
+      unsupported.push({ name: '__stream__', reason: 'tag_header_read_failed', size_bytes: endOffset - cur.tell() });
+      break;
+    }
+    if (tag.terminator) break;
+
+    const valueStart = cur.tell();
+    const valueEnd = valueStart + tag.size;
+    if (valueEnd > endOffset) {
+      unsupported.push({ name: tag.name, reason: 'value_overruns_serial', type: tag.type, size_bytes: tag.size });
+      break;
+    }
+
+    if (responseBytes >= maxBytes) {
+      truncated = true;
+      if (unsupported.filter(u => u.reason === 'size_budget_exceeded').length < 20) {
+        unsupported.push({ name: tag.name, reason: 'size_budget_exceeded' });
+      }
+      cur.seek(valueEnd);
+      propertyCount += 1;
+      continue;
+    }
+
+    let value;
+    let isUnsupported = false;
+    let unsupportedReason;
+
+    if (tag.unsupportedExtensions) {
+      isUnsupported = true;
+      unsupportedReason = 'property_tag_extensions';
+    } else {
+      try {
+        value = dispatchPropertyValue(cur, tag, names, opts);
+        if (value && value.__unsupported__) {
+          isUnsupported = true;
+          unsupportedReason = value.reason;
+          value = undefined;
+        }
+      } catch (err) {
+        isUnsupported = true;
+        unsupportedReason = 'value_read_failed';
+      }
+    }
+
+    // Always realign cursor to the declared value boundary — defends against
+    // handler under- or over-consume bugs.
+    cur.seek(valueEnd);
+
+    if (isUnsupported) {
+      properties[tag.name] = { unsupported: true, reason: unsupportedReason, type: tag.type, size_bytes: tag.size };
+      unsupported.push({ name: tag.name, reason: unsupportedReason, type: tag.type, size_bytes: tag.size });
+    } else {
+      properties[tag.name] = tag.arrayIndex > 0 ? { __arrayIndex: tag.arrayIndex, value } : value;
+    }
+    propertyCount += 1;
+    responseBytes += tag.size;
+  }
+
+  return { properties, unsupported, propertyCount, truncated };
+}
+
+/**
+ * Dispatch a property value based on its type. Returns either the decoded
+ * value or a sentinel `{__unsupported__: true, reason}` marker. Exceptions
+ * bubble to the caller.
+ */
+function dispatchPropertyValue(cur, tag, names, opts) {
+  const { type } = tag;
+  if (type === 'StructProperty') {
+    const structName = tag.typeParams?.[0]?.name ?? null;
+    const handler = structName && opts.structHandlers?.get(structName);
+    if (handler) return handler(cur, tag, names, opts);
+    return { __unsupported__: true, reason: 'unknown_struct', struct_name: structName };
+  }
+  if (type === 'ArrayProperty' || type === 'SetProperty') {
+    const handler = opts.containerHandlers?.get(type);
+    if (handler) return handler(cur, tag, names, opts);
+    return { __unsupported__: true, reason: 'container_deferred' };
+  }
+  if (type === 'MapProperty') {
+    return { __unsupported__: true, reason: 'container_deferred' };
+  }
+  if (type === 'DelegateProperty' || type === 'MulticastDelegateProperty' ||
+      type === 'MulticastInlineDelegateProperty' || type === 'MulticastSparseDelegateProperty') {
+    return { __unsupported__: true, reason: 'delegate_not_serialized' };
+  }
+  if (type === 'TextProperty') {
+    return { __unsupported__: true, reason: 'localized_text' };
+  }
+  if (type === 'SoftObjectProperty' || type === 'SoftClassProperty') {
+    const handler = opts.structHandlers?.get('SoftObjectPath');
+    if (handler) return handler(cur, tag, names, opts);
+    return { __unsupported__: true, reason: 'unknown_property_type', detail: type };
+  }
+
+  const val = readScalarPropertyValue(cur, tag, names, opts);
+  if (val === null || val === undefined) {
+    return { __unsupported__: true, reason: 'unknown_property_type', detail: type };
+  }
+  return val;
+}
+
+/**
+ * Default FPackageIndex resolver — returns a `/Path/Asset.ObjectName` string
+ * when resolvable, or `{packageIndex}` when not. Callers can pass their own
+ * resolver for richer formats.
+ */
+export function makePackageIndexResolver(exports, imports) {
+  return function resolvePackageIndex(idx) {
+    if (idx === 0) return null;
+    if (idx > 0) {
+      const e = exports[idx - 1];
+      return e ? { objectName: e.objectName, packageIndex: idx, kind: 'export' } : { packageIndex: idx };
+    }
+    const imp = imports[-idx - 1];
+    if (!imp) return { packageIndex: idx };
+    // Walk the outer chain to build a full /Path.Object qualifier.
+    // Imports chain as: package-import (objectName = "/Game/..") ← object-import
+    // (outerIndex points back to the package). Bound the walk to 16 hops.
+    const chain = [imp.objectName];
+    let outerIdx = imp.outerIndex;
+    for (let hops = 0; outerIdx < 0 && hops < 16; hops++) {
+      const outer = imports[-outerIdx - 1];
+      if (!outer) break;
+      chain.unshift(outer.objectName);
+      outerIdx = outer.outerIndex;
+    }
+    // Package roots start with '/', so a well-formed path is `/Game/...SomethingName`.
+    const pathPrefix = chain.length > 1 && chain[0].startsWith('/') ? chain[0] : null;
+    const path = pathPrefix ? `${pathPrefix}.${chain.slice(1).join('.')}` : chain.join('.');
+    return {
+      objectName: imp.objectName,
+      packagePath: path,
+      packageIndex: idx,
+      kind: 'import',
+    };
+  };
 }
