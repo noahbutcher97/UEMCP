@@ -1,7 +1,7 @@
 # Orchestrator State — 2026-04-16
 
 > **Purpose**: Bootstrap a fresh orchestrator session. Read this file, then CLAUDE.md, then pick up where we left off.
-> **Last updated**: 2026-04-16T17:30Z
+> **Last updated**: 2026-04-16T18:00Z
 
 ---
 
@@ -17,39 +17,30 @@ All work is on `main`. Key commits this session (chronological):
 | `70c0933` | CLAUDE.md update (Desktop Commander requirement, current state, test counts) |
 | `2c17cb0` | Manual testing handoff for handler fixes |
 | `b4304b6` | Patch Agent 10 handoff with struct byte sizes, version-gating, known unknowns, bulk validation, perf targets |
+| `af32a2d` | Orchestrator state handoff (this file, initial version) |
+| `5aaa290` | Fix F0: pass verbose param through to getAssetInfo (bug found by manual testing) |
 
 **333 assertions passing**: 54 phase1 + 45 mock-seam + 234 TCP.
 
 ---
 
-## What's In Flight
+## Manual Testing — COMPLETE
 
-### Manual Testing (handler fixes, pre-Agent 9)
+**Result**: 18/19 PASS, 1 HIGH failure found and fixed.
+**Report**: `docs/testing/2026-04-16-handler-fixes-manual-results.md`
 
-Noah is about to dispatch a manual testing session in Claude Code from `D:\DevTools\UEMCP\` (`.mcp.json` was just created there so UEMCP tools are available).
+Ship-ready: F1 (pagination), F2 (inspect_blueprint tag removal), F4 (placed-actor filter), F6 (short class names).
 
-**Handoff**: `docs/handoffs/testing-handler-fixes-manual.md`
-**Tests**: A-F covering fixes F0 (verbose blob stripping), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class names), F1 (pagination/truncation), F (regression).
-**Success criteria**: All assertions pass through the live MCP wire (not just unit tests).
+**F0 bug found and fixed** (commit `5aaa290`): `verbose:true` on `get_asset_info` was silently ignored. Root cause: the `executeOfflineTool` switch case called `getAssetInfo(projectRoot, params.asset_path)` — dropping the `params` object so `verbose` never reached the function. Fix: pass `params` as third arg. Integration test added to catch regression.
 
-**Opener for the testing agent** (copy-paste into Claude Code):
-
-```
-I need you to execute the manual testing plan at D:\DevTools\UEMCP\docs\handoffs\testing-handler-fixes-manual.md. Read that file first — it contains the full test plan with exact tool calls and expected results.
-
-Pre-flight: Before running any tests, call connection_info to verify the offline layer is available. If verbose or offset params get rejected as unrecognized keys, note it — the server may need a restart for the new Zod schemas.
-
-Run Tests A through F in order, checking each assertion. Report results as Test [ID]: PASS/FAIL — one-line description. Group any failures by severity (Blocker/High/Medium/Low). Include the actual response snippet for any FAIL.
-
-This is testing 5 handler fixes (F0/F1/F2/F4/F6) that landed in commit d365b05 on the offline tools layer. The unit tests pass (333 assertions) but this exercises the fixes through the live MCP server end-to-end.
-```
+Minor: Test D4 — no `hint` field on unrecognized class names (UX polish, not blocking).
 
 ---
 
 ## What's Next (in order)
 
-1. **Manual testing passes** → proceed to Agent 9
-2. **Agent 9 — Tool Surface Design** (`docs/handoffs/agent9-tool-surface-design.md`)
+1. ~~Manual testing~~ → **DONE** (F0 bug fixed in `5aaa290`)
+2. **Agent 9 — Tool Surface Design** (`docs/handoffs/agent9-tool-surface-design.md`) ← **NEXT**
    - Design research only, no code. Decides how Level 1+2 property data reaches callers (fold into existing tools vs new tool vs hybrid).
    - Deliverable: `docs/research/level12-tool-surface-design.md`
    - Dispatch in Claude Code, Agent 9 reads the handoff.
