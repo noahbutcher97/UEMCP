@@ -22,6 +22,7 @@ import {
 } from './uasset-parser.mjs';
 import {
   buildStructHandlers,
+  buildContainerHandlers,
   readFVectorBinary,
   readFRotatorBinary,
   readFQuatBinary,
@@ -528,6 +529,158 @@ function testStructHandlerRegistry() {
   }
 }
 
+// ── Fixture 10: Level 2.5 — simple-element containers (D46) ────────
+//
+// BP_OSPlayerR CDO has three simple-element containers that exercise different
+// inner-type paths:
+//   - Rigged Character 2Colours: TArray<FLinearColor> (struct, native binary, flag 0x08)
+//   - DefaultAbilities:          TArray<ObjectProperty> (scalar, inline raw)
+//   - DefaultEffects:            TArray<ObjectProperty> (scalar, inline raw)
+// Plus BPGA_Block's DrainPerSecond: TArray<FOSResource> (custom struct →
+// complex_element_container marker).
+async function testContainerHandlersOnPlayer() {
+  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  if (!(await exists(path))) { console.log('  · skipped L2.5 container test (no file)'); return; }
+  const buf = await readFile(path);
+  const cur = new Cursor(buf);
+  const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  const imports = readImportTable(cur, s, names);
+  const exports = readExportTable(cur, s, names);
+  const resolve = makePackageIndexResolver(exports, imports);
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+  const cdo = exports.find(e => e.objectName === 'Default__BP_OSPlayerR_C');
+  const r = readExportProperties(buf, cdo, names, { resolve, structHandlers, containerHandlers });
+
+  // TArray<FLinearColor> — native binary (flag 0x08 on outer). 4 colors.
+  const colors = r.properties['Rigged Character 2Colours'];
+  runner.assert(Array.isArray(colors),
+                'L2.5: Rigged Character 2Colours decodes as array',
+                `got=${typeof colors}`);
+  runner.assert(colors?.length === 4,
+                'L2.5: TArray<FLinearColor> count=4',
+                `got=${colors?.length}`);
+  runner.assert(colors?.[0]?.r === 1 && colors?.[0]?.g === 0 && colors?.[0]?.b === 0 && colors?.[0]?.a === 1,
+                'L2.5: TArray<FLinearColor>[0] = pure red RGBA(1,0,0,1)');
+
+  // TArray<ObjectProperty> — scalar inline raw (4 bytes FPackageIndex each).
+  const abilities = r.properties.DefaultAbilities;
+  runner.assert(Array.isArray(abilities) && abilities.length === 15,
+                'L2.5: TArray<ObjectProperty> DefaultAbilities has 15 entries',
+                `got=${abilities?.length}`);
+  runner.assert(abilities?.every(a => typeof a.objectName === 'string'),
+                'L2.5: each DefaultAbilities entry resolves to a named import/export');
+  runner.assert(abilities?.some(a => a.objectName === 'BPGA_Dodge_C'),
+                'L2.5: DefaultAbilities includes BPGA_Dodge_C');
+
+  // TArray<ObjectProperty> (GameplayEffects).
+  const effects = r.properties.DefaultEffects;
+  runner.assert(Array.isArray(effects) && effects.length === 3,
+                'L2.5: TArray<ObjectProperty> DefaultEffects has 3 entries',
+                `got=${effects?.length}`);
+}
+
+async function testComplexContainerMarker() {
+  const path = join(ROOT, 'Content/GAS/Abilities/BPGA_Block.uasset');
+  if (!(await exists(path))) { console.log('  · skipped complex-container marker test'); return; }
+  const buf = await readFile(path);
+  const cur = new Cursor(buf);
+  const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  const imports = readImportTable(cur, s, names);
+  const exports = readExportTable(cur, s, names);
+  const resolve = makePackageIndexResolver(exports, imports);
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+  const cdo = exports.find(e => e.objectName === 'Default__BPGA_Block_C');
+  const r = readExportProperties(buf, cdo, names, { resolve, structHandlers, containerHandlers });
+
+  const drain = r.properties.DrainPerSecond;
+  runner.assert(drain?.unsupported === true,
+                'L2.5: TArray<FOSResource> (custom struct) → unsupported marker');
+  runner.assert(drain?.reason === 'complex_element_container',
+                'L2.5: reason = complex_element_container (D46 boundary)');
+}
+
+// ── Synthetic tests: TArray<int32>, TArray<FString>, TArray<FVector> ──
+function testContainerSyntheticScalars() {
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+
+  // TArray<IntProperty> — 3 elements: 42, -7, 0
+  {
+    const tag = { flags: 0x00, type: 'ArrayProperty', size: 16,
+                  typeParams: [{ name: 'IntProperty', params: [] }] };
+    const buf = Buffer.alloc(16);
+    buf.writeInt32LE(3, 0);
+    buf.writeInt32LE(42, 4); buf.writeInt32LE(-7, 8); buf.writeInt32LE(0, 12);
+    const cur = new Cursor(buf);
+    const result = containerHandlers.get('ArrayProperty')(cur, tag, [], {});
+    runner.assert(Array.isArray(result) && result.length === 3,
+                  'L2.5 synth: TArray<int32> count=3');
+    runner.assert(result?.[0] === 42 && result?.[1] === -7 && result?.[2] === 0,
+                  'L2.5 synth: TArray<int32> values preserved');
+  }
+
+  // TArray<FloatProperty> — 2 elements
+  {
+    const tag = { flags: 0x00, size: 12, type: 'ArrayProperty',
+                  typeParams: [{ name: 'FloatProperty', params: [] }] };
+    const buf = Buffer.alloc(12);
+    buf.writeInt32LE(2, 0);
+    buf.writeFloatLE(1.5, 4); buf.writeFloatLE(-2.5, 8);
+    const result = containerHandlers.get('ArrayProperty')(new Cursor(buf), tag, [], {});
+    runner.assert(result?.[0] === 1.5 && result?.[1] === -2.5,
+                  'L2.5 synth: TArray<float>');
+  }
+
+  // TArray<FVector> native binary — 2 elements × 24B + 4 count = 52 bytes
+  {
+    const tag = { flags: 0x08, size: 52, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty', params: [{ name: 'Vector', params: [] }] }] };
+    const buf = Buffer.alloc(52);
+    buf.writeInt32LE(2, 0);
+    buf.writeDoubleLE(1, 4); buf.writeDoubleLE(2, 12); buf.writeDoubleLE(3, 20);
+    buf.writeDoubleLE(-1, 28); buf.writeDoubleLE(-2, 36); buf.writeDoubleLE(-3, 44);
+    const result = containerHandlers.get('ArrayProperty')(new Cursor(buf), tag, [],
+                                                          { structHandlers });
+    runner.assert(result?.[0]?.x === 1 && result?.[1]?.z === -3,
+                  'L2.5 synth: TArray<FVector> native binary');
+  }
+
+  // TSet<NameProperty> — NumRemoved=0 + Count=2 + 2×FName
+  {
+    const tag = { flags: 0x00, size: 24, type: 'SetProperty',
+                  typeParams: [{ name: 'NameProperty', params: [] }] };
+    const buf = Buffer.alloc(24);
+    buf.writeInt32LE(0, 0);  // NumRemoved
+    buf.writeInt32LE(2, 4);  // Count
+    buf.writeInt32LE(1, 8); buf.writeInt32LE(0, 12);   // FName(1)
+    buf.writeInt32LE(2, 16); buf.writeInt32LE(0, 20);  // FName(2)
+    const names = ['Zero', 'Alpha', 'Beta'];
+    const result = containerHandlers.get('SetProperty')(new Cursor(buf), tag, names, {});
+    runner.assert(Array.isArray(result) && result.length === 2 && result[0] === 'Alpha',
+                  'L2.5 synth: TSet<FName> decodes count+elements');
+  }
+
+  // TMap remains container_deferred (handled in dispatch, not here).
+  // Complex-element marker test — TArray<StructProperty<UnknownStruct>>
+  {
+    const tag = { flags: 0x00, size: 100, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'UnknownCustomStruct', params: [] }] }] };
+    const buf = Buffer.alloc(100);
+    buf.writeInt32LE(1, 0);
+    const result = containerHandlers.get('ArrayProperty')(new Cursor(buf), tag, [],
+                                                          { structHandlers });
+    runner.assert(result && result.__unsupported__ === true,
+                  'L2.5 synth: TArray<UnknownStruct> → complex_element_container marker');
+    runner.assert(result.reason === 'complex_element_container',
+                  'L2.5 synth: marker reason correct');
+  }
+}
+
 async function main() {
   await testFootstepFixture();
   await testLevelMap();
@@ -541,6 +694,9 @@ async function main() {
   await testTransformStructsOnLevel();
   testStructBinaryReaders();
   testStructHandlerRegistry();
+  await testContainerHandlersOnPlayer();
+  await testComplexContainerMarker();
+  testContainerSyntheticScalars();
   testBadMagic();
   testTruncated();
   process.exit(runner.summary());

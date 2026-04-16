@@ -29,6 +29,168 @@ import { readFNameAtCursor, readTaggedPropertyStream } from './uasset-parser.mjs
 
 const HAS_BINARY_NATIVE = 0x08;
 
+// ── Level 2.5 — simple-element containers (D46) ───────────────────────
+//
+// TArray / TSet of a single simple element type. Layout varies by inner type:
+//
+//   SCALAR inner (IntProperty, FloatProperty, ObjectProperty, ...):
+//     int32 Count followed by Count × raw value bytes inline.
+//
+//   STRUCT inner with outer flag 0x08 (HasBinaryOrNativeSerialize):
+//     int32 Count followed by Count × struct-native-binary bytes
+//     (e.g., FVector = 24B, FLinearColor = 16B, FTransform = 80B).
+//
+//   STRUCT inner with outer flag 0x00 (tagged sub-stream):
+//     int32 Count followed by Count × tagged property sub-streams, each
+//     terminated by "None". Handled via readTaggedPropertyStream.
+//
+//   TSet additionally writes an int32 NumRemovedItems (typically 0) before
+//   the array-shape body.
+//
+// Element types not covered by this module (arrays of custom UserDefinedStruct,
+// TMap<K,V>, TArray<FMyCustomStruct> when the struct isn't a Level 2 engine
+// struct) emit {unsupported, reason: "complex_element_container"} markers.
+
+const INT_MAX_ELEMENTS = 65_536;
+
+/** Readers for inner types that serialize inline raw bytes per element. */
+const SCALAR_ELEMENT_READERS = new Map([
+  ['IntProperty',        (cur) => cur.readInt32()],
+  ['Int8Property',       (cur) => cur.readInt8()],
+  ['Int16Property',      (cur) => cur.readInt32()], // matches top-level int16 slot
+  ['Int64Property',      (cur) => cur.readInt64AsNumber()],
+  ['UInt16Property',     (cur) => cur.readUInt16()],
+  ['UInt32Property',     (cur) => cur.readUInt32()],
+  ['UInt64Property',     (cur) => cur.readInt64AsNumber()],
+  ['FloatProperty',      (cur) => cur.readFloat()],
+  ['DoubleProperty',     (cur) => cur.readDouble()],
+  ['BoolProperty',       (cur) => cur.readUInt8() !== 0],
+  ['ByteProperty',       (cur) => cur.readUInt8()],
+  ['NameProperty',       (cur, names) => readFNameAtCursor(cur, names)],
+  ['StrProperty',        (cur) => cur.readFString()],
+  ['EnumProperty',       (cur, names) => readFNameAtCursor(cur, names)],
+  ['ObjectProperty',     (cur, _names, opts) => {
+    const idx = cur.readInt32();
+    return opts?.resolve ? opts.resolve(idx) : { packageIndex: idx };
+  }],
+  ['ClassProperty',      (cur, _names, opts) => {
+    const idx = cur.readInt32();
+    return opts?.resolve ? opts.resolve(idx) : { packageIndex: idx };
+  }],
+  ['InterfaceProperty',  (cur, _names, opts) => {
+    const idx = cur.readInt32();
+    return opts?.resolve ? opts.resolve(idx) : { packageIndex: idx };
+  }],
+]);
+
+/**
+ * Try to read one struct element from the cursor. Dispatch via the struct
+ * registry. Respects the flag propagated from the outer array (0x08 = native
+ * binary; 0 = tagged sub-stream).
+ */
+function readStructElement(cur, structName, outerFlags, names, opts) {
+  const handler = opts.structHandlers?.get(structName);
+  if (!handler) return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
+  // Pseudo-tag — preserves the outer flag so struct handlers pick the right path.
+  const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
+  if (outerFlags & HAS_BINARY_NATIVE) {
+    // Native binary path — struct handlers read a fixed-size blob.
+    return handler(cur, pseudoTag, names, opts);
+  }
+  // Tagged-stream path — element is a sub-stream terminated by "None".
+  // Reuse readTaggedPropertyStream with a large endOffset; the None terminator
+  // will stop the walk before the buffer edge.
+  const virtualEnd = cur.buf.length;
+  const sub = readTaggedPropertyStream(cur, virtualEnd, names, opts);
+  return extractKnownStructFields(structName, sub.properties);
+}
+
+/** Extract known field shapes from a decoded tagged sub-stream. */
+function extractKnownStructFields(structName, p) {
+  switch (structName) {
+    case 'Vector':      return { x: p.X ?? 0, y: p.Y ?? 0, z: p.Z ?? 0 };
+    case 'Vector2D':    return { x: p.X ?? 0, y: p.Y ?? 0 };
+    case 'Rotator':     return { pitch: p.Pitch ?? 0, yaw: p.Yaw ?? 0, roll: p.Roll ?? 0 };
+    case 'Quat':        return { x: p.X ?? 0, y: p.Y ?? 0, z: p.Z ?? 0, w: p.W ?? 0 };
+    case 'LinearColor': return { r: p.R ?? 0, g: p.G ?? 0, b: p.B ?? 0, a: p.A ?? 1 };
+    case 'Color':       return { r: p.R ?? 0, g: p.G ?? 0, b: p.B ?? 0, a: p.A ?? 255 };
+    case 'GameplayTag': return { tagName: p.TagName ?? null };
+    case 'SoftObjectPath': return { assetPath: p.AssetPath ?? null, subPath: p.SubPathString ?? '' };
+    default: return p;
+  }
+}
+
+/** Read `count` elements of `innerTypeParams` from cur. Returns array or marker. */
+function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
+  const innerTypeName = innerTypeParams?.[0]?.name ?? null;
+  const elements = [];
+  const scalarReader = innerTypeName && SCALAR_ELEMENT_READERS.get(innerTypeName);
+  if (scalarReader) {
+    for (let i = 0; i < count; i++) elements.push(scalarReader(cur, names, opts));
+    return elements;
+  }
+  if (innerTypeName === 'StructProperty') {
+    const structName = innerTypeParams[0].params?.[0]?.name ?? null;
+    if (!structName || !opts.structHandlers?.has(structName)) {
+      return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName ?? '<null>' };
+    }
+    for (let i = 0; i < count; i++) {
+      const el = readStructElement(cur, structName, outerTag.flags, names, opts);
+      if (el && el.__unsupported__) {
+        // Abort on first unsupported element — cursor likely desynced.
+        return { __unsupported__: true, reason: el.reason, inner_type: el.inner_type };
+      }
+      elements.push(el);
+    }
+    return elements;
+  }
+  if (innerTypeName === 'SoftObjectProperty' || innerTypeName === 'SoftClassProperty') {
+    for (let i = 0; i < count; i++) {
+      elements.push({ assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() });
+    }
+    return elements;
+  }
+  return { __unsupported__: true, reason: 'complex_element_container', inner_type: innerTypeName ?? '<null>' };
+}
+
+// ── Container handlers (ArrayProperty / SetProperty) ──────────────────
+
+export function handleArrayProperty(cur, tag, names, opts) {
+  const count = cur.readInt32();
+  if (count < 0 || count > INT_MAX_ELEMENTS) {
+    return { __unsupported__: true, reason: 'container_count_unreasonable', inner_type: tag.typeParams?.[0]?.name };
+  }
+  return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
+}
+
+export function handleSetProperty(cur, tag, names, opts) {
+  // TSet: int32 NumRemovedItems (typically 0 outside save-game deltas) + Count + elements.
+  const numRemoved = cur.readInt32();
+  if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
+    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+  }
+  // Skip any RemovedItem entries (rare; emit marker if present so we don't silently eat bytes).
+  if (numRemoved > 0) {
+    return { __unsupported__: true, reason: 'set_with_removed_items', inner_type: tag.typeParams?.[0]?.name };
+  }
+  const count = cur.readInt32();
+  if (count < 0 || count > INT_MAX_ELEMENTS) {
+    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+  }
+  return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
+}
+
+/**
+ * Build the container handler registry for opts.containerHandlers.
+ * @returns {Map<string, (cur, tag, names, opts) => any>}
+ */
+export function buildContainerHandlers() {
+  return new Map([
+    ['ArrayProperty', handleArrayProperty],
+    ['SetProperty',   handleSetProperty],
+  ]);
+}
+
 // ── Primitive math structs (native binary; size is fixed) ───────────
 
 export function readFVectorBinary(cur) {
