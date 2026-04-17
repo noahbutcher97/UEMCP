@@ -87,21 +87,32 @@ const SCALAR_ELEMENT_READERS = new Map([
  * Try to read one struct element from the cursor. Dispatch via the struct
  * registry. Respects the flag propagated from the outer array (0x08 = native
  * binary; 0 = tagged sub-stream).
+ *
+ * Agent 10.5 tier 2 (D46): when no handler is registered for the struct and
+ * the outer element stream is tagged (flag 0x00), fall through to a tagged
+ * sub-stream read terminated by "None". This covers TArray<FMyCustomStruct>
+ * where FMyCustomStruct is a UserDefinedStruct or an engine struct without a
+ * registered handler — the inner tagged stream is self-describing just like
+ * the top-level tier-3 fallback in dispatchPropertyValue.
  */
 function readStructElement(cur, structName, outerFlags, names, opts) {
   const handler = opts.structHandlers?.get(structName);
-  if (!handler) return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
-  // Pseudo-tag — preserves the outer flag so struct handlers pick the right path.
-  const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
+  // Native binary requires a known layout. No handler + native = surrender.
   if (outerFlags & HAS_BINARY_NATIVE) {
-    // Native binary path — struct handlers read a fixed-size blob.
+    if (!handler) return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
+    const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
     return handler(cur, pseudoTag, names, opts);
   }
-  // Tagged-stream path — element is a sub-stream terminated by "None".
-  // Reuse readTaggedPropertyStream with a large endOffset; the None terminator
-  // will stop the walk before the buffer edge.
+  // Tagged path — element is a sub-stream terminated by "None". We can walk
+  // it without a handler because each inner FPropertyTag carries its own
+  // type + size.
+  if (handler) {
+    const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
+    return handler(cur, pseudoTag, names, opts);
+  }
   const virtualEnd = cur.buf.length;
   const sub = readTaggedPropertyStream(cur, virtualEnd, names, opts);
+  if (opts.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
   return extractKnownStructFields(structName, sub.properties);
 }
 
@@ -134,8 +145,14 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
   }
   if (innerTypeName === 'StructProperty') {
     const structName = innerTypeParams[0].params?.[0]?.name ?? null;
-    if (!structName || !opts.structHandlers?.has(structName)) {
-      return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName ?? '<null>' };
+    if (!structName) {
+      return { __unsupported__: true, reason: 'complex_element_container', inner_type: '<null>' };
+    }
+    // Tier 2 (D46): tagged-stream elements walk without a handler; only native
+    // binary requires a known layout and fails out here.
+    const hasHandler = opts.structHandlers?.has(structName);
+    if ((outerTag.flags & HAS_BINARY_NATIVE) && !hasHandler) {
+      return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
     }
     for (let i = 0; i < count; i++) {
       const el = readStructElement(cur, structName, outerTag.flags, names, opts);
@@ -166,6 +183,71 @@ export function handleArrayProperty(cur, tag, names, opts) {
   return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
 }
 
+// Agent 10.5 tier 2 (D46): TMap<K, V> handler.
+//
+// Wire format:
+//   int32 NumRemovedKeys  (typically 0 outside save-game deltas)
+//   int32 NumElements
+//   per element: key_bytes value_bytes (both raw, no per-entry tag header)
+//
+// Key type dispatch reads tag.typeParams[0]; value type reads tag.typeParams[1].
+// Supported keys: scalars through SCALAR_ELEMENT_READERS (int/name/str/enum/etc.).
+// Struct keys emit {unsupported, reason:"struct_key_map"} — the wire format
+// for struct keys varies with the struct's serialization traits and requires
+// a resolver this tier doesn't ship.
+export function handleMapProperty(cur, tag, names, opts) {
+  const numRemoved = cur.readInt32();
+  if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
+    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+  }
+  if (numRemoved > 0) {
+    // TMap save-game deltas serialize removed keys before new entries.
+    return { __unsupported__: true, reason: 'map_with_removed_items' };
+  }
+  const count = cur.readInt32();
+  if (count < 0 || count > INT_MAX_ELEMENTS) {
+    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+  }
+  const keyType = tag.typeParams?.[0]?.name ?? null;
+  const valueTypeParams = tag.typeParams?.[1] ?? null;
+  const valueType = valueTypeParams?.name ?? null;
+  if (!keyType || !valueType) {
+    return { __unsupported__: true, reason: 'map_type_params_missing' };
+  }
+  if (keyType === 'StructProperty') {
+    return { __unsupported__: true, reason: 'struct_key_map' };
+  }
+  const keyReader = SCALAR_ELEMENT_READERS.get(keyType);
+  if (!keyReader) {
+    return { __unsupported__: true, reason: 'map_key_type_unsupported', detail: keyType };
+  }
+  const valueScalarReader = SCALAR_ELEMENT_READERS.get(valueType);
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    const key = keyReader(cur, names, opts);
+    let value;
+    if (valueScalarReader) {
+      value = valueScalarReader(cur, names, opts);
+    } else if (valueType === 'StructProperty') {
+      const valStructName = valueTypeParams.params?.[0]?.name ?? null;
+      if (!valStructName) {
+        return { __unsupported__: true, reason: 'map_value_struct_name_missing' };
+      }
+      const el = readStructElement(cur, valStructName, tag.flags, names, opts);
+      if (el && el.__unsupported__) {
+        return { __unsupported__: true, reason: el.reason, inner_type: el.inner_type };
+      }
+      value = el;
+    } else if (valueType === 'SoftObjectProperty' || valueType === 'SoftClassProperty') {
+      value = { assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() };
+    } else {
+      return { __unsupported__: true, reason: 'map_value_type_unsupported', detail: valueType };
+    }
+    entries.push({ key, value });
+  }
+  return entries;
+}
+
 export function handleSetProperty(cur, tag, names, opts) {
   // TSet: int32 NumRemovedItems (typically 0 outside save-game deltas) + Count + elements.
   const numRemoved = cur.readInt32();
@@ -191,6 +273,7 @@ export function buildContainerHandlers() {
   return new Map([
     ['ArrayProperty', handleArrayProperty],
     ['SetProperty',   handleSetProperty],
+    ['MapProperty',   handleMapProperty],
   ]);
 }
 

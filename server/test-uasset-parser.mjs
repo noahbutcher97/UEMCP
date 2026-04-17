@@ -879,11 +879,17 @@ async function testComplexContainerMarker() {
   const cdo = exports.find(e => e.objectName === 'Default__BPGA_Block_C');
   const r = readExportProperties(buf, cdo, names, { resolve, structHandlers, containerHandlers });
 
+  // Tier 2 (D46): TArray<FOSResource> now decodes via tagged-element fallback.
+  // Each FOSResource is a tagged sub-stream with Attribute (FGameplayAttribute)
+  // and Amount (float) members. Previous expectation was a
+  // `complex_element_container` marker — this is the D46 scope crossing.
   const drain = r.properties.DrainPerSecond;
-  runner.assert(drain?.unsupported === true,
-                'L2.5: TArray<FOSResource> (custom struct) → unsupported marker');
-  runner.assert(drain?.reason === 'complex_element_container',
-                'L2.5: reason = complex_element_container (D46 boundary)');
+  runner.assert(Array.isArray(drain) && drain.length >= 1,
+                'T2: TArray<FOSResource> decodes as array of struct entries');
+  runner.assert(drain?.[0]?.Attribute && 'AttributeName' in drain[0].Attribute,
+                'T2: FOSResource.Attribute (FGameplayAttribute) decodes with AttributeName field');
+  runner.assert('Amount' in (drain?.[0] ?? {}),
+                'T2: FOSResource.Amount scalar preserved in decoded entry');
 }
 
 // ── Synthetic tests: TArray<int32>, TArray<FString>, TArray<FVector> ──
@@ -947,10 +953,10 @@ function testContainerSyntheticScalars() {
                   'L2.5 synth: TSet<FName> decodes count+elements');
   }
 
-  // TMap remains container_deferred (handled in dispatch, not here).
-  // Complex-element marker test — TArray<StructProperty<UnknownStruct>>
+  // Tier 2 (D46): native-binary element with no handler → complex_element_container.
+  // Tagged-element path decodes via the tier-3 fallback (see below).
   {
-    const tag = { flags: 0x00, size: 100, type: 'ArrayProperty',
+    const tag = { flags: 0x08, size: 100, type: 'ArrayProperty',
                   typeParams: [{ name: 'StructProperty',
                                  params: [{ name: 'UnknownCustomStruct', params: [] }] }] };
     const buf = Buffer.alloc(100);
@@ -958,9 +964,73 @@ function testContainerSyntheticScalars() {
     const result = containerHandlers.get('ArrayProperty')(new Cursor(buf), tag, [],
                                                           { structHandlers });
     runner.assert(result && result.__unsupported__ === true,
-                  'L2.5 synth: TArray<UnknownStruct> → complex_element_container marker');
+                  'T2 synth: TArray<UnknownStruct> native (flag 0x08) → complex_element_container marker');
     runner.assert(result.reason === 'complex_element_container',
-                  'L2.5 synth: marker reason correct');
+                  'T2 synth: native-binary unknown-struct marker reason correct');
+  }
+
+  // Tier 2 + Tier 3: tagged element with no handler decodes via fallback.
+  {
+    const names = ['None', 'Alpha', 'Beta', 'IntProperty'];
+    // Two elements, each a tagged sub-stream with {Alpha=1, Beta=2} then {Alpha=3, Beta=4}.
+    const elt = (a, b) => buildTaggedStream([
+      { name: 'Alpha', typeName: 'IntProperty', typeParams: [], size: 4, flags: 0, valueBytes: int32Bytes(a) },
+      { name: 'Beta',  typeName: 'IntProperty', typeParams: [], size: 4, flags: 0, valueBytes: int32Bytes(b) },
+    ], names);
+    const el1 = elt(1, 2);
+    const el2 = elt(3, 4);
+    const count = Buffer.alloc(4); count.writeInt32LE(2, 0);
+    const body = Buffer.concat([count, el1, el2]);
+    const tag = { flags: 0x00, size: body.length, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'FakeUDSForTest', params: [] }] }] };
+    const result = containerHandlers.get('ArrayProperty')(new Cursor(body), tag, names,
+                                                          { structHandlers, containerHandlers });
+    runner.assert(Array.isArray(result) && result.length === 2,
+                  'T2 synth: TArray<tagged FakeUDSForTest> decodes via tagged-element fallback');
+    runner.assert(result?.[0]?.Alpha === 1 && result?.[0]?.Beta === 2,
+                  'T2 synth: first element fields (Alpha=1, Beta=2) extracted');
+    runner.assert(result?.[1]?.Alpha === 3 && result?.[1]?.Beta === 4,
+                  'T2 synth: second element fields (Alpha=3, Beta=4) extracted');
+  }
+
+  // Tier 2 (D46): TMap<Name, int32> synthetic.
+  {
+    const names = ['None', 'First', 'Second'];
+    // NumRemoved=0, Count=2, keys=(FName First, FName Second), values=(10, 20)
+    const buf = Buffer.alloc(4 + 4 + 2 * (8 + 4));
+    let p = 0;
+    buf.writeInt32LE(0, p); p += 4;
+    buf.writeInt32LE(2, p); p += 4;
+    buf.writeInt32LE(1, p); p += 4; buf.writeInt32LE(0, p); p += 4; buf.writeInt32LE(10, p); p += 4;
+    buf.writeInt32LE(2, p); p += 4; buf.writeInt32LE(0, p); p += 4; buf.writeInt32LE(20, p); p += 4;
+    const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'IntProperty', params: [] },
+                  ] };
+    const result = containerHandlers.get('MapProperty')(new Cursor(buf), tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(Array.isArray(result) && result.length === 2,
+                  'T2 synth: TMap<Name, int32> decodes 2 entries');
+    runner.assert(result?.[0]?.key === 'First' && result?.[0]?.value === 10,
+                  'T2 synth: TMap entry 0 {First → 10}');
+    runner.assert(result?.[1]?.key === 'Second' && result?.[1]?.value === 20,
+                  'T2 synth: TMap entry 1 {Second → 20}');
+  }
+
+  // Tier 2 (D46): TMap<StructProperty<_>, *> → struct_key_map marker.
+  {
+    const buf = Buffer.alloc(8);  // NumRemoved=0, Count=0
+    const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'StructProperty', params: [{ name: 'Vector', params: [] }] },
+                    { name: 'IntProperty', params: [] },
+                  ] };
+    const result = containerHandlers.get('MapProperty')(new Cursor(buf), tag, [],
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.__unsupported__ === true && result?.reason === 'struct_key_map',
+                  'T2 synth: struct-keyed TMap emits struct_key_map marker');
   }
 }
 

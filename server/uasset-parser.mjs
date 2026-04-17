@@ -934,12 +934,9 @@ function dispatchPropertyValue(cur, tag, names, opts) {
     }
     return { __unsupported__: true, reason: 'unknown_struct', struct_name: structName };
   }
-  if (type === 'ArrayProperty' || type === 'SetProperty') {
+  if (type === 'ArrayProperty' || type === 'SetProperty' || type === 'MapProperty') {
     const handler = opts.containerHandlers?.get(type);
     if (handler) return handler(cur, tag, names, opts);
-    return { __unsupported__: true, reason: 'container_deferred' };
-  }
-  if (type === 'MapProperty') {
     return { __unsupported__: true, reason: 'container_deferred' };
   }
   if (type === 'DelegateProperty' || type === 'MulticastDelegateProperty' ||
