@@ -178,6 +178,83 @@ async function testDataTable() {
                 'DataTable: cursor at depDataOffset');
 }
 
+// ── readInt64AsNumberOrNull — lenient int64 reads for salvage paths ──
+function testInt64Lenient() {
+  // In-range value: returns Number, advances 8 bytes.
+  const okBuf = Buffer.alloc(8);
+  okBuf.writeBigInt64LE(42n, 0);
+  const okCur = new Cursor(okBuf);
+  runner.assert(okCur.readInt64AsNumberOrNull() === 42,
+                'readInt64AsNumberOrNull: in-range returns Number');
+  runner.assert(okCur.tell() === 8,
+                'readInt64AsNumberOrNull: in-range advances 8 bytes');
+
+  // Overflow value: returns null, still advances 8 bytes (stride preserved).
+  const bigBuf = Buffer.alloc(8);
+  // 2^54 = 18_014_398_509_481_984n (> Number.MAX_SAFE_INTEGER = 2^53 - 1).
+  bigBuf.writeBigInt64LE(1n << 54n, 0);
+  const bigCur = new Cursor(bigBuf);
+  runner.assert(bigCur.readInt64AsNumberOrNull() === null,
+                'readInt64AsNumberOrNull: overflow returns null');
+  runner.assert(bigCur.tell() === 8,
+                'readInt64AsNumberOrNull: overflow still advances 8 bytes (stride preserved)');
+
+  // Negative overflow (large negative) also returns null.
+  const negBuf = Buffer.alloc(8);
+  negBuf.writeBigInt64LE(-(1n << 62n), 0);
+  const negCur = new Cursor(negBuf);
+  runner.assert(negCur.readInt64AsNumberOrNull() === null,
+                'readInt64AsNumberOrNull: large negative returns null');
+
+  // Strict reader still throws — the two behaviours coexist.
+  const throwCur = new Cursor(bigBuf);
+  try {
+    throwCur.readInt64AsNumber();
+    runner.assert(false, 'readInt64AsNumber: still throws on overflow');
+  } catch (e) {
+    runner.assert(/overflows JS safe integer/.test(e.message),
+                  'readInt64AsNumber: strict reader still throws on overflow');
+  }
+}
+
+// ── readExportTable salvage on int64 overflow — real VFX mesh fixture ──
+async function testExportInt64Salvage() {
+  // SM_auraHousya.uasset: VFX mesh whose export row carries 64-bit hash /
+  // sentinel values > 2^53. Pre-fix: readExportTable threw. Post-fix: table
+  // parses fully, the offending export is marked with int64Overflow.
+  const path = join(ROOT, 'Content/ProjectA/Art/VFX/Meshes/SM_auraHousya.uasset');
+  if (!(await exists(path))) {
+    console.log('  · skipped SM_auraHousya fixture (no file at ' + path + ')');
+    return;
+  }
+  const buf = await readFile(path);
+  const cur = new Cursor(buf);
+  const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  readImportTable(cur, s, names);
+  const exports = readExportTable(cur, s, names);
+
+  runner.assert(exports.length === s.exportCount,
+                `SM_auraHousya: readExportTable yields ${s.exportCount} exports without throwing`);
+
+  const marked = exports.filter(e => e.int64Overflow);
+  runner.assert(marked.length > 0,
+                `SM_auraHousya: at least one export carries int64Overflow marker (got ${marked.length})`);
+
+  const first = marked[0];
+  runner.assert(Array.isArray(first.int64OverflowFields) && first.int64OverflowFields.length > 0,
+                'SM_auraHousya: marked export lists the overflowing field names');
+  runner.assert(first.int64OverflowFields.every(f =>
+                  ['serialSize', 'serialOffset', 'publicExportHash',
+                   'scriptSerializationStartOffset', 'scriptSerializationEndOffset'].includes(f)),
+                'SM_auraHousya: overflow fields are from the six int64 export fields');
+
+  // Clean exports should NOT carry the marker (no bloat on good rows).
+  const clean = exports.filter(e => !e.int64Overflow);
+  runner.assert(clean.every(e => !('int64Overflow' in e) && !('int64OverflowFields' in e)),
+                'SM_auraHousya: non-overflowing exports omit the marker fields');
+}
+
 // ── Negative test: bad magic throws ─────────────────────────────────
 function testBadMagic() {
   const buf = Buffer.alloc(16);
@@ -1311,6 +1388,8 @@ async function main() {
   await testExpressionInputOnStylizedBasic();
   testExpressionInputBinarySynthetic();
   testMaterialInputHandlerRegistry();
+  testInt64Lenient();
+  await testExportInt64Salvage();
   testBadMagic();
   testTruncated();
   process.exit(runner.summary());

@@ -80,6 +80,23 @@ class Cursor {
     }
     return Number(v);
   }
+  /**
+   * Lenient int64 read: returns null on overflow instead of throwing. The
+   * 8 bytes are consumed either way so cursor stride stays aligned. Callers
+   * record the overflow and substitute a sentinel (typically -1).
+   * Used by `readExportTable` to salvage large VFX meshes whose export rows
+   * carry `serialSize`/`serialOffset` > 2^53.
+   * @returns {number|null}
+   */
+  readInt64AsNumberOrNull() {
+    this.ensure(8);
+    const v = this.buf.readBigInt64LE(this.pos);
+    this.pos += 8;
+    if (v > Number.MAX_SAFE_INTEGER || v < -Number.MAX_SAFE_INTEGER) {
+      return null;
+    }
+    return Number(v);
+  }
   readUInt16() { this.ensure(2); const v = this.buf.readUInt16LE(this.pos); this.pos += 2; return v; }
   readUInt8() { this.ensure(1); const v = this.buf.readUInt8(this.pos); this.pos += 1; return v; }
   readInt8() { this.ensure(1); const v = this.buf.readInt8(this.pos); this.pos += 1; return v; }
@@ -529,23 +546,32 @@ export function readExportTable(cur, summary, names) {
     const objectNameIdx = cur.readInt32();
     const objectNameNumber = cur.readInt32();
     const objectFlags = cur.readUInt32();
-    const serialSize = cur.readInt64AsNumber();
-    const serialOffset = cur.readInt64AsNumber();
+    // Six int64 fields below can exceed 2^53 on large VFX meshes. Use the
+    // lenient reader + per-entry marker so one rogue export doesn't abort
+    // the whole table parse.
+    const overflowFields = [];
+    const readLenient = (fieldName) => {
+      const v = cur.readInt64AsNumberOrNull();
+      if (v === null) { overflowFields.push(fieldName); return -1; }
+      return v;
+    };
+    const serialSize = readLenient('serialSize');
+    const serialOffset = readLenient('serialOffset');
     const bForcedExport = cur.readInt32();
     const bNotForClient = cur.readInt32();
     const bNotForServer = cur.readInt32();
     const packageFlags = cur.readUInt32();
     const bNotAlwaysLoadedForEditorGame = cur.readInt32();
     const bIsAsset = cur.readInt32();
-    const publicExportHash = cur.readInt64AsNumber();
+    const publicExportHash = readLenient('publicExportHash');
     const firstExportDependency = cur.readInt32();
     const serBeforeSerDeps = cur.readInt32();
     const createBeforeSerDeps = cur.readInt32();
     const serBeforeCreateDeps = cur.readInt32();
     const createBeforeCreateDeps = cur.readInt32();
-    const scriptSerializationStartOffset = cur.readInt64AsNumber();
-    const scriptSerializationEndOffset = cur.readInt64AsNumber();
-    exports[i] = {
+    const scriptSerializationStartOffset = readLenient('scriptSerializationStartOffset');
+    const scriptSerializationEndOffset = readLenient('scriptSerializationEndOffset');
+    const entry = {
       classIndex, superIndex, templateIndex, outerIndex,
       objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
       objectNameNumber, objectFlags,
@@ -561,6 +587,11 @@ export function readExportTable(cur, summary, names) {
       serBeforeCreateDeps, createBeforeCreateDeps,
       scriptSerializationStartOffset, scriptSerializationEndOffset,
     };
+    if (overflowFields.length > 0) {
+      entry.int64Overflow = true;
+      entry.int64OverflowFields = overflowFields;
+    }
+    exports[i] = entry;
   }
   return exports;
 }
