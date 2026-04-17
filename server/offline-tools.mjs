@@ -1127,6 +1127,62 @@ const BP_GENERATED_CLASSES = new Set([
 ]);
 
 /**
+ * Recursively remove `packageIndex` fields from response objects. The raw
+ * FPackageIndex integer leaks parser-internal resolution detail that callers
+ * don't need — resolved objectName/packagePath/kind are the public surface.
+ * Arrays and plain objects only; skips primitives, null, and non-plain
+ * objects (Date, Map, etc.) defensively.
+ *
+ * Reason-code catalog for `unsupported[]` markers surfaced by the Level 1+2+2.5
+ * parser pipeline:
+ *   - `unknown_struct`            — struct name not in the engine registry
+ *                                   (falls back to tagged self-describing decode)
+ *   - `complex_element_container` — TArray/TSet of custom struct elements
+ *   - `container_deferred`        — TMap with non-scalar key/value types
+ *   - `size_budget_exceeded`      — property value skipped to honor max_bytes
+ *   - `unknown_property_type`     — FPropertyTag type outside the supported set
+ *   - `unexpected_preamble`       — export body begins with a non-zero byte
+ *                                   (non-CDO subclass exports, AssetImportData, etc.)
+ *   - `serial_range_out_of_bounds`— declared export serial range exceeds buffer
+ *   - `delegate_not_serialized`   — FDelegateProperty / FMulticastDelegateProperty
+ *                                   (rarely fires: CDOs don't serialize delegate bindings)
+ *   - `localized_text`            — FText with localization tables
+ *   - `no_cdo_export_found`       — include_defaults=true but CDO export missing
+ */
+function stripPackageIndex(value) {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) value[i] = stripPackageIndex(value[i]);
+    return value;
+  }
+  // Only strip on plain objects — leave class instances alone.
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  delete value.packageIndex;
+  for (const key of Object.keys(value)) {
+    value[key] = stripPackageIndex(value[key]);
+  }
+  return value;
+}
+
+/**
+ * Dedupe an `unsupported[]` marker array by `{name, reason}` tuple,
+ * order-stable (first occurrence wins). Parser iteration can revisit the
+ * same property when array-index siblings serialize alongside the main entry.
+ */
+function dedupeUnsupported(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) return arr;
+  const seen = new Set();
+  const out = [];
+  for (const m of arr) {
+    const key = `${m?.name ?? ''}::${m?.reason ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
+/**
  * Parse an asset's header + tables and return a shared context for property
  * reading. Consumes the file once; all struct/container dispatch reuses
  * the same buffer and name table.
@@ -1200,16 +1256,17 @@ async function inspectBlueprint(projectRoot, params) {
     const cdoName = generated ? `Default__${generated.objectName}` : null;
     const cdoExport = cdoName ? exports.find(e => e.objectName === cdoName) : null;
     if (!cdoExport) {
+      result.cdo_export_name = null;
       result.variable_defaults = {};
       result.unsupported_defaults = [{ name: '__cdo__', reason: 'no_cdo_export_found' }];
     } else {
       const r = readExportProperties(buf, cdoExport, names, { resolve, structHandlers, containerHandlers });
-      result.variable_defaults = r.properties;
-      result.unsupported_defaults = r.unsupported;
       result.cdo_export_name = cdoName;
+      result.variable_defaults = stripPackageIndex(r.properties);
+      result.unsupported_defaults = dedupeUnsupported(r.unsupported);
     }
   }
-  return result;
+  return stripPackageIndex(result);
 }
 
 /**
@@ -1348,7 +1405,8 @@ async function listLevelActors(projectRoot, params) {
     summary[cls] = (summary[cls] || 0) + 1;
   }
 
-  const response = {
+  // Base fields common to both modes — P7: deterministic insertion order.
+  const baseResponse = {
     path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     sizeBytes: stats.size,
@@ -1356,20 +1414,18 @@ async function listLevelActors(projectRoot, params) {
     exportCount: exports.length,
     importCount: imports.length,
     total_placed_actors: placed.length,
-    offset,
-    limit,
   };
 
+  // Summary mode — P1: pagination fields omitted (they don't apply to a dict).
   if (summarizeByClass) {
-    response.summary = summary;
-    response.truncated = false;
-    return response;
+    return { ...baseResponse, truncated: false, summary };
   }
 
   const page = placed.slice(offset, offset + limit);
-  response.truncated = offset + limit < placed.length;
-
   const actors = page.map(({ index, entry }) => {
+    // P7: fixed key ordering — name, className, classPackage, outer, bIsAsset,
+    // transform, (unsupported if present). `transform` is always present with
+    // null as the class-default sentinel; `unsupported` only appears on error.
     const row = {
       name: entry.objectName,
       className: resolvePackageIndex(entry.classIndex, exports, imports, 'objectName'),
@@ -1392,8 +1448,13 @@ async function listLevelActors(projectRoot, params) {
     return row;
   });
 
-  response.actors = actors;
-  return response;
+  return stripPackageIndex({
+    ...baseResponse,
+    offset,
+    limit,
+    truncated: offset + limit < placed.length,
+    actors,
+  });
 }
 
 /**
@@ -1456,26 +1517,36 @@ async function readAssetProperties(projectRoot, params) {
 
   let properties = parsed.properties;
   let propertyCountReturned = parsed.propertyCount;
+  let unsupported = parsed.unsupported;
   if (filterNames) {
     properties = {};
     for (const name of Object.keys(parsed.properties)) {
       if (filterNames.has(name)) properties[name] = parsed.properties[name];
     }
     propertyCountReturned = Object.keys(properties).length;
+    // P2: when a filter is active, scope unsupported[] to the requested names
+    // so callers asking about "A, B" don't see markers for unrelated "C, D".
+    // __stream__ markers (e.g., unexpected_preamble) pass through since they
+    // describe the whole stream, not a specific property.
+    unsupported = unsupported.filter(m =>
+      filterNames.has(m.name) || m.name === '__stream__'
+    );
   }
 
-  return {
+  // P7: deterministic top-level key ordering (path info → target → payload →
+  // counts → truncation). P4: dedupe unsupported[] by {name, reason}.
+  return stripPackageIndex({
     path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     export_name: target.objectName,
     export_index: exportIndex + 1,
     struct_type: structType,
     properties,
-    unsupported: parsed.unsupported,
-    truncated: parsed.truncated,
+    unsupported: dedupeUnsupported(unsupported),
     property_count_returned: propertyCountReturned,
     property_count_total: parsed.propertyCount,
-  };
+    truncated: parsed.truncated,
+  });
 }
 
 /**
