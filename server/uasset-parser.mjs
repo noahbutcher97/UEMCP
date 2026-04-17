@@ -766,6 +766,33 @@ function readScalarPropertyValue(cur, tag, names, opts) {
       const resolved = opts.resolve(idx);
       return resolved ?? { packageIndex: idx };
     }
+    case 'FieldPathProperty': {
+      // FFieldPath serialization (UE 5.x):
+      //   int32 PathCount
+      //   PathCount × FName                             (8 bytes each)
+      //   FPackageIndex ResolvedOwner (int32, 4 bytes)  [post-4.25; always present in UE 5.6]
+      // References:
+      //   Engine/Source/Runtime/CoreUObject/Private/UObject/FieldPath.cpp
+      //     → FArchive& operator<<(FArchive& Ar, FFieldPath& InOutFieldPath)
+      //   CUE4Parse master: CUE4Parse/UE4/Objects/UObject/FFieldPath.cs
+      // Common occurrence in ProjectA: FGameplayAttribute.Attribute (TFieldPath<FProperty>)
+      // encountered inside tagged FOSResource / FAttributeBasedFloat structs.
+      const pathCount = cur.readInt32();
+      if (pathCount < 0 || pathCount > 64) return null;  // defensive: real paths are 1-3 entries
+      const path = [];
+      for (let i = 0; i < pathCount; i++) path.push(readFNameAtCursor(cur, names));
+      // Bound ResolvedOwner read by declared `size` — files serialized against
+      // pre-FFieldPathOwnerSerialization versions omit it. UE 5.6 always has it.
+      const consumed = 4 + pathCount * 8;
+      let owner = null;
+      if (size - consumed >= 4) {
+        const ownerIdx = cur.readInt32();
+        owner = opts.resolve
+          ? (opts.resolve(ownerIdx) ?? { packageIndex: ownerIdx })
+          : (ownerIdx === 0 ? null : { packageIndex: ownerIdx });
+      }
+      return { path, owner };
+    }
     default:
       return null; // dispatcher throws → caller emits unsupported marker
   }

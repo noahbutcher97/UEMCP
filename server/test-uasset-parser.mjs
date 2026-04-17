@@ -890,6 +890,79 @@ async function testComplexContainerMarker() {
                 'T2: FOSResource.Attribute (FGameplayAttribute) decodes with AttributeName field');
   runner.assert('Amount' in (drain?.[0] ?? {}),
                 'T2: FOSResource.Amount scalar preserved in decoded entry');
+
+  // Parser-Extensions Item 2: FieldPathProperty L1 dispatcher. FGameplayAttribute
+  // carries a TFieldPath<FProperty> Attribute member that previously emitted
+  // `unknown_property_type` markers. It now decodes to {path: [FName...], owner: resolved}.
+  const fp = drain?.[0]?.Attribute?.Attribute;
+  runner.assert(fp && Array.isArray(fp.path),
+                'FieldPath Item 2: FGameplayAttribute.Attribute decodes to {path, owner}',
+                `got=${JSON.stringify(fp)}`);
+  runner.assert(fp?.path?.length >= 1 && typeof fp.path[0] === 'string',
+                'FieldPath Item 2: path array contains FName strings',
+                `got path=${JSON.stringify(fp?.path)}`);
+  // No leftover unknown_property_type markers for FieldPathProperty in this CDO.
+  const fpMarkers = r.unsupported.filter(u => u.reason === 'unknown_property_type' && u.detail === 'FieldPathProperty');
+  runner.assert(fpMarkers.length === 0,
+                'FieldPath Item 2: zero FieldPathProperty unknown_property_type markers in BPGA_Block CDO',
+                `got ${fpMarkers.length} markers`);
+}
+
+// ── Parser-Extensions Item 2: FieldPathProperty synthetic edge cases ──
+function testFieldPathPropertySynthetic() {
+  // Two-element path + FPackageIndex owner (14 + 4 = 24 bytes).
+  {
+    const wrapperNames = ['None', 'Field', 'UHealthSet', 'Health', 'FieldPathProperty'];
+    // path = ["Health", "UHealthSet"], owner = -1 (first import)
+    const fpBytes = Buffer.alloc(24);
+    let p = 0;
+    fpBytes.writeInt32LE(2, p); p += 4;                 // PathCount=2
+    fpBytes.writeInt32LE(3, p); p += 4; fpBytes.writeInt32LE(0, p); p += 4;  // FName "Health"
+    fpBytes.writeInt32LE(2, p); p += 4; fpBytes.writeInt32LE(0, p); p += 4;  // FName "UHealthSet"
+    fpBytes.writeInt32LE(-1, p);                        // ResolvedOwner = import[0]
+    const outer = buildTaggedStream([
+      { name: 'Field', typeName: 'FieldPathProperty', typeParams: [],
+        size: fpBytes.length, flags: 0, valueBytes: fpBytes },
+    ], wrapperNames);
+    const result = readTaggedPropertyStream(new Cursor(outer), outer.length, wrapperNames, {});
+    runner.assert(result.properties.Field?.path?.length === 2,
+                  'FieldPath synth: 2-element path decoded');
+    runner.assert(result.properties.Field?.path?.[0] === 'Health' &&
+                  result.properties.Field?.path?.[1] === 'UHealthSet',
+                  'FieldPath synth: path elements preserved in serialized order');
+    runner.assert(result.properties.Field?.owner?.packageIndex === -1,
+                  'FieldPath synth: ResolvedOwner FPackageIndex=-1 preserved without resolver');
+  }
+
+  // Empty path (length=0) + owner=0 null reference.
+  {
+    const wrapperNames = ['None', 'Field', 'FieldPathProperty'];
+    const fpBytes = Buffer.alloc(8);
+    fpBytes.writeInt32LE(0, 0);  // PathCount=0
+    fpBytes.writeInt32LE(0, 4);  // ResolvedOwner=0 (null)
+    const outer = buildTaggedStream([
+      { name: 'Field', typeName: 'FieldPathProperty', typeParams: [],
+        size: fpBytes.length, flags: 0, valueBytes: fpBytes },
+    ], wrapperNames);
+    const result = readTaggedPropertyStream(new Cursor(outer), outer.length, wrapperNames, {});
+    runner.assert(result.properties.Field?.path?.length === 0 && result.properties.Field?.owner === null,
+                  'FieldPath synth: empty path + owner=0 decodes cleanly');
+  }
+
+  // Unreasonable PathCount → null → dispatcher emits unsupported marker.
+  {
+    const wrapperNames = ['None', 'Field', 'FieldPathProperty'];
+    const fpBytes = Buffer.alloc(4);
+    fpBytes.writeInt32LE(10000, 0);  // absurd PathCount
+    const outer = buildTaggedStream([
+      { name: 'Field', typeName: 'FieldPathProperty', typeParams: [],
+        size: fpBytes.length, flags: 0, valueBytes: fpBytes },
+    ], wrapperNames);
+    const result = readTaggedPropertyStream(new Cursor(outer), outer.length, wrapperNames, {});
+    runner.assert(result.properties.Field?.unsupported === true &&
+                  result.properties.Field?.reason === 'unknown_property_type',
+                  'FieldPath synth: unreasonable PathCount falls back to unsupported marker');
+  }
 }
 
 // ── Synthetic tests: TArray<int32>, TArray<FString>, TArray<FVector> ──
@@ -1053,6 +1126,7 @@ async function main() {
   await testContainerHandlersOnPlayer();
   await testComplexContainerMarker();
   testContainerSyntheticScalars();
+  testFieldPathPropertySynthetic();
   testBadMagic();
   testTruncated();
   process.exit(runner.summary());
