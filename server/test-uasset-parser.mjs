@@ -30,6 +30,9 @@ import {
   readFLinearColorBinary,
   readFColorBinary,
   readFGuidBinary,
+  readFVector4Binary,
+  readFIntPointBinary,
+  readFBoxBinary,
 } from './uasset-structs.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
@@ -516,6 +519,29 @@ function testStructBinaryReaders() {
   for (let i = 0; i < 16; i++) gBuf[i] = i;
   const g = readFGuidBinary(new Cursor(gBuf));
   runner.assert(g === '000102030405060708090a0b0c0d0e0f', 'L2: readFGuidBinary hex round-trip');
+
+  // FVector4: 4 × double = 32B
+  const v4Buf = Buffer.alloc(32);
+  v4Buf.writeDoubleLE(1, 0); v4Buf.writeDoubleLE(2, 8);
+  v4Buf.writeDoubleLE(3, 16); v4Buf.writeDoubleLE(4, 24);
+  const v4 = readFVector4Binary(new Cursor(v4Buf));
+  runner.assert(v4.x === 1 && v4.y === 2 && v4.z === 3 && v4.w === 4,
+                'L2: readFVector4Binary round-trip');
+
+  // FIntPoint: 2 × int32 = 8B
+  const ipBuf = Buffer.alloc(8);
+  ipBuf.writeInt32LE(-5, 0); ipBuf.writeInt32LE(7, 4);
+  const ip = readFIntPointBinary(new Cursor(ipBuf));
+  runner.assert(ip.x === -5 && ip.y === 7, 'L2: readFIntPointBinary round-trip');
+
+  // FBox: FVector Min + FVector Max + uint8 bIsValid = 49B
+  const boxBuf = Buffer.alloc(49);
+  boxBuf.writeDoubleLE(-1, 0); boxBuf.writeDoubleLE(-2, 8); boxBuf.writeDoubleLE(-3, 16);
+  boxBuf.writeDoubleLE(10, 24); boxBuf.writeDoubleLE(20, 32); boxBuf.writeDoubleLE(30, 40);
+  boxBuf.writeUInt8(1, 48);
+  const box = readFBoxBinary(new Cursor(boxBuf));
+  runner.assert(box.min.x === -1 && box.max.z === 30 && box.isValid === true,
+                'L2: readFBoxBinary: 2 × FVector + bIsValid');
 }
 
 // ── Struct handler registry coverage ──────────────────────────────
@@ -523,10 +549,168 @@ function testStructHandlerRegistry() {
   const h = buildStructHandlers();
   for (const s of ['Vector', 'Vector2D', 'Rotator', 'Quat', 'Transform',
                    'LinearColor', 'Color', 'Guid', 'GameplayTag',
-                   'GameplayTagContainer', 'SoftObjectPath']) {
+                   'GameplayTagContainer', 'SoftObjectPath',
+                   // Agent 10.5 tier 1 additions
+                   'Vector4', 'IntPoint', 'Box', 'ExpressionInput', 'BodyInstance']) {
     runner.assert(h.has(s) && typeof h.get(s) === 'function',
                   `L2: struct handler registry contains ${s}`);
   }
+}
+
+// ── Agent 10.5 Tier 1: tagged-stream paths for 5 new engine structs ──
+//
+// The new structs (FBox, FVector4, FIntPoint, FExpressionInput, FBodyInstance)
+// typically appear in tagged form — the outer flag bit 0x08 is clear. We
+// verify both the registered handler and the extractKnownStructFields
+// shape-extraction path via synthetic tagged sub-streams.
+function testTier1TaggedStructs() {
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+
+  // Synthetic tagged sub-stream helper: writes FName(idx, num)+int32 count+
+  // FNames for the type, int32 size, uint8 flags, [value bytes], then "None"
+  // terminator. We exercise only the value-decoder side here — not the tag
+  // encoder — by routing through the handler directly with a pseudoTag.
+
+  // FBox via tagged: {Min: Vector, Max: Vector, IsValid: BoolProperty}
+  // This test builds the inner tagged sub-stream and calls the handler with
+  // a pseudoTag pointing to a size-bounded range.
+  {
+    // FPropertyTag-encoded inner stream with 3 tagged properties
+    // Layout: [FName prop] [FPropertyTypeName] [int32 size] [uint8 flags]
+    //         [value bytes] ... [FName "None"]
+    // We use the actual writeTaggedField pattern.
+    const names = ['None', 'Min', 'Max', 'IsValid', 'Vector', 'BoolProperty', 'StructProperty'];
+    const tagged = buildTaggedStream([
+      { name: 'Min', typeName: 'StructProperty', typeParams: [{ name: 'Vector', params: [] }],
+        size: 24, flags: 0x08, valueBytes: vectorBytes(1, 2, 3) },
+      { name: 'Max', typeName: 'StructProperty', typeParams: [{ name: 'Vector', params: [] }],
+        size: 24, flags: 0x08, valueBytes: vectorBytes(10, 20, 30) },
+      { name: 'IsValid', typeName: 'BoolProperty', typeParams: [],
+        size: 0, flags: 0x10, valueBytes: Buffer.alloc(0) },  // 0x10 = BoolTrue
+    ], names);
+    const cur = new Cursor(tagged);
+    // Emulate outer StructProperty<Box> tagged: handler reads the sub-stream
+    // for exactly `size` bytes. The handler's readTaggedStructFields expects
+    // the value bytes to start at cur.tell().
+    const pseudoTag = { flags: 0x00, size: tagged.length, type: 'StructProperty',
+                        typeParams: [{ name: 'Box', params: [] }] };
+    const result = structHandlers.get('Box')(cur, pseudoTag, names,
+      { structHandlers, containerHandlers });
+    runner.assert(result?.min?.x === 1 && result?.max?.z === 30,
+                  'L2 T1: FBox tagged: Min/Max are FVector sub-structs');
+    runner.assert(result?.isValid === true,
+                  'L2 T1: FBox tagged: IsValid=BoolTrue flag → true');
+  }
+
+  // FVector4 via tagged: {X, Y, Z, W} doubles
+  {
+    const names = ['None', 'X', 'Y', 'Z', 'W', 'DoubleProperty'];
+    const tagged = buildTaggedStream([
+      { name: 'X', typeName: 'DoubleProperty', typeParams: [],
+        size: 8, flags: 0, valueBytes: doubleBytes(1.5) },
+      { name: 'Y', typeName: 'DoubleProperty', typeParams: [],
+        size: 8, flags: 0, valueBytes: doubleBytes(-2.5) },
+      { name: 'Z', typeName: 'DoubleProperty', typeParams: [],
+        size: 8, flags: 0, valueBytes: doubleBytes(3.5) },
+      { name: 'W', typeName: 'DoubleProperty', typeParams: [],
+        size: 8, flags: 0, valueBytes: doubleBytes(-4.5) },
+    ], names);
+    const cur = new Cursor(tagged);
+    const pseudoTag = { flags: 0, size: tagged.length, type: 'StructProperty',
+                        typeParams: [{ name: 'Vector4', params: [] }] };
+    const result = structHandlers.get('Vector4')(cur, pseudoTag, names, { structHandlers });
+    runner.assert(result?.x === 1.5 && result?.y === -2.5 && result?.z === 3.5 && result?.w === -4.5,
+                  'L2 T1: FVector4 tagged: XYZW doubles extracted');
+  }
+
+  // FIntPoint via tagged: {X, Y} int32
+  {
+    const names = ['None', 'X', 'Y', 'IntProperty'];
+    const tagged = buildTaggedStream([
+      { name: 'X', typeName: 'IntProperty', typeParams: [],
+        size: 4, flags: 0, valueBytes: int32Bytes(-7) },
+      { name: 'Y', typeName: 'IntProperty', typeParams: [],
+        size: 4, flags: 0, valueBytes: int32Bytes(11) },
+    ], names);
+    const cur = new Cursor(tagged);
+    const pseudoTag = { flags: 0, size: tagged.length, type: 'StructProperty',
+                        typeParams: [{ name: 'IntPoint', params: [] }] };
+    const result = structHandlers.get('IntPoint')(cur, pseudoTag, names, { structHandlers });
+    runner.assert(result?.x === -7 && result?.y === 11, 'L2 T1: FIntPoint tagged: XY int32 extracted');
+  }
+
+  // FBodyInstance via tagged: arbitrary UPROPERTY subset — verify raw props returned
+  {
+    const names = ['None', 'bUseCCD', 'LinearDamping', 'BoolProperty', 'FloatProperty'];
+    const tagged = buildTaggedStream([
+      { name: 'bUseCCD', typeName: 'BoolProperty', typeParams: [],
+        size: 0, flags: 0x10, valueBytes: Buffer.alloc(0) },
+      { name: 'LinearDamping', typeName: 'FloatProperty', typeParams: [],
+        size: 4, flags: 0, valueBytes: floatBytes(0.25) },
+    ], names);
+    const cur = new Cursor(tagged);
+    const pseudoTag = { flags: 0, size: tagged.length, type: 'StructProperty',
+                        typeParams: [{ name: 'BodyInstance', params: [] }] };
+    const result = structHandlers.get('BodyInstance')(cur, pseudoTag, names, { structHandlers });
+    runner.assert(result?.bUseCCD === true, 'L2 T1: FBodyInstance tagged: preserves bUseCCD=true');
+    runner.assert(Math.abs(result?.LinearDamping - 0.25) < 1e-6,
+                  'L2 T1: FBodyInstance tagged: preserves LinearDamping=0.25');
+  }
+
+  // FBodyInstance native binary path → unsupported marker
+  {
+    const pseudoTag = { flags: 0x08, size: 0, type: 'StructProperty',
+                        typeParams: [{ name: 'BodyInstance', params: [] }] };
+    const cur = new Cursor(Buffer.alloc(0));
+    const result = structHandlers.get('BodyInstance')(cur, pseudoTag, [], {});
+    runner.assert(result?.__unsupported__ === true,
+                  'L2 T1: FBodyInstance native binary path emits unsupported marker');
+  }
+}
+
+// ── Tagged-stream synthesizers (used by tier 1 + later tests) ──────
+function writeFName(name, names) {
+  // Returns Buffer (8B): int32 idx + int32 number. Expects name to exist
+  // already in the names array (caller owns the table).
+  const idx = names.indexOf(name);
+  if (idx < 0) throw new Error(`FName ${name} not in names[]`);
+  const b = Buffer.alloc(8); b.writeInt32LE(idx, 0); b.writeInt32LE(0, 4); return b;
+}
+function vectorBytes(x, y, z) {
+  const b = Buffer.alloc(24); b.writeDoubleLE(x, 0); b.writeDoubleLE(y, 8); b.writeDoubleLE(z, 16); return b;
+}
+function doubleBytes(v) { const b = Buffer.alloc(8); b.writeDoubleLE(v, 0); return b; }
+function floatBytes(v)  { const b = Buffer.alloc(4); b.writeFloatLE(v, 0);  return b; }
+function int32Bytes(v)  { const b = Buffer.alloc(4); b.writeInt32LE(v, 0);  return b; }
+
+function buildTaggedStream(tags, names) {
+  // Produce a tagged property stream: per tag [FName PropName]
+  // [FPropertyTypeName (recursive)] [int32 size] [uint8 flags] [value bytes],
+  // then [FName "None"] terminator.
+  const chunks = [];
+  for (const t of tags) {
+    chunks.push(writeFName(t.name, names));
+    chunks.push(writePropertyTypeName(t.typeName, t.typeParams || [], names));
+    const sz = Buffer.alloc(4); sz.writeInt32LE(t.size, 0); chunks.push(sz);
+    chunks.push(Buffer.from([t.flags || 0]));
+    if (t.valueBytes.length !== t.size) {
+      throw new Error(`valueBytes len ${t.valueBytes.length} ≠ declared size ${t.size}`);
+    }
+    chunks.push(t.valueBytes);
+  }
+  chunks.push(writeFName('None', names));
+  return Buffer.concat(chunks);
+}
+
+function writePropertyTypeName(name, params, names) {
+  const parts = [];
+  parts.push(writeFName(name, names));
+  const pc = Buffer.alloc(4); pc.writeInt32LE(params.length, 0); parts.push(pc);
+  for (const p of params) {
+    parts.push(writePropertyTypeName(p.name, p.params || [], names));
+  }
+  return Buffer.concat(parts);
 }
 
 // ── Fixture 10: Level 2.5 — simple-element containers (D46) ────────
@@ -694,6 +878,7 @@ async function main() {
   await testTransformStructsOnLevel();
   testStructBinaryReaders();
   testStructHandlerRegistry();
+  testTier1TaggedStructs();
   await testContainerHandlersOnPlayer();
   await testComplexContainerMarker();
   testContainerSyntheticScalars();

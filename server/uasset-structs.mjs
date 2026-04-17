@@ -110,10 +110,13 @@ function extractKnownStructFields(structName, p) {
   switch (structName) {
     case 'Vector':      return { x: p.X ?? 0, y: p.Y ?? 0, z: p.Z ?? 0 };
     case 'Vector2D':    return { x: p.X ?? 0, y: p.Y ?? 0 };
+    case 'Vector4':     return { x: p.X ?? 0, y: p.Y ?? 0, z: p.Z ?? 0, w: p.W ?? 0 };
     case 'Rotator':     return { pitch: p.Pitch ?? 0, yaw: p.Yaw ?? 0, roll: p.Roll ?? 0 };
     case 'Quat':        return { x: p.X ?? 0, y: p.Y ?? 0, z: p.Z ?? 0, w: p.W ?? 0 };
     case 'LinearColor': return { r: p.R ?? 0, g: p.G ?? 0, b: p.B ?? 0, a: p.A ?? 1 };
     case 'Color':       return { r: p.R ?? 0, g: p.G ?? 0, b: p.B ?? 0, a: p.A ?? 255 };
+    case 'IntPoint':    return { x: p.X ?? 0, y: p.Y ?? 0 };
+    case 'Box':         return { min: p.Min ?? null, max: p.Max ?? null, isValid: p.IsValid ?? false };
     case 'GameplayTag': return { tagName: p.TagName ?? null };
     case 'SoftObjectPath': return { assetPath: p.AssetPath ?? null, subPath: p.SubPathString ?? '' };
     default: return p;
@@ -238,6 +241,25 @@ export function readFVector2DBinary(cur) {
   return { x: cur.readDouble(), y: cur.readDouble() };
 }
 
+// FVector4: 4 × double (UE5 LWC — UE4 was 4 × float32).
+export function readFVector4Binary(cur) {
+  return { x: cur.readDouble(), y: cur.readDouble(), z: cur.readDouble(), w: cur.readDouble() };
+}
+
+// FIntPoint: 2 × int32.
+export function readFIntPointBinary(cur) {
+  return { x: cur.readInt32(), y: cur.readInt32() };
+}
+
+// FBox: FVector Min + FVector Max + uint8 bIsValid (49 bytes in UE5).
+export function readFBoxBinary(cur) {
+  return {
+    min: readFVectorBinary(cur),
+    max: readFVectorBinary(cur),
+    isValid: cur.readUInt8() !== 0,
+  };
+}
+
 // ── Tagged-stream helper — extract named fields ─────────────────────
 
 function readTaggedStructFields(cur, tag, names, opts) {
@@ -312,6 +334,57 @@ function handleFVector2D(cur, tag, names, opts) {
   return { x: f.X ?? 0, y: f.Y ?? 0 };
 }
 
+function handleFVector4(cur, tag, names, opts) {
+  if (tag.flags & HAS_BINARY_NATIVE) return readFVector4Binary(cur);
+  const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
+  return { x: f.X ?? 0, y: f.Y ?? 0, z: f.Z ?? 0, w: f.W ?? 0 };
+}
+
+function handleFIntPoint(cur, tag, names, opts) {
+  if (tag.flags & HAS_BINARY_NATIVE) return readFIntPointBinary(cur);
+  const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
+  return { x: f.X ?? 0, y: f.Y ?? 0 };
+}
+
+function handleFBox(cur, tag, names, opts) {
+  if (tag.flags & HAS_BINARY_NATIVE) return readFBoxBinary(cur);
+  const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
+  return { min: f.Min ?? null, max: f.Max ?? null, isValid: f.IsValid ?? false };
+}
+
+// FExpressionInput — material graph pin connector. Pure UPROPERTY.
+// Fields: Expression (ObjectProperty), OutputIndex (int32), InputName (FName),
+// Mask (int32), MaskR/G/B/A (int32), ExpressionName (FName).
+// Observed exclusively in tagged form on real material fixtures.
+function handleFExpressionInput(cur, tag, names, opts) {
+  if (tag.flags & HAS_BINARY_NATIVE) {
+    return { __unsupported__: true, reason: 'expression_input_native_layout_unknown' };
+  }
+  const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
+  return {
+    expression: f.Expression ?? null,
+    outputIndex: f.OutputIndex ?? 0,
+    inputName: f.InputName ?? null,
+    expressionName: f.ExpressionName ?? null,
+    mask: f.Mask ?? 0,
+    maskR: f.MaskR ?? 0,
+    maskG: f.MaskG ?? 0,
+    maskB: f.MaskB ?? 0,
+    maskA: f.MaskA ?? 0,
+  };
+}
+
+// FBodyInstance — physics body settings. Dozens of UPROPERTYs; return the
+// parsed tagged-stream object so callers see every serialized field verbatim.
+// When an actor overrides only a subset of FBodyInstance members (the common
+// case), only those overrides appear — the rest live at class default.
+function handleFBodyInstance(cur, tag, names, opts) {
+  if (tag.flags & HAS_BINARY_NATIVE) {
+    return { __unsupported__: true, reason: 'body_instance_native_layout_unknown' };
+  }
+  return readTaggedStructFields(cur, tag, names, opts).properties || {};
+}
+
 // ── Gameplay tags ────────────────────────────────────────────────────
 
 function handleFGameplayTag(cur, tag, names, opts) {
@@ -374,15 +447,20 @@ export function buildStructHandlers() {
   return new Map([
     ['Vector',            handleFVector],
     ['Vector2D',          handleFVector2D],
+    ['Vector4',           handleFVector4],
     ['Rotator',           handleFRotator],
     ['Quat',              handleFQuat],
     ['Transform',         handleFTransform],
     ['LinearColor',       handleFLinearColor],
     ['Color',             handleFColor],
     ['Guid',              handleFGuid],
+    ['IntPoint',          handleFIntPoint],
+    ['Box',               handleFBox],
     ['GameplayTag',       handleFGameplayTag],
     ['GameplayTagContainer', handleFGameplayTagContainer],
     ['SoftObjectPath',    handleFSoftObjectPath],
     ['SoftClassPath',     handleFSoftObjectPath],
+    ['ExpressionInput',   handleFExpressionInput],
+    ['BodyInstance',      handleFBodyInstance],
   ]);
 }
