@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **683 total assertions passing** — 436 primary (157 phase1 + 45 mock-seam + 234 TCP) + 247 supplementary (186 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34.
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **709 total assertions passing** — 451 primary (172 phase1 + 45 mock-seam + 234 TCP) + 258 supplementary (197 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26.
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -234,7 +234,7 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
 **Primary rotation**: 399 assertions (120 phase1 + 45 mock seam + 234 TCP tools).
 **Supplementary rotation**: 213 assertions (152 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
-**Total: 683 assertions across 7 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions).
+**Total: 709 assertions across 7 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker).
 
 ### Test Files — Primary Rotation
 
