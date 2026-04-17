@@ -919,6 +919,19 @@ function dispatchPropertyValue(cur, tag, names, opts) {
     const structName = tag.typeParams?.[0]?.name ?? null;
     const handler = structName && opts.structHandlers?.get(structName);
     if (handler) return handler(cur, tag, names, opts);
+    // Agent 10.5 tier 3 (D47): unknown struct tagged-fallback.
+    // UUserDefinedStruct and engine structs without a registered handler
+    // serialize as tagged FPropertyTag sub-streams terminated by "None"
+    // when flag 0x08 (HasBinaryOrNativeSerialize) is clear. Walking the
+    // sub-stream is self-describing — no UDS asset load required for
+    // value-decoding. Bounds set to valueStart+size so a missing terminator
+    // can't walk into the next property's bytes.
+    if (!(tag.flags & PTAG_BINARY_OR_NATIVE_SER) && tag.size > 0) {
+      const endOffset = cur.tell() + tag.size;
+      const sub = readTaggedPropertyStream(cur, endOffset, names, opts);
+      if (opts.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
+      return sub.properties;
+    }
     return { __unsupported__: true, reason: 'unknown_struct', struct_name: structName };
   }
   if (type === 'ArrayProperty' || type === 'SetProperty') {

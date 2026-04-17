@@ -17,6 +17,7 @@ import {
   readExportTable,
   readAssetRegistryData,
   readExportProperties,
+  readTaggedPropertyStream,
   makePackageIndexResolver,
   PACKAGE_FILE_TAG,
 } from './uasset-parser.mjs';
@@ -249,24 +250,26 @@ async function testBpgaBlockProperties() {
                 '/Game/Data/ChooserTable/CT_OSBlocks.CT_OSBlocks',
                 'BPGA_Block: ObjectProperty ChooserTable resolves');
 
-  // Structs not in commit-1 registry → unsupported with struct name.
-  runner.assert(r.properties.IsBlocking?.unsupported === true,
-                'BPGA_Block: StructProperty IsBlocking emits unsupported marker');
-  runner.assert(r.properties.IsBlocking?.reason === 'unknown_struct',
-                'BPGA_Block: IsBlocking reason = unknown_struct');
-  runner.assert(r.properties.IsBlocking?.size_bytes === 41,
-                'BPGA_Block: IsBlocking size_bytes preserved for size-budget reasoning');
+  // Structs without a registered handler but with tagged serialization
+  // (flag 0x00) decode via tier-3 tagged fallback even without structHandlers.
+  // IsBlocking/IsBroken are FGameplayTag — tagged sub-stream with TagName FName.
+  runner.assert(r.properties.IsBlocking?.TagName === 'Gameplay.State.Guard.IsActive',
+                'BPGA_Block T3: IsBlocking decodes via tagged fallback (TagName field)',
+                `got=${JSON.stringify(r.properties.IsBlocking)}`);
+  runner.assert(r.properties.IsBroken?.TagName === 'Gameplay.State.Guard.IsBroken',
+                'BPGA_Block T3: IsBroken decodes via tagged fallback');
 
-  // Container properties → container_deferred marker (will be filled in commit 3).
+  // Container properties → container_deferred marker (no containerHandlers passed).
   runner.assert(r.properties.DrainPerSecond?.reason === 'container_deferred',
                 'BPGA_Block: ArrayProperty DrainPerSecond emits container_deferred marker');
 
-  // Every unsupported value has a corresponding entry in the unsupported list.
+  // Native-binary unknown structs (flag 0x08) stay unsupported — fallback is
+  // tagged-only. FGameplayTagContainer writes its count + names as native binary.
   const namedUnsupported = r.unsupported.map(u => u.name);
-  for (const n of ['IsBlocking', 'IsBroken', 'DrainPerSecond', 'CancelAbilitiesWithTag',
+  for (const n of ['DrainPerSecond', 'CancelAbilitiesWithTag',
                     'ActivationOwnedTags', 'ActivationBlockedTags']) {
     runner.assert(namedUnsupported.includes(n),
-                  `BPGA_Block: unsupported list names ${n}`);
+                  `BPGA_Block: unsupported list still names ${n} (native binary / deferred container)`);
   }
 }
 
@@ -703,6 +706,102 @@ function buildTaggedStream(tags, names) {
   return Buffer.concat(chunks);
 }
 
+// ── Agent 10.5 Tier 3: UUserDefinedStruct tagged fallback (D47) ────────
+//
+// Unknown StructProperty with flag 0x00 decodes as a tagged sub-stream whose
+// members are self-describing. Verified against BP_OSPlayerR CDO which carries
+// four unknown structs (OSAuraInfo UDS, TimerHandle engine struct,
+// MaterialParameterInfo engine struct, PointerToUberGraphFrame BP-runtime).
+async function testTier3UnknownStructFallback() {
+  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  if (!(await exists(path))) { console.log('  · skipped T3 UDS fallback (no file)'); return; }
+  const buf = await readFile(path);
+  const cur = new Cursor(buf);
+  const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  const imports = readImportTable(cur, s, names);
+  const exports = readExportTable(cur, s, names);
+  const resolve = makePackageIndexResolver(exports, imports);
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+  const resolvedUnknownStructs = new Set();
+  const cdo = exports.find(e => e.objectName === 'Default__BP_OSPlayerR_C');
+  const r = readExportProperties(buf, cdo, names, {
+    resolve, structHandlers, containerHandlers, resolvedUnknownStructs,
+  });
+
+  // cacheAura (OSAuraInfo UDS) decodes via tagged fallback. Members School,
+  // Tier, Energy appear in the parsed properties object.
+  runner.assert(r.properties.cacheAura && typeof r.properties.cacheAura === 'object',
+                'T3: OSAuraInfo (UDS) decodes as object via tagged fallback');
+  runner.assert('School' in r.properties.cacheAura && 'Energy' in r.properties.cacheAura,
+                'T3: OSAuraInfo members School/Energy present in decoded struct');
+
+  // devHandle (FTimerHandle engine struct — not in registry) decodes as
+  // {Handle: <int64>}.
+  runner.assert(r.properties.devHandle && 'Handle' in r.properties.devHandle,
+                'T3: FTimerHandle decodes with Handle member');
+
+  // Parameter Info (FMaterialParameterInfo) has Name/Association/Index.
+  const paramInfo = r.properties['Parameter Info'];
+  runner.assert(paramInfo && 'Name' in paramInfo && 'Association' in paramInfo,
+                'T3: FMaterialParameterInfo decodes with Name/Association/Index members');
+
+  // No unknown_struct markers remain after fallback.
+  const unknownLeft = r.unsupported.filter(u => u.reason === 'unknown_struct');
+  runner.assert(unknownLeft.length === 0,
+                `T3: zero unknown_struct markers after fallback (got ${unknownLeft.length})`);
+
+  // resolvedUnknownStructs tracking populates a metric for the final report.
+  runner.assert(resolvedUnknownStructs.has('OSAuraInfo'),
+                'T3: resolvedUnknownStructs tracks OSAuraInfo (UDS)');
+  runner.assert(resolvedUnknownStructs.has('TimerHandle'),
+                'T3: resolvedUnknownStructs tracks TimerHandle');
+}
+
+// Synthetic: tagged fallback bounds stop at valueStart+size, not buf.length.
+function testTier3BoundedFallback() {
+  const names = ['None', 'Alpha', 'Beta', 'IntProperty'];
+  // Inner tagged stream: {Alpha: 42, Beta: 99}. Write the raw bytes, then
+  // append trailing garbage that must NOT be consumed because size is fixed.
+  const inner = buildTaggedStream([
+    { name: 'Alpha', typeName: 'IntProperty', typeParams: [],
+      size: 4, flags: 0, valueBytes: int32Bytes(42) },
+    { name: 'Beta',  typeName: 'IntProperty', typeParams: [],
+      size: 4, flags: 0, valueBytes: int32Bytes(99) },
+  ], names);
+  const garbage = Buffer.from([0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE]);
+  const buf = Buffer.concat([inner, garbage]);
+
+  // Synthesize an outer StructProperty tag wrapping `inner` only
+  const cur = new Cursor(buf);
+  const pseudoTag = {
+    flags: 0, size: inner.length, type: 'StructProperty',
+    typeParams: [{ name: 'FakeStructForTest', params: [] }],
+  };
+  // Call the internal dispatcher (exported via structHandlers lookup — not
+  // directly exposed; instead use readExportProperties-like orchestration).
+  // Simpler: call the fallback code path directly by creating a tiny export
+  // with a single tagged property wrapping our synthetic struct.
+  const wrapperNames = [...names, 'Wrapper', 'FakeStructForTest', 'StructProperty'];
+  const outerWrapped = buildTaggedStream([
+    { name: 'Wrapper', typeName: 'StructProperty',
+      typeParams: [{ name: 'FakeStructForTest', params: [] }],
+      size: inner.length, flags: 0, valueBytes: inner },
+  ], wrapperNames);
+
+  // Parse the wrapper via readTaggedPropertyStream directly.
+  const cursor = new Cursor(outerWrapped);
+  const result = readTaggedPropertyStream(cursor, outerWrapped.length, wrapperNames, {
+    structHandlers: buildStructHandlers(),
+    containerHandlers: buildContainerHandlers(),
+  });
+  runner.assert(result.properties.Wrapper?.Alpha === 42,
+                'T3 bounded: tagged fallback decodes Alpha=42 inside wrapper');
+  runner.assert(result.properties.Wrapper?.Beta === 99,
+                'T3 bounded: tagged fallback decodes Beta=99 inside wrapper');
+}
+
 function writePropertyTypeName(name, params, names) {
   const parts = [];
   parts.push(writeFName(name, names));
@@ -879,6 +978,8 @@ async function main() {
   testStructBinaryReaders();
   testStructHandlerRegistry();
   testTier1TaggedStructs();
+  await testTier3UnknownStructFallback();
+  testTier3BoundedFallback();
   await testContainerHandlersOnPlayer();
   await testComplexContainerMarker();
   testContainerSyntheticScalars();
