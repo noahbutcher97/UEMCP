@@ -110,6 +110,8 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - **Manual testing** — Agent 10.5's offline surface (docs/testing/ scope)
 - **3F sidecar writer** (editor plugin) — spec at `docs/specs/blueprints-as-picture-amendment.md`; now critical path since Agent 10.5's name-level floor is in place (D45)
 
+**Future-consideration items** (not dispatched; tracked for session continuity): see `docs/tracking/backlog.md` — tool-surface cleanup, enhancements, fixture planting, deferred research triggers.
+
 ### What's NOT implemented yet:
 - 3F sidecar writer (editor plugin)
 - C++ editor plugin (Phase 3 — deferred per D39; scope has shrunk progressively via D32/D35/D45/D48)
