@@ -342,6 +342,24 @@ Offline-reads-first-class is **honored** for the find/grep/introspection/config/
 
 ---
 
+### §7a — Noah's answers (2026-04-16 calibration)
+
+> Orchestrator amendment, added post-delivery. Does NOT override the original research classifications; calibrates frequency + adds one missed workflow note.
+
+**Q1 → LOW for direct runtime/PIE queries confirmed**. Noah's primary mode is static file-based agent sessions. Secondary pattern: he pastes runtime debug output into agents for bandaid fixes, then refactors in a separate static session once root cause is identified. This confirms rows 54/55/57/97/100 classification; runtime data flows in via user-copy-paste, not via agent-initiated PIE queries.
+
+**Q2 → both refactoring and greenfield happen**. Rank 2 reverse-reference HIGH ranking stands — refactoring path materially benefits from reverse refs even if greenfield work doesn't. No change.
+
+**Q3 → mostly isolated per project; LOW for content-diff stands, but a new category surfaces**. Noah works on ProjectA and ProjectB mostly independently. Exceptions: (a) **parity audits** checking agent-infra / CLAUDE.md / plugin-config consistency across projects; (b) reference lookups at specific junctures ("how did I do X in ProjectA? port to ProjectB"). Rows 82/88/99 stay LOW for game-content cross-project diff. But there's a missed category — *project-meta-state consistency* (parity audits) — that isn't about game content and wasn't catalogued. Candidate for future catalog pass if agent-infra parity tooling is ever commissioned.
+
+**Q5 → Niagara toolset stays DEFERRED**. VFX is primarily artist-handled; agent VFX support is "nice-to-have, not urgent." Current state: `read_asset_properties` (Agent 10 shipped) reads CDO-exposed Niagara params — that's the current floor. Do not spin up a dedicated VFX toolset proactively; revisit only if VFX agent usage increases.
+
+**Q6 → binary-dominant confirmed**. Orchestrator spot-check 2026-04-16: 14 binary DataTables in ProjectA (`query_asset_registry class_name:DataTable`); 0 CSV data sources (`list_data_sources fileCount:0`). Rows 68/69/94 stay as SERVED_PARTIAL and close with Agent 10.5 D47 UUserDefinedStruct resolver. Notable: `DT_Attacks_Fighter.uasset` rows are shaped by `ST_AttackAnimInfo_Fighter.uasset` (a UUserDefinedStruct that appeared in the earlier 30-match D47 spot-check) — the D47 resolver directly serves ProjectA's primary combat-data consumption pattern, not just incidental BP CDO values.
+
+**Net roadmap impact**: zero. All answers confirm existing classifications; only calibrations are minor frequency affirmations and one missed meta-workflow category (Q3a parity audits, not currently actionable).
+
+---
+
 ## §8 Confidence
 
 **Split confidence**:
