@@ -43,7 +43,7 @@ This audit is NOT about finding bugs (Audit A does that). It's about answering w
 
 - The Workflow Catalog (`docs/research/agent-workflow-catalog.md`) has 100 queries. Each classified as SERVED_OFFLINE / SERVED_PARTIAL / SERVED_PLUGIN_ONLY / NOT_SERVED at time-of-writing. Re-measure against current shipped state.
 
-- Test baseline will be 649+ when you run (Parser Extensions + Cleanup add ~10-15 assertions).
+- Test baseline will be 683+ when you run (Parser Extensions added 34; Cleanup adds ~5 more).
 
 ---
 

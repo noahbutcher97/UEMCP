@@ -32,7 +32,7 @@ Conduct a severity-graded audit of the shipped UEMCP offline tier (Level 1+2+2.5
 - Phase 2 tier-2 audit: `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` (sealed; F0-F6). Parser was production-grade at that audit; verify it still is.
 - D-log now at D50. The arc D44 → D50 is relevant: D44 yaml-as-truth; D45 L3A editor-only; D46 L3B containers; D47 UserDefinedStruct; D48 S-A split; D49 parallel-session git discipline; D50 tagged-fallback supersedes D47 two-pass.
 - Shipped since prior audit: Agent 10 (L1+2+2.5 + Option C), Agent 10.5 (tiers 1-4), Polish Worker, Parser Extensions Worker (wave 3), Cleanup Worker (wave 4).
-- Test baseline will be ≥649 when you run (Parser Extensions + Cleanup add ~10-15 assertions).
+- Test baseline will be ≥683 when you run (Parser Extensions added 34; Cleanup adds ~5 more).
 - Backlog file (`docs/tracking/backlog.md`) exists — audit whether it's still accurate or any dispatched items need removal.
 
 ---

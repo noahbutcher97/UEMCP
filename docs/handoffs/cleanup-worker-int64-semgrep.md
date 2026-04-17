@@ -95,7 +95,7 @@ Extend `test-phase1.mjs` gameplay-tag tests with glob patterns: `Gameplay.*`, `*
 
 - Both items are bounded. If Item 1 requires a deeper parser refactor than described, fall back to Option B (safe-number sentinel + marker) rather than blow scope.
 - Path-limited commits per D49. Desktop Commander for git.
-- Tests must stay green (649/649 baseline). Target: +5 assertions across the two items.
+- Tests must stay green (683/683 baseline). Target: +5 assertions across the two items.
 - Performance regression budget: ≤1% on bulk validation. If Item 2's glob-to-regex adds overhead, note it.
 - No AI attribution.
 - Order: Item 2 first (smaller, lower-risk); Item 1 second (has bulk-validation re-run step).
@@ -115,7 +115,7 @@ Item 2 (semgrep deep refactor):        [status]
   Semgrep finding resolved: [yes / no]
   Agent 10.5's whitelist + nosemgrep annotations removed: [yes / no / kept (why)]
 
-Tests: [X]/[Y] — delta vs 649 baseline
+Tests: [X]/[Y] — delta vs 683 baseline
 Commits: [list with SHAs]
 Time spent: [N min]
 ```
