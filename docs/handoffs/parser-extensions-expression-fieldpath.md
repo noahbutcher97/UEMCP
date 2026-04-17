@@ -34,7 +34,19 @@ CUE4Parse `UE4/Objects/Engine/Materials/FExpressionInput.cs` (master branch). Th
 - `Mask` — int32
 - `MaskR`, `MaskG`, `MaskB`, `MaskA` — int32 each (or packed)
 
-Variants like `FScalarMaterialInput` have additional `UseConstant` + `Constant` fields.
+### Known variants requiring handlers
+
+Per Agent 10.5 manual tester §6 Item #3 (observed in live ProjectA usage — these currently emit generic `unknown_struct` markers alongside the `expression_input_native_layout_unknown` bucket): all wrapper structs that extend FExpressionInput must be handled. At minimum:
+
+- `FExpressionInput` (base) — no additional fields
+- `FColorMaterialInput` — adds `UseConstant: bool` + `Constant: FColor`
+- `FScalarMaterialInput` — adds `UseConstant: bool` + `Constant: float`
+- `FVectorMaterialInput` — adds `UseConstant: bool` + `Constant: FVector`
+- `FVector2MaterialInput` — adds `UseConstant: bool` + `Constant: FVector2D`
+- `FVector4MaterialInput` (if present in UE 5.6) — adds `UseConstant: bool` + `Constant: FVector4`
+- `FMaterialAttributesInput` — inherits FExpressionInput; check CUE4Parse for any extra fields
+
+Scope boundary: the base reader handles FExpressionInput fields; each variant extends with the UseConstant+Constant pair. Cover at minimum the top 4-5 variants; flag any additional ones encountered during bulk validation for follow-on work if they're low-frequency.
 
 ### Implementation
 
