@@ -79,45 +79,39 @@ The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (rele
 
 Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-main\` — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin at `ProjectA\Plugins\NodeToCode-main\` is a separate BP-to-code tool, also not part of UEMCP.
 
-## Current State — Phase 2 Complete + Level 1+2 Design Settled + Agent 10 In Flight
+## Current State — Phase 2 Complete + Level 1+2+2.5 + Option C + L3A S-A Shipped
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 13 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk — tags removed, structural only, D38), `list_level_actors` (placed actors only via `isPlacedActor` filter, D38), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
-- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block. Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files per D38 audit). Powers the 4 registry/introspection tools above (D37).
+- 15 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk + CDO property defaults via `include_defaults`, D38/Option C), `list_level_actors` (placed actors with transforms + pagination + summary_by_class, D38/Option C), `read_asset_properties` (Option C, FPropertyTag iteration on any asset), `find_blueprint_nodes` (L3A S-A skeletal K2Node surface, D48), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block → **Level 1+2+2.5 property decode**: FPropertyTag iteration with UE 5.6 `FPropertyTypeName` + `EPropertyTagFlags` extensions; 12 engine struct handlers (FVector/FRotator/FTransform/FLinearColor/FColor/FGuid/FGameplayTag/FGameplayTagContainer/FSoftObjectPath/FBox/FVector4/FIntPoint/FBodyInstance/FExpressionInput); simple-element + complex-element `TArray`/`TSet` containers; `TMap<K,V>` (scalar keys, struct keys emit `struct_key_map` marker); **tagged-fallback for unknown structs** (D50: self-describing FPropertyTag streams decode 601 unique struct names including UUserDefinedStruct, FTimerHandle, FMaterialParameterInfo without loading referenced asset — supersedes D47 two-pass design). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **436 total assertions passing** — 333 primary (54 phase1 + 45 mock-seam + 234 TCP) + 103 supplementary (42 parser + 15 asset-info + 16 registry + 30 inspect/level-actors)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **612 total assertions passing** — 399 primary (120 phase1 + 45 mock-seam + 234 TCP) + 213 supplementary (152 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51.
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
 - **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
-- **tools.yaml fully populated**: all 120 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
+- **tools.yaml fully populated**: all 122 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
 - **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
 - **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
-- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for all 13 offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata.
-- **Supplementary test suite wired into CI rotation** (M6 fix, 2026-04-16): 42 parser + 15 asset-info + 16 registry + 30 inspect/level-actors assertions now part of the standard test sweep. Baseline is **436/436**, not 333.
+- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for all 15 offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata. D44 invariant verified for `find_blueprint_nodes` at Agent 10.5 landing.
+- **Agent 10 shipped (D39)**: Level 1+2+2.5 parser + Option C tools (`list_level_actors` transforms + pagination + summary_by_class; `inspect_blueprint` with `include_defaults`; new `read_asset_properties`). Agent 9.5's 4 implementation-critical corrections applied — transform chain via `outerIndex` reverse scan, UE 5.6 FPropertyTag extensions, sparse-transform tolerance, mandatory pagination.
+- **Agent 10.5 shipped (D46/D47/D48/D50)**: complex-element containers (TMap + tagged TArray/TSet of custom structs); tagged-fallback for unknown structs (D47 pivot per D50 — 71% total marker reduction, 251K → 22K unknown_struct, 24K → 0 container_deferred); L3A S-A skeletal K2Node surface via `find_blueprint_nodes` (13 node types + 2 delegate-presence types, covers find/grep workflows offline without editor). Performance: 1.06× Agent 10 baseline bulk parse.
 
-### In progress — Agent 10: Level 1+2+2.5 parser + 3 Option C tools (D39/D44/D46):
-- **Scope**: FPropertyTag iteration (Level 1) + ~10 struct handlers (Level 2) + simple-element `TArray`/`TSet` containers (Level 2.5, authorized by D46).
-- **Design settled (2026-04-16)**:
-  - Agent 9 delivered **Option C hybrid** — modify `list_level_actors` (transforms) + `inspect_blueprint` (CDO property defaults); add new `read_asset_properties` tool. See `docs/research/level12-tool-surface-design.md`.
-  - Agent 9.5 verified with **4 implementation-critical corrections**: transform chain resolves via `outerIndex` reverse scan (not `RootComponent` ObjectProperty — only ~10% of placed actors serialize that tag); UE 5.6 FPropertyTag layout has `FPropertyTypeName` + `EPropertyTagFlags` extensions that break a straight pre-5.4 CUE4Parse port; sparse transforms are intended behaviour (~63% null); Bridges2 346 KB unpaginated so pagination is mandatory. See `docs/research/level12-verification-pass.md` §6.
-- **Level 3 scope locked** (D45/D46/D47/D48):
-  - **D45**: L3A full-fidelity UEdGraph byte parsing is permanently EDITOR-ONLY. 3F sidecar spec is the offline-read path for BP logic introspection.
-  - **D46**: L3B simple-element containers (`TArray<int/float/FVector/FGameplayTag/...>`) ship with Agent 10 as L2.5. Complex-element containers (`TMap<K,V>`, `TArray<FMyCustomStruct>`) deferred to Agent 10.5.
-  - **D47**: `UUserDefinedStruct` resolution PURSUE (two-pass struct-registry extension) — scheduled for Agent 10.5. ProjectA spot-check confirmed pervasive usage.
-  - **D48**: L3A skeletal parse split — **Tier S-A** (name-only, tagged-property coverage of ~10-13 K2Node types) PURSUE; **Tier S-B** (pin-tracing with `LinkedTo` edges) FOLD-INTO-3F (zero reference coverage, duplicates sidecar at 4-8× cost). S-A bundled into Agent 10.5 per Q-1 Mode A.
-- **Agent 10.5 queued — bundled follow-on session** covering D46 complex containers + D47 UUserDefinedStruct + D48 S-A skeletal K2Node surface. All three share the struct-registry extension pattern; bundling is more coherent than splitting S-A into a separate 10.75 agent.
+### Follow-on queue (post-Agent-10.5):
+- **Polish worker** — 7 response-shape ergonomic items on the new offline surface
+- **Parser extensions** — FExpressionInput native binary layout (~21K relabeled markers, deferred per D50); nested FieldPathProperty (pre-existing L1 edge case)
+- **Cleanup worker** — int64 VFX parse bug + semgrep deep refactor
+- **Manual testing** — Agent 10.5's offline surface (docs/testing/ scope)
+- **3F sidecar writer** (editor plugin) — spec at `docs/specs/blueprints-as-picture-amendment.md`; now critical path since Agent 10.5's name-level floor is in place (D45)
 
 ### What's NOT implemented yet:
-- Agent 10 parser deliverable (in flight)
-- Agent 10.5 bundled follow-on (queued)
-- 3F sidecar writer (editor plugin) — spec exists in `docs/specs/blueprints-as-picture-amendment.md`; becomes critical path after Agent 10.5 ships the name-level floor
+- 3F sidecar writer (editor plugin)
 - C++ editor plugin (Phase 3 — deferred per D39; scope has shrunk progressively via D32/D35/D45/D48)
 - HTTP client for Remote Control API (Phase 4)
 - Distribution to ProjectB via P4 (Phase 5)
@@ -128,20 +122,24 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 ```
 UEMCP/
 ├── CLAUDE.md              ← you are here
-├── tools.yaml             ← SINGLE SOURCE OF TRUTH for all 120 tools
+├── tools.yaml             ← SINGLE SOURCE OF TRUTH for all 122 tools
 ├── .mcp.json.example      ← template Claude Desktop config
 ├── server/
 │   ├── package.json       ← deps: @modelcontextprotocol/sdk, js-yaml, zod
 │   ├── server.mjs         ← MCP server entry, management tools, tool registration
-│   ├── offline-tools.mjs  ← 13 offline tools incl. query_asset_registry, inspect_blueprint, list_level_actors
-│   ├── uasset-parser.mjs  ← binary .uasset/.umap header parser (FPackageFileSummary, import/export tables, AR tags)
+│   ├── offline-tools.mjs  ← 15 offline tools incl. query_asset_registry, inspect_blueprint (+include_defaults), list_level_actors (+transforms), read_asset_properties, find_blueprint_nodes
+│   ├── uasset-parser.mjs  ← binary .uasset/.umap parser: headers + FPropertyTag iteration + 12 engine struct handlers + TArray/TSet/TMap containers + tagged-fallback for unknown structs (Level 1+2+2.5, D50)
 │   ├── tcp-tools.mjs      ← Phase 2 TCP tool handlers (actors: 10 tools, name translation, Zod schemas)
 │   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
 │   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
 │   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
-│   ├── test-phase1.mjs    ← Phase 1 verification tests (54 assertions)
+│   ├── test-phase1.mjs    ← Phase 1 + Agent 10/10.5 offline tool tests (120 assertions)
 │   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
 │   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests (234 assertions)
+│   ├── test-uasset-parser.mjs ← Parser format + Level 1+2+2.5 + tagged-fallback (152 assertions)
+│   ├── test-offline-asset-info.mjs ← get_asset_info shape + cache (15 assertions)
+│   ├── test-query-asset-registry.mjs ← bulk scan + pagination + tag filtering (16 assertions)
+│   ├── test-inspect-and-level-actors.mjs ← inspect_blueprint + list_level_actors (30 assertions)
 │   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
 ├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
 ├── docs/
@@ -151,7 +149,7 @@ UEMCP/
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   ├── research/          ← parser survey, audit, design options (5 files)
 │   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D48)
+│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D50)
 └── .claude/               ← project-level Claude settings
 ```
 
@@ -225,22 +223,22 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D48).
+See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D50).
 See `docs/audits/phase1-audit-2026-04-12.md` for the Phase 1 audit.
 See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 tier-2 audit (parser production-grade, 7 handler findings).
 
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Primary rotation**: 333 assertions (54 offline + 45 mock seam + 234 TCP tools).
-**Supplementary rotation**: 103 assertions (42 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Added to rotation 2026-04-16 (M6 fix).
-**Total: 436 assertions across 7 test files.**
+**Primary rotation**: 399 assertions (120 phase1 + 45 mock seam + 234 TCP tools).
+**Supplementary rotation**: 213 assertions (152 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
+**Total: 612 assertions across 7 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5).
 
 ### Test Files — Primary Rotation
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, edge cases (54 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage (120 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
@@ -251,7 +249,7 @@ These exercise real ProjectA fixtures (`.uasset`/`.umap` bytes on disk) and requ
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-uasset-parser.mjs` | Binary parser format correctness against real fixtures (42 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-uasset-parser.mjs` |
+| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-uasset-parser.mjs` |
 | `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-offline-asset-info.mjs` |
 | `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-query-asset-registry.mjs` |
 | `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-inspect-and-level-actors.mjs` |
