@@ -756,10 +756,15 @@ function readScalarPropertyValue(cur, tag, names, opts) {
     case 'WeakObjectProperty':
     case 'LazyObjectProperty':
     case 'InterfaceProperty': {
-      // Value is an FPackageIndex (int32). Resolution happens via opts.resolve.
+      // FPackageIndex: 0 = null ref, positive = export, negative = import.
+      // A null ref is a legitimate value (common for optional object defaults);
+      // return an explicit marker object so callers don't confuse it with a
+      // "type not handled" unsupported marker.
       const idx = cur.readInt32();
+      if (idx === 0) return { objectName: null, packageIndex: 0, kind: 'null' };
       if (!opts.resolve) return { packageIndex: idx };
-      return opts.resolve(idx);
+      const resolved = opts.resolve(idx);
+      return resolved ?? { packageIndex: idx };
     }
     default:
       return null; // dispatcher throws → caller emits unsupported marker
@@ -858,22 +863,24 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
 
     let value;
     let isUnsupported = false;
-    let unsupportedReason;
+    let unsupportedMarker = null;
 
     if (tag.unsupportedExtensions) {
       isUnsupported = true;
-      unsupportedReason = 'property_tag_extensions';
+      unsupportedMarker = { reason: 'property_tag_extensions' };
     } else {
       try {
         value = dispatchPropertyValue(cur, tag, names, opts);
         if (value && value.__unsupported__) {
           isUnsupported = true;
-          unsupportedReason = value.reason;
+          // Carry forward any detail fields (struct_name, inner_type, detail, etc.)
+          const { __unsupported__: _, ...rest } = value;
+          unsupportedMarker = rest;
           value = undefined;
         }
       } catch (err) {
         isUnsupported = true;
-        unsupportedReason = 'value_read_failed';
+        unsupportedMarker = { reason: 'value_read_failed' };
       }
     }
 
@@ -882,8 +889,15 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
     cur.seek(valueEnd);
 
     if (isUnsupported) {
-      properties[tag.name] = { unsupported: true, reason: unsupportedReason, type: tag.type, size_bytes: tag.size };
-      unsupported.push({ name: tag.name, reason: unsupportedReason, type: tag.type, size_bytes: tag.size });
+      const entry = {
+        unsupported: true,
+        reason: unsupportedMarker.reason,
+        type: tag.type,
+        size_bytes: tag.size,
+        ...unsupportedMarker,
+      };
+      properties[tag.name] = entry;
+      unsupported.push({ name: tag.name, ...entry, unsupported: undefined });
     } else {
       properties[tag.name] = tag.arrayIndex > 0 ? { __arrayIndex: tag.arrayIndex, value } : value;
     }
