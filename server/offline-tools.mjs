@@ -289,12 +289,20 @@ async function listGameplayTags(projectRoot) {
 async function searchGameplayTags(projectRoot, pattern) {
   const { tags } = await listGameplayTags(projectRoot);
 
-  // Convert glob pattern to regex (support * and **)
+  // Convert glob pattern to regex (support * and **).
+  // The resulting pattern contains only `[^.]*` / `.*` / literal chars, so no
+  // catastrophic backtracking is possible (no nested alternation / +? / {m,n}).
+  // Input is further constrained to UE-tag-valid characters to rule out
+  // regex metachar injection. ReDoS-safe by construction.
+  if (!/^[A-Za-z0-9_.*]+$/.test(pattern)) {
+    throw new Error(`Invalid tag pattern: "${pattern}" — allowed characters are letters, digits, underscore, dot, and asterisk.`);
+  }
   const regexStr = pattern
     .replace(/\./g, '\\.')
     .replace(/\*\*/g, '___DOUBLESTAR___')
     .replace(/\*/g, '[^.]*')
     .replace(/___DOUBLESTAR___/g, '.*');
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   const regex = new RegExp(`^${regexStr}$`, 'i');
 
   return {
@@ -1470,6 +1478,195 @@ async function readAssetProperties(projectRoot, params) {
   };
 }
 
+/**
+ * find_blueprint_nodes — Agent 10.5 Tier 4 (D48 S-A skeletal surface).
+ *
+ * Walk K2Node exports in a Blueprint, extract semantic references from each
+ * node's tagged-property stream, and apply class/member/target filters.
+ * Covers 13 skeletal K2Node types plus delegate-node presence reporting.
+ * Does NOT trace exec chains — pin edges aren't parseable from offline bytes
+ * and live in the 3F sidecar.
+ *
+ * Semantic field extraction reuses the tier-3 tagged-property fallback —
+ * FMemberReference / FGraphReference / FUserPinInfo all decode through
+ * readExportProperties without special handler registration.
+ */
+const SKELETAL_K2NODE_CLASSES = new Set([
+  // Entry / event
+  'K2Node_Event', 'K2Node_CustomEvent',
+  'K2Node_FunctionEntry', 'K2Node_FunctionResult',
+  // Variable access
+  'K2Node_VariableGet', 'K2Node_VariableSet',
+  // Function call
+  'K2Node_CallFunction', 'K2Node_CallParentFunction',
+  // Control flow
+  'K2Node_IfThenElse', 'K2Node_ExecutionSequence',
+  'K2Node_SwitchEnum', 'K2Node_SwitchString', 'K2Node_SwitchInteger',
+  'K2Node_DynamicCast', 'K2Node_MacroInstance',
+  // Literal / passthrough
+  'K2Node_Self', 'K2Node_Knot',
+  // Delegate — class identity only, no payload
+  'K2Node_AddDelegate', 'K2Node_AssignDelegate',
+]);
+
+function extractNodeSemantics(nodeClass, props) {
+  // Shared helpers — safe-read nested struct fields.
+  const mr = (key) => (props?.[key] && typeof props[key] === 'object' && !Array.isArray(props[key]))
+    ? props[key] : null;
+  const resolveObjectName = (v) => {
+    if (!v || typeof v !== 'object') return null;
+    return v.packagePath || v.objectName || null;
+  };
+
+  const out = {};
+  switch (nodeClass) {
+    case 'K2Node_Event': {
+      const ref = mr('EventReference');
+      if (ref) {
+        out.member_name = ref.MemberName ?? null;
+        out.target_class = resolveObjectName(ref.MemberParent);
+      }
+      break;
+    }
+    case 'K2Node_CustomEvent': {
+      out.member_name = props?.CustomFunctionName ?? null;
+      break;
+    }
+    case 'K2Node_FunctionEntry':
+    case 'K2Node_FunctionResult': {
+      const ref = mr('FunctionReference');
+      if (ref) out.member_name = ref.MemberName ?? null;
+      break;
+    }
+    case 'K2Node_VariableGet':
+    case 'K2Node_VariableSet': {
+      const ref = mr('VariableReference');
+      if (ref) {
+        out.member_name = ref.MemberName ?? null;
+        out.target_class = resolveObjectName(ref.MemberParent);
+        if (ref.bSelfContext === true) out.extras = { ...(out.extras ?? {}), self_context: true };
+      }
+      break;
+    }
+    case 'K2Node_CallFunction':
+    case 'K2Node_CallParentFunction': {
+      const ref = mr('FunctionReference');
+      if (ref) {
+        out.member_name = ref.MemberName ?? null;
+        out.target_class = resolveObjectName(ref.MemberParent);
+        if (ref.bSelfContext === true) out.extras = { ...(out.extras ?? {}), self_context: true };
+      }
+      break;
+    }
+    case 'K2Node_SwitchEnum': {
+      const enumRef = props?.Enum;
+      if (enumRef && typeof enumRef === 'object') {
+        out.target_class = resolveObjectName(enumRef);
+      }
+      break;
+    }
+    case 'K2Node_DynamicCast': {
+      const tt = props?.TargetType;
+      if (tt && typeof tt === 'object') {
+        out.target_class = resolveObjectName(tt);
+      }
+      break;
+    }
+    case 'K2Node_MacroInstance': {
+      const ref = mr('MacroGraphReference');
+      if (ref) {
+        out.macro_path = resolveObjectName(ref.MacroGraph);
+        out.graph_name = ref.GraphName ?? null;
+      }
+      break;
+    }
+    // K2Node_IfThenElse, ExecutionSequence, SwitchString, SwitchInteger,
+    // Self, Knot, AddDelegate, AssignDelegate: class identity only.
+    default:
+      break;
+  }
+  return out;
+}
+
+async function findBlueprintNodes(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const filterClass = params.node_class || null;
+  const filterMember = params.member_name || null;
+  const filterTarget = params.target_class || null;
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 1000));
+  const offset = Math.max(0, params.offset ?? 0);
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
+  const header = await parseAssetHeader(projectRoot, assetPath);
+  const primary = header.data.assetRegistry.objects[0] || null;
+
+  const matched = [];
+  let totalSkeletal = 0;
+  const nonSkeletalCounts = new Map();
+
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    if (!cls) continue;
+    if (!cls.startsWith('K2Node_')) continue;
+    if (!SKELETAL_K2NODE_CLASSES.has(cls)) {
+      nonSkeletalCounts.set(cls, (nonSkeletalCounts.get(cls) ?? 0) + 1);
+      continue;
+    }
+    totalSkeletal += 1;
+    if (filterClass && cls !== filterClass) continue;
+
+    // Parse the node's tagged properties to extract FMemberReference / etc.
+    let nodeProps;
+    try {
+      nodeProps = readExportProperties(buf, e, names,
+        { resolve, structHandlers, containerHandlers });
+    } catch {
+      nodeProps = { properties: {} };
+    }
+    const semantics = extractNodeSemantics(cls, nodeProps.properties);
+
+    if (filterMember && semantics.member_name !== filterMember) continue;
+    if (filterTarget) {
+      const t = semantics.target_class;
+      if (!t || (t !== filterTarget && !t.endsWith(filterTarget))) continue;
+    }
+
+    matched.push({
+      node_class: cls,
+      member_name: semantics.member_name ?? null,
+      target_class: semantics.target_class ?? null,
+      macro_path: semantics.macro_path ?? null,
+      graph_name: semantics.graph_name ?? null,
+      export_index: i + 1,
+      node_name: e.objectName,
+      extras: semantics.extras,
+    });
+  }
+
+  const totalMatched = matched.length;
+  const page = matched.slice(offset, offset + limit);
+  const truncated = offset + limit < totalMatched;
+
+  const nodesOutOfSkeletal = [...nonSkeletalCounts.entries()]
+    .map(([node_class, count]) => ({ node_class, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    asset_name: primary ? (primary.objectPath || primary.objectClassName) : null,
+    total_skeletal: totalSkeletal,
+    total_matched: totalMatched,
+    offset,
+    limit,
+    truncated,
+    nodes: page,
+    nodes_out_of_skeletal: nodesOutOfSkeletal,
+  };
+}
+
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
     throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
@@ -1507,6 +1704,10 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'read_asset_properties':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await readAssetProperties(projectRoot, params);
+
+    case 'find_blueprint_nodes':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await findBlueprintNodes(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);

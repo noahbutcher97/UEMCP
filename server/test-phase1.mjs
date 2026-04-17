@@ -543,10 +543,106 @@ if (PROJECT_ROOT) {
            'D44: inspect_blueprint.params.include_defaults declared in yaml');
     assert(offlineTools.inspect_blueprint.params.verbose === undefined,
            'D44: inspect_blueprint.params.verbose removed per Q1 rename');
+    // Agent 10.5 Tier 4: find_blueprint_nodes registered in yaml.
+    assert(offlineTools.find_blueprint_nodes !== undefined,
+           'D44 T4: find_blueprint_nodes entry exists in yaml');
+    assert(/skeletal K2Node|K2Node_CallFunction/i.test(offlineTools.find_blueprint_nodes.description),
+           'D44 T4: find_blueprint_nodes description references skeletal K2Node surface');
+    assert(offlineTools.find_blueprint_nodes.params.node_class !== undefined,
+           'D44 T4: find_blueprint_nodes.params.node_class declared');
+    assert(offlineTools.find_blueprint_nodes.params.member_name !== undefined,
+           'D44 T4: find_blueprint_nodes.params.member_name declared');
   } catch (e) {
     assert(false, 'D44: yaml invariant check', e.message);
   }
 }
+
+// ── Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ──────────
+async function testFindBlueprintNodes() {
+  console.log(`\n═══ Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ═══`);
+  if (!PROJECT_ROOT) { console.log('  SKIP: UNREAL_PROJECT_ROOT not set'); return; }
+
+  // Unfiltered call — returns all skeletal K2Nodes paginated.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR' }, PROJECT_ROOT);
+    assert(r.total_skeletal > 0, `T4: BP_OSPlayerR has skeletal K2Nodes (got ${r.total_skeletal})`);
+    assert(Array.isArray(r.nodes), 'T4: response includes nodes[] array');
+    assert(typeof r.truncated === 'boolean', 'T4: truncated flag present');
+    assert(typeof r.total_matched === 'number', 'T4: total_matched present');
+    assert(Array.isArray(r.nodes_out_of_skeletal), 'T4: nodes_out_of_skeletal array present for discoverability');
+    // Every node row has node_class + export_index
+    for (const n of r.nodes) {
+      if (!(n.node_class && typeof n.export_index === 'number')) {
+        assert(false, 'T4: every node has node_class + export_index', JSON.stringify(n));
+        break;
+      }
+    }
+    assert(true, 'T4: every node has node_class + export_index');
+  } catch (e) {
+    assert(false, 'T4: unfiltered find_blueprint_nodes', e.message);
+  }
+
+  // node_class filter narrows to just events.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', node_class: 'K2Node_Event' },
+      PROJECT_ROOT);
+    assert(r.nodes.every(n => n.node_class === 'K2Node_Event'),
+      `T4: node_class filter returns only Events (got ${r.nodes.length} rows)`);
+    assert(r.total_matched < r.total_skeletal, 'T4: filter reduces total_matched below total_skeletal');
+    // Event member_name carries the event handler name.
+    const beginPlay = r.nodes.find(n => n.member_name === 'ReceiveBeginPlay');
+    assert(!!beginPlay, 'T4: ReceiveBeginPlay event detected by member_name');
+    assert(beginPlay?.target_class?.includes('Actor') ?? false,
+      'T4: ReceiveBeginPlay target_class points at /Script/Engine.Actor');
+  } catch (e) {
+    assert(false, 'T4: K2Node_Event filter', e.message);
+  }
+
+  // member_name filter — CreateDynamicMaterialInstance appears multiple times.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', member_name: 'CreateDynamicMaterialInstance' },
+      PROJECT_ROOT);
+    assert(r.total_matched > 0, 'T4: member_name filter finds matching calls');
+    assert(r.nodes.every(n => n.member_name === 'CreateDynamicMaterialInstance'),
+      'T4: every returned node has the requested member_name');
+  } catch (e) {
+    assert(false, 'T4: member_name filter', e.message);
+  }
+
+  // target_class suffix filter.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', target_class: 'MaterialInstanceDynamic' },
+      PROJECT_ROOT);
+    assert(r.total_matched > 0, 'T4: target_class suffix filter finds matches');
+    assert(r.nodes.every(n => n.target_class?.endsWith('MaterialInstanceDynamic')),
+      'T4: every match ends in the target_class suffix');
+  } catch (e) {
+    assert(false, 'T4: target_class filter', e.message);
+  }
+
+  // Pagination: limit=5, offset=0 + offset=5 yield disjoint rows.
+  try {
+    const p1 = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', limit: 5, offset: 0 }, PROJECT_ROOT);
+    const p2 = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', limit: 5, offset: 5 }, PROJECT_ROOT);
+    assert(p1.nodes.length === 5, 'T4 pagination: page 1 has limit=5 rows');
+    assert(p1.offset === 0, 'T4 pagination: page 1 offset echoed');
+    assert(p2.offset === 5, 'T4 pagination: page 2 offset echoed');
+    const p1Idx = new Set(p1.nodes.map(n => n.export_index));
+    assert(p2.nodes.every(n => !p1Idx.has(n.export_index)),
+      'T4 pagination: page 2 returns rows disjoint from page 1');
+  } catch (e) {
+    assert(false, 'T4: pagination', e.message);
+  }
+}
+
+// Run Test 11 (Agent 10.5 Tier 4) after Test 10 closes.
+await testFindBlueprintNodes();
 
 // ── Summary ──────────────────────────────────────────────
 console.log(`\n═══ Summary ═══`);
