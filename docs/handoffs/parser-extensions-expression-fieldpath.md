@@ -126,7 +126,7 @@ Re-run bulk validation; expected: `unknown_property_type` marker count drops for
 
 - CUE4Parse master branch for reference (Agent 9.5 correction: UE 5.4+ layout, not pre-5.4).
 - Path-limited commits per D49. Desktop Commander for git.
-- Tests must stay green (612/612 baseline). Target: +5-10 assertions across the two items.
+- Tests must stay green (649/649 baseline). Target: +5-10 assertions across the two items.
 - Performance regression budget: ≤2% slower on bulk validation (Agent 10.5 baseline 17.1s). Report if exceeded.
 - No AI attribution.
 
@@ -143,7 +143,7 @@ Item 1 (FExpressionInput native):     [status]
 Item 2 (FieldPathProperty L1):         [status]
   Bulk unknown_property_type FieldPathProperty reduction: [N → M]
 
-Tests: [X]/[Y] — delta vs 612 baseline
+Tests: [X]/[Y] — delta vs 649 baseline
 Commits: [list with SHAs]
 Performance (bulk scan):  [N s vs 17.1 baseline]
 Hand-trace documented in commit [SHA]: [yes / no]
