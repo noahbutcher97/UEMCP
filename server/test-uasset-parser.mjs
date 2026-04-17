@@ -34,6 +34,7 @@ import {
   readFVector4Binary,
   readFIntPointBinary,
   readFBoxBinary,
+  readFExpressionInputBinary,
 } from './uasset-structs.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
@@ -908,6 +909,186 @@ async function testComplexContainerMarker() {
                 `got ${fpMarkers.length} markers`);
 }
 
+// ── Parser-Extensions Item 1: FExpressionInput native binary + variants ──
+//
+// M_StylizedBasic.uasset carries 38 native-binary FExpressionInput (+variants)
+// on the EditorOnlyData export (M_StylizedBasicEditorOnlyData): 31 plain,
+// 2 Color, 3 Scalar, 1 Vector, 1 MaterialAttributes. Previously these emitted
+// `expression_input_native_layout_unknown` markers.
+async function testExpressionInputOnStylizedBasic() {
+  const path = join(ROOT, 'Content/ImportedAssets/SoStylized/Materials/M_StylizedBasic.uasset');
+  if (!(await exists(path))) { console.log('  · skipped M_StylizedBasic expression-input test (no file)'); return; }
+  const buf = await readFile(path);
+  const cur = new Cursor(buf);
+  const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  const imports = readImportTable(cur, s, names);
+  const exports = readExportTable(cur, s, names);
+  const resolve = makePackageIndexResolver(exports, imports);
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+
+  const edit = exports.find(e => e.objectName === 'M_StylizedBasicEditorOnlyData');
+  runner.assert(!!edit, 'ExprInput: M_StylizedBasicEditorOnlyData export found');
+  if (!edit) return;
+  const r = readExportProperties(buf, edit, names, { resolve, structHandlers, containerHandlers });
+
+  // BaseColor is FColorMaterialInput with FLinearColor(0.5, 0.5, 0.5, 1)
+  // connected to MaterialExpressionNamedRerouteUsage[24] (hand-trace).
+  const bc = r.properties.BaseColor;
+  runner.assert(bc && bc.expression && bc.expression.objectName === 'MaterialExpressionNamedRerouteUsage',
+                'ExprInput: BaseColor.Expression resolves to MaterialExpressionNamedRerouteUsage export',
+                `got=${JSON.stringify(bc?.expression)}`);
+  runner.assert(bc && bc.constant && Math.abs(bc.constant.r - 0.5019608) < 1e-4
+                && Math.abs(bc.constant.a - 1) < 1e-6,
+                'ExprInput: FColorMaterialInput.Constant = FLinearColor(0.5, 0.5, 0.5, 1)',
+                `got=${JSON.stringify(bc?.constant)}`);
+  runner.assert(bc?.useConstant === false,
+                'ExprInput: BaseColor.UseConstant=false (uses connected expression)');
+
+  // Specular is FScalarMaterialInput with Constant=0.5 (hand-trace).
+  const spec = r.properties.Specular;
+  runner.assert(spec && typeof spec.constant === 'number' && Math.abs(spec.constant - 0.5) < 1e-6,
+                'ExprInput: FScalarMaterialInput Specular.Constant=0.5',
+                `got=${JSON.stringify(spec?.constant)}`);
+
+  // No expression_input_native_layout_unknown markers remain.
+  const exprUnknownMarkers = r.unsupported.filter(u => u.reason === 'expression_input_native_layout_unknown');
+  runner.assert(exprUnknownMarkers.length === 0,
+                'ExprInput: zero expression_input_native_layout_unknown markers on M_StylizedBasic EditorOnlyData',
+                `got ${exprUnknownMarkers.length}: ${exprUnknownMarkers.map(m => m.name).join(',')}`);
+}
+
+// ── Synthetic ExpressionInput binary reader coverage ──
+function testExpressionInputBinarySynthetic() {
+  // FExpressionInput base (36 bytes) — null Expression (idx=0), masks 1..4,
+  // InputName via names[1].
+  {
+    const buf = Buffer.alloc(36);
+    let p = 0;
+    buf.writeInt32LE(0, p); p += 4;   // Expression=0
+    buf.writeInt32LE(2, p); p += 4;   // OutputIndex
+    buf.writeInt32LE(1, p); p += 4; buf.writeInt32LE(0, p); p += 4;  // InputName FName
+    buf.writeInt32LE(5, p); p += 4;   // Mask
+    buf.writeInt32LE(1, p); p += 4;   // MaskR
+    buf.writeInt32LE(0, p); p += 4;   // MaskG
+    buf.writeInt32LE(1, p); p += 4;   // MaskB
+    buf.writeInt32LE(0, p);           // MaskA
+    const names = ['None', 'Alpha'];
+    const v = readFExpressionInputBinary(new Cursor(buf), names, {});
+    runner.assert(v.expression === null, 'ExprInput synth: null Expression (idx=0)');
+    runner.assert(v.outputIndex === 2, 'ExprInput synth: OutputIndex=2');
+    runner.assert(v.inputName === 'Alpha', 'ExprInput synth: InputName="Alpha" via name table');
+    runner.assert(v.mask === 5 && v.maskR === 1 && v.maskB === 1 && v.maskA === 0,
+                  'ExprInput synth: Mask fields preserved');
+  }
+
+  // FColorMaterialInput via handler (56 bytes). Flag 0x08 native.
+  {
+    const handler = buildStructHandlers().get('ColorMaterialInput');
+    const buf = Buffer.alloc(56);
+    let p = 0;
+    // Base (36B): Expression=-2, OutputIndex=3, InputName="B", masks
+    buf.writeInt32LE(-2, p); p += 4;
+    buf.writeInt32LE(3, p); p += 4;
+    buf.writeInt32LE(2, p); p += 4; buf.writeInt32LE(0, p); p += 4;  // "B"
+    buf.writeInt32LE(0, p); p += 4;
+    buf.writeInt32LE(0, p); p += 4;
+    buf.writeInt32LE(0, p); p += 4;
+    buf.writeInt32LE(0, p); p += 4;
+    buf.writeInt32LE(0, p); p += 4;
+    // Variant: UseConstant=1, FLinearColor(0.25, 0.5, 0.75, 1)
+    buf.writeInt32LE(1, p); p += 4;
+    buf.writeFloatLE(0.25, p); p += 4;
+    buf.writeFloatLE(0.5, p); p += 4;
+    buf.writeFloatLE(0.75, p); p += 4;
+    buf.writeFloatLE(1.0, p);
+    const names = ['None', 'A', 'B'];
+    const pseudoTag = { flags: 0x08, size: 56, type: 'StructProperty',
+                        typeParams: [{ name: 'ColorMaterialInput', params: [] }] };
+    const v = handler(new Cursor(buf), pseudoTag, names, {});
+    runner.assert(v.expression?.packageIndex === -2,
+                  'ColorMaterialInput synth: Expression FPackageIndex=-2 preserved without resolver',
+                  `got=${JSON.stringify(v.expression)}`);
+    runner.assert(v.outputIndex === 3, 'ColorMaterialInput synth: OutputIndex=3');
+    runner.assert(v.inputName === 'B', 'ColorMaterialInput synth: InputName="B"');
+    runner.assert(v.useConstant === true, 'ColorMaterialInput synth: UseConstant=true');
+    runner.assert(v.constant && Math.abs(v.constant.r - 0.25) < 1e-6
+                  && Math.abs(v.constant.g - 0.5) < 1e-6 && Math.abs(v.constant.a - 1) < 1e-6,
+                  'ColorMaterialInput synth: Constant=FLinearColor(0.25, 0.5, 0.75, 1)');
+  }
+
+  // FScalarMaterialInput (44 bytes) — minimal.
+  {
+    const handler = buildStructHandlers().get('ScalarMaterialInput');
+    const buf = Buffer.alloc(44);
+    // Base zeroed, then UseConstant=0, Constant=1.5
+    buf.writeInt32LE(0, 36);
+    buf.writeFloatLE(1.5, 40);
+    const pseudoTag = { flags: 0x08, size: 44, type: 'StructProperty',
+                        typeParams: [{ name: 'ScalarMaterialInput', params: [] }] };
+    const v = handler(new Cursor(buf), pseudoTag, ['None'], {});
+    runner.assert(v.constant === 1.5 && v.useConstant === false,
+                  'ScalarMaterialInput synth: Constant=1.5, UseConstant=false');
+  }
+
+  // FVectorMaterialInput (52 bytes) — 3×float32 constant.
+  {
+    const handler = buildStructHandlers().get('VectorMaterialInput');
+    const buf = Buffer.alloc(52);
+    buf.writeInt32LE(1, 36);  // UseConstant=true
+    buf.writeFloatLE(10, 40);
+    buf.writeFloatLE(20, 44);
+    buf.writeFloatLE(30, 48);
+    const pseudoTag = { flags: 0x08, size: 52, type: 'StructProperty',
+                        typeParams: [{ name: 'VectorMaterialInput', params: [] }] };
+    const v = handler(new Cursor(buf), pseudoTag, ['None'], {});
+    runner.assert(v.constant?.x === 10 && v.constant?.y === 20 && v.constant?.z === 30,
+                  'VectorMaterialInput synth: FVector3f(10,20,30)');
+  }
+
+  // FVector2MaterialInput (48 bytes).
+  {
+    const handler = buildStructHandlers().get('Vector2MaterialInput');
+    const buf = Buffer.alloc(48);
+    buf.writeInt32LE(0, 36);
+    buf.writeFloatLE(-1.5, 40);
+    buf.writeFloatLE(2.5, 44);
+    const pseudoTag = { flags: 0x08, size: 48, type: 'StructProperty',
+                        typeParams: [{ name: 'Vector2MaterialInput', params: [] }] };
+    const v = handler(new Cursor(buf), pseudoTag, ['None'], {});
+    runner.assert(v.constant?.x === -1.5 && v.constant?.y === 2.5,
+                  'Vector2MaterialInput synth: FVector2f(-1.5, 2.5)');
+  }
+
+  // FMaterialAttributesInput (36 bytes, no extras).
+  {
+    const handler = buildStructHandlers().get('MaterialAttributesInput');
+    const buf = Buffer.alloc(36);
+    buf.writeInt32LE(7, 0);                              // Expression=7
+    buf.writeInt32LE(1, 4);                              // OutputIndex
+    buf.writeInt32LE(0, 8); buf.writeInt32LE(0, 12);     // InputName="None"
+    const pseudoTag = { flags: 0x08, size: 36, type: 'StructProperty',
+                        typeParams: [{ name: 'MaterialAttributesInput', params: [] }] };
+    const v = handler(new Cursor(buf), pseudoTag, ['None'],
+                      { resolve: (idx) => ({ packageIndex: idx, objectName: `E${idx}` }) });
+    runner.assert(v.expression?.objectName === 'E7' && v.outputIndex === 1,
+                  'MaterialAttributesInput synth: 36B base-only + resolver');
+  }
+}
+
+// ── Struct handler registry contains new variants ──
+function testMaterialInputHandlerRegistry() {
+  const h = buildStructHandlers();
+  for (const name of ['ColorMaterialInput', 'ScalarMaterialInput',
+                      'ShadingModelMaterialInput', 'SubstrateMaterialInput',
+                      'VectorMaterialInput', 'Vector2MaterialInput',
+                      'MaterialAttributesInput']) {
+    runner.assert(h.has(name) && typeof h.get(name) === 'function',
+                  `ExprInput: struct handler registry contains ${name}`);
+  }
+}
+
 // ── Parser-Extensions Item 2: FieldPathProperty synthetic edge cases ──
 function testFieldPathPropertySynthetic() {
   // Two-element path + FPackageIndex owner (14 + 4 = 24 bytes).
@@ -1127,6 +1308,9 @@ async function main() {
   await testComplexContainerMarker();
   testContainerSyntheticScalars();
   testFieldPathPropertySynthetic();
+  await testExpressionInputOnStylizedBasic();
+  testExpressionInputBinarySynthetic();
+  testMaterialInputHandlerRegistry();
   testBadMagic();
   testTruncated();
   process.exit(runner.summary());
