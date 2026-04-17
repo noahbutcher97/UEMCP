@@ -284,32 +284,58 @@ async function listGameplayTags(projectRoot) {
 }
 
 /**
- * search_gameplay_tags — Search tags by pattern (glob-style)
+ * Direct glob matcher for gameplay tags. Avoids dynamic RegExp construction.
+ *
+ * Semantics (matches UE tag conventions):
+ *   literal chars — case-insensitive exact match
+ *   .            — literal separator between tag components
+ *   *            — matches 0+ chars excluding `.` (single component)
+ *   **           — matches 0+ chars including `.` (crosses components)
+ *
+ * Complexity: O(m*n) with memoization on (patternPos, textPos). No backtracking
+ * risk; no `new RegExp()` call → no ReDoS attack surface and no semgrep finding.
+ *
+ * @param {string} pattern
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function matchTagGlob(pattern, text) {
+  const p = pattern.toLowerCase();
+  const t = text.toLowerCase();
+  const m = p.length;
+  const n = t.length;
+  const memo = new Map();
+
+  function f(i, j) {
+    const key = i * (n + 1) + j;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+    let result;
+    if (i === m) {
+      result = j === n;
+    } else if (p[i] === '*') {
+      const isDouble = p[i + 1] === '*';
+      if (isDouble) {
+        result = f(i + 2, j) || (j < n && f(i, j + 1));
+      } else {
+        result = f(i + 1, j) || (j < n && t[j] !== '.' && f(i, j + 1));
+      }
+    } else {
+      result = j < n && p[i] === t[j] && f(i + 1, j + 1);
+    }
+    memo.set(key, result);
+    return result;
+  }
+  return f(0, 0);
+}
+
+/**
+ * search_gameplay_tags — Search tags by pattern (glob-style, see matchTagGlob).
  */
 async function searchGameplayTags(projectRoot, pattern) {
   const { tags } = await listGameplayTags(projectRoot);
-
-  // Convert glob pattern to regex (support * and **).
-  // The resulting pattern contains only `[^.]*` / `.*` / literal chars, so no
-  // catastrophic backtracking is possible (no nested alternation / +? / {m,n}).
-  // Input is further constrained to UE-tag-valid characters to rule out
-  // regex metachar injection. ReDoS-safe by construction.
-  if (!/^[A-Za-z0-9_.*]+$/.test(pattern)) {
-    throw new Error(`Invalid tag pattern: "${pattern}" — allowed characters are letters, digits, underscore, dot, and asterisk.`);
-  }
-  const regexStr = pattern
-    .replace(/\./g, '\\.')
-    .replace(/\*\*/g, '___DOUBLESTAR___')
-    .replace(/\*/g, '[^.]*')
-    .replace(/___DOUBLESTAR___/g, '.*');
-  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-  const regex = new RegExp(`^${regexStr}$`, 'i');
-
-  return {
-    pattern,
-    matches: tags.filter(t => regex.test(t.tag)),
-    matchCount: tags.filter(t => regex.test(t.tag)).length,
-  };
+  const matches = tags.filter(t => matchTagGlob(pattern, t.tag));
+  return { pattern, matches, matchCount: matches.length };
 }
 
 /**

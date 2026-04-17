@@ -7,7 +7,7 @@ import { load } from 'js-yaml';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
-import { executeOfflineTool } from './offline-tools.mjs';
+import { executeOfflineTool, matchTagGlob } from './offline-tools.mjs';
 import { ErrorTcpResponder } from './test-helpers.mjs';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
@@ -34,6 +34,54 @@ assert(typeof ToolIndex === 'function', 'ToolIndex class imported');
 assert(typeof ToolsetManager === 'function', 'ToolsetManager class imported');
 assert(typeof ConnectionManager === 'function', 'ConnectionManager class imported');
 assert(typeof executeOfflineTool === 'function', 'executeOfflineTool imported');
+assert(typeof matchTagGlob === 'function', 'matchTagGlob imported');
+
+// ── Test 1b: matchTagGlob — synthetic patterns (no project root needed) ────
+console.log('\n═══ Test 1b: matchTagGlob (direct glob matcher) ═══');
+
+// Exact match
+assert(matchTagGlob('Combat.Attack.Light', 'Combat.Attack.Light') === true,
+  'matchTagGlob: exact literal match');
+assert(matchTagGlob('Combat.Attack', 'Combat.Attack.Light') === false,
+  'matchTagGlob: literal must cover whole string (anchored)');
+
+// `*` matches single component (no dots)
+assert(matchTagGlob('Combat.*.Light', 'Combat.Attack.Light') === true,
+  'matchTagGlob: * matches single segment');
+assert(matchTagGlob('Combat.*', 'Combat.Attack.Light') === false,
+  'matchTagGlob: single * does not cross dots');
+assert(matchTagGlob('*.Attack.*', 'Combat.Attack.Light') === true,
+  'matchTagGlob: *.Attack.* matches centred segment');
+
+// `**` matches any chars including dots
+assert(matchTagGlob('Combat.**', 'Combat.Attack.Light') === true,
+  'matchTagGlob: ** crosses multiple segments');
+assert(matchTagGlob('**', 'Combat.Attack.Light') === true,
+  'matchTagGlob: ** alone matches any tag');
+assert(matchTagGlob('**.Light', 'Combat.Attack.Light') === true,
+  'matchTagGlob: prefix ** + literal suffix');
+
+// Case-insensitivity
+assert(matchTagGlob('combat.attack.light', 'Combat.Attack.Light') === true,
+  'matchTagGlob: case-insensitive match');
+
+// Non-matches + 0+ edge cases (`*` matches 0+ chars, not 1+)
+assert(matchTagGlob('Combat.*', 'Combat') === false,
+  'matchTagGlob: Combat.* does not match bare "Combat" (literal dot required)');
+assert(matchTagGlob('Combat.*', 'Combat.') === true,
+  'matchTagGlob: * accepts empty segment after dot');
+assert(matchTagGlob('Armor.*', 'Combat.Attack') === false,
+  'matchTagGlob: different prefix does not match');
+
+// Pathological-looking patterns that would trip catastrophic backtracking
+// in a naive regex but are O(m*n) here via memoization.
+const pathological = '*'.repeat(40);
+const haystack = 'abcdefghij'.repeat(10);
+const start = Date.now();
+const r = matchTagGlob(pathological, haystack);
+const elapsed = Date.now() - start;
+assert(r === true && elapsed < 100,
+  `matchTagGlob: 40×"*" against 100-char input completes in <100ms (got ${elapsed}ms)`);
 
 // ── Build ToolIndex ──────────────────────────────────────
 const toolIndex = new ToolIndex();
@@ -168,14 +216,33 @@ if (!PROJECT_ROOT) {
     assert(false, 'list_gameplay_tags', e.message);
   }
 
-  // search_gameplay_tags for combat
+  // search_gameplay_tags: `**` glob matches every tag (sanity floor for matcher wiring)
   try {
-    const combat = await executeOfflineTool('search_gameplay_tags',
-      { pattern: 'Attack' }, PROJECT_ROOT);
-    const hasAttack = JSON.stringify(combat).includes('Attack');
-    assert(hasAttack, 'search_gameplay_tags("Attack") finds attack tags');
+    const all = await executeOfflineTool('search_gameplay_tags',
+      { pattern: '**' }, PROJECT_ROOT);
+    const tags = await executeOfflineTool('list_gameplay_tags', {}, PROJECT_ROOT);
+    assert(all.matchCount === tags.tags.length,
+      `search_gameplay_tags("**") matches all tags (${all.matchCount} == ${tags.tags.length})`);
   } catch (e) {
-    assert(false, 'search_gameplay_tags', e.message);
+    assert(false, 'search_gameplay_tags("**")', e.message);
+  }
+
+  // search_gameplay_tags with a first-segment.* glob — should match every tag
+  // whose first component equals the first segment of the first listed tag.
+  try {
+    const tags = await executeOfflineTool('list_gameplay_tags', {}, PROJECT_ROOT);
+    if (tags.tags.length > 0) {
+      const firstSeg = tags.tags[0].tag.split('.')[0];
+      const result = await executeOfflineTool('search_gameplay_tags',
+        { pattern: `${firstSeg}.**` }, PROJECT_ROOT);
+      const expected = tags.tags.filter(t => t.tag.startsWith(firstSeg + '.')).length;
+      assert(result.matchCount === expected,
+        `search_gameplay_tags("${firstSeg}.**") matches all ${firstSeg}.* descendants (${result.matchCount} == ${expected})`);
+    } else {
+      assert(true, 'search_gameplay_tags glob skipped (no tags)');
+    }
+  } catch (e) {
+    assert(false, 'search_gameplay_tags glob (first-segment.**)', e.message);
   }
 
   // list_plugins
