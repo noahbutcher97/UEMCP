@@ -88,7 +88,7 @@ Response shape:
 - **Path-limited commits per D49.**
 - Desktop Commander for git (shell: "cmd").
 - D44 invariant: tools/list ↔ find_tools ↔ yaml must show identical description. Add a Test 12-style assertion.
-- Tests must stay green (post-fixes-worker baseline — likely 710-720 by the time you run; verify via `node test-phase1.mjs` etc.).
+- Tests must stay green (767 baseline post-MCP-Wire-Harness + whatever F-1.5 adds; verify actual count via `node test-phase1.mjs` + run all 7 suites).
 - Performance budget: <5s warm-cache scan over ProjectA's BP corpus.
 - No AI attribution.
 
