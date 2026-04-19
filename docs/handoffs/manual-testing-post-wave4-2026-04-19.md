@@ -92,14 +92,14 @@ Find a Material asset. ProjectA has `/Game/ProjectA/Art/VFX/Materials/` candidat
 
 Call `read_asset_properties({ asset_path: "/Game/<path-to-material>" })`.
 
-Expected: any `FExpressionInput`-based property (inputs on material expressions) decodes to `{ expression: {path, index}, output_index, input_name, mask, mask_r, mask_g, mask_b, mask_a }` structure, NOT `expression_input_native_layout_unknown` marker.
+Expected: any `FExpressionInput`-based property (inputs on material expressions) decodes to `{ expression: {path, index}, outputIndex, inputName, mask, maskR, maskG, maskB, maskA }` structure, NOT `expression_input_native_layout_unknown` marker.
 
 **PASS/FAIL**:  **Notes**:
 
 ### 2.3 MaterialInput variants (FColorMaterialInput, FScalarMaterialInput, etc.)
 Same fixture or a different Material. Look for properties typed `FColorMaterialInput`, `FScalarMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FMaterialAttributesInput`.
 
-Expected: each variant decodes to the base expression-input fields PLUS `{ use_constant: bool, constant: <variant-specific value> }`. No generic `unknown_struct` markers for these named variants.
+Expected: each variant decodes to the base expression-input fields PLUS `{ useConstant: bool, constant: <variant-specific value> }`. No generic `unknown_struct` markers for these named variants.
 
 **PASS/FAIL**:  **Notes**:
 
