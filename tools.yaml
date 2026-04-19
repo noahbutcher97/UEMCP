@@ -62,9 +62,15 @@ toolsets:
       list_gameplay_tags:
         description: Parse DefaultGameplayTags.ini, return full tag hierarchy with comments
       search_gameplay_tags:
-        description: Search tags by pattern (e.g., "Gameplay.State.*")
+        description: Search tags by pattern (e.g., "Gameplay.State.*"). Globs - * matches one segment, ** matches across segments. Case-insensitive.
+        params:
+          pattern: { type: string, required: true, description: "Glob pattern matching tag hierarchy. * = single segment (no dots), ** = multiple segments." }
       list_config_values:
-        description: Read any .ini config file, search for keys/sections
+        description: Read any .ini config file. Progressive drill-down - call with no args to list files, with config_file to list sections, with all three for the value array. Section/key are case-insensitive.
+        params:
+          config_file: { type: string, required: false, description: "Filename with .ini extension (e.g., DefaultEngine.ini). Omit to list all available config files." }
+          section:     { type: string, required: false, description: "Section name without brackets (e.g., /Script/Engine.Engine). Omit to list all sections in the file." }
+          key:         { type: string, required: false, description: "Key name within the section. When set, returns all values for the key (multi-value keys return arrays)." }
       get_asset_info:
         description: Read .uasset header metadata (type, size, class, references). By default strips large blob tags (>1KB). Set verbose:true to return all tags.
         params:
@@ -94,7 +100,39 @@ toolsets:
           offset:             { type: number, required: false, description: "Result offset for pagination (default 0)" }
           summarize_by_class: { type: boolean, required: false, default: false, description: "When true, returns {className: count} instead of per-row actors. Use on dense levels before drilling down." }
       read_asset_properties:
-        description: Read serialized UPROPERTY values from a specific export in a .uasset/.umap. Default export is the asset's primary CDO (Default__<Name>_C for BPs, main export otherwise). Supports scalars, enums, object refs, soft refs, gameplay tags/containers, 10 engine structs (FVector, FRotator, FQuat, FTransform, FLinearColor, FColor, FVector2D, FGuid, FSoftObjectPath, FGameplayTag), and simple-element TArray/TSet. Containers of custom structs, TMap, and unknown structs return {unsupported, reason} markers — never silently skipped. Reason codes include `unknown_struct` (struct outside engine registry — tagged self-describing decode applied), `complex_element_container` (TArray/TSet of custom structs), `container_deferred` (TMap), `size_budget_exceeded` (max_bytes), `unknown_property_type` (unsupported tag type), `unexpected_preamble` (export body begins with non-zero byte — non-CDO subclass exports, AssetImportData), `serial_range_out_of_bounds`, `delegate_not_serialized` (rarely fires on CDOs), `localized_text`. Response capped at max_bytes with truncated flag. When property_names is set, unsupported[] is scoped to the filter (plus `__stream__` markers).
+        description: >-
+          Read serialized UPROPERTY values from a specific export in a .uasset/.umap.
+          Default export is the asset's primary CDO (Default__<Name>_C for BPs, main
+          export otherwise). Supports scalars, enums, object refs, soft refs, gameplay
+          tags/containers, 24 engine structs (FVector, FRotator, FQuat, FTransform,
+          FLinearColor, FColor, FVector2D, FVector4, FGuid, FBox, FIntPoint,
+          FBodyInstance, FSoftObjectPath, FSoftClassPath, FGameplayTag,
+          FGameplayTagContainer, FExpressionInput, 7 MaterialInput variants),
+          simple-element TArray/TSet, and FFieldPath. TMap with scalar keys is
+          supported; struct-key TMap and unknown structs return {unsupported, reason}
+          markers — never silently skipped.
+          Reason codes — parser core: `unknown_struct` (struct outside engine registry —
+          tagged self-describing decode applied), `unknown_property_type` (unsupported
+          FPropertyTag type), `unexpected_preamble` (non-zero export body preamble —
+          non-CDO subclass exports, AssetImportData), `serial_range_out_of_bounds`,
+          `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`
+          (UE 5.6 FPropertyTagExtensions field unhandled), `value_read_failed`,
+          `delegate_not_serialized` (rarely fires on CDOs), `localized_text`,
+          `size_budget_exceeded` (max_bytes). Containers: `complex_element_container`
+          (TArray/TSet of custom structs without a binary-layout handler),
+          `container_deferred` (TMap not yet supported), `container_count_unreasonable`,
+          `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`,
+          `map_key_type_unsupported`, `map_value_type_unsupported`,
+          `map_value_struct_name_missing`, `struct_key_map` (TMap with struct keys —
+          wire format requires shape-key tagging not yet implemented). Struct-specific:
+          `body_instance_native_layout_unknown` (FBodyInstance with HAS_BINARY_NATIVE
+          flag — tagged-fallback covers partial overrides; native binary needs a known
+          layout), `expression_input_native_layout_unknown` (FExpressionInput /
+          MaterialInput beyond the documented native layouts). Handler-level:
+          `no_cdo_export_found` (include_defaults=true but CDO export missing),
+          `root_component_parse_failed` (list_level_actors only).
+          Response capped at max_bytes with truncated flag. When property_names is set,
+          unsupported[] is scoped to the filter (plus `__stream__`-wide markers).
         params:
           asset_path:     { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
           export_name:    { type: string, required: false, description: "Target export objectName. Default: primary CDO (Default__<Name>_C for BPs) or main export for non-BP assets." }
@@ -103,17 +141,17 @@ toolsets:
       find_blueprint_nodes:
         description: >-
           Find K2Nodes in a Blueprint by class + member-reference match.
-          Covers 13 skeletal K2Node types (Event, CustomEvent, FunctionEntry/Result,
-          VariableGet/Set, CallFunction/CallParentFunction, IfThenElse,
-          ExecutionSequence, Switch{Enum,String,Int}, DynamicCast, MacroInstance,
-          Self, Knot) plus delegate-node presence (AddDelegate, AssignDelegate —
-          class identity only, no payload). Answers find/grep workflows like "which
-          BPs call X", "what events does this BP handle", "where is variable Y
-          accessed". Does NOT trace exec chains — pin edges live in the 3F sidecar
-          (D48 S-A scope). Out-of-skeletal K2Node types (PromotableOperator,
-          CommutativeAssociativeBinaryOperator, BreakStruct/MakeStruct, etc.) are
-          counted in nodes_out_of_skeletal for discoverability but not returned.
-          Pointed query — not cached.
+          Covers 19 skeletal K2Node classes — 17 non-delegate (Event, CustomEvent,
+          FunctionEntry/Result, VariableGet/Set, CallFunction/CallParentFunction,
+          IfThenElse, ExecutionSequence, Switch{Enum,String,Integer}, DynamicCast,
+          MacroInstance, Self, Knot) plus 2 delegate-presence classes (AddDelegate,
+          AssignDelegate — class identity only, no payload). Answers find/grep
+          workflows like "which BPs call X", "what events does this BP handle",
+          "where is variable Y accessed". Does NOT trace exec chains — pin edges
+          live in the 3F sidecar (D48 S-A scope). Out-of-skeletal K2Node types
+          (PromotableOperator, CommutativeAssociativeBinaryOperator,
+          BreakStruct/MakeStruct, etc.) are counted in nodes_out_of_skeletal for
+          discoverability but not returned. Pointed query — not cached.
         params:
           asset_path:   { type: string, required: true, description: "/Game/... path to a Blueprint .uasset (with or without extension)" }
           node_class:   { type: string, required: false, description: "Filter by K2Node class (e.g., K2Node_CallFunction). Omit for all skeletal types." }

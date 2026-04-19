@@ -1580,7 +1580,7 @@ async function readAssetProperties(projectRoot, params) {
  *
  * Walk K2Node exports in a Blueprint, extract semantic references from each
  * node's tagged-property stream, and apply class/member/target filters.
- * Covers 13 skeletal K2Node types plus delegate-node presence reporting.
+ * Covers 19 skeletal K2Node classes (17 non-delegate + 2 delegate-presence).
  * Does NOT trace exec chains — pin edges aren't parseable from offline bytes
  * and live in the 3F sidecar.
  *
