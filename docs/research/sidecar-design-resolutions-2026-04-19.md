@@ -21,6 +21,27 @@ Under this context, the 5 questions resolve as follows.
 
 ---
 
+## Framing principle — three-layer offline-BP model
+
+The resolutions below all apply a single framing principle. Stating it once here, referenced from each Q:
+
+| Layer | Produced by | Covers | Availability |
+|-------|-------------|--------|--------------|
+| **L0 — Structural** (shipped D37) | `inspect_blueprint` export walker | Export-table class names, parent class, generated class, CDO path | Always |
+| **L1 — Semantic name-only** (shipped 2026-04-17 via `find_blueprint_nodes`, D48 S-A) | Pure `.uasset` byte parse + L1+L2+L2.5 struct registry + D50 tagged-fallback | Per-K2Node UPROPERTY payload: function called, variable accessed, event handled, macro invoked, cast target — find/grep workflows | Always |
+| **L2 — Spatial + exec/data trace** (3F sidecar, Phase 3) | Editor save-hook dump via editor's own UEdGraph serializer | Pin edges, spatial layout, comment containment, traversal-verb substrate | When sidecar fresh |
+
+**Design consequence for all 5 resolutions**:
+
+1. **Sidecar should NOT replicate S-A.** Name-level find/grep is already handled by L1 and always-available. Sidecar scope focuses on what's expensive or impossible for the pure-bytes tier — spatial, pin-trace, exec flow, comment containment.
+2. **Sidecar may assume strict preconditions** (mtime-aligned, save-hook has fired). Degradation path when sidecar is stale/missing is **graceful fall-back to L1**, not error. Find/grep workflows stay working; trace/spatial verbs return `{available: false}`.
+3. **Under D52, sidecar is a transition tool** — plugin-mediated short-term parity toward the long-term goal of full offline parity (which would eventually include pin-trace via D48 S-B reopening). Design sidecar to be "the fast path for L2" rather than "the only path for everything."
+4. **When a scope/fidelity/fallback question has two answers, prefer: narrower sidecar + richer fidelity over broader sidecar + shallow coverage.** Scope breadth is cheap to add later (v1.1+) on workflow-demand signals; fidelity gaps are expensive to close retroactively.
+
+Each resolution below applies this principle. Per-Q rationale callouts reference it as **(layered-model)** where it directly drives the verdict.
+
+---
+
 ## Q1 — Sidecar location
 
 **Question (verbatim)**: *Sidecar location — next to the `.uasset` (default in this draft) or in a parallel `Saved/UEMCP/BPCache/` mirror tree? Next-to-asset is simplest for tooling but pollutes Content/ visually in the Content Browser. Parallel-mirror is cleaner but adds path translation logic.*
@@ -38,6 +59,7 @@ Under this context, the 5 questions resolve as follows.
 - **UE convention alignment**. `Saved/` is the existing "this is per-developer cache, ignore in VCS" boundary. Teams already have `Saved/` as a gitignore/p4ignore entry without per-project effort. One added line (`Saved/UEMCP/`) — or even zero if the project's p4ignore already covers `Saved/*` — versus scattering `*.bp.json` ignore patterns across the asset tree.
 - **Content Browser cleanliness**. Option A surfaces `.bp.json` files in OS file explorer next to assets, confusing team members and tooling. In Perforce workflows, accidental add/checkin risk is real. Option B places sidecars in a directory tree already mentally tagged as "cache."
 - **Per-developer naturally**. D45 acknowledges sidecar soft-dependency on editor. `Saved/` is per-developer by UE convention — sidecars are "my local cache built from the shared source asset," matching reality.
+- **(layered-model)**. Strict precondition — "sidecar must exist in mirror tree, mtime-aligned" — is acceptable because the degradation path is L1 (pure-bytes find/grep via `find_blueprint_nodes`), not failure. A fresh-checkout developer with no sidecars still gets every find/grep workflow working; only L2 trace/spatial verbs return `{available: false}`. Per-developer `Saved/` placement is the sidecar's native home precisely because L1 absorbs the availability cost.
 - **D52 near-plugin-parity compatibility**. The reader-side logic that the offline tool uses to locate sidecars is a single path-translation helper. No architectural impact on offline tool surface; does not interact with `assetCache`/`indexDirty` freshness (D33) since sidecar lookup is independent of the source `.uasset` mtime chain (freshness check compares sidecar mtime vs `.uasset` mtime — same logic either location).
 - **Path translation cost is negligible**. One helper in both the C++ writer (`FPaths::ProjectSavedDir() / TEXT("UEMCP/BPCache") / AssetRelativePath + TEXT(".bp.json")`) and the JS reader. Reading 500 sidecars during a corpus scan costs the same disk I/O either way; the path-derivation overhead is ~microseconds per call.
 
@@ -95,6 +117,7 @@ Under this context, the 5 questions resolve as follows.
 
 **Rationale**:
 - **D48 pattern (ship narrow, defer on demand)**. S-A shipped with 13 K2Node types excluding math operators and delegate payloads — explicit "prove workflow demand before graduating." AnimBP traversal verbs are structurally a larger scope-add (~3-5 verbs + module deps) than S-A was, so the same gating applies more strongly.
+- **(layered-model)**. "Which BPs use state machine X?" and "does this AnimBP handle locomotion?" are name-level questions — L1 covers them today via `find_blueprint_nodes` class-filter on state-machine node classes. The genuine sidecar-only cases are (a) transition rule data-flow tracing, which `bp_trace_data` already handles on the rule sub-graph, and (b) state-to-transition topology, which is speculative for ProjectA's current workflows. Narrower sidecar scope + richer fidelity (when it lands) beats broader scope + shallow state-machine-specific verbs in v1.
 - **D52 near-plugin-parity compatibility**. Parent spec's `get_animbp_graph` (planned TCP tool) covers the "read the state machine as data" workflow. The sidecar adds nothing new there. The *traversal* use case (walk states, follow transitions) is speculative for ProjectA — the dominant AnimBP workflows Noah has described so far are "what notifies fire on this AS," which is outside state-machine traversal entirely.
 - **Option B is net-new design ground** — generalizing `bp_trace_exec` to non-UEdGraph topologies violates the handoff's "don't invent new design ground" rule.
 - **Sub-graph reachability with existing verbs**. A transition rule sub-graph is a UEdGraph of UK2Nodes — `bp_trace_data` works on it without modification. A state's EventGraph (if the state has one) is also UEdGraph — `bp_trace_exec` works. The gaps are precisely the state-to-state and state-to-transition topology, which are the speculative bits.
@@ -126,6 +149,7 @@ Under this context, the 5 questions resolve as follows.
 - **Stronger scope-creep argument than Q3**. Materials are a fundamentally different node hierarchy — UMaterialExpression has no UK2Node parent, uses FExpressionInput not UEdGraphPin. Even Option B's "generalize the verb" requires non-trivial design work to unify the two graph models. Not allowed per handoff's "no new design ground" rule.
 - **D52 near-plugin-parity check**. Parent spec's `get_material_graph` + Agent 10.5's `read_asset_properties` already cover material read via (i) full text dump when the plugin is online, (ii) tagged-property iteration over UMaterial export data when offline. D50's tagged-fallback handled UMaterialExpression custom structs in aggregate (601 unique struct names parsed automatically per Agent 10.5 report); specific node-layout extraction beyond CDO is the gap. That gap is genuinely editor-mediated (matches D52's "genuinely-offline-infeasible reads" category for deeply-structured non-UEdGraph asset types) — 3F sidecar + traversal is one way to close it, but v1 scope should not include materials.
 - **Scope-creep cost**. 3-5 new verbs + dispatch layer + version-skew surface across UE5.6↔5.7 UMaterialExpression changes. Speculative for current workflow patterns.
+- **(layered-model)**. Materials don't have an L1 floor today (different node hierarchy — UMaterialExpression, not UK2Node — so `find_blueprint_nodes` doesn't cover them). Closing that gap is a separate track: the queued parser-extensions work (FExpressionInput native layout) improves offline material-CDO reads at L1, which is where investment should land first under D52. Adding material spatial/trace verbs to the sidecar in v1 would be broader-scope-shallower-coverage (spatial without even L1 find/grep), exactly the tradeoff the framing principle rejects.
 
 **Implementation implications**:
 - **Sidecar writer scope (3F-1)**: `dump_graph` on `UMaterial` is **out of scope for v1**. The tool signature restricts to `UBlueprint` subclasses; calling on UMaterial returns a clean error (`{error: "material_graphs_not_supported_in_v1", hint: "use get_material_graph"}`). Plugin module dependencies do NOT need to add UMaterialEditor / MaterialEditor unless/until v1.1 ships material support.
@@ -157,6 +181,7 @@ Under this context, the 5 questions resolve as follows.
   3. **Construction-script-computed values** — run-time computed at PIE / editor spawn. Phase 4 RC API.
   4. **Properties set via editor scripting** — e.g., Python Editor Script Plugin modifies `GeneratedClass` CDO at runtime. Phase 4 RC API.
 - **Incremental sidecar value over existing offline coverage is thin and not worth the schema-bloat cost**. The save-hook *does* run in-editor with full UProperty reflection, so it *could* close the residual ~9% offline gap that D50 left (22K `unknown_struct` + ~21K `expression_input_native_layout_unknown` markers). But: (a) that gap is already queued for closure via the parser-extensions handoff (`FExpressionInput` native layout + nested `FieldPathProperty`) which targets the offline tier directly, landing the coverage in `read_asset_properties` / `inspect_blueprint.include_defaults` for all consumers — not just sidecar readers; (b) adding CDO to the sidecar dump roughly doubles the schema surface (every BP's CDO-property tree duplicates data already readable from the `.uasset` export); (c) the consumer-side ergonomics are identical — `read_asset_properties` already returns the same shape. Under D52 near-plugin-parity, investment belongs in the offline path that benefits every read, not in a sidecar-only CDO payload.
+- **(layered-model)**. CDO serialized-state is the canonical example of "L1 already covers this" — sidecar replicating it would be broadening scope to duplicate existing always-available coverage, exactly the anti-pattern the framing principle rejects. Keeping the sidecar focused on the genuine L2-only cases (spatial + pin-trace + exec flow) IS the resolution.
 
 **Implementation implications**:
 - **Sidecar writer scope (3F-1 / 3F-2)**: **no CDO responsibility**. Sidecar focuses on UEdGraph / spatial / pin-edge data — the things offline parsing genuinely can't reach (per D48 S-B FOLD-INTO-3F). CDO defaults stay in `read_asset_properties` / `inspect_blueprint.include_defaults`.
