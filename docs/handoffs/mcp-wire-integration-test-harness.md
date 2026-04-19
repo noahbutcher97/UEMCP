@@ -9,7 +9,7 @@
 
 ## Mission
 
-UEMCP's 709+ assertions all call handlers DIRECTLY with pre-typed params. This bypasses the MCP wire path entirely — the Zod schema, the SDK's type coercion (or lack thereof), the JSON stringification/parsing, the response wrapping. The Zod-coerce blocker (z.number/z.boolean rejecting stringified values) shipped undetected because every test bypassed the layer where it manifests.
+UEMCP's 717+ assertions all call handlers DIRECTLY with pre-typed params. This bypasses the MCP wire path entirely — the Zod schema, the SDK's type coercion (or lack thereof), the JSON stringification/parsing, the response wrapping. The Zod-coerce blocker (z.number/z.boolean rejecting stringified values) shipped undetected because every test bypassed the layer where it manifests.
 
 Build an MCP-wire integration test harness that exercises a representative sample of tools through the actual MCP protocol — JSON-RPC request/response, including the string-stringification the Claude Code wrapper does to typed params.
 
@@ -78,6 +78,7 @@ Target: Phase 1 complete in session 1; Phase 2 in session 2; Phase 3 ONLY if tim
 |---|---|
 | `server/test-mcp-wire.mjs` | **NEW** — the harness itself + its assertions |
 | `server/test-helpers.mjs` | Extend if needed with MCP-wire-specific factory helpers |
+| `server/zod-builder.mjs` | **New in Pre-Phase-3 Fixes worker (commit `149c8e4`)** — `buildZodSchema` extracted from `server.mjs` for test importability. Import from here if your harness needs to exercise the Zod layer directly. |
 | CLAUDE.md | Add `test-mcp-wire.mjs` to the test rotation table (both primary + supplementary rotations — depends on where it fits; likely primary given it's a structural invariant check) |
 | (possibly) `server.mjs` | Only if server.mjs needs a testability shim that lets the harness mount McpServer cleanly |
 
