@@ -477,3 +477,43 @@ Post-Agent-10.5 Codebase Health Audit — Final Report
 - **Verification confidence**: **HIGH**. Every finding cited at file:line. All test suites run; 709/709 confirmed. D-log cross-checked against shipped code for D44-D50. No unresolved claims.
 
 **Deliverable**: `docs/audits/post-agent10-5-codebase-audit-2026-04-19.md` — SEALED after commit.
+
+---
+
+## Amendment A — Tool-count arithmetic correction (2026-04-19)
+
+> **Context**: Post-commit advisor review caught an arithmetic error in §4 "Tool count reconciliation" and the derived LOW finding in §10 "Findings".
+>
+> **Correction**: The §4 claim "yaml has 15 offline tools + 10 actors + 15 bp-write + 7 widgets + 9 gas/blueprint-read + 5 asset-registry + ..." conflated `gas` and `blueprint-read` as "9 gas/blueprint-read". Actual per-toolset breakdown (verified by parsing tools.yaml via js-yaml):
+>
+> | Toolset | Tool count |
+> |---|---:|
+> | management | 6 |
+> | offline | 15 |
+> | actors | 10 |
+> | blueprints-write | 15 |
+> | widgets | 7 |
+> | gas | 5 |
+> | blueprint-read | 9 |
+> | asset-registry | 5 |
+> | animation | 8 |
+> | materials | 5 |
+> | data-assets | 7 |
+> | input-and-pie | 7 |
+> | geometry | 4 |
+> | editor-utility | 8 |
+> | visual-capture | 5 |
+> | remote-control | 8 |
+> | **TOTAL** | **124** |
+>
+> **Correct totals**: **118 toolset tools + 6 management = 124 total.** NOT 113/119 as §4 stated.
+>
+> **Impact on LOW finding §10 (tool-count drift in CLAUDE.md)**:
+> - CLAUDE.md line 11 and line 72 claim "120 tools" in one place and "122 tools" in another.
+> - Actual count is **124**.
+> - Both CLAUDE.md figures (120 and 122) are stale, just by different amounts. The finding direction is unchanged — CLAUDE.md documentation is drifted from the yaml source of truth — but the magnitude is 4 tools off (not the 5-or-3 the original audit implied).
+> - Severity stays LOW (documentation-only). The finding itself is corrected; it is not withdrawn.
+>
+> **No other §4 or §10 numbers affected**: All handler counts (15 offline, 32 TCP = 47 total audited) remain correct. Param-passthrough mismatches (3 new) remain correct. Test totals (709/709) remain correct. Only the sum-of-yaml-toolset tally was wrong.
+>
+> **Verification**: `cd /d/DevTools/UEMCP/server && node -e 'import("js-yaml").then(async y => { const f = await import("node:fs/promises"); const d = y.load(await f.readFile("../tools.yaml","utf8")); let t = Object.keys(d.management.tools).length; for (const [n,s] of Object.entries(d.toolsets)) t += Object.keys(s.tools).length; console.log(t); })'` emits `124`.
