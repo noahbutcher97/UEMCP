@@ -232,9 +232,9 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Primary rotation**: 399 assertions (120 phase1 + 45 mock seam + 234 TCP tools).
+**Primary rotation**: 449 assertions (120 phase1 + 45 mock seam + 234 TCP tools + 50 mcp-wire).
 **Supplementary rotation**: 213 assertions (152 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
-**Total: 717 assertions across 7 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker).
+**Total: 767 assertions across 8 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker, +50 MCP-Wire Integration Test Harness).
 
 ### Test Files — Primary Rotation
 
@@ -243,6 +243,7 @@ Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by
 | `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage (120 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
+| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip (50 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-mcp-wire.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 ### Test Files — Supplementary Rotation
