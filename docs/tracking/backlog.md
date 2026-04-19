@@ -94,6 +94,14 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 - **Reopening**: architectural shift — CUE4Parse ports K2Node readers, OR UE editor-side serialization stabilizes enough to reverse-engineer at reasonable cost
 - **State today**: no action expected
 
+### DR-3 — Phase 3 dispatch checkpoint: ship 3F sidecar writer as a standalone early milestone?
+- **Source**: Noah 2026-04-19 follow-up on offline BP logic, orchestrator-recommended checkpoint
+- **Decision to make at Phase 3 dispatch time**: should the 3F sidecar writer (editor plugin component that emits the BP dump JSON on save) ship as its own milestone BEFORE the rest of Phase 3? This would unlock offline BP pin-trace workflows via the sidecar-mediated path (editor-dependent-to-produce, per D45 soft dependency) earlier than the rest of Phase 3 delivers.
+- **Why this matters**: Noah asked whether offline-exact-BP-logic is possible. Pure offline pin parsing is ~8-13 agent sessions (D48 FOLD-INTO-3F verdict). The 3F sidecar gives us the same capability at 4-8× lower cost, with editor-mediated version-correctness. Decoupling the sidecar writer from the full Phase 3 package could move offline BP introspection forward meaningfully sooner.
+- **Trigger**: Phase 3 dispatch (post-audit). The Phase 3 scope-refresh research handoff (queued to draft post-audit) must include this as an explicit evaluation point, not bury it in general Phase 3 scoping.
+- **Related research deliverables**: Agent 11.5's S-B analysis, Agent 11's L3A EDITOR-ONLY verdict, D45, D48, `docs/specs/blueprints-as-picture-amendment.md` (3F sidecar spec).
+- **State today**: awaiting Phase 3 dispatch. When the Phase 3 scope-refresh handoff is written, bake this evaluation into its method — don't let it get folded into generic "Phase 3 scope" discussion where it loses specificity.
+
 ---
 
 ## Currently-known-issues not in this file
