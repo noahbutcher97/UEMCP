@@ -113,12 +113,12 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 ## Currently-known-issues not in this file
 
-These items ARE dispatched (handoffs exist) so they're NOT tracked here:
+These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-- Polish worker items (7 response-shape nits) → `docs/handoffs/polish-worker-response-ergonomics.md`
-- Parser extension items (FExpressionInput native layout + FieldPathProperty) → `docs/handoffs/parser-extensions-expression-fieldpath.md`
-- Cleanup worker items (int64 VFX + semgrep deep refactor) → `docs/handoffs/cleanup-worker-int64-semgrep.md`
-- Manual testing of Agent 10.5 surface → `docs/handoffs/manual-testing-agent10-5-surface.md` (completed, results at `docs/testing/2026-04-16-agent10-5-manual-results.md`)
-- D-log + CLAUDE.md housekeeping → `docs/handoffs/docs-housekeeping-post-10-5.md` (completed)
+In-flight as of 2026-04-19 (post-wave-4):
 
-When any of those dispatched handoffs completes and residual items surface, consolidate them here if they're not immediately dispatchable.
+- Pre-Phase-3 fixes worker (8 items: F-1 MCP Zod-coerce, F-2/3/4/5 yaml drift, F-6 this cleanup, F-7 TOOLSET_TIPS, F-8 doc nit) → `docs/handoffs/pre-phase3-fixes-worker.md`
+- Sidecar design session (parallel docs-only research on 3F sidecar writer scope) → `docs/research/sidecar-design-resolutions-2026-04-19.md`
+- Phase 3 scope-refresh research (queued post-audit, not yet dispatched at write time)
+
+When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
