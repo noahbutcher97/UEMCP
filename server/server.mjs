@@ -97,7 +97,7 @@ const TOOLSET_TIPS = {
       },
       {
         requires: ['offline'],
-        tip: 'Use search_source to find C++ class names behind actors, then get_actor_properties to inspect instances in the level.',
+        tip: 'Use Grep against Source/ to find C++ class names behind actors, then get_actor_properties to inspect instances in the level.',
       },
     ],
   },
@@ -120,7 +120,7 @@ const TOOLSET_TIPS = {
       },
       {
         requires: ['offline'],
-        tip: 'Use search_source to find C++ base class signatures before adding function/event nodes. Confirm event names match exactly (e.g., ReceiveBeginPlay, not BeginPlay).',
+        tip: 'Use Grep against Source/ to find C++ base class signatures before adding function/event nodes. Confirm event names match exactly (e.g., ReceiveBeginPlay, not BeginPlay).',
       },
     ],
   },
