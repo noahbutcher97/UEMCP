@@ -20,6 +20,7 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
+import { buildZodSchema } from './zod-builder.mjs';
 import {
   initTcpTools,
   getActorsToolDefs, executeActorsTool,
@@ -419,52 +420,6 @@ server.tool(
 //
 // For Phase 1, we register all offline tools. TCP tools are registered
 // in Phase 2/3 when those layers are implemented.
-
-// Build Zod schemas from tools.yaml param definitions
-function buildZodSchema(params) {
-  if (!params || Object.keys(params).length === 0) {
-    return {};
-  }
-
-  const schema = {};
-  for (const [name, def] of Object.entries(params)) {
-    let field;
-    switch (def.type) {
-      case 'string':
-        field = z.string();
-        break;
-      case 'integer':
-      case 'number':
-        field = z.number();
-        break;
-      case 'boolean':
-        field = z.boolean();
-        break;
-      case 'array':
-        field = z.array(def.items === 'string' ? z.string() : z.any());
-        break;
-      case 'object':
-        field = z.record(z.any());
-        break;
-      default:
-        field = z.any();
-    }
-
-    if (def.describe || def.description) {
-      field = field.describe(def.describe || def.description || '');
-    }
-
-    if (!def.required) {
-      field = field.optional();
-      if (def.default !== undefined) {
-        field = field.default(def.default);
-      }
-    }
-
-    schema[name] = field;
-  }
-  return schema;
-}
 
 // Register offline tools — descriptions and params sourced from tools.yaml (D44).
 // Previously this was a duplicated const that drifted from yaml over time.

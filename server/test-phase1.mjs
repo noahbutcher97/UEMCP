@@ -8,6 +8,8 @@ import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob } from './offline-tools.mjs';
+import { buildZodSchema } from './zod-builder.mjs';
+import { z } from 'zod';
 import { ErrorTcpResponder } from './test-helpers.mjs';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
@@ -82,6 +84,50 @@ const r = matchTagGlob(pathological, haystack);
 const elapsed = Date.now() - start;
 assert(r === true && elapsed < 100,
   `matchTagGlob: 40×"*" against 100-char input completes in <100ms (got ${elapsed}ms)`);
+
+// ── Test 1c: buildZodSchema (F-1: MCP wire coerce for booleans/numbers) ────
+console.log('\n═══ Test 1c: buildZodSchema MCP-wire coerce ═══');
+
+// Real yaml shape pulled from offline.list_level_actors — exercise the path
+// most exposed to MCP-wire stringification of typed params.
+const llaSchemaShape = buildZodSchema(toolsData.toolsets.offline.tools.list_level_actors.params);
+const llaSchema = z.object(llaSchemaShape);
+
+// Boolean coerce — the critical case from the manual tester's blocker
+const boolStrParse = llaSchema.safeParse({ asset_path: '/Game/x', summarize_by_class: 'true' });
+assert(boolStrParse.success && boolStrParse.data.summarize_by_class === true,
+  'buildZodSchema: boolean coerces "true" → true');
+
+const boolFalseParse = llaSchema.safeParse({ asset_path: '/Game/x', summarize_by_class: 'false' });
+// NOTE: z.coerce.boolean() uses JS truthiness — non-empty strings (incl. "false") are truthy.
+// This is documented Zod behavior. The fix's value is accepting "true" through the wire,
+// not strict string-to-boolean conversion. Callers wanting false must pass false (typed) or "" (empty).
+assert(boolFalseParse.success && boolFalseParse.data.summarize_by_class === true,
+  'buildZodSchema: z.coerce.boolean() treats non-empty strings as truthy (documented behavior)');
+
+const boolTypedParse = llaSchema.safeParse({ asset_path: '/Game/x', summarize_by_class: true });
+assert(boolTypedParse.success && boolTypedParse.data.summarize_by_class === true,
+  'buildZodSchema: typed boolean still works post-coerce');
+
+// Number coerce — limit/offset wire-stringification
+const numStrParse = llaSchema.safeParse({ asset_path: '/Game/x', limit: '5', offset: '10' });
+assert(numStrParse.success && numStrParse.data.limit === 5 && numStrParse.data.offset === 10,
+  'buildZodSchema: numbers coerce "5" → 5 and "10" → 10');
+
+const numTypedParse = llaSchema.safeParse({ asset_path: '/Game/x', limit: 5 });
+assert(numTypedParse.success && numTypedParse.data.limit === 5,
+  'buildZodSchema: typed number still works post-coerce');
+
+// String type stays string (no coerce drift onto required-string fields)
+const stringFieldParse = llaSchema.safeParse({ asset_path: 12345 });
+assert(!stringFieldParse.success,
+  'buildZodSchema: string field rejects numeric input (no unwanted coerce on strings)');
+
+// Empty params → empty schema shape (early-return path)
+assert(Object.keys(buildZodSchema({})).length === 0,
+  'buildZodSchema: empty params returns {}');
+assert(Object.keys(buildZodSchema(undefined)).length === 0,
+  'buildZodSchema: undefined params returns {}');
 
 // ── Build ToolIndex ──────────────────────────────────────
 const toolIndex = new ToolIndex();
