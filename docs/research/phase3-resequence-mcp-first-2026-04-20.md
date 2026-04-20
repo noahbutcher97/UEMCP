@@ -17,7 +17,9 @@
 
 3. **9 traversal verbs ship progressively with different dependencies**. `bp_list_graphs` + `bp_find_in_graph` ship on today's infrastructure (L0 + S-A already there). `bp_subgraph_in_comment` ships with a thin spatial extension (positions via tag iteration — zero S-B dependency). `bp_list_entry_points` + `bp_neighbors` (edge mode) + `bp_show_node` + `bp_trace_exec` + `bp_trace_data` ship with S-B. `bp_paths_between` stays v1.1. No verb is blocked by plugin availability; enhancement annotations (via_knots, spatial-neighbors) degrade gracefully.
 
-4. **Updated M-sequence**: M0 shipped → (**M1** 3-5 ∥ **M-spatial** 1-2 ∥ **M-new** 7-10) → (**M-enhance** 3-5 ∥ **M3** 6-10 ∥ **M4** 3-5 ∥ **M5** 6-10). Total ~26-42 sessions, wall-clock ~14-22 with parallelism. **M-new is critical-path for D52's pin-topology near-parity goal.** M-enhance is reduced from D54's scope because the offline layer now does the heavy lifting.
+4. **Updated M-sequence**: M0 shipped → (**M1** 3-5 ∥ **M-spatial** 1-2 ∥ **M-new** 7-10) → (**M-enhance** 3-5 ∥ **M3** 6-10 ∥ **M4** 3-5 ∥ **M5** 6-10). Total ~28.5-47 sessions, wall-clock ~14-22 with parallelism. **M-new is critical-path for D52's pin-topology near-parity goal.** M-enhance is reduced from D54's scope because the offline layer now does the heavy lifting.
+
+> **Amendment 2026-04-20 (post-advisor review)**: Original bullet stated "~26-42 sessions" — summation error. Correct arithmetic from §Q5.1 per-milestone ranges: M1(3-5) + M-spatial(1-2) + M-new(6.5-10) + M-enhance(3-5) + M3(6-10) + M4(3-5) + M5(6-10) = **28.5-47 sessions**. Wall-clock band of ~14-22 with parallelism unchanged (parallelism math was computed per dependency chain, not as a raw sum). Correction propagates to §Q5.5 table + §Final Report block (see amendments there). Orchestrator dispatches per-milestone; aggregate total is informational only.
 
 5. **D48, D54, D55, D57 need BLOCKQUOTE-AMENDMENT**. D48's S-B FOLD-INTO-3F is superseded (S-B is now primary, not folded). D54's SHIP-SIDECAR-PHASE-A-FIRST is superseded (foundation moves from sidecar to offline S-B). D55's PURSUE-AFTER-SIDECAR ordering reverses (S-B ships first; cost stays 6-9 + oracle-substitution surface). D57's PRESERVE+AUGMENT substrate (D54) is gone; 3F-4 commandlet retargets to enhancement-layer priming + S-B development-time differential oracle. **D45 + D52 + D53 + D56 stand unchanged** (sharpened in D52's case — edge topology is now an explicit first-class offline goal, not an aspirational trajectory).
 
@@ -357,9 +359,11 @@ Oracle-A ships first, unblocking S-B-base validation. S-B-base's minimum-viable 
 
 | Scenario | Total sessions (range) | Wall-clock with parallelism |
 |----------|------------------------|------------------------------|
-| M0-M5 + M-spatial + M-new + M-enhance (full re-sequence) | 26.5-43 | ~14-22 |
-| Subset — defer M-enhance (offline-only deployment) | 23.5-38 | ~12-20 |
-| Subset — defer M5 (core infra + offline full) | 20.5-33 | ~13-18 |
+| M0-M5 + M-spatial + M-new + M-enhance (full re-sequence) | 28.5-47 | ~14-22 |
+| Subset — defer M-enhance (offline-only deployment) | 25.5-42 | ~12-20 |
+| Subset — defer M5 (core infra + offline full) | 22.5-37 | ~13-18 |
+
+> **Amendment 2026-04-20 (post-advisor review)**: Original table row values (26.5-43 / 23.5-38 / 20.5-33) were off by the same summation error flagged in the Executive Summary bullet 4 amendment. Corrected values above derive from §Q5.1 per-milestone sums: full = M1(3-5) + M-spatial(1-2) + M-new(6.5-10) + M-enhance(3-5) + M3(6-10) + M4(3-5) + M5(6-10) = 28.5-47; defer M-enhance subtracts (3-5); defer M5 subtracts (6-10) from the defer-M-enhance row. Parallelism wall-clock band unchanged because it's computed on the dependency chain, not the raw aggregate.
 
 **Scenario — defer M-enhance**: viable if enhancement fields aren't workflow-blocking in the short term. Offline surface is complete without enhancement; plugin-only categories (runtime, compile, reflection) remain on Phase 4 RC API or future-worker. Reopening trigger: workflow catalog pressure on those specific categories.
 
@@ -381,6 +385,8 @@ Oracle-A ships first, unblocking S-B-base validation. S-B-base's minimum-viable 
 - **M-new S-B-base** dispatches after Oracle-A lands (oracle required for differential testing) + after M1 lands (plugin scaffold infrastructure shared).
 
 This maps to a 3-worker parallel dispatch at kickoff: one for M1, one for M-spatial, one for M-new Oracle-A. Each is independently scoped; no cross-worker dependencies beyond the shared plugin scaffold.
+
+> **Amendment 2026-04-20 (post-advisor review)**: M1 and Oracle-A both bootstrap the currently-empty `plugin/` directory (per CLAUDE.md state: "C++ UE5 plugin (Phase 3 — empty scaffold)"). They would both create `UEMCP.uplugin`, `UEMCP.Build.cs`, `UEMCPModule.{h,cpp}`. D49 path-limited commits prevent cross-staging in the git index but do NOT prevent concurrent edits to shared scaffold files. **Recommended ordering**: land a tiny plugin-scaffold commit first (~0.25 session: module + Build.cs + .uplugin + `!FApp::IsRunningCommandlet()` gate in `StartupModule`), **then** M1 and Oracle-A dispatch in parallel on top of the scaffold — M1 adds `MCPServerRunnable` and TCP infrastructure; Oracle-A adds the `UDumpBPGraphCommandlet` subclass under a distinct subdirectory (e.g., `plugin/Source/UEMCP/TestFixtures/`). M-spatial is pure JS and parallelizes regardless. The ~0.25-session scaffold commit is additive to the M1 3-5 range or absorbs into M1's low end; doesn't change the 28.5-47 aggregate materially. Orchestrator may prefer to fold the scaffold into M1's first commit rather than dispatching it separately — either works; the constraint is "one scaffold commit before either M1 or Oracle-A does plugin C++ work."
 
 ---
 
@@ -614,7 +620,8 @@ Updated M-sequence (Q5):
                            (9 verbs live; edge topology first-class offline)
                                     ↓
   M-enhance:               3-5  ∥ M3 (6-10)  ∥ M4 (3-5)  ∥ M5 (6-10)
-  Total:                   26.5-43 sessions; ~14-22 wall-clock
+  Total:                   28.5-47 sessions; ~14-22 wall-clock
+                           (corrected from 26.5-43 per post-advisor amendment)
 
 D-log amendments needed (Q6):
   D48  S-B FOLD-INTO-3F → supersede (primary, not folded)
