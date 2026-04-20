@@ -31,6 +31,13 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: per-node UPROPERTY extraction pattern similar to existing skeletal 13
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
+### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending
+- **Source**: EN-2 manual testing 2026-04-20 §6 observation (results commit `7758c85`)
+- **Current behavior**: `results[]` sorted by path alphabetically. For "which BPs call X most" top-N workflows, callers sort client-side.
+- **Scope**: ~1 line change in `offline-tools.mjs` bulk handler — sort `results.sort((a,b) => b.match_count - a.match_count)` before applying pagination
+- **Cost**: ~5-10 min enhancement worker; bundle with any future `offline-tools.mjs` pass
+- **Trigger**: next enhancement round, or fold into M-cmd/M-alt worker if they touch bulk tool
+
 ### EN-5 — Reflection-based lint: yaml params ↔ handler param reads
 - **Source**: Audit A (post-Agent-10.5 codebase health) §3 insight 2026-04-19
 - **Scope**: automated lint that, for each offline tool's handler case in `executeOfflineTool`, verifies every `params.<X>` read has a matching declaration in the tool's yaml `params:` block. Generalizes D44's structural invariant from a one-time-refactor into a maintained guarantee. Would have caught F-2 + F-3 (Pre-Phase-3 Fixes Worker items) automatically.
