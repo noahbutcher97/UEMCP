@@ -169,6 +169,8 @@ Per advisor framing note: these 32 tools are **oracle-retirement targets with P0
 
 Additional work not in the Phase 3 yaml stub list: **9 new offline tools** ship as the 3F consumer surface per §Q3 (see framing note §Framing-audit F-2).
 
+> **Amendment 2026-04-20 (post-M0)**: the "KEEP (reduced) = 18" count in the §Q1.12 rollup row and the paragraph above is stale — the enumerated list in the same row contains **21 tools** (adds `get_mesh_info` from §Q1.8 geometry and `get_editor_utility_blueprint` from §Q1.9 editor-utility, plus the `get_widget_blueprint` SPLIT counts as one KEEP-reduced entry rather than being folded into a different row). Individual §Q1 dispositions are self-consistent; only the aggregate count was miscounted. M0 Worker (commit `aa0d966`) annotated all 21 correctly. Net plugin-TCP surface math (`86 tools`) is unaffected because the 21→18 error was internal to the KEEP-reduced bucket, not cross-bucket. D53 in `docs/tracking/risks-and-decisions.md` also carries the stale "18 KEEP-reduced" figure inherited from this §Q1.12 rollup; retained there because D53 references this deliverable as source-of-truth and future reads should follow this amendment back here. Attribution: discrepancy caught by M0 Worker during handoff execution per §feedback_handoff_empirical_verification.
+
 ---
 
 ## §Q2 Plugin-only justification table — remaining stubs under D52
