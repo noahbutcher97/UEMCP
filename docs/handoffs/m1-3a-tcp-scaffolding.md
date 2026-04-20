@@ -1,9 +1,23 @@
 # M1 Worker — 3A TCP scaffolding (UEMCP plugin foundation)
 
-> **Dispatch**: Fresh Claude Code session. Parallelizes with M2-Phase-A-offline (different file scope — `plugin/` C++ vs `server/` JS).
+> **AMENDED 2026-04-20 (post-D58 re-sequence)**. Original handoff content below is largely valid; the amendments in this block override where they conflict.
+>
+> **Key amendments**:
+> 1. **Scaffold-first ordering (D58 §Q5.7 amendment)**. Your VERY FIRST commit must be the plugin scaffold only: `UEMCP.uplugin` + `UEMCP.Build.cs` + `UEMCPModule.{h,cpp}` with `!FApp::IsRunningCommandlet()` gate in `StartupModule`. Nothing else — no TCP runnable, no helpers. This ~0.25 session of work unblocks the parallel **M-new Oracle-A** worker (commit `130fd0a`) who will add commandlet subclasses in `Commandlets/` subdirectory. After the scaffold commit lands, you proceed with §1-§6 as originally spec'd.
+> 2. **D54 "SHIP-SIDECAR-PHASE-A-FIRST" is superseded by D58** — M1's role is UNCHANGED (writes-gated scaffolding). Ignore the old handoff's Phase A references; M1 no longer blocks "Phase A" because sidecar is now enhancement-layer (M-enhance), not foundation.
+> 3. **Parallelism changed**: instead of "parallelizes with M2-Phase-A-offline," M1 now parallelizes with **M-spatial** (shipped, `4938248`) and **M-new Oracle-A** (queued at `130fd0a`). Oracle-A specifically lands in `plugin/UEMCP/Source/UEMCP/Private/Commandlets/` — different subdirectory from your work in `plugin/UEMCP/Source/UEMCP/Private/*.{h,cpp}`. Zero file collision expected EXCEPT potentially on `UEMCP.Build.cs` if Oracle-A needs to add a module dependency (Oracle-A handoff notes this coordination).
+> 4. **Test baseline** is now **899 assertions** (was 825 in the original handoff). M1's optional server-side integration test targets +~5-10 assertions over 899.
+> 5. **D57 commandlet gate constraint preserved** — still load-bearing. Scaffold commit MUST include the gate in `StartupModule` so Oracle-A's commandlet invocation doesn't contend for port 55558 post-commandlet-class-addition.
+> 6. **No real tool handlers still applies** — M3+ fills those. M1 ships only `ping` smoke test.
+>
+> The rest of the handoff reads as originally written, with the above corrections applied on dispatch.
+
+---
+
+> **Dispatch**: Fresh Claude Code session. Parallelizes with M-spatial (shipped) and M-new Oracle-A (queued).
 > **Type**: Implementation — first serious C++ plugin work. The `plugin/` directory is currently empty scaffold.
 > **Duration**: 3-5 agent sessions.
-> **D-log anchors**: D54 (SHIP-SIDECAR-PHASE-A-FIRST), D57 (M1 commandlet gate), D23/D40 (oracle retirement — M1 is the target plane).
+> **D-log anchors**: D57 (M1 commandlet gate — preserved), D58 (re-sequence, scaffold-first ordering), D23/D40 (oracle retirement — M1 is the target plane).
 > **Deliverable**: A loadable UEMCP plugin on TCP:55558 that responds to `ping` with clean request/response envelope. Scaffold only — tool commands are M3+.
 
 ---
