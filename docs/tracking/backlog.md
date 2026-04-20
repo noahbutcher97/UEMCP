@@ -6,30 +6,6 @@
 
 ---
 
-## Tool-surface cleanup
-
-Tools already shipped with known redundancies or deprecation candidates. Typically resolved by yaml edits or one-line handler removals.
-
-### TS-1 — `actors.take_screenshot` ↔ `visual-capture.get_viewport_screenshot` duplication
-- **Source**: Agent Workflow Catalog, over-served #1 (2026-04-16)
-- **State**: already yaml-flagged; no deprecation committed
-- **Fix**: one-line yaml removal or informational-only redirect
-- **Trigger**: next tool-surface cleanup pass or Phase 3 scope refresh
-
-### TS-2 — `widgets.add_widget_to_viewport` NO-OP
-- **Source**: Agent Workflow Catalog, over-served #2 + D27
-- **State**: C++ handler returns "use Blueprint nodes instead"; tool surface is misleading
-- **Fix**: remove from yaml OR rename to `get_widget_class_path` with informational description per D27
-- **Trigger**: next tool-surface cleanup pass or Phase 3 scope refresh
-
-### TS-3 — `editor-utility.create_asset` scope review
-- **Source**: Agent Workflow Catalog, over-served #3
-- **State**: no observed catalog demand
-- **Fix**: drop from yaml if still undemanded at Phase 3 dispatch
-- **Trigger**: Phase 3 plugin scope refresh research
-
----
-
 ## Enhancements
 
 New capability proposals not yet scoped. Each has a workflow trigger that would justify prioritization.
@@ -39,14 +15,7 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Scope**: one yaml param addition; parser already tracks `sizeBytes` — no parser work
 - **Enables**: "which ProjectA assets > 5 MB?", "audit size-optimization candidates"
 - **Cost**: ~15-min enhancement worker
-- **Trigger**: next enhancement round or fold into polish pass
-
-### EN-2 — `find_blueprint_nodes_bulk(path_prefix)` corpus-wide variant
-- **Source**: Agent 10.5 manual tester Item #2 (2026-04-16)
-- **Scope**: new offline tool scanning all BPs under a path_prefix, running the `find_blueprint_nodes` filter per BP, returning aggregated per-BP match counts
-- **Enables**: "find all ProjectA BPs that call `ApplyGameplayEffectToTarget`", "which BPs handle `ReceiveAnyDamage`"
-- **Cost**: 1-2 agent sessions (bulk-scan pattern new to offline tier)
-- **Trigger**: corpus-wide find/grep workflow becomes routine, or bundled with next enhancement round
+- **Trigger**: next enhancement round, fold into M0 yaml grooming, or bundle with whatever post-scope-refresh worker next touches `offline-tools.mjs`
 
 ### EN-3 — Agent-infra parity audit workflow
 - **Source**: Workflow Catalog §7a amendment (2026-04-16), Noah Q3 — surfaced as a missed workflow category
@@ -88,12 +57,12 @@ Test-coverage gaps requiring artificial fixtures in ProjectA/ProjectB.
 Research questions explicitly deferred with named reopening conditions. Watch-for items.
 
 ### DR-1 — Tier S-B pin tracing offline parser
-- **Source**: Agent 11.5, D48 — FOLD-INTO-3F verdict
-- **Cost**: ~8-13 agent sessions; zero reference coverage in CUE4Parse / UAssetAPI for UEdGraphPin binary serialization
-- **Reopening (per D48)**:
-  1. 3F sidecar work slips indefinitely AND an agent-automation workflow requires offline pin-trace specifically (not just name-level find, which S-A covers)
-  2. Sidecar-missing scenarios fire frequently enough that sidecar-coverage discipline becomes untenable
-- **State**: neither trigger present today
+- **Source**: Agent 11.5 + D48 (original FOLD-INTO-3F verdict) → D55 (updated to PURSUE-AFTER-SIDECAR)
+- **Cost**: ~6-9 agent sessions at honest estimate (supersedes Agent 11.5's 8-13; collapsed per D55 FA-1 analysis of 19-type restriction, but with irreducible fixed-cost floors — base pin-block RE + LinkedTo + version-skew buffer)
+- **Status**: scheduled as **optional M6** in Phase 3 dispatch sequencing; commissioned only if D52 near-parity goal is under-served by sidecar alone OR agent-automation workflows surface pin-trace pressure
+- **Oracle dependency**: sidecar's known-correct `LinkedTo` JSON becomes S-B's validation oracle — commission AFTER M2 ships for ground-truth signal
+- **Reopening (per D52)**: workflow pressure accumulates OR 3F sidecar slips (weakened from D48's AND requirement)
+- **State**: not in current dispatch window; M6 stays optional unless signal emerges
 
 ### DR-2 — L3A full-fidelity UEdGraph byte parsing
 - **Source**: Agent 11, D45 — permanently EDITOR-ONLY
@@ -101,24 +70,25 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 - **Reopening**: architectural shift — CUE4Parse ports K2Node readers, OR UE editor-side serialization stabilizes enough to reverse-engineer at reasonable cost
 - **State today**: no action expected
 
-### DR-3 — Phase 3 dispatch checkpoint: ship 3F sidecar writer as a standalone early milestone?
-- **Source**: Noah 2026-04-19 follow-up on offline BP logic, orchestrator-recommended checkpoint
-- **Decision to make at Phase 3 dispatch time**: should the 3F sidecar writer (editor plugin component that emits the BP dump JSON on save) ship as its own milestone BEFORE the rest of Phase 3? This would unlock offline BP pin-trace workflows via the sidecar-mediated path (editor-dependent-to-produce, per D45 soft dependency) earlier than the rest of Phase 3 delivers.
-- **Why this matters**: Noah asked whether offline-exact-BP-logic is possible. Pure offline pin parsing is ~8-13 agent sessions (D48 FOLD-INTO-3F verdict). The 3F sidecar gives us the same capability at 4-8× lower cost, with editor-mediated version-correctness. Decoupling the sidecar writer from the full Phase 3 package could move offline BP introspection forward meaningfully sooner.
-- **Trigger**: Phase 3 dispatch (post-audit). The Phase 3 scope-refresh research handoff (queued to draft post-audit) must include this as an explicit evaluation point, not bury it in general Phase 3 scoping.
-- **Related research deliverables**: Agent 11.5's S-B analysis, Agent 11's L3A EDITOR-ONLY verdict, D45, D48, `docs/specs/blueprints-as-picture-amendment.md` (3F sidecar spec).
-- **State today**: awaiting Phase 3 dispatch. When the Phase 3 scope-refresh handoff is written, bake this evaluation into its method — don't let it get folded into generic "Phase 3 scope" discussion where it loses specificity.
-
 ---
 
 ## Currently-known-issues not in this file
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-19 (post-wave-4):
+In-flight as of 2026-04-20 (post-scope-refresh):
 
-- Pre-Phase-3 fixes worker (8 items: F-1 MCP Zod-coerce, F-2/3/4/5 yaml drift, F-6 this cleanup, F-7 TOOLSET_TIPS, F-8 doc nit) → `docs/handoffs/pre-phase3-fixes-worker.md`
-- Sidecar design session (parallel docs-only research on 3F sidecar writer scope) → `docs/research/sidecar-design-resolutions-2026-04-19.md`
-- Phase 3 scope-refresh research (queued post-audit, not yet dispatched at write time)
+- EN-2 manual testing (`find_blueprint_nodes_bulk` + F-1.5 belt-and-braces) → `docs/handoffs/manual-testing-en2-2026-04-20.md` (queued; optional-belt-and-braces)
+
+Queued for post-D-log dispatch:
+
+- **M0** — Phase 3 yaml grooming (0.5 session) — drops 6 per §Q1 of `docs/research/phase3-scope-refresh-2026-04-20.md`, annotates KEEP (reduced) entries, marks MOVE-TO-SIDECAR consolidations; no handler changes
+- **M1** — 3A TCP scaffolding (3-5 sessions) — first real C++ plugin work; parallelizes with M2-Phase-A
+- **M2-Phase-A** — sidecar save-hook + offline reader + 9 traversal verbs (3-5 sessions, 2 parallel sub-workers) — no TCP dependency
+- **M2-Phase-B** — dump_graph TCP + invocable prime (1-2 sessions) — post-M1
+- **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2 (per D53/D54)
+- **M4** — reduced-scope reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets hitting only their retained D52 surface
+- **M5** — remaining Phase 3 toolsets (6-10 sessions, 3-4 sub-workers) — animation + materials + geometry + input-and-pie + editor-utility + visual-capture
+- **M6** — optional S-B (6-9 sessions) — only if D52 trigger fires; oracle-gated on M2
 
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
