@@ -99,21 +99,77 @@ Response shape:
 ```
 EN-2 Worker Final Report — find_blueprint_nodes_bulk
 
-Shipped: [yes/no]
-Yaml entry added: [yes]
-Handler registered: [yes]
-Test assertions: [N new]
-D44 invariant verified: [yes]
+Shipped: yes
+Yaml entry added: yes (tools.yaml:162 — new find_blueprint_nodes_bulk block)
+Handler registered: yes (offline-tools.mjs:1770 findBlueprintNodesBulk + switch case)
+Test assertions: +42 new (36 test-phase1 Test 13 + 6 test-mcp-wire Tests 2/5)
+D44 invariant verified: yes (yaml-level in Test 13 + runtime in test-mcp-wire Test 2)
 
-Performance (ProjectA corpus):
-  BPs scanned: [N]
-  Warm-cache time: [N ms]
-  Cold-cache time: [N ms]
+Shape deviation from handoff spec (advisor-approved):
+  Handoff specced a single `truncated: bool`. Ship split it into
+  `scan_truncated` (matched-BP set incomplete — widen max_scan or
+  narrow path_prefix) + `page_truncated` (more BPs matched than
+  this page — advance offset). Reason: callers couldn't otherwise
+  distinguish "widen scan" from "paginate forward." Yaml description
+  documents both flags.
 
-Workflow spot-check: "Which ProjectA BPs call StartMontage?"
-  Result: [N BPs, example paths]
+Semantic correction on max_scan:
+  Handoff advertised "Max BPs walked (default 500, cap 5000)" but
+  the pass-through to queryAssetRegistry.max_scan walks FILES, not
+  Blueprints. With ProjectA's ~2.5% BP density, max_scan=5000
+  surfaced only ~130 BPs — far short of the 469-BP corpus the same
+  handoff benchmarked against. Fix (advisor Option B): walk full
+  prefix subtree at the registry layer (limit=2000, max_scan=20000
+  internally), cap BP count at max_scan post-filter. max_scan now
+  means what the parameter name says. Test 13 has an assertion
+  (max_scan=2 → total_bps_scanned=2) locking the contract.
 
-Tests: [X]/[Y] — delta vs [baseline]
-Commits: [list with SHAs]
-Time spent: [N min]
+Performance (ProjectA 469-BP corpus):
+  BPs scanned (full /Game/, default max_scan=500): 469 (scan_truncated=false)
+  Warm-cache time: 1133ms
+  Cold-cache time: 12887ms
+  (handoff budget: <5s warm — met. Cold-cache time reflects disk I/O
+  on 469 .uasset files; not budgeted by the handoff.)
+
+  Narrow /Game/Blueprints/Character (8 BPs):
+    Cold: 3ms   Warm: 2ms
+
+Workflow spot-check: "Which ProjectA BPs call ReceiveBeginPlay?"
+  (StartMontage, handoff's example, has 0 callers in ProjectA — not
+  a stable fixture. ReceiveBeginPlay is a more representative
+  corpus-wide query.)
+  Result: 304 of 469 BPs matched in a single call.
+  Sample matched paths:
+    /Game/Blueprints/Character/BP_OSPlayerR.uasset (match_count=2)
+    /Game/Blueprints/Character/BP_OSPlayerR_Child.uasset (match_count=2)
+    /Game/Blueprints/Character/BP_OSPlayerR_Child1.uasset (match_count=2)
+    /Game/Blueprints/Character/BP_OSPlayerR_Child2.uasset (match_count=2)
+    /Game/Blueprints/Character/BP_OSTestPlayer.uasset (match_count=1)
+
+Tests: 825/825 passing — delta +42 vs 783 baseline.
+  test-phase1.mjs:             188 → 224 (+36)
+  test-mock-seam.mjs:           45 → 45
+  test-tcp-tools.mjs:          234 → 234
+  test-mcp-wire.mjs:            58 → 64 (+6)
+  test-uasset-parser.mjs:      197 → 197
+  test-offline-asset-info.mjs:  15 → 15
+  test-query-asset-registry.mjs:16 → 16
+  test-inspect-and-level-actors.mjs: 30 → 30
+
+Commits (path-limited per D49):
+  125a62c — EN-2: find_blueprint_nodes_bulk — corpus-wide K2Node scan
+             (tools.yaml, server/offline-tools.mjs, server/test-phase1.mjs,
+              server/test-mcp-wire.mjs)
+  53daaed — Sync test baseline 783 -> 825 after EN-2 Worker (CLAUDE.md)
+  <pending> — EN-2 final report fill-in (docs/handoffs/en2-find-blueprint-nodes-bulk.md)
+
+Non-blocking lurking edge case:
+  queryAssetRegistry's internal limit=2000 caps the matched-BP set
+  before max_scan slicing sees it. If a future project has >2000
+  BPs under one prefix, scan_truncated fires correctly (via
+  registry.truncated) but total_bps_scanned will report 2000 even
+  if the caller requested max_scan=5000. ProjectA at 469 BPs never
+  hits it. Not fixed; documented here for future reference.
+
+Time spent: ~60 min.
 ```
