@@ -7,7 +7,7 @@ import { load } from 'js-yaml';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
-import { executeOfflineTool, matchTagGlob } from './offline-tools.mjs';
+import { executeOfflineTool, matchTagGlob, computeCommentContainment } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
 import { ErrorTcpResponder } from './test-helpers.mjs';
@@ -1150,6 +1150,255 @@ if (PROJECT_ROOT) {
       `EN-2 perf: warm-cache scan under budget (${warmMs}ms < 5000ms, n=${warm.total_bps_scanned})`);
   } catch (e) {
     assert(false, 'EN-2: perf spot-check', e.message);
+  }
+}
+
+// ── Test 14: M-spatial Worker — 5 BP traversal verbs (FA-β + FA-δ) ───
+//
+// Ships 5 of 9 D58 re-sequenced BP verbs on the existing offline parser:
+//   bp_list_graphs, bp_find_in_graph, bp_subgraph_in_comment,
+//   bp_list_entry_points (partial), bp_show_node (partial).
+//
+// Invariants under test:
+//   • FA-β: every verb returns schema_version + available_fields + not_available
+//     + plugin_enhancement_available. Partial verbs list what's missing so
+//     callers know to expect M-new to fill in.
+//   • FA-δ: all 5 verbs return non-empty correct data on real ProjectA BPs
+//     with no sidecar, no plugin, no editor — this is the plugin-absent
+//     first-class-functional guard.
+//   • D44: yaml is the source of truth — tools/list and find_tools read
+//     identical metadata.
+
+console.log('\n═══ Test 14: M-spatial Worker — 5 BP traversal verbs ═══');
+
+// D44 invariant — all 5 verbs registered in yaml.
+try {
+  const offlineTools = toolsData.toolsets.offline.tools;
+  for (const v of ['bp_list_graphs', 'bp_find_in_graph', 'bp_subgraph_in_comment',
+                   'bp_list_entry_points', 'bp_show_node']) {
+    assert(offlineTools[v] !== undefined, `M-spatial D44: ${v} entry exists in yaml`);
+    assert(typeof offlineTools[v].description === 'string' && offlineTools[v].description.length > 40,
+      `M-spatial D44: ${v} has a non-trivial description`);
+    assert(offlineTools[v].params?.asset_path?.required === true,
+      `M-spatial D44: ${v}.params.asset_path declared required`);
+  }
+  // bp_find_in_graph uniquely needs graph_name required
+  assert(offlineTools.bp_find_in_graph.params.graph_name?.required === true,
+    'M-spatial D44: bp_find_in_graph.graph_name required');
+  // bp_subgraph_in_comment uniquely needs comment_node_id
+  assert(offlineTools.bp_subgraph_in_comment.params.comment_node_id?.required === true,
+    'M-spatial D44: bp_subgraph_in_comment.comment_node_id required');
+  // bp_show_node uniquely needs node_id
+  assert(offlineTools.bp_show_node.params.node_id?.required === true,
+    'M-spatial D44: bp_show_node.node_id required');
+  // Partial verbs documented their partial nature in the yaml description.
+  assert(/not_available/i.test(offlineTools.bp_list_entry_points.description),
+    'M-spatial D44: bp_list_entry_points yaml mentions not_available');
+  assert(/not_available|pin/i.test(offlineTools.bp_show_node.description),
+    'M-spatial D44: bp_show_node yaml mentions not_available or pin block');
+} catch (e) {
+  assert(false, 'M-spatial D44: yaml invariants', e.message);
+}
+
+// computeCommentContainment — unit tests (synthetic, no disk access).
+try {
+  // 3×3 comment at (0,0)–(300,300). Node A at center, B outside.
+  const contained = computeCommentContainment(
+    [
+      { node_id: 1, node_pos_x: 150, node_pos_y: 150, node_width: 0, node_height: 0 },  // inside
+      { node_id: 2, node_pos_x: 500, node_pos_y: 500, node_width: 0, node_height: 0 },  // outside
+      { node_id: 3, node_pos_x: 300, node_pos_y: 300, node_width: 0, node_height: 0 },  // on edge (inclusive)
+    ],
+    [{ node_id: 10, node_pos_x: 0, node_pos_y: 0, node_width: 300, node_height: 300 }],
+  );
+  const ids = contained.get(10);
+  assert(ids.includes(1), 'M-spatial containment: inner node captured');
+  assert(!ids.includes(2), 'M-spatial containment: outer node excluded');
+  assert(ids.includes(3), 'M-spatial containment: edge-case node included (inclusive rect)');
+
+  // Zero-size comment → empty list.
+  const zero = computeCommentContainment(
+    [{ node_id: 1, node_pos_x: 10, node_pos_y: 10 }],
+    [{ node_id: 99, node_pos_x: 0, node_pos_y: 0, node_width: 0, node_height: 0 }],
+  );
+  assert(zero.get(99).length === 0, 'M-spatial containment: zero-size comment → empty');
+
+  // Self-exclusion — a comment never contains itself.
+  const selfTest = computeCommentContainment(
+    [{ node_id: 42, node_pos_x: 50, node_pos_y: 50 }],
+    [{ node_id: 42, node_pos_x: 0, node_pos_y: 0, node_width: 100, node_height: 100 }],
+  );
+  assert(!selfTest.get(42).includes(42), 'M-spatial containment: comment excludes itself');
+} catch (e) {
+  assert(false, 'M-spatial containment unit', e.message);
+}
+
+if (!PROJECT_ROOT) {
+  console.log('  SKIP: UNREAL_PROJECT_ROOT not set — skipping fixture-backed M-spatial tests');
+} else {
+  const BP = '/Game/Blueprints/Character/BP_OSPlayerR';
+
+  // ── bp_list_graphs ─────────────────────────────────────
+  try {
+    const r = await executeOfflineTool('bp_list_graphs', { asset_path: BP }, PROJECT_ROOT);
+    assert(r.schema_version === 'm-spatial-v1', 'bp_list_graphs: schema_version m-spatial-v1');
+    assert(Array.isArray(r.available_fields) && r.available_fields.length > 0,
+      'bp_list_graphs: available_fields non-empty');
+    assert(Array.isArray(r.not_available) && r.not_available.length === 0,
+      'bp_list_graphs: not_available empty (full coverage)');
+    assert(r.plugin_enhancement_available === false,
+      'bp_list_graphs: plugin_enhancement_available flag set to false (offline-primary)');
+    assert(r.graph_count >= 3,
+      `bp_list_graphs: BP_OSPlayerR has >=3 graphs (got ${r.graph_count})`);
+    assert(r.graphs.some(g => g.name === 'EventGraph' && g.graph_type === 'ubergraph'),
+      'bp_list_graphs: EventGraph classified as ubergraph');
+    assert(r.graphs.some(g => g.name === 'UserConstructionScript' && g.graph_type === 'construction_script'),
+      'bp_list_graphs: UserConstructionScript classified');
+    assert(r.graphs.some(g => g.graph_type === 'function'),
+      'bp_list_graphs: at least one function graph detected');
+    const evg = r.graphs.find(g => g.name === 'EventGraph');
+    assert(evg.node_count > 10 && evg.comment_count > 0,
+      `bp_list_graphs: EventGraph has K2Nodes + comments (nodes=${evg.node_count} comments=${evg.comment_count})`);
+  } catch (e) {
+    assert(false, 'bp_list_graphs scenario', e.message);
+  }
+
+  // ── bp_find_in_graph ─────────────────────────────────
+  try {
+    const r = await executeOfflineTool('bp_find_in_graph',
+      { asset_path: BP, graph_name: 'EventGraph', node_class: 'K2Node_Event' },
+      PROJECT_ROOT);
+    assert(r.total_matched > 0, `bp_find_in_graph: K2Node_Event filter finds matches (got ${r.total_matched})`);
+    assert(r.total_matched < r.total_nodes_in_graph,
+      'bp_find_in_graph: filter narrows below total_nodes_in_graph');
+    assert(r.nodes.every(n => n.graph_name === 'EventGraph'),
+      'bp_find_in_graph: every match echoes graph_name');
+    assert(r.nodes.every(n => typeof n.node_pos_x === 'number' && typeof n.node_pos_y === 'number'),
+      'bp_find_in_graph: every match has positions (FA-δ spatial proof)');
+
+    // Unknown graph name rejected.
+    let threw = false;
+    try {
+      await executeOfflineTool('bp_find_in_graph',
+        { asset_path: BP, graph_name: 'NoSuchGraph' }, PROJECT_ROOT);
+    } catch (err) {
+      threw = /Graph not found/.test(err.message);
+    }
+    assert(threw, 'bp_find_in_graph: unknown graph_name raises Graph not found');
+  } catch (e) {
+    assert(false, 'bp_find_in_graph scenario', e.message);
+  }
+
+  // ── bp_subgraph_in_comment ───────────────────────────
+  try {
+    const r = await executeOfflineTool('bp_subgraph_in_comment',
+      { asset_path: BP, comment_node_id: 'EdGraphNode_Comment' }, PROJECT_ROOT);
+    assert(r.comment.class_name === 'EdGraphNode_Comment',
+      'bp_subgraph_in_comment: resolved node is a comment');
+    assert(typeof r.comment.node_comment === 'string' && r.comment.node_comment.length > 0,
+      'bp_subgraph_in_comment: comment text decoded');
+    assert(r.comment.node_width > 0 && r.comment.node_height > 0,
+      'bp_subgraph_in_comment: comment rectangle has non-zero size');
+    assert(r.contained_count > 0 && r.contained.length === r.contained_count,
+      `bp_subgraph_in_comment: non-empty contained list (got ${r.contained_count})`);
+    assert(r.contained.every(n => typeof n.node_pos_x === 'number'),
+      'bp_subgraph_in_comment: contained nodes carry positions');
+
+    // Non-comment id rejected.
+    let threwNon = false;
+    try {
+      await executeOfflineTool('bp_subgraph_in_comment',
+        { asset_path: BP, comment_node_id: 'K2Node_Event' }, PROJECT_ROOT);
+    } catch (err) {
+      threwNon = /not a comment/i.test(err.message);
+    }
+    assert(threwNon, 'bp_subgraph_in_comment: non-comment id raises "not a comment"');
+  } catch (e) {
+    assert(false, 'bp_subgraph_in_comment scenario', e.message);
+  }
+
+  // ── bp_list_entry_points (partial — FA-β) ─────────────
+  try {
+    const r = await executeOfflineTool('bp_list_entry_points', { asset_path: BP }, PROJECT_ROOT);
+    assert(r.entry_point_count > 0,
+      `bp_list_entry_points: BP_OSPlayerR has entries (got ${r.entry_point_count})`);
+    assert(r.entry_points.every(e =>
+      ['K2Node_Event', 'K2Node_CustomEvent', 'K2Node_FunctionEntry'].includes(e.node_class)),
+      'bp_list_entry_points: every entry is Event/CustomEvent/FunctionEntry');
+    assert(r.entry_points.every(e => typeof e.node_pos_x === 'number'),
+      'bp_list_entry_points: every entry has position');
+    assert(r.entry_points.some(e => e.graph_name === 'EventGraph'),
+      'bp_list_entry_points: at least one entry tied to EventGraph');
+    // FA-β manifest — partial verb flags exec_connectivity as not available.
+    assert(Array.isArray(r.not_available) && r.not_available.includes('exec_connectivity'),
+      'FA-β bp_list_entry_points: not_available includes exec_connectivity');
+    assert(r.plugin_enhancement_available === false,
+      'FA-β bp_list_entry_points: plugin_enhancement_available = false (no sidecar required)');
+  } catch (e) {
+    assert(false, 'bp_list_entry_points scenario', e.message);
+  }
+
+  // ── bp_show_node (partial — FA-β) ───────────────────
+  try {
+    const ep = await executeOfflineTool('bp_list_entry_points', { asset_path: BP }, PROJECT_ROOT);
+    const targetName = ep.entry_points[0].node_name;
+    const r = await executeOfflineTool('bp_show_node',
+      { asset_path: BP, node_id: targetName }, PROJECT_ROOT);
+    assert(r.node.node_name === targetName, 'bp_show_node: node_name round-trips via string id');
+    assert(typeof r.node.node_pos_x === 'number' && typeof r.node.node_pos_y === 'number',
+      'bp_show_node: position fields present');
+    assert(typeof r.node.node_guid === 'string' && r.node.node_guid.length === 32,
+      'bp_show_node: NodeGuid decoded as 32-char hex');
+    assert(r.node.properties && typeof r.node.properties === 'object',
+      'bp_show_node: raw properties map populated');
+    assert(Array.isArray(r.node.pins) && r.node.pins.length === 0,
+      'bp_show_node: pins[] placeholder empty (M-new fills this in)');
+    // FA-β manifest — partial verb flags pin_block as not available.
+    assert(Array.isArray(r.not_available) && r.not_available.includes('pin_block'),
+      'FA-β bp_show_node: not_available includes pin_block');
+
+    // Also accept numeric node_id (export_index).
+    const byIdx = await executeOfflineTool('bp_show_node',
+      { asset_path: BP, node_id: String(r.node.node_id) }, PROJECT_ROOT);
+    assert(byIdx.node.node_name === r.node.node_name,
+      'bp_show_node: numeric export_index id resolves to same node');
+
+    // Unknown node rejected.
+    let threwUnknown = false;
+    try {
+      await executeOfflineTool('bp_show_node',
+        { asset_path: BP, node_id: 'Node_DoesNotExist_1234' }, PROJECT_ROOT);
+    } catch (err) {
+      threwUnknown = /not found/i.test(err.message);
+    }
+    assert(threwUnknown, 'bp_show_node: unknown node_id raises "not found"');
+  } catch (e) {
+    assert(false, 'bp_show_node scenario', e.message);
+  }
+
+  // ── FA-δ invariant: all 5 verbs return non-empty correct data
+  //    on a real ProjectA BP with NO plugin, NO editor, NO sidecar.
+  //    This is the plugin-absent first-class-functional guard per D58.
+  console.log('\n═══ FA-δ invariant: plugin-absent first-class functionality ═══');
+  try {
+    const verbs = [
+      ['bp_list_graphs',         { asset_path: BP },                                              r => r.graph_count >= 3],
+      ['bp_find_in_graph',       { asset_path: BP, graph_name: 'EventGraph' },                   r => r.total_matched > 0],
+      ['bp_subgraph_in_comment', { asset_path: BP, comment_node_id: 'EdGraphNode_Comment' },     r => r.contained_count >= 0 && r.comment.class_name === 'EdGraphNode_Comment'],
+      ['bp_list_entry_points',   { asset_path: BP },                                              r => r.entry_point_count > 0],
+      ['bp_show_node',           { asset_path: BP, node_id: 'K2Node_Event' },                   r => r.node.node_name?.startsWith('K2Node_Event') && typeof r.node.node_pos_x === 'number'],
+    ];
+    for (const [verb, args, nonEmpty] of verbs) {
+      const r = await executeOfflineTool(verb, args, PROJECT_ROOT);
+      assert(Array.isArray(r.available_fields) && r.available_fields.length > 0,
+        `FA-δ: ${verb} returns non-empty available_fields manifest (plugin-absent)`);
+      assert(nonEmpty(r),
+        `FA-δ: ${verb} returns correct non-empty payload on plugin-absent ProjectA BP`);
+      assert(r.plugin_enhancement_available === false,
+        `FA-δ: ${verb} advertises plugin_enhancement_available=false (offline-primary)`);
+    }
+  } catch (e) {
+    assert(false, 'FA-δ: plugin-absent first-class functionality', e.message);
   }
 }
 
