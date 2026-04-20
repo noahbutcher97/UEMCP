@@ -1867,6 +1867,514 @@ async function findBlueprintNodesBulk(projectRoot, params) {
   return out;
 }
 
+// ── M-spatial: BP traversal verbs (offline-primary, no plugin/TCP/sidecar) ──
+//
+// Five verbs built on the existing L1+L2+L2.5 parser surface. No new binary
+// parsing: the tagged-fallback path already decodes spatial UPROPERTYs
+// (NodePosX/Y, NodeWidth/Height, NodeComment, EnabledState, CommentColor,
+// bCommentBubble*) on K2Node and UEdGraphNode_Comment exports.
+//
+// FA-β contract: every verb returns {available_fields[], not_available[],
+// schema_version, plugin_enhancement_available}. Partial verbs (bp_show_node,
+// bp_list_entry_points) enumerate what the offline-only implementation
+// cannot deliver — callers route to M-new when pin-aware data is required.
+//
+// FA-δ invariant: these verbs produce non-empty correct data on real BPs
+// with no sidecar/plugin/editor present (proven in test-phase1.mjs).
+
+const M_SPATIAL_SCHEMA_VERSION = 'm-spatial-v1';
+
+const SPATIAL_AVAILABLE_FIELDS = [
+  'positions',         // NodePosX/Y
+  'node_size',         // NodeWidth/Height when serialized
+  'comments',          // NodeComment + UEdGraphNode_Comment CommentColor/FontSize
+  'contains',          // spatial rect containment for comment boxes
+  'class_identity',    // K2Node/EdGraphNode_Comment class name
+  'enabled_state',     // EnabledState enum when serialized
+  'node_guid',         // FGuid NodeGuid
+  'member_reference',  // FMemberReference — via existing skeletal surface
+];
+
+const ENTRY_POINT_CLASSES = new Set([
+  'K2Node_Event',
+  'K2Node_CustomEvent',
+  'K2Node_FunctionEntry',
+]);
+
+// Canonical node name uses FName.Number suffix ("_0", "_1", ...) so duplicate
+// base names (9 × EdGraphNode_Comment) disambiguate. Matches UE's display.
+function canonicalNodeName(exportEntry) {
+  if (!exportEntry) return null;
+  const n = exportEntry.objectNameNumber;
+  return n > 0 ? `${exportEntry.objectName}_${n - 1}` : exportEntry.objectName;
+}
+
+/**
+ * Classify an EdGraph by its objectName. Heuristic — UE doesn't serialize
+ * a type enum on UEdGraph; graph membership on the UBlueprint (UbergraphPages,
+ * FunctionGraphs, etc.) is the canonical signal. We rely on naming conventions
+ * instead of parsing the UBlueprint's TArray<ObjectProperty> refs to keep the
+ * v1 surface simple; `unknown` is the fallback when no heuristic matches.
+ */
+function classifyGraph(name) {
+  if (name === 'EventGraph' || name.startsWith('Ubergraph')) return 'ubergraph';
+  if (name === 'UserConstructionScript' || name === 'ConstructionScript') return 'construction_script';
+  if (name.endsWith('_DelegateSignature')) return 'delegate_signature';
+  if (name.startsWith('Macro_') || name.endsWith('_Macro')) return 'macro';
+  if (name === 'Timeline' || name.endsWith('_Timeline')) return 'timeline';
+  return 'function';
+}
+
+/**
+ * Walk the export table and bucket K2Node / EdGraphNode_Comment exports by
+ * their containing EdGraph. Returns { graphs, nodesByGraph, commentsByGraph }
+ * keyed by the graph's 1-based FPackageIndex. `ubpIndex` is the UBlueprint's
+ * export index — graphs whose outerIndex resolves to it are considered
+ * belonging to this BP.
+ */
+function indexBlueprintGraphs(ctx) {
+  const { exports, imports } = ctx;
+
+  // Find the UBlueprint export — identified by className === 'Blueprint'.
+  const ubpIdx = exports.findIndex(e =>
+    resolvePackageIndex(e.classIndex, exports, imports, 'objectName') === 'Blueprint');
+  const ubpPackageIndex = ubpIdx >= 0 ? ubpIdx + 1 : null;
+
+  // Build the EdGraph set (exports with className === 'EdGraph').
+  const graphByPackageIndex = new Map();
+  const graphs = [];
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    if (cls !== 'EdGraph') continue;
+    if (ubpPackageIndex !== null && e.outerIndex !== ubpPackageIndex) continue;
+    const graphPi = i + 1;
+    const rec = {
+      name: e.objectName,
+      graph_type: classifyGraph(e.objectName),
+      export_index: graphPi,
+      node_count: 0,
+      comment_count: 0,
+      _nodes: [],
+      _comments: [],
+    };
+    graphByPackageIndex.set(graphPi, rec);
+    graphs.push(rec);
+  }
+
+  // Bucket K2Node / EdGraphNode_Comment exports under their outer graph.
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    if (!cls) continue;
+    const isK2Node = cls.startsWith('K2Node_');
+    const isComment = cls === 'EdGraphNode_Comment';
+    if (!isK2Node && !isComment) continue;
+    const rec = graphByPackageIndex.get(e.outerIndex);
+    if (!rec) continue;
+    const row = { export_index: i + 1, export: e, className: cls };
+    if (isComment) {
+      rec._comments.push(row);
+      rec.comment_count += 1;
+    } else {
+      rec._nodes.push(row);
+      rec.node_count += 1;
+    }
+  }
+
+  return { graphs, ubpPackageIndex };
+}
+
+/**
+ * Pick the spatial sub-shape from a parsed node's properties. Missing fields
+ * are omitted (not null) so response payloads stay compact for nodes that
+ * inherit defaults — NodePosX/Y are usually present; NodeWidth/Height are
+ * only serialized on EdGraphNode_Comment and the rare sized K2Node.
+ */
+function extractSpatial(props) {
+  const out = {};
+  // Positions default to 0 when not serialized (UE omits class defaults).
+  // Callers treat missing positions as "at origin" — always present for
+  // consistent downstream containment math.
+  out.node_pos_x = typeof props.NodePosX === 'number' ? props.NodePosX : 0;
+  out.node_pos_y = typeof props.NodePosY === 'number' ? props.NodePosY : 0;
+  if (typeof props.NodeWidth === 'number') out.node_width = props.NodeWidth;
+  if (typeof props.NodeHeight === 'number') out.node_height = props.NodeHeight;
+  if (typeof props.NodeComment === 'string' && props.NodeComment.length > 0) {
+    out.node_comment = props.NodeComment;
+  }
+  if (props.EnabledState !== undefined) out.enabled_state = props.EnabledState;
+  if (typeof props.bCommentBubblePinned === 'boolean') out.comment_bubble_pinned = props.bCommentBubblePinned;
+  if (typeof props.bCommentBubbleVisible === 'boolean') out.comment_bubble_visible = props.bCommentBubbleVisible;
+  if (typeof props.NodeGuid === 'string') out.node_guid = props.NodeGuid;
+  return out;
+}
+
+/**
+ * Parse comment-specific UPROPERTYs from a UEdGraphNode_Comment node's
+ * decoded property map. CommentColor decodes via FLinearColor handler.
+ */
+function extractCommentExtras(props) {
+  const out = {};
+  if (props.CommentColor && typeof props.CommentColor === 'object') {
+    out.comment_color = props.CommentColor;
+  }
+  if (typeof props.FontSize === 'number') out.font_size = props.FontSize;
+  if (typeof props.bColorCommentBubble === 'boolean') out.color_comment_bubble = props.bColorCommentBubble;
+  if (typeof props.bCommentBubbleVisible_InDetailsPanel === 'boolean') {
+    out.comment_bubble_visible_in_details_panel = props.bCommentBubbleVisible_InDetailsPanel;
+  }
+  return out;
+}
+
+/**
+ * Compute which nodes are contained inside each comment box. Center-point
+ * in rectangle — a node at (x,y) with half-extents (w/2,h/2) is contained
+ * when its center (x + w/2, y + h/2) is strictly inside the comment's
+ * (NodePosX, NodePosY) - (NodePosX + NodeWidth, NodePosY + NodeHeight)
+ * rectangle. K2Nodes rarely serialize NodeWidth/Height — they're treated as
+ * point nodes (w=h=0) for the containment check. Zero-size comment rects
+ * return an empty list. Nested comments are reported pairwise; no hierarchy
+ * is inferred.
+ *
+ * Complexity O(N*M). For BP_OSPlayerR (~184 K2Nodes × ~9 comments) this is
+ * ~1700 float compares — microseconds.
+ *
+ * @param {Array<{node_id, node_pos_x, node_pos_y, node_width?, node_height?}>} nodes
+ * @param {Array<{node_id, node_pos_x, node_pos_y, node_width, node_height}>} commentNodes
+ * @returns {Map<number, Array<number>>} commentId → contained node_id list
+ */
+export function computeCommentContainment(nodes, commentNodes) {
+  const out = new Map();
+  for (const c of commentNodes) {
+    const cx1 = c.node_pos_x ?? 0;
+    const cy1 = c.node_pos_y ?? 0;
+    const cw = c.node_width ?? 0;
+    const ch = c.node_height ?? 0;
+    if (cw <= 0 || ch <= 0) {
+      out.set(c.node_id, []);
+      continue;
+    }
+    const cx2 = cx1 + cw;
+    const cy2 = cy1 + ch;
+    const contained = [];
+    for (const n of nodes) {
+      if (n.node_id === c.node_id) continue;
+      const nx = (n.node_pos_x ?? 0) + (n.node_width ?? 0) / 2;
+      const ny = (n.node_pos_y ?? 0) + (n.node_height ?? 0) / 2;
+      if (nx >= cx1 && nx <= cx2 && ny >= cy1 && ny <= cy2) {
+        contained.push(n.node_id);
+      }
+    }
+    out.set(c.node_id, contained);
+  }
+  return out;
+}
+
+function faBetaManifest(notAvailable = [], extraAvailable = []) {
+  return {
+    schema_version: M_SPATIAL_SCHEMA_VERSION,
+    available_fields: [...SPATIAL_AVAILABLE_FIELDS, ...extraAvailable],
+    not_available: notAvailable,
+    plugin_enhancement_available: false,
+  };
+}
+
+/**
+ * bp_list_graphs — enumerate UEdGraph subobjects of a UBlueprint.
+ */
+async function bpListGraphs(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath } = ctx;
+  const { graphs } = indexBlueprintGraphs(ctx);
+
+  const graphRows = graphs
+    .map(g => ({
+      name: g.name,
+      graph_type: g.graph_type,
+      node_count: g.node_count,
+      comment_count: g.comment_count,
+      export_index: g.export_index,
+    }))
+    .sort((a, b) => {
+      // Deterministic ordering: type bucket then name.
+      const typeOrder = ['ubergraph', 'construction_script', 'function', 'macro', 'delegate_signature', 'timeline', 'unknown'];
+      const ai = typeOrder.indexOf(a.graph_type);
+      const bi = typeOrder.indexOf(b.graph_type);
+      if (ai !== bi) return ai - bi;
+      return a.name.localeCompare(b.name);
+    });
+
+  return {
+    asset_path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    graph_count: graphRows.length,
+    graphs: graphRows,
+    ...faBetaManifest([]),
+  };
+}
+
+/**
+ * Parse a node's properties and assemble its base + spatial shape.
+ * Shared by bp_find_in_graph, bp_subgraph_in_comment, bp_show_node,
+ * bp_list_entry_points. Returns null if the node's serial range is invalid.
+ */
+function parseNodeShape(ctx, exportEntry, exportIndex) {
+  const { buf, names, resolve, structHandlers, containerHandlers } = ctx;
+  let parsed;
+  try {
+    parsed = readExportProperties(buf, exportEntry, names, { resolve, structHandlers, containerHandlers });
+  } catch {
+    parsed = { properties: {} };
+  }
+  const props = parsed.properties;
+  const className = resolvePackageIndex(exportEntry.classIndex, ctx.exports, ctx.imports, 'objectName');
+  const row = {
+    node_id: exportIndex,
+    node_name: canonicalNodeName(exportEntry),
+    class_name: className,
+    ...extractSpatial(props),
+  };
+  if (className === 'EdGraphNode_Comment') Object.assign(row, extractCommentExtras(props));
+  return { row, rawProps: props };
+}
+
+/**
+ * bp_find_in_graph — filter K2Nodes within a single UEdGraph.
+ */
+async function bpFindInGraph(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const graphName = params.graph_name;
+  if (!graphName) throw new Error('Missing required parameter: graph_name');
+  const filterClass = params.node_class || null;
+  const filterMember = params.member_name || null;
+  const filterTarget = params.target_class || null;
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 1000));
+  const offset = Math.max(0, params.offset ?? 0);
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath } = ctx;
+  const { graphs } = indexBlueprintGraphs(ctx);
+  const graph = graphs.find(g => g.name === graphName);
+  if (!graph) {
+    throw new Error(`Graph not found: ${graphName}. Available: ${graphs.map(g => g.name).join(', ')}`);
+  }
+
+  const matched = [];
+  for (const row of graph._nodes) {
+    const cls = row.className;
+    if (!SKELETAL_K2NODE_CLASSES.has(cls)) continue;
+    if (filterClass && cls !== filterClass) continue;
+    const shape = parseNodeShape(ctx, row.export, row.export_index);
+    const semantics = extractNodeSemantics(cls, shape.rawProps);
+    if (filterMember && semantics.member_name !== filterMember) continue;
+    if (filterTarget) {
+      const t = semantics.target_class;
+      if (!t || (t !== filterTarget && !t.endsWith(filterTarget))) continue;
+    }
+    matched.push({
+      ...shape.row,
+      node_class: cls,
+      member_name: semantics.member_name ?? null,
+      target_class: semantics.target_class ?? null,
+      macro_path: semantics.macro_path ?? null,
+      graph_name: graph.name,
+      extras: semantics.extras,
+    });
+  }
+
+  const page = matched.slice(offset, offset + limit);
+  return stripPackageIndex({
+    asset_path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    graph_name: graph.name,
+    graph_type: graph.graph_type,
+    total_nodes_in_graph: graph.node_count,
+    total_matched: matched.length,
+    offset,
+    limit,
+    truncated: offset + limit < matched.length,
+    nodes: page,
+    ...faBetaManifest([]),
+  });
+}
+
+/**
+ * bp_subgraph_in_comment — return the comment node + nodes it spatially contains.
+ */
+async function bpSubgraphInComment(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const rawId = params.comment_node_id;
+  if (rawId === undefined || rawId === null || rawId === '') {
+    throw new Error('Missing required parameter: comment_node_id');
+  }
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, exports, imports } = ctx;
+
+  // Resolve comment_node_id — integer/numeric-string matches export_index;
+  // plain string matches canonicalNodeName or objectName.
+  // Resolve any node id first (integer export_index OR string objectName),
+  // then verify it's a comment. Two-phase lookup gives callers a precise
+  // "not a comment" message when they pass a valid non-comment id, vs a
+  // generic "not found" when the id is bogus.
+  const asNum = Number(rawId);
+  let commentExportIndex = null;
+  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
+    commentExportIndex = asNum;
+  } else {
+    for (let i = 0; i < exports.length; i++) {
+      const e = exports[i];
+      if (e.objectName === rawId || canonicalNodeName(e) === rawId) {
+        commentExportIndex = i + 1;
+        break;
+      }
+    }
+  }
+  if (commentExportIndex === null) {
+    throw new Error(`Comment node not found: ${rawId}`);
+  }
+  const commentExport = exports[commentExportIndex - 1];
+  const commentClass = resolvePackageIndex(commentExport.classIndex, exports, imports, 'objectName');
+  if (commentClass !== 'EdGraphNode_Comment') {
+    throw new Error(`Node is not a comment: ${rawId} (className: ${commentClass})`);
+  }
+
+  // Build the comment's shape.
+  const commentShape = parseNodeShape(ctx, commentExport, commentExportIndex);
+
+  // Collect sibling nodes in the same graph (outerIndex match).
+  const graphPi = commentExport.outerIndex;
+  const siblings = [];
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    if (e.outerIndex !== graphPi) continue;
+    if (i + 1 === commentExportIndex) continue;
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    if (!cls) continue;
+    if (!cls.startsWith('K2Node_') && cls !== 'EdGraphNode_Comment') continue;
+    const shape = parseNodeShape(ctx, e, i + 1);
+    siblings.push(shape.row);
+  }
+
+  const commentRow = commentShape.row;
+  const contained = computeCommentContainment(siblings, [commentRow]).get(commentRow.node_id) ?? [];
+  const containedNodes = siblings.filter(s => contained.includes(s.node_id));
+
+  return stripPackageIndex({
+    asset_path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    comment: commentRow,
+    contained_count: containedNodes.length,
+    contained: containedNodes,
+    ...faBetaManifest([]),
+  });
+}
+
+/**
+ * bp_list_entry_points — enumerate K2Node_Event/CustomEvent/FunctionEntry nodes.
+ *
+ * PARTIAL (FA-β): class-identity heuristic; does not tell which entries have
+ * outgoing exec connectivity (that needs pin data from M-new S-B). Entries
+ * that are not wired to anything still appear here — callers that care about
+ * live/dead entries should wait for the pin-aware upgrade.
+ */
+async function bpListEntryPoints(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, exports, imports } = ctx;
+  const { graphs } = indexBlueprintGraphs(ctx);
+
+  // Map graph package-index → graph name for echoing per entry.
+  const graphNameByPi = new Map();
+  for (const g of graphs) graphNameByPi.set(g.export_index, g.name);
+
+  const entries = [];
+  for (let i = 0; i < exports.length; i++) {
+    const e = exports[i];
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    if (!cls || !ENTRY_POINT_CLASSES.has(cls)) continue;
+    const shape = parseNodeShape(ctx, e, i + 1);
+    const semantics = extractNodeSemantics(cls, shape.rawProps);
+    entries.push({
+      ...shape.row,
+      node_class: cls,
+      member_name: semantics.member_name ?? null,
+      target_class: semantics.target_class ?? null,
+      graph_name: graphNameByPi.get(e.outerIndex) ?? null,
+    });
+  }
+
+  return stripPackageIndex({
+    asset_path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    entry_point_count: entries.length,
+    entry_points: entries,
+    ...faBetaManifest(['exec_connectivity']),
+  });
+}
+
+/**
+ * bp_show_node — full export record for a single node by id.
+ *
+ * PARTIAL (FA-β): pin block (pins[], LinkedTo edges) not populated — that
+ * data lives in the 3F sidecar or a pin-aware M-new reader.
+ */
+async function bpShowNode(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const rawId = params.node_id;
+  if (rawId === undefined || rawId === null || rawId === '') {
+    throw new Error('Missing required parameter: node_id');
+  }
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, exports, imports } = ctx;
+
+  const asNum = Number(rawId);
+  let nodeExportIndex = null;
+  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
+    nodeExportIndex = asNum;
+  } else {
+    for (let i = 0; i < exports.length; i++) {
+      const e = exports[i];
+      if (e.objectName === rawId || canonicalNodeName(e) === rawId) {
+        nodeExportIndex = i + 1;
+        break;
+      }
+    }
+  }
+  if (nodeExportIndex === null) {
+    throw new Error(`Node not found: ${rawId}`);
+  }
+
+  const nodeExport = exports[nodeExportIndex - 1];
+  const className = resolvePackageIndex(nodeExport.classIndex, exports, imports, 'objectName');
+  const shape = parseNodeShape(ctx, nodeExport, nodeExportIndex);
+  const semantics = className?.startsWith('K2Node_')
+    ? extractNodeSemantics(className, shape.rawProps) : {};
+
+  // Graph context — which graph does this node live in?
+  const { graphs } = indexBlueprintGraphs(ctx);
+  const graph = graphs.find(g => g.export_index === nodeExport.outerIndex);
+
+  const node = {
+    ...shape.row,
+    outer_graph_name: graph?.name ?? null,
+    outer_graph_type: graph?.graph_type ?? null,
+    member_name: semantics.member_name ?? null,
+    target_class: semantics.target_class ?? null,
+    macro_path: semantics.macro_path ?? null,
+    properties: shape.rawProps,
+    pins: [],  // FA-β placeholder; populated by M-new S-B
+  };
+
+  return stripPackageIndex({
+    asset_path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    node,
+    ...faBetaManifest(['pin_block']),
+  });
+}
+
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
     throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
@@ -1911,6 +2419,26 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'find_blueprint_nodes_bulk':
       return await findBlueprintNodesBulk(projectRoot, params);
+
+    case 'bp_list_graphs':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpListGraphs(projectRoot, params);
+
+    case 'bp_find_in_graph':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpFindInGraph(projectRoot, params);
+
+    case 'bp_subgraph_in_comment':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpSubgraphInComment(projectRoot, params);
+
+    case 'bp_list_entry_points':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpListEntryPoints(projectRoot, params);
+
+    case 'bp_show_node':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpShowNode(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);
