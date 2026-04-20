@@ -478,10 +478,6 @@ toolsets:
         description: Edit existing GE — add/remove modifiers, change tags, set period
         params:
           asset_path: { type: string, required: true }
-      list_gameplay_tags_runtime:
-        description: Query live tag hierarchy from editor (more accurate than offline parse)
-        params:
-          filter: { type: string, required: false }
       create_attribute_set:
         description: Generate AttributeSet class template with specified attributes
         params:
@@ -492,42 +488,49 @@ toolsets:
     layer: tcp-55558
     priority: 1
     description: Blueprint introspection — read graph, variables, functions, components
+    # MOVE-TO-SIDECAR per D54/§Q1.2: get_blueprint_graphs, get_animbp_graph (full) and
+    # the EventGraph subset of get_widget_blueprint are absorbed by the 3F sidecar
+    # milestone (M2-Phase-A). The 9 sidecar traversal verbs (bp_list_graphs,
+    # bp_trace_exec, etc.) will land in the offline toolset, not here.
     tools:
+      # reduced_scope: runtime-reflected interface list + UClass flags only (structural fields shipped offline per D37)
+      # displaced_by: inspect_blueprint, query_asset_registry, read_asset_properties
       get_blueprint_info:
         description: Parent class, interfaces, component list, variable count, function count. Overview without loading full graph.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: reflection-only metadata (replication flags, EditAnywhere, tooltips, Category); CDO values shipped offline post-Agent-10
+      # displaced_by: inspect_blueprint (include_defaults), read_asset_properties
       get_blueprint_variables:
         description: All variables with types, default values, categories, replication flags, tooltips
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: full function signatures (params, return type, static/const/pure flags); name-level enumeration shipped offline per D48 S-A
+      # displaced_by: find_blueprint_nodes, inspect_blueprint
       get_blueprint_functions:
         description: All functions with full signatures (params, return type, static/const/pure flags)
         params:
           asset_path: { type: string, required: true }
-      get_blueprint_graphs:
-        description: All graphs as JSON — event graphs, functions (including orphans), macros, delegate signatures. Nodes, pins, connections, default values. Optional graph_name filter.
-        note: Consolidated from old get_blueprint_graph + get_all_blueprint_graphs
-        aliases: [get_all_blueprint_graphs]
-        params:
-          asset_path:  { type: string, required: true }
-          graph_name:  { type: string, required: false }
+      # reduced_scope: live-attached-via-construction-script components (not saved in .uasset); SCS tree + defaults shipped offline
+      # displaced_by: inspect_blueprint, read_asset_properties
       get_blueprint_components:
         description: Component hierarchy tree with classes, attached-to relationships, and default property values
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: full delegate binding targets (which function bound on which object) via UEdGraph pin trace; presence-only shipped offline per D48
+      # displaced_by: find_blueprint_nodes
       get_blueprint_event_dispatchers:
         description: All event dispatchers with parameter signatures
         params:
           asset_path: { type: string, required: true }
-      get_animbp_graph:
-        description: AnimBP state machines — states, transitions (with conditions), blend trees, blend parameters. Plus standard EventGraph.
-        params:
-          asset_path: { type: string, required: true }
+      # reduced_scope: widget hierarchy tree + property bindings only — EventGraph + functions subset MOVE-TO-SIDECAR (3F) per D56/§Q1.2
+      # displaced_by: 3F sidecar (EventGraph + functions subset); plugin retains UMG/Slate designer data surface
       get_widget_blueprint:
         description: Widget hierarchy tree (designer view), property bindings, plus standard EventGraph and functions.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: compiled Niagara VM state + emitter graph evaluation; static params + bounds shipped offline via D50
+      # displaced_by: read_asset_properties
       get_niagara_system_info:
         description: UNiagaraSystem metadata — emitter names, user-exposed parameters, fixed bounds. Read-only.
         params:
@@ -538,26 +541,16 @@ toolsets:
     priority: 3
     description: Project-wide asset discovery and dependency analysis
     tools:
-      search_assets:
-        description: Find assets by class, path pattern, or tag. E.g., "all Blueprints under /Game/GAS/"
-        params:
-          class_filter: { type: string, required: false }
-          path_pattern: { type: string, required: false }
-          tag_filter:   { type: object, required: false }
+      # reduced_scope: reverse-reference queries via editor's IAssetRegistry::GetReferencers fast-path; forward-refs shipped offline
+      # displaced_by: read_asset_properties (forward-ref subset via FSoftObjectPath walk)
       get_asset_references:
         description: Dependency graph — what this asset references and what references it. Essential for impact analysis.
         params:
           asset_path: { type: string, required: true }
-      get_class_hierarchy:
-        description: All Blueprint children of a given class. E.g., "all subclasses of UOSGameplayAbility"
-        params:
-          base_class: { type: string, required: true }
+      # reduced_scope: engine-struct-keyed DataTables + cooked/compiled DataTable access; UUserDefinedStruct rows shipped offline via D50 tagged-fallback
+      # displaced_by: read_asset_properties
       get_datatable_contents:
         description: Read all rows from a DataTable asset as structured JSON (column names, types, values)
-        params:
-          asset_path: { type: string, required: true }
-      get_asset_metadata:
-        description: Full Asset Registry tags/metadata without loading the asset into memory
         params:
           asset_path: { type: string, required: true }
 
@@ -584,23 +577,33 @@ toolsets:
           asset_path:    { type: string, required: true }
           notify_class:  { type: string, required: true }
           time:          { type: number, required: true }
+      # reduced_scope: evaluated blend settings + compiled slot machinery (requires live UAnimInstance); scalar section/notify data shipped offline
+      # displaced_by: read_asset_properties
       get_montage_full:
         description: Deep montage read — sections, notifies, slots, blend settings, composite segments.
         note: Supersedes old list_montage_sections
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: compiled notify tracks + runtime-evaluated curves + sync markers; duration/frame count/skeleton ref shipped offline
+      # displaced_by: read_asset_properties
       get_anim_sequence_info:
         description: AnimSequence metadata — duration, frame count, rate, skeleton, notify tracks, curves, sync markers.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: runtime interpolation evaluation; sample points + blend axes shipped offline
+      # displaced_by: read_asset_properties
       get_blend_space:
         description: Blend axes, sample points, interpolation mode. Covers BlendSpace and BlendSpace1D.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: compiled curve baking + evaluated values; simple keyframe data shipped offline
+      # displaced_by: read_asset_properties
       get_anim_curve_data:
         description: Float/vector/transform curve keyframes from any animation asset
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: runtime playback state + Wwise SDK AkAudioEvent reflection; SoundCue/SoundWave CDO metadata shipped offline
+      # displaced_by: read_asset_properties
       get_audio_asset_info:
         description: Metadata for audio assets — SoundCue, SoundWave, AkAudioEvent. Read-only.
         params:
@@ -630,6 +633,8 @@ toolsets:
           asset_path:     { type: string, required: true }
           parameter_name: { type: string, required: true }
           value:          { type: any, required: true }
+      # reduced_scope: compiled shader uniforms (compile-time constants baked by the editor material compiler); static parameter defaults shipped offline
+      # displaced_by: read_asset_properties (D50 tagged-fallback for FMaterialParameterInfo)
       list_material_parameters:
         description: Get all parameters and current values from material
         params:
@@ -657,21 +662,25 @@ toolsets:
           asset_path:    { type: string, required: true }
           property_name: { type: string, required: true }
           value:         { type: any, required: true }
+      # reduced_scope: reflection-only "subclasses defined in loaded modules" (discover runtime-registered DataAsset classes); AR-tag-surface shipped offline
+      # displaced_by: query_asset_registry (class_name:DataAsset)
       list_data_asset_types:
         description: List available UDataAsset subclasses in project
         params: {}
-      get_data_asset_properties:
-        description: Read all UPROPERTY values on any UDataAsset subclass as structured JSON
-        params:
-          asset_path: { type: string, required: true }
+      # reduced_scope: compiled/baked curve evaluation + complex UCurveTable joins; simple UCurveFloat/Vector/Color keyframes shipped offline
+      # displaced_by: read_asset_properties
       get_curve_asset:
         description: Read UCurveFloat/Vector/Color keyframes with tangents and interpolation. Also UCurveTable.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: localization compilation + culture-specific lookups; binary UStringTable key/value entries shipped offline via D50 tagged-fallback
+      # displaced_by: read_asset_properties
       get_string_table:
         description: Read UStringTable key/value entries. Useful for localization and UI text review.
         params:
           asset_path: { type: string, required: true }
+      # reduced_scope: member metadata (EditAnywhere, BlueprintReadWrite flags, tooltips); member layout shipped offline via D50 tagged-fallback
+      # displaced_by: read_asset_properties
       get_struct_definition:
         description: Read UUserDefinedStruct members and UUserDefinedEnum values.
         params:
@@ -736,6 +745,8 @@ toolsets:
         description: Auto-unwrap UVs on a dynamic mesh
         params:
           target: { type: string, required: true }
+      # reduced_scope: compiled vertex buffer evaluation + runtime bounds
+      # displaced_by: (deferred — offline static-mesh header parse could cover vertex/triangle counts in a future enhancement per §Q1.8)
       get_mesh_info:
         description: Get vertex count, triangle count, bounds, material slots
         params:
@@ -756,6 +767,8 @@ toolsets:
         description: Execute Python script in editor (requires Python Editor Script Plugin). Security note — arbitrary code execution.
         params:
           command: { type: string, required: true }
+      # reduced_scope: Run method binding + editor menu registration; standard BP introspection shipped offline
+      # displaced_by: inspect_blueprint, read_asset_properties
       get_editor_utility_blueprint:
         description: Read EUB/EUW — standard BP introspection + run method + editor menu registration
         params:
@@ -764,12 +777,6 @@ toolsets:
         description: Execute an Editor Utility Blueprint's Run action
         params:
           asset_path: { type: string, required: true }
-      create_asset:
-        description: Generic asset creation via UFactory (specify class, path, name)
-        params:
-          name:        { type: string, required: true }
-          asset_class: { type: string, required: true }
-          path:        { type: string, required: true }
       duplicate_asset:
         description: Duplicate existing asset to new path
         params:
