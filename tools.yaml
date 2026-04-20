@@ -185,6 +185,74 @@ toolsets:
           offset:        { type: number,  required: false, description: "Bulk-level pagination offset over matched BPs (default 0)." }
           max_scan:      { type: number,  required: false, description: "Max Blueprints processed (default 500, cap 5000). Walks the full path_prefix subtree, then caps at this many BPs. scan_truncated=true when the cap clips or the registry query overflows." }
           include_nodes: { type: boolean, required: false, description: "When true, include per-BP nodes[] details. Default false returns counts only for compact output." }
+      bp_list_graphs:
+        description: >-
+          Enumerate UEdGraph subobjects in a Blueprint (EventGraph,
+          UserConstructionScript, per-function graphs, macro graphs, delegate
+          signature graphs). Returns per-graph records with name, inferred
+          graph_type, node_count, and export_index. Offline; no plugin, editor,
+          or sidecar required. Use this to orient before bp_find_in_graph or
+          bp_show_node. FA-β response manifest (available_fields, not_available)
+          clarifies coverage — spatial/comment fields are first-class here.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset (with or without extension)" }
+      bp_find_in_graph:
+        description: >-
+          Scope variant of find_blueprint_nodes — filter K2Nodes within a single
+          UEdGraph of a Blueprint. Validates graph_name against the BP's graph
+          set; returns match rows with graph_name echoed per row for
+          disambiguation. Node class and member filters share semantics with
+          find_blueprint_nodes. Use bp_list_graphs first to discover graph names.
+          Offline (no editor/plugin/sidecar). Spatial fields (position,
+          comment, enabled_state) are first-class in match rows.
+        params:
+          asset_path:   { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          graph_name:   { type: string, required: true, description: "Graph objectName as returned by bp_list_graphs (e.g., EventGraph, UserConstructionScript, MyFunctionName)." }
+          node_class:   { type: string, required: false, description: "Filter by K2Node class (e.g., K2Node_CallFunction). Omit for all skeletal types." }
+          member_name:  { type: string, required: false, description: "Filter by FMemberReference.MemberName — exact match." }
+          target_class: { type: string, required: false, description: "Filter by FMemberReference.MemberParent — exact or suffix match." }
+          limit:        { type: number, required: false, description: "Max nodes returned (default 100, cap 1000)." }
+          offset:       { type: number, required: false, description: "Result offset for pagination (default 0)." }
+      bp_subgraph_in_comment:
+        description: >-
+          Return the nodes visually contained inside a UEdGraphNode_Comment box
+          using spatial (NodePosX/Y + NodeWidth/Height) center-point rectangle
+          containment. Nested comments are reported pairwise (no hierarchy
+          inferred). Zero-size comment rectangles return an empty contained
+          list. comment_node_id accepts export_index (integer) or node_name
+          (string, with _N suffix when serialized). Offline — no plugin or
+          editor needed; comment color and text decode via engine struct
+          handlers.
+        params:
+          asset_path:      { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          comment_node_id: { type: string, required: true, description: "Comment node identifier — either the export_index as a string/integer, or the node's full objectName." }
+      bp_list_entry_points:
+        description: >-
+          Enumerate graph entry points — K2Node_Event, K2Node_CustomEvent, and
+          K2Node_FunctionEntry nodes. Returns member_name, graph_name,
+          position, enabled_state, and export_index per entry. **PARTIAL
+          COVERAGE** (FA-β) — this offline implementation uses class-identity
+          heuristics; exec-pin connectivity (which entries actually have
+          outgoing exec links) is not visible without the 3F sidecar or
+          editor. Response advertises `not_available: ["exec_connectivity"]`;
+          a later M-new pin-aware implementation will remove that field from
+          not_available.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+      bp_show_node:
+        description: >-
+          Return the full export record for a single K2Node or comment node —
+          class, position (NodePosX/Y/Width/Height), enabled_state,
+          NodeComment, NodeGuid, and any other tagged UPROPERTYs the parser
+          could decode. **PARTIAL COVERAGE** (FA-β) — pin block (pin names,
+          types, defaults, LinkedTo edges) is not populated; response
+          advertises `not_available: ["pin_block"]`. A later M-new
+          pin-aware implementation will populate `pins[]` and remove
+          pin_block from not_available. node_id accepts export_index
+          (integer) or node_name (string).
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          node_id:    { type: string, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
         params: {}
