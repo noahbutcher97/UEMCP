@@ -344,6 +344,66 @@ console.log('\n── Test 4: Zod coerce number (F-1) ──');
   await transport.close();
 }
 
+// Test 4.5: Zod preprocess — array stringification (F-1.5 validation)
+// Mirror of Test 3/4 for array<string> wire stringification. Uses
+// read_asset_properties.property_names — the exact param the manual tester
+// hit with "Expected array, received string" pre-fix.
+console.log('\n── Test 4.5: Zod preprocess array (F-1.5) ──');
+{
+  const captures = {};
+  const { transport, sendRequest, initialize } = await createTestServer(makeEchoHandler(captures));
+  await initialize();
+
+  // The blocker case: stringified JSON array on the wire
+  const r1 = await sendRequest('tools/call', {
+    name: 'read_asset_properties',
+    arguments: { asset_path: '/Game/Fake', property_names: '["AbilityTags"]' },
+  });
+  t.assert(!r1.result?.isError, `stringified array accepted (got text=${r1.result?.content?.[0]?.text?.slice(0,120)})`);
+  t.assert(
+    Array.isArray(captures.read_asset_properties?.property_names),
+    `handler received Array (got ${typeof captures.read_asset_properties?.property_names})`
+  );
+  t.assert(
+    captures.read_asset_properties?.property_names?.[0] === 'AbilityTags',
+    `array[0] === "AbilityTags" (got ${captures.read_asset_properties?.property_names?.[0]})`
+  );
+
+  // Typed array round-trips untouched
+  delete captures.read_asset_properties;
+  const r2 = await sendRequest('tools/call', {
+    name: 'read_asset_properties',
+    arguments: { asset_path: '/Game/Fake', property_names: ['AbilityTags', 'CooldownTags'] },
+  });
+  t.assert(!r2.result?.isError, 'typed array round-trips');
+  t.assert(
+    captures.read_asset_properties?.property_names?.length === 2,
+    `typed array preserved length=2 (got ${captures.read_asset_properties?.property_names?.length})`
+  );
+
+  // Empty stringified array
+  delete captures.read_asset_properties;
+  const r3 = await sendRequest('tools/call', {
+    name: 'read_asset_properties',
+    arguments: { asset_path: '/Game/Fake', property_names: '[]' },
+  });
+  t.assert(!r3.result?.isError, 'stringified "[]" accepted');
+  t.assert(
+    Array.isArray(captures.read_asset_properties?.property_names) &&
+      captures.read_asset_properties.property_names.length === 0,
+    'stringified "[]" parses to empty array'
+  );
+
+  // Malformed JSON → Zod rejects with isError:true
+  const r4 = await sendRequest('tools/call', {
+    name: 'read_asset_properties',
+    arguments: { asset_path: '/Game/Fake', property_names: 'not json' },
+  });
+  t.assert(r4.result?.isError === true, 'malformed JSON string rejected with isError:true');
+
+  await transport.close();
+}
+
 // Test 5: Happy-path tool/call response shape (real handler)
 console.log('\n── Test 5: Happy-path response shape ──');
 {

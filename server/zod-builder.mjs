@@ -7,8 +7,24 @@
 // some MCP client wrappers stringify typed params during transit. Without
 // coercion, a caller passing { summarize_by_class: true } would arrive as
 // { summarize_by_class: "true" } and fail Zod validation.
+//
+// Wire-protocol note (F-1.5): array and object types use z.preprocess + JSON.parse
+// for the same reason — some wrappers JSON-stringify typed containers during
+// transit (e.g. { property_names: ["AbilityTags"] } arrives as
+// { property_names: "[\"AbilityTags\"]" }). Malformed JSON falls through as
+// a string so Zod produces a clean "expected array/object, got string" error
+// rather than a cryptic SyntaxError leaking from preprocess.
 
 import { z } from 'zod';
+
+function jsonPreprocessOrPassthrough(val) {
+  if (typeof val !== 'string') return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return val;
+  }
+}
 
 export function buildZodSchema(params) {
   if (!params || Object.keys(params).length === 0) {
@@ -30,10 +46,16 @@ export function buildZodSchema(params) {
         field = z.coerce.boolean();
         break;
       case 'array':
-        field = z.array(def.items === 'string' ? z.string() : z.any());
+        field = z.preprocess(
+          jsonPreprocessOrPassthrough,
+          z.array(def.items === 'string' ? z.string() : z.any())
+        );
         break;
       case 'object':
-        field = z.record(z.any());
+        field = z.preprocess(
+          jsonPreprocessOrPassthrough,
+          z.record(z.any())
+        );
         break;
       default:
         field = z.any();

@@ -129,6 +129,55 @@ assert(Object.keys(buildZodSchema({})).length === 0,
 assert(Object.keys(buildZodSchema(undefined)).length === 0,
   'buildZodSchema: undefined params returns {}');
 
+// ── Test 1d: buildZodSchema (F-1.5: MCP wire preprocess for arrays/objects) ──
+console.log('\n═══ Test 1d: buildZodSchema MCP-wire array/object preprocess ═══');
+
+// Real yaml shape pulled from offline.read_asset_properties — exercises array<string>.
+const rapSchemaShape = buildZodSchema(toolsData.toolsets.offline.tools.read_asset_properties.params);
+const rapSchema = z.object(rapSchemaShape);
+
+// Typed array passes through unchanged (regression guard for F-1.5)
+const arrTypedParse = rapSchema.safeParse({ asset_path: '/Game/x', property_names: ['AbilityTags'] });
+assert(arrTypedParse.success && Array.isArray(arrTypedParse.data.property_names) && arrTypedParse.data.property_names[0] === 'AbilityTags',
+  'buildZodSchema: typed array still works post-preprocess');
+
+// Stringified array → preprocess JSON-parses then validates (the F-1.5 fix)
+const arrStrParse = rapSchema.safeParse({ asset_path: '/Game/x', property_names: '["AbilityTags"]' });
+assert(arrStrParse.success && Array.isArray(arrStrParse.data.property_names) && arrStrParse.data.property_names[0] === 'AbilityTags',
+  'buildZodSchema: stringified array \'["AbilityTags"]\' parses to ["AbilityTags"]');
+
+// Empty stringified array → passes
+const arrEmptyParse = rapSchema.safeParse({ asset_path: '/Game/x', property_names: '[]' });
+assert(arrEmptyParse.success && Array.isArray(arrEmptyParse.data.property_names) && arrEmptyParse.data.property_names.length === 0,
+  'buildZodSchema: stringified empty array "[]" parses to []');
+
+// Stringified non-array JSON → preprocess parses, but Zod rejects (not an array)
+const arrObjParse = rapSchema.safeParse({ asset_path: '/Game/x', property_names: '{"foo": 1}' });
+assert(!arrObjParse.success,
+  'buildZodSchema: stringified object "{...}" rejected when target type is array');
+
+// Malformed JSON string → preprocess passes through, Zod rejects with clear message
+const arrBadParse = rapSchema.safeParse({ asset_path: '/Game/x', property_names: 'not json' });
+assert(!arrBadParse.success,
+  'buildZodSchema: malformed JSON "not json" rejected as array (passthrough preserves clear error)');
+
+// Object preprocess: synthetic schema from a fake `object`-typed param
+// (No production tool currently declares object params, but the case-branch must work.)
+const objSchemaShape = buildZodSchema({ payload: { type: 'object', required: true } });
+const objSchema = z.object(objSchemaShape);
+
+const objTypedParse = objSchema.safeParse({ payload: { foo: 1 } });
+assert(objTypedParse.success && objTypedParse.data.payload.foo === 1,
+  'buildZodSchema: typed object still works post-preprocess');
+
+const objStrParse = objSchema.safeParse({ payload: '{"foo": 1}' });
+assert(objStrParse.success && objStrParse.data.payload.foo === 1,
+  'buildZodSchema: stringified object \'{"foo": 1}\' parses to {foo: 1}');
+
+const objBadParse = objSchema.safeParse({ payload: 'not json' });
+assert(!objBadParse.success,
+  'buildZodSchema: malformed JSON rejected as object (passthrough preserves clear error)');
+
 // ── Build ToolIndex ──────────────────────────────────────
 const toolIndex = new ToolIndex();
 toolIndex.build(toolsData);
