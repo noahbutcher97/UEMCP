@@ -159,6 +159,32 @@ toolsets:
           target_class: { type: string, required: false, description: "Filter by FMemberReference.MemberParent class path (e.g., /Script/GameplayAbilities.GameplayAbility). Suffix match against target's packagePath also accepted." }
           limit:        { type: number, required: false, description: "Max nodes returned (default 100, cap 1000)." }
           offset:       { type: number, required: false, description: "Result offset for pagination (default 0)." }
+      find_blueprint_nodes_bulk:
+        description: >-
+          Corpus-wide scan for K2Nodes across all Blueprints under a
+          path_prefix. Returns aggregated per-BP match counts plus, when
+          include_nodes=true, per-BP node details. Filters by node_class,
+          member_name, target_class with identical semantics to the single-BP
+          find_blueprint_nodes. Use for "which BPs call X", "which BPs
+          handle event Y", "where is variable Z accessed across the project"
+          workflows — one tool call instead of N round-trips. Results are
+          filtered to BPs with match_count > 0; per-BP parse errors surface
+          in errors[] rather than failing the whole scan. Two truncation
+          flags: scan_truncated=true means the matched-BP set is incomplete
+          (widen max_scan or narrow path_prefix); page_truncated=true means
+          more BPs matched than this page returned (advance offset). Defaults
+          are conservative (limit=50, max_scan=500). With include_nodes=true
+          the payload can be large (match_count × BPs) — narrow via filters
+          or paginate. Single-BP variant: find_blueprint_nodes.
+        params:
+          path_prefix:   { type: string,  required: true,  description: "/Game/... path prefix to scan (required). Must start with /Game/." }
+          node_class:    { type: string,  required: false, description: "Filter: K2Node class (e.g., K2Node_CallFunction). Same classes as find_blueprint_nodes." }
+          member_name:   { type: string,  required: false, description: "Filter: FMemberReference.MemberName exact match." }
+          target_class:  { type: string,  required: false, description: "Filter: MemberParent class path — exact or suffix match, same as find_blueprint_nodes." }
+          limit:         { type: number,  required: false, description: "Max BPs in response (default 50, cap 200). Applies post-filter to results[]." }
+          offset:        { type: number,  required: false, description: "Bulk-level pagination offset over matched BPs (default 0)." }
+          max_scan:      { type: number,  required: false, description: "Max Blueprints processed (default 500, cap 5000). Walks the full path_prefix subtree, then caps at this many BPs. scan_truncated=true when the cap clips or the registry query overflows." }
+          include_nodes: { type: boolean, required: false, description: "When true, include per-BP nodes[] details. Default false returns counts only for compact output." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
         params: {}

@@ -978,6 +978,181 @@ if (PROJECT_ROOT) {
   }
 }
 
+// ── Test 13: EN-2 Worker — find_blueprint_nodes_bulk (corpus-wide scan) ──
+//
+// Closes Workflow Catalog SERVED_PARTIAL rows 26/27/28/42/62/63 by folding
+// N-round-trip "which BPs call X / handle Y / access Z" iteration into one
+// call. Inherits filter semantics from find_blueprint_nodes.
+if (PROJECT_ROOT) {
+  console.log(`\n═══ Test 13: EN-2 Worker — find_blueprint_nodes_bulk ═══`);
+
+  // D44 invariant — yaml registration.
+  try {
+    const offlineTools = toolsData.toolsets.offline.tools;
+    assert(offlineTools.find_blueprint_nodes_bulk !== undefined,
+      'EN-2 D44: find_blueprint_nodes_bulk entry exists in yaml');
+    const desc = offlineTools.find_blueprint_nodes_bulk.description;
+    assert(/corpus-wide|which BPs/i.test(desc),
+      'EN-2 D44: description mentions corpus-wide scan / workflow');
+    assert(/find_blueprint_nodes/.test(desc),
+      'EN-2 D44: description cross-references single-BP variant');
+    const p = offlineTools.find_blueprint_nodes_bulk.params;
+    assert(p.path_prefix?.required === true, 'EN-2 D44: path_prefix declared required');
+    assert(p.node_class !== undefined, 'EN-2 D44: node_class param declared');
+    assert(p.member_name !== undefined, 'EN-2 D44: member_name param declared');
+    assert(p.target_class !== undefined, 'EN-2 D44: target_class param declared');
+    assert(p.limit !== undefined && p.offset !== undefined, 'EN-2 D44: limit+offset params declared');
+    assert(p.max_scan !== undefined, 'EN-2 D44: max_scan param declared');
+    assert(p.include_nodes?.type === 'boolean', 'EN-2 D44: include_nodes declared as boolean');
+  } catch (e) {
+    assert(false, 'EN-2 D44: yaml invariant', e.message);
+  }
+
+  // Basic scan: /Game/Blueprints walks many BPs; at least some should match
+  // skeletal K2Nodes when unfiltered.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', max_scan: 500 }, PROJECT_ROOT);
+    assert(r.total_bps_scanned > 0, `EN-2: total_bps_scanned > 0 (got ${r.total_bps_scanned})`);
+    assert(r.total_bps_matched > 0, `EN-2: unfiltered scan finds matched BPs (got ${r.total_bps_matched})`);
+    assert(Array.isArray(r.results), 'EN-2: results[] is array');
+    assert(r.path_prefix === '/Game/Blueprints', 'EN-2: path_prefix echoed');
+    assert(typeof r.scan_truncated === 'boolean', 'EN-2: scan_truncated flag present');
+    assert(typeof r.page_truncated === 'boolean', 'EN-2: page_truncated flag present');
+    // filter block echoes request filter even when all null
+    assert(r.filter && 'node_class' in r.filter && 'member_name' in r.filter && 'target_class' in r.filter,
+      'EN-2: filter object echoed with node_class/member_name/target_class');
+    // Every results row has path + match_count; match_count > 0 by construction.
+    for (const row of r.results) {
+      if (!(row.path && typeof row.match_count === 'number' && row.match_count > 0)) {
+        assert(false, `EN-2: every result row has path + match_count>0 (got ${JSON.stringify(row)})`);
+        break;
+      }
+    }
+    assert(true, 'EN-2: every result row has path + match_count>0');
+    // Default include_nodes=false → no nodes[] per row
+    assert(r.results.every(row => !('nodes' in row)),
+      'EN-2: include_nodes=false default — rows have no nodes[]');
+  } catch (e) {
+    assert(false, 'EN-2: basic bulk scan', e.message);
+  }
+
+  // member_name filter across corpus — ReceiveBeginPlay is a canonical event
+  // name that appears in many BPs. Should match at least 1 BP.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', member_name: 'ReceiveBeginPlay', max_scan: 500 },
+      PROJECT_ROOT);
+    assert(r.total_bps_matched > 0,
+      `EN-2 filter: ReceiveBeginPlay matches some BPs (got ${r.total_bps_matched})`);
+    assert(r.filter.member_name === 'ReceiveBeginPlay', 'EN-2 filter: member_name echoed');
+  } catch (e) {
+    assert(false, 'EN-2: member_name filter', e.message);
+  }
+
+  // include_nodes=true surfaces per-BP nodes[]; each node has node_class + export_index.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+        include_nodes: true, max_scan: 500, limit: 5 }, PROJECT_ROOT);
+    assert(r.results.length > 0, 'EN-2 include_nodes: some BPs have events');
+    const first = r.results[0];
+    assert(Array.isArray(first.nodes), 'EN-2 include_nodes: first row has nodes[] array');
+    assert(first.nodes.length === first.match_count,
+      'EN-2 include_nodes: nodes.length === match_count');
+    for (const n of first.nodes) {
+      if (!(n.node_class === 'K2Node_Event' && typeof n.export_index === 'number')) {
+        assert(false, `EN-2 include_nodes: each node is K2Node_Event with export_index (got ${JSON.stringify(n)})`);
+        break;
+      }
+    }
+    assert(true, 'EN-2 include_nodes: each node is K2Node_Event with export_index');
+  } catch (e) {
+    assert(false, 'EN-2: include_nodes=true shape', e.message);
+  }
+
+  // Pagination: limit=1 pages yield disjoint BP paths.
+  try {
+    const p1 = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+        limit: 1, offset: 0, max_scan: 500 }, PROJECT_ROOT);
+    const p2 = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+        limit: 1, offset: 1, max_scan: 500 }, PROJECT_ROOT);
+    assert(p1.offset === 0 && p1.limit === 1, 'EN-2 pagination: page 1 echoes offset/limit');
+    assert(p2.offset === 1 && p2.limit === 1, 'EN-2 pagination: page 2 echoes offset/limit');
+    if (p1.total_bps_matched >= 2) {
+      assert(p1.results.length === 1 && p2.results.length === 1,
+        'EN-2 pagination: both pages have 1 row when ≥2 BPs matched');
+      assert(p1.results[0].path !== p2.results[0].path,
+        'EN-2 pagination: page 1 and page 2 return different BPs');
+      assert(p1.page_truncated === true,
+        'EN-2 pagination: page 1 flagged page_truncated when ≥2 matches');
+    }
+  } catch (e) {
+    assert(false, 'EN-2: pagination disjoint', e.message);
+  }
+
+  // scan_truncated semantics: max_scan=2 against a prefix with 3+ BPs caps
+  // at BP level (not file level), so scan_truncated=true — exercises the
+  // "max_scan means BPs, not files" contract.
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', max_scan: 2 }, PROJECT_ROOT);
+    assert(r.total_bps_scanned === 2,
+      `EN-2 scan cap: max_scan=2 caps BP count (got total_bps_scanned=${r.total_bps_scanned})`);
+    assert(r.scan_truncated === true,
+      'EN-2 scan cap: scan_truncated=true when BP cap clips corpus');
+  } catch (e) {
+    assert(false, 'EN-2: scan_truncated semantics', e.message);
+  }
+
+  // Corpus-wide honesty: /Game/ default max_scan=500 covers ~all ProjectA BPs
+  // (the reason we switched to BP-count semantics in the first place — file
+  // semantics gave ~130 BPs for the same budget).
+  try {
+    const r = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/', member_name: 'ReceiveBeginPlay' }, PROJECT_ROOT);
+    assert(r.total_bps_scanned > 100,
+      `EN-2 corpus: default max_scan=500 reaches >100 BPs in /Game/ (got ${r.total_bps_scanned})`);
+    assert(r.total_bps_matched > 0,
+      `EN-2 corpus: ReceiveBeginPlay found across /Game/ (got ${r.total_bps_matched})`);
+  } catch (e) {
+    assert(false, 'EN-2: corpus-wide BP reach', e.message);
+  }
+
+  // Bad path_prefix rejected.
+  try {
+    let threw = false;
+    try {
+      await executeOfflineTool('find_blueprint_nodes_bulk',
+        { path_prefix: '/Engine/Foo' }, PROJECT_ROOT);
+    } catch (err) {
+      threw = /must start with \/Game\//.test(err.message);
+    }
+    assert(threw, 'EN-2: non-/Game/ path_prefix rejected with explanatory error');
+  } catch (e) {
+    assert(false, 'EN-2: input validation', e.message);
+  }
+
+  // Performance spot-check — warm-cache scan under /Game/Blueprints.
+  // Budget: 5s for ~300-500 BP corpus per handoff. Prints actuals.
+  try {
+    // Warm once.
+    await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', max_scan: 1000 }, PROJECT_ROOT);
+    const startWarm = Date.now();
+    const warm = await executeOfflineTool('find_blueprint_nodes_bulk',
+      { path_prefix: '/Game/Blueprints', max_scan: 1000 }, PROJECT_ROOT);
+    const warmMs = Date.now() - startWarm;
+    console.log(`  ℹ EN-2 perf: warm scan of ${warm.total_bps_scanned} BPs in ${warmMs}ms (budget 5000ms)`);
+    assert(warmMs < 5000,
+      `EN-2 perf: warm-cache scan under budget (${warmMs}ms < 5000ms, n=${warm.total_bps_scanned})`);
+  } catch (e) {
+    assert(false, 'EN-2: perf spot-check', e.message);
+  }
+}
+
 // ── Summary ──────────────────────────────────────────────
 console.log(`\n═══ Summary ═══`);
 console.log(`  Passed: ${passed}`);

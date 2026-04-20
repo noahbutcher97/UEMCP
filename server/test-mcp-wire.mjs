@@ -213,8 +213,9 @@ console.log('\n── Test 2: tools/list matches tools.yaml (D44 runtime) ──
   t.assert(missing.length === 0, `no yaml tools missing (missing: ${missing.join(',')})`);
 
   // Descriptions match yaml (sample a few — full scan is overkill and
-  // noisy-diff on multi-line descriptions that get normalized by yaml loader)
-  const sampleNames = ['project_info', 'get_asset_info', 'list_level_actors'];
+  // noisy-diff on multi-line descriptions that get normalized by yaml loader).
+  // find_blueprint_nodes_bulk included to lock EN-2's D44 invariant at wire level.
+  const sampleNames = ['project_info', 'get_asset_info', 'list_level_actors', 'find_blueprint_nodes_bulk'];
   for (const name of sampleNames) {
     const listedTool = listed.find(t => t.name === name);
     t.assert(listedTool != null, `${name} present in tools/list`);
@@ -230,6 +231,16 @@ console.log('\n── Test 2: tools/list matches tools.yaml (D44 runtime) ──
   t.assert(
     'asset_path' in llaProps && 'limit' in llaProps && 'summarize_by_class' in llaProps,
     `list_level_actors schema advertises asset_path+limit+summarize_by_class (got: ${Object.keys(llaProps).join(',')})`
+  );
+
+  // EN-2: find_blueprint_nodes_bulk schema advertises bulk-specific params +
+  // inherited filters. Guards against param-name drift between yaml and wire.
+  const bulkTool = listed.find(t => t.name === 'find_blueprint_nodes_bulk');
+  const bulkProps = bulkTool.inputSchema?.properties || {};
+  t.assert(
+    'path_prefix' in bulkProps && 'max_scan' in bulkProps && 'include_nodes' in bulkProps &&
+    'node_class' in bulkProps && 'member_name' in bulkProps && 'target_class' in bulkProps,
+    `find_blueprint_nodes_bulk schema advertises EN-2 params (got: ${Object.keys(bulkProps).join(',')})`
   );
 
   await transport.close();
@@ -436,6 +447,20 @@ console.log('\n── Test 5: Happy-path response shape ──');
       typeof payload.projectName === 'string' || typeof payload.fileName === 'string',
       'payload carries project identity (projectName or fileName)'
     );
+
+    // EN-2: find_blueprint_nodes_bulk happy-path — exercises the real handler
+    // through the JSON-RPC path. Primitive params, no wire coerce needed.
+    const bulkResp = await sendRequest('tools/call', {
+      name: 'find_blueprint_nodes_bulk',
+      arguments: { path_prefix: '/Game/Blueprints', max_scan: 100 },
+    });
+    t.assert(!bulkResp.result?.isError,
+      `EN-2 wire: find_blueprint_nodes_bulk succeeds (got isError=${bulkResp.result?.isError})`);
+    const bulkPayload = JSON.parse(bulkResp.result.content[0].text);
+    t.assert(bulkPayload.path_prefix === '/Game/Blueprints',
+      'EN-2 wire: path_prefix round-trips through JSON-RPC');
+    t.assert(typeof bulkPayload.total_bps_scanned === 'number' && Array.isArray(bulkPayload.results),
+      'EN-2 wire: response shape has total_bps_scanned number + results array');
 
     await transport.close();
   }

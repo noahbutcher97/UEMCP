@@ -1764,6 +1764,109 @@ async function findBlueprintNodes(projectRoot, params) {
   };
 }
 
+/**
+ * find_blueprint_nodes_bulk — Corpus-wide K2Node scan under a path_prefix.
+ *
+ * Closes SERVED_PARTIAL Workflow Catalog rows 26/27/28/42/62/63 by folding
+ * N-round-trip "which BPs call X / handle Y / access Z" iteration into a
+ * single call. Walks queryAssetRegistry for Blueprint assets under the
+ * prefix, reuses findBlueprintNodes per result, aggregates match counts.
+ *
+ * Semantics inherited from findBlueprintNodes:
+ *   - node_class / member_name / target_class filter with identical rules
+ *     (target_class does suffix match).
+ *   - Single-BP total_matched becomes per-BP match_count.
+ *
+ * Pagination is two-level:
+ *   - max_scan  — caps how many .uasset files walked on disk (registry level).
+ *   - limit/offset — slice matched-BP results[] after filtering.
+ *
+ * Per-BP parse errors are swallowed into errors[] (a single corrupt asset
+ * shouldn't poison a corpus scan). Only BPs with match_count > 0 enter
+ * results[] — the "how many BPs match?" question stays compact.
+ */
+async function findBlueprintNodesBulk(projectRoot, params) {
+  const pathPrefix = params.path_prefix;
+  if (!pathPrefix) throw new Error('Missing required parameter: path_prefix');
+  if (!pathPrefix.startsWith('/Game/')) {
+    throw new Error(`path_prefix must start with /Game/ (got: ${pathPrefix})`);
+  }
+
+  const filter = {
+    node_class: params.node_class || null,
+    member_name: params.member_name || null,
+    target_class: params.target_class || null,
+  };
+  const limit = Math.max(1, Math.min(params.limit ?? 50, 200));
+  const offset = Math.max(0, params.offset ?? 0);
+  const maxScan = Math.max(1, Math.min(params.max_scan ?? 500, 5000));
+  const includeNodes = params.include_nodes ?? false;
+
+  // max_scan is a Blueprint-count cap (the param name's plain reading). We
+  // always walk the full prefix subtree at the registry layer — Content/
+  // trees commonly contain 10-40x more non-BP assets than BPs, so capping
+  // the file-walk would silently truncate to a tiny BP count on large
+  // projects. Instead: walk wide, cap narrow at the BP level.
+  const registry = await queryAssetRegistry(projectRoot, {
+    class_name: 'Blueprint',
+    path_prefix: pathPrefix,
+    limit: 2000,
+    max_scan: 20000,
+  });
+
+  const allBpPaths = registry.results.map(r => r.path);
+  const bpPaths = allBpPaths.slice(0, maxScan);
+  // scan_truncated: the matched-BP set we're about to process is incomplete.
+  // Causes: queryAssetRegistry paginated off >2000 BPs, its file-walk hit
+  // 20000, or our max_scan BP cap clipped results. Distinct from
+  // page_truncated (pagination over the filtered set).
+  const scanTruncated = registry.truncated || allBpPaths.length > maxScan;
+
+  const perBp = [];
+  const errors = [];
+
+  for (const bpPath of bpPaths) {
+    try {
+      // Invoke the single-BP handler with a high internal limit so we
+      // capture all matches (we aggregate the count, then page at bulk
+      // level). 10000 comfortably exceeds any real BP's skeletal count.
+      const single = await findBlueprintNodes(projectRoot, {
+        asset_path: bpPath,
+        node_class: filter.node_class,
+        member_name: filter.member_name,
+        target_class: filter.target_class,
+        limit: 10000,
+        offset: 0,
+      });
+      if (single.total_matched === 0) continue;
+
+      const row = { path: bpPath, match_count: single.total_matched };
+      if (includeNodes) row.nodes = single.nodes;
+      perBp.push(row);
+    } catch (err) {
+      errors.push({ path: bpPath, error: err.message });
+    }
+  }
+
+  const totalBpsMatched = perBp.length;
+  const pageResults = perBp.slice(offset, offset + limit);
+  const pageTruncated = totalBpsMatched > offset + limit;
+
+  const out = {
+    path_prefix: pathPrefix,
+    filter,
+    total_bps_scanned: bpPaths.length,
+    total_bps_matched: totalBpsMatched,
+    scan_truncated: scanTruncated,
+    page_truncated: pageTruncated,
+    offset,
+    limit,
+    results: pageResults,
+  };
+  if (errors.length) out.errors = errors;
+  return out;
+}
+
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
     throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
@@ -1805,6 +1908,9 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'find_blueprint_nodes':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await findBlueprintNodes(projectRoot, params);
+
+    case 'find_blueprint_nodes_bulk':
+      return await findBlueprintNodesBulk(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);
