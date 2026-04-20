@@ -83,7 +83,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 15 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk + CDO property defaults via `include_defaults`, D38/Option C), `list_level_actors` (placed actors with transforms + pagination + summary_by_class, D38/Option C), `read_asset_properties` (Option C, FPropertyTag iteration on any asset), `find_blueprint_nodes` (L3A S-A skeletal K2Node surface, D48), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
+- 16 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk + CDO property defaults via `include_defaults`, D38/Option C), `list_level_actors` (placed actors with transforms + pagination + summary_by_class, D38/Option C), `read_asset_properties` (Option C, FPropertyTag iteration on any asset), `find_blueprint_nodes` (L3A S-A skeletal K2Node surface, D48), `find_blueprint_nodes_bulk` (EN-2: corpus-wide variant; closes SERVED_PARTIAL rows 26/27/28/42/62/63), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
 - `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block → **Level 1+2+2.5 property decode**: FPropertyTag iteration with UE 5.6 `FPropertyTypeName` + `EPropertyTagFlags` extensions; 12 engine struct handlers (FVector/FRotator/FTransform/FLinearColor/FColor/FGuid/FGameplayTag/FGameplayTagContainer/FSoftObjectPath/FBox/FVector4/FIntPoint/FBodyInstance/FExpressionInput); simple-element + complex-element `TArray`/`TSet` containers; `TMap<K,V>` (scalar keys, struct keys emit `struct_key_map` marker); **tagged-fallback for unknown structs** (D50: self-describing FPropertyTag streams decode 601 unique struct names including UUserDefinedStruct, FTimerHandle, FMaterialParameterInfo without loading referenced asset — supersedes D47 two-pass design). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **783 total assertions passing** — 525 primary (188 phase1 + 45 mock-seam + 234 TCP + 58 MCP-wire) + 258 supplementary (197 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26; Pre-Phase-3 Fixes worker added 8 (F-1 coerce); MCP-Wire Integration Test Harness added 50 (new test-mcp-wire.mjs suite); F-1.5 Worker added 16 (array/object preprocess — 8 unit + 8 wire).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **825 total assertions passing** — 567 primary (224 phase1 + 45 mock-seam + 234 TCP + 64 MCP-wire) + 258 supplementary (197 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26; Pre-Phase-3 Fixes worker added 8 (F-1 coerce); MCP-Wire Integration Test Harness added 50 (new test-mcp-wire.mjs suite); F-1.5 Worker added 16 (array/object preprocess — 8 unit + 8 wire); EN-2 Worker added 42 (find_blueprint_nodes_bulk — 36 phase1 + 6 mcp-wire).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -129,13 +129,13 @@ UEMCP/
 ├── server/
 │   ├── package.json       ← deps: @modelcontextprotocol/sdk, js-yaml, zod
 │   ├── server.mjs         ← MCP server entry, management tools, tool registration
-│   ├── offline-tools.mjs  ← 15 offline tools incl. query_asset_registry, inspect_blueprint (+include_defaults), list_level_actors (+transforms), read_asset_properties, find_blueprint_nodes
+│   ├── offline-tools.mjs  ← 16 offline tools incl. query_asset_registry, inspect_blueprint (+include_defaults), list_level_actors (+transforms), read_asset_properties, find_blueprint_nodes, find_blueprint_nodes_bulk (EN-2)
 │   ├── uasset-parser.mjs  ← binary .uasset/.umap parser: headers + FPropertyTag iteration + 12 engine struct handlers + TArray/TSet/TMap containers + tagged-fallback for unknown structs (Level 1+2+2.5, D50)
 │   ├── tcp-tools.mjs      ← Phase 2 TCP tool handlers (actors: 10 tools, name translation, Zod schemas)
 │   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
 │   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
 │   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
-│   ├── test-phase1.mjs    ← Phase 1 + Agent 10/10.5 offline tool tests (120 assertions)
+│   ├── test-phase1.mjs    ← Phase 1 + Agent 10/10.5 + EN-2 offline tool tests (224 assertions)
 │   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
 │   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests (234 assertions)
 │   ├── test-uasset-parser.mjs ← Parser format + Level 1+2+2.5 + tagged-fallback (152 assertions)
@@ -232,18 +232,18 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Primary rotation**: 449 assertions (120 phase1 + 45 mock seam + 234 TCP tools + 50 mcp-wire).
-**Supplementary rotation**: 213 assertions (152 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
-**Total: 783 assertions across 8 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker, +50 MCP-Wire Integration Test Harness, +16 F-1.5 Worker).
+**Primary rotation**: 567 assertions (224 phase1 + 45 mock seam + 234 TCP tools + 64 mcp-wire).
+**Supplementary rotation**: 258 assertions (197 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
+**Total: 825 assertions across 8 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker, +50 MCP-Wire Integration Test Harness, +16 F-1.5 Worker, +42 EN-2 Worker).
 
 ### Test Files — Primary Rotation
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage (120 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage + EN-2 bulk-scan coverage (224 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
-| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip (50 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-mcp-wire.mjs` |
+| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-mcp-wire.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 ### Test Files — Supplementary Rotation
