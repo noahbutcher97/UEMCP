@@ -90,8 +90,8 @@ In-flight as of 2026-04-20 (post-scope-refresh):
 Queued for post-D-log dispatch:
 
 - **M0** — Phase 3 yaml grooming (0.5 session) — drops 6 per §Q1 of `docs/research/phase3-scope-refresh-2026-04-20.md`, annotates KEEP (reduced) entries, marks MOVE-TO-SIDECAR consolidations; no handler changes
-- **M1** — 3A TCP scaffolding (3-5 sessions) — first real C++ plugin work; parallelizes with M2-Phase-A
-- **M2-Phase-A** — sidecar save-hook + offline reader + 9 traversal verbs (3-5 sessions, 2 parallel sub-workers) — no TCP dependency
+- **M1** — 3A TCP scaffolding (3-5 sessions) — first real C++ plugin work; parallelizes with M2-Phase-A. **M1 constraint per D57**: `MCPServerRunnable` must gate on `!FApp::IsRunningCommandlet()` to avoid TCP port contention when the plugin loads in the commandlet process. Existing UnrealMCP plugin lacks this gate (silent failure mode); fixing it in UEMCP's scaffold is part of M1 scope.
+- **M2-Phase-A** — sidecar save-hook + offline reader + 9 traversal verbs + **3F-4 DumpBPGraphCommandlet** (3.5-6 sessions post-D57, 2-3 parallel sub-workers) — no TCP dependency. Commandlet adds CI / fresh-checkout / stale-sidecar priming path; shares JSON serializer with 3F-2 save-hook. Per D57.
 - **M2-Phase-B** — dump_graph TCP + invocable prime (1-2 sessions) — post-M1
 - **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2 (per D53/D54)
 - **M4** — reduced-scope reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets hitting only their retained D52 surface
