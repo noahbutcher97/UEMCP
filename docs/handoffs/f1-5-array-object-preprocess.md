@@ -95,18 +95,44 @@ After shipping:
 ```
 F-1.5 Worker Final Report — Array/Object Preprocess
 
-Fix landed: [yes/partial]
-  zod-builder.mjs extended: [yes]
-  array type: [done]
-  object type: [done]
-  safeJsonParse helper: [inline / new helper / reused]
+Fix landed: yes
+  zod-builder.mjs extended: yes
+  array type: done (z.preprocess + JSON.parse-or-passthrough)
+  object type: done (z.preprocess + JSON.parse-or-passthrough)
+  safeJsonParse helper: new helper at module scope
+    (jsonPreprocessOrPassthrough — shared by both array & object cases;
+    returns the original string on parse failure so Zod produces a clean
+    "expected array/object, got string" instead of a leaked SyntaxError)
 
-Tests: [X]/[Y] — delta vs 767 baseline
-  New in test-phase1.mjs: [N]
-  New in test-mcp-wire.mjs: [N]
+Tests: 783/783 — +16 vs 767 baseline (all green)
+  New in test-phase1.mjs: 8 (Test 1d block)
+    - typed array passes (regression guard)
+    - stringified ["AbilityTags"] parses + validates
+    - stringified "[]" parses to empty array
+    - stringified "{...}" rejected when target type is array
+    - malformed JSON rejected as array (passthrough preserved error)
+    - typed object passes (regression guard)
+    - stringified '{"foo": 1}' parses + validates
+    - malformed JSON rejected as object
+  New in test-mcp-wire.mjs: 8 (Test 4.5 — end-to-end via real McpServer)
+    - stringified array '["AbilityTags"]' accepted, isError=false
+    - handler captures Array (not string) for property_names
+    - array[0] === "AbilityTags" after preprocess
+    - typed array round-trips (length=2)
+    - stringified empty "[]" accepted + parses to []
+    - malformed "not json" → isError:true (clean Zod diagnostic)
 
-End-to-end verification: requires Noah's fresh-Claude-Code-session check (same pattern as F-1). Flag in final report.
+  Also confirmed clean: test-mock-seam (45), test-tcp-tools (234),
+  test-uasset-parser (197), test-inspect-and-level-actors (30).
 
-Commit: [SHA]
-Time spent: [N min]
+End-to-end verification: PENDING — requires Noah's fresh-Claude-Code-session
+check (same pattern as F-1). Verification command:
+  read_asset_properties({ asset_path: "/Game/GAS/Abilities/BPGA_Block",
+                          property_names: ["AbilityTags"] })
+Expected post-fix: succeeds (returns property values).
+Pre-fix behavior: "Expected array, received string" Zod error.
+
+Commit: 2789ef1 (path-limited per D49: server/zod-builder.mjs +
+        server/test-phase1.mjs + server/test-mcp-wire.mjs only)
+Time spent: ~20 min
 ```
