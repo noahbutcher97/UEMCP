@@ -83,9 +83,13 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-20 (post-re-sequence D58):
+In-flight as of 2026-04-20 (post-M-spatial ship):
 
 - (none currently in flight)
+
+Recently shipped (most recent first):
+
+- **M-spatial** (commits `08be682` / `4105fa0` / `4938248`) — 5 BP traversal verbs + FA-β/FA-δ test invariants. Zero parser code needed — D50 tagged-fallback already decoded every required UPROPERTY (verified empirically on BP_OSPlayerR). Test baseline 825 → 899 (+74). Notable finding: `EnabledState` absent on nearly all fixture nodes because UE omits class-default values; spatial extraction treats missing positions as 0.
 
 Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
 
@@ -93,7 +97,7 @@ Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-
 
 - **Plugin scaffold commit** (~0.25 session) — `plugin/UEMCP/UEMCP.uplugin` + `UEMCP.Build.cs` + `UEMCPModule.{h,cpp}` with `!FApp::IsRunningCommandlet()` gate in `StartupModule`. Can fold into M1's first commit OR dispatch separately. Orchestrator call.
 - **M1** — 3A TCP scaffolding (3-5 sessions) — `MCPServerRunnable` + command registry + P0-1/2/3/4/9/10 helpers. Ships `ping` smoke test only; real tool handlers are M3+. Writes-gated; independent of M-new. Handoff already drafted at `docs/handoffs/m1-3a-tcp-scaffolding.md` (commit `2ab0969`) — needs minor amendment to reference D58 scaffold-first ordering.
-- **M-spatial** (1-2 sessions, pure JS, NEW milestone per FA-γ) — extract `NodePosX/Y`, `NodeWidth/Height`, `NodeComment`, `EnabledState` UPROPERTYs via existing L1+L2 tag iteration + `UEdGraphNode_Comment` handler + `contains[]` point-in-rect computation. Ships 5 of 9 traversal verbs on today's infra: `bp_list_graphs`, `bp_find_in_graph`, `bp_subgraph_in_comment`, `bp_list_entry_points` (partial), `bp_show_node` (partial without pin block). No TCP, no plugin dependency. Additive to `server/uasset-parser.mjs` + `server/offline-tools.mjs`.
+- ~~**M-spatial**~~ — SHIPPED (see Recently shipped above).
 - **M-new Oracle-A** (0.5-1 session) — minimal `UDumpBPGraphCommandlet` dev-only stub emitting `{nodeId: [linkedToPinIds]}` for 5-10 ProjectA fixture BPs. Differential-test oracle for S-B development; ships as test fixture under `plugin/Source/UEMCP/TestFixtures/` (or equivalent). ~120-180 LOC commandlet + ~40 LOC narrow serializer. Dispatches AFTER plugin scaffold lands; parallel with M1 (different subdirectory) and M-spatial (different file tree).
 
 **Wave 2 — S-B core** (post-Oracle-A):

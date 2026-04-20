@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **825 total assertions passing** — 567 primary (224 phase1 + 45 mock-seam + 234 TCP + 64 MCP-wire) + 258 supplementary (197 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26; Pre-Phase-3 Fixes worker added 8 (F-1 coerce); MCP-Wire Integration Test Harness added 50 (new test-mcp-wire.mjs suite); F-1.5 Worker added 16 (array/object preprocess — 8 unit + 8 wire); EN-2 Worker added 42 (find_blueprint_nodes_bulk — 36 phase1 + 6 mcp-wire).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **899 total assertions passing** — 641 primary (298 phase1 + 45 mock-seam + 234 TCP + 64 MCP-wire) + 258 supplementary (197 parser + 15 asset-info + 16 registry + 30 inspect/level-actors). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26; Pre-Phase-3 Fixes worker added 8 (F-1 coerce); MCP-Wire Integration Test Harness added 50 (new test-mcp-wire.mjs suite); F-1.5 Worker added 16 (array/object preprocess — 8 unit + 8 wire); EN-2 Worker added 42 (find_blueprint_nodes_bulk — 36 phase1 + 6 mcp-wire); M-spatial Worker added 74 (5 traversal verbs + FA-β/FA-δ invariants + containment helper; zero parser code needed — D50 tagged-fallback already covered every required UPROPERTY).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -234,7 +234,7 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
 **Primary rotation**: 567 assertions (224 phase1 + 45 mock seam + 234 TCP tools + 64 mcp-wire).
 **Supplementary rotation**: 258 assertions (197 parser + 15 asset-info + 16 asset-registry + 30 inspect/level-actors). Wired into rotation 2026-04-16 (M6 fix); grew substantially through Agent 10 + Agent 10.5.
-**Total: 825 assertions across 8 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker, +50 MCP-Wire Integration Test Harness, +16 F-1.5 Worker, +42 EN-2 Worker).
+**Total: 899 assertions across 8 test files.** Pre-Agent-10 baseline was 436 (+125 Agent 10, +51 Agent 10.5, +37 Polish worker, +34 Parser Extensions, +26 Cleanup worker, +8 Pre-Phase-3 Fixes worker, +50 MCP-Wire Integration Test Harness, +16 F-1.5 Worker, +42 EN-2 Worker, +74 M-spatial Worker).
 
 ### Test Files — Primary Rotation
 
