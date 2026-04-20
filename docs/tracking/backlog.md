@@ -83,19 +83,37 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-20 (post-scope-refresh):
+In-flight as of 2026-04-20 (post-re-sequence D58):
 
-- EN-2 manual testing (`find_blueprint_nodes_bulk` + F-1.5 belt-and-braces) → `docs/handoffs/manual-testing-en2-2026-04-20.md` (queued; optional-belt-and-braces)
+- (none currently in flight)
 
-Queued for post-D-log dispatch:
+Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
 
-- **M0** — Phase 3 yaml grooming (0.5 session) — drops 6 per §Q1 of `docs/research/phase3-scope-refresh-2026-04-20.md`, annotates KEEP (reduced) entries, marks MOVE-TO-SIDECAR consolidations; no handler changes
-- **M1** — 3A TCP scaffolding (3-5 sessions) — first real C++ plugin work; parallelizes with M2-Phase-A. **M1 constraint per D57**: `MCPServerRunnable` must gate on `!FApp::IsRunningCommandlet()` to avoid TCP port contention when the plugin loads in the commandlet process. Existing UnrealMCP plugin lacks this gate (silent failure mode); fixing it in UEMCP's scaffold is part of M1 scope.
-- **M2-Phase-A** — sidecar save-hook + offline reader + 9 traversal verbs + **3F-4 DumpBPGraphCommandlet** (3.5-6 sessions post-D57, 2-3 parallel sub-workers) — no TCP dependency. Commandlet adds CI / fresh-checkout / stale-sidecar priming path; shares JSON serializer with 3F-2 save-hook. Per D57.
-- **M2-Phase-B** — dump_graph TCP + invocable prime (1-2 sessions) — post-M1
-- **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2 (per D53/D54)
-- **M4** — reduced-scope reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets hitting only their retained D52 surface
-- **M5** — remaining Phase 3 toolsets (6-10 sessions, 3-4 sub-workers) — animation + materials + geometry + input-and-pie + editor-utility + visual-capture
-- **M6** — optional S-B (6-9 sessions) — only if D52 trigger fires; oracle-gated on M2
+**Wave 1 — parallel kickoff** (after tiny scaffold commit lands, per §Q5.7 amendment):
+
+- **Plugin scaffold commit** (~0.25 session) — `plugin/UEMCP/UEMCP.uplugin` + `UEMCP.Build.cs` + `UEMCPModule.{h,cpp}` with `!FApp::IsRunningCommandlet()` gate in `StartupModule`. Can fold into M1's first commit OR dispatch separately. Orchestrator call.
+- **M1** — 3A TCP scaffolding (3-5 sessions) — `MCPServerRunnable` + command registry + P0-1/2/3/4/9/10 helpers. Ships `ping` smoke test only; real tool handlers are M3+. Writes-gated; independent of M-new. Handoff already drafted at `docs/handoffs/m1-3a-tcp-scaffolding.md` (commit `2ab0969`) — needs minor amendment to reference D58 scaffold-first ordering.
+- **M-spatial** (1-2 sessions, pure JS, NEW milestone per FA-γ) — extract `NodePosX/Y`, `NodeWidth/Height`, `NodeComment`, `EnabledState` UPROPERTYs via existing L1+L2 tag iteration + `UEdGraphNode_Comment` handler + `contains[]` point-in-rect computation. Ships 5 of 9 traversal verbs on today's infra: `bp_list_graphs`, `bp_find_in_graph`, `bp_subgraph_in_comment`, `bp_list_entry_points` (partial), `bp_show_node` (partial without pin block). No TCP, no plugin dependency. Additive to `server/uasset-parser.mjs` + `server/offline-tools.mjs`.
+- **M-new Oracle-A** (0.5-1 session) — minimal `UDumpBPGraphCommandlet` dev-only stub emitting `{nodeId: [linkedToPinIds]}` for 5-10 ProjectA fixture BPs. Differential-test oracle for S-B development; ships as test fixture under `plugin/Source/UEMCP/TestFixtures/` (or equivalent). ~120-180 LOC commandlet + ~40 LOC narrow serializer. Dispatches AFTER plugin scaffold lands; parallel with M1 (different subdirectory) and M-spatial (different file tree).
+
+**Wave 2 — S-B core** (post-Oracle-A):
+
+- **M-new S-B-base** (4-6 sessions) — reverse-engineer `UEdGraphNode::Serialize()` pin-block trailer + `FEdGraphPin` LinkedTo walker. Uses Oracle-A output for differential validation. Critical-path for D52 edge-topology offline near-parity.
+- **M-new S-B-overrides** (1.5-2 sessions, parallelizes with Verb-surface) — CallFunction backcompat + Switch-variant pin-regeneration + UE 5.6↔5.7 delta buffer.
+- **M-new Verb-surface** (1-1.5 sessions) — 5 S-B-dependent verbs (`bp_trace_exec`, `bp_trace_data`, `bp_neighbors` edge mode, `bp_show_node` pin completion, `bp_list_entry_points` precision) in `offline-tools.mjs` + yaml entries + tests.
+
+**Wave 3 — enhancement + writes** (post-M1 + post-M-new):
+
+- **M-enhance** (3-5 sessions) — narrow sidecar (plugin-only fields: compile errors, reflection flags, runtime/compiled derivatives) + save-hook + 3F-4 production commandlet + editor-menu prime + runtime/compile/reflection TCP brokers. Parallelizes with M3/M4/M5. Dispatches in parallel with M-new Wave 2 if M1 + plugin scaffold landed.
+- **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2.
+- **M4** — reduced reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets. **Under D58**: 3 of the previously-M4 tools (`get_blueprint_graphs`, `get_animbp_graph`, `get_widget_blueprint` EventGraph subset) move to offline-primary via M-new/M-spatial; they stay in M-enhance as enrichment only. M4's reduced-reads list drops to 12 from scope-refresh §Q5.3's 15.
+- **M5** — remaining Phase 3 toolsets (6-10 sessions, 3-4 sub-workers) — animation + materials + geometry + input-and-pie + editor-utility + visual-capture. Unchanged from scope-refresh §Q5.3.
+
+**Aggregate**: 28.5-47 sessions; wall-clock ~14-22 with parallelism.
+
+**Open orchestrator calls** (per D58 follow-on items):
+
+- **FA-ε**: M-enhance's TCP brokers for runtime/compile/reflection queries vs deferring those to Phase 4 Remote Control API — decide when M-enhance handoff drafts.
+- **Scaffold commit timing**: fold into M1 vs separate 0.25-session dispatch — decide when M1 amendment lands.
 
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
