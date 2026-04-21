@@ -17,6 +17,7 @@
 #include "TransformParser.h"
 #include "ActorLookupHelper.h"
 #include "PropertyHandlerRegistry.h"
+#include "MCPCommandRegistry.h"
 #include "UEMCPTestObject.h"
 
 // =====================================================================================
@@ -273,6 +274,90 @@ bool FUEMCPPropertyRegistryInvalidTest::RunTest(const FString& Parameters)
 	// negative case via a registry lookup:
 	TestFalse(TEXT("StructProperty unregistered in M1"),
 		Registry.HasHandler(FName(TEXT("StructProperty"))));
+
+	return true;
+}
+
+// =====================================================================================
+// P0-9 (tolerance for null params) + command registry dispatch + ping smoke test
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPCommandRegistryDispatchTest,
+	"UEMCP.MCPCommandRegistry.Dispatch",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPCommandRegistryDispatchTest::RunTest(const FString& Parameters)
+{
+	auto& Registry = UEMCP::FMCPCommandRegistry::Get();
+
+	// ping handler is always registered (default handler).
+	TestTrue(TEXT("ping registered"), Registry.HasHandler(TEXT("ping")));
+
+	// --- Ping with no params (P0-9: null Params should not crash) ---
+	TSharedPtr<FJsonObject> PingResp;
+	Registry.Dispatch(TEXT("ping"), nullptr, PingResp);
+	TestTrue(TEXT("ping response valid"), PingResp.IsValid());
+	TestEqual(TEXT("ping status"), PingResp->GetStringField(TEXT("status")), FString(TEXT("success")));
+
+	const TSharedPtr<FJsonObject>& Result = PingResp->GetObjectField(TEXT("result"));
+	TestEqual(TEXT("pong"),    Result->GetStringField(TEXT("message")), FString(TEXT("pong")));
+	TestEqual(TEXT("server"),  Result->GetStringField(TEXT("server")),  FString(TEXT("uemcp")));
+	TestEqual(TEXT("port"),    static_cast<int32>(Result->GetNumberField(TEXT("port"))), 55558);
+	TestEqual(TEXT("version"), Result->GetStringField(TEXT("version")), FString(TEXT("0.1.0")));
+
+	// --- Ping with empty-but-present params (typical wire shape) ---
+	TSharedPtr<FJsonObject> PingResp2;
+	Registry.Dispatch(TEXT("ping"), MakeShared<FJsonObject>(), PingResp2);
+	TestEqual(TEXT("ping with {} params still succeeds"),
+		PingResp2->GetStringField(TEXT("status")), FString(TEXT("success")));
+
+	// --- Unknown command returns UNKNOWN_COMMAND error envelope ---
+	TSharedPtr<FJsonObject> UnknownResp;
+	Registry.Dispatch(TEXT("not_a_real_command"), nullptr, UnknownResp);
+	TestTrue(TEXT("unknown response valid"), UnknownResp.IsValid());
+	TestEqual(TEXT("unknown status"), UnknownResp->GetStringField(TEXT("status")), FString(TEXT("error")));
+	TestEqual(TEXT("unknown code"),   UnknownResp->GetStringField(TEXT("code")),   FString(TEXT("UNKNOWN_COMMAND")));
+	TestTrue(TEXT("unknown error mentions command type"),
+		UnknownResp->GetStringField(TEXT("error")).Contains(TEXT("not_a_real_command")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPCommandRegistryRegisterTest,
+	"UEMCP.MCPCommandRegistry.CustomRegister",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPCommandRegistryRegisterTest::RunTest(const FString& Parameters)
+{
+	auto& Registry = UEMCP::FMCPCommandRegistry::Get();
+
+	// Register a transient test handler that echoes params (simulates M3+ tool registration).
+	const FString TestCmd = TEXT("__uemcp_test_echo__");
+	Registry.Register(TestCmd,
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetBoolField(TEXT("params_were_null"), !Params.IsValid());
+			UEMCP::BuildSuccessResponse(OutResponse, Result);
+		});
+
+	TestTrue(TEXT("test handler registered"), Registry.HasHandler(TestCmd));
+
+	// Dispatch with null Params — handler observes null.
+	TSharedPtr<FJsonObject> NullResp;
+	Registry.Dispatch(TestCmd, nullptr, NullResp);
+	TestTrue(TEXT("params_were_null true"),
+		NullResp->GetObjectField(TEXT("result"))->GetBoolField(TEXT("params_were_null")));
+
+	// Dispatch with a concrete object — handler sees it.
+	TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+	Args->SetStringField(TEXT("foo"), TEXT("bar"));
+	TSharedPtr<FJsonObject> WithResp;
+	Registry.Dispatch(TestCmd, Args, WithResp);
+	TestFalse(TEXT("params_were_null false"),
+		WithResp->GetObjectField(TEXT("result"))->GetBoolField(TEXT("params_were_null")));
 
 	return true;
 }
