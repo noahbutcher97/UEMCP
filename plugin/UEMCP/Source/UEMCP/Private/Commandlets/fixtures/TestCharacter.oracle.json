@@ -1,0 +1,537 @@
+{
+	"schema_version": "oracle-a-v1",
+	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
+	"asset_path": "/Game/Blueprints/Character/TestCharacter",
+	"graphs":
+	{
+		"EventGraph":
+		{
+			"nodes":
+			{
+				"BBA3B1BE462B79B308DAF5B3764A22CB":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"7B68440D4BA7E364D8E7CDA1B76E1E35":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"135B59204BFA0BA840F6449430EE54DA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"F9C1E75446A4051F25F35895E43A94E5":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"D7462BEE47C6FDF0C8C37B8D44BCE2ED":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"0B3DDD144E69A2477C64C0A59916B8BD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"417308494A85842BA7BB8F9D7AE813BC":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"A7C64DF642222395ECAD2EB94457D517":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"1586449941D031AFAD4957A2882F58A4":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"57636CA54E986E3B14D03799252C5A19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"C4017F3249159C9F14023E887DE86602":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"UserConstructionScript":
+		{
+			"nodes":
+			{
+				"AD47D0D04A586A621D033C8940CA2FF3":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"D029223745C89D707D15558FC042D678":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "BA2C3D68420D3704E1164A9399CD0E05",
+									"pin_id": "A5F3B8374375B139268A8691E845176D"
+								}
+							]
+						}
+					}
+				},
+				"BA2C3D68420D3704E1164A9399CD0E05":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"A5F3B8374375B139268A8691E845176D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "AD47D0D04A586A621D033C8940CA2FF3",
+									"pin_id": "D029223745C89D707D15558FC042D678"
+								}
+							]
+						},
+						"C8421115423A9F5C7E6BF7961F1E98CD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CC83BB0E47581FBED2AC009954D9C8B6",
+									"pin_id": "1B77C05C49B90B720F327E9DB9A0E6AC"
+								}
+							]
+						},
+						"EED05766428549B80202F585640972E5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"1EAE07B246F3AB7A1F63A780E2B0B546":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D82D06BE4C8F01F6BD60DC98C9F8E36D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DBA4A5894EE69C157F7AAEA4202ADA6F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"718349084E664AD2967D738FE04E7474":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"22DF72DF46113E21652873B0BEDC49F5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7CD6B35049FD04E8AEC0B2973C472297":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"B81F8B63485D978AA51C479819563372":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"3B2B368E4CDD2628C8896186592D1D3B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "38E383B3498D9F8BF144D1BFA5364B72",
+									"pin_id": "A7A437794113868EAC60F5834881F493"
+								}
+							]
+						},
+						"3DD4B5D546CC17FC6E35EC94D7368F3E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"BE09C19C40A8C15E61DF728EF42049EE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E62FE0384FB5E2014A3C2BA816A05270":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"754147EE43930A3D9B806BBF3FD81381":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6307BE6643C266CCA4493B8E3CB0D45A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"24B9EA444A168338E55081AFA1BB7966":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8680A19A4BF1589F4BF322A8E620F81A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"74D2D96B4CF98C52544E9897E45982BE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"F5609EA347FF3841123C40A0C4859F69":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"AC6D8B6A42FB37A65D70DABD00571467":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CC83BB0E47581FBED2AC009954D9C8B6",
+									"pin_id": "7607A98242CF79D174E0CA81D806276E"
+								}
+							]
+						},
+						"C328D84A4779DCA87CF3FF8BE9C1F74E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "20AE0122486C1F6321A2AAB0F2C38594",
+									"pin_id": "2FBA5A8348182CD4B8C73EB708C6A87D"
+								}
+							]
+						},
+						"9DD71DB04CE5BF42A091FDB5B3DE8CD1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"251F8E1442A68F59CCA931AC60DB44B0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"60C486934D6ECE7CCE79B8991C2024AD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"1249322D4E18D6C26D438BA0A4CB107F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"90FB55ED4F60AFE26609A2821665C6DF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"71AE74034B674BCA750F9590C1DA1CDC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"16BC37B342FAE6B9D6EFF9A6D11D92B6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"CC83BB0E47581FBED2AC009954D9C8B6":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"1B77C05C49B90B720F327E9DB9A0E6AC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "BA2C3D68420D3704E1164A9399CD0E05",
+									"pin_id": "C8421115423A9F5C7E6BF7961F1E98CD"
+								}
+							]
+						},
+						"7607A98242CF79D174E0CA81D806276E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F5609EA347FF3841123C40A0C4859F69",
+									"pin_id": "AC6D8B6A42FB37A65D70DABD00571467"
+								}
+							]
+						},
+						"2A0AB3904F784C2626481693519AFA26":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AF32567D44262C46B82698A42044C65E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0982D3734720B26D253683959ECA1C66":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"CDBB668A4369D167D71311B6D43D7431":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"E20877C840B98DF346DDEDA202359943":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2D74FFF743DCFE18C1C5059255873B16":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"5BD40249462771A369C0009B567128B1":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"38E383B3498D9F8BF144D1BFA5364B72":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"BEC874A54CDF13FDDA16E4A4C2C2BA71":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "20AE0122486C1F6321A2AAB0F2C38594",
+									"pin_id": "0891D5594CA7FFC7D2B8BEA01F5DD522"
+								}
+							]
+						},
+						"A7A437794113868EAC60F5834881F493":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "B81F8B63485D978AA51C479819563372",
+									"pin_id": "3B2B368E4CDD2628C8896186592D1D3B"
+								}
+							]
+						},
+						"6620AF0E4567AB783D58AA8912AC35F1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7A1DDE484691DDAA85C5B7B14E196B24":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"CBA2BD094AE454AA4EF2B1A485502974":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E9BB4E9B432A96D7A6AB369FECD4330D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"DCD466454B1951B99982CFB12C5DAC79":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C431DB1C4EFBD2ED8A5CA396D5C9FF0F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"24D2D4D243EF1565F5F617A2593E3C70":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"20AE0122486C1F6321A2AAB0F2C38594":
+				{
+					"class_name": "K2Node_AddComponent",
+					"pins":
+					{
+						"2FBA5A8348182CD4B8C73EB708C6A87D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F5609EA347FF3841123C40A0C4859F69",
+									"pin_id": "C328D84A4779DCA87CF3FF8BE9C1F74E"
+								}
+							]
+						},
+						"0891D5594CA7FFC7D2B8BEA01F5DD522":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "38E383B3498D9F8BF144D1BFA5364B72",
+									"pin_id": "BEC874A54CDF13FDDA16E4A4C2C2BA71"
+								}
+							]
+						},
+						"086394C64B8D8B741E7CDE978FEB0932":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"BF190D9449006527A100A7BCC57D688F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"930C4766412B4CB0415C16B9F69B5DB7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"19AC46E64B589B6F6C3495A8E81ED114":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DD3FE64BE183092BEC2BA5EB84ACB2",
+									"pin_id": "21D81E8341D5B320F350378F0F1D91D8"
+								}
+							]
+						},
+						"AF8B590149A6D2472F068C99479809F3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FC77ABF643063526DBA740BE933AD4B3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A763135A429233FB5BC64796236889EE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"17DD3FE64BE183092BEC2BA5EB84ACB2":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"21D81E8341D5B320F350378F0F1D91D8":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "BA2C3D68420D3704E1164A9399CD0E05",
+									"pin_id": "DBA4A5894EE69C157F7AAEA4202ADA6F"
+								},
+								{
+									"node_guid": "CC83BB0E47581FBED2AC009954D9C8B6",
+									"pin_id": "CDBB668A4369D167D71311B6D43D7431"
+								},
+								{
+									"node_guid": "F5609EA347FF3841123C40A0C4859F69",
+									"pin_id": "1249322D4E18D6C26D438BA0A4CB107F"
+								},
+								{
+									"node_guid": "20AE0122486C1F6321A2AAB0F2C38594",
+									"pin_id": "19AC46E64B589B6F6C3495A8E81ED114"
+								},
+								{
+									"node_guid": "38E383B3498D9F8BF144D1BFA5364B72",
+									"pin_id": "E9BB4E9B432A96D7A6AB369FECD4330D"
+								},
+								{
+									"node_guid": "B81F8B63485D978AA51C479819563372",
+									"pin_id": "6307BE6643C266CCA4493B8E3CB0D45A"
+								}
+							]
+						},
+						"2C06C09745112EE6E3080FB6AEE223D9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,73 @@
+M-new Oracle-A fixture manifest
+================================
+
+Curated ProjectA Blueprint set for M-new S-B-base differential tests.
+Every entry has at least one LinkedTo edge — zero-edge BPs excluded.
+
+Format per line: <asset path> — <nodes/edges> — <rationale>.
+
+Final corpus (6 fixtures)
+-------------------------
+
+/Game/Blueprints/Character/BP_OSPlayerR                 (204 nodes / 596 edges)
+  Primary test target. Main player character with dense event graph,
+  multiple function graphs, construction script. Highest edge density in
+  the corpus — stresses the hot serialization path and gives S-B-base
+  the broadest differential surface.
+
+/Game/Blueprints/Character/BP_OSPlayerR_Child             (6 nodes /   4 edges)
+/Game/Blueprints/Character/BP_OSPlayerR_Child1            (6 nodes /   4 edges)
+/Game/Blueprints/Character/BP_OSPlayerR_Child2            (6 nodes /   4 edges)
+  Three inheritance children of BP_OSPlayerR. Small authored-graph
+  surface — edges exist but most logic is inherited. Exercises the
+  "child BP with overrides" code path. Keeping all three lets S-B-base
+  validate that near-identical children produce near-identical oracle
+  output (stability check), not just that one child round-trips.
+
+/Game/Blueprints/Character/TestCharacter                 (11 nodes /  24 edges)
+  Medium-sized independent character BP, different topology from the
+  OSPlayerR family. Lets differential tests catch family-specific
+  regressions that would otherwise hide behind shared ancestry.
+
+/Game/Blueprints/Level/BP_OSControlPoint                (182 nodes / 330 edges)
+  Dense level-placed BP with team logic + control-point state machine.
+  Second-highest edge count in the corpus. Uses level-scope UFUNCTIONs
+  and events distinct from player BPs.
+
+
+Zero-edge BPs deliberately excluded
+-----------------------------------
+
+These were tested and confirmed zero-edge (subclass-only BPs with no
+authored graph logic). Leaving them out keeps every fixture a
+meaningful differential-test target, per success criterion #5.
+
+- /Game/Blueprints/Character/BP_OSTestPlayer       (4 nodes, 0 edges)
+- /Game/Blueprints/Character/PunchingBag           (5 nodes, 0 edges)
+- /Game/Blueprints/Character/BP_OSPlayerR1         (1 node,  0 edges)
+- /Game/Blueprints/Level/BP_LedgeVolume            (1 node,  0 edges)
+- /Game/Blueprints/Level/BP_TeamSpawnZone          (4 nodes, 0 edges)
+- /Game/Blueprints/Level/BP_ControlPointMarker     (4 nodes, 0 edges)
+- /Game/Blueprints/Magic/BP_FrostBoltProjectile    (4 nodes, 0 edges)
+
+If future corpus needs call for "empty graph" edge-case coverage, any
+of the above can be re-added — they all exit=0 cleanly on the commandlet
+and produce well-formed (but edge-empty) oracle JSON.
+
+
+Regenerating oracles
+--------------------
+
+When UE 5.6 patches change deserialization behavior (unlikely but possible),
+re-run the commandlet against each fixture to refresh the golden JSONs:
+
+    set UE="C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+    set UPROJ=D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject
+    %UE% %UPROJ% -run=DumpBPGraph ^
+      -BP=/Game/Blueprints/Character/BP_OSPlayerR ^
+      -Out=D:\DevTools\UEMCP\plugin\UEMCP\Source\UEMCP\Private\Commandlets\fixtures\BP_OSPlayerR.oracle.json ^
+      -Pretty -unattended -nop4 -nosplash -stdout
+
+(Shell note: Windows cmd.exe and PowerShell pass `/Game/...` paths
+verbatim. Git Bash / MSYS mangles leading slashes unless you prefix with
+`MSYS_NO_PATHCONV=1`. Prefer cmd.exe or a .bat driver script.)

@@ -1,0 +1,157 @@
+{
+	"schema_version": "oracle-a-v1",
+	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
+	"asset_path": "/Game/Blueprints/Character/BP_OSPlayerR_Child2",
+	"graphs":
+	{
+		"EventGraph":
+		{
+			"nodes":
+			{
+				"F07585C84CA801000248F887C55BA5DA":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"A269B8F54B4EFCA079046589DDF2927F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"589DAC364D8AE7B417DCD8A8C398F1AF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "79F9AE5341D2D74863E1CDAA4B7292AB",
+									"pin_id": "5FC92002453B8C1AA461D6A686E2AE42"
+								}
+							]
+						}
+					}
+				},
+				"79F9AE5341D2D74863E1CDAA4B7292AB":
+				{
+					"class_name": "K2Node_CallParentFunction",
+					"pins":
+					{
+						"5FC92002453B8C1AA461D6A686E2AE42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F07585C84CA801000248F887C55BA5DA",
+									"pin_id": "589DAC364D8AE7B417DCD8A8C398F1AF"
+								}
+							]
+						},
+						"0F881A9540491044B7095B8D4EE6A284":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"B8C7D5C444371A7B69B6F8920B840778":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"D9DB0A144D740FBAE232CAAC0EAFD1ED":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"4DE74C974B5EDA7F9EBE81B9529BCBAE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"F9180DAD4B6F252AE1751CBE4684B564":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"8DCEE39543CCB577C90F93B4842487A6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"EBF301E843505DFE1F1AD5A6607EF38A":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"360AF0A9460FBA008D8BE2836CFB67CF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"4B932B604DEC56AC319857B7111417B4":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"3EBF0B354CF30D30990A659957AD9218":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"UserConstructionScript":
+		{
+			"nodes":
+			{
+				"DCDD97DE4B267877A90E478FB210757D":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"A0F1D7174E6416E1744050814A85A5BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "59C0D5C4417A944A90F0B69FAD00EF27",
+									"pin_id": "6EAC4FFA47DEC931CBFF5FBA3D4EA940"
+								}
+							]
+						}
+					}
+				},
+				"59C0D5C4417A944A90F0B69FAD00EF27":
+				{
+					"class_name": "K2Node_CallParentFunction",
+					"pins":
+					{
+						"6EAC4FFA47DEC931CBFF5FBA3D4EA940":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "DCDD97DE4B267877A90E478FB210757D",
+									"pin_id": "A0F1D7174E6416E1744050814A85A5BA"
+								}
+							]
+						},
+						"251D236F4E3DE7B0B6C030ACE37E5399":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"9AC92EC14E7850A223C24881FF6DEB0B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		}
+	}
+}

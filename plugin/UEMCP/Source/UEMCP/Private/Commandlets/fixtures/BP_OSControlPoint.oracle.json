@@ -1,0 +1,6348 @@
+{
+	"schema_version": "oracle-a-v1",
+	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
+	"asset_path": "/Game/Blueprints/Level/BP_OSControlPoint",
+	"graphs":
+	{
+		"EventGraph":
+		{
+			"nodes":
+			{
+				"6D30FADD4F9A4023A5BFCBA2A60908EC":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"A4E0F98A4C2A293E55979BBB796CB9BE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"87A5AED94AFCB8CA083485976D582FAC":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A5F648294A67F5C35EBC41A9DD9D8802",
+									"pin_id": "697B06E54F611EF9F598A19574033769"
+								}
+							]
+						}
+					}
+				},
+				"C395A1204F77E0F89C2361874CF27772":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"3135BF134A42F089E1B37587E1AC8939":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0B5D02A643B45E91D7DECCA435345698",
+									"pin_id": "BA613BB04173386FF8541C9C20B8F108"
+								}
+							]
+						},
+						"7156690843E0FB27A963A2B243724D8E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CBC8798E4FC212EDB6ADC298F1238269",
+									"pin_id": "1CFC729C45A6D1CB2142B5A0433AEEE5"
+								}
+							]
+						},
+						"0358C50E4B3BC32956B037ADCDDD5F0C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CA9B2BFD47532A02619F83B5C213F94B":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"98F70B264D8910066B220BA803728E19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CBC8798E4FC212EDB6ADC298F1238269",
+									"pin_id": "14F8BC3149932FF6FE5FC9BE862C9AF9"
+								}
+							]
+						}
+					}
+				},
+				"EF36141B4B6D99FC01DCFE95ACB69557":
+				{
+					"class_name": "K2Node_AddDelegate",
+					"pins":
+					{
+						"5A28D2C144C5B7F0836ABAAFD1D1D45D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "345D70534570594412591BB8AFB9A6B0",
+									"pin_id": "532A08A64C43C458AF1472A79D12D2AA"
+								}
+							]
+						},
+						"3C5FFD90423D74332B71E88A92762386":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0B5D02A643B45E91D7DECCA435345698",
+									"pin_id": "400719234A009D738AC0BDA8DD3D6C53"
+								}
+							]
+						},
+						"414293BF4FA51C62DF5218B62667D21C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D37AD01145DE12F40B5EACA797571E61":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "888AD1364A86A964A29DB887E4630960",
+									"pin_id": "4D74B1894FD6A5FEDC01C9BE31AC3373"
+								}
+							]
+						}
+					}
+				},
+				"888AD1364A86A964A29DB887E4630960":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"4D74B1894FD6A5FEDC01C9BE31AC3373":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EF36141B4B6D99FC01DCFE95ACB69557",
+									"pin_id": "D37AD01145DE12F40B5EACA797571E61"
+								}
+							]
+						},
+						"4988788347BF79377422A590CBC44B73":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3C565CEE4136EE35994EA5AA5E32F05C",
+									"pin_id": "C157AF8E46798FEBFBB401A5E7BF9087"
+								}
+							]
+						},
+						"5C39379F47C7A820494C9C891ED73FDB":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"AB0A3BBD4A1711D8CF09A2B96E341951":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"D64DBC0E47749EBA528C789209135F77":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3C565CEE4136EE35994EA5AA5E32F05C",
+									"pin_id": "11F682E049F2C74D10F49788F60F6010"
+								}
+							]
+						},
+						"135C666C4605490F5FC0358B979F7593":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"ABB7073447BEB4C80648609D142FBC55":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"0B5D02A643B45E91D7DECCA435345698":
+				{
+					"class_name": "K2Node_AddDelegate",
+					"pins":
+					{
+						"400719234A009D738AC0BDA8DD3D6C53":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EF36141B4B6D99FC01DCFE95ACB69557",
+									"pin_id": "3C5FFD90423D74332B71E88A92762386"
+								}
+							]
+						},
+						"0851975F48CBB858912A80BA15F22E49":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"23216E204EFD98271A9BD5BF8587EDA5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"BA613BB04173386FF8541C9C20B8F108":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C395A1204F77E0F89C2361874CF27772",
+									"pin_id": "3135BF134A42F089E1B37587E1AC8939"
+								}
+							]
+						}
+					}
+				},
+				"345D70534570594412591BB8AFB9A6B0":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"504C76FD451751E9114C65914162D6EE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "79194D4445B5B060BD12DA9C8EF9F300",
+									"pin_id": "D39E3E9D474DFFA82C14D2941DE026E9"
+								}
+							]
+						},
+						"532A08A64C43C458AF1472A79D12D2AA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EF36141B4B6D99FC01DCFE95ACB69557",
+									"pin_id": "5A28D2C144C5B7F0836ABAAFD1D1D45D"
+								}
+							]
+						},
+						"011A97D844B328BDF1D4FBA8F92B80CE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2C8AD8A24253D90B98351EA82AA20EE6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EE670476492BC6ECAE9A878167215614":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"3C565CEE4136EE35994EA5AA5E32F05C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"C157AF8E46798FEBFBB401A5E7BF9087":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "888AD1364A86A964A29DB887E4630960",
+									"pin_id": "4988788347BF79377422A590CBC44B73"
+								}
+							]
+						},
+						"B15B38104C827EB1520EA38070785197":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "20C1300A49B3669505E32A9DA5DD9A86",
+									"pin_id": "888F949A4604264FDF5E9EBA2829A988"
+								}
+							]
+						},
+						"6E41E7E64F6062F8B54BDDBEF4B2FF96":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"11F682E049F2C74D10F49788F60F6010":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "888AD1364A86A964A29DB887E4630960",
+									"pin_id": "D64DBC0E47749EBA528C789209135F77"
+								}
+							]
+						}
+					}
+				},
+				"CBC8798E4FC212EDB6ADC298F1238269":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"1CFC729C45A6D1CB2142B5A0433AEEE5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C395A1204F77E0F89C2361874CF27772",
+									"pin_id": "7156690843E0FB27A963A2B243724D8E"
+								}
+							]
+						},
+						"46D41DCB43E5AC3681E6EA8B75FC0509":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CC8CFC6A40A10BE6E15053A2ED0785CB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"14F8BC3149932FF6FE5FC9BE862C9AF9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C395A1204F77E0F89C2361874CF27772",
+									"pin_id": "98F70B264D8910066B220BA803728E19"
+								}
+							]
+						}
+					}
+				},
+				"4093276C4ABCE1CF6ECF1E95A00C0E7C":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"6C2A278349C2B78BFA97109C3030A8A3":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"6045D7F046782475214950A109A17C51":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"87E97A794EF2810DA38ABFBCD582FB4B":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"857710FF4451BDD948D0D3BC32D86EDD":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"CFFEF6DC42A3049BD45198B11A79053C":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"8579129A46D6CFD37B498B973AE91127":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"082232CE4132252FFB8CA684C1E414DD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7D91767C4F8135B5593CC191D06AA0E3":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "88DF8C9445850452220EF1A4AFFC0508",
+									"pin_id": "0EEC31CC4A9B14A97BC06688A875AFBB"
+								}
+							]
+						}
+					}
+				},
+				"88DF8C9445850452220EF1A4AFFC0508":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"C3261A28413C0DB4A85C7DA034DC9C3F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0EEC31CC4A9B14A97BC06688A875AFBB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "8579129A46D6CFD37B498B973AE91127",
+									"pin_id": "7D91767C4F8135B5593CC191D06AA0E3"
+								}
+							]
+						},
+						"BFEF4D4F42F2E6CD6031CB9B13A48A2F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"CDF6E69043A0F9D7816E6F8D1860829D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"3CF4BD0A45E73E080F9F65B6D3A1016C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"A3A86E3C483A23710848889AD6F84692":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"FCFC7B86416DA1EFB18F5BBF52BF6515":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"082232CE4132252FFB8CA684C1E414DD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7D91767C4F8135B5593CC191D06AA0E3":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4574117E4632F382E524DBA248AD1293",
+									"pin_id": "F198E30641B749E01505AF9C11973ED1"
+								},
+								{
+									"node_guid": "A6DD5FA2436A4F297826C19ABC6F00D8",
+									"pin_id": "E5CB35CD415E1A6A89256EBB849B107D"
+								}
+							]
+						}
+					}
+				},
+				"4574117E4632F382E524DBA248AD1293":
+				{
+					"class_name": "K2Node_Select",
+					"pins":
+					{
+						"D4E4F05D4E7B5FCB506FD485BB515860":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DABB510A4B86D51B6C3D0E900446BF70":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F198E30641B749E01505AF9C11973ED1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "FCFC7B86416DA1EFB18F5BBF52BF6515",
+									"pin_id": "7D91767C4F8135B5593CC191D06AA0E3"
+								}
+							]
+						},
+						"81B5308747C8621E5036D08C06DD510C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0858F33043457B4B470A18A0B7785E8A",
+									"pin_id": "4F0D9A274288CFBC20C28D86ECF75DC6"
+								}
+							]
+						}
+					}
+				},
+				"044447AA4D29A46EEC417CB4A989AA64":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0858F33043457B4B470A18A0B7785E8A",
+									"pin_id": "A7EF36AC4E1CE5703039588338F7FAC0"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"0858F33043457B4B470A18A0B7785E8A":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CF89847F4998EB949B16B7859F08D8EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A7EF36AC4E1CE5703039588338F7FAC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "044447AA4D29A46EEC417CB4A989AA64",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"4F0D9A274288CFBC20C28D86ECF75DC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4574117E4632F382E524DBA248AD1293",
+									"pin_id": "81B5308747C8621E5036D08C06DD510C"
+								}
+							]
+						},
+						"AA8592E04D042987570896833FAD8FF4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6046890D4F959E4E46E472854DBC1C5F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6A57500E400A7E3456748C87DC57A814":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"6D3EB56D479ED302BF609082F3CBB490":
+				{
+					"class_name": "EdGraphNode_Comment",
+					"pins":
+					{
+					}
+				},
+				"910643EE4A4460EBCEE404BCDBF620B6":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E560434B4D3C31090D0D8FB39C54629D",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E560434B4D3C31090D0D8FB39C54629D":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "910643EE4A4460EBCEE404BCDBF620B6",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A6DD5FA2436A4F297826C19ABC6F00D8",
+									"pin_id": "969BBED64264E1A60C42758526928064"
+								}
+							]
+						}
+					}
+				},
+				"A6DD5FA2436A4F297826C19ABC6F00D8":
+				{
+					"class_name": "K2Node_Select",
+					"pins":
+					{
+						"A1520FA64A4B45FD8EB971A21958DDD7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6315217D470D6C9C7D46B4AFB779F4C2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E5CB35CD415E1A6A89256EBB849B107D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "FCFC7B86416DA1EFB18F5BBF52BF6515",
+									"pin_id": "7D91767C4F8135B5593CC191D06AA0E3"
+								}
+							]
+						},
+						"969BBED64264E1A60C42758526928064":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E560434B4D3C31090D0D8FB39C54629D",
+									"pin_id": "BFE5A7084CE08AB53FE938A35F13770A"
+								}
+							]
+						}
+					}
+				},
+				"20C1300A49B3669505E32A9DA5DD9A86":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"888F949A4604264FDF5E9EBA2829A988":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3C565CEE4136EE35994EA5AA5E32F05C",
+									"pin_id": "B15B38104C827EB1520EA38070785197"
+								}
+							]
+						},
+						"F8A9A8FD4A2F146E19BE1FA19334C83E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"06B3A2DA47AC21D5EF7B4C96F0AF61FC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"048FD50941752ABDDF7C67B9B2B62754":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CDF0333241FF8C2E070C0AB5CF81E56B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B26CC910416EC7727DB3898CF39BD9F5":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"A5F648294A67F5C35EBC41A9DD9D8802":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"697B06E54F611EF9F598A19574033769":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "6D30FADD4F9A4023A5BFCBA2A60908EC",
+									"pin_id": "87A5AED94AFCB8CA083485976D582FAC"
+								}
+							]
+						},
+						"5E45B0A3479822939D938F9DE962EE0E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "79194D4445B5B060BD12DA9C8EF9F300",
+									"pin_id": "2F9030684947855324C242AC6755A6D5"
+								}
+							]
+						},
+						"92B218B84A5AEBE6D319AF8A1C8B9E09":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"3F1971BE45B73EB7FF661382017186E1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"12494B364DD2A96E31A04185E8D53185":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C4305C1F47FD1DFE6CE738886A81E0FA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "79194D4445B5B060BD12DA9C8EF9F300",
+									"pin_id": "5F2FF29B47578F804AEF719462C1ACEF"
+								}
+							]
+						}
+					}
+				},
+				"79194D4445B5B060BD12DA9C8EF9F300":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"2F9030684947855324C242AC6755A6D5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A5F648294A67F5C35EBC41A9DD9D8802",
+									"pin_id": "5E45B0A3479822939D938F9DE962EE0E"
+								}
+							]
+						},
+						"D39E3E9D474DFFA82C14D2941DE026E9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "345D70534570594412591BB8AFB9A6B0",
+									"pin_id": "504C76FD451751E9114C65914162D6EE"
+								}
+							]
+						},
+						"5F2FF29B47578F804AEF719462C1ACEF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A5F648294A67F5C35EBC41A9DD9D8802",
+									"pin_id": "C4305C1F47FD1DFE6CE738886A81E0FA"
+								}
+							]
+						},
+						"EC2E8EFF45AD03A121D0E9893D9F8372":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"85B4C9F1490F9E3179A6528500EFA3C0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"Deprecated":
+		{
+			"nodes":
+			{
+				"42674E6347F9DA298D8C429B21C1B221":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"396786814D8BEAA7828837BB15A525AC":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"57B1F79045BEC6DBFB0115A5854F5C97":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"39AC37204EB77CBCAE2DAD9E2B064217":
+				{
+					"class_name": "K2Node_CommutativeAssociativeBinaryOperator",
+					"pins":
+					{
+						"A63311014EA65765D893ED83869D7409":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D2B2DC7548F1C6E807BAFC9A55850008":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2CA2E8B4484DDF6AB0CDF78CA73B978C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "FCB4C2FB47C5A315E8BFB486DCCEEA88",
+									"pin_id": "5CEE9BB0499EEAD640EA59B5B13D3BF0"
+								}
+							]
+						},
+						"ED122D8C4EF59A53348B339C6849DB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "2E9B57FD435A3542498E5384BE7ACED7",
+									"pin_id": "A6C13C5D4B8163D5728894A0E65F59FF"
+								}
+							]
+						},
+						"2C6C0960497DC8D3399CBD9285F2A92E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D04906794DECD60CF957DA9BDFD74ECF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "9DF6463348A3C647BF68C4B2786764D5",
+									"pin_id": "97F3EE224AB41DCDAA27108AF371C805"
+								}
+							]
+						},
+						"32FE37794A0F04CC45ADB8B0B2C4768C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C47B8256465895D64C0FC8BA5CE08E65":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7E24C04D4C7448B82A9D23B5210E9583":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "D26DDFA240CF2F443C20B3AD6A7BB5EA",
+									"pin_id": "97F3EE224AB41DCDAA27108AF371C805"
+								}
+							]
+						},
+						"5EC5FDB542016B93FAEF09A1ECB56D3D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D220438F41CFBCEC5156588962625A37":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F1A834754FCC8D552F3DDEB1AD75119C",
+									"pin_id": "68459D164FDE2F2C4DA917A5B40AD386"
+								}
+							]
+						}
+					}
+				},
+				"107DEFD14E25D41C2E93C1AD66A7F028":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"5C2326D04A9213C6517039831AAF8C30":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "FCB4C2FB47C5A315E8BFB486DCCEEA88",
+									"pin_id": "0E82C22449B3A5DA0CEEA6B008F5F63D"
+								}
+							]
+						},
+						"50F1E9E34E9BBDDC598A98BA7613F79E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"FCB4C2FB47C5A315E8BFB486DCCEEA88":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"1E4BA4BC429162F43E836D822CA2A6AC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0E82C22449B3A5DA0CEEA6B008F5F63D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "107DEFD14E25D41C2E93C1AD66A7F028",
+									"pin_id": "5C2326D04A9213C6517039831AAF8C30"
+								}
+							]
+						},
+						"5CEE9BB0499EEAD640EA59B5B13D3BF0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "39AC37204EB77CBCAE2DAD9E2B064217",
+									"pin_id": "2CA2E8B4484DDF6AB0CDF78CA73B978C"
+								}
+							]
+						}
+					}
+				},
+				"A5FE27054DBDEB5D9169F585E87F1CCA":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"2D3D97EB45881C71BB8CC49F48886DAE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0481266D424A1F1037529389E341F1CF",
+									"pin_id": "F5F13BAC464808ECA9DE04B82A610D4A"
+								}
+							]
+						},
+						"74D4FC8C443ACB29370C38ACCCDDD5DA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"0481266D424A1F1037529389E341F1CF":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A2B8BF9140FDB0EF3A56C381A6395BD2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F5F13BAC464808ECA9DE04B82A610D4A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A5FE27054DBDEB5D9169F585E87F1CCA",
+									"pin_id": "2D3D97EB45881C71BB8CC49F48886DAE"
+								}
+							]
+						},
+						"FE43C548409F0ACA32C5238A0278830C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9DF6463348A3C647BF68C4B2786764D5",
+									"pin_id": "43E6177B4F9D6D03DCC6B99360712265"
+								}
+							]
+						}
+					}
+				},
+				"9DF6463348A3C647BF68C4B2786764D5":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"B1932DF940580D911CB7BBA99644D1D0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0359CC0C4F069EE6AA9607BB643E6511":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"43E6177B4F9D6D03DCC6B99360712265":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0481266D424A1F1037529389E341F1CF",
+									"pin_id": "FE43C548409F0ACA32C5238A0278830C"
+								}
+							]
+						},
+						"97F3EE224AB41DCDAA27108AF371C805":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "39AC37204EB77CBCAE2DAD9E2B064217",
+									"pin_id": "D04906794DECD60CF957DA9BDFD74ECF"
+								}
+							]
+						}
+					}
+				},
+				"2E9B57FD435A3542498E5384BE7ACED7":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"4956825F441DBDD46391FEB76656AD91":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B562E11B408483BFF12D1B96D6FDCE66":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CAD31EEF4F33F28A3349BCBAE164CA05":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AC8721DA47335075D4845DACB82052FE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A6C13C5D4B8163D5728894A0E65F59FF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "39AC37204EB77CBCAE2DAD9E2B064217",
+									"pin_id": "ED122D8C4EF59A53348B339C6849DB19"
+								}
+							]
+						},
+						"A6E0004F45F9C6F303058AAC269B7A96":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6E2612664C418B19E7BB578248C0B753":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8ECE97A8481352A726A3B489CCCEB2B9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"46B2E6C340EF6B81A71D3AB7CA0EF659":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"71D3BFDC41AF65D66CE9AFAD9BDBAA46":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"CDCF5CBA4415378B5E026B87A6F022E0":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A2B8BF9140FDB0EF3A56C381A6395BD2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F5F13BAC464808ECA9DE04B82A610D4A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "AC195BFF47900088B394A1B02E1FE7CC",
+									"pin_id": "B727FBE244EA05A48B65168D32A4ACCE"
+								}
+							]
+						},
+						"FE43C548409F0ACA32C5238A0278830C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "D26DDFA240CF2F443C20B3AD6A7BB5EA",
+									"pin_id": "43E6177B4F9D6D03DCC6B99360712265"
+								}
+							]
+						}
+					}
+				},
+				"D26DDFA240CF2F443C20B3AD6A7BB5EA":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"B1932DF940580D911CB7BBA99644D1D0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0359CC0C4F069EE6AA9607BB643E6511":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"43E6177B4F9D6D03DCC6B99360712265":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CDCF5CBA4415378B5E026B87A6F022E0",
+									"pin_id": "FE43C548409F0ACA32C5238A0278830C"
+								}
+							]
+						},
+						"97F3EE224AB41DCDAA27108AF371C805":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "39AC37204EB77CBCAE2DAD9E2B064217",
+									"pin_id": "7E24C04D4C7448B82A9D23B5210E9583"
+								}
+							]
+						}
+					}
+				},
+				"AC195BFF47900088B394A1B02E1FE7CC":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"B727FBE244EA05A48B65168D32A4ACCE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CDCF5CBA4415378B5E026B87A6F022E0",
+									"pin_id": "F5F13BAC464808ECA9DE04B82A610D4A"
+								}
+							]
+						},
+						"83C76E444BEBF3BA143DB08651D1D630":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"F671AE4B42004628CE452182DD8C370C":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"F3639B3D45F2DC5DA436989F905659F6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F1A834754FCC8D552F3DDEB1AD75119C",
+									"pin_id": "18BE74BA420F32A273B4CFA011B0106C"
+								},
+								{
+									"node_guid": "698C6172477678D7014DD8A4C4254B92",
+									"pin_id": "82F0E2A34CAC88716ED0A18856C380EC"
+								},
+								{
+									"node_guid": "D422ABD3470A92CD6EBAA88F9578672E",
+									"pin_id": "99E623764AFBD532B275C59DD2A785BC"
+								}
+							]
+						},
+						"7A3598BE40ABE6F6ED505581BE3903AF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"F1A834754FCC8D552F3DDEB1AD75119C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6D6920674A2250F362D21091818E6ABD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"18BE74BA420F32A273B4CFA011B0106C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F671AE4B42004628CE452182DD8C370C",
+									"pin_id": "F3639B3D45F2DC5DA436989F905659F6"
+								}
+							]
+						},
+						"68459D164FDE2F2C4DA917A5B40AD386":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "39AC37204EB77CBCAE2DAD9E2B064217",
+									"pin_id": "D220438F41CFBCEC5156588962625A37"
+								}
+							]
+						}
+					}
+				},
+				"698C6172477678D7014DD8A4C4254B92":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"C30373594196639D4C9C5C9EA609C391":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"82F0E2A34CAC88716ED0A18856C380EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F671AE4B42004628CE452182DD8C370C",
+									"pin_id": "F3639B3D45F2DC5DA436989F905659F6"
+								}
+							]
+						},
+						"D12B0A924F20207DFB3125B993D7C333":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"C12A70394D7DF8087F891EA731E8DFB4":
+				{
+					"class_name": "K2Node_MultiGate",
+					"pins":
+					{
+						"ECA7777C47A753B91A75EE99D520DFB0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "D422ABD3470A92CD6EBAA88F9578672E",
+									"pin_id": "11C0F1634C1FC9DC34E46D87732C8786"
+								}
+							]
+						},
+						"BC6DEAE74B261BEF72C563827B0296CD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"D51D16E54F577024AE7103A73908A194":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"56752E9842A030F3E8CE4EA6F6868CFF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"ED997F3343EF719C59AC4FBF999FC02C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"96ACD3F740B9C6BF0741B18027633C56":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"B7D0BFA04059B5E2F3291785FB24E804":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"1AF9B6864D1F04FD8AD1FF9FFAD4DDE5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"ED42FD224C042546F8B5488150A16ADA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A940687940317D445AD94A85AC518FEB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"D422ABD3470A92CD6EBAA88F9578672E":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"B0889E934032CEBAB5B8D4AB6B5278CE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"99E623764AFBD532B275C59DD2A785BC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F671AE4B42004628CE452182DD8C370C",
+									"pin_id": "F3639B3D45F2DC5DA436989F905659F6"
+								}
+							]
+						},
+						"FCB54C6B4F857D9ABBE4A390236D8339":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CC694F274C9717B4B835B2ABA9D6A162",
+									"pin_id": "A740140E44FDE196F19CFEAE12A15B61"
+								}
+							]
+						},
+						"E74F051445AD4D80BC0E70895225C24C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"11C0F1634C1FC9DC34E46D87732C8786":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C12A70394D7DF8087F891EA731E8DFB4",
+									"pin_id": "ECA7777C47A753B91A75EE99D520DFB0"
+								}
+							]
+						},
+						"46A0907E49BD2B3A9ECB3680BEBBA51C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"CC694F274C9717B4B835B2ABA9D6A162":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"A740140E44FDE196F19CFEAE12A15B61":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "D422ABD3470A92CD6EBAA88F9578672E",
+									"pin_id": "FCB54C6B4F857D9ABBE4A390236D8339"
+								}
+							]
+						},
+						"ABBA6A484DB210D1B62BDFA7EFAAD015":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"EAF9073E4F5E976479323298807C100A":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"2A53B5F745D1C9A5C621BE832972C364":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CECA94B94B7759D82D62708083564C89":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"4C46EE86471E1544EBF8F393AD81449A":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"4956825F441DBDD46391FEB76656AD91":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7F8C5D3144190C6C766DE19AE6FA2DCC",
+									"pin_id": "E15A28D04E1B002A14592DBFF91E0F75"
+								}
+							]
+						},
+						"B562E11B408483BFF12D1B96D6FDCE66":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CAD31EEF4F33F28A3349BCBAE164CA05":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AC8721DA47335075D4845DACB82052FE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A6C13C5D4B8163D5728894A0E65F59FF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E11458DA423BDDA2552361B6B4628215",
+									"pin_id": "ED122D8C4EF59A53348B339C6849DB19"
+								}
+							]
+						},
+						"A6E0004F45F9C6F303058AAC269B7A96":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6E2612664C418B19E7BB578248C0B753":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8ECE97A8481352A726A3B489CCCEB2B9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"46B2E6C340EF6B81A71D3AB7CA0EF659":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"71D3BFDC41AF65D66CE9AFAD9BDBAA46":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E11458DA423BDDA2552361B6B4628215":
+				{
+					"class_name": "K2Node_CommutativeAssociativeBinaryOperator",
+					"pins":
+					{
+						"A63311014EA65765D893ED83869D7409":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D2B2DC7548F1C6E807BAFC9A55850008":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2CA2E8B4484DDF6AB0CDF78CA73B978C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7F52C9554097029F04F4168F403C43ED",
+									"pin_id": "5CEE9BB0499EEAD640EA59B5B13D3BF0"
+								}
+							]
+						},
+						"ED122D8C4EF59A53348B339C6849DB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4C46EE86471E1544EBF8F393AD81449A",
+									"pin_id": "A6C13C5D4B8163D5728894A0E65F59FF"
+								}
+							]
+						},
+						"2C6C0960497DC8D3399CBD9285F2A92E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D04906794DECD60CF957DA9BDFD74ECF":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E00467F544BD5C0ED33F63976470BBE1",
+									"pin_id": "97F3EE224AB41DCDAA27108AF371C805"
+								}
+							]
+						}
+					}
+				},
+				"454E4F1241740FBDFA5B11AEC89ADF1E":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"5C2326D04A9213C6517039831AAF8C30":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7F52C9554097029F04F4168F403C43ED",
+									"pin_id": "0E82C22449B3A5DA0CEEA6B008F5F63D"
+								}
+							]
+						},
+						"50F1E9E34E9BBDDC598A98BA7613F79E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"7F52C9554097029F04F4168F403C43ED":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"1E4BA4BC429162F43E836D822CA2A6AC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0E82C22449B3A5DA0CEEA6B008F5F63D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "454E4F1241740FBDFA5B11AEC89ADF1E",
+									"pin_id": "5C2326D04A9213C6517039831AAF8C30"
+								}
+							]
+						},
+						"5CEE9BB0499EEAD640EA59B5B13D3BF0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E11458DA423BDDA2552361B6B4628215",
+									"pin_id": "2CA2E8B4484DDF6AB0CDF78CA73B978C"
+								}
+							]
+						}
+					}
+				},
+				"EB2E103C4AC3DFFD0B46C2A7A74CB0A4":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"2D3D97EB45881C71BB8CC49F48886DAE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0396DADA4725C90D37F264A7E780791E",
+									"pin_id": "F5F13BAC464808ECA9DE04B82A610D4A"
+								}
+							]
+						},
+						"74D4FC8C443ACB29370C38ACCCDDD5DA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"0396DADA4725C90D37F264A7E780791E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A2B8BF9140FDB0EF3A56C381A6395BD2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F5F13BAC464808ECA9DE04B82A610D4A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EB2E103C4AC3DFFD0B46C2A7A74CB0A4",
+									"pin_id": "2D3D97EB45881C71BB8CC49F48886DAE"
+								}
+							]
+						},
+						"FE43C548409F0ACA32C5238A0278830C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E00467F544BD5C0ED33F63976470BBE1",
+									"pin_id": "43E6177B4F9D6D03DCC6B99360712265"
+								}
+							]
+						}
+					}
+				},
+				"E00467F544BD5C0ED33F63976470BBE1":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"B1932DF940580D911CB7BBA99644D1D0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0359CC0C4F069EE6AA9607BB643E6511":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"43E6177B4F9D6D03DCC6B99360712265":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0396DADA4725C90D37F264A7E780791E",
+									"pin_id": "FE43C548409F0ACA32C5238A0278830C"
+								}
+							]
+						},
+						"97F3EE224AB41DCDAA27108AF371C805":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E11458DA423BDDA2552361B6B4628215",
+									"pin_id": "D04906794DECD60CF957DA9BDFD74ECF"
+								}
+							]
+						}
+					}
+				},
+				"7ACDCFA1438764010B89B9BAF24975AF":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"88F2EA204F748F19F7A7B9802E530634":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5FB84B9946BD9B0F630AC3B0F4588408",
+									"pin_id": "184EC89B49F5171988C845ADE2E1C2FF"
+								}
+							]
+						},
+						"5007683A4857D4C72B8E0FA7FA5EEC31":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "6784D11B4AC5A0C2EF96EE868810B3AF",
+									"pin_id": "0663CF044EB9B240A266A497967C1383"
+								}
+							]
+						},
+						"0B502164483904E14704D9A679C4C152":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7F8C5D3144190C6C766DE19AE6FA2DCC",
+									"pin_id": "FE7FE45A4BDA251D93F27B88B63D091D"
+								}
+							]
+						},
+						"90B4CFC2487080DB2C006CA596B5D94A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"7F8C5D3144190C6C766DE19AE6FA2DCC":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"77988008459C3A7825965EA623E67D2B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FE7FE45A4BDA251D93F27B88B63D091D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7ACDCFA1438764010B89B9BAF24975AF",
+									"pin_id": "0B502164483904E14704D9A679C4C152"
+								}
+							]
+						},
+						"E15A28D04E1B002A14592DBFF91E0F75":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4C46EE86471E1544EBF8F393AD81449A",
+									"pin_id": "4956825F441DBDD46391FEB76656AD91"
+								}
+							]
+						},
+						"A742D57B40E2CC9CEC6367B22BAB3984":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"5FB84B9946BD9B0F630AC3B0F4588408":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"80850C714FC582D9B87ED18561695545":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"184EC89B49F5171988C845ADE2E1C2FF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7ACDCFA1438764010B89B9BAF24975AF",
+									"pin_id": "88F2EA204F748F19F7A7B9802E530634"
+								}
+							]
+						}
+					}
+				},
+				"6784D11B4AC5A0C2EF96EE868810B3AF":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"BA6E6D8541AC77640705329566A24B28":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0663CF044EB9B240A266A497967C1383":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7ACDCFA1438764010B89B9BAF24975AF",
+									"pin_id": "5007683A4857D4C72B8E0FA7FA5EEC31"
+								}
+							]
+						}
+					}
+				},
+				"F0897E1346697472DC823F8A8A4342F5":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"ED7CB764426EB2BC20B7E99B1BF0EE97":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"89F8949642AE7422111135AF43C08305":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B053391E40286EC884909181D545E129":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"810A6EF14CDA5F81D173FAA33B540569":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3A4DF2ED472F8CA618B44EA689B282E4",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"3A4DF2ED472F8CA618B44EA689B282E4":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5BE8F527422F5B46210074A666623F38",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "810A6EF14CDA5F81D173FAA33B540569",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"F164AB6948ABEE3AD0018DAEF516B1BC":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "467509A24880969A056368B5CC2F69A3",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"467509A24880969A056368B5CC2F69A3":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "628405F14F91118CB6FC22AFB0746C12",
+									"pin_id": "C67037114DC519F366E204A66296C46A"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "06A2C41F47DA495EE744BA963B57606D",
+									"pin_id": "10C04EB04F25C6BA9DFC689625BA33A6"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F164AB6948ABEE3AD0018DAEF516B1BC",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"635675954A1457D09E261A886A39678E":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5BE8F527422F5B46210074A666623F38",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"5BE8F527422F5B46210074A666623F38":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3A4DF2ED472F8CA618B44EA689B282E4",
+									"pin_id": "C67037114DC519F366E204A66296C46A"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "8EE6F1684DF20557EFE4FCA94032B193",
+									"pin_id": "10C04EB04F25C6BA9DFC689625BA33A6"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "635675954A1457D09E261A886A39678E",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"1659C30F489211470CA7628DDC225283":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"C9FFA2D74FF7DE3DA3105F9D439D7247":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "35408ABB4F4861BFDDFF2EBBDD0E911F",
+									"pin_id": "E3A2550C4EE4D54E5BD953B7CA14A6E7"
+								}
+							]
+						},
+						"8C82493B43C621C019CA118F3B4FED42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"35408ABB4F4861BFDDFF2EBBDD0E911F":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A61A8D674906773F7118BABC598CE690":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "8EE6F1684DF20557EFE4FCA94032B193",
+									"pin_id": "C2D84F21445EEDCC8BCD08B5EDA6C566"
+								}
+							]
+						},
+						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1659C30F489211470CA7628DDC225283",
+									"pin_id": "C9FFA2D74FF7DE3DA3105F9D439D7247"
+								}
+							]
+						},
+						"3AF81DD640305637E6DA37848990DBA8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FA15E2E543E96093E79E07B13F92DE2A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8D57FFDD4D9CA11D13398980DB54912D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F01404614908897F99D97EA0DFCCFB94":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"C306BEFB4FA7DAEBF37089BA8AF5ED74":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"C9FFA2D74FF7DE3DA3105F9D439D7247":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A328A0414247213A5C4899B2FCFF783C",
+									"pin_id": "E3A2550C4EE4D54E5BD953B7CA14A6E7"
+								}
+							]
+						},
+						"8C82493B43C621C019CA118F3B4FED42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"A328A0414247213A5C4899B2FCFF783C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A61A8D674906773F7118BABC598CE690":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "06A2C41F47DA495EE744BA963B57606D",
+									"pin_id": "C2D84F21445EEDCC8BCD08B5EDA6C566"
+								}
+							]
+						},
+						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C306BEFB4FA7DAEBF37089BA8AF5ED74",
+									"pin_id": "C9FFA2D74FF7DE3DA3105F9D439D7247"
+								}
+							]
+						},
+						"3AF81DD640305637E6DA37848990DBA8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FA15E2E543E96093E79E07B13F92DE2A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8D57FFDD4D9CA11D13398980DB54912D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F01404614908897F99D97EA0DFCCFB94":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"4387C9A4497636497DB526A50388E06D":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "628405F14F91118CB6FC22AFB0746C12",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"628405F14F91118CB6FC22AFB0746C12":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "467509A24880969A056368B5CC2F69A3",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4387C9A4497636497DB526A50388E06D",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"8EE6F1684DF20557EFE4FCA94032B193":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"10C04EB04F25C6BA9DFC689625BA33A6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5BE8F527422F5B46210074A666623F38",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								}
+							]
+						},
+						"CC59EB6E4DF8F6EE38EEA3B5ABF7EDFE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"562502F54978DF313E82D39232664DF6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C2D84F21445EEDCC8BCD08B5EDA6C566":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "35408ABB4F4861BFDDFF2EBBDD0E911F",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						}
+					}
+				},
+				"06A2C41F47DA495EE744BA963B57606D":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"10C04EB04F25C6BA9DFC689625BA33A6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "467509A24880969A056368B5CC2F69A3",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								}
+							]
+						},
+						"CC59EB6E4DF8F6EE38EEA3B5ABF7EDFE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"562502F54978DF313E82D39232664DF6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C2D84F21445EEDCC8BCD08B5EDA6C566":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A328A0414247213A5C4899B2FCFF783C",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						}
+					}
+				},
+				"F63E68414BA22CF76FB7AB958C84416D":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"AA6481CD42787033557E93BE3EFDBC50":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "1AB908A84E69492EE267AEAD79AD968D",
+									"pin_id": "8C1D7BA44249BE793CBE2388A5F502D5"
+								}
+							]
+						},
+						"000907FF4BB3019880A62AA1B8D3E53D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"FE2D1AF44583E9E1A48C44B3C686A3B1":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"63DD39F84D1967513FC895ACCE762CC9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A69E49C0481B811975E24CA0358C1569":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"1AB908A84E69492EE267AEAD79AD968D":
+				{
+					"class_name": "K2Node_AssignDelegate",
+					"pins":
+					{
+						"E15739E740F84A7D6D6E26A13211F0FE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F6B11A57494D9B2CF45C49A6305CC2DB":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "AC929108451B8E9E5FDCB5A8843573FE",
+									"pin_id": "6F3B23E9403CAC81F3C93E82666526EC"
+								}
+							]
+						},
+						"0ACF0A004E12318262F4B4BCAF03DEA4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8C1D7BA44249BE793CBE2388A5F502D5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F63E68414BA22CF76FB7AB958C84416D",
+									"pin_id": "AA6481CD42787033557E93BE3EFDBC50"
+								}
+							]
+						}
+					}
+				},
+				"AC929108451B8E9E5FDCB5A8843573FE":
+				{
+					"class_name": "K2Node_AddDelegate",
+					"pins":
+					{
+						"6F3B23E9403CAC81F3C93E82666526EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1AB908A84E69492EE267AEAD79AD968D",
+									"pin_id": "F6B11A57494D9B2CF45C49A6305CC2DB"
+								}
+							]
+						},
+						"A622F22946394FE015F7DA8EC742D59F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"346B32C541E287308A3A818E1ADAD4A0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"065D7CA64C65118E5124D592DD0DE84F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "2FF060D54270FA26A9EDEF926700139B",
+									"pin_id": "DFB6F6D140A797CD8F7473BC8E93424A"
+								}
+							]
+						}
+					}
+				},
+				"2FF060D54270FA26A9EDEF926700139B":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"DFB6F6D140A797CD8F7473BC8E93424A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "AC929108451B8E9E5FDCB5A8843573FE",
+									"pin_id": "065D7CA64C65118E5124D592DD0DE84F"
+								}
+							]
+						},
+						"7C6B976F48D49AE7B2477BB629A4EB83":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"C20A32AB481B2690B656A6939A6A420F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"025395BD461B1AC92E22A0A805C5B4EB":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E4B81EF043943373A63F26AFDFED925D",
+									"pin_id": "18289B104CDCAFE6F4EF58A1B0226BFB"
+								}
+							]
+						}
+					}
+				},
+				"7D1953EF4178EF17327990AD5351A8D7":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"F37E95A240EE61B01707DD86D49F0AC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"748088CD40C692C125E56690BB7A4089":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A23DFA6546886BA3684364964A7F951F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E4B81EF043943373A63F26AFDFED925D":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6CE3ADBE480A5AE8E7CE0D8F8BF29A04":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AD8B106F401B93F11E1CCCBA57962ADF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"7EA0B811448EC26A0628C0A80E7C6126":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"18289B104CDCAFE6F4EF58A1B0226BFB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "2FF060D54270FA26A9EDEF926700139B",
+									"pin_id": "025395BD461B1AC92E22A0A805C5B4EB"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"UserConstructionScript":
+		{
+			"nodes":
+			{
+				"25AC092E4AF10E8002CD1684FD8CBE4C":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"AC7EE1EF46D1A7B381859096D67B0D45":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"PointStateChange":
+		{
+			"nodes":
+			{
+				"1273AC7948F0AEF7C93C14A2731CDE8E":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"1C16B2A34C340B43867E8A84E6E4D183":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "72F2EF9B4EC00FE2C5F34890E3FE5900"
+								}
+							]
+						},
+						"D9F4DD04428A114F096A00B8E212C6A8":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "49F892FC425794C3C19AC0AC2A45A553"
+								}
+							]
+						}
+					}
+				},
+				"F34F38B547D0904B8BB7F0A613FBBBBE":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"72F2EF9B4EC00FE2C5F34890E3FE5900":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1273AC7948F0AEF7C93C14A2731CDE8E",
+									"pin_id": "1C16B2A34C340B43867E8A84E6E4D183"
+								}
+							]
+						},
+						"49F892FC425794C3C19AC0AC2A45A553":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1273AC7948F0AEF7C93C14A2731CDE8E",
+									"pin_id": "D9F4DD04428A114F096A00B8E212C6A8"
+								}
+							]
+						},
+						"E3CEFDEE49718FD5D4D60FB5F6C856D4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"26F6360C4BF9598F94FC3395DCE18D87":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"660C4756438BACAD087BE0B019F91D31":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"7749725F45CF109FFC43709A74FB8006":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "90A42DA84B5433F014A5E48F1E70E910",
+									"pin_id": "C0E945C14E6F5EAC6EA459A2FEA7B290"
+								}
+							]
+						},
+						"790B5C6841F3FA08647B86B26B0F03AE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "6BF85006441645D9FF5659BC9B641944",
+									"pin_id": "0F7ECE864BE3A718EF3185B3A15EE829"
+								}
+							]
+						},
+						"BCED46864D8AB31AB061A0942CD07BB6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "90A42DA84B5433F014A5E48F1E70E910",
+									"pin_id": "C0E945C14E6F5EAC6EA459A2FEA7B290"
+								}
+							]
+						},
+						"B5080AB94BE9F8A0BAF10C8EE1F5F291":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "62C53AA840C453EF2628318F538B477E",
+									"pin_id": "901E39B04CF340EC8BD17780B0626F31"
+								}
+							]
+						}
+					}
+				},
+				"5F658F344A17C704FB7B29A1364C2DDD":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"6EA9142B44EFEB53E29F64AD27E9E1CB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2AF955FC48ECA08B8245A6AD9FA0EFE8":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E7DAA9D644389C5491E6EDA33B888576":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D00E32E347F3BFC4EAD98FAB51964A13":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"DE34A11748A96DD6CD4F9E950C9404A2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"90A42DA84B5433F014A5E48F1E70E910":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"C0E945C14E6F5EAC6EA459A2FEA7B290":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "7749725F45CF109FFC43709A74FB8006"
+								},
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "BCED46864D8AB31AB061A0942CD07BB6"
+								}
+							]
+						},
+						"F19F439F4F7B8BD4605664BD08981BE1":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"34BF119249E273FD2B8470B51EC4567B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"92793A154E6A350025AD73A2B2A07B13":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"62C53AA840C453EF2628318F538B477E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"901E39B04CF340EC8BD17780B0626F31":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "B5080AB94BE9F8A0BAF10C8EE1F5F291"
+								}
+							]
+						},
+						"ACF8A1C545C012FE00813A91E739B55F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "1A46BCE44E8C8ED5B9D31D90D8C778BF",
+									"pin_id": "C0E945C14E6F5EAC6EA459A2FEA7B290"
+								}
+							]
+						},
+						"025441624A0AECEC8C4734B2A2E7D553":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"1A46BCE44E8C8ED5B9D31D90D8C778BF":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"C0E945C14E6F5EAC6EA459A2FEA7B290":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "62C53AA840C453EF2628318F538B477E",
+									"pin_id": "ACF8A1C545C012FE00813A91E739B55F"
+								}
+							]
+						},
+						"F19F439F4F7B8BD4605664BD08981BE1":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"34BF119249E273FD2B8470B51EC4567B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"92793A154E6A350025AD73A2B2A07B13":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"F80284FD4578C55DA177EE8A0BAF33F3":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"60B5F43A42C3DEBA8465ECA892EF1D4F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EED85760411D1822D368C698FBAED8F9",
+									"pin_id": "F6E4A1EA46E9558387BADDB7C08CD1A1"
+								}
+							]
+						},
+						"D4B1AAC7407381EAC3201CB5ED18C35C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"EED85760411D1822D368C698FBAED8F9":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"15B36E224C0CCC0D1CA695BD5207CD8D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "6BF85006441645D9FF5659BC9B641944",
+									"pin_id": "B820DBD04D50ED6235939F80879F7B18"
+								}
+							]
+						},
+						"B209EDB44596B6F40EA8D1B7856EE77F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"F6E4A1EA46E9558387BADDB7C08CD1A1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F80284FD4578C55DA177EE8A0BAF33F3",
+									"pin_id": "60B5F43A42C3DEBA8465ECA892EF1D4F"
+								}
+							]
+						},
+						"E3CFDCB34D7EF9E858CCE2AF7147CB40":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DF1319FE42071BDE83EBB0A50169ECDA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"4B0C938943E70AE805CAA9AD017A7927":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"1DB5D6254C747ECAC2A578B9B494158A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"5AFB4ADC4F0BBBC3A1A7548742C7FC3E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"F3D005E44C9E5FB5DF2FF3960267565B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B0E5D316489778C4348D008A3D9F4A87":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "6BF85006441645D9FF5659BC9B641944",
+									"pin_id": "FFEE52DA47FB5CEDC92C4D8E36B4A047"
+								}
+							]
+						}
+					}
+				},
+				"6BF85006441645D9FF5659BC9B641944":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"0F7ECE864BE3A718EF3185B3A15EE829":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
+									"pin_id": "790B5C6841F3FA08647B86B26B0F03AE"
+								}
+							]
+						},
+						"FFEE52DA47FB5CEDC92C4D8E36B4A047":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5AFB4ADC4F0BBBC3A1A7548742C7FC3E",
+									"pin_id": "B0E5D316489778C4348D008A3D9F4A87"
+								}
+							]
+						},
+						"B820DBD04D50ED6235939F80879F7B18":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EED85760411D1822D368C698FBAED8F9",
+									"pin_id": "15B36E224C0CCC0D1CA695BD5207CD8D"
+								}
+							]
+						},
+						"8357B07F4DDFF930D3666E933784E9B9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"30061A1949BBE7A1D98357AFA5AB1F50":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"0FD2F3574E495A738F58A5BFA5DD4C83":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EB1E5C6E4A5EB01E323512A1146E8B3B",
+									"pin_id": "0AAFF12C4C75C06D3544BC93B6C8B293"
+								}
+							]
+						},
+						"8D00199C4D143098D23E38AB2E843310":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"99BAEB2C421F9094878B7AA1612BAEC5":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"4092C4784EE108656D642A9BD89840E0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8FADE5B1451ACFFDA17C539DD5911A7C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "35E258454C24440B70EB13AFF54D59BC",
+									"pin_id": "255708A0440848E6122C94A49AD6F16C"
+								}
+							]
+						}
+					}
+				},
+				"35E258454C24440B70EB13AFF54D59BC":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"B968198B4259408C070614BA9CEBF87B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"255708A0440848E6122C94A49AD6F16C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "99BAEB2C421F9094878B7AA1612BAEC5",
+									"pin_id": "8FADE5B1451ACFFDA17C539DD5911A7C"
+								}
+							]
+						},
+						"AC904D40414C2ECAFE1E46BDE84A3FD6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"0DD6FA2945AA2EBB84FB50B9DE4CC79C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DDC449CC48445A8A199A2391DA759296",
+									"pin_id": "F93368A64AA743C9959087873047F602"
+								}
+							]
+						},
+						"DF8C2D7C4F2B76ED76A257B995F94164":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "BEA0D20940FD85713C0045B9A15720BE",
+									"pin_id": "F93368A64AA743C9959087873047F602"
+								}
+							]
+						}
+					}
+				},
+				"EB1E5C6E4A5EB01E323512A1146E8B3B":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"A006DB704E090C1C731367B26965500B":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DDC449CC48445A8A199A2391DA759296",
+									"pin_id": "7DEC6E394E802455771BF88B0FF29FBC"
+								},
+								{
+									"node_guid": "BEA0D20940FD85713C0045B9A15720BE",
+									"pin_id": "7DEC6E394E802455771BF88B0FF29FBC"
+								},
+								{
+									"node_guid": "FFAFF0BC46D58F8BBE3B4EBEB9A50387",
+									"pin_id": "83874BBD45ACDBD9FDA6A9B00CFE4A02"
+								},
+								{
+									"node_guid": "2F53D4514075015EC441FC9B6DB23BE7",
+									"pin_id": "83874BBD45ACDBD9FDA6A9B00CFE4A02"
+								}
+							]
+						},
+						"0AAFF12C4C75C06D3544BC93B6C8B293":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "30061A1949BBE7A1D98357AFA5AB1F50",
+									"pin_id": "0FD2F3574E495A738F58A5BFA5DD4C83"
+								}
+							]
+						}
+					}
+				},
+				"DDC449CC48445A8A199A2391DA759296":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"F93368A64AA743C9959087873047F602":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "35E258454C24440B70EB13AFF54D59BC",
+									"pin_id": "0DD6FA2945AA2EBB84FB50B9DE4CC79C"
+								}
+							]
+						},
+						"193ECF8247D424F429E1278A162282B5":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "30B498B841ADD5FF1BB8858E28D33F91",
+									"pin_id": "AE70EE464FF68E60C135E79AF8AC4F31"
+								}
+							]
+						},
+						"7DEC6E394E802455771BF88B0FF29FBC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EB1E5C6E4A5EB01E323512A1146E8B3B",
+									"pin_id": "A006DB704E090C1C731367B26965500B"
+								}
+							]
+						},
+						"50131AEE4E2DCA308BB3699549A172BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"BEA0D20940FD85713C0045B9A15720BE":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"F93368A64AA743C9959087873047F602":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "35E258454C24440B70EB13AFF54D59BC",
+									"pin_id": "DF8C2D7C4F2B76ED76A257B995F94164"
+								}
+							]
+						},
+						"193ECF8247D424F429E1278A162282B5":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "30B498B841ADD5FF1BB8858E28D33F91",
+									"pin_id": "AE70EE464FF68E60C135E79AF8AC4F31"
+								}
+							]
+						},
+						"7DEC6E394E802455771BF88B0FF29FBC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EB1E5C6E4A5EB01E323512A1146E8B3B",
+									"pin_id": "A006DB704E090C1C731367B26965500B"
+								}
+							]
+						},
+						"50131AEE4E2DCA308BB3699549A172BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"FFAFF0BC46D58F8BBE3B4EBEB9A50387":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"FDA0FEA747FE7E562F2D2D8FEA7961A8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"04E594B5412C127DBDE8FBA45857A969":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"83874BBD45ACDBD9FDA6A9B00CFE4A02":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EB1E5C6E4A5EB01E323512A1146E8B3B",
+									"pin_id": "A006DB704E090C1C731367B26965500B"
+								}
+							]
+						},
+						"E50AA06941D54E054155E59DB57BFCA2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"724C55074FCBF35C9CE47EB3EC81548B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"5D9A999C4372D12E3E2D76BA095740C6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6DB63A544A28809C71D6648D8A3F3C2F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"4B06534747B8BBFC00F70C97E02C6EB1":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A4AD026946AC33CE9A4C74A7A6DD810A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"09BBE3794946A78262F5C889A25510DD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0D17973443AE5BBABF1DD6B326ECD145",
+									"pin_id": "9C712921458DF8FA6D9120BE55E840A0"
+								}
+							]
+						}
+					}
+				},
+				"0D17973443AE5BBABF1DD6B326ECD145":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"00FB4BA84D4FB3FAD69E4FBFB3B8BA8F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"9C712921458DF8FA6D9120BE55E840A0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4B06534747B8BBFC00F70C97E02C6EB1",
+									"pin_id": "09BBE3794946A78262F5C889A25510DD"
+								}
+							]
+						},
+						"395C54E542C5918E6ABB7F9B6A15F006":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "846DE65B4AE6524F3A52949DF3FFB7EA",
+									"pin_id": "12AAC6FB43BEEC5354FC9F9D424FE25B"
+								}
+							]
+						},
+						"0C0003CB43476E2769B8E88BDAEE687D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "30B498B841ADD5FF1BB8858E28D33F91",
+									"pin_id": "A7D60D99427DEB358467DFB8FC6FAC80"
+								}
+							]
+						}
+					}
+				},
+				"846DE65B4AE6524F3A52949DF3FFB7EA":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0C7656864E9305C65C2A909E564317B2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"3B5D9DA541E3299513B97E97116F0FC1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"12AAC6FB43BEEC5354FC9F9D424FE25B":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0D17973443AE5BBABF1DD6B326ECD145",
+									"pin_id": "395C54E542C5918E6ABB7F9B6A15F006"
+								}
+							]
+						}
+					}
+				},
+				"30B498B841ADD5FF1BB8858E28D33F91":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"AE70EE464FF68E60C135E79AF8AC4F31":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "BEA0D20940FD85713C0045B9A15720BE",
+									"pin_id": "193ECF8247D424F429E1278A162282B5"
+								},
+								{
+									"node_guid": "DDC449CC48445A8A199A2391DA759296",
+									"pin_id": "193ECF8247D424F429E1278A162282B5"
+								}
+							]
+						},
+						"A7D60D99427DEB358467DFB8FC6FAC80":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0D17973443AE5BBABF1DD6B326ECD145",
+									"pin_id": "0C0003CB43476E2769B8E88BDAEE687D"
+								}
+							]
+						},
+						"1621DCBC488E7D393A642D87185D6170":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"CCA8465643F8664F5A5D0184F1835F0E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"2F53D4514075015EC441FC9B6DB23BE7":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"FDA0FEA747FE7E562F2D2D8FEA7961A8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"04E594B5412C127DBDE8FBA45857A969":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"83874BBD45ACDBD9FDA6A9B00CFE4A02":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EB1E5C6E4A5EB01E323512A1146E8B3B",
+									"pin_id": "A006DB704E090C1C731367B26965500B"
+								}
+							]
+						},
+						"E50AA06941D54E054155E59DB57BFCA2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"724C55074FCBF35C9CE47EB3EC81548B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"5D9A999C4372D12E3E2D76BA095740C6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6DB63A544A28809C71D6648D8A3F3C2F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"PointStateUpstate":
+		{
+			"nodes":
+			{
+				"08BAF63B49987C3E75495EA5DA112D1E":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"D334B7104E5BB48E0C1D6B93FFC4321F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "72F2EF9B4EC00FE2C5F34890E3FE5900"
+								}
+							]
+						},
+						"6709643449C668BAE4379A8EF13CEFDD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "49F892FC425794C3C19AC0AC2A45A553"
+								}
+							]
+						}
+					}
+				},
+				"E1C407DF43B67F2E6F85DC82656DC146":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"96D903A24E4A4EAF4B4631AB467A3039":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2A0C79E047CDFDF84DE1EC94C6B27707":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EAA5BB424280F4A3E6C376B1B615018E",
+									"pin_id": "E4B3C72947D75A3CE7833786A7946A57"
+								}
+							]
+						}
+					}
+				},
+				"4EA4614749201B6261981BA2FF34F3A7":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EAA5BB424280F4A3E6C376B1B615018E",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"EAA5BB424280F4A3E6C376B1B615018E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
+									"pin_id": "C67037114DC519F366E204A66296C46A"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4EA4614749201B6261981BA2FF34F3A7",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E1C407DF43B67F2E6F85DC82656DC146",
+									"pin_id": "2A0C79E047CDFDF84DE1EC94C6B27707"
+								}
+							]
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"232097004F5A021358B0788074C3F44C":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"72F2EF9B4EC00FE2C5F34890E3FE5900":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "08BAF63B49987C3E75495EA5DA112D1E",
+									"pin_id": "D334B7104E5BB48E0C1D6B93FFC4321F"
+								}
+							]
+						},
+						"49F892FC425794C3C19AC0AC2A45A553":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "08BAF63B49987C3E75495EA5DA112D1E",
+									"pin_id": "6709643449C668BAE4379A8EF13CEFDD"
+								}
+							]
+						},
+						"E3CEFDEE49718FD5D4D60FB5F6C856D4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"26F6360C4BF9598F94FC3395DCE18D87":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"660C4756438BACAD087BE0B019F91D31":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E3326DF24B878E4AE7B3D982C4391DBC",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"7749725F45CF109FFC43709A74FB8006":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"790B5C6841F3FA08647B86B26B0F03AE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EDF72CA04E1B5EBE6656D285403E7049",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"BCED46864D8AB31AB061A0942CD07BB6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"3FED29E548643C6629654DBE7F807714":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F3CFD4764B0B3A56CBFBBDBC9AAD4169",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						}
+					}
+				},
+				"E93153864BBD2B3375C952891DC2F11D":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E3326DF24B878E4AE7B3D982C4391DBC",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E3326DF24B878E4AE7B3D982C4391DBC":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "660C4756438BACAD087BE0B019F91D31"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E93153864BBD2B3375C952891DC2F11D",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"8B41BC2C43E1929AF92C3080609A823B":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"688C848E4245EEC9F90BD0B8BE58E2C8":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "7749725F45CF109FFC43709A74FB8006"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EAA5BB424280F4A3E6C376B1B615018E",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "8B41BC2C43E1929AF92C3080609A823B",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"6E00E8BA487F26AFD40536AA791D5BB8":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EDF72CA04E1B5EBE6656D285403E7049",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"EDF72CA04E1B5EBE6656D285403E7049":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "790B5C6841F3FA08647B86B26B0F03AE"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "6E00E8BA487F26AFD40536AA791D5BB8",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"50E36DC140691D402D439DB85F9F5F25":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"96D903A24E4A4EAF4B4631AB467A3039":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"2A0C79E047CDFDF84DE1EC94C6B27707":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5CF70B4448D6059B335DDD8C4D4542B3",
+									"pin_id": "E4B3C72947D75A3CE7833786A7946A57"
+								}
+							]
+						}
+					}
+				},
+				"78790718475D0FD81232F9A717C18D87":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5CF70B4448D6059B335DDD8C4D4542B3",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"5CF70B4448D6059B335DDD8C4D4542B3":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
+									"pin_id": "C67037114DC519F366E204A66296C46A"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "78790718475D0FD81232F9A717C18D87",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "50E36DC140691D402D439DB85F9F5F25",
+									"pin_id": "2A0C79E047CDFDF84DE1EC94C6B27707"
+								}
+							]
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"1BAB1BE94CFF7716767653AB15FC0FA3":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"94216E2E48BF2F78EFB89ABD2E4D074F":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "BCED46864D8AB31AB061A0942CD07BB6"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5CF70B4448D6059B335DDD8C4D4542B3",
+									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
+								}
+							]
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1BAB1BE94CFF7716767653AB15FC0FA3",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"2D681D3349367D10D3140985BE32FEB1":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"67423035415C6C7C462358B5751FD4BA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F3CFD4764B0B3A56CBFBBDBC9AAD4169",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"F3CFD4764B0B3A56CBFBBDBC9AAD4169":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"0635AB9740CF01284333CE8CCAAE24BA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "232097004F5A021358B0788074C3F44C",
+									"pin_id": "3FED29E548643C6629654DBE7F807714"
+								}
+							]
+						},
+						"C67037114DC519F366E204A66296C46A":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"EDE3E4E24273305079C36A891783E133":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "2D681D3349367D10D3140985BE32FEB1",
+									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+								}
+							]
+						},
+						"4F96E4A74BF7C5A942CD628C8606D33D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E4B3C72947D75A3CE7833786A7946A57":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"47406883453A98744C59CA9B31CA552F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DB80EB24471F877421F1B49D8BA7EF3E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"PointCapture":
+		{
+			"nodes":
+			{
+				"F6336F9D4C693304386968BC517C2988":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"EF99063245609EE7DE85B2B292CDCFF4":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "AA30E72C4505BDB2DAAD36B61DDD2E28",
+									"pin_id": "3DA7450F43F5EB2C0EFCE6B5DA069303"
+								}
+							]
+						}
+					}
+				},
+				"CC6E96EB42A5DD06612215B5FC5A18B4":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"C9FFA2D74FF7DE3DA3105F9D439D7247":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "17DA02B94E4247140CC617B3834413B5",
+									"pin_id": "E3A2550C4EE4D54E5BD953B7CA14A6E7"
+								}
+							]
+						},
+						"8C82493B43C621C019CA118F3B4FED42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"17DA02B94E4247140CC617B3834413B5":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A61A8D674906773F7118BABC598CE690":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "092DE1E247C357F6147CAF90F76DB399",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								},
+								{
+									"node_guid": "A5BCB5FE430F2C27AF2CAF9A0B66EB66",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								}
+							]
+						},
+						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "219D35E843E1443CB0FF02B30ABEB32C",
+									"pin_id": "32CDBEFD4D33FBC2D7084FA9FFF2049F"
+								}
+							]
+						},
+						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CC6E96EB42A5DD06612215B5FC5A18B4",
+									"pin_id": "C9FFA2D74FF7DE3DA3105F9D439D7247"
+								}
+							]
+						},
+						"3AF81DD640305637E6DA37848990DBA8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FA15E2E543E96093E79E07B13F92DE2A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8D57FFDD4D9CA11D13398980DB54912D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F01404614908897F99D97EA0DFCCFB94":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"219D35E843E1443CB0FF02B30ABEB32C":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"32CDBEFD4D33FBC2D7084FA9FFF2049F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "17DA02B94E4247140CC617B3834413B5",
+									"pin_id": "CA5CA88744A7C9809D2EA7A5D86D7FE9"
+								}
+							]
+						},
+						"0A8B47C04C8C8B28744C9C8D5A33763B":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"D3C2638149B2CC97083F43A8F7003974":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"C7C4C4E643EA4535CA203DBF806A6275":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"6D0A051C41F9E14626324FABD3F77140":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"24FC29E44DAEF079C75EC6AF1357BE42":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A5BCB5FE430F2C27AF2CAF9A0B66EB66",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"A5BCB5FE430F2C27AF2CAF9A0B66EB66":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "AA30E72C4505BDB2DAAD36B61DDD2E28",
+									"pin_id": "6032651149E426405D315A934D3EBE1C"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "17DA02B94E4247140CC617B3834413B5",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "24FC29E44DAEF079C75EC6AF1357BE42",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"798AC21B41F25396D7075792037BA588":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "092DE1E247C357F6147CAF90F76DB399",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"092DE1E247C357F6147CAF90F76DB399":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "AA30E72C4505BDB2DAAD36B61DDD2E28",
+									"pin_id": "A9C56F6F401E328A85CF57BDB693FEC6"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "17DA02B94E4247140CC617B3834413B5",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "798AC21B41F25396D7075792037BA588",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"3CACF7CF4A3EFC5F91FAD4B31F65A02D":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"082232CE4132252FFB8CA684C1E414DD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7D91767C4F8135B5593CC191D06AA0E3":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "AA30E72C4505BDB2DAAD36B61DDD2E28",
+									"pin_id": "97412DA54652ECD7003FA78C7138F3CB"
+								}
+							]
+						}
+					}
+				},
+				"AA30E72C4505BDB2DAAD36B61DDD2E28":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"3DA7450F43F5EB2C0EFCE6B5DA069303":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F6336F9D4C693304386968BC517C2988",
+									"pin_id": "EF99063245609EE7DE85B2B292CDCFF4"
+								}
+							]
+						},
+						"97412DA54652ECD7003FA78C7138F3CB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3CACF7CF4A3EFC5F91FAD4B31F65A02D",
+									"pin_id": "7D91767C4F8135B5593CC191D06AA0E3"
+								}
+							]
+						},
+						"789041514B1C5E636E18259CB6CC6C49":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A9C56F6F401E328A85CF57BDB693FEC6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "092DE1E247C357F6147CAF90F76DB399",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						},
+						"6032651149E426405D315A934D3EBE1C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A5BCB5FE430F2C27AF2CAF9A0B66EB66",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"PlayerCountChanged":
+		{
+			"nodes":
+			{
+				"E13C536042E516E05E51B3AF3B5079A0":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"F8884A4C4080575C51FA43AF92713B8C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "348FB5A84C3D695C8B7B1C99C8A11784",
+									"pin_id": "0ECDD7CB4D9F1CA8FFC846ACF36621CE"
+								}
+							]
+						},
+						"595C26614E60ECA39369B48F478FD8A9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "370A68624BC84C75B1046DAAEB4A9156",
+									"pin_id": "B3C2BF784A1A6E51713561A2D6567530"
+								}
+							]
+						}
+					}
+				},
+				"DBFB3CC74C820818B14E828CEA49E762":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9EAB770E4F8E4636841862AA398B4ECA",
+									"pin_id": "A7EF36AC4E1CE5703039588338F7FAC0"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"9EAB770E4F8E4636841862AA398B4ECA":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CF89847F4998EB949B16B7859F08D8EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "003BEE4E4CD95F546B8F51B56BC5B44B",
+									"pin_id": "07BCA5D14128C04D83B41C810F579C19"
+								}
+							]
+						},
+						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "505DE5EB421987A07CF2F883787A5D48",
+									"pin_id": "3A2470D64778435F1A0B078704B3862E"
+								}
+							]
+						},
+						"A7EF36AC4E1CE5703039588338F7FAC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "DBFB3CC74C820818B14E828CEA49E762",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"4F0D9A274288CFBC20C28D86ECF75DC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AA8592E04D042987570896833FAD8FF4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6046890D4F959E4E46E472854DBC1C5F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6A57500E400A7E3456748C87DC57A814":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"29BE10034EE640DE7827A9A5DFAE7351":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "67DB1C634B6267B1B7E112A0398D6702",
+									"pin_id": "A7EF36AC4E1CE5703039588338F7FAC0"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"67DB1C634B6267B1B7E112A0398D6702":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CF89847F4998EB949B16B7859F08D8EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "8583C97B4B15E338C0E1C5AF4DF2E323",
+									"pin_id": "07BCA5D14128C04D83B41C810F579C19"
+								}
+							]
+						},
+						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F25CD95542996126287E5AA534D7337E",
+									"pin_id": "8E5015154CDA28E9F3C06CBC55FFDEB5"
+								}
+							]
+						},
+						"A7EF36AC4E1CE5703039588338F7FAC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "29BE10034EE640DE7827A9A5DFAE7351",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"4F0D9A274288CFBC20C28D86ECF75DC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AA8592E04D042987570896833FAD8FF4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6046890D4F959E4E46E472854DBC1C5F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6A57500E400A7E3456748C87DC57A814":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"003BEE4E4CD95F546B8F51B56BC5B44B":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"D5BFB2054FA486744A0DC0A9528DE9D9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7D671A33418EEB058F8DE6AA5AD6F6C9",
+									"pin_id": "360B7CC348C8787F8AA51FB2AE02845E"
+								}
+							]
+						},
+						"83E60D554EFB8F735C9AF3A93642DE87":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "370A68624BC84C75B1046DAAEB4A9156",
+									"pin_id": "AE8C6BF4497959FF2E8C6CAE9B7FDCEF"
+								}
+							]
+						},
+						"07BCA5D14128C04D83B41C810F579C19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9EAB770E4F8E4636841862AA398B4ECA",
+									"pin_id": "CF89847F4998EB949B16B7859F08D8EC"
+								}
+							]
+						},
+						"6863F1324BC49A32066D908C1E1AAD1E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "8583C97B4B15E338C0E1C5AF4DF2E323",
+									"pin_id": "D5BFB2054FA486744A0DC0A9528DE9D9"
+								}
+							]
+						}
+					}
+				},
+				"0F5AB0874B60A62F06B51A9B334614BB":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"F885AC764F01C5519568D1A64DEA605F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "64CACA1B4E41062F42761EADAA3192C0",
+									"pin_id": "DF46F2BB450EA0F3C00998829179511F"
+								}
+							]
+						},
+						"AB513A5642BB68E0BEF63AAA788F4E75":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B5F1E16E4122F14E2DA93F9FCD24F0AA":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "8583C97B4B15E338C0E1C5AF4DF2E323",
+									"pin_id": "83E60D554EFB8F735C9AF3A93642DE87"
+								}
+							]
+						},
+						"ECB3D6B84670F5D91F3B438BC520EE9D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"8583C97B4B15E338C0E1C5AF4DF2E323":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"D5BFB2054FA486744A0DC0A9528DE9D9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "003BEE4E4CD95F546B8F51B56BC5B44B",
+									"pin_id": "6863F1324BC49A32066D908C1E1AAD1E"
+								}
+							]
+						},
+						"83E60D554EFB8F735C9AF3A93642DE87":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0F5AB0874B60A62F06B51A9B334614BB",
+									"pin_id": "B5F1E16E4122F14E2DA93F9FCD24F0AA"
+								}
+							]
+						},
+						"07BCA5D14128C04D83B41C810F579C19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "67DB1C634B6267B1B7E112A0398D6702",
+									"pin_id": "CF89847F4998EB949B16B7859F08D8EC"
+								}
+							]
+						},
+						"6863F1324BC49A32066D908C1E1AAD1E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"370A68624BC84C75B1046DAAEB4A9156":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"B3C2BF784A1A6E51713561A2D6567530":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E13C536042E516E05E51B3AF3B5079A0",
+									"pin_id": "595C26614E60ECA39369B48F478FD8A9"
+								}
+							]
+						},
+						"55A29AB14A644ED063843584FC3F5188":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AE8C6BF4497959FF2E8C6CAE9B7FDCEF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "003BEE4E4CD95F546B8F51B56BC5B44B",
+									"pin_id": "83E60D554EFB8F735C9AF3A93642DE87"
+								}
+							]
+						},
+						"4F93B0F94D53743EFE7B3088FE3653E6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"505DE5EB421987A07CF2F883787A5D48":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"3A2470D64778435F1A0B078704B3862E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "9EAB770E4F8E4636841862AA398B4ECA",
+									"pin_id": "FFFA7EFB45B7B4F132CB429CC0B8EBB0"
+								}
+							]
+						},
+						"6128D47E410FD916629F09A36DDAF7FE":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"1181D0F346AF31F423509E8B966A65C8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B6CA718F4800E957392DECAA2316B298":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"669F1AE64B0F1EA7E75C018C0D6CA168":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"7BD1CB9445577EC8689AF084770D9F32":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"EF9B72A041845C1974DF9CA8D19F30AF":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7D671A33418EEB058F8DE6AA5AD6F6C9",
+									"pin_id": "C337F0244A12B2CDCE1D6792AB58437E"
+								}
+							]
+						},
+						"DE55827A424563F00E667D84AC17F96A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"7D671A33418EEB058F8DE6AA5AD6F6C9":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"4999097F43BB656987D360BE70F95C38":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "348FB5A84C3D695C8B7B1C99C8A11784",
+									"pin_id": "A824FDF54110C69E306888A3F0B6F6CB"
+								}
+							]
+						},
+						"C337F0244A12B2CDCE1D6792AB58437E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7BD1CB9445577EC8689AF084770D9F32",
+									"pin_id": "EF9B72A041845C1974DF9CA8D19F30AF"
+								}
+							]
+						},
+						"6BA0B9F5427A11F673C5AAAE8AFD14DB":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"360B7CC348C8787F8AA51FB2AE02845E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "003BEE4E4CD95F546B8F51B56BC5B44B",
+									"pin_id": "D5BFB2054FA486744A0DC0A9528DE9D9"
+								}
+							]
+						}
+					}
+				},
+				"F25CD95542996126287E5AA534D7337E":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"8E5015154CDA28E9F3C06CBC55FFDEB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "67DB1C634B6267B1B7E112A0398D6702",
+									"pin_id": "FFFA7EFB45B7B4F132CB429CC0B8EBB0"
+								}
+							]
+						},
+						"3793A290441546FD7F19D99202B63505":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"942C14CC429C5B1BA7B6B495CB628315":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FCC24EC84F2B2EFE3B9D89A33ACC1F79":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"C206AB854B79E0CA1431818BCD9E8313":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"407415BF4FF9508DF355C8AC7B3AA4C8":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"44E4FB4044DA8D40D4A217843C547AC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"135A3D9A40C740C8DF4478B7637FF9C9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "348FB5A84C3D695C8B7B1C99C8A11784",
+									"pin_id": "B3C6ADE44788CAC234337B8188608843"
+								}
+							]
+						}
+					}
+				},
+				"348FB5A84C3D695C8B7B1C99C8A11784":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"0ECDD7CB4D9F1CA8FFC846ACF36621CE":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E13C536042E516E05E51B3AF3B5079A0",
+									"pin_id": "F8884A4C4080575C51FA43AF92713B8C"
+								}
+							]
+						},
+						"B3C6ADE44788CAC234337B8188608843":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "407415BF4FF9508DF355C8AC7B3AA4C8",
+									"pin_id": "135A3D9A40C740C8DF4478B7637FF9C9"
+								}
+							]
+						},
+						"43B6E961400D27BC0181E1A2E15A3457":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A824FDF54110C69E306888A3F0B6F6CB":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "7D671A33418EEB058F8DE6AA5AD6F6C9",
+									"pin_id": "4999097F43BB656987D360BE70F95C38"
+								}
+							]
+						}
+					}
+				},
+				"64CACA1B4E41062F42761EADAA3192C0":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"D7C2E4474520835DFCCBD480B0CC233C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DF46F2BB450EA0F3C00998829179511F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0F5AB0874B60A62F06B51A9B334614BB",
+									"pin_id": "F885AC764F01C5519568D1A64DEA605F"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"PointProgressLoopSFX":
+		{
+			"nodes":
+			{
+				"CB56A6C64379A6629C8CF3A1BA0784AD":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"5C4BC6D34F748A92C03EFAAF4D9F647D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "13A0A9F34B3A05F63F6559B8CEB7D20E",
+									"pin_id": "D61692E449FD989B50083D8BE62BF97D"
+								}
+							]
+						},
+						"FCA55DBF44B8DB07147D8D8BE9249679":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "13A0A9F34B3A05F63F6559B8CEB7D20E",
+									"pin_id": "D3FB7A044546ABF388FA1F84ADB1E3C3"
+								}
+							]
+						}
+					}
+				},
+				"13A0A9F34B3A05F63F6559B8CEB7D20E":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"D61692E449FD989B50083D8BE62BF97D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CB56A6C64379A6629C8CF3A1BA0784AD",
+									"pin_id": "5C4BC6D34F748A92C03EFAAF4D9F647D"
+								}
+							]
+						},
+						"D3FB7A044546ABF388FA1F84ADB1E3C3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CB56A6C64379A6629C8CF3A1BA0784AD",
+									"pin_id": "FCA55DBF44B8DB07147D8D8BE9249679"
+								}
+							]
+						},
+						"D54D4460438400032530B88A9A410F24":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DA754D35448ED4F8AD85ECBE7A86897E",
+									"pin_id": "CF89847F4998EB949B16B7859F08D8EC"
+								}
+							]
+						},
+						"E482346F44C442AEF194B599B97EB8B8":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "B1E7ABF24C8A20186C59A799F963C4BF",
+									"pin_id": "CF89847F4998EB949B16B7859F08D8EC"
+								}
+							]
+						}
+					}
+				},
+				"F022FAD545EBD6DA3C59CC9E75DE178F":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DA754D35448ED4F8AD85ECBE7A86897E",
+									"pin_id": "A7EF36AC4E1CE5703039588338F7FAC0"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"DA754D35448ED4F8AD85ECBE7A86897E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CF89847F4998EB949B16B7859F08D8EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "13A0A9F34B3A05F63F6559B8CEB7D20E",
+									"pin_id": "D54D4460438400032530B88A9A410F24"
+								}
+							]
+						},
+						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A7EF36AC4E1CE5703039588338F7FAC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F022FAD545EBD6DA3C59CC9E75DE178F",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"4F0D9A274288CFBC20C28D86ECF75DC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AA8592E04D042987570896833FAD8FF4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6046890D4F959E4E46E472854DBC1C5F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6A57500E400A7E3456748C87DC57A814":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"B1E7ABF24C8A20186C59A799F963C4BF":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"CF89847F4998EB949B16B7859F08D8EC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "13A0A9F34B3A05F63F6559B8CEB7D20E",
+									"pin_id": "E482346F44C442AEF194B599B97EB8B8"
+								}
+							]
+						},
+						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A7EF36AC4E1CE5703039588338F7FAC0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F9F4659D4F948EE006671DA6A77213EF",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"4F0D9A274288CFBC20C28D86ECF75DC6":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AA8592E04D042987570896833FAD8FF4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6046890D4F959E4E46E472854DBC1C5F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6A57500E400A7E3456748C87DC57A814":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"F9F4659D4F948EE006671DA6A77213EF":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "B1E7ABF24C8A20186C59A799F963C4BF",
+									"pin_id": "A7EF36AC4E1CE5703039588338F7FAC0"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"C0464E364C4FC10D8961648666403810":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"46CAA0204E784B429E0EBCB35406A743":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E7DB226E47B943E51ADBBDA4B6EE984C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"PlayCapturedSFX":
+		{
+			"nodes":
+			{
+				"EA6223264E25235B0DC9EB86C0EB21D1":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"F29159244728F8988AB482B49D44F45D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0A93BC6644ED76CAD45752A8DA8A4876",
+									"pin_id": "3DA7450F43F5EB2C0EFCE6B5DA069303"
+								}
+							]
+						}
+					}
+				},
+				"F5C01D234D6B4D0DF74DCE9B22493C52":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"C9FFA2D74FF7DE3DA3105F9D439D7247":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C081AC6E43D9F38330C105AB924963A0",
+									"pin_id": "E3A2550C4EE4D54E5BD953B7CA14A6E7"
+								}
+							]
+						},
+						"8C82493B43C621C019CA118F3B4FED42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"C081AC6E43D9F38330C105AB924963A0":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A61A8D674906773F7118BABC598CE690":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "553FBFE54FED66C0A726A1B0F4E28D1C",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								}
+							]
+						},
+						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F5C01D234D6B4D0DF74DCE9B22493C52",
+									"pin_id": "C9FFA2D74FF7DE3DA3105F9D439D7247"
+								}
+							]
+						},
+						"3AF81DD640305637E6DA37848990DBA8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FA15E2E543E96093E79E07B13F92DE2A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8D57FFDD4D9CA11D13398980DB54912D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F01404614908897F99D97EA0DFCCFB94":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"0FB4AA2C4DC5B022F954968384634CDD":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0C06364B4FB7A63D619ED38FDA624845",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"0C06364B4FB7A63D619ED38FDA624845":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0A93BC6644ED76CAD45752A8DA8A4876",
+									"pin_id": "6032651149E426405D315A934D3EBE1C"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "89F159384EA09402077FDC85DBF91396",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0FB4AA2C4DC5B022F954968384634CDD",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"664609BE413DE3586265CD906A43479A":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"33F07F7C42632FFC2FF3978BAA9E6E40":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "553FBFE54FED66C0A726A1B0F4E28D1C",
+									"pin_id": "05338B4842FDD568456EDE9ED7FF0DB5"
+								}
+							]
+						},
+						"BD18CC664116D1A13F5D9F9A8A6AE31A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"553FBFE54FED66C0A726A1B0F4E28D1C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6623E2D644B27EB721A107B174404395":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0A93BC6644ED76CAD45752A8DA8A4876",
+									"pin_id": "A9C56F6F401E328A85CF57BDB693FEC6"
+								}
+							]
+						},
+						"1325BB5C496EA09AED2AF7BE89D3FB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C081AC6E43D9F38330C105AB924963A0",
+									"pin_id": "A61A8D674906773F7118BABC598CE690"
+								}
+							]
+						},
+						"05338B4842FDD568456EDE9ED7FF0DB5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "664609BE413DE3586265CD906A43479A",
+									"pin_id": "33F07F7C42632FFC2FF3978BAA9E6E40"
+								}
+							]
+						},
+						"BFE5A7084CE08AB53FE938A35F13770A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"5188BED94F82FD3C68E34EA4B70B277B":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"C9FFA2D74FF7DE3DA3105F9D439D7247":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "89F159384EA09402077FDC85DBF91396",
+									"pin_id": "E3A2550C4EE4D54E5BD953B7CA14A6E7"
+								}
+							]
+						},
+						"8C82493B43C621C019CA118F3B4FED42":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"89F159384EA09402077FDC85DBF91396":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A61A8D674906773F7118BABC598CE690":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0C06364B4FB7A63D619ED38FDA624845",
+									"pin_id": "1325BB5C496EA09AED2AF7BE89D3FB19"
+								}
+							]
+						},
+						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5188BED94F82FD3C68E34EA4B70B277B",
+									"pin_id": "C9FFA2D74FF7DE3DA3105F9D439D7247"
+								}
+							]
+						},
+						"3AF81DD640305637E6DA37848990DBA8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FA15E2E543E96093E79E07B13F92DE2A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8D57FFDD4D9CA11D13398980DB54912D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F01404614908897F99D97EA0DFCCFB94":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"0A93BC6644ED76CAD45752A8DA8A4876":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"3DA7450F43F5EB2C0EFCE6B5DA069303":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "EA6223264E25235B0DC9EB86C0EB21D1",
+									"pin_id": "F29159244728F8988AB482B49D44F45D"
+								}
+							]
+						},
+						"97412DA54652ECD7003FA78C7138F3CB":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "214F2CF6438C88DED82F76A83F874C65",
+									"pin_id": "7D91767C4F8135B5593CC191D06AA0E3"
+								}
+							]
+						},
+						"789041514B1C5E636E18259CB6CC6C49":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A9C56F6F401E328A85CF57BDB693FEC6":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "553FBFE54FED66C0A726A1B0F4E28D1C",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						},
+						"6032651149E426405D315A934D3EBE1C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0C06364B4FB7A63D619ED38FDA624845",
+									"pin_id": "6623E2D644B27EB721A107B174404395"
+								}
+							]
+						}
+					}
+				},
+				"214F2CF6438C88DED82F76A83F874C65":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"082232CE4132252FFB8CA684C1E414DD":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7D91767C4F8135B5593CC191D06AA0E3":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0A93BC6644ED76CAD45752A8DA8A4876",
+									"pin_id": "97412DA54652ECD7003FA78C7138F3CB"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"CheckContestedState":
+		{
+			"nodes":
+			{
+				"FBE7E7D54535700B9295FF9BABAA4421":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"B7F04BB440E0F2B3F1D737BC36D2C2B7":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "315569214A038EE1AE03ECA7120612E7",
+									"pin_id": "FC26C15044ED601F03916B8EF7F42286"
+								}
+							]
+						}
+					}
+				},
+				"C7AC6CAC412E6D6C92ECB39856D97BA7":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"AD0F32B44A8F19FD2EC656B31ED5F6CA":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"BC84D8D14AB3A7D1E1105195CAD170C2":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "315569214A038EE1AE03ECA7120612E7",
+									"pin_id": "FCA7C1FF427101DC7CC612B4473C2104"
+								}
+							]
+						}
+					}
+				},
+				"315569214A038EE1AE03ECA7120612E7":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"FC26C15044ED601F03916B8EF7F42286":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "FBE7E7D54535700B9295FF9BABAA4421",
+									"pin_id": "B7F04BB440E0F2B3F1D737BC36D2C2B7"
+								}
+							]
+						},
+						"FCA7C1FF427101DC7CC612B4473C2104":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C7AC6CAC412E6D6C92ECB39856D97BA7",
+									"pin_id": "BC84D8D14AB3A7D1E1105195CAD170C2"
+								}
+							]
+						},
+						"B80FE2274D15C5D3A02F0CA510147167":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"86AD2A5B46E9DA5BD2B936B0E2FFE803":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0C139592411F131D9B4433AE3E5DCD5E",
+									"pin_id": "4E45AF5448D46B7D56E22F8A53004A13"
+								}
+							]
+						}
+					}
+				},
+				"0C139592411F131D9B4433AE3E5DCD5E":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"4E45AF5448D46B7D56E22F8A53004A13":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "315569214A038EE1AE03ECA7120612E7",
+									"pin_id": "86AD2A5B46E9DA5BD2B936B0E2FFE803"
+								}
+							]
+						},
+						"54FB77E04CBCF3E9365AF9B5B37B45D2":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3D69166C4B2FEAA6904D96BEAE4B9269",
+									"pin_id": "C2CF20C74CC2C208A1D7E1A6E86849BC"
+								}
+							]
+						},
+						"6894D50C4A93498C34C22FAD310A1482":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"24FBF3AA4BA24474E9E269BE80E7F601":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"E643FB7B4F37ADBBA66E9BAA0C94370B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"3D69166C4B2FEAA6904D96BEAE4B9269":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"C2CF20C74CC2C208A1D7E1A6E86849BC":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0C139592411F131D9B4433AE3E5DCD5E",
+									"pin_id": "54FB77E04CBCF3E9365AF9B5B37B45D2"
+								}
+							]
+						},
+						"D06DECC344B711E61481569ACF5AA9A5":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E132083142FF34F74CEB29B71AD1C09F",
+									"pin_id": "FEF99B5D49101392A36E38A8E31157E3"
+								}
+							]
+						},
+						"F212FC0F4B55A4DDE5B162AAB1BFFD8D":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8F73FC3F427DF376A05D6580E70D17B7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"574B5EDD463C3797AF6D619292557FA9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E38949264E83C69AB9680FA5557B3882":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E132083142FF34F74CEB29B71AD1C09F",
+									"pin_id": "D783516D4D0E6597EB707DB76A77AD98"
+								}
+							]
+						}
+					}
+				},
+				"E132083142FF34F74CEB29B71AD1C09F":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"FEF99B5D49101392A36E38A8E31157E3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3D69166C4B2FEAA6904D96BEAE4B9269",
+									"pin_id": "D06DECC344B711E61481569ACF5AA9A5"
+								}
+							]
+						},
+						"F823195248D61F1C9FF266B48F27FCF0":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "0F7FE37B423A0A9781EF8EAF2BF0F0D8"
+								}
+							]
+						},
+						"D783516D4D0E6597EB707DB76A77AD98":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3D69166C4B2FEAA6904D96BEAE4B9269",
+									"pin_id": "E38949264E83C69AB9680FA5557B3882"
+								}
+							]
+						},
+						"8039237F4CBEC38DE44FCB9C6F083E72":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "EA791E6648ADB907833F84B414565A91"
+								}
+							]
+						},
+						"53765D314374B6753DA28FA4334ACF52":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"69D6A54F45BA1F88E6945E96AC3401C2":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"0F7FE37B423A0A9781EF8EAF2BF0F0D8":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E132083142FF34F74CEB29B71AD1C09F",
+									"pin_id": "F823195248D61F1C9FF266B48F27FCF0"
+								}
+							]
+						},
+						"EA791E6648ADB907833F84B414565A91":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E132083142FF34F74CEB29B71AD1C09F",
+									"pin_id": "8039237F4CBEC38DE44FCB9C6F083E72"
+								}
+							]
+						},
+						"68AD389A4E541DFC7BACE78D1B3905A3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4832CBF942CAB2DB0421F2BF41BAE73B",
+									"pin_id": "FD322AF840B8E69C659368831943A75D"
+								}
+							]
+						},
+						"E31571A7415C21C2DAF7E5A38B2B21CD":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4FD6A45A4BB9A6F6C3C014BCA3B2479A",
+									"pin_id": "7B0D19564C148737A1FB46B87FF4EFD9"
+								}
+							]
+						},
+						"7E33804B41EBA70B51A221AD14B0AE4C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A2D32C14441186A0AF67E09BDE6F6943",
+									"pin_id": "E6A7A1294B24D02819C23691D44A5033"
+								}
+							]
+						},
+						"268C102249755D1CCA880AB25E065D41":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"821C546F435612896F6B50AA5396DB9C":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5F7F0D8C4B13CFAEC1C47C86925B26DE",
+									"pin_id": "0AF2305B41975FC0AB4F08B962580B53"
+								}
+							]
+						}
+					}
+				},
+				"A2D32C14441186A0AF67E09BDE6F6943":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"E6A7A1294B24D02819C23691D44A5033":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "7E33804B41EBA70B51A221AD14B0AE4C"
+								}
+							]
+						},
+						"EC6FF2D44530C9D92C4205AE88510E9F":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4FD6A45A4BB9A6F6C3C014BCA3B2479A",
+									"pin_id": "38DD0FAA4256540823AED2B924775394"
+								}
+							]
+						}
+					}
+				},
+				"4FD6A45A4BB9A6F6C3C014BCA3B2479A":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"7B0D19564C148737A1FB46B87FF4EFD9":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "E31571A7415C21C2DAF7E5A38B2B21CD"
+								}
+							]
+						},
+						"38DD0FAA4256540823AED2B924775394":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A2D32C14441186A0AF67E09BDE6F6943",
+									"pin_id": "EC6FF2D44530C9D92C4205AE88510E9F"
+								}
+							]
+						},
+						"7B85274E401C4F108824B8801220CBB4":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5D3ED36542432DFFF057DDA0B144D42A",
+									"pin_id": "B9D3D3BA428670C97CA2E58BDBF9FC7C"
+								}
+							]
+						},
+						"8AD02E8648A7F38E15503DAFD94C557E":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"5D3ED36542432DFFF057DDA0B144D42A":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"B9D3D3BA428670C97CA2E58BDBF9FC7C":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4FD6A45A4BB9A6F6C3C014BCA3B2479A",
+									"pin_id": "7B85274E401C4F108824B8801220CBB4"
+								}
+							]
+						},
+						"1D08F1294EADE263C8FB3F8E505739D9":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "756494BA41E59A7FC28864A4628A2280",
+									"pin_id": "1C95C89041E304818427CC87EB8374A7"
+								}
+							]
+						},
+						"D3AFC3004D7FD5083D3069B19E6D37A3":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E6FED7714F33C930559DB68B633CE7F3":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"4D62E12E49A2F1433C739F8196B217C0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"5F7F0D8C4B13CFAEC1C47C86925B26DE":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"0AF2305B41975FC0AB4F08B962580B53":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "821C546F435612896F6B50AA5396DB9C"
+								}
+							]
+						},
+						"FAA991D14AA772C9E6100A8720F806E1":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E76349904483788164731B8932C07AE4",
+									"pin_id": "B47973AD41B6B4319DF3C7A115E507CC"
+								}
+							]
+						},
+						"CE1F4867477884E957DA5BAFA21CE7B7":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "8E8F3ACC45E52EB1F7AAD29B16DE1205",
+									"pin_id": "BA186AB44EEC144C6F7BC0AC38C5335A"
+								}
+							]
+						},
+						"8348239D40B3A107179C71B34FDF7E16":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"54FD82A04105D67EC528CA9BA07A34F3":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"A596601F43823509A11AC8A45E946199":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E76349904483788164731B8932C07AE4",
+									"pin_id": "3B8B7B4249FD40CDE775DFAF0D81A546"
+								}
+							]
+						},
+						"F0DD320D438ED8890990D4B2C8C32FD0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E76349904483788164731B8932C07AE4":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"3B8B7B4249FD40CDE775DFAF0D81A546":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "54FD82A04105D67EC528CA9BA07A34F3",
+									"pin_id": "A596601F43823509A11AC8A45E946199"
+								}
+							]
+						},
+						"52DA25174684F07CF2FD5D9AC4C14C4E":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B47973AD41B6B4319DF3C7A115E507CC":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5F7F0D8C4B13CFAEC1C47C86925B26DE",
+									"pin_id": "FAA991D14AA772C9E6100A8720F806E1"
+								}
+							]
+						},
+						"A3800C424361A1BF492BB9A94876D5D2":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"7F57CA2D4F2A80997F7F1B8796D7C368":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"322F79CD46B962232F7114A5CF7455AC":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "8E8F3ACC45E52EB1F7AAD29B16DE1205",
+									"pin_id": "9AFD03744D98F5DDC69B06A78060B39F"
+								}
+							]
+						},
+						"B527D2C040F10E2558E1F099324B880A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"8E8F3ACC45E52EB1F7AAD29B16DE1205":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"BA186AB44EEC144C6F7BC0AC38C5335A":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5F7F0D8C4B13CFAEC1C47C86925B26DE",
+									"pin_id": "CE1F4867477884E957DA5BAFA21CE7B7"
+								}
+							]
+						},
+						"FA36F0D14651BEE031B4378B76CAAB27":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"9AFD03744D98F5DDC69B06A78060B39F":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "7F57CA2D4F2A80997F7F1B8796D7C368",
+									"pin_id": "322F79CD46B962232F7114A5CF7455AC"
+								}
+							]
+						},
+						"08F95D194D751AC0DC5E05B53170AC22":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"BA89EC7A4E3EA91B1A8BF9B8B697A20B":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"A5C32D494EBE552CA88E5781F43AEEE0":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"AB2252754F6E6E1BCD2F01A61D28BB19":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"A274638C4A77FAD4A82177AA004B4534":
+				{
+					"class_name": "K2Node_Knot",
+					"pins":
+					{
+						"9794E2CB4E4C5A16B87657A4DB7503D5":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "756494BA41E59A7FC28864A4628A2280",
+									"pin_id": "95AFD0254573CB63EE7F0BB83F98A3E5"
+								}
+							]
+						},
+						"6D26D9F7458C7B499E703098F52743C4":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4832CBF942CAB2DB0421F2BF41BAE73B",
+									"pin_id": "83E816A845B9DEA9159265AF183BB5C4"
+								}
+							]
+						}
+					}
+				},
+				"756494BA41E59A7FC28864A4628A2280":
+				{
+					"class_name": "K2Node_Knot",
+					"pins":
+					{
+						"1C95C89041E304818427CC87EB8374A7":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "5D3ED36542432DFFF057DDA0B144D42A",
+									"pin_id": "1D08F1294EADE263C8FB3F8E505739D9"
+								}
+							]
+						},
+						"95AFD0254573CB63EE7F0BB83F98A3E5":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A274638C4A77FAD4A82177AA004B4534",
+									"pin_id": "9794E2CB4E4C5A16B87657A4DB7503D5"
+								}
+							]
+						}
+					}
+				},
+				"4832CBF942CAB2DB0421F2BF41BAE73B":
+				{
+					"class_name": "K2Node_Knot",
+					"pins":
+					{
+						"83E816A845B9DEA9159265AF183BB5C4":
+						{
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A274638C4A77FAD4A82177AA004B4534",
+									"pin_id": "6D26D9F7458C7B499E703098F52743C4"
+								}
+							]
+						},
+						"FD322AF840B8E69C659368831943A75D":
+						{
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
+									"pin_id": "68AD389A4E541DFC7BACE78D1B3905A3"
+								}
+							]
+						}
+					}
+				}
+			}
+		}
+	}
+}
