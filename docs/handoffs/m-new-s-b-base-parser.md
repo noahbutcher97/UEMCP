@@ -55,16 +55,26 @@ Pin block emitted as trailer AFTER tagged UPROPERTY block (the one D50 tagged-fa
 9. `FString PinToolTip`
 10. `uint8 Direction` — `EEdGraphPinDirection` enum (EGPD_Input / EGPD_Output)
 11. `uint32 PinFlags` — bitmask
-12. `TArray<FEdGraphPinReference> LinkedTo` — this is the edge table you resolve in §3
+12. `TArray<FEdGraphPinReference> LinkedTo` — **on-disk BYTES shape**; this is the edge table you resolve in §3
 13. `TArray<FEdGraphPinReference> SubPins`
 14. `FEdGraphPinReference ParentPin`
 15. `FGuid PersistentGuid` — 16 bytes
 
-`FEdGraphPinReference` layout:
+**D62 load-bearing correction** (discovered by Oracle-A, `EdGraphPin.h:375`): at runtime in memory, `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` (raw-pointer), NOT `TArray<FEdGraphPinReference>`. `FEdGraphPinReference` is a separate compile-time serialization helper holding `{OwningNode, PinId}`. The shape you read from BYTES is reference-shaped because raw pointers don't persist; the shape an in-memory walker (like Oracle-A's commandlet) sees is pointer-shaped. You and Oracle-A converge on the same edge set via different shapes — S-B-base from reference-shaped byte entries, Oracle-A from pointer-shaped in-memory entries. Your parser's output must match Oracle-A's regardless of shape delta.
+
+`FEdGraphPinReference` layout (what you read from bytes):
 - `TWeakObjectPtr<UEdGraphNode> OwningNode` — serialized as FPackageIndex into the owning export
 - `FGuid PinId` — 16 bytes
 
-**Verify**: for each field above, write a ~5-line spike reading it off `BP_OSPlayerR`'s export table and diff the extracted pin data against Oracle-A's fixture JSON. Iterate field-by-field; don't try to parse the whole block in one shot.
+**Verify**: for each field above, write a ~5-line spike reading it off `BP_OSPlayerR`'s export table and diff the extracted pin data against Oracle-A's fixture JSON at `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/BP_OSPlayerR.oracle.json`. Iterate field-by-field; don't try to parse the whole block in one shot.
+
+**Oracle-A fixture gotchas** — read `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/README.md` §Edge cases BEFORE writing parser code. Summary:
+- GUID format is 32-hex-no-dashes (e.g., `2F88AE184911A3A1882F7E869C012FCC`). Your parser's output format MUST match exactly or differential tests will fail on formatting alone.
+- Self-loops allowed — a pin linking to itself is valid, not a parser bug.
+- Orphaned-pin null-check required — some pins have `linked_to: []` legitimately.
+- `SubPins` not emitted by Oracle-A — could false-positive for leaf pins if your parser treats empty SubPins as absent.
+- Sub-graph dotted-key flattening for collapsed nodes — Oracle-A flattens graph hierarchy; your parser should match.
+- Canonical comment node class-name is `EdGraphNode_Comment` (no U prefix) — UE strips U/A prefixes at serialization (discovered empirically by EN-8/9 worker on BP_OSPlayerR EventGraph, 9/9 comments correctly identified at that class-name). Applies to any byte-level class-name matching S-B-base does.
 
 ### §3 Parser extension — `server/uasset-parser.mjs`
 
@@ -123,9 +133,10 @@ Don't ship the verbs (`bp_trace_exec` etc.) — those are Verb-surface's job. Sh
 
 ### §7 Test baseline + regression
 
-- Current test baseline: 899 assertions across 8 files.
+- Current test baseline: **914 assertions** across 8 files (post-EN-8/9 landing, commit `1bc3e8b` — D63). Pre-EN-8/9 reference of 899 is now stale; confirm empirically via `npm test` before committing anything.
 - S-B-base additions: estimate +40-80 assertions (per-fixture differential + format-level pin-block tests in `test-uasset-parser.mjs`).
 - Run full rotation before commit to confirm no regression in D50 tagged-fallback / existing 19-type skeletal.
+- `withAssetExistenceCheck` helper is exported from `offline-tools.mjs` (EN-9, commit `1bc3e8b`) with signature `(handler: (projectRoot, params) => Promise<object>) => same-signature-guarded`. Wrap `extractBPEdgeTopology` with it so graceful-degradation matches M-spatial's pattern (FA-β). Helper only catches `err.code === 'ENOENT'`; other errors re-throw — correct behavior for your case.
 
 ---
 

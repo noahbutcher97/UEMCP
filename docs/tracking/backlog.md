@@ -31,20 +31,6 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: per-node UPROPERTY extraction pattern similar to existing skeletal 13
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
-### EN-8 — `bp_list_graphs` add `comment_ids: [...]` per-graph row
-- **Source**: M-spatial manual testing 2026-04-21 §workflow observations (commit `8ad69bd`); D59
-- **Current gap**: no verb enumerates comment node_ids. `bp_find_in_graph(node_class:"UEdGraphNode_Comment")` returns 0 because comments aren't K2Nodes. Workaround uses `inspect_blueprint` which triggers MCP token cap on larger BPs (85KB / 275 exports on BP_OSPlayerR → auto-saved to tool-results file, breaking composition).
-- **Fix**: extend `bp_list_graphs` handler to scan each graph's exports for `UEdGraphNode_Comment` class and emit `comment_ids: ["<node_id>", ...]` per-graph. Callers then use `bp_subgraph_in_comment(comment_node_id)` directly without intermediate enumeration.
-- **Cost**: ~15-30 min (handler extension + 2-3 test assertions)
-- **Trigger**: bundle into M-new verb-surface worker OR ship standalone when any worker next touches `offline-tools.mjs`
-
-### EN-9 — Graceful-degradation envelope for missing asset paths
-- **Source**: M-spatial manual testing 2026-04-21 §1.3 (commit `8ad69bd`); for-M-new-S-B-base hint
-- **Current behavior**: `bp_list_graphs({asset_path:"/Game/Nonexistent/BP_Fake"})` surfaces raw ENOENT via MCP error
-- **Desired**: catch ENOENT at handler edge and return `{available: false, reason: "asset_not_found"}` matching FA-β graceful-degradation idiom
-- **Scope**: small try-catch or pre-check across all 5 M-spatial verbs + extend to future M-new verbs
-- **Cost**: ~15-30 min
-- **Trigger**: fold into M-new verb-surface OR ship as part of EN-8 bundle if they happen simultaneously
 
 ### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending
 - **Source**: EN-2 manual testing 2026-04-20 §6 observation (results commit `7758c85`)
@@ -98,30 +84,27 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-21 (post-D61 gate-verification):
+In-flight as of 2026-04-21 (mid-wave-1 close):
 
-- **M-new Oracle-A** — handoff `docs/handoffs/m-new-oracle-a-commandlet.md` (commit `dbe4b93` refresh). Critical path — S-B-base dispatch gated on Oracle-A fixture JSONs landing.
-- **EN-8 + EN-9 bundle** — handoff `docs/handoffs/en-8-en-9-offline-enhancements.md` (commit `57e994f`). Closes M-spatial workflow gaps surfaced in D59. Test baseline will bump 899 → ~906-907 on landing.
-- **sync-plugin.bat** — handoff `docs/handoffs/sync-plugin-bat.md` (commit `57e994f`). D61 deferred follow-on; automates physical plugin xcopy.
-- **UEMCPModule log-demotion** — handoff `docs/handoffs/uemcp-module-log-demotion.md` (commit `57e994f`). D61 deferred follow-on; nano-scope cleanup.
+- **UEMCPModule log-demotion** — handoff `docs/handoffs/uemcp-module-log-demotion.md` (commit `57e994f`). D61 deferred follow-on; nano-scope cleanup. Only remaining in-flight from the 4-worker parallel wave.
 
-**Parallel coordination notes**:
-- Oracle-A + Log-demotion both touch plugin source but don't collide at file level (Oracle-A creates new `Private/Commandlets/*`; Log-demotion edits `Private/UEMCPModule.cpp`). `UEMCP.Build.cs` is the only shared file; Oracle-A handoff noted deps already present so Build.cs should stay untouched.
-- EN-8/9 + sync-plugin.bat are fully isolated (server/* and repo-root respectively).
-- S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` (commit `57e994f`) is pre-drafted, dispatch-ready, gated on Oracle-A final report for fixture corpus + paths. Test-baseline reference inside says "899"; amend post-EN-8/9 landing before S-B-base dispatch.
+**S-B-base dispatchable NOW** — Oracle-A + EN-8/9 both landed (see Recently shipped). S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` amended in same commit as this backlog update: (a) D62 load-bearing API correction — `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` in-memory vs `TArray<FEdGraphPinReference>` on-disk, both converge to same edge set; (b) Oracle-A fixture gotchas from README.md §Edge cases referenced inline; (c) test baseline updated 899 → 914 per EN-8/9 landing; (d) `withAssetExistenceCheck` import guidance added for `extractBPEdgeTopology` wrapping.
 
 Recently shipped (most recent first):
 
+- **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against ProjectA; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
+- **EN-8 + EN-9 bundle** (commit `1bc3e8b`, 2026-04-21) — workflow gaps from M-spatial manual testing closed. `bp_list_graphs` emits `comment_ids: []` per-graph row; all 5 M-spatial verbs return FA-β `{available: false, reason: "asset_not_found"}` on ENOENT. `withAssetExistenceCheck` helper exported for Verb-surface reuse. **Test baseline 899 → 914** (+15 assertions including full-contract helper coverage). Comment class-name confirmed as `EdGraphNode_Comment` (no U prefix — UE strips at serialization). D63 for full report.
+- **M-new Oracle-A** (commits `b8e64a5` + `b1fb2e7`, 2026-04-21) — 6-BP fixture corpus seeded (BP_OSPlayerR 204/596 edges densest; TestCharacter 11/24 smallest; BP_OSPlayerR_Child triple for inheritance). 280 LOC commandlet + serializer; 20.66s clean build; 9s cold BP_OSPlayerR invocation; D57 gate regression-tested PASS. **Critical API correction captured in D62**: `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` runtime / `TArray<FEdGraphPinReference>` bytes — propagated to S-B-base handoff.
 - **M1 3A TCP scaffolding** (commits `2b86369` / `8030930` / `be282c0` / `510c5bb` / `d7a2192` / `1d3f6cf`) — plugin/UEMCP/ scaffold with D57 commandlet gate + 6 P0 helpers (P0-1/2/3/4/9/10) + MCPServerRunnable on TCP:55558 + MCPCommandRegistry + ping handler + 8 automation tests + server-side integration test. Unblocks M-new Oracle-A. Response envelope is single-shape `{status, result}` / `{status, error, code}` — deliberate P0-1 break from UnrealMCP (55557)'s two-format legacy. **Pending user verification**: plugin visibility in ProjectA (mklink /D or AdditionalPluginDirectories), UBT compile, commandlet-gate log line. Test baseline unchanged at 899.
 - **M-spatial manual testing** (commit `8ad69bd`) — 18/18 PASS through live MCP wire. FA-β manifest + FA-δ plugin-absent first-class both held. Exact numeric match with unit tests (10 graphs, 53→7 events, 11 contained nodes, 17 entry points, 1424×544 rect) → second independent verification of D50 tagged-fallback UPROPERTY coverage. Workflow gap surfaced: comment-ids not enumerable → EN-8 queued.
 - **M-spatial** (commits `08be682` / `4105fa0` / `4938248`) — 5 BP traversal verbs + FA-β/FA-δ test invariants. Zero parser code needed — D50 tagged-fallback already decoded every required UPROPERTY (verified empirically on BP_OSPlayerR). Test baseline 825 → 899 (+74). Notable finding: `EnabledState` absent on nearly all fixture nodes because UE omits class-default values; spatial extraction treats missing positions as 0.
 
 Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
 
-**Wave 1** — SHIPPED per D59; Oracle-A in flight per 2026-04-21.
+**Wave 1** — SHIPPED in full per D59 + D61 + D62. Oracle-A fixtures form the differential-test contract for S-B-base.
 - ~~M1 scaffolding~~ — SHIPPED (plugin-compile + D57 gate verified end-to-end per D61, commit `a5b8917`)
 - ~~M-spatial + wire validation~~ — SHIPPED
-- **M-new Oracle-A** (0.5-1 session) — IN FLIGHT. Handoff `docs/handoffs/m-new-oracle-a-commandlet.md` (refreshed commit `dbe4b93`).
+- ~~M-new Oracle-A~~ — SHIPPED (D62, commits `b8e64a5` + `b1fb2e7`). 6-BP fixture corpus at `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/`.
 
 **Wave 2 — S-B core** (post-Oracle-A):
 
