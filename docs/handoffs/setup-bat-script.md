@@ -2,9 +2,11 @@
 
 > **Dispatch**: Fresh Claude Code session. Independent of all current in-flight work (M1, Oracle-A, manual testing). No file collision.
 > **Type**: Implementation — one batch script + minor README/template updates.
-> **Duration**: ~1 session (30-60 min).
-> **Context**: Friend is onboarding to ProjectA on their own Windows machine and needs UEMCP running without manual `.mcp.json` path-munging. Current friction: 5-step manual process (clone → npm install → edit template → copy to project root → restart Claude).
-> **Deliverable**: A single `.bat` that takes the friction to a one-liner: `setup-uemcp.bat "<path-to-ProjectA.uproject>"`.
+> **Duration**: ~1 session (45-90 min — amended 2026-04-21 with browse-dialogs + plugin-copy scope).
+> **Context**: Friend is onboarding to ProjectA on their own Windows machine and needs UEMCP running without manual `.mcp.json` path-munging. Current friction: manual steps (clone → npm install → edit template → copy to project root → copy plugin to project's Plugins folder → restart Claude).
+> **Deliverable**: A `.bat` that runs two GUI folder/file-browse dialogs (workspace + .uproject), installs deps, plants `.mcp.json` in the workspace folder, copies the UEMCP plugin into the .uproject's `Plugins/` folder, prints next steps.
+
+> **Amendment 2026-04-21 (scope expansion)**: Junction/symlink approach proved unreliable for UE commandlet discovery (multiple failed gate tests before concluding). New approach is **physical copy of `plugin/UEMCP` into the target project's `Plugins/` folder** — UE discovers it naturally the same way UnrealMCP gets discovered. Script automates the copy. User also browses to their preferred "Claude workspace" folder (where `.mcp.json` lands) so that Claude Code invocations from that folder pick up the UEMCP MCP server. Workspace folder may or may not be the same as the project root — user's choice.
 
 ---
 
@@ -22,37 +24,57 @@ This is specifically a **Windows + single-project-per-invocation** script. Cross
 
 Write at `D:\DevTools\UEMCP\setup-uemcp.bat` (repo root, discoverable at clone time).
 
-**Invocation pattern**:
+**Invocation pattern** (no args — interactive-first):
 
 ```cmd
-setup-uemcp.bat "C:\Path\To\ProjectA\ProjectA.uproject"
+setup-uemcp.bat
 ```
 
-Or with no args → prompt interactively.
+Optional args supported for scripted/repeat invocation:
+
+```cmd
+setup-uemcp.bat [-workspace "<folder>"] [-uproject "<path.uproject>"]
+```
+
+If either arg is missing or `-interactive` is passed explicitly, the script opens GUI browse dialogs for the missing piece(s).
 
 **Behaviors**:
 
 1. **Detect UEMCP repo location** via `%~dp0` (script directory). Don't hardcode `D:\DevTools\UEMCP`.
 2. **Validate Node.js** — check `node --version` exits 0; if not, print error pointing to https://nodejs.org and exit non-zero.
-3. **Accept target project path**:
-   - If `%~1` (arg 1) non-empty → use it.
-   - Else → `set /p "PROJECT_PATH=Enter path to .uproject file: "` interactive prompt.
-4. **Validate project path**:
-   - Exists on disk.
-   - Extension is `.uproject`.
-   - Derive project root = directory containing the .uproject.
-   - Derive project name = basename without extension.
-5. **Run `npm install` in `server/`** — only if `node_modules` doesn't exist OR `package-lock.json` changed (idempotent). Surface exit code.
-6. **Generate `.mcp.json`** at `<project_root>\.mcp.json`:
+3. **Prompt for Claude workspace folder (GUI)** — the folder where the user plans to invoke Claude Code from. `.mcp.json` lands here so Claude Code auto-discovers the UEMCP MCP server on startup. May or may not be the UE project root — user's call. Use a `FolderBrowserDialog` invoked via a PowerShell one-liner:
+   ```cmd
+   for /f "delims=" %%I in ('powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Claude workspace folder (.mcp.json will be placed here)'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.SelectedPath }"') do set "WORKSPACE=%%I"
+   ```
+   If cancelled (empty result) → exit with a clear message.
+   **Note on PowerShell**: CLAUDE.md normally avoids PowerShell for orchestrator/git work. GUI dialogs from a user-facing installer are a different context; PowerShell's WinForms integration is the standard Windows approach. No git or node state is touched via PowerShell.
+4. **Prompt for .uproject file (GUI)** — use `OpenFileDialog` filter `Unreal Project Files|*.uproject`:
+   ```cmd
+   for /f "delims=" %%I in ('powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Unreal Project Files|*.uproject'; $f.Title = 'Select the .uproject to enable UEMCP for'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.FileName }"') do set "UPROJECT=%%I"
+   ```
+   Cancelled → exit.
+5. **Derive project metadata**:
+   - Project root = parent directory of the .uproject
+   - Project name = .uproject basename (no extension)
+   - Plugins directory = `<project_root>\Plugins`
+6. **Run `npm install` in `server/`** — only if `node_modules` doesn't exist OR `package-lock.json` changed (idempotent). Surface exit code.
+7. **Copy UEMCP plugin into project's Plugins folder**:
+   - Source: `%~dp0plugin\UEMCP` (the plugin tree in the UEMCP repo).
+   - Destination: `<project_root>\Plugins\UEMCP` (real directory — NOT a junction/symlink; that approach failed per the 2026-04-21 commandlet-discovery investigation).
+   - **If destination already exists → prompt before overwrite** (Y/N, default N). An existing UEMCP install is likely from a prior run of this script, but could be manual — don't clobber silently.
+   - On overwrite: `rmdir /s /q "<project_root>\Plugins\UEMCP"` then `xcopy /E /I /Y "%~dp0plugin\UEMCP" "<project_root>\Plugins\UEMCP"`.
+   - **Warn if user hasn't closed the editor**: the DLL is locked while the editor runs. Script should detect (`tasklist /FI "IMAGENAME eq UnrealEditor.exe" /NH` — non-empty means running) and prompt the user to close before proceeding with the overwrite.
+8. **Generate `.mcp.json`** at `<WORKSPACE>\.mcp.json`:
    - Substitute UEMCP server path (use forward slashes — Node accepts them on Windows and JSON-safe).
    - Substitute `UNREAL_PROJECT_ROOT` = project root (forward slashes).
    - Substitute `UNREAL_PROJECT_NAME` = project name.
    - Preserve the other env keys from `.mcp.json.example` (ports, timeout, auto_detect).
    - **If `.mcp.json` already exists at target → prompt before overwrite** (Y/N, default N). Don't silently clobber a manual setup.
-7. **Verify**:
+9. **Verify**:
    - New `.mcp.json` is valid JSON (trivial — `node -e "JSON.parse(require('fs').readFileSync(...))"`).
-   - Print the next-step message (how to start Claude Code + what to expect).
-8. **Exit codes**: 0 success, 1 bad args / missing deps, 2 npm install failure, 3 .mcp.json write failure.
+   - Plugin DLL path exists at `<project_root>\Plugins\UEMCP\Binaries\Win64\UnrealEditor-UEMCP.dll` (if not, print "plugin not yet compiled — run editor once to trigger build, OR run your Build.bat").
+   - Print the next-step message: (a) open the UE project once to compile/load the plugin, (b) cd to WORKSPACE + run Claude Code, (c) confirm via `find_tools({ query: "ping" })` after TCP:55558 comes up.
+10. **Exit codes**: 0 success, 1 bad args / missing deps / cancelled dialog, 2 npm install failure, 3 plugin copy failure, 4 .mcp.json write failure.
 
 ### §2 `.mcp.json.example` — convert to true template
 
@@ -100,13 +122,23 @@ Don't rewrite the existing MCP Configuration Files section — just add the new 
 
 ### §4 Testing (self-validation)
 
-Run your script against a test path to prove it works. Suggested test:
+Run your script against a test path to prove it works. Suggested tests:
 
+**Test 1 — Interactive (browse dialogs)**: double-click `setup-uemcp.bat` in Explorer. Verify both GUI dialogs appear and accept user selection.
+
+**Test 2 — Scripted with explicit args**:
 ```cmd
-setup-uemcp.bat "D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject"
+setup-uemcp.bat -workspace "D:\UnrealProjects\5.6\ProjectA" -uproject "D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject"
 ```
 
-Expected: regenerates `D:\UnrealProjects\5.6\ProjectA\.mcp.json` with substituted paths. Since this `.mcp.json` already exists, the script should prompt "overwrite? Y/N" — answer N to preserve it, verify script exits cleanly. Then try again with a sacrificial path (e.g., a temp dir with a fake `.uproject`) to exercise the write path.
+Expected:
+- Prompts "overwrite plugin?" since `Plugins\UEMCP` already exists on ProjectA post-2026-04-21-copy → answer N to preserve, verify clean exit.
+- Prompts "overwrite .mcp.json?" if one exists → answer N, verify clean exit.
+- Answer Y to both → regenerates plugin + .mcp.json, verify destinations updated.
+
+**Test 3 — Cancel path**: run interactive, cancel the first dialog, verify clean exit with "cancelled" message, no files changed.
+
+**Test 4 — Editor running**: open UnrealEditor, then run script with Y-to-overwrite-plugin. Verify script detects the running editor and warns before attempting the DLL overwrite.
 
 Record test commands + outputs in your final report.
 
@@ -117,11 +149,12 @@ Record test commands + outputs in your final report.
 - **Cross-platform** (`.sh`, Node-based setup) — future enhancement, separate handoff if ever needed.
 - **Multi-project batch onboarding** — run the script once per project.
 - **Claude Desktop `claude_desktop_config.json` generation** — that's Cowork-mode-specific; stay out of scope here.
-- **Plugin install** — the UEMCP plugin (once it exists post-M1) goes in the UE project's `Plugins/` folder; different flow, different handoff.
 - **npm package publishing** — UEMCP is not an npm package and shouldn't try to become one here.
 - **Auto-update / version check** — not this scope.
-- **Perforce integration** — the friend uses P4 for ProjectA content, but UEMCP itself is git. No P4 logic in the script.
+- **Perforce integration** — the friend uses P4 for ProjectA content, but UEMCP itself is git. No P4 logic in the script. If overwriting an existing `Plugins/UEMCP` triggers P4 locked-file errors, the prompt should let the user know to `p4 edit` or handle manually.
 - **Engine version detection** — `UNREAL_AUTO_DETECT: "true"` already signals the server to handle this; don't reimplement it in .bat.
+- **Plugin compilation** — the script copies source + prior-built binaries but does NOT invoke UBT. User needs to rebuild via editor or Build.bat. Note this explicitly in the next-step message.
+- **Junction/symlink fallback** — deliberately NOT offered. The 2026-04-21 investigation established that junction-based plugin discovery is unreliable in commandlet mode. Physical copy is the supported approach.
 
 ---
 
