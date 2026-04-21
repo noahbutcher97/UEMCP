@@ -84,14 +84,15 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-21 (mid-wave-1 close):
+In-flight as of 2026-04-21 (wave-1 fully closed):
 
-- **UEMCPModule log-demotion** — handoff `docs/handoffs/uemcp-module-log-demotion.md` (commit `57e994f`). D61 deferred follow-on; nano-scope cleanup. Only remaining in-flight from the 4-worker parallel wave.
+- (none currently in flight)
 
-**S-B-base dispatchable NOW** — Oracle-A + EN-8/9 both landed (see Recently shipped). S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` amended in same commit as this backlog update: (a) D62 load-bearing API correction — `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` in-memory vs `TArray<FEdGraphPinReference>` on-disk, both converge to same edge set; (b) Oracle-A fixture gotchas from README.md §Edge cases referenced inline; (c) test baseline updated 899 → 914 per EN-8/9 landing; (d) `withAssetExistenceCheck` import guidance added for `extractBPEdgeTopology` wrapping.
+**S-B-base dispatchable NOW** — Wave 1 fully shipped (Oracle-A + EN-8/9 + sync-plugin + log-demotion all landed clean with zero merge conflicts across the 4-worker parallel dispatch). S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` contains D62 load-bearing API correction (`UEdGraphPin::LinkedTo` bytes-vs-runtime shape), Oracle-A fixture gotchas from README.md §Edge cases, test baseline 914 reference, and `withAssetExistenceCheck` import guidance for `extractBPEdgeTopology` wrapping.
 
 Recently shipped (most recent first):
 
+- **UEMCPModule log-demotion** (commit `60bb94a`, 2026-04-21) — D61 follow-on closed. Warning → Log demote at `UEMCPModule.cpp` StartupModule. Clean rebuild via D61 nuke recipe (12.19s, 16 actions); DLL mtime post source mtime confirmed no UBT cache staleness; D57 gate re-run [PASS]. Baseline unchanged. D65 for full report.
 - **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against ProjectA; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
 - **EN-8 + EN-9 bundle** (commit `1bc3e8b`, 2026-04-21) — workflow gaps from M-spatial manual testing closed. `bp_list_graphs` emits `comment_ids: []` per-graph row; all 5 M-spatial verbs return FA-β `{available: false, reason: "asset_not_found"}` on ENOENT. `withAssetExistenceCheck` helper exported for Verb-surface reuse. **Test baseline 899 → 914** (+15 assertions including full-contract helper coverage). Comment class-name confirmed as `EdGraphNode_Comment` (no U prefix — UE strips at serialization). D63 for full report.
 - **M-new Oracle-A** (commits `b8e64a5` + `b1fb2e7`, 2026-04-21) — 6-BP fixture corpus seeded (BP_OSPlayerR 204/596 edges densest; TestCharacter 11/24 smallest; BP_OSPlayerR_Child triple for inheritance). 280 LOC commandlet + serializer; 20.66s clean build; 9s cold BP_OSPlayerR invocation; D57 gate regression-tested PASS. **Critical API correction captured in D62**: `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` runtime / `TArray<FEdGraphPinReference>` bytes — propagated to S-B-base handoff.
