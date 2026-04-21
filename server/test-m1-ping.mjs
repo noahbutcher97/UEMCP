@@ -13,6 +13,7 @@
 //       (or with env UEMCP_PING_HOST/UEMCP_PING_PORT to target a non-localhost editor)
 
 import net from 'node:net';
+import { ConnectionManager } from './connection-manager.mjs';
 
 const HOST = process.env.UEMCP_PING_HOST || '127.0.0.1';
 const PORT = Number(process.env.UEMCP_PING_PORT || 55558);
@@ -162,6 +163,25 @@ async function main() {
   if (malformedResp && !malformedResp._skipped) {
     assert(malformedResp.status === 'error', `malformed status should be "error", got ${JSON.stringify(malformedResp.status)}`);
     assert(malformedResp.code === 'MALFORMED_REQUEST', `malformed code should be MALFORMED_REQUEST, got ${JSON.stringify(malformedResp.code)}`);
+  }
+
+  // --- Roundtrip through the MCP server's ConnectionManager (success criterion #3) ---
+  // Raw-socket coverage above tests the wire; this pass verifies the cache/queue/extractWireError
+  // layer too. Bypassed if the first probe skipped, since the editor isn't up.
+  try {
+    const cm = new ConnectionManager({
+      projectRoot: process.env.UNREAL_PROJECT_ROOT || '',
+      tcpPortCustom: PORT,
+      tcpPortExisting: 55557,
+      tcpTimeoutMs: READ_TIMEOUT_MS,
+    });
+    const cmResp = await cm.send('tcp-55558', 'ping', {}, { skipCache: true });
+    assert(cmResp && cmResp.status === 'success',
+      `ConnectionManager ping status should be "success", got ${JSON.stringify(cmResp && cmResp.status)}`);
+    assert(cmResp && cmResp.result && cmResp.result.message === 'pong',
+      `ConnectionManager ping result.message should be "pong", got ${JSON.stringify(cmResp && cmResp.result)}`);
+  } catch (e) {
+    assert(false, `ConnectionManager ping threw: ${e.message}`);
   }
 
   // --- Report ---
