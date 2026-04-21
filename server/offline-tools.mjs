@@ -2090,13 +2090,25 @@ async function bpListGraphs(projectRoot, params) {
   const { graphs } = indexBlueprintGraphs(ctx);
 
   const graphRows = graphs
-    .map(g => ({
-      name: g.name,
-      graph_type: g.graph_type,
-      node_count: g.node_count,
-      comment_count: g.comment_count,
-      export_index: g.export_index,
-    }))
+    .map(g => {
+      // EN-8: per-graph comment_ids[] enumerates UEdGraphNode_Comment node_guids
+      // (serialized class name is 'EdGraphNode_Comment' — no U prefix). Callers
+      // use these to skip inspect_blueprint when locating comments before
+      // bp_subgraph_in_comment. Empty array when the graph has no comments
+      // (field is always present for shape stability). Parse cost is bounded:
+      // BP_OSPlayerR has ~9 comments total, so this adds microseconds.
+      const comment_ids = g._comments
+        .map(c => parseNodeShape(ctx, c.export, c.export_index).row.node_guid)
+        .filter(guid => typeof guid === 'string');
+      return {
+        name: g.name,
+        graph_type: g.graph_type,
+        node_count: g.node_count,
+        comment_count: g.comment_count,
+        comment_ids,
+        export_index: g.export_index,
+      };
+    })
     .sort((a, b) => {
       // Deterministic ordering: type bucket then name.
       const typeOrder = ['ubergraph', 'construction_script', 'function', 'macro', 'delegate_signature', 'timeline', 'unknown'];
@@ -2375,6 +2387,50 @@ async function bpShowNode(projectRoot, params) {
   });
 }
 
+/**
+ * EN-9: graceful-degradation wrapper for asset-path-taking offline handlers.
+ *
+ * Catches fs ENOENT at the handler edge and returns a FA-β envelope
+ * `{available: false, reason: "asset_not_found", asset_path: "..."}` instead
+ * of propagating the raw error through the MCP error channel. Only ENOENT
+ * degrades gracefully — genuine parser errors (corrupt bytes, unknown class,
+ * missing graph) still throw so callers can distinguish "plugin/asset absent"
+ * from "something's structurally wrong".
+ *
+ * Each M-spatial verb is wrapped below. M-new (Verb-surface) workers should
+ * wrap their new verbs the same way — the helper takes any handler with
+ * signature `(projectRoot, params) => Promise<object>` and returns a handler
+ * with the same signature plus ENOENT-guarding.
+ *
+ * @template {(projectRoot: string, params: object) => Promise<object>} H
+ * @param {H} handler
+ * @returns {H}
+ */
+export function withAssetExistenceCheck(handler) {
+  return async function guarded(projectRoot, params) {
+    try {
+      return await handler(projectRoot, params);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return {
+          available: false,
+          reason: 'asset_not_found',
+          asset_path: params?.asset_path ?? null,
+        };
+      }
+      throw err;
+    }
+  };
+}
+
+// Guarded M-spatial verbs — ENOENT becomes FA-β graceful-degradation envelope.
+// Non-ENOENT errors still throw (D58 contract: distinguish absent from broken).
+const bpListGraphsSafe = withAssetExistenceCheck(bpListGraphs);
+const bpFindInGraphSafe = withAssetExistenceCheck(bpFindInGraph);
+const bpSubgraphInCommentSafe = withAssetExistenceCheck(bpSubgraphInComment);
+const bpListEntryPointsSafe = withAssetExistenceCheck(bpListEntryPoints);
+const bpShowNodeSafe = withAssetExistenceCheck(bpShowNode);
+
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
     throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
@@ -2422,23 +2478,23 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
 
     case 'bp_list_graphs':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await bpListGraphs(projectRoot, params);
+      return await bpListGraphsSafe(projectRoot, params);
 
     case 'bp_find_in_graph':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await bpFindInGraph(projectRoot, params);
+      return await bpFindInGraphSafe(projectRoot, params);
 
     case 'bp_subgraph_in_comment':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await bpSubgraphInComment(projectRoot, params);
+      return await bpSubgraphInCommentSafe(projectRoot, params);
 
     case 'bp_list_entry_points':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await bpListEntryPoints(projectRoot, params);
+      return await bpListEntryPointsSafe(projectRoot, params);
 
     case 'bp_show_node':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
-      return await bpShowNode(projectRoot, params);
+      return await bpShowNodeSafe(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);

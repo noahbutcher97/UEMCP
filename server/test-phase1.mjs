@@ -7,7 +7,7 @@ import { load } from 'js-yaml';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
-import { executeOfflineTool, matchTagGlob, computeCommentContainment } from './offline-tools.mjs';
+import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
 import { ErrorTcpResponder } from './test-helpers.mjs';
@@ -1233,6 +1233,39 @@ try {
   assert(false, 'M-spatial containment unit', e.message);
 }
 
+// EN-9: withAssetExistenceCheck helper — synthetic unit test (no fixture).
+// Confirms: ENOENT → graceful envelope; other errors pass through; non-throwing
+// handler returns its payload unchanged; missing params.asset_path → null.
+try {
+  const enoentErr = Object.assign(new Error('fake ENOENT'), { code: 'ENOENT' });
+  const handler = async () => { throw enoentErr; };
+  const guarded = withAssetExistenceCheck(handler);
+  const got = await guarded('/nonexistent/root', { asset_path: '/Game/Bogus' });
+  assert(got.available === false, 'EN-9 helper: ENOENT → available: false');
+  assert(got.reason === 'asset_not_found', 'EN-9 helper: reason === asset_not_found');
+  assert(got.asset_path === '/Game/Bogus', 'EN-9 helper: asset_path echoed from params');
+
+  // Non-ENOENT error still throws (parser errors must stay distinguishable).
+  const corruptErr = new Error('corrupt bytes at offset 0x42');
+  let rethrown = false;
+  try {
+    await withAssetExistenceCheck(async () => { throw corruptErr; })('/root', { asset_path: '/Game/X' });
+  } catch (e) {
+    rethrown = e === corruptErr;
+  }
+  assert(rethrown, 'EN-9 helper: non-ENOENT error re-thrown (parser errors stay distinguishable)');
+
+  // Happy-path: handler's return value passes through unchanged.
+  const passthrough = await withAssetExistenceCheck(async () => ({ ok: 1 }))('/root', { asset_path: '/Game/X' });
+  assert(passthrough.ok === 1, 'EN-9 helper: non-throwing handler payload passed through unchanged');
+
+  // Missing params.asset_path — graceful envelope still returns with null path.
+  const noPath = await withAssetExistenceCheck(async () => { throw enoentErr; })('/root', {});
+  assert(noPath.asset_path === null, 'EN-9 helper: missing params.asset_path → null in envelope');
+} catch (e) {
+  assert(false, 'EN-9 withAssetExistenceCheck unit', e.message);
+}
+
 if (!PROJECT_ROOT) {
   console.log('  SKIP: UNREAL_PROJECT_ROOT not set — skipping fixture-backed M-spatial tests');
 } else {
@@ -1259,6 +1292,21 @@ if (!PROJECT_ROOT) {
     const evg = r.graphs.find(g => g.name === 'EventGraph');
     assert(evg.node_count > 10 && evg.comment_count > 0,
       `bp_list_graphs: EventGraph has K2Nodes + comments (nodes=${evg.node_count} comments=${evg.comment_count})`);
+
+    // EN-8: comment_ids[] field present on every graph, populated on graphs
+    // with comments, empty array on graphs without. Each ID is a 32-char hex
+    // NodeGuid so callers skip inspect_blueprint when locating comments.
+    assert(r.graphs.every(g => Array.isArray(g.comment_ids)),
+      'EN-8: bp_list_graphs every graph row has comment_ids[] array (empty allowed)');
+    const graphsWithComments = r.graphs.filter(g => g.comment_ids.length > 0);
+    assert(graphsWithComments.length > 0,
+      'EN-8: bp_list_graphs surfaces at least one graph with non-empty comment_ids (BP_OSPlayerR has comments)');
+    const allIds = graphsWithComments.flatMap(g => g.comment_ids);
+    assert(allIds.every(id => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id)),
+      'EN-8: every comment_id is a 32-char lowercase hex NodeGuid (FGuid format)');
+    // comment_count agrees with comment_ids length when every comment has a decoded NodeGuid.
+    assert(graphsWithComments.every(g => g.comment_ids.length <= g.comment_count),
+      'EN-8: comment_ids length never exceeds comment_count (filter drops undecoded guids)');
   } catch (e) {
     assert(false, 'bp_list_graphs scenario', e.message);
   }
@@ -1399,6 +1447,29 @@ if (!PROJECT_ROOT) {
     }
   } catch (e) {
     assert(false, 'FA-δ: plugin-absent first-class functionality', e.message);
+  }
+
+  // ── EN-9: graceful ENOENT envelope on all 5 M-spatial verbs ─────────
+  // Per D58 FA-β contract, bogus asset_path should NOT surface raw ENOENT
+  // through the MCP error channel — callers see the plugin-absent-style
+  // envelope instead, making "asset doesn't exist" a first-class response.
+  console.log('\n═══ EN-9: graceful-degradation envelope on invalid asset_path ═══');
+  try {
+    const FAKE = '/Game/Nonexistent/BP_Fake_EN9_Probe';
+    const verbs = [
+      ['bp_list_graphs',         { asset_path: FAKE }],
+      ['bp_find_in_graph',       { asset_path: FAKE, graph_name: 'EventGraph' }],
+      ['bp_subgraph_in_comment', { asset_path: FAKE, comment_node_id: 'EdGraphNode_Comment' }],
+      ['bp_list_entry_points',   { asset_path: FAKE }],
+      ['bp_show_node',           { asset_path: FAKE, node_id: 'K2Node_Event' }],
+    ];
+    for (const [verb, args] of verbs) {
+      const r = await executeOfflineTool(verb, args, PROJECT_ROOT);
+      assert(r.available === false && r.reason === 'asset_not_found' && r.asset_path === FAKE,
+        `EN-9: ${verb} returns {available:false, reason:"asset_not_found", asset_path:"${FAKE}"} on bogus path`);
+    }
+  } catch (e) {
+    assert(false, 'EN-9: graceful-degradation envelope', e.message);
   }
 }
 

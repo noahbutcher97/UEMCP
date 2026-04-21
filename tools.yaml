@@ -190,10 +190,14 @@ toolsets:
           Enumerate UEdGraph subobjects in a Blueprint (EventGraph,
           UserConstructionScript, per-function graphs, macro graphs, delegate
           signature graphs). Returns per-graph records with name, inferred
-          graph_type, node_count, and export_index. Offline; no plugin, editor,
+          graph_type, node_count, comment_count, comment_ids[] (NodeGuid list
+          of UEdGraphNode_Comment nodes in that graph — empty array when the
+          graph has no comments), and export_index. Offline; no plugin, editor,
           or sidecar required. Use this to orient before bp_find_in_graph or
-          bp_show_node. FA-β response manifest (available_fields, not_available)
-          clarifies coverage — spatial/comment fields are first-class here.
+          bp_show_node. Surfaces comment NodeGuids so callers skip
+          inspect_blueprint entirely when locating comments. FA-β response
+          manifest (available_fields, not_available) clarifies coverage —
+          spatial/comment fields are first-class here.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset (with or without extension)" }
       bp_find_in_graph:
