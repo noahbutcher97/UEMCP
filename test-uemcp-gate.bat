@@ -60,7 +60,7 @@ echo.
  -unattended ^
  -nop4 ^
  -nosplash ^
- -LogCmds="LogUEMCP Verbose" ^
+ -LogCmds="LogUEMCP Verbose, LogPluginManager Verbose" ^
  -stdout > "%TEMP%\uemcp-gate-test.log" 2>&1
 
 echo.
