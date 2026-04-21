@@ -31,6 +31,21 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: per-node UPROPERTY extraction pattern similar to existing skeletal 13
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
+### EN-8 — `bp_list_graphs` add `comment_ids: [...]` per-graph row
+- **Source**: M-spatial manual testing 2026-04-21 §workflow observations (commit `8ad69bd`); D59
+- **Current gap**: no verb enumerates comment node_ids. `bp_find_in_graph(node_class:"UEdGraphNode_Comment")` returns 0 because comments aren't K2Nodes. Workaround uses `inspect_blueprint` which triggers MCP token cap on larger BPs (85KB / 275 exports on BP_OSPlayerR → auto-saved to tool-results file, breaking composition).
+- **Fix**: extend `bp_list_graphs` handler to scan each graph's exports for `UEdGraphNode_Comment` class and emit `comment_ids: ["<node_id>", ...]` per-graph. Callers then use `bp_subgraph_in_comment(comment_node_id)` directly without intermediate enumeration.
+- **Cost**: ~15-30 min (handler extension + 2-3 test assertions)
+- **Trigger**: bundle into M-new verb-surface worker OR ship standalone when any worker next touches `offline-tools.mjs`
+
+### EN-9 — Graceful-degradation envelope for missing asset paths
+- **Source**: M-spatial manual testing 2026-04-21 §1.3 (commit `8ad69bd`); for-M-new-S-B-base hint
+- **Current behavior**: `bp_list_graphs({asset_path:"/Game/Nonexistent/BP_Fake"})` surfaces raw ENOENT via MCP error
+- **Desired**: catch ENOENT at handler edge and return `{available: false, reason: "asset_not_found"}` matching FA-β graceful-degradation idiom
+- **Scope**: small try-catch or pre-check across all 5 M-spatial verbs + extend to future M-new verbs
+- **Cost**: ~15-30 min
+- **Trigger**: fold into M-new verb-surface OR ship as part of EN-8 bundle if they happen simultaneously
+
 ### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending
 - **Source**: EN-2 manual testing 2026-04-20 §6 observation (results commit `7758c85`)
 - **Current behavior**: `results[]` sorted by path alphabetically. For "which BPs call X most" top-N workflows, callers sort client-side.
@@ -89,16 +104,16 @@ In-flight as of 2026-04-20 (post-M-spatial ship):
 
 Recently shipped (most recent first):
 
+- **M1 3A TCP scaffolding** (commits `2b86369` / `8030930` / `be282c0` / `510c5bb` / `d7a2192` / `1d3f6cf`) — plugin/UEMCP/ scaffold with D57 commandlet gate + 6 P0 helpers (P0-1/2/3/4/9/10) + MCPServerRunnable on TCP:55558 + MCPCommandRegistry + ping handler + 8 automation tests + server-side integration test. Unblocks M-new Oracle-A. Response envelope is single-shape `{status, result}` / `{status, error, code}` — deliberate P0-1 break from UnrealMCP (55557)'s two-format legacy. **Pending user verification**: plugin visibility in ProjectA (mklink /D or AdditionalPluginDirectories), UBT compile, commandlet-gate log line. Test baseline unchanged at 899.
+- **M-spatial manual testing** (commit `8ad69bd`) — 18/18 PASS through live MCP wire. FA-β manifest + FA-δ plugin-absent first-class both held. Exact numeric match with unit tests (10 graphs, 53→7 events, 11 contained nodes, 17 entry points, 1424×544 rect) → second independent verification of D50 tagged-fallback UPROPERTY coverage. Workflow gap surfaced: comment-ids not enumerable → EN-8 queued.
 - **M-spatial** (commits `08be682` / `4105fa0` / `4938248`) — 5 BP traversal verbs + FA-β/FA-δ test invariants. Zero parser code needed — D50 tagged-fallback already decoded every required UPROPERTY (verified empirically on BP_OSPlayerR). Test baseline 825 → 899 (+74). Notable finding: `EnabledState` absent on nearly all fixture nodes because UE omits class-default values; spatial extraction treats missing positions as 0.
 
 Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
 
-**Wave 1 — parallel kickoff** (after tiny scaffold commit lands, per §Q5.7 amendment):
-
-- **Plugin scaffold commit** (~0.25 session) — `plugin/UEMCP/UEMCP.uplugin` + `UEMCP.Build.cs` + `UEMCPModule.{h,cpp}` with `!FApp::IsRunningCommandlet()` gate in `StartupModule`. Can fold into M1's first commit OR dispatch separately. Orchestrator call.
-- **M1** — 3A TCP scaffolding (3-5 sessions) — `MCPServerRunnable` + command registry + P0-1/2/3/4/9/10 helpers. Ships `ping` smoke test only; real tool handlers are M3+. Writes-gated; independent of M-new. Handoff already drafted at `docs/handoffs/m1-3a-tcp-scaffolding.md` (commit `2ab0969`) — needs minor amendment to reference D58 scaffold-first ordering.
-- ~~**M-spatial**~~ — SHIPPED (see Recently shipped above).
-- **M-new Oracle-A** (0.5-1 session) — minimal `UDumpBPGraphCommandlet` dev-only stub emitting `{nodeId: [linkedToPinIds]}` for 5-10 ProjectA fixture BPs. Differential-test oracle for S-B development; ships as test fixture under `plugin/Source/UEMCP/TestFixtures/` (or equivalent). ~120-180 LOC commandlet + ~40 LOC narrow serializer. Dispatches AFTER plugin scaffold lands; parallel with M1 (different subdirectory) and M-spatial (different file tree).
+**Wave 1** — SHIPPED per D59.
+- ~~M1 scaffolding~~ — SHIPPED (see Recently shipped above; pending user plugin-compile verification)
+- ~~M-spatial + wire validation~~ — SHIPPED
+- **M-new Oracle-A** (0.5-1 session) — minimal `UDumpBPGraphCommandlet` dev-only stub emitting `{nodeId: [linkedToPinIds]}` for 5-10 ProjectA fixture BPs. Differential-test oracle for S-B development. **Dispatchable NOW** — scaffold landed at `2b86369`, D57 gate in place. Handoff at `docs/handoffs/m-new-oracle-a-commandlet.md` (commit `130fd0a`).
 
 **Wave 2 — S-B core** (post-Oracle-A):
 
