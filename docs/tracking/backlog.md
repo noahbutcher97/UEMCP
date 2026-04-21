@@ -98,9 +98,17 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-20 (post-M-spatial ship):
+In-flight as of 2026-04-21 (post-D61 gate-verification):
 
-- (none currently in flight)
+- **M-new Oracle-A** — handoff `docs/handoffs/m-new-oracle-a-commandlet.md` (commit `dbe4b93` refresh). Critical path — S-B-base dispatch gated on Oracle-A fixture JSONs landing.
+- **EN-8 + EN-9 bundle** — handoff `docs/handoffs/en-8-en-9-offline-enhancements.md` (commit `57e994f`). Closes M-spatial workflow gaps surfaced in D59. Test baseline will bump 899 → ~906-907 on landing.
+- **sync-plugin.bat** — handoff `docs/handoffs/sync-plugin-bat.md` (commit `57e994f`). D61 deferred follow-on; automates physical plugin xcopy.
+- **UEMCPModule log-demotion** — handoff `docs/handoffs/uemcp-module-log-demotion.md` (commit `57e994f`). D61 deferred follow-on; nano-scope cleanup.
+
+**Parallel coordination notes**:
+- Oracle-A + Log-demotion both touch plugin source but don't collide at file level (Oracle-A creates new `Private/Commandlets/*`; Log-demotion edits `Private/UEMCPModule.cpp`). `UEMCP.Build.cs` is the only shared file; Oracle-A handoff noted deps already present so Build.cs should stay untouched.
+- EN-8/9 + sync-plugin.bat are fully isolated (server/* and repo-root respectively).
+- S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` (commit `57e994f`) is pre-drafted, dispatch-ready, gated on Oracle-A final report for fixture corpus + paths. Test-baseline reference inside says "899"; amend post-EN-8/9 landing before S-B-base dispatch.
 
 Recently shipped (most recent first):
 
@@ -110,10 +118,10 @@ Recently shipped (most recent first):
 
 Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
 
-**Wave 1** — SHIPPED per D59.
-- ~~M1 scaffolding~~ — SHIPPED (see Recently shipped above; pending user plugin-compile verification)
+**Wave 1** — SHIPPED per D59; Oracle-A in flight per 2026-04-21.
+- ~~M1 scaffolding~~ — SHIPPED (plugin-compile + D57 gate verified end-to-end per D61, commit `a5b8917`)
 - ~~M-spatial + wire validation~~ — SHIPPED
-- **M-new Oracle-A** (0.5-1 session) — minimal `UDumpBPGraphCommandlet` dev-only stub emitting `{nodeId: [linkedToPinIds]}` for 5-10 ProjectA fixture BPs. Differential-test oracle for S-B development. **Dispatchable NOW** — scaffold landed at `2b86369`, D57 gate in place. Handoff at `docs/handoffs/m-new-oracle-a-commandlet.md` (commit `130fd0a`).
+- **M-new Oracle-A** (0.5-1 session) — IN FLIGHT. Handoff `docs/handoffs/m-new-oracle-a-commandlet.md` (refreshed commit `dbe4b93`).
 
 **Wave 2 — S-B core** (post-Oracle-A):
 
