@@ -196,6 +196,21 @@ Read operations (grep, glob, file reads) can use sandbox bash or Claude's built-
 
 ## Common Tasks
 
+### Onboarding a new machine
+
+Run `setup-uemcp.bat "<path-to-your-project.uproject>"` from the UEMCP
+repo root. The script installs dependencies, generates `.mcp.json` at
+your Claude workspace root (auto-detected — the parent of the `.uproject`
+dir if it contains `.claude\` or `CLAUDE.md`, otherwise the `.uproject`
+dir itself), and prints next-step guidance. It prompts before overwriting
+an existing `.mcp.json`. Exit codes: 0 success, 1 bad args / missing deps,
+2 npm install failure, 3 .mcp.json write failure.
+
+Manual setup (skip the script): copy `.mcp.json.example` to your Claude
+workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
+`<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>` with real paths (use
+forward slashes), run `npm install` in `server/`, then restart Claude Code.
+
 ### Running the server locally
 ```bash
 cd D:\DevTools\UEMCP\server
