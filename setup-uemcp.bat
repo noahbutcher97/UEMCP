@@ -23,18 +23,44 @@ REM See CLAUDE.md "Onboarding a new machine" for details.
 
 setlocal EnableDelayedExpansion
 
+REM --- Interactive-mode detection for pause-before-exit ---
+REM When double-clicked from Explorer or run from a fresh cmd, the console
+REM closes on exit. `pause` before exit keeps errors visible. We only pause
+REM when no arg is passed (GUI / double-click launch pattern).
+set "INTERACTIVE=0"
+if "%~1"=="" set "INTERACTIVE=1"
+set "EXIT_CODE=0"
+
 REM --- Detect UEMCP repo location (this script's directory) ---
 set "UEMCP_PATH=%~dp0"
 if "!UEMCP_PATH:~-1!"=="\" set "UEMCP_PATH=!UEMCP_PATH:~0,-1!"
 set "UEMCP_PATH_FWD=!UEMCP_PATH:\=/!"
 
+echo UEMCP setup starting...
+echo ^(script dir: %~dp0^)
+echo.
+
 REM --- Validate Node.js ---
-node --version >nul 2>&1
+echo Checking for Node.js...
+node --version 2>nul
 if errorlevel 1 (
-  echo [ERROR] Node.js is not installed or not on PATH.
-  echo Install Node.js LTS from https://nodejs.org/ then re-run this script.
-  exit /b 1
+  echo.
+  echo [ERROR] Node.js is not installed or not on PATH for cmd.exe.
+  echo.
+  echo Note: if you have Claude Code installed, it uses a *bundled* Node that is
+  echo NOT exposed on system PATH. This script needs a standalone Node install.
+  echo.
+  echo Install options ^(any one works^):
+  echo   1. Winget:  winget install OpenJS.NodeJS.LTS
+  echo   2. Direct:  https://nodejs.org/ ^(pick the LTS installer^)
+  echo   3. nvm-windows: https://github.com/coreybutler/nvm-windows
+  echo.
+  echo After install, OPEN A FRESH cmd window ^(so PATH refreshes^) and re-run.
+  echo Quick verify:  node --version    should print v20.x or v22.x.
+  set "EXIT_CODE=1" & goto :end
 )
+echo   Node OK.
+echo.
 
 REM --- Accept target project path ---
 REM   Arg given: use it (programmatic / repeat-run mode).
@@ -47,24 +73,25 @@ if "!PROJECT_ARG!"=="" (
   for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select your Claude workspace folder (.mcp.json will be placed here)'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.SelectedPath } else { 'CANCELLED_WORKSPACE' }"`) do set "WORKSPACE_OVERRIDE=%%I"
   if "!WORKSPACE_OVERRIDE!"=="CANCELLED_WORKSPACE" (
     echo [INFO] Workspace folder selection cancelled. Exiting.
-    exit /b 1
+    set "EXIT_CODE=1" & goto :end
   )
   if "!WORKSPACE_OVERRIDE!"=="" (
     echo [ERROR] Workspace browse returned empty path. Exiting.
-    exit /b 1
+    echo        PowerShell WinForms may have failed — check PS execution policy.
+    set "EXIT_CODE=1" & goto :end
   )
   echo Opening .uproject file picker...
   for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Unreal Project|*.uproject'; $f.Title = 'Select the .uproject to enable UEMCP for'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.FileName } else { 'CANCELLED_PROJECT' }"`) do set "PROJECT_ARG=%%I"
   if "!PROJECT_ARG!"=="CANCELLED_PROJECT" (
     echo [INFO] .uproject selection cancelled. Exiting.
-    exit /b 1
+    set "EXIT_CODE=1" & goto :end
   )
 )
 REM Strip any surrounding double quotes from either GUI or arg input.
 set "PROJECT_ARG=!PROJECT_ARG:"=!"
 if "!PROJECT_ARG!"=="" (
   echo [ERROR] No project path provided.
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 REM --- Resolve and validate the .uproject path ---
@@ -76,12 +103,12 @@ for %%I in ("!PROJECT_ARG!") do (
 )
 if not exist "!UPROJECT_FULL!" (
   echo [ERROR] File not found: !UPROJECT_FULL!
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 if /i not "!PROJECT_EXT!"==".uproject" (
   echo [ERROR] Expected a .uproject file, got extension: !PROJECT_EXT!
   echo Provide the full path to your project's .uproject file.
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 REM --- UNREAL_PROJECT_ROOT env var = directory containing the .uproject ---
@@ -127,8 +154,7 @@ if exist "!TARGET_MCP!" (
   set /p "CONFIRM=Overwrite? [y/N]: "
   if /i not "!CONFIRM!"=="y" (
     echo Aborted. Existing .mcp.json preserved.
-    endlocal
-    exit /b 0
+    set "EXIT_CODE=0" & goto :end
   )
 )
 
@@ -138,14 +164,14 @@ if not exist "!UEMCP_PATH!\server\node_modules\" (
   pushd "!UEMCP_PATH!\server"
   if errorlevel 1 (
     echo [ERROR] Failed to enter !UEMCP_PATH!\server
-    exit /b 2
+    set "EXIT_CODE=2" & goto :end
   )
   call npm install
   set "NPM_EXIT=!errorlevel!"
   popd
   if not "!NPM_EXIT!"=="0" (
     echo [ERROR] npm install failed with exit code !NPM_EXIT!.
-    exit /b 2
+    set "EXIT_CODE=2" & goto :end
   )
 ) else (
   echo server\node_modules already present; skipping npm install.
@@ -155,7 +181,7 @@ REM --- Generate .mcp.json from template via node -e ---
 set "TEMPLATE_PATH=!UEMCP_PATH!\.mcp.json.example"
 if not exist "!TEMPLATE_PATH!" (
   echo [ERROR] Template not found: !TEMPLATE_PATH!
-  exit /b 3
+  set "EXIT_CODE=3" & goto :end
 )
 
 REM Export values for node to read via process.env (avoids CMD-quoting hazards
@@ -165,14 +191,14 @@ set "PROJECT_ROOT_FWD=!UPROJECT_DIR_FWD!"
 node -e "const fs=require('fs');const t=fs.readFileSync(process.env.TEMPLATE_PATH,'utf8');const o=t.split('<UEMCP_REPO_PATH>').join(process.env.UEMCP_PATH_FWD).split('<UNREAL_PROJECT_ROOT>').join(process.env.PROJECT_ROOT_FWD).split('<UNREAL_PROJECT_NAME>').join(process.env.PROJECT_NAME);fs.writeFileSync(process.env.TARGET_PATH,o);"
 if errorlevel 1 (
   echo [ERROR] Failed to generate .mcp.json.
-  exit /b 3
+  set "EXIT_CODE=3" & goto :end
 )
 
 REM --- Verify generated JSON parses ---
 node -e "JSON.parse(require('fs').readFileSync(process.env.TARGET_PATH,'utf8'));" >nul 2>&1
 if errorlevel 1 (
   echo [ERROR] Generated .mcp.json is not valid JSON: !TARGET_PATH!
-  exit /b 3
+  set "EXIT_CODE=3" & goto :end
 )
 
 echo.
@@ -219,7 +245,7 @@ if exist "!PLUGIN_DEST!" (
   if exist "!PLUGIN_DEST!" (
     echo [ERROR] Failed to remove existing plugin at !PLUGIN_DEST!.
     echo         Files may still be locked. Close the editor and retry.
-    exit /b 4
+    set "EXIT_CODE=4" & goto :end
   )
 )
 
@@ -229,7 +255,7 @@ xcopy /E /I /Y /Q "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
 set "XCOPY_EXIT=!errorlevel!"
 if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] Plugin copy failed. xcopy exit code: !XCOPY_EXIT!
-  exit /b 4
+  set "EXIT_CODE=4" & goto :end
 )
 echo [SUCCESS] Plugin installed at !PLUGIN_DEST!.
 set "PLUGIN_COPIED=1"
@@ -263,6 +289,13 @@ echo.
 echo TCP tools (actors, blueprints-write, widgets) need the UE editor with
 echo the UnrealMCP plugin active. Offline tools work against project files
 echo on disk with no editor running.
+set "EXIT_CODE=0"
+goto :end
 
-endlocal
-exit /b 0
+:end
+echo.
+if "!INTERACTIVE!"=="1" (
+  echo [Setup exit code: !EXIT_CODE!]
+  pause
+)
+endlocal & exit /b %EXIT_CODE%
