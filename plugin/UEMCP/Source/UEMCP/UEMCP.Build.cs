@@ -25,10 +25,12 @@ public class UEMCP : ModuleRules
 			"EditorScriptingUtilities",
 			"BlueprintGraph",
 			"Kismet",
-			"GameplayAbilities",
 			"GameplayTags",
 			"Json",
 			"JsonUtilities",
 		});
+		// Note: GameplayAbilities removed per D60 — M1 scaffold doesn't reference GAS.
+		// M3+ GAS tool workers (create_gameplay_effect etc.) re-add it here AND to
+		// UEMCP.uplugin Plugins[] when they land (UBT warns on module-dep-without-plugin-dep).
 	}
 }

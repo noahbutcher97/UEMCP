@@ -109,7 +109,9 @@ void FUEMCPModule::StartupModule()
 	// D57 gate: commandlet processes (e.g., M-new Oracle-A DumpBPGraphCommandlet)
 	// load the module to access UEMCP types but must NOT bind TCP:55558 — otherwise
 	// concurrent interactive-editor + commandlet runs contend for the port.
-	if (FApp::IsRunningCommandlet())
+	// IsRunningCommandlet is a global free function in CoreGlobals.h (transitively
+	// available via CoreMinimal.h); it's NOT a member of FApp on UE 5.6.
+	if (IsRunningCommandlet())
 	{
 		UE_LOG(LogUEMCP, Log, TEXT("UEMCP: commandlet detected — TCP server suppressed (D57 gate)"));
 		return;
