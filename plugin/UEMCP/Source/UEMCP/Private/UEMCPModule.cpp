@@ -106,6 +106,12 @@ namespace
 
 void FUEMCPModule::StartupModule()
 {
+	// Diagnostic line (D61, to remove once module-load reliability confirmed):
+	// Warning-level forces emit even without -LogCmds="LogUEMCP Verbose". If this
+	// line does NOT appear in commandlet logs, the module itself isn't loading.
+	// If it DOES appear, the gate logic below is the remaining variable.
+	UE_LOG(LogUEMCP, Warning, TEXT("UEMCP StartupModule entered (pre-gate diagnostic)"));
+
 	// D57 gate: commandlet processes (e.g., M-new Oracle-A DumpBPGraphCommandlet)
 	// load the module to access UEMCP types but must NOT bind TCP:55558 — otherwise
 	// concurrent interactive-editor + commandlet runs contend for the port.
@@ -113,7 +119,7 @@ void FUEMCPModule::StartupModule()
 	// available via CoreMinimal.h); it's NOT a member of FApp on UE 5.6.
 	if (IsRunningCommandlet())
 	{
-		UE_LOG(LogUEMCP, Log, TEXT("UEMCP: commandlet detected — TCP server suppressed (D57 gate)"));
+		UE_LOG(LogUEMCP, Warning, TEXT("UEMCP: commandlet detected — TCP server suppressed (D57 gate)"));
 		return;
 	}
 
