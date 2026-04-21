@@ -106,11 +106,7 @@ namespace
 
 void FUEMCPModule::StartupModule()
 {
-	// Diagnostic line (D61, to remove once module-load reliability confirmed):
-	// Warning-level forces emit even without -LogCmds="LogUEMCP Verbose". If this
-	// line does NOT appear in commandlet logs, the module itself isn't loading.
-	// If it DOES appear, the gate logic below is the remaining variable.
-	UE_LOG(LogUEMCP, Warning, TEXT("UEMCP StartupModule entered (pre-gate diagnostic)"));
+	UE_LOG(LogUEMCP, Log, TEXT("UEMCP: StartupModule entered"));
 
 	// D57 gate: commandlet processes (e.g., M-new Oracle-A DumpBPGraphCommandlet)
 	// load the module to access UEMCP types but must NOT bind TCP:55558 — otherwise
