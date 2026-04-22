@@ -39,19 +39,6 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: ~5-10 min enhancement worker; bundle with any future `offline-tools.mjs` pass
 - **Trigger**: next enhancement round, or fold into M-cmd/M-alt worker if they touch bulk tool
 
-### CL-1 — Refresh test-phase1 + test-uasset-parser fixtures post-BP re-saves
-- **Source**: S-B-base worker Session 3 final report 2026-04-22 (D70); 7 pre-existing drift failures confirmed via git stash verification
-- **Gap**: Noah's BP_OSPlayerR + Player CDO re-saves (Path A experiment, Oracle-A-v2 rebuild) changed property layouts on disk, drifting 3 assertions in `test-phase1.mjs` + 4 in `test-uasset-parser.mjs` from expected values
-- **Scope**: re-run tests, examine failures, update expected values OR refresh baseline fixtures (e.g., if asset-registry bytes shifted). Path-limited to `server/test-*.mjs`.
-- **Cost**: ~20-30 min; mostly reading failure output + updating hardcoded expected values
-- **Trigger**: dispatch whenever Verb-surface worker runs their test rotation and hits these as noise, OR proactively before next worker reports to avoid noise in their failure output
-
-### CL-2 — Wire test-s-b-base-differential.mjs into test rotation
-- **Source**: S-B-base worker Session 3 final report 2026-04-22 (D70) §9
-- **Scope**: add `test-s-b-base-differential.mjs` to `package.json` test-rotation script + `CLAUDE.md` test-file table; update test-count references from 914 to ~1034 (or ~1041 post-CL-1)
-- **Cost**: ~10 min; pure docs/config change
-- **Trigger**: bundle with CL-1 or with any future CLAUDE.md housekeeping pass
-
 ### EN-5 — Reflection-based lint: yaml params ↔ handler param reads
 - **Source**: Audit A (post-Agent-10.5 codebase health) §3 insight 2026-04-19
 - **Scope**: automated lint that, for each offline tool's handler case in `executeOfflineTool`, verifies every `params.<X>` read has a matching declaration in the tool's yaml `params:` block. Generalizes D44's structural invariant from a one-time-refactor into a maintained guarantee. Would have caught F-2 + F-3 (Pre-Phase-3 Fixes Worker items) automatically.
@@ -97,18 +84,17 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-22 (M-new complete; next wave unblocked):
+In-flight as of 2026-04-22 (Verb-surface; CL-1 shipped):
 
-- (none currently in flight)
-
-**M-new critical path fully shipped** per D70. Verb-surface + S-B-overrides parallelizable now; both touch `server/*` but different files (Verb-surface → `offline-tools.mjs` + `tools.yaml` + `test-phase1.mjs` + `server.mjs`; S-B-overrides → `uasset-parser.mjs`). Verb-surface dispatch-ready via updated handoff; S-B-overrides needs draft.
+- **M-new Verb-surface** — handoff `docs/handoffs/m-new-verb-surface.md` (refreshed with D70 late-binding fills + file-collision update to use NEW `test-verb-surface.mjs`). 1-1.5 sessions. Ships 5 BP edge-topology verbs (`bp_trace_exec`, `bp_trace_data`, `bp_neighbors` edge mode, `bp_show_node` pin completion, `bp_list_entry_points` precision). Scope: `server/offline-tools.mjs` + NEW `server/test-verb-surface.mjs` + `tools.yaml` + `server/server.mjs`.
 
 **Pre-drafted, NOT yet dispatched**:
-- **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report. Dispatches sequentially after S-B-base lands.
-- **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches sequentially after S-B-base due to `server/*` file-collision only. Test baseline reference is [LATE-BINDING from S-B-base final report].
+- **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
+- **S-B-overrides** (not drafted) — 1.5-2 session worker per D58. UE 5.6↔5.7 delta buffer (hints from D70 §7: watch `FEdGraphPinType.Serialize`'s trailing bool `bSerializeAsSinglePrecisionFloat`; verify FText HistoryType enum additions). Touches `server/uasset-parser.mjs`. Lower priority until ProjectB materializes on 5.7.
 
 Recently shipped (most recent first):
 
+- **CL-1 test-drift refresh** (commit `1f0dd69`, 2026-04-22) — D71. Pre-existing drift failures on `test-phase1.mjs` (3) + `test-uasset-parser.mjs` (4) cleared: threshold drop 500→300 on P2 (size_budget_exceeded marker) cascaded 3 asserts; fixture swap to sibling `BP_OSPlayerR_VikramProto` for L2.5 TArray<ObjectProperty> decode (BP_OSPlayerR lost DefaultAbilities/DefaultEffects in gameplay refactor — content-side observation, not UEMCP regression). Test count 1027→1034 passing, 0 failing across 9 files. CL-2 CLAUDE.md bookkeeping also folded inline this session.
 - **M-new S-B-base offline edge-topology parser** (commits `cdf951b`+`e35f431`+`3c355fe`+`9250121`, 2026-04-22) — D70. Critical path for D52 edge-topology offline near-parity **complete**. 962/962 edges match (100%) via pure ID-match on all 6 Oracle-A-v2 fixtures. Shipped in 3 sessions (under 4-6 estimate). `extractBPEdgeTopologySafe()` exported from `offline-tools.mjs` for Verb-surface consumption. Test baseline **914 → ~1034** (+120: 36 CP1 + 16 CP2 + 68 differential). Corrects D67/D68 root-cause framing — the Session 1 "blocker" was worker's own test-harness map-collision bug using lossy NodeGuid-only keys; corrected to (graph_name, node_guid, pin_id) triple keying. Name-fallback architecturally present (Oracle-A-v2 emit) but unused at runtime — safety net for future format drifts. **Critical invariants for downstream consumers**: NodeGuids non-unique across sibling UEdGraphs; self-loops preserved; bNullPtr/bOrphanedPin pins pre-filtered; 4-byte int32 sentinel=0 between UPROPERTY terminator and pin trailer (undocumented).
 - **M-new Oracle-A-v2 pin-name amendment** (commit `b8ea754`, 2026-04-22) — D69. 9 files, 1603+/14− (fixture-regen dominated). Plugin compile clean after transient PCH-VM retry. All 6 fixtures regenerated with `name` field populated per pin; `pin_id` preserved as primary key; schema bumped `oracle-a-v1` → `oracle-a-v2`. Pin names for BP_OSPlayerR ApplyVFX_Niagara FunctionEntry empirically validated D68 theory: 13 names emitted match current function signature (`then, AuraSystem, Lifetime, SpawnRate, SpawnRate2, SpawnCount, ManualScale, Emissive, Opacity, MaterialInterface1-4`); parser's 23 disk pins include 10 stale-signature entries. D57 gate [PASS] preserved.
 - **FA-ε M-enhance transport research** (commit `56ff6f6`, 2026-04-21) — 404-line decision document at `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. Verdict: HYBRID (RC HTTP for flat reflection + metadata allowlist subset; TCP for compile diagnostics / UEdGraph walks / compiled-state / editor-static). **Phase 4 as a scheduled milestone absorbed into M-enhance**; D23 Layer 4 semantic allocation persists. Aggregate Phase 3 delta: −2 to −4 sessions. Full context in D66.
