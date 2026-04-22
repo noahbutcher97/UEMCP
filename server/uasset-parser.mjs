@@ -1073,11 +1073,18 @@ export function isGraphNodeExportClass(className) {
 }
 
 /**
- * Read the UEdGraphNode pin-block header + (CP2+) pin bodies.
+ * Read the UEdGraphNode pin-block: header + per-pin bodies.
  *
- * CP1 scope: confirms post-tag layout. Returns only {postTagOffset, sentinel,
- * pinBlockOffset, arrayCount} — pins array is always empty. CP2 extends to
- * parse pin bodies.
+ * Layout details documented in the block-comment above isGraphNodeExportClass.
+ * Each `pins[]` entry has shape:
+ *   {
+ *     pin_id: '32-hex' | null,           // null when bNullPtr=true (orphan)
+ *     direction: 'EGPD_Input' | 'EGPD_Output' | null,
+ *     linked_to_raw: [                   // CP3 input — reference-shaped
+ *       { owning_node_package_index: int32, pin_id: '32-hex' }
+ *     ],
+ *     malformed: bool                    // true → byte stream ran out / unknown FText history
+ *   }
  *
  * Caller must have verified the export's class is a graph-node class via
  * isGraphNodeExportClass(). Calling on non-graph-node exports will misread
@@ -1095,23 +1102,21 @@ export function isGraphNodeExportClass(className) {
  *   pins: Array<object>,
  *   nodeGuid: string | null,
  *   tagBytesConsumed: number,
+ *   bytesConsumed: number,
  *   malformed: boolean
  * }}
  */
 export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   const tagResult = readExportProperties(buf, exportEntry, names, opts);
   const postTagOffset = exportEntry.serialOffset + tagResult.bytesConsumed;
+  const nodeGuid = extractNodeGuid(tagResult.properties);
 
-  // Need 8 bytes (sentinel + arrayCount) just to read the header.
   if (postTagOffset + 8 > buf.length) {
     return {
-      postTagOffset,
-      sentinel: null,
-      pinBlockOffset: postTagOffset,
-      arrayCount: 0,
-      pins: [],
-      nodeGuid: extractNodeGuid(tagResult.properties),
+      postTagOffset, sentinel: null, pinBlockOffset: postTagOffset,
+      arrayCount: 0, pins: [], nodeGuid,
       tagBytesConsumed: tagResult.bytesConsumed,
+      bytesConsumed: tagResult.bytesConsumed,
       malformed: true,
     };
   }
@@ -1120,20 +1125,278 @@ export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   const pinBlockOffset = postTagOffset + 4;
   const arrayCount = buf.readInt32LE(pinBlockOffset);
 
-  // Defensive sanity bound. Real BPs have at most ~30 pins per node; 10_000
-  // would indicate total misalignment, not a real node.
-  const malformed = sentinel !== 0 || arrayCount < 0 || arrayCount > 10_000;
+  if (sentinel !== 0 || arrayCount < 0 || arrayCount > 10_000) {
+    return {
+      postTagOffset, sentinel, pinBlockOffset, arrayCount, pins: [], nodeGuid,
+      tagBytesConsumed: tagResult.bytesConsumed,
+      bytesConsumed: pinBlockOffset + 4 - exportEntry.serialOffset,
+      malformed: true,
+    };
+  }
+
+  // Walk pin bodies. Cursor starts AFTER the int32 PinCount.
+  const cur = new Cursor(buf);
+  cur.seek(pinBlockOffset + 4);
+  const exportEnd = exportEntry.serialOffset + exportEntry.serialSize;
+  const pins = [];
+  let blockMalformed = false;
+
+  for (let i = 0; i < arrayCount; i++) {
+    if (cur.tell() >= exportEnd) {
+      blockMalformed = true;
+      break;
+    }
+    try {
+      pins.push(readPinBody(cur, names, exportEnd));
+    } catch (err) {
+      blockMalformed = true;
+      pins.push({ pin_id: null, direction: null, linked_to_raw: [], malformed: true, error: String(err.message ?? err) });
+      break;
+    }
+  }
 
   return {
-    postTagOffset,
-    sentinel,
-    pinBlockOffset,
-    arrayCount,
-    pins: [],  // CP2 fills this in
-    nodeGuid: extractNodeGuid(tagResult.properties),
+    postTagOffset, sentinel, pinBlockOffset, arrayCount, pins, nodeGuid,
     tagBytesConsumed: tagResult.bytesConsumed,
-    malformed,
+    bytesConsumed: cur.tell() - exportEntry.serialOffset,
+    malformed: blockMalformed,
   };
+}
+
+// ── pin-body reader ──────────────────────────────────────────────────
+//
+// Reads ONE FEdGraphPin from cursor (the SerializePin entry from the owning
+// node's Pins array, plus the inner UEdGraphPin::Serialize body when
+// bNullPtr=false). Cursor advances exactly to the next pin's bNullPtr.
+//
+// Returned shape per pins[] entry above. bNullPtr=true entries are kept in
+// the returned array (their pin_id/direction are null) so callers can match
+// arrayCount; CP3's resolveLinkedToEdges drops them when emitting edges.
+
+/**
+ * @param {Cursor} cur
+ * @param {string[]} names
+ * @param {number} exportEnd  absolute byte offset of last byte in this export
+ * @returns {{
+ *   pin_id: string | null,
+ *   direction: 'EGPD_Input' | 'EGPD_Output' | null,
+ *   linked_to_raw: Array<{ owning_node_package_index: number, pin_id: string }>,
+ *   malformed?: boolean
+ * }}
+ */
+function readPinBody(cur, names, exportEnd) {
+  // Outer SerializePin (ResolveType=OwningNode):
+  //   int32 bNullPtr; if !bNullPtr: int32 OwningNode + FGuid PinId + recursive UEdGraphPin::Serialize
+  const bNullPtr = cur.readInt32() !== 0;
+  if (bNullPtr) {
+    return { pin_id: null, direction: null, linked_to_raw: [] };
+  }
+  // Skip outer OwningNode FPackageIndex (4 bytes).
+  cur.skip(4);
+  // Outer PinId (16 bytes) — this is the canonical PinId.
+  const pinIdHex = cur.readBytes(16);
+  const pin_id = guidBytesToOracleHex(pinIdHex);
+
+  // Inner UEdGraphPin::Serialize body. Field order verified against
+  // EdGraphPin.cpp::Serialize() (UE 5.6, lines 1670-1791).
+
+  // OwningNode (redundant) + PinId (redundant) — skip 20 bytes.
+  cur.skip(20);
+  // FName PinName — 8 bytes (int32 idx + int32 number).
+  cur.skip(8);
+  // FText PinFriendlyName.
+  skipFText(cur);
+  // int32 SourceIndex (always present in UE 5.6 due to EdGraphPinSourceIndex
+  // custom version gate at FUE5MainStreamObjectVersion >= EdGraphPinSourceIndex).
+  cur.skip(4);
+  // FString PinToolTip.
+  skipFString(cur);
+  // uint8 Direction.
+  const dirByte = cur.readUInt8();
+  const direction = dirByte === 0 ? 'EGPD_Input' : dirByte === 1 ? 'EGPD_Output' : null;
+  // FEdGraphPinType.
+  skipEdGraphPinType(cur);
+  // FString DefaultValue.
+  skipFString(cur);
+  // FString AutogeneratedDefaultValue.
+  skipFString(cur);
+  // int32 DefaultObject FPackageIndex.
+  cur.skip(4);
+  // FText DefaultTextValue.
+  skipFText(cur);
+  // SerializePinArray LinkedTo (resolveType=LinkedTo) — capture for CP3.
+  const linked_to_raw = readPinReferenceArray(cur);
+  // SerializePinArray SubPins (resolveType=SubPins) — discard per Oracle-A
+  // README §Edge cases #3 (SubPins not emitted in oracle).
+  consumePinReferenceArray(cur);
+  // SerializePin ParentPin (resolveType=ParentPin) — single ref.
+  consumePinReferenceSingle(cur);
+  // SerializePin ReferencePassThroughConnection — single ref.
+  consumePinReferenceSingle(cur);
+  // FGuid PersistentGuid (16 bytes) — only when !IsFilterEditorOnly, which is
+  // always true for editor uassets. UE5 .uasset always has it.
+  cur.skip(16);
+  // uint32 BitField. Layout per EdGraphPin.cpp:1734-1741:
+  //   bit 0: bHidden, bit 1: bNotConnectable, bit 2: bDefaultValueIsReadOnly,
+  //   bit 3: bDefaultValueIsIgnored, bit 4: bAdvancedView, bit 5: bOrphanedPin.
+  // bOrphanedPin pins survive in serialization (bSavePinIfOrphaned + SaveAll
+  // orphan mode) but are pruned at load by AreOrphanPinsEnabled() so Oracle
+  // never sees them. Filter at edge-emission to match Oracle.
+  const bitField = cur.readUInt32();
+  const bOrphanedPin = (bitField & (1 << 5)) !== 0;
+
+  return { pin_id, direction, linked_to_raw, bOrphanedPin };
+}
+
+/**
+ * Convert a 16-byte FGuid buffer (LE on disk) to the Oracle-aligned
+ * 32-upper-hex string (FGuid::ToString(EGuidFormats::Digits) format).
+ * @param {Buffer} bytes
+ * @returns {string}
+ */
+function guidBytesToOracleHex(bytes) {
+  // FGuid stores 4 little-endian uint32s. ToString(Digits) prints them as
+  // 8-hex BE per uint32. So read each uint32 LE and emit as %08X.
+  let out = '';
+  for (let g = 0; g < 4; g++) {
+    const v = bytes.readUInt32LE(g * 4);
+    out += (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+  }
+  return out;
+}
+
+/**
+ * Skip an FString value (length-prefixed; positive=ANSI, negative=UTF-16).
+ * @param {Cursor} cur
+ */
+function skipFString(cur) {
+  const len = cur.readInt32();
+  if (len === 0) return;
+  cur.skip(len > 0 ? len : (-len) * 2);
+}
+
+/**
+ * Skip an FText value. Layout (UE 5.6, all custom versions latest):
+ *   int32 Flags
+ *   int8 HistoryType
+ *   if HistoryType == None(-1) or unknown:
+ *     int32 bHasCultureInvariantString
+ *     if true: FString CultureInvariantString
+ *   if HistoryType == Base(0):
+ *     FString Namespace + FString Key + FString SourceString
+ *   other types: throws (unhandled)
+ *
+ * Pin FriendlyName + DefaultTextValue overwhelmingly use None or Base.
+ * @param {Cursor} cur
+ */
+function skipFText(cur) {
+  cur.skip(4); // Flags
+  const historyType = cur.readInt8();
+  if (historyType === -1) {
+    // None case: bHasCultureInvariantString + optional payload.
+    const hasInv = cur.readInt32() !== 0;
+    if (hasInv) skipFString(cur);
+    return;
+  }
+  if (historyType === 0) {
+    // Base case: Namespace + Key + SourceString.
+    skipFString(cur);
+    skipFString(cur);
+    skipFString(cur);
+    return;
+  }
+  throw new Error(`unsupported FText HistoryType=${historyType} at offset ${cur.tell() - 1}`);
+}
+
+/**
+ * Skip an FEdGraphPinType (UE 5.6, all custom versions latest).
+ * Layout per EdGraphPin.cpp::Serialize():
+ *   FName PinCategory                            (8)
+ *   FName PinSubCategory                         (8)
+ *   FPackageIndex PinSubCategoryObject           (4)
+ *   uint8 ContainerType                          (1)
+ *   if ContainerType == Map(3):
+ *     FEdGraphTerminalType PinValueType          (32)
+ *   int32 bIsReference                           (4)
+ *   int32 bIsWeakPointer                         (4)
+ *   FSimpleMemberReference PinSubCategoryMemberReference:
+ *     FPackageIndex MemberParent                 (4)
+ *     FName MemberName                           (8)
+ *     FGuid MemberGuid                           (16)
+ *   int32 bIsConst                               (4)
+ *   int32 bIsUObjectWrapper                      (4)
+ *   int32 bSerializeAsSinglePrecisionFloat      (4) — UE 5.0+
+ * @param {Cursor} cur
+ */
+function skipEdGraphPinType(cur) {
+  cur.skip(8 + 8 + 4); // PinCategory + PinSubCategory + PinSubCategoryObject
+  const containerType = cur.readUInt8();
+  if (containerType === 3) {
+    // Map → nested FEdGraphTerminalType.
+    skipEdGraphTerminalType(cur);
+  }
+  cur.skip(4 + 4); // bIsReference + bIsWeakPointer
+  cur.skip(4 + 8 + 16); // FSimpleMemberReference
+  cur.skip(4 + 4 + 4); // bIsConst + bIsUObjectWrapper + bSerializeAsSinglePrecisionFloat
+}
+
+/**
+ * Skip an FEdGraphTerminalType (32 bytes when bools serialized as int32).
+ *   FName TerminalCategory                       (8)
+ *   FName TerminalSubCategory                    (8)
+ *   FPackageIndex TerminalSubCategoryObject      (4)
+ *   int32 bTerminalIsConst                       (4)
+ *   int32 bTerminalIsWeakPointer                 (4)
+ *   int32 bTerminalIsUObjectWrapper              (4)
+ * @param {Cursor} cur
+ */
+function skipEdGraphTerminalType(cur) {
+  cur.skip(8 + 8 + 4 + 4 + 4 + 4);
+}
+
+/**
+ * Read a SerializePinArray with ResolveType ∈ {LinkedTo, SubPins} (i.e.,
+ * NOT OwningNode). Each non-null entry is a reference: {OwningNode FPackageIndex,
+ * PinId FGuid}. Null entries (bNullPtr=true) are dropped from the result —
+ * matches Oracle-A's GetOwningNodeUnchecked() null-check behavior.
+ * @param {Cursor} cur
+ * @returns {Array<{ owning_node_package_index: number, pin_id: string }>}
+ */
+function readPinReferenceArray(cur) {
+  const count = cur.readInt32();
+  const refs = [];
+  for (let i = 0; i < count; i++) {
+    const bNullPtr = cur.readInt32() !== 0;
+    if (bNullPtr) continue; // dangling ref — drop silently per Oracle behavior
+    const owning = cur.readInt32();
+    const pid = guidBytesToOracleHex(cur.readBytes(16));
+    refs.push({ owning_node_package_index: owning, pin_id: pid });
+  }
+  return refs;
+}
+
+/**
+ * Consume a SerializePinArray result without storing.
+ * @param {Cursor} cur
+ */
+function consumePinReferenceArray(cur) {
+  const count = cur.readInt32();
+  for (let i = 0; i < count; i++) {
+    const bNullPtr = cur.readInt32() !== 0;
+    if (bNullPtr) continue;
+    cur.skip(4 + 16);
+  }
+}
+
+/**
+ * Consume a single SerializePin reference (ParentPin /
+ * ReferencePassThroughConnection).
+ * @param {Cursor} cur
+ */
+function consumePinReferenceSingle(cur) {
+  const bNullPtr = cur.readInt32() !== 0;
+  if (bNullPtr) return;
+  cur.skip(4 + 16);
 }
 
 /**

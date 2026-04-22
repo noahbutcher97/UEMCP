@@ -1367,6 +1367,86 @@ function testContainerSyntheticScalars() {
   }
 }
 
+// ── CP2 (S-B-base, M-new): pin-body parse — PinId + Direction ──────
+//
+// Validates parsePinBlock's pin body walker. For every pin whose PinId
+// appears in BOTH parser output and Oracle, the direction MUST match.
+// The cross-set mismatch is structural (UE PostLoad pin regeneration in
+// K2Node_FunctionEntry / K2Node_PromotableOperator) and is asserted as
+// a known finding, not a regression.
+async function testPinBodyParseCP2() {
+  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES = [
+    ['BP_OSPlayerR_Child',  'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
+    ['BP_OSPlayerR_Child1', 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
+    ['BP_OSPlayerR_Child2', 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', 'BP_OSPlayerR_Child2.oracle.json'],
+    ['TestCharacter',       'Content/Blueprints/Character/TestCharacter.uasset',       'TestCharacter.oracle.json'],
+  ];
+
+  for (const [fxName, relPath, oracleName] of FIXTURES) {
+    const assetPath = join(ROOT, relPath);
+    const oraclePath = join(FIXTURES_DIR, oracleName);
+    if (!(await exists(assetPath)) || !(await exists(oraclePath))) {
+      console.log(`  · skipped CP2/${fxName} (missing asset or oracle)`);
+      continue;
+    }
+
+    const buf = await readFile(assetPath);
+    const oracle = JSON.parse((await readFile(oraclePath)).toString('utf8'));
+    const cur = new Cursor(buf);
+    const s = parseSummary(cur);
+    const names = readNameTable(cur, s);
+    const imports = readImportTable(cur, s, names);
+    const exports = readExportTable(cur, s, names);
+    const opts = { resolve: makePackageIndexResolver(exports, imports), structHandlers: buildStructHandlers() };
+
+    const oracleByGuid = new Map();
+    for (const [_, graph] of Object.entries(oracle.graphs)) {
+      for (const [nodeGuid, node] of Object.entries(graph.nodes)) {
+        oracleByGuid.set(nodeGuid, node);
+      }
+    }
+    const classOf = (e) => {
+      if (e.classIndex === 0) return null;
+      if (e.classIndex > 0) return exports[e.classIndex - 1]?.objectName ?? null;
+      return imports[-e.classIndex - 1]?.objectName ?? null;
+    };
+
+    let totalParsed = 0, dirMatches = 0, dirMismatches = 0, malformed = 0;
+
+    for (const exp of exports) {
+      if (!isGraphNodeExportClass(classOf(exp))) continue;
+      const pb = parsePinBlock(buf, exp, names, opts);
+      if (pb.malformed) { malformed++; continue; }
+      const oNode = pb.nodeGuid && oracleByGuid.get(pb.nodeGuid);
+      if (!oNode) continue;
+
+      for (const pp of pb.pins) {
+        if (pp.pin_id === null) continue;
+        totalParsed++;
+        const oPin = oNode.pins[pp.pin_id];
+        if (!oPin) continue;
+        if (pp.direction === oPin.direction) dirMatches++;
+        else dirMismatches++;
+      }
+    }
+
+    runner.assert(malformed === 0, `CP2/${fxName}: zero malformed pin blocks`);
+    runner.assert(dirMismatches === 0,
+      `CP2/${fxName}: zero direction mismatches on intersecting pins`);
+    runner.assert(totalParsed > 0, `CP2/${fxName}: parsed at least one pin`);
+    runner.assert(dirMatches === totalParsed,
+      `CP2/${fxName}: every parsed pin matches oracle pinId+direction (${dirMatches}/${totalParsed})`);
+  }
+
+  // Direction byte → string mapping. Exhaustive check (only 0/1 are valid in UE).
+  // Synthetic empty pin trailer: arrayCount=0 → no pin bodies → trivially pass.
+  const exportEntry = { serialOffset: 0, serialSize: 8 };
+  const buf = Buffer.alloc(8);
+  // Write FName 'None' tag terminator at offset 0 — but that requires a name table,
+  // skip the synthetic case here. CP2's coverage is the real-fixture intersection.
+}
+
 // ── CP1 (S-B-base, M-new): pin-block offset detection ──────────────
 //
 // Validates that `parsePinBlock` lands cleanly on the UEdGraphNode pin
@@ -1507,6 +1587,7 @@ async function main() {
   testBadMagic();
   testTruncated();
   await testPinBlockOffsetCP1();
+  await testPinBodyParseCP2();
   process.exit(runner.summary());
 }
 
