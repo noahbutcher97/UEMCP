@@ -198,13 +198,35 @@ Read operations (grep, glob, file reads) can use sandbox bash or Claude's built-
 
 ### Onboarding a new machine
 
-Run `setup-uemcp.bat "<path-to-your-project.uproject>"` from the UEMCP
-repo root. The script installs dependencies, generates `.mcp.json` at
-your Claude workspace root (auto-detected — the parent of the `.uproject`
-dir if it contains `.claude\` or `CLAUDE.md`, otherwise the `.uproject`
-dir itself), and prints next-step guidance. It prompts before overwriting
-an existing `.mcp.json`. Exit codes: 0 success, 1 bad args / missing deps,
-2 npm install failure, 3 .mcp.json write failure.
+Run `setup-uemcp.bat` from the UEMCP repo root (no arg = GUI mode with
+folder/file browse; arg = `.uproject` path for scripted / repeat use).
+The script:
+
+- Validates Node.js on PATH. If missing, offers install via winget
+  (Tier 1, user-scope, no admin) → direct MSI download from nodejs.org
+  (Tier 2, UAC prompt). After successful install, user must close cmd
+  and re-run in a fresh window (PATH doesn't refresh mid-session).
+- `npm install` in `server/` (idempotent; skips if `node_modules` exists).
+- Generates `.mcp.json` at the Claude workspace root (auto-detected —
+  parent of `.uproject` dir if it contains `.claude\` or `CLAUDE.md`,
+  otherwise the `.uproject` dir itself). GUI mode lets user override
+  via folder-browse dialog.
+- Physical-copies `plugin/UEMCP/` into `<project>\Plugins\UEMCP\`
+  (D61 established physical copy as the working dev workflow over
+  symlink/junction approaches). Prompts before overwriting existing.
+- Pauses before exit on interactive launch so errors stay visible
+  (fixed 2026-04-21 per friend-machine repro where double-click
+  launches closed the window on the Node-missing check).
+
+Exit codes: 0 success, 1 bad args / cancelled / missing deps,
+2 npm install failure, 3 .mcp.json write failure, 4 plugin copy failure.
+
+Env var `SETUP_AUTO_YES=1` auto-accepts Node-install prompts (CI use).
+
+For propagating plugin source-of-truth changes to a target project
+without re-running full onboarding, use `sync-plugin.bat <uproject>`
+(D64). This xcopies `D:\DevTools\UEMCP\plugin\UEMCP\` → target,
+excluding `Binaries\` + `Intermediate\` so UBT cache stays intact.
 
 Manual setup (skip the script): copy `.mcp.json.example` to your Claude
 workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
