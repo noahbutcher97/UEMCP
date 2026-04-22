@@ -84,10 +84,9 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-22 (Wave 2 + Path C unblock):
+In-flight as of 2026-04-22 (S-B-base resumable):
 
-- **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). Session 1 CP1+CP2 shipped (`cdf951b`+`e35f431`); baseline 914→966. **Paused pending Oracle-A-v2** per D67 — Path A (re-save) empirically failed; UE regenerates pin IDs load-session-ephemerally for K2Node_EditablePinBase subclasses + K2Node_PromotableOperator. Scope: `server/*`.
-- **Oracle-A-v2 pin-name amendment** — handoff `docs/handoffs/oracle-a-v2-pin-names.md`. 30-60 min micro-worker. Plugin-side `EdgeOnlyBPSerializer.cpp` amendment ADDS `name` field alongside `pin_id` (not replacing); schema version bumps v1→v2; all 6 fixtures regenerated. Unblocks S-B-base differential harness to do **hybrid ID+name matching** per D68: primary pass by pin_id (~96.5%), fallback pass by (node_guid, name) for unmatched (~3.5% K2Node_EditablePinBase case). Zero file-level collision with S-B-base (plugin/ vs server/*).
+- **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). Session 1 CP1+CP2 shipped (`cdf951b`+`e35f431`); baseline 914→966. **Unblocked 2026-04-22 by Oracle-A-v2 landing** (D69). Resumable in existing session via hybrid-match prompt; continue CP3-6. Scope: `server/*`.
 
 **Pre-drafted, NOT yet dispatched**:
 - **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report. Dispatches sequentially after S-B-base lands.
@@ -95,6 +94,7 @@ In-flight as of 2026-04-22 (Wave 2 + Path C unblock):
 
 Recently shipped (most recent first):
 
+- **M-new Oracle-A-v2 pin-name amendment** (commit `b8ea754`, 2026-04-22) — D69. 9 files, 1603+/14− (fixture-regen dominated). Plugin compile clean after transient PCH-VM retry. All 6 fixtures regenerated with `name` field populated per pin; `pin_id` preserved as primary key; schema bumped `oracle-a-v1` → `oracle-a-v2`. Pin names for BP_OSPlayerR ApplyVFX_Niagara FunctionEntry empirically validated D68 theory: 13 names emitted match current function signature (`then, AuraSystem, Lifetime, SpawnRate, SpawnRate2, SpawnCount, ManualScale, Emissive, Opacity, MaterialInterface1-4`); parser's 23 disk pins include 10 stale-signature entries. D57 gate [PASS] preserved.
 - **FA-ε M-enhance transport research** (commit `56ff6f6`, 2026-04-21) — 404-line decision document at `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. Verdict: HYBRID (RC HTTP for flat reflection + metadata allowlist subset; TCP for compile diagnostics / UEdGraph walks / compiled-state / editor-static). **Phase 4 as a scheduled milestone absorbed into M-enhance**; D23 Layer 4 semantic allocation persists. Aggregate Phase 3 delta: −2 to −4 sessions. Full context in D66.
 - **UEMCPModule log-demotion** (commit `60bb94a`, 2026-04-21) — D61 follow-on closed. Warning → Log demote at `UEMCPModule.cpp` StartupModule. Clean rebuild via D61 nuke recipe (12.19s, 16 actions); DLL mtime post source mtime confirmed no UBT cache staleness; D57 gate re-run [PASS]. Baseline unchanged. D65 for full report.
 - **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against ProjectA; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
