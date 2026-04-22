@@ -1193,11 +1193,13 @@ try {
   // bp_show_node uniquely needs node_id
   assert(offlineTools.bp_show_node.params.node_id?.required === true,
     'M-spatial D44: bp_show_node.node_id required');
-  // Partial verbs documented their partial nature in the yaml description.
-  assert(/not_available/i.test(offlineTools.bp_list_entry_points.description),
-    'M-spatial D44: bp_list_entry_points yaml mentions not_available');
-  assert(/not_available|pin/i.test(offlineTools.bp_show_node.description),
-    'M-spatial D44: bp_show_node yaml mentions not_available or pin block');
+  // M-new (D58) upgrade: exec_connectivity + pin_block moved from not_available
+  // to available_fields. yaml descriptions now mention available_fields and the
+  // pin_block/exec_connectivity tokens (FA-β forward-compat — D59).
+  assert(/available_fields|has_no_exec_in|exec_connectivity/i.test(offlineTools.bp_list_entry_points.description),
+    'M-new D58: bp_list_entry_points yaml mentions available_fields or pin-connectivity');
+  assert(/pin_block|pins\[\]|pin[- ]block/i.test(offlineTools.bp_show_node.description),
+    'M-new D58: bp_show_node yaml mentions pin_block or pins[]');
 } catch (e) {
   assert(false, 'M-spatial D44: yaml invariants', e.message);
 }
@@ -1379,9 +1381,14 @@ if (!PROJECT_ROOT) {
       'bp_list_entry_points: every entry has position');
     assert(r.entry_points.some(e => e.graph_name === 'EventGraph'),
       'bp_list_entry_points: at least one entry tied to EventGraph');
-    // FA-β manifest — partial verb flags exec_connectivity as not available.
-    assert(Array.isArray(r.not_available) && r.not_available.includes('exec_connectivity'),
-      'FA-β bp_list_entry_points: not_available includes exec_connectivity');
+    // M-new (D58) upgrade: exec_connectivity is now first-class via S-B-base
+    // topology — lives in available_fields, not not_available. Each entry
+    // carries has_no_exec_in (true=genuine entry, false=fed by upstream exec,
+    // null=graph not indexable).
+    assert(Array.isArray(r.available_fields) && r.available_fields.includes('exec_connectivity'),
+      'M-new D58 bp_list_entry_points: available_fields includes exec_connectivity');
+    assert(r.entry_points.every(e => e.has_no_exec_in === true || e.has_no_exec_in === false || e.has_no_exec_in === null),
+      'M-new D58 bp_list_entry_points: every entry has has_no_exec_in annotation');
     assert(r.plugin_enhancement_available === false,
       'FA-β bp_list_entry_points: plugin_enhancement_available = false (no sidecar required)');
   } catch (e) {
@@ -1401,11 +1408,17 @@ if (!PROJECT_ROOT) {
       'bp_show_node: NodeGuid decoded as 32-char hex');
     assert(r.node.properties && typeof r.node.properties === 'object',
       'bp_show_node: raw properties map populated');
-    assert(Array.isArray(r.node.pins) && r.node.pins.length === 0,
-      'bp_show_node: pins[] placeholder empty (M-new fills this in)');
-    // FA-β manifest — partial verb flags pin_block as not available.
-    assert(Array.isArray(r.not_available) && r.not_available.includes('pin_block'),
-      'FA-β bp_show_node: not_available includes pin_block');
+    // M-new (D58) upgrade: pins[] populated from S-B-base topology when the
+    // node's NodeGuid resolves. The first entry-point node is K2Node_Event/
+    // CustomEvent/FunctionEntry — a graph-node class with a pin block.
+    assert(Array.isArray(r.node.pins) && r.node.pins.length > 0,
+      'M-new D58 bp_show_node: pins[] populated for entry-point graph node');
+    assert(r.node.pins.every(p => typeof p.pin_id === 'string' && typeof p.direction === 'string'),
+      'M-new D58 bp_show_node: each pin has pin_id + direction');
+    assert(r.node.pins.every(p => p.pin_kind === 'exec' || p.pin_kind === 'data'),
+      'M-new D58 bp_show_node: each pin tagged exec|data via pin_kind');
+    assert(Array.isArray(r.available_fields) && r.available_fields.includes('pin_block'),
+      'M-new D58 bp_show_node: available_fields includes pin_block when resolved');
 
     // Also accept numeric node_id (export_index).
     const byIdx = await executeOfflineTool('bp_show_node',
