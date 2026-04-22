@@ -1,5 +1,5 @@
 {
-	"schema_version": "oracle-a-v1",
+	"schema_version": "oracle-a-v2",
 	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
 	"asset_path": "/Game/Blueprints/Character/BP_OSPlayerR_Child2",
 	"graphs":
@@ -15,11 +15,13 @@
 					{
 						"A269B8F54B4EFCA079046589DDF2927F":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"589DAC364D8AE7B417DCD8A8C398F1AF":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -37,6 +39,7 @@
 					{
 						"5FC92002453B8C1AA461D6A686E2AE42":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -47,11 +50,13 @@
 						},
 						"0F881A9540491044B7095B8D4EE6A284":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"B8C7D5C444371A7B69B6F8920B840778":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -64,16 +69,19 @@
 					{
 						"4DE74C974B5EDA7F9EBE81B9529BCBAE":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"F9180DAD4B6F252AE1751CBE4684B564":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"8DCEE39543CCB577C90F93B4842487A6":
 						{
+							"name": "OtherActor",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -86,16 +94,19 @@
 					{
 						"360AF0A9460FBA008D8BE2836CFB67CF":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"4B932B604DEC56AC319857B7111417B4":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"3EBF0B354CF30D30990A659957AD9218":
 						{
+							"name": "DeltaSeconds",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -114,6 +125,7 @@
 					{
 						"A0F1D7174E6416E1744050814A85A5BA":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -131,6 +143,7 @@
 					{
 						"6EAC4FFA47DEC931CBFF5FBA3D4EA940":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -141,11 +154,13 @@
 						},
 						"251D236F4E3DE7B0B6C030ACE37E5399":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"9AC92EC14E7850A223C24881FF6DEB0B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}

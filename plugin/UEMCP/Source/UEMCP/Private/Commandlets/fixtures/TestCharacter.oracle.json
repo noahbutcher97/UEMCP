@@ -1,5 +1,5 @@
 {
-	"schema_version": "oracle-a-v1",
+	"schema_version": "oracle-a-v2",
 	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
 	"asset_path": "/Game/Blueprints/Character/TestCharacter",
 	"graphs":
@@ -15,11 +15,13 @@
 					{
 						"7B68440D4BA7E364D8E7CDA1B76E1E35":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"135B59204BFA0BA840F6449430EE54DA":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -32,16 +34,19 @@
 					{
 						"D7462BEE47C6FDF0C8C37B8D44BCE2ED":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"0B3DDD144E69A2477C64C0A59916B8BD":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"417308494A85842BA7BB8F9D7AE813BC":
 						{
+							"name": "OtherActor",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -54,16 +59,19 @@
 					{
 						"1586449941D031AFAD4957A2882F58A4":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"57636CA54E986E3B14D03799252C5A19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"C4017F3249159C9F14023E887DE86602":
 						{
+							"name": "DeltaSeconds",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -82,6 +90,7 @@
 					{
 						"D029223745C89D707D15558FC042D678":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -99,6 +108,7 @@
 					{
 						"A5F3B8374375B139268A8691E845176D":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -109,6 +119,7 @@
 						},
 						"C8421115423A9F5C7E6BF7961F1E98CD":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -119,21 +130,25 @@
 						},
 						"EED05766428549B80202F585640972E5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"1EAE07B246F3AB7A1F63A780E2B0B546":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D82D06BE4C8F01F6BD60DC98C9F8E36D":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DBA4A5894EE69C157F7AAEA4202ADA6F":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -144,16 +159,19 @@
 						},
 						"718349084E664AD2967D738FE04E7474":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"22DF72DF46113E21652873B0BEDC49F5":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7CD6B35049FD04E8AEC0B2973C472297":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -166,6 +184,7 @@
 					{
 						"3B2B368E4CDD2628C8896186592D1D3B":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -176,26 +195,31 @@
 						},
 						"3DD4B5D546CC17FC6E35EC94D7368F3E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"BE09C19C40A8C15E61DF728EF42049EE":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E62FE0384FB5E2014A3C2BA816A05270":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"754147EE43930A3D9B806BBF3FD81381":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6307BE6643C266CCA4493B8E3CB0D45A":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -206,16 +230,19 @@
 						},
 						"24B9EA444A168338E55081AFA1BB7966":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8680A19A4BF1589F4BF322A8E620F81A":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"74D2D96B4CF98C52544E9897E45982BE":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -228,6 +255,7 @@
 					{
 						"AC6D8B6A42FB37A65D70DABD00571467":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -238,6 +266,7 @@
 						},
 						"C328D84A4779DCA87CF3FF8BE9C1F74E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -248,21 +277,25 @@
 						},
 						"9DD71DB04CE5BF42A091FDB5B3DE8CD1":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"251F8E1442A68F59CCA931AC60DB44B0":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"60C486934D6ECE7CCE79B8991C2024AD":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"1249322D4E18D6C26D438BA0A4CB107F":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -273,16 +306,19 @@
 						},
 						"90FB55ED4F60AFE26609A2821665C6DF":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"71AE74034B674BCA750F9590C1DA1CDC":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"16BC37B342FAE6B9D6EFF9A6D11D92B6":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -295,6 +331,7 @@
 					{
 						"1B77C05C49B90B720F327E9DB9A0E6AC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -305,6 +342,7 @@
 						},
 						"7607A98242CF79D174E0CA81D806276E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -315,21 +353,25 @@
 						},
 						"2A0AB3904F784C2626481693519AFA26":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AF32567D44262C46B82698A42044C65E":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0982D3734720B26D253683959ECA1C66":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"CDBB668A4369D167D71311B6D43D7431":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -340,16 +382,19 @@
 						},
 						"E20877C840B98DF346DDEDA202359943":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2D74FFF743DCFE18C1C5059255873B16":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"5BD40249462771A369C0009B567128B1":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -362,6 +407,7 @@
 					{
 						"BEC874A54CDF13FDDA16E4A4C2C2BA71":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -372,6 +418,7 @@
 						},
 						"A7A437794113868EAC60F5834881F493":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -382,21 +429,25 @@
 						},
 						"6620AF0E4567AB783D58AA8912AC35F1":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7A1DDE484691DDAA85C5B7B14E196B24":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"CBA2BD094AE454AA4EF2B1A485502974":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E9BB4E9B432A96D7A6AB369FECD4330D":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -407,16 +458,19 @@
 						},
 						"DCD466454B1951B99982CFB12C5DAC79":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C431DB1C4EFBD2ED8A5CA396D5C9FF0F":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"24D2D4D243EF1565F5F617A2593E3C70":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -429,6 +483,7 @@
 					{
 						"2FBA5A8348182CD4B8C73EB708C6A87D":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -439,6 +494,7 @@
 						},
 						"0891D5594CA7FFC7D2B8BEA01F5DD522":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -449,21 +505,25 @@
 						},
 						"086394C64B8D8B741E7CDE978FEB0932":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"BF190D9449006527A100A7BCC57D688F":
 						{
+							"name": "TemplateName",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"930C4766412B4CB0415C16B9F69B5DB7":
 						{
+							"name": "bManualAttachment",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"19AC46E64B589B6F6C3495A8E81ED114":
 						{
+							"name": "RelativeTransform",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -474,16 +534,19 @@
 						},
 						"AF8B590149A6D2472F068C99479809F3":
 						{
+							"name": "ComponentTemplateContext",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FC77ABF643063526DBA740BE933AD4B3":
 						{
+							"name": "bDeferredFinish",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A763135A429233FB5BC64796236889EE":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -496,6 +559,7 @@
 					{
 						"21D81E8341D5B320F350378F0F1D91D8":
 						{
+							"name": "Relative Transform",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -526,6 +590,7 @@
 						},
 						"2C06C09745112EE6E3080FB6AEE223D9":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}

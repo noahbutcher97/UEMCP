@@ -1,5 +1,5 @@
 {
-	"schema_version": "oracle-a-v1",
+	"schema_version": "oracle-a-v2",
 	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
 	"asset_path": "/Game/Blueprints/Level/BP_OSControlPoint",
 	"graphs":
@@ -15,11 +15,13 @@
 					{
 						"A4E0F98A4C2A293E55979BBB796CB9BE":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"87A5AED94AFCB8CA083485976D582FAC":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -37,6 +39,7 @@
 					{
 						"3135BF134A42F089E1B37587E1AC8939":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -47,6 +50,7 @@
 						},
 						"7156690843E0FB27A963A2B243724D8E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -57,16 +61,19 @@
 						},
 						"0358C50E4B3BC32956B037ADCDDD5F0C":
 						{
+							"name": "Point",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CA9B2BFD47532A02619F83B5C213F94B":
 						{
+							"name": "PreviousState",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"98F70B264D8910066B220BA803728E19":
 						{
+							"name": "CurrentState",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -84,6 +91,7 @@
 					{
 						"5A28D2C144C5B7F0836ABAAFD1D1D45D":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -94,6 +102,7 @@
 						},
 						"3C5FFD90423D74332B71E88A92762386":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -104,11 +113,13 @@
 						},
 						"414293BF4FA51C62DF5218B62667D21C":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D37AD01145DE12F40B5EACA797571E61":
 						{
+							"name": "Delegate",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -126,6 +137,7 @@
 					{
 						"4D74B1894FD6A5FEDC01C9BE31AC3373":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -136,6 +148,7 @@
 						},
 						"4988788347BF79377422A590CBC44B73":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -146,16 +159,19 @@
 						},
 						"5C39379F47C7A820494C9C891ED73FDB":
 						{
+							"name": "Point",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"AB0A3BBD4A1711D8CF09A2B96E341951":
 						{
+							"name": "OldState",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"D64DBC0E47749EBA528C789209135F77":
 						{
+							"name": "NewState",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -166,11 +182,13 @@
 						},
 						"135C666C4605490F5FC0358B979F7593":
 						{
+							"name": "OwningTeam",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"ABB7073447BEB4C80648609D142FBC55":
 						{
+							"name": "CapturingTeam",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -183,6 +201,7 @@
 					{
 						"400719234A009D738AC0BDA8DD3D6C53":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -193,16 +212,19 @@
 						},
 						"0851975F48CBB858912A80BA15F22E49":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"23216E204EFD98271A9BD5BF8587EDA5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"BA613BB04173386FF8541C9C20B8F108":
 						{
+							"name": "Delegate",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -220,6 +242,7 @@
 					{
 						"504C76FD451751E9114C65914162D6EE":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -230,6 +253,7 @@
 						},
 						"532A08A64C43C458AF1472A79D12D2AA":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -240,16 +264,19 @@
 						},
 						"011A97D844B328BDF1D4FBA8F92B80CE":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2C8AD8A24253D90B98351EA82AA20EE6":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EE670476492BC6ECAE9A878167215614":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -262,6 +289,7 @@
 					{
 						"C157AF8E46798FEBFBB401A5E7BF9087":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -272,6 +300,7 @@
 						},
 						"B15B38104C827EB1520EA38070785197":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -282,11 +311,13 @@
 						},
 						"6E41E7E64F6062F8B54BDDBEF4B2FF96":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"11F682E049F2C74D10F49788F60F6010":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -304,6 +335,7 @@
 					{
 						"1CFC729C45A6D1CB2142B5A0433AEEE5":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -314,16 +346,19 @@
 						},
 						"46D41DCB43E5AC3681E6EA8B75FC0509":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CC8CFC6A40A10BE6E15053A2ED0785CB":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"14F8BC3149932FF6FE5FC9BE862C9AF9":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -383,11 +418,13 @@
 					{
 						"082232CE4132252FFB8CA684C1E414DD":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7D91767C4F8135B5593CC191D06AA0E3":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -405,11 +442,13 @@
 					{
 						"C3261A28413C0DB4A85C7DA034DC9C3F":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0EEC31CC4A9B14A97BC06688A875AFBB":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -420,16 +459,19 @@
 						},
 						"BFEF4D4F42F2E6CD6031CB9B13A48A2F":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"CDF6E69043A0F9D7816E6F8D1860829D":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"3CF4BD0A45E73E080F9F65B6D3A1016C":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -449,11 +491,13 @@
 					{
 						"082232CE4132252FFB8CA684C1E414DD":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7D91767C4F8135B5593CC191D06AA0E3":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -475,16 +519,19 @@
 					{
 						"D4E4F05D4E7B5FCB506FD485BB515860":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DABB510A4B86D51B6C3D0E900446BF70":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F198E30641B749E01505AF9C11973ED1":
 						{
+							"name": "Index",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -495,6 +542,7 @@
 						},
 						"81B5308747C8621E5036D08C06DD510C":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -512,6 +560,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -522,6 +571,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -534,16 +584,19 @@
 					{
 						"CF89847F4998EB949B16B7859F08D8EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A7EF36AC4E1CE5703039588338F7FAC0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -554,6 +607,7 @@
 						},
 						"4F0D9A274288CFBC20C28D86ECF75DC6":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -564,16 +618,19 @@
 						},
 						"AA8592E04D042987570896833FAD8FF4":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6046890D4F959E4E46E472854DBC1C5F":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6A57500E400A7E3456748C87DC57A814":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -593,6 +650,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -603,6 +661,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -615,16 +674,19 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -635,6 +697,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -652,16 +715,19 @@
 					{
 						"A1520FA64A4B45FD8EB971A21958DDD7":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6315217D470D6C9C7D46B4AFB779F4C2":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E5CB35CD415E1A6A89256EBB849B107D":
 						{
+							"name": "Index",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -672,6 +738,7 @@
 						},
 						"969BBED64264E1A60C42758526928064":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -689,6 +756,7 @@
 					{
 						"888F949A4604264FDF5E9EBA2829A988":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -699,11 +767,13 @@
 						},
 						"F8A9A8FD4A2F146E19BE1FA19334C83E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"06B3A2DA47AC21D5EF7B4C96F0AF61FC":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -716,11 +786,13 @@
 					{
 						"CDF0333241FF8C2E070C0AB5CF81E56B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B26CC910416EC7727DB3898CF39BD9F5":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -733,6 +805,7 @@
 					{
 						"697B06E54F611EF9F598A19574033769":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -743,6 +816,7 @@
 						},
 						"5E45B0A3479822939D938F9DE962EE0E":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -753,21 +827,25 @@
 						},
 						"92B218B84A5AEBE6D319AF8A1C8B9E09":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"3F1971BE45B73EB7FF661382017186E1":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"12494B364DD2A96E31A04185E8D53185":
 						{
+							"name": "ActorClass",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C4305C1F47FD1DFE6CE738886A81E0FA":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -785,6 +863,7 @@
 					{
 						"2F9030684947855324C242AC6755A6D5":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -795,6 +874,7 @@
 						},
 						"D39E3E9D474DFFA82C14D2941DE026E9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -805,6 +885,7 @@
 						},
 						"5F2FF29B47578F804AEF719462C1ACEF":
 						{
+							"name": "AkGlobalManager_Ref",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -815,11 +896,13 @@
 						},
 						"EC2E8EFF45AD03A121D0E9893D9F8372":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"85B4C9F1490F9E3179A6528500EFA3C0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -838,11 +921,13 @@
 					{
 						"396786814D8BEAA7828837BB15A525AC":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"57B1F79045BEC6DBFB0115A5854F5C97":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -855,16 +940,19 @@
 					{
 						"A63311014EA65765D893ED83869D7409":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D2B2DC7548F1C6E807BAFC9A55850008":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2CA2E8B4484DDF6AB0CDF78CA73B978C":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -875,6 +963,7 @@
 						},
 						"ED122D8C4EF59A53348B339C6849DB19":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -885,11 +974,13 @@
 						},
 						"2C6C0960497DC8D3399CBD9285F2A92E":
 						{
+							"name": "C",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D04906794DECD60CF957DA9BDFD74ECF":
 						{
+							"name": "D",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -900,16 +991,19 @@
 						},
 						"32FE37794A0F04CC45ADB8B0B2C4768C":
 						{
+							"name": "E",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C47B8256465895D64C0FC8BA5CE08E65":
 						{
+							"name": "F",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7E24C04D4C7448B82A9D23B5210E9583":
 						{
+							"name": "G",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -920,11 +1014,13 @@
 						},
 						"5EC5FDB542016B93FAEF09A1ECB56D3D":
 						{
+							"name": "H",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D220438F41CFBCEC5156588962625A37":
 						{
+							"name": "I",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -942,6 +1038,7 @@
 					{
 						"5C2326D04A9213C6517039831AAF8C30":
 						{
+							"name": "PointName",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -952,6 +1049,7 @@
 						},
 						"50F1E9E34E9BBDDC598A98BA7613F79E":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -964,11 +1062,13 @@
 					{
 						"1E4BA4BC429162F43E836D822CA2A6AC":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0E82C22449B3A5DA0CEEA6B008F5F63D":
 						{
+							"name": "InName",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -979,6 +1079,7 @@
 						},
 						"5CEE9BB0499EEAD640EA59B5B13D3BF0":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -996,6 +1097,7 @@
 					{
 						"2D3D97EB45881C71BB8CC49F48886DAE":
 						{
+							"name": "CurrentLeader",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1006,6 +1108,7 @@
 						},
 						"74D4FC8C443ACB29370C38ACCCDDD5DA":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1018,11 +1121,13 @@
 					{
 						"A2B8BF9140FDB0EF3A56C381A6395BD2":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F5F13BAC464808ECA9DE04B82A610D4A":
 						{
+							"name": "PlayerState",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1033,6 +1138,7 @@
 						},
 						"FE43C548409F0ACA32C5238A0278830C":
 						{
+							"name": "UniqueNetId",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1050,16 +1156,19 @@
 					{
 						"B1932DF940580D911CB7BBA99644D1D0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0359CC0C4F069EE6AA9607BB643E6511":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"43E6177B4F9D6D03DCC6B99360712265":
 						{
+							"name": "UniqueNetID",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1070,6 +1179,7 @@
 						},
 						"97F3EE224AB41DCDAA27108AF371C805":
 						{
+							"name": "PlayerNickname",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1087,26 +1197,31 @@
 					{
 						"4956825F441DBDD46391FEB76656AD91":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B562E11B408483BFF12D1B96D6FDCE66":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CAD31EEF4F33F28A3349BCBAE164CA05":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AC8721DA47335075D4845DACB82052FE":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A6C13C5D4B8163D5728894A0E65F59FF":
 						{
+							"name": "InString",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1117,26 +1232,31 @@
 						},
 						"A6E0004F45F9C6F303058AAC269B7A96":
 						{
+							"name": "bPrintToScreen",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6E2612664C418B19E7BB578248C0B753":
 						{
+							"name": "bPrintToLog",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8ECE97A8481352A726A3B489CCCEB2B9":
 						{
+							"name": "TextColor",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"46B2E6C340EF6B81A71D3AB7CA0EF659":
 						{
+							"name": "Duration",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"71D3BFDC41AF65D66CE9AFAD9BDBAA46":
 						{
+							"name": "Key",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1149,11 +1269,13 @@
 					{
 						"A2B8BF9140FDB0EF3A56C381A6395BD2":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F5F13BAC464808ECA9DE04B82A610D4A":
 						{
+							"name": "PlayerState",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1164,6 +1286,7 @@
 						},
 						"FE43C548409F0ACA32C5238A0278830C":
 						{
+							"name": "UniqueNetId",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1181,16 +1304,19 @@
 					{
 						"B1932DF940580D911CB7BBA99644D1D0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0359CC0C4F069EE6AA9607BB643E6511":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"43E6177B4F9D6D03DCC6B99360712265":
 						{
+							"name": "UniqueNetID",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1201,6 +1327,7 @@
 						},
 						"97F3EE224AB41DCDAA27108AF371C805":
 						{
+							"name": "PlayerNickname",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1218,6 +1345,7 @@
 					{
 						"B727FBE244EA05A48B65168D32A4ACCE":
 						{
+							"name": "CurrentOccupant",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1228,6 +1356,7 @@
 						},
 						"83C76E444BEBF3BA143DB08651D1D630":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1240,6 +1369,7 @@
 					{
 						"F3639B3D45F2DC5DA436989F905659F6":
 						{
+							"name": "CaptureProgress",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1258,6 +1388,7 @@
 						},
 						"7A3598BE40ABE6F6ED505581BE3903AF":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1270,11 +1401,13 @@
 					{
 						"6D6920674A2250F362D21091818E6ABD":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"18BE74BA420F32A273B4CFA011B0106C":
 						{
+							"name": "InInt",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1285,6 +1418,7 @@
 						},
 						"68459D164FDE2F2C4DA917A5B40AD386":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1302,11 +1436,13 @@
 					{
 						"C30373594196639D4C9C5C9EA609C391":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"82F0E2A34CAC88716ED0A18856C380EC":
 						{
+							"name": "InInt",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1317,6 +1453,7 @@
 						},
 						"D12B0A924F20207DFB3125B993D7C333":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -1329,6 +1466,7 @@
 					{
 						"ECA7777C47A753B91A75EE99D520DFB0":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1339,46 +1477,55 @@
 						},
 						"BC6DEAE74B261BEF72C563827B0296CD":
 						{
+							"name": "Out 0",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"D51D16E54F577024AE7103A73908A194":
 						{
+							"name": "Out 1",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"56752E9842A030F3E8CE4EA6F6868CFF":
 						{
+							"name": "Out 2",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"ED997F3343EF719C59AC4FBF999FC02C":
 						{
+							"name": "Out 3",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"96ACD3F740B9C6BF0741B18027633C56":
 						{
+							"name": "Out 4",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"B7D0BFA04059B5E2F3291785FB24E804":
 						{
+							"name": "Reset",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"1AF9B6864D1F04FD8AD1FF9FFAD4DDE5":
 						{
+							"name": "IsRandom",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"ED42FD224C042546F8B5488150A16ADA":
 						{
+							"name": "Loop",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A940687940317D445AD94A85AC518FEB":
 						{
+							"name": "StartIndex",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1391,11 +1538,13 @@
 					{
 						"B0889E934032CEBAB5B8D4AB6B5278CE":
 						{
+							"name": "Exec",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"99E623764AFBD532B275C59DD2A785BC":
 						{
+							"name": "Input",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1406,6 +1555,7 @@
 						},
 						"FCB54C6B4F857D9ABBE4A390236D8339":
 						{
+							"name": "CompareWith",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1416,11 +1566,13 @@
 						},
 						"E74F051445AD4D80BC0E70895225C24C":
 						{
+							"name": ">",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"11C0F1634C1FC9DC34E46D87732C8786":
 						{
+							"name": "==",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1431,6 +1583,7 @@
 						},
 						"46A0907E49BD2B3A9ECB3680BEBBA51C":
 						{
+							"name": "<",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -1443,6 +1596,7 @@
 					{
 						"A740140E44FDE196F19CFEAE12A15B61":
 						{
+							"name": "Compare With",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1453,6 +1607,7 @@
 						},
 						"ABBA6A484DB210D1B62BDFA7EFAAD015":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1465,11 +1620,13 @@
 					{
 						"2A53B5F745D1C9A5C621BE832972C364":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CECA94B94B7759D82D62708083564C89":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -1482,6 +1639,7 @@
 					{
 						"4956825F441DBDD46391FEB76656AD91":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1492,21 +1650,25 @@
 						},
 						"B562E11B408483BFF12D1B96D6FDCE66":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CAD31EEF4F33F28A3349BCBAE164CA05":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AC8721DA47335075D4845DACB82052FE":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A6C13C5D4B8163D5728894A0E65F59FF":
 						{
+							"name": "InString",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1517,26 +1679,31 @@
 						},
 						"A6E0004F45F9C6F303058AAC269B7A96":
 						{
+							"name": "bPrintToScreen",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6E2612664C418B19E7BB578248C0B753":
 						{
+							"name": "bPrintToLog",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8ECE97A8481352A726A3B489CCCEB2B9":
 						{
+							"name": "TextColor",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"46B2E6C340EF6B81A71D3AB7CA0EF659":
 						{
+							"name": "Duration",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"71D3BFDC41AF65D66CE9AFAD9BDBAA46":
 						{
+							"name": "Key",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1549,16 +1716,19 @@
 					{
 						"A63311014EA65765D893ED83869D7409":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D2B2DC7548F1C6E807BAFC9A55850008":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2CA2E8B4484DDF6AB0CDF78CA73B978C":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1569,6 +1739,7 @@
 						},
 						"ED122D8C4EF59A53348B339C6849DB19":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1579,11 +1750,13 @@
 						},
 						"2C6C0960497DC8D3399CBD9285F2A92E":
 						{
+							"name": "C",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D04906794DECD60CF957DA9BDFD74ECF":
 						{
+							"name": "D",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1601,6 +1774,7 @@
 					{
 						"5C2326D04A9213C6517039831AAF8C30":
 						{
+							"name": "PointName",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1611,6 +1785,7 @@
 						},
 						"50F1E9E34E9BBDDC598A98BA7613F79E":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1623,11 +1798,13 @@
 					{
 						"1E4BA4BC429162F43E836D822CA2A6AC":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0E82C22449B3A5DA0CEEA6B008F5F63D":
 						{
+							"name": "InName",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1638,6 +1815,7 @@
 						},
 						"5CEE9BB0499EEAD640EA59B5B13D3BF0":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1655,6 +1833,7 @@
 					{
 						"2D3D97EB45881C71BB8CC49F48886DAE":
 						{
+							"name": "CurrentLeader",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1665,6 +1844,7 @@
 						},
 						"74D4FC8C443ACB29370C38ACCCDDD5DA":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1677,11 +1857,13 @@
 					{
 						"A2B8BF9140FDB0EF3A56C381A6395BD2":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F5F13BAC464808ECA9DE04B82A610D4A":
 						{
+							"name": "PlayerState",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1692,6 +1874,7 @@
 						},
 						"FE43C548409F0ACA32C5238A0278830C":
 						{
+							"name": "UniqueNetId",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1709,16 +1892,19 @@
 					{
 						"B1932DF940580D911CB7BBA99644D1D0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0359CC0C4F069EE6AA9607BB643E6511":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"43E6177B4F9D6D03DCC6B99360712265":
 						{
+							"name": "UniqueNetID",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1729,6 +1915,7 @@
 						},
 						"97F3EE224AB41DCDAA27108AF371C805":
 						{
+							"name": "PlayerNickname",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1746,6 +1933,7 @@
 					{
 						"88F2EA204F748F19F7A7B9802E530634":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1756,6 +1944,7 @@
 						},
 						"5007683A4857D4C72B8E0FA7FA5EEC31":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1766,6 +1955,7 @@
 						},
 						"0B502164483904E14704D9A679C4C152":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1774,8 +1964,9 @@
 								}
 							]
 						},
-						"90B4CFC2487080DB2C006CA596B5D94A":
+						"6C8DBF984F4A7798EE11EF8E257BE328":
 						{
+							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1788,11 +1979,13 @@
 					{
 						"77988008459C3A7825965EA623E67D2B":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FE7FE45A4BDA251D93F27B88B63D091D":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1803,6 +1996,7 @@
 						},
 						"E15A28D04E1B002A14592DBFF91E0F75":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1813,6 +2007,7 @@
 						},
 						"A742D57B40E2CC9CEC6367B22BAB3984":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -1825,11 +2020,13 @@
 					{
 						"80850C714FC582D9B87ED18561695545":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"184EC89B49F5171988C845ADE2E1C2FF":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1847,11 +2044,13 @@
 					{
 						"BA6E6D8541AC77640705329566A24B28":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0663CF044EB9B240A266A497967C1383":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1869,16 +2068,19 @@
 					{
 						"ED7CB764426EB2BC20B7E99B1BF0EE97":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"89F8949642AE7422111135AF43C08305":
 						{
+							"name": "InDouble",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B053391E40286EC884909181D545E129":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -1891,6 +2093,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1901,6 +2104,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1913,11 +2117,13 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1928,6 +2134,7 @@
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1938,21 +2145,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1965,6 +2176,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1975,6 +2187,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1987,6 +2200,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -1997,6 +2211,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2007,6 +2222,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2017,6 +2233,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2029,6 +2246,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2039,6 +2257,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2051,6 +2270,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2061,6 +2281,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2071,6 +2292,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2081,6 +2303,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2093,6 +2316,7 @@
 					{
 						"C9FFA2D74FF7DE3DA3105F9D439D7247":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2103,6 +2327,7 @@
 						},
 						"8C82493B43C621C019CA118F3B4FED42":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2115,6 +2340,7 @@
 					{
 						"A61A8D674906773F7118BABC598CE690":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2125,11 +2351,13 @@
 						},
 						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2140,21 +2368,25 @@
 						},
 						"3AF81DD640305637E6DA37848990DBA8":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FA15E2E543E96093E79E07B13F92DE2A":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8D57FFDD4D9CA11D13398980DB54912D":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F01404614908897F99D97EA0DFCCFB94":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2167,6 +2399,7 @@
 					{
 						"C9FFA2D74FF7DE3DA3105F9D439D7247":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2177,6 +2410,7 @@
 						},
 						"8C82493B43C621C019CA118F3B4FED42":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2189,6 +2423,7 @@
 					{
 						"A61A8D674906773F7118BABC598CE690":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2199,11 +2434,13 @@
 						},
 						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2214,21 +2451,25 @@
 						},
 						"3AF81DD640305637E6DA37848990DBA8":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FA15E2E543E96093E79E07B13F92DE2A":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8D57FFDD4D9CA11D13398980DB54912D":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F01404614908897F99D97EA0DFCCFB94":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2241,6 +2482,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2251,6 +2493,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2263,11 +2506,13 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2278,6 +2523,7 @@
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2288,21 +2534,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2315,6 +2565,7 @@
 					{
 						"10C04EB04F25C6BA9DFC689625BA33A6":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2325,16 +2576,19 @@
 						},
 						"CC59EB6E4DF8F6EE38EEA3B5ABF7EDFE":
 						{
+							"name": "Reset",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"562502F54978DF313E82D39232664DF6":
 						{
+							"name": "Start Closed",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C2D84F21445EEDCC8BCD08B5EDA6C566":
 						{
+							"name": "Completed",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2352,6 +2606,7 @@
 					{
 						"10C04EB04F25C6BA9DFC689625BA33A6":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2362,16 +2617,19 @@
 						},
 						"CC59EB6E4DF8F6EE38EEA3B5ABF7EDFE":
 						{
+							"name": "Reset",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"562502F54978DF313E82D39232664DF6":
 						{
+							"name": "Start Closed",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C2D84F21445EEDCC8BCD08B5EDA6C566":
 						{
+							"name": "Completed",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2389,6 +2647,7 @@
 					{
 						"AA6481CD42787033557E93BE3EFDBC50":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2399,21 +2658,25 @@
 						},
 						"000907FF4BB3019880A62AA1B8D3E53D":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"FE2D1AF44583E9E1A48C44B3C686A3B1":
 						{
+							"name": "Point",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"63DD39F84D1967513FC895ACCE762CC9":
 						{
+							"name": "CapturingTeamIndex",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A69E49C0481B811975E24CA0358C1569":
 						{
+							"name": "PreviousOwnerTeamIndex",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2426,11 +2689,13 @@
 					{
 						"E15739E740F84A7D6D6E26A13211F0FE":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F6B11A57494D9B2CF45C49A6305CC2DB":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2441,11 +2706,13 @@
 						},
 						"0ACF0A004E12318262F4B4BCAF03DEA4":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8C1D7BA44249BE793CBE2388A5F502D5":
 						{
+							"name": "Delegate",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2463,6 +2730,7 @@
 					{
 						"6F3B23E9403CAC81F3C93E82666526EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2473,16 +2741,19 @@
 						},
 						"A622F22946394FE015F7DA8EC742D59F":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"346B32C541E287308A3A818E1ADAD4A0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"065D7CA64C65118E5124D592DD0DE84F":
 						{
+							"name": "Delegate",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2500,6 +2771,7 @@
 					{
 						"DFB6F6D140A797CD8F7473BC8E93424A":
 						{
+							"name": "OutputDelegate",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2510,16 +2782,19 @@
 						},
 						"7C6B976F48D49AE7B2477BB629A4EB83":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"C20A32AB481B2690B656A6939A6A420F":
 						{
+							"name": "Point",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"025395BD461B1AC92E22A0A805C5B4EB":
 						{
+							"name": "NewCount",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2537,16 +2812,19 @@
 					{
 						"F37E95A240EE61B01707DD86D49F0AC0":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"748088CD40C692C125E56690BB7A4089":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A23DFA6546886BA3684364964A7F951F":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2559,21 +2837,25 @@
 					{
 						"6CE3ADBE480A5AE8E7CE0D8F8BF29A04":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AD8B106F401B93F11E1CCCBA57962ADF":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"7EA0B811448EC26A0628C0A80E7C6126":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"18289B104CDCAFE6F4EF58A1B0226BFB":
 						{
+							"name": "NewCount",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2597,6 +2879,7 @@
 					{
 						"AC7EE1EF46D1A7B381859096D67B0D45":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2615,6 +2898,7 @@
 					{
 						"1C16B2A34C340B43867E8A84E6E4D183":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2625,6 +2909,7 @@
 						},
 						"D9F4DD04428A114F096A00B8E212C6A8":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2642,6 +2927,7 @@
 					{
 						"72F2EF9B4EC00FE2C5F34890E3FE5900":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2652,6 +2938,7 @@
 						},
 						"49F892FC425794C3C19AC0AC2A45A553":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2662,21 +2949,25 @@
 						},
 						"E3CEFDEE49718FD5D4D60FB5F6C856D4":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"26F6360C4BF9598F94FC3395DCE18D87":
 						{
+							"name": "Uninitialized",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"660C4756438BACAD087BE0B019F91D31":
 						{
+							"name": "Neutral",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"7749725F45CF109FFC43709A74FB8006":
 						{
+							"name": "Capturing",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2687,6 +2978,7 @@
 						},
 						"790B5C6841F3FA08647B86B26B0F03AE":
 						{
+							"name": "Contested",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2697,6 +2989,7 @@
 						},
 						"BCED46864D8AB31AB061A0942CD07BB6":
 						{
+							"name": "Neutralizing",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2707,6 +3000,7 @@
 						},
 						"B5080AB94BE9F8A0BAF10C8EE1F5F291":
 						{
+							"name": "Captured",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2724,26 +3018,31 @@
 					{
 						"6EA9142B44EFEB53E29F64AD27E9E1CB":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2AF955FC48ECA08B8245A6AD9FA0EFE8":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E7DAA9D644389C5491E6EDA33B888576":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"D00E32E347F3BFC4EAD98FAB51964A13":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"DE34A11748A96DD6CD4F9E950C9404A2":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2756,6 +3055,7 @@
 					{
 						"C0E945C14E6F5EAC6EA459A2FEA7B290":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2770,16 +3070,19 @@
 						},
 						"F19F439F4F7B8BD4605664BD08981BE1":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"34BF119249E273FD2B8470B51EC4567B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"92793A154E6A350025AD73A2B2A07B13":
 						{
+							"name": "bStart",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2792,6 +3095,7 @@
 					{
 						"901E39B04CF340EC8BD17780B0626F31":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2802,6 +3106,7 @@
 						},
 						"ACF8A1C545C012FE00813A91E739B55F":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2812,6 +3117,7 @@
 						},
 						"025441624A0AECEC8C4734B2A2E7D553":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2824,6 +3130,7 @@
 					{
 						"C0E945C14E6F5EAC6EA459A2FEA7B290":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2834,16 +3141,19 @@
 						},
 						"F19F439F4F7B8BD4605664BD08981BE1":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"34BF119249E273FD2B8470B51EC4567B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"92793A154E6A350025AD73A2B2A07B13":
 						{
+							"name": "bStart",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2856,6 +3166,7 @@
 					{
 						"60B5F43A42C3DEBA8465ECA892EF1D4F":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2866,6 +3177,7 @@
 						},
 						"D4B1AAC7407381EAC3201CB5ED18C35C":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -2878,6 +3190,7 @@
 					{
 						"15B36E224C0CCC0D1CA695BD5207CD8D":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2888,11 +3201,13 @@
 						},
 						"B209EDB44596B6F40EA8D1B7856EE77F":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"F6E4A1EA46E9558387BADDB7C08CD1A1":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2903,21 +3218,25 @@
 						},
 						"E3CFDCB34D7EF9E858CCE2AF7147CB40":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DF1319FE42071BDE83EBB0A50169ECDA":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"4B0C938943E70AE805CAA9AD017A7927":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"1DB5D6254C747ECAC2A578B9B494158A":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2930,11 +3249,13 @@
 					{
 						"F3D005E44C9E5FB5DF2FF3960267565B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B0E5D316489778C4348D008A3D9F4A87":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2952,6 +3273,7 @@
 					{
 						"0F7ECE864BE3A718EF3185B3A15EE829":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2962,6 +3284,7 @@
 						},
 						"FFEE52DA47FB5CEDC92C4D8E36B4A047":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -2972,6 +3295,7 @@
 						},
 						"B820DBD04D50ED6235939F80879F7B18":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2982,6 +3306,7 @@
 						},
 						"8357B07F4DDFF930D3666E933784E9B9":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -2994,6 +3319,7 @@
 					{
 						"0FD2F3574E495A738F58A5BFA5DD4C83":
 						{
+							"name": "AkGlobalManager_Ref",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3004,6 +3330,7 @@
 						},
 						"8D00199C4D143098D23E38AB2E843310":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3016,11 +3343,13 @@
 					{
 						"4092C4784EE108656D642A9BD89840E0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8FADE5B1451ACFFDA17C539DD5911A7C":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3038,11 +3367,13 @@
 					{
 						"B968198B4259408C070614BA9CEBF87B":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"255708A0440848E6122C94A49AD6F16C":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3053,11 +3384,13 @@
 						},
 						"AC904D40414C2ECAFE1E46BDE84A3FD6":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"0DD6FA2945AA2EBB84FB50B9DE4CC79C":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3068,6 +3401,7 @@
 						},
 						"DF8C2D7C4F2B76ED76A257B995F94164":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3085,6 +3419,7 @@
 					{
 						"A006DB704E090C1C731367B26965500B":
 						{
+							"name": "AkGlobalComponent",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3107,6 +3442,7 @@
 						},
 						"0AAFF12C4C75C06D3544BC93B6C8B293":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3124,6 +3460,7 @@
 					{
 						"F93368A64AA743C9959087873047F602":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3134,6 +3471,7 @@
 						},
 						"193ECF8247D424F429E1278A162282B5":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3144,6 +3482,7 @@
 						},
 						"7DEC6E394E802455771BF88B0FF29FBC":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3154,6 +3493,7 @@
 						},
 						"50131AEE4E2DCA308BB3699549A172BA":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3166,6 +3506,7 @@
 					{
 						"F93368A64AA743C9959087873047F602":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3176,6 +3517,7 @@
 						},
 						"193ECF8247D424F429E1278A162282B5":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3186,6 +3528,7 @@
 						},
 						"7DEC6E394E802455771BF88B0FF29FBC":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3196,6 +3539,7 @@
 						},
 						"50131AEE4E2DCA308BB3699549A172BA":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3208,16 +3552,19 @@
 					{
 						"FDA0FEA747FE7E562F2D2D8FEA7961A8":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"04E594B5412C127DBDE8FBA45857A969":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"83874BBD45ACDBD9FDA6A9B00CFE4A02":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3228,21 +3575,25 @@
 						},
 						"E50AA06941D54E054155E59DB57BFCA2":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"724C55074FCBF35C9CE47EB3EC81548B":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"5D9A999C4372D12E3E2D76BA095740C6":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6DB63A544A28809C71D6648D8A3F3C2F":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -3255,11 +3606,13 @@
 					{
 						"A4AD026946AC33CE9A4C74A7A6DD810A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"09BBE3794946A78262F5C889A25510DD":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3277,11 +3630,13 @@
 					{
 						"00FB4BA84D4FB3FAD69E4FBFB3B8BA8F":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"9C712921458DF8FA6D9120BE55E840A0":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3292,6 +3647,7 @@
 						},
 						"395C54E542C5918E6ABB7F9B6A15F006":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3302,6 +3658,7 @@
 						},
 						"0C0003CB43476E2769B8E88BDAEE687D":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3319,16 +3676,19 @@
 					{
 						"0C7656864E9305C65C2A909E564317B2":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"3B5D9DA541E3299513B97E97116F0FC1":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"12AAC6FB43BEEC5354FC9F9D424FE25B":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3346,6 +3706,7 @@
 					{
 						"AE70EE464FF68E60C135E79AF8AC4F31":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3360,6 +3721,7 @@
 						},
 						"A7D60D99427DEB358467DFB8FC6FAC80":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3370,11 +3732,13 @@
 						},
 						"1621DCBC488E7D393A642D87185D6170":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"CCA8465643F8664F5A5D0184F1835F0E":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -3387,16 +3751,19 @@
 					{
 						"FDA0FEA747FE7E562F2D2D8FEA7961A8":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"04E594B5412C127DBDE8FBA45857A969":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"83874BBD45ACDBD9FDA6A9B00CFE4A02":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3407,21 +3774,25 @@
 						},
 						"E50AA06941D54E054155E59DB57BFCA2":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"724C55074FCBF35C9CE47EB3EC81548B":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"5D9A999C4372D12E3E2D76BA095740C6":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6DB63A544A28809C71D6648D8A3F3C2F":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -3440,6 +3811,7 @@
 					{
 						"D334B7104E5BB48E0C1D6B93FFC4321F":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3450,6 +3822,7 @@
 						},
 						"6709643449C668BAE4379A8EF13CEFDD":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3467,11 +3840,13 @@
 					{
 						"96D903A24E4A4EAF4B4631AB467A3039":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2A0C79E047CDFDF84DE1EC94C6B27707":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3489,6 +3864,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3499,6 +3875,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3511,6 +3888,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3521,11 +3899,13 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3536,11 +3916,13 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3551,11 +3933,13 @@
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3568,6 +3952,7 @@
 					{
 						"72F2EF9B4EC00FE2C5F34890E3FE5900":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3578,6 +3963,7 @@
 						},
 						"49F892FC425794C3C19AC0AC2A45A553":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3588,16 +3974,19 @@
 						},
 						"E3CEFDEE49718FD5D4D60FB5F6C856D4":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"26F6360C4BF9598F94FC3395DCE18D87":
 						{
+							"name": "Uninitialized",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"660C4756438BACAD087BE0B019F91D31":
 						{
+							"name": "Neutral",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3608,6 +3997,7 @@
 						},
 						"7749725F45CF109FFC43709A74FB8006":
 						{
+							"name": "Capturing",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3618,6 +4008,7 @@
 						},
 						"790B5C6841F3FA08647B86B26B0F03AE":
 						{
+							"name": "Contested",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3628,6 +4019,7 @@
 						},
 						"BCED46864D8AB31AB061A0942CD07BB6":
 						{
+							"name": "Neutralizing",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3638,6 +4030,7 @@
 						},
 						"3FED29E548643C6629654DBE7F807714":
 						{
+							"name": "Captured",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3655,6 +4048,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3665,6 +4059,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3677,6 +4072,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3687,11 +4083,13 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3702,21 +4100,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3729,6 +4131,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3739,6 +4142,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3751,6 +4155,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3761,6 +4166,7 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3771,6 +4177,7 @@
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3781,21 +4188,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3808,6 +4219,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3818,6 +4230,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3830,6 +4243,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3840,11 +4254,13 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3855,21 +4271,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3882,11 +4302,13 @@
 					{
 						"96D903A24E4A4EAF4B4631AB467A3039":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"2A0C79E047CDFDF84DE1EC94C6B27707":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3904,6 +4326,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3914,6 +4337,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3926,6 +4350,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3936,11 +4361,13 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3951,11 +4378,13 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -3966,11 +4395,13 @@
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -3983,6 +4414,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -3993,6 +4425,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4005,6 +4438,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4015,6 +4449,7 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4025,6 +4460,7 @@
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4035,21 +4471,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4062,6 +4502,7 @@
 					{
 						"67423035415C6C7C462358B5751FD4BA":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4072,6 +4513,7 @@
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4084,6 +4526,7 @@
 					{
 						"0635AB9740CF01284333CE8CCAAE24BA":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4094,11 +4537,13 @@
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4109,21 +4554,25 @@
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
+							"name": "RTPCValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E4B3C72947D75A3CE7833786A7946A57":
 						{
+							"name": "Value",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"47406883453A98744C59CA9B31CA552F":
 						{
+							"name": "InterpolationTimeMs",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DB80EB24471F877421F1B49D8BA7EF3E":
 						{
+							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4142,6 +4591,7 @@
 					{
 						"EF99063245609EE7DE85B2B292CDCFF4":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4159,6 +4609,7 @@
 					{
 						"C9FFA2D74FF7DE3DA3105F9D439D7247":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4169,6 +4620,7 @@
 						},
 						"8C82493B43C621C019CA118F3B4FED42":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4181,6 +4633,7 @@
 					{
 						"A61A8D674906773F7118BABC598CE690":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4195,6 +4648,7 @@
 						},
 						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4205,6 +4659,7 @@
 						},
 						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4215,21 +4670,25 @@
 						},
 						"3AF81DD640305637E6DA37848990DBA8":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FA15E2E543E96093E79E07B13F92DE2A":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8D57FFDD4D9CA11D13398980DB54912D":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F01404614908897F99D97EA0DFCCFB94":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -4242,6 +4701,7 @@
 					{
 						"32CDBEFD4D33FBC2D7084FA9FFF2049F":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4252,21 +4712,25 @@
 						},
 						"0A8B47C04C8C8B28744C9C8D5A33763B":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"D3C2638149B2CC97083F43A8F7003974":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"C7C4C4E643EA4535CA203DBF806A6275":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"6D0A051C41F9E14626324FABD3F77140":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4279,6 +4743,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4289,6 +4754,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4301,6 +4767,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4311,6 +4778,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4321,6 +4789,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4331,6 +4800,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4343,6 +4813,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4353,6 +4824,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4365,6 +4837,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4375,6 +4848,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4385,6 +4859,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4395,6 +4870,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4407,11 +4883,13 @@
 					{
 						"082232CE4132252FFB8CA684C1E414DD":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7D91767C4F8135B5593CC191D06AA0E3":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4429,6 +4907,7 @@
 					{
 						"3DA7450F43F5EB2C0EFCE6B5DA069303":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4439,6 +4918,7 @@
 						},
 						"97412DA54652ECD7003FA78C7138F3CB":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4449,11 +4929,13 @@
 						},
 						"789041514B1C5E636E18259CB6CC6C49":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A9C56F6F401E328A85CF57BDB693FEC6":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4464,6 +4946,7 @@
 						},
 						"6032651149E426405D315A934D3EBE1C":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4487,6 +4970,7 @@
 					{
 						"F8884A4C4080575C51FA43AF92713B8C":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4497,6 +4981,7 @@
 						},
 						"595C26614E60ECA39369B48F478FD8A9":
 						{
+							"name": "NewCount",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4514,6 +4999,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4524,6 +5010,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4536,6 +5023,7 @@
 					{
 						"CF89847F4998EB949B16B7859F08D8EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4546,6 +5034,7 @@
 						},
 						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4556,6 +5045,7 @@
 						},
 						"A7EF36AC4E1CE5703039588338F7FAC0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4566,21 +5056,25 @@
 						},
 						"4F0D9A274288CFBC20C28D86ECF75DC6":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AA8592E04D042987570896833FAD8FF4":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6046890D4F959E4E46E472854DBC1C5F":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6A57500E400A7E3456748C87DC57A814":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -4593,6 +5087,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4603,6 +5098,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4615,6 +5111,7 @@
 					{
 						"CF89847F4998EB949B16B7859F08D8EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4625,6 +5122,7 @@
 						},
 						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4635,6 +5133,7 @@
 						},
 						"A7EF36AC4E1CE5703039588338F7FAC0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4645,21 +5144,25 @@
 						},
 						"4F0D9A274288CFBC20C28D86ECF75DC6":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AA8592E04D042987570896833FAD8FF4":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6046890D4F959E4E46E472854DBC1C5F":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6A57500E400A7E3456748C87DC57A814":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -4672,6 +5175,7 @@
 					{
 						"D5BFB2054FA486744A0DC0A9528DE9D9":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4682,6 +5186,7 @@
 						},
 						"83E60D554EFB8F735C9AF3A93642DE87":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4692,6 +5197,7 @@
 						},
 						"07BCA5D14128C04D83B41C810F579C19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4702,6 +5208,7 @@
 						},
 						"6863F1324BC49A32066D908C1E1AAD1E":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4719,6 +5226,7 @@
 					{
 						"F885AC764F01C5519568D1A64DEA605F":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4729,11 +5237,13 @@
 						},
 						"AB513A5642BB68E0BEF63AAA788F4E75":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B5F1E16E4122F14E2DA93F9FCD24F0AA":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4742,8 +5252,9 @@
 								}
 							]
 						},
-						"ECB3D6B84670F5D91F3B438BC520EE9D":
+						"1007BE1449AF68AF2E963998A1531689":
 						{
+							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4756,6 +5267,7 @@
 					{
 						"D5BFB2054FA486744A0DC0A9528DE9D9":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4766,6 +5278,7 @@
 						},
 						"83E60D554EFB8F735C9AF3A93642DE87":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4776,6 +5289,7 @@
 						},
 						"07BCA5D14128C04D83B41C810F579C19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4786,6 +5300,7 @@
 						},
 						"6863F1324BC49A32066D908C1E1AAD1E":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -4798,6 +5313,7 @@
 					{
 						"B3C2BF784A1A6E51713561A2D6567530":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4808,11 +5324,13 @@
 						},
 						"55A29AB14A644ED063843584FC3F5188":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AE8C6BF4497959FF2E8C6CAE9B7FDCEF":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4821,8 +5339,9 @@
 								}
 							]
 						},
-						"4F93B0F94D53743EFE7B3088FE3653E6":
+						"E8BEC0A04B2907E704DA72A716825864":
 						{
+							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4835,6 +5354,7 @@
 					{
 						"3A2470D64778435F1A0B078704B3862E":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4845,21 +5365,25 @@
 						},
 						"6128D47E410FD916629F09A36DDAF7FE":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"1181D0F346AF31F423509E8B966A65C8":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B6CA718F4800E957392DECAA2316B298":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"669F1AE64B0F1EA7E75C018C0D6CA168":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4872,6 +5396,7 @@
 					{
 						"EF9B72A041845C1974DF9CA8D19F30AF":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4882,6 +5407,7 @@
 						},
 						"DE55827A424563F00E667D84AC17F96A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4894,6 +5420,7 @@
 					{
 						"4999097F43BB656987D360BE70F95C38":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4904,6 +5431,7 @@
 						},
 						"C337F0244A12B2CDCE1D6792AB58437E":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4914,11 +5442,13 @@
 						},
 						"6BA0B9F5427A11F673C5AAAE8AFD14DB":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"360B7CC348C8787F8AA51FB2AE02845E":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4936,6 +5466,7 @@
 					{
 						"8E5015154CDA28E9F3C06CBC55FFDEB5":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -4946,21 +5477,25 @@
 						},
 						"3793A290441546FD7F19D99202B63505":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"942C14CC429C5B1BA7B6B495CB628315":
 						{
+							"name": "IsLoopPlaying",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FCC24EC84F2B2EFE3B9D89A33ACC1F79":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"C206AB854B79E0CA1431818BCD9E8313":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -4973,11 +5508,13 @@
 					{
 						"44E4FB4044DA8D40D4A217843C547AC6":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"135A3D9A40C740C8DF4478B7637FF9C9":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -4995,6 +5532,7 @@
 					{
 						"0ECDD7CB4D9F1CA8FFC846ACF36621CE":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5005,6 +5543,7 @@
 						},
 						"B3C6ADE44788CAC234337B8188608843":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5015,11 +5554,13 @@
 						},
 						"43B6E961400D27BC0181E1A2E15A3457":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A824FDF54110C69E306888A3F0B6F6CB":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5037,11 +5578,13 @@
 					{
 						"D7C2E4474520835DFCCBD480B0CC233C":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"DF46F2BB450EA0F3C00998829179511F":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5065,6 +5608,7 @@
 					{
 						"5C4BC6D34F748A92C03EFAAF4D9F647D":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5075,6 +5619,7 @@
 						},
 						"FCA55DBF44B8DB07147D8D8BE9249679":
 						{
+							"name": "bStart",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5092,6 +5637,7 @@
 					{
 						"D61692E449FD989B50083D8BE62BF97D":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5102,6 +5648,7 @@
 						},
 						"D3FB7A044546ABF388FA1F84ADB1E3C3":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5112,6 +5659,7 @@
 						},
 						"D54D4460438400032530B88A9A410F24":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5122,6 +5670,7 @@
 						},
 						"E482346F44C442AEF194B599B97EB8B8":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5139,6 +5688,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5149,6 +5699,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5161,6 +5712,7 @@
 					{
 						"CF89847F4998EB949B16B7859F08D8EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5171,11 +5723,13 @@
 						},
 						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A7EF36AC4E1CE5703039588338F7FAC0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5186,21 +5740,25 @@
 						},
 						"4F0D9A274288CFBC20C28D86ECF75DC6":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AA8592E04D042987570896833FAD8FF4":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6046890D4F959E4E46E472854DBC1C5F":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6A57500E400A7E3456748C87DC57A814":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -5213,6 +5771,7 @@
 					{
 						"CF89847F4998EB949B16B7859F08D8EC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5223,11 +5782,13 @@
 						},
 						"FFFA7EFB45B7B4F132CB429CC0B8EBB0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"A7EF36AC4E1CE5703039588338F7FAC0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5238,21 +5799,25 @@
 						},
 						"4F0D9A274288CFBC20C28D86ECF75DC6":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AA8592E04D042987570896833FAD8FF4":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6046890D4F959E4E46E472854DBC1C5F":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"6A57500E400A7E3456748C87DC57A814":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -5265,6 +5830,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5275,6 +5841,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5287,11 +5854,13 @@
 					{
 						"46CAA0204E784B429E0EBCB35406A743":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E7DB226E47B943E51ADBBDA4B6EE984C":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -5310,6 +5879,7 @@
 					{
 						"F29159244728F8988AB482B49D44F45D":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5327,6 +5897,7 @@
 					{
 						"C9FFA2D74FF7DE3DA3105F9D439D7247":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5337,6 +5908,7 @@
 						},
 						"8C82493B43C621C019CA118F3B4FED42":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5349,6 +5921,7 @@
 					{
 						"A61A8D674906773F7118BABC598CE690":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5359,11 +5932,13 @@
 						},
 						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5374,21 +5949,25 @@
 						},
 						"3AF81DD640305637E6DA37848990DBA8":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FA15E2E543E96093E79E07B13F92DE2A":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8D57FFDD4D9CA11D13398980DB54912D":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F01404614908897F99D97EA0DFCCFB94":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -5401,6 +5980,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5411,6 +5991,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5423,6 +6004,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5433,6 +6015,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5443,6 +6026,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5453,6 +6037,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5465,6 +6050,7 @@
 					{
 						"33F07F7C42632FFC2FF3978BAA9E6E40":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5475,6 +6061,7 @@
 						},
 						"BD18CC664116D1A13F5D9F9A8A6AE31A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5487,6 +6074,7 @@
 					{
 						"6623E2D644B27EB721A107B174404395":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5497,6 +6085,7 @@
 						},
 						"1325BB5C496EA09AED2AF7BE89D3FB19":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5507,6 +6096,7 @@
 						},
 						"05338B4842FDD568456EDE9ED7FF0DB5":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5517,6 +6107,7 @@
 						},
 						"BFE5A7084CE08AB53FE938A35F13770A":
 						{
+							"name": "SwitchValue",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5529,6 +6120,7 @@
 					{
 						"C9FFA2D74FF7DE3DA3105F9D439D7247":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5539,6 +6131,7 @@
 						},
 						"8C82493B43C621C019CA118F3B4FED42":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5551,6 +6144,7 @@
 					{
 						"A61A8D674906773F7118BABC598CE690":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5561,11 +6155,13 @@
 						},
 						"CA5CA88744A7C9809D2EA7A5D86D7FE9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E3A2550C4EE4D54E5BD953B7CA14A6E7":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5576,21 +6172,25 @@
 						},
 						"3AF81DD640305637E6DA37848990DBA8":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"FA15E2E543E96093E79E07B13F92DE2A":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8D57FFDD4D9CA11D13398980DB54912D":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"F01404614908897F99D97EA0DFCCFB94":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -5603,6 +6203,7 @@
 					{
 						"3DA7450F43F5EB2C0EFCE6B5DA069303":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5613,6 +6214,7 @@
 						},
 						"97412DA54652ECD7003FA78C7138F3CB":
 						{
+							"name": "Selection",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5623,11 +6225,13 @@
 						},
 						"789041514B1C5E636E18259CB6CC6C49":
 						{
+							"name": "NotEqual_ByteByte",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A9C56F6F401E328A85CF57BDB693FEC6":
 						{
+							"name": "Friendly",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5638,6 +6242,7 @@
 						},
 						"6032651149E426405D315A934D3EBE1C":
 						{
+							"name": "Enemy",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5655,11 +6260,13 @@
 					{
 						"082232CE4132252FFB8CA684C1E414DD":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"7D91767C4F8135B5593CC191D06AA0E3":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5683,6 +6290,7 @@
 					{
 						"B7F04BB440E0F2B3F1D737BC36D2C2B7":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5700,11 +6308,13 @@
 					{
 						"AD0F32B44A8F19FD2EC656B31ED5F6CA":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"BC84D8D14AB3A7D1E1105195CAD170C2":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5722,6 +6332,7 @@
 					{
 						"FC26C15044ED601F03916B8EF7F42286":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5732,6 +6343,7 @@
 						},
 						"FCA7C1FF427101DC7CC612B4473C2104":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5742,11 +6354,13 @@
 						},
 						"B80FE2274D15C5D3A02F0CA510147167":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"86AD2A5B46E9DA5BD2B936B0E2FFE803":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5764,6 +6378,7 @@
 					{
 						"4E45AF5448D46B7D56E22F8A53004A13":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5774,6 +6389,7 @@
 						},
 						"54FB77E04CBCF3E9365AF9B5B37B45D2":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5784,16 +6400,19 @@
 						},
 						"6894D50C4A93498C34C22FAD310A1482":
 						{
+							"name": "AnyStillContested",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"24FBF3AA4BA24474E9E269BE80E7F601":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"E643FB7B4F37ADBBA66E9BAA0C94370B":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5806,6 +6425,7 @@
 					{
 						"C2CF20C74CC2C208A1D7E1A6E86849BC":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5816,6 +6436,7 @@
 						},
 						"D06DECC344B711E61481569ACF5AA9A5":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5826,21 +6447,25 @@
 						},
 						"F212FC0F4B55A4DDE5B162AAB1BFFD8D":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"8F73FC3F427DF376A05D6580E70D17B7":
 						{
+							"name": "WorldContextObject",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"574B5EDD463C3797AF6D619292557FA9":
 						{
+							"name": "ActorClass",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E38949264E83C69AB9680FA5557B3882":
 						{
+							"name": "OutActors",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5858,6 +6483,7 @@
 					{
 						"FEF99B5D49101392A36E38A8E31157E3":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5868,6 +6494,7 @@
 						},
 						"F823195248D61F1C9FF266B48F27FCF0":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5878,6 +6505,7 @@
 						},
 						"D783516D4D0E6597EB707DB76A77AD98":
 						{
+							"name": "Out Actors",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5888,6 +6516,7 @@
 						},
 						"8039237F4CBEC38DE44FCB9C6F083E72":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5898,6 +6527,7 @@
 						},
 						"53765D314374B6753DA28FA4334ACF52":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -5910,6 +6540,7 @@
 					{
 						"0F7FE37B423A0A9781EF8EAF2BF0F0D8":
 						{
+							"name": "Exec",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5920,6 +6551,7 @@
 						},
 						"EA791E6648ADB907833F84B414565A91":
 						{
+							"name": "Array",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5930,6 +6562,7 @@
 						},
 						"68AD389A4E541DFC7BACE78D1B3905A3":
 						{
+							"name": "Break",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5940,6 +6573,7 @@
 						},
 						"E31571A7415C21C2DAF7E5A38B2B21CD":
 						{
+							"name": "LoopBody",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5950,6 +6584,7 @@
 						},
 						"7E33804B41EBA70B51A221AD14B0AE4C":
 						{
+							"name": "Array Element",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5960,11 +6595,13 @@
 						},
 						"268C102249755D1CCA880AB25E065D41":
 						{
+							"name": "Array Index",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"821C546F435612896F6B50AA5396DB9C":
 						{
+							"name": "Completed",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -5982,6 +6619,7 @@
 					{
 						"E6A7A1294B24D02819C23691D44A5033":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -5992,6 +6630,7 @@
 						},
 						"EC6FF2D44530C9D92C4205AE88510E9F":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6009,6 +6648,7 @@
 					{
 						"7B0D19564C148737A1FB46B87FF4EFD9":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6019,6 +6659,7 @@
 						},
 						"38DD0FAA4256540823AED2B924775394":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6029,6 +6670,7 @@
 						},
 						"7B85274E401C4F108824B8801220CBB4":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6039,6 +6681,7 @@
 						},
 						"8AD02E8648A7F38E15503DAFD94C557E":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -6051,6 +6694,7 @@
 					{
 						"B9D3D3BA428670C97CA2E58BDBF9FC7C":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6061,6 +6705,7 @@
 						},
 						"1D08F1294EADE263C8FB3F8E505739D9":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6071,16 +6716,19 @@
 						},
 						"D3AFC3004D7FD5083D3069B19E6D37A3":
 						{
+							"name": "AnyStillContested",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"E6FED7714F33C930559DB68B633CE7F3":
 						{
+							"name": "Output_Get",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"4D62E12E49A2F1433C739F8196B217C0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -6093,6 +6741,7 @@
 					{
 						"0AF2305B41975FC0AB4F08B962580B53":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6103,6 +6752,7 @@
 						},
 						"FAA991D14AA772C9E6100A8720F806E1":
 						{
+							"name": "Condition",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6113,6 +6763,7 @@
 						},
 						"CE1F4867477884E957DA5BAFA21CE7B7":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6123,6 +6774,7 @@
 						},
 						"8348239D40B3A107179C71B34FDF7E16":
 						{
+							"name": "else",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -6135,6 +6787,7 @@
 					{
 						"A596601F43823509A11AC8A45E946199":
 						{
+							"name": "AnyStillContested",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6145,6 +6798,7 @@
 						},
 						"F0DD320D438ED8890990D4B2C8C32FD0":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -6157,6 +6811,7 @@
 					{
 						"3B8B7B4249FD40CDE775DFAF0D81A546":
 						{
+							"name": "A",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6167,11 +6822,13 @@
 						},
 						"52DA25174684F07CF2FD5D9AC4C14C4E":
 						{
+							"name": "B",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"B47973AD41B6B4319DF3C7A115E507CC":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6180,8 +6837,9 @@
 								}
 							]
 						},
-						"A3800C424361A1BF492BB9A94876D5D2":
+						"B9761940431E917F2E907B84A001BE28":
 						{
+							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -6194,6 +6852,7 @@
 					{
 						"322F79CD46B962232F7114A5CF7455AC":
 						{
+							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6204,6 +6863,7 @@
 						},
 						"B527D2C040F10E2558E1F099324B880A":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -6216,6 +6876,7 @@
 					{
 						"BA186AB44EEC144C6F7BC0AC38C5335A":
 						{
+							"name": "execute",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6226,11 +6887,13 @@
 						},
 						"FA36F0D14651BEE031B4378B76CAAB27":
 						{
+							"name": "then",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						},
 						"9AFD03744D98F5DDC69B06A78060B39F":
 						{
+							"name": "self",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6241,21 +6904,25 @@
 						},
 						"08F95D194D751AC0DC5E05B53170AC22":
 						{
+							"name": "AkEvent",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"BA89EC7A4E3EA91B1A8BF9B8B697A20B":
 						{
+							"name": "CallbackMask",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"A5C32D494EBE552CA88E5781F43AEEE0":
 						{
+							"name": "PostEventCallback",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						},
 						"AB2252754F6E6E1BCD2F01A61D28BB19":
 						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}
@@ -6268,6 +6935,7 @@
 					{
 						"9794E2CB4E4C5A16B87657A4DB7503D5":
 						{
+							"name": "InputPin",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6278,6 +6946,7 @@
 						},
 						"6D26D9F7458C7B499E703098F52743C4":
 						{
+							"name": "OutputPin",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6295,6 +6964,7 @@
 					{
 						"1C95C89041E304818427CC87EB8374A7":
 						{
+							"name": "InputPin",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6305,6 +6975,7 @@
 						},
 						"95AFD0254573CB63EE7F0BB83F98A3E5":
 						{
+							"name": "OutputPin",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -6322,6 +6993,7 @@
 					{
 						"83E816A845B9DEA9159265AF183BB5C4":
 						{
+							"name": "InputPin",
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
@@ -6332,6 +7004,7 @@
 						},
 						"FD322AF840B8E69C659368831943A75D":
 						{
+							"name": "OutputPin",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{

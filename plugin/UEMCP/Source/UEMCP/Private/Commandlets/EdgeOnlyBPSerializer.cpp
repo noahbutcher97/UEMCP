@@ -57,6 +57,11 @@ namespace
 				}
 
 				TSharedRef<FJsonObject> PinObj = MakeShared<FJsonObject>();
+				// Pin name is declared by the node type (e.g. "then", "Target", "ReturnValue") and
+				// is stable across the post-load deterministic-ID divergence that affects
+				// K2Node_EditablePinBase subclasses + K2Node_PromotableOperator (D68). S-B-base's
+				// differential harness uses it as a fallback matcher when pin_id doesn't match.
+				PinObj->SetStringField(TEXT("name"),      Pin->PinName.ToString());
 				PinObj->SetStringField(TEXT("direction"), DirectionToString(Pin->Direction));
 
 				TArray<TSharedPtr<FJsonValue>> LinkedArr;
@@ -105,7 +110,7 @@ bool SerializeBlueprintEdges(UBlueprint* Blueprint, const FString& AssetPath, bo
 	}
 
 	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
-	Root->SetStringField(TEXT("schema_version"), TEXT("oracle-a-v1"));
+	Root->SetStringField(TEXT("schema_version"), TEXT("oracle-a-v2"));
 	Root->SetStringField(TEXT("engine_version"), FEngineVersion::Current().ToString());
 	Root->SetStringField(TEXT("asset_path"),     AssetPath);
 

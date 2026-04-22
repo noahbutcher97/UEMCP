@@ -18,7 +18,7 @@ collapsed-node sub-graphs), and emits node + pin + edge topology.
 
 ```json
 {
-  "schema_version": "oracle-a-v1",
+  "schema_version": "oracle-a-v2",
   "engine_version": "5.6.1-44394996+++UE5+Release-5.6",
   "asset_path": "/Game/...",
   "graphs": { ... }
@@ -47,7 +47,8 @@ Keyed by `UEdGraphPin::PinId` (FGuid, same format).
 
 ```json
 "<PinId>": {
-  "direction": "EGPD_Input",   // or "EGPD_Output"
+  "name": "<UEdGraphPin::PinName>",  // v2: e.g. "then", "Target", "ReturnValue"
+  "direction": "EGPD_Input",         // or "EGPD_Output"
   "linked_to": [
     { "node_guid": "<FGuid>", "pin_id": "<FGuid>" },
     ...
@@ -59,6 +60,25 @@ Keyed by `UEdGraphPin::PinId` (FGuid, same format).
 `TArray<UEdGraphPin*>`) and resolving each target to its owning node's
 `NodeGuid` + the target pin's `PinId`. Empty array when the pin is
 unconnected.
+
+### v2 — pin name field (D68)
+
+`name` is added alongside `pin_id` (the dict key) because post-load pin IDs
+for `K2Node_EditablePinBase` subclasses (`FunctionEntry`, `FunctionResult`,
+`CustomEvent`) and `K2Node_PromotableOperator` are deterministically-derived
+from node context rather than read from disk — they're stable run-to-run but
+don't match disk IDs. Pin names ARE stable across this divergence because
+they're declared by the node type.
+
+S-B-base's differential harness uses **hybrid ID+name matching**:
+
+1. **Primary pass**: match by `pin_id` (strong identity when it matches — covers
+   ~96.5% of pins across the ProjectA corpus).
+2. **Fallback pass**: for entries unmatched by ID, match by `(node_guid, name)`
+   tuple (covers the ~3.5% K2Node_EditablePinBase + K2Node_PromotableOperator
+   divergence).
+
+`pin_id` remains the primary dict key; `name` is a field inside each pin object.
 
 ### Sub-graph nesting
 
