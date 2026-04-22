@@ -94,9 +94,9 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-22 (M-enhance only; T-1a shipped):
+In-flight as of 2026-04-22 (M-enhance Session 1 landed; paused for session boundary):
 
-- **M-enhance** — handoff `docs/handoffs/m-enhance-hybrid-transport.md`. 3-5 sessions. HYBRID transport per D66/FA-ε: RC HTTP for flat reflection reads + plugin TCP for compile diagnostics / UEdGraph walks / compiled-state. Phase 4 absorbed. Ships ~35 tools. Scope: `server/connection-manager.mjs`, `server/tcp-tools.mjs`, NEW `server/rc-url-translator.mjs`, `server/test-tcp-tools.mjs`, NEW `server/test-rc-wire.mjs`, `tools.yaml`, `server/server.mjs`, `plugin/UEMCP/*`.
+- **M-enhance** — handoff `docs/handoffs/m-enhance-hybrid-transport.md`. **Session 1 shipped per D74**: CP1 (HYBRID transport infra: HTTP client + RC URL translator + RemoteControl plugin dep, commit `12b1a13`) + CP2 (11 FULL-RC tools via rc-tools.mjs, commit `7e91e1d`). Test baseline 1037 → 1109 (+72). **CP3-6 pending Session 2** — editor-closed plugin rebuilds needed at CP3. Dispatch pre-req check: verify RemoteControl auto-enabled in ProjectA via UEMCP.uplugin Plugins[] dep chain; if not, need ProjectA.uproject P4 change.
 
 **Pre-drafted, NOT yet dispatched**:
 - **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
