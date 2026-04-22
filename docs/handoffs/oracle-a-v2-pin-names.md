@@ -1,20 +1,30 @@
-# Oracle-A-v2 Worker — pin_name emit + fixture regen
+# Oracle-A-v2 Worker — pin_name emit + fixture regen (for hybrid ID+name matching)
 
 > **Dispatch**: Fresh Claude Code session. **No file-level collision** with in-flight S-B-base worker (plugin-side scope; S-B-base is server-side). Dispatch NOW.
 > **Type**: Implementation — minimal C++ amendment to `EdgeOnlyBPSerializer.cpp` + fixture regeneration + schema version bump.
 > **Duration**: 30-60 min.
-> **D-log anchors**: D67 (Path C pivot after Path A empirically failed + Path B rejected on D52 near-parity grounds), D62 (Oracle-A v1 landed).
-> **Deliverable**: Oracle JSONs emit `"pin_name"` alongside `pin_id` key per pin, enabling S-B-base differential harness to match by (node_guid, pin_name) tuples instead of (node_guid, pin_id). Schema version bumps `oracle-a-v1` → `oracle-a-v2`.
+> **D-log anchors**: **D68** (corrected root cause: oracle IDs are DETERMINISTIC not randomly-regenerated; read this first), D67 (initial Path C pivot, superseded framing-wise by D68), D62 (Oracle-A v1 landed).
+> **Deliverable**: Oracle JSONs emit `"name"` field alongside `pin_id` key per pin (ADDING, not replacing). S-B-base's differential harness will switch to **hybrid ID+name matching**: ID-first (strong evidence of pin identity, covers ~96.5%), name-fallback (covers the ~3.5% K2Node_EditablePinBase case where post-load deterministic IDs diverge from disk IDs). Schema version bumps `oracle-a-v1` → `oracle-a-v2`.
 
 ---
 
 ## Mission
 
-S-B-base worker discovered that UE regenerates pin IDs on every load for K2Node_EditablePinBase subclasses (FunctionEntry, FunctionResult, CustomEvent) and K2Node_PromotableOperator via `PostLoad → ReconstructNode → AllocateDefaultPins` which calls `FGuid::NewGuid()`. The on-disk PinId reflects some prior load session's random GUIDs; the in-memory PinId is this load's random GUIDs. They can NEVER agree across separate loads. Path A (re-save fixtures) verified negative.
+**Read D68 first** for the corrected root-cause analysis. Summary:
 
-Pin names, in contrast, are stable. `PinName` is declared by the node type (e.g., "then", "Target", "ReturnValue") and persists through regeneration. Differential harness matching by (node_guid, pin_name) is robust.
+- Oracle post-load pin IDs are **DETERMINISTIC** (stable across cold loads — two sequential `DumpBPGraph` runs produce byte-identical JSON).
+- For K2Node_EditablePinBase subclasses (FunctionEntry, FunctionResult, CustomEvent) and K2Node_PromotableOperator, post-load IDs are **deterministically-derived from node context** (signature hash + NodeGuid etc.), NOT from disk.
+- Disk retains legacy IDs from when pins were first created; post-load IDs reflect current-signature-derived canonical values. They're both stable, but they don't match.
+- Pin names ARE stable across this divergence: `PinName` is declared by the node type (e.g., "then", "Target", "ReturnValue") and persists through signature-derived regeneration.
 
-Your job: emit `pin_name` alongside `pin_id` in Oracle-A's output, then regenerate all 6 fixtures so S-B-base can resume.
+**Correct design**: Oracle emits BOTH `pin_id` (unchanged — strong identity evidence when it matches) AND `name` (new — fallback for the cases where post-load-derived IDs diverge from disk). S-B-base's differential harness will do:
+
+1. **Primary pass**: match pins by `pin_id` (covers ~96.5% of pins — strong evidence two IDs refer to the same pin)
+2. **Fallback pass** for unmatched entries: match by (node_guid, name) tuple (covers the ~3.5% K2Node_EditablePinBase divergence)
+
+Your job: emit `name` alongside `pin_id` in Oracle-A's output, then regenerate all 6 fixtures so S-B-base can resume with hybrid matching.
+
+**Do NOT remove or replace `pin_id` as the dict key** — it stays as the primary identifier. You're adding a field inside each pin object.
 
 ---
 
@@ -106,17 +116,19 @@ Path-limited per D49:
 
 Commit message template:
 ```
-Oracle-A-v2: emit pin_name alongside pin_id for S-B-base differential
+Oracle-A-v2: emit pin name alongside pin_id for S-B-base hybrid matching
 
-Per D67, UE regenerates pin IDs on every load for K2Node_EditablePinBase
-subclasses + K2Node_PromotableOperator (PostLoad → ReconstructNode →
-AllocateDefaultPins via FGuid::NewGuid). Disk pin IDs are load-session-
-ephemeral and can never match post-load oracle across separate loads.
+Per D68 (corrected root-cause analysis superseding D67's framing):
+UE post-load pin IDs are deterministically-derived from node context
+for K2Node_EditablePinBase subclasses + K2Node_PromotableOperator —
+stable across cold loads (SHA256-verified) but divergent from disk IDs
+which retain historical per-pin-creation GUIDs.
 
-Pin names are stable (declared by node type, persist through regen).
-Amending Oracle-A to emit `name` alongside pin_id key in each pin dict
-lets S-B-base's differential harness match by (node_guid, pin_name)
-tuples instead of (node_guid, pin_id).
+This amendment adds a `name` field inside each pin dict while
+preserving pin_id as the primary key. S-B-base's differential harness
+does hybrid matching: primary pass by pin_id (~96.5% coverage, strong
+evidence), fallback pass by (node_guid, name) tuple for unmatched
+entries (~3.5% K2Node_EditablePinBase cases).
 
 Schema bumps oracle-a-v1 → oracle-a-v2. All 6 fixtures regenerated.
 ```
