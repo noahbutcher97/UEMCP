@@ -3,17 +3,18 @@
 // Layers:
 //   offline    — always available if projectRoot is set
 //   tcp-55557  — existing UnrealMCP plugin (Phase 2)
-//   tcp-55558  — new UEMCP plugin (Phase 3)
-//   http-30010 — Remote Control API (Phase 4)
+//   tcp-55558  — new UEMCP plugin (Phase 3 / M1)
+//   http-30010 — Remote Control API (D66 HYBRID — activated inside M-enhance)
 //
 // Design:
 //   - Lazy connect: don't probe until first tool call needs a layer
 //   - Health check caching with 30s TTL
 //   - Connect-per-command for TCP (matches existing plugin behavior)
 //   - Command queue: one in-flight command per TCP layer
-//   - Test seam: config.tcpCommandFn replaces real TCP for unit tests
+//   - Test seams: config.tcpCommandFn (TCP) / config.httpCommandFn (HTTP)
 
 import net from 'node:net';
+import http from 'node:http';
 import { createHash } from 'node:crypto';
 
 // ── Layer status ────────────────────────────────────────────
@@ -94,6 +95,78 @@ function tcpCommand(port, type, params, timeoutMs) {
     socket.on('error', (err) => {
       finish(new Error(`TCP:${port} — ${err.message}`));
     });
+  });
+}
+
+// ── HTTP Client (Remote Control, connect-per-request) ──────
+
+/**
+ * Send a single HTTP request to Unreal's Remote Control endpoint.
+ * Mirrors tcpCommand's contract — connect → send → read JSON → close.
+ *
+ * Remote Control endpoints accept POST/PUT with JSON body; a GET is used
+ * for read-only inventory (/remote/presets). We accept an explicit method
+ * to let the URL translator (rc-url-translator.mjs) drive shape.
+ *
+ * @param {number} port
+ * @param {string} method  - "GET" | "POST" | "PUT" | "DELETE"
+ * @param {string} path    - e.g. "/remote/object/property"
+ * @param {object|null} body
+ * @param {number} timeoutMs
+ * @returns {Promise<object>} parsed JSON response
+ */
+function httpCommand(port, method, path, body, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const payload = body == null ? null : Buffer.from(JSON.stringify(body), 'utf-8');
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(payload ? { 'Content-Length': payload.length } : {}),
+      },
+      timeout: timeoutMs,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        const status = res.statusCode || 0;
+        if (status >= 200 && status < 300) {
+          if (raw.length === 0) {
+            // RC returns 200 + empty body on some write paths (e.g. PUT property).
+            // Surface as success envelope so extractWireError treats it as non-error.
+            resolve({ success: true });
+            return;
+          }
+          try { resolve(JSON.parse(raw)); }
+          catch { reject(new Error(`HTTP:${port} — invalid JSON response: ${raw.slice(0, 200)}`)); }
+          return;
+        }
+        // Non-2xx → normalize to the error envelope shape the rest of the stack expects.
+        // D66 + D24: extractWireError translates {success:false, message} consistently.
+        let msg = `HTTP ${status}`;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && (parsed.errorMessage || parsed.message || parsed.error)) {
+            msg = parsed.errorMessage || parsed.message || parsed.error;
+          }
+        } catch {
+          if (raw) msg = `HTTP ${status} — ${raw.slice(0, 200)}`;
+        }
+        resolve({ success: false, message: msg, _httpStatus: status });
+      });
+    });
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`HTTP:${port} — timeout after ${timeoutMs}ms`));
+    });
+    req.on('error', (err) => reject(new Error(`HTTP:${port} — ${err.message}`)));
+    if (payload) req.write(payload);
+    req.end();
   });
 }
 
@@ -241,6 +314,14 @@ export class ConnectionManager {
      */
     this._tcpCommandFn = config.tcpCommandFn || null;
 
+    /**
+     * Test seam for HTTP (Layer 4 / Remote Control).
+     * Signature: (port, method, path, body, timeoutMs) => Promise<object>
+     * When set, no real HTTP requests are made — all HTTP calls route here.
+     * @type {((port: number, method: string, path: string, body: object|null, timeoutMs: number) => Promise<object>) | null}
+     */
+    this._httpCommandFn = config.httpCommandFn || null;
+
     /** @type {Record<string, {status: string, lastCheck: number, error?: string}>} */
     this.layers = {
       'offline':    { status: LayerStatus.UNKNOWN, lastCheck: 0 },
@@ -342,8 +423,12 @@ export class ConnectionManager {
           this.config.tcpTimeoutMs
         );
       } else if (layerKey === 'http-30010') {
-        // Phase 4 — HTTP proxy to Remote Control API
-        throw new Error(`HTTP layer not implemented yet`);
+        // D66 HYBRID: HTTP dispatch via `type` encoding {method, path} and params as body.
+        // Tool handlers should prefer sendHttp() directly — this branch only exists
+        // so the mock-seam wiring pattern (isLayerAvailable/probe) stays uniform.
+        throw new Error(
+          `send() does not dispatch HTTP — use sendHttp(method, path, body, opts) or the tool-layer rc-url-translator helper`
+        );
       } else {
         throw new Error(`Unknown layer: ${layerKey}`);
       }
@@ -375,6 +460,50 @@ export class ConnectionManager {
       this.layers[layerKey].lastCheck = Date.now();
       this.layers[layerKey].error = undefined;
 
+      return result;
+    });
+  }
+
+  /**
+   * Send an HTTP command to Layer 4 (Remote Control).
+   * Shares ResultCache + CommandQueue with the TCP layers so reads cache
+   * uniformly and HTTP requests to RC serialize (RC is not fully thread-safe
+   * on concurrent writes to the same object per FA-ε §Q2.8).
+   *
+   * Cache key is derived from (method, path, body) — distinct from the TCP
+   * key-shape (type, params) so there's no cross-layer collision.
+   *
+   * @param {string} method  "GET" | "POST" | "PUT" | "DELETE"
+   * @param {string} path    e.g. "/remote/object/property"
+   * @param {object|null} body
+   * @param {object} [opts]
+   * @param {boolean} [opts.skipCache=false]
+   * @returns {Promise<object>}
+   */
+  async sendHttp(method, path, body = null, opts = {}) {
+    const cacheType = `HTTP ${method} ${path}`;
+    if (!opts.skipCache) {
+      const cached = this._cache.get(cacheType, body || {});
+      if (cached) return cached;
+    }
+
+    return this._queue.enqueue('http-30010', async () => {
+      const httpFn = this._httpCommandFn || httpCommand;
+      const port = this.config.rcPort || 30010;
+      const timeoutMs = this.config.httpTimeoutMs || 5000;
+      const result = await httpFn(port, method, path, body, timeoutMs);
+
+      const errMessage = extractWireError(result);
+      if (errMessage !== null) {
+        throw new Error(`http-30010: ${errMessage}`);
+      }
+
+      if (!opts.skipCache) {
+        this._cache.set(cacheType, body || {}, result);
+      }
+      this.layers['http-30010'].status = LayerStatus.AVAILABLE;
+      this.layers['http-30010'].lastCheck = Date.now();
+      this.layers['http-30010'].error = undefined;
       return result;
     });
   }
@@ -592,11 +721,29 @@ export class ConnectionManager {
       }
 
       if (layerKey === 'http-30010') {
-        // Phase 4 — HTTP health check
-        layer.status = LayerStatus.UNAVAILABLE;
-        layer.error = 'HTTP layer not implemented yet';
-        layer.lastCheck = Date.now();
-        return false;
+        // RC health check: HEAD/GET against /remote/presets (read-only, fast,
+        // available on any RC install). Non-2xx or transport error → unavailable.
+        const httpFn = this._httpCommandFn || httpCommand;
+        const port = this.config.rcPort || 30010;
+        try {
+          const res = await httpFn(port, 'GET', '/remote/presets', null, 3000);
+          // extractWireError handles the {success:false, _httpStatus} shape from httpCommand.
+          if (extractWireError(res) !== null) {
+            layer.status = LayerStatus.UNAVAILABLE;
+            layer.error = `RC returned error shape: ${JSON.stringify(res).slice(0, 120)}`;
+            layer.lastCheck = Date.now();
+            return false;
+          }
+          layer.status = LayerStatus.AVAILABLE;
+          layer.lastCheck = Date.now();
+          layer.error = undefined;
+          return true;
+        } catch (err) {
+          layer.status = LayerStatus.UNAVAILABLE;
+          layer.error = err.message;
+          layer.lastCheck = Date.now();
+          return false;
+        }
       }
 
       return false;

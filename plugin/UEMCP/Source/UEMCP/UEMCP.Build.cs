@@ -28,6 +28,11 @@ public class UEMCP : ModuleRules
 			"GameplayTags",
 			"Json",
 			"JsonUtilities",
+			// D66 HYBRID — matches UEMCP.uplugin Plugins[] entry (UBT D60 rule).
+			// Consumed directly for RC-adjacent type references (URemoteControlPreset etc).
+			// HTTP traffic to the engine's WebRemoteControl server is server-side so no
+			// direct WebRemoteControl dep here.
+			"RemoteControl",
 		});
 		// Note: GameplayAbilities removed per D60 — M1 scaffold doesn't reference GAS.
 		// M3+ GAS tool workers (create_gameplay_effect etc.) re-add it here AND to

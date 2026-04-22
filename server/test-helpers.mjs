@@ -217,9 +217,86 @@ export function createTestConfig(projectRoot, fakeResponder) {
     projectRoot,
     tcpPortExisting: 55557,
     tcpPortCustom: 55558,
-    httpPort: 30010,
+    httpPort: 30010,  // legacy alias — kept so existing tests don't churn
+    rcPort: 30010,    // canonical (D66) — matches server.mjs
     tcpTimeoutMs: 5000,
+    httpTimeoutMs: 5000,
     tcpCommandFn: fake.handler(),
   };
   return { config, fake };
+}
+
+/**
+ * FakeHttpResponder — canned responses for Remote Control HTTP calls.
+ *
+ * Mirrors FakeTcpResponder's contract. Responses are keyed by a string
+ * `"${method} ${path}"` (e.g. "GET /remote/presets").
+ *
+ * Usage:
+ *   const rc = new FakeHttpResponder();
+ *   rc.on('PUT /remote/object/property', { success: true });
+ *   rc.on('GET /remote/presets', { Presets: [] });
+ *
+ *   const conn = new ConnectionManager({ ...config, httpCommandFn: rc.handler() });
+ *   await conn.sendHttp('PUT', '/remote/object/property', {...});
+ */
+export class FakeHttpResponder {
+  constructor() {
+    this._responses = new Map();
+    /** @type {{port: number, method: string, path: string, body: object|null, ts: number}[]} */
+    this.calls = [];
+    this._defaultResponse = null;
+  }
+
+  /**
+   * Register a canned response for a method+path key.
+   * @param {string} key — e.g. "PUT /remote/object/property"
+   * @param {object|Function} response — static object or (port, method, path, body) => object
+   */
+  on(key, response) {
+    this._responses.set(key, response);
+    return this;
+  }
+
+  onDefault(response) {
+    this._defaultResponse = response;
+    return this;
+  }
+
+  lastCall(key) {
+    for (let i = this.calls.length - 1; i >= 0; i--) {
+      const c = this.calls[i];
+      if (`${c.method} ${c.path}` === key) return c;
+    }
+    return undefined;
+  }
+
+  callsFor(key) {
+    return this.calls.filter(c => `${c.method} ${c.path}` === key);
+  }
+
+  resetCalls() {
+    this.calls = [];
+  }
+
+  reset() {
+    this.calls = [];
+    this._responses.clear();
+    this._defaultResponse = null;
+  }
+
+  handler() {
+    return async (port, method, path, body, timeoutMs) => {
+      this.calls.push({ port, method, path, body, ts: Date.now() });
+      const key = `${method} ${path}`;
+      const response = this._responses.get(key) ?? this._defaultResponse;
+      if (response === null || response === undefined) {
+        throw new Error(`FakeHttpResponder: no response registered for "${key}"`);
+      }
+      if (typeof response === 'function') {
+        return response(port, method, path, body);
+      }
+      return JSON.parse(JSON.stringify(response));
+    };
+  }
 }
