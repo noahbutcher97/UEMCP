@@ -84,9 +84,10 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-21 (Wave 2, S-B-base only):
+In-flight as of 2026-04-22 (Wave 2 + Path C unblock):
 
-- **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). 4-6 sessions. Critical path for D52 edge-topology offline near-parity. Scope: `server/*` (path-limited per D49).
+- **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). Session 1 CP1+CP2 shipped (`cdf951b`+`e35f431`); baseline 914→966. **Paused pending Oracle-A-v2** per D67 — Path A (re-save) empirically failed; UE regenerates pin IDs load-session-ephemerally for K2Node_EditablePinBase subclasses + K2Node_PromotableOperator. Scope: `server/*`.
+- **Oracle-A-v2 pin-name amendment** — handoff `docs/handoffs/oracle-a-v2-pin-names.md`. 30-60 min micro-worker. Plugin-side `EdgeOnlyBPSerializer.cpp` amendment emits `pin_name` alongside `pin_id`; schema version bumps v1→v2; all 6 fixtures regenerated. Unblocks S-B-base differential harness to match by (node_guid, pin_name) tuples. Zero file-level collision with S-B-base (plugin/ vs server/*).
 
 **Pre-drafted, NOT yet dispatched**:
 - **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report. Dispatches sequentially after S-B-base lands.
