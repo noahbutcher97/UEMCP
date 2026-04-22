@@ -84,20 +84,17 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-21 (Wave 2 kickoff):
+In-flight as of 2026-04-21 (Wave 2, S-B-base only):
 
 - **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). 4-6 sessions. Critical path for D52 edge-topology offline near-parity. Scope: `server/*` (path-limited per D49).
-- **FA-ε M-enhance transport research** — handoff `docs/handoffs/fa-epsilon-tcp-vs-rc-research.md` (commit `697b331`). 1-2 sessions. Decision document resolving D58 open orchestrator call (custom TCP brokers vs Phase 4 RC HTTP for M-enhance runtime/compile/reflection queries). Scope: `docs/research/` + optional D-log amendments (path-limited per D49).
-
-**Parallel coordination notes**:
-- Zero file-level collision between the two workers (S-B-base in server/*, FA-ε in docs/research/).
-- Both may surface D-log amendments at report-time; orchestrator merges on worker return.
 
 **Pre-drafted, NOT yet dispatched**:
-- **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report (extractBPEdgeTopology signature, K2Node coverage gaps, format-variance notes). Dispatches sequentially after S-B-base lands.
+- **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report. Dispatches sequentially after S-B-base lands.
+- **M-enhance** (pending draft) — transport decision RESOLVED by D66 HYBRID verdict. Handoff drafting unblocked; no S-B-base dependency for scope content (M-enhance is independent of S-B-base content-wise — only file-level `server/*` collision blocks concurrent dispatch). Dispatches after S-B-base completes.
 
 Recently shipped (most recent first):
 
+- **FA-ε M-enhance transport research** (commit `56ff6f6`, 2026-04-21) — 404-line decision document at `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. Verdict: HYBRID (RC HTTP for flat reflection + metadata allowlist subset; TCP for compile diagnostics / UEdGraph walks / compiled-state / editor-static). **Phase 4 as a scheduled milestone absorbed into M-enhance**; D23 Layer 4 semantic allocation persists. Aggregate Phase 3 delta: −2 to −4 sessions. Full context in D66.
 - **UEMCPModule log-demotion** (commit `60bb94a`, 2026-04-21) — D61 follow-on closed. Warning → Log demote at `UEMCPModule.cpp` StartupModule. Clean rebuild via D61 nuke recipe (12.19s, 16 actions); DLL mtime post source mtime confirmed no UBT cache staleness; D57 gate re-run [PASS]. Baseline unchanged. D65 for full report.
 - **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against ProjectA; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
 - **EN-8 + EN-9 bundle** (commit `1bc3e8b`, 2026-04-21) — workflow gaps from M-spatial manual testing closed. `bp_list_graphs` emits `comment_ids: []` per-graph row; all 5 M-spatial verbs return FA-β `{available: false, reason: "asset_not_found"}` on ENOENT. `withAssetExistenceCheck` helper exported for Verb-surface reuse. **Test baseline 899 → 914** (+15 assertions including full-contract helper coverage). Comment class-name confirmed as `EdGraphNode_Comment` (no U prefix — UE strips at serialization). D63 for full report.
@@ -121,16 +118,16 @@ Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-
 
 **Wave 3 — enhancement + writes** (post-M1 + post-M-new):
 
-- **M-enhance** (3-5 sessions) — narrow sidecar (plugin-only fields: compile errors, reflection flags, runtime/compiled derivatives) + save-hook + 3F-4 production commandlet + editor-menu prime + runtime/compile/reflection TCP brokers. Parallelizes with M3/M4/M5. Dispatches in parallel with M-new Wave 2 if M1 + plugin scaffold landed.
+- **M-enhance** (3-5 sessions) — HYBRID transport per D66/FA-ε verdict: RC HTTP (30010) for flat UPROPERTY/UFUNCTION reads + metadata allowlist subset; TCP (55558) for compile diagnostics / UEdGraph walks / compiled-state / editor-static. Includes narrow sidecar (plugin-only fields), save-hook, 3F-4 production commandlet, editor-menu prime. **Absorbs what was Phase 4** (RC HTTP client infrastructure folds into M-enhance). Parallelizes with M3/M4/M5. Dispatches after S-B-base completes (server/* file-collision constraint; content-wise independent of S-B-base).
 - **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2.
 - **M4** — reduced reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets. **Under D58**: 3 of the previously-M4 tools (`get_blueprint_graphs`, `get_animbp_graph`, `get_widget_blueprint` EventGraph subset) move to offline-primary via M-new/M-spatial; they stay in M-enhance as enrichment only. M4's reduced-reads list drops to 12 from scope-refresh §Q5.3's 15.
 - **M5** — remaining Phase 3 toolsets (6-10 sessions, 3-4 sub-workers) — animation + materials + geometry + input-and-pie + editor-utility + visual-capture. Unchanged from scope-refresh §Q5.3.
 
-**Aggregate**: 28.5-47 sessions; wall-clock ~14-22 with parallelism.
+**Aggregate**: 26.5-43 sessions post-D66 (original 28.5-47 reduced by 2-4 from Phase 4 absorption into M-enhance); wall-clock ~13-21 with parallelism.
 
 **Open orchestrator calls** (per D58 follow-on items):
 
-- **FA-ε**: M-enhance's TCP brokers for runtime/compile/reflection queries vs deferring those to Phase 4 Remote Control API — decide when M-enhance handoff drafts.
+- ~~**FA-ε**~~ — RESOLVED by D66 HYBRID verdict 2026-04-21 (commit `56ff6f6`).
 - **Scaffold commit timing**: fold into M1 vs separate 0.25-session dispatch — decide when M1 amendment lands.
 
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
