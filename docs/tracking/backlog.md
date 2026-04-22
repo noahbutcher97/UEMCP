@@ -90,7 +90,7 @@ In-flight as of 2026-04-21 (Wave 2, S-B-base only):
 
 **Pre-drafted, NOT yet dispatched**:
 - **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report. Dispatches sequentially after S-B-base lands.
-- **M-enhance** (pending draft) — transport decision RESOLVED by D66 HYBRID verdict. Handoff drafting unblocked; no S-B-base dependency for scope content (M-enhance is independent of S-B-base content-wise — only file-level `server/*` collision blocks concurrent dispatch). Dispatches after S-B-base completes.
+- **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches sequentially after S-B-base due to `server/*` file-collision only. Test baseline reference is [LATE-BINDING from S-B-base final report].
 
 Recently shipped (most recent first):
 
