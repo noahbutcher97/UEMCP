@@ -45,22 +45,125 @@ echo Checking for Node.js...
 node --version 2>nul
 if errorlevel 1 (
   echo.
-  echo [ERROR] Node.js is not installed or not on PATH for cmd.exe.
+  echo [NOTICE] Node.js is not installed or not on PATH for cmd.exe.
   echo.
   echo Note: if you have Claude Code installed, it uses a *bundled* Node that is
   echo NOT exposed on system PATH. This script needs a standalone Node install.
-  echo.
-  echo Install options ^(any one works^):
-  echo   1. Winget:  winget install OpenJS.NodeJS.LTS
-  echo   2. Direct:  https://nodejs.org/ ^(pick the LTS installer^)
-  echo   3. nvm-windows: https://github.com/coreybutler/nvm-windows
-  echo.
-  echo After install, OPEN A FRESH cmd window ^(so PATH refreshes^) and re-run.
-  echo Quick verify:  node --version    should print v20.x or v22.x.
-  set "EXIT_CODE=1" & goto :end
+  goto :try_install_node
 )
 echo   Node OK.
 echo.
+goto :node_done
+
+REM ============================================================================
+REM Node install flow — Tier 1 (winget) → Tier 2 (direct MSI) → manual fallback.
+REM On success, we CANNOT continue in this cmd session: newly-installed Node is
+REM in the registry-level PATH but won't be visible until a fresh cmd is opened.
+REM So all success paths here exit the script with "close and re-run" guidance.
+REM
+REM To auto-accept install prompts (CI / scripted use): set SETUP_AUTO_YES=1
+REM before invoking the script.
+REM ============================================================================
+
+:try_install_node
+echo.
+where winget >nul 2>&1
+if errorlevel 1 (
+  echo winget not found on this machine. Falling back to direct MSI download.
+  goto :try_install_node_direct
+)
+
+set "REPLY="
+if defined SETUP_AUTO_YES (
+  set "REPLY=y"
+) else (
+  set /p "REPLY=Install Node LTS via winget (user scope, no admin needed)? [Y/n]: "
+)
+if "!REPLY!"=="" set "REPLY=y"
+if /i not "!REPLY!"=="y" goto :try_install_node_direct
+
+echo.
+echo Running: winget install OpenJS.NodeJS.LTS --scope user ...
+winget install OpenJS.NodeJS.LTS --scope user --accept-source-agreements --accept-package-agreements
+set "WINGET_EXIT=!errorlevel!"
+if not "!WINGET_EXIT!"=="0" (
+  echo.
+  echo [WARN] winget exit !WINGET_EXIT!. Falling back to direct MSI download.
+  goto :try_install_node_direct
+)
+echo.
+echo [SUCCESS] Node installed via winget.
+goto :node_install_done
+
+:try_install_node_direct
+echo.
+set "REPLY="
+if defined SETUP_AUTO_YES (
+  set "REPLY=y"
+) else (
+  set /p "REPLY=Download Node LTS installer from nodejs.org and run it? [Y/n]: "
+)
+if "!REPLY!"=="" set "REPLY=y"
+if /i not "!REPLY!"=="y" goto :node_install_manual
+
+REM PowerShell fetches index.json, finds latest LTS, downloads the x64 MSI into
+REM %TEMP%, and invokes msiexec /passive (UAC prompt appears — user must accept).
+REM PS code is kept on a single line for robustness — CMD line continuation (^)
+REM under CRLF conversion is fragile. Uses single-quoted PS strings + string
+REM concatenation instead of nested "..." to avoid CMD-vs-PS quoting collisions.
+set "NODE_MSI_PATH=%TEMP%\nodejs-lts-x64.msi"
+echo.
+echo Downloading Node LTS MSI to !NODE_MSI_PATH! ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $idx=Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json'; $lts=($idx | Where-Object { $_.lts } | Select-Object -First 1); $ver=$lts.version; $url=('https://nodejs.org/dist/' + $ver + '/node-' + $ver + '-x64.msi'); Write-Host ('LTS version: ' + $ver); Write-Host ('URL: ' + $url); Invoke-WebRequest -Uri $url -OutFile '!NODE_MSI_PATH!' -UseBasicParsing"
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Node MSI download failed.
+  goto :node_install_manual
+)
+if not exist "!NODE_MSI_PATH!" (
+  echo.
+  echo [ERROR] Download claimed success but MSI not at !NODE_MSI_PATH!.
+  goto :node_install_manual
+)
+
+echo.
+echo Launching MSI installer ^(UAC prompt will appear^)...
+echo Accept the UAC prompt to proceed with install. Decline = manual fallback.
+start /wait msiexec /i "!NODE_MSI_PATH!" /passive
+set "MSI_EXIT=!errorlevel!"
+del /q "!NODE_MSI_PATH!" >nul 2>&1
+if not "!MSI_EXIT!"=="0" (
+  echo.
+  echo [ERROR] Node MSI installer exited with code !MSI_EXIT!.
+  echo         Common causes: UAC declined, antivirus blocked, or corp policy.
+  goto :node_install_manual
+)
+echo [SUCCESS] Node installed via MSI.
+goto :node_install_done
+
+:node_install_manual
+echo.
+echo [ERROR] Automated Node install did not complete.
+echo.
+echo Install options ^(any one works^):
+echo   1. Winget:  winget install OpenJS.NodeJS.LTS
+echo   2. Direct:  https://nodejs.org/ ^(pick the LTS installer^)
+echo   3. nvm-windows: https://github.com/coreybutler/nvm-windows
+echo.
+echo After install, OPEN A FRESH cmd window ^(so PATH refreshes^) and re-run.
+echo Quick verify:  node --version    should print v20.x or v22.x.
+set "EXIT_CODE=1" & goto :end
+
+:node_install_done
+echo.
+echo +-------------------------------------------------------------------+
+echo ^| Node is installed, but this cmd window still has the OLD PATH.   ^|
+echo ^| Close this window and re-run setup-uemcp.bat in a FRESH cmd.     ^|
+echo ^| The fresh cmd will pick up the new Node on PATH automatically.   ^|
+echo +-------------------------------------------------------------------+
+set "EXIT_CODE=0" & goto :end
+
+:node_done
 
 REM --- Accept target project path ---
 REM   Arg given: use it (programmatic / repeat-run mode).
