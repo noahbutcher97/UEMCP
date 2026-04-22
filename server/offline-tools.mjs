@@ -2287,10 +2287,14 @@ async function bpSubgraphInComment(projectRoot, params) {
 /**
  * bp_list_entry_points — enumerate K2Node_Event/CustomEvent/FunctionEntry nodes.
  *
- * PARTIAL (FA-β): class-identity heuristic; does not tell which entries have
- * outgoing exec connectivity (that needs pin data from M-new S-B). Entries
- * that are not wired to anything still appear here — callers that care about
- * live/dead entries should wait for the pin-aware upgrade.
+ * M-new (D58) precision upgrade: class-identity heuristic retained for
+ * backward-compat, now annotated with `has_no_exec_in` via S-B-base pin data.
+ * A true entry point has no incoming exec pin wired — entries whose
+ * `has_no_exec_in` is `false` are technically entry-shaped nodes that
+ * receive control from elsewhere (rare, but possible with complex macro
+ * instantiations). The response advertises `exec_connectivity` in
+ * `available_fields` once pin data is loaded; falls back to FA-β partial
+ * coverage when the topology parse fails.
  */
 async function bpListEntryPoints(projectRoot, params) {
   const assetPath = params.asset_path;
@@ -2302,6 +2306,24 @@ async function bpListEntryPoints(projectRoot, params) {
   const graphNameByPi = new Map();
   for (const g of graphs) graphNameByPi.set(g.export_index, g.name);
 
+  // Build a quick lookup: (graph_name, node_guid) → has_incoming_exec_link?
+  // Key by the (graph, guid) tuple per D70 — NodeGuids are NOT unique across
+  // sibling graphs in one BP.
+  const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
+  const incomingExecByGraphGuid = new Map();
+  for (const [gName, gEntry] of Object.entries(topology.graphs ?? {})) {
+    for (const [srcGuid, srcNode] of Object.entries(gEntry.nodes)) {
+      for (const pin of Object.values(srcNode.pins)) {
+        if (pin.direction !== 'EGPD_Output') continue;
+        if (!isExecPin(pin)) continue;
+        for (const link of pin.linked_to) {
+          incomingExecByGraphGuid.set(`${gName}|${link.node_guid}`, true);
+          void srcGuid;
+        }
+      }
+    }
+  }
+
   const entries = [];
   for (let i = 0; i < exports.length; i++) {
     const e = exports[i];
@@ -2309,12 +2331,18 @@ async function bpListEntryPoints(projectRoot, params) {
     if (!cls || !ENTRY_POINT_CLASSES.has(cls)) continue;
     const shape = parseNodeShape(ctx, e, i + 1);
     const semantics = extractNodeSemantics(cls, shape.rawProps);
+    const gName = graphNameByPi.get(e.outerIndex) ?? null;
+    const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+    const hasNoExecIn = gName !== null && oracleGuid !== null
+      ? !incomingExecByGraphGuid.has(`${gName}|${oracleGuid}`)
+      : null;
     entries.push({
       ...shape.row,
       node_class: cls,
       member_name: semantics.member_name ?? null,
       target_class: semantics.target_class ?? null,
-      graph_name: graphNameByPi.get(e.outerIndex) ?? null,
+      graph_name: gName,
+      has_no_exec_in: hasNoExecIn,
     });
   }
 
@@ -2323,15 +2351,20 @@ async function bpListEntryPoints(projectRoot, params) {
     diskPath: diskPath.replace(/\\/g, '/'),
     entry_point_count: entries.length,
     entry_points: entries,
-    ...faBetaManifest(['exec_connectivity']),
+    ...faBetaManifest([], ['exec_connectivity']),
   });
 }
 
 /**
  * bp_show_node — full export record for a single node by id.
  *
- * PARTIAL (FA-β): pin block (pins[], LinkedTo edges) not populated — that
- * data lives in the 3F sidecar or a pin-aware M-new reader.
+ * M-new (D58) pin-block completion: pins[] is populated from S-B-base
+ * topology when the node is reachable there (keyed by its Oracle-A
+ * NodeGuid under its owning graph). When the node's guid converts and
+ * matches a topology entry, `pin_block` moves from `not_available` to
+ * `available_fields`. Non-graph-node exports (nodes whose class isn't
+ * K2Node_* / EdGraphNode_Comment, or whose pin-block parse returned
+ * malformed) still emit pins=[] with `pin_block` in not_available.
  */
 async function bpShowNode(projectRoot, params) {
   const assetPath = params.asset_path;
@@ -2369,6 +2402,28 @@ async function bpShowNode(projectRoot, params) {
   const { graphs } = indexBlueprintGraphs(ctx);
   const graph = graphs.find(g => g.export_index === nodeExport.outerIndex);
 
+  // Pin-block completion via topology. Share the ctx already parsed above —
+  // avoids a second read of the uasset bytes. Keyed by (graph_name, guid)
+  // per D70 uniqueness invariant; fall back to scanning all graphs when the
+  // M-spatial graph lookup returned null (e.g., orphan graphs).
+  let pinsOut = [];
+  let pinBlockAvailable = false;
+  const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+  if (oracleGuid) {
+    const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
+    const primary = graph ? topology.graphs?.[graph.name]?.nodes?.[oracleGuid] : null;
+    const match = primary ?? (() => {
+      for (const gEntry of Object.values(topology.graphs ?? {})) {
+        if (gEntry.nodes?.[oracleGuid]) return gEntry.nodes[oracleGuid];
+      }
+      return null;
+    })();
+    if (match) {
+      pinsOut = Object.entries(match.pins).map(([pinId, pin]) => shapePublicPin(pinId, pin));
+      pinBlockAvailable = true;
+    }
+  }
+
   const node = {
     ...shape.row,
     outer_graph_name: graph?.name ?? null,
@@ -2377,14 +2432,17 @@ async function bpShowNode(projectRoot, params) {
     target_class: semantics.target_class ?? null,
     macro_path: semantics.macro_path ?? null,
     properties: shape.rawProps,
-    pins: [],  // FA-β placeholder; populated by M-new S-B
+    pins: pinsOut,
   };
 
   return stripPackageIndex({
     asset_path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     node,
-    ...faBetaManifest(['pin_block']),
+    ...faBetaManifest(
+      pinBlockAvailable ? [] : ['pin_block'],
+      pinBlockAvailable ? ['pin_block'] : [],
+    ),
   });
 }
 
@@ -2441,12 +2499,13 @@ export function withAssetExistenceCheck(handler) {
 //
 // Contract matches Oracle-A-v2 per-pin dict (`name`+`direction`+`linked_to`)
 // so the differential harness can diff directly without shape adapters.
-//
-// @param {string} projectRoot
-// @param {{ asset_path: string }} params
-async function extractBPEdgeTopology(projectRoot, params) {
-  const assetPath = params.asset_path;
-  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+
+/**
+ * Extract topology from a pre-parsed asset context. Used by
+ * `extractBPEdgeTopology` (public entry) and by M-new verbs that have
+ * already paid the parse cost (e.g., `bp_show_node` sharing its own ctx).
+ */
+function extractBPEdgeTopologyFromCtx(ctx, assetPath) {
   const { buf, names, imports, exports, resolve, structHandlers, containerHandlers } = ctx;
   const topology = resolveLinkedToEdges(buf, exports, imports, names, {
     resolve, structHandlers, containerHandlers,
@@ -2459,6 +2518,14 @@ async function extractBPEdgeTopology(projectRoot, params) {
   };
 }
 
+// @param {string} projectRoot
+// @param {{ asset_path: string }} params
+async function extractBPEdgeTopology(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  return extractBPEdgeTopologyFromCtx(ctx, assetPath);
+}
+
 /**
  * Guarded `extractBPEdgeTopology`. Returns an FA-β graceful-degradation
  * envelope (`{available: false, reason: 'asset_not_found', asset_path}`)
@@ -2467,6 +2534,353 @@ async function extractBPEdgeTopology(projectRoot, params) {
  * Exported for Verb-surface worker + the differential test harness.
  */
 export const extractBPEdgeTopologySafe = withAssetExistenceCheck(extractBPEdgeTopology);
+
+// ── M-new Verb-surface shared helpers ──────────────────────────────────────
+//
+// Exec-vs-data pin classification by NAME CONVENTION — PinCategory is not
+// captured in the current S-B-base parse (parsePinBlock skips FEdGraphPinType
+// bytes). The vocabulary below covers every exec pin observed across the
+// Oracle-A-v2 corpus (BP_OSPlayerR + BP_OSControlPoint + children): standard
+// entry/exit (`execute`, `then`, `else`, `completed`, `throw`), Sequence
+// fan-out (`then_0`...`then_N`), DynamicCast (`CastFailed`), WhileLoop
+// (`LoopBody`), SwitchEnum/Integer (`Out 0`...`Out N`, `Default`). Match is
+// case-insensitive. Pins whose name falls outside this set are classified as
+// data — acceptable for the 5 v1 verbs; false-negatives surface as "data
+// edges that should have been exec" and can be addressed by later PinCategory
+// capture (S-B-overrides scope). KNOWN FALSE-POSITIVE RISK: the word
+// "Default" appears as both SwitchEnum/String's default-case exec output
+// (legit exec) and could conceivably appear as a data pin named "Default"
+// on a user-defined node. No such false-positive in the current corpus —
+// S-B-overrides can tighten this by reading PinCategory when it lands.
+const EXEC_PIN_NAME_RE = /^(execute|exec|then|else|completed|castfailed|loopbody|throw|default)(_\d+)?$|^out( \d+)?$/i;
+function isExecPin(pin) {
+  if (!pin || typeof pin.name !== 'string') return false;
+  return EXEC_PIN_NAME_RE.test(pin.name);
+}
+
+/**
+ * Convert the raw NodeGuid emitted by the tagged-fallback FGuid handler
+ * (32-char lowercase, byte-LE) into Oracle-A-v2 format (32-char uppercase,
+ * BE-per-uint32). Mirrors the parser-internal `extractNodeGuid` transform.
+ * Returns null when input isn't a 32-char hex string.
+ */
+function toOracleHexGuid(rawGuid) {
+  if (typeof rawGuid !== 'string' || rawGuid.length !== 32) return null;
+  let out = '';
+  for (let g = 0; g < 4; g++) {
+    const chunk = rawGuid.substr(g * 8, 8);
+    const beHex = chunk.match(/../g).reverse().join('');
+    out += beHex.toUpperCase();
+  }
+  return out;
+}
+
+/**
+ * Look up a graph by name in topology.graphs, returning the graph entry or
+ * an FA-β `graph_not_found` envelope with the available_graphs enumeration.
+ * Shared by bp_trace_exec, bp_trace_data, bp_neighbors.
+ */
+function resolveTopologyGraph(topology, assetPath, graphName) {
+  const graph = topology.graphs?.[graphName];
+  if (graph) return { graph };
+  return {
+    envelope: {
+      available: false,
+      reason: 'graph_not_found',
+      asset_path: assetPath,
+      graph_name: graphName,
+      available_graphs: Object.keys(topology.graphs ?? {}),
+    },
+  };
+}
+
+/**
+ * Shape a pin for the public surface: strip linked_to's internal structure
+ * and tag with pin_kind (exec|data) for caller filtering convenience.
+ */
+function shapePublicPin(pinId, pin) {
+  return {
+    pin_id: pinId,
+    name: pin.name ?? '',
+    direction: pin.direction,
+    pin_kind: isExecPin(pin) ? 'exec' : 'data',
+    linked_to: pin.linked_to,
+  };
+}
+
+// ── bp_trace_exec ──────────────────────────────────────────────────────────
+//
+// BFS walk of outgoing exec pins from a source node. Returns an ordered list
+// of visited nodes with the pin they were reached through. Cycle-safe via a
+// visited-set; depth capped by `max_depth`. Optional `pin_name` filter
+// narrows the exec pins followed at each step (useful for "trace only the
+// 'then' chain from a branch" style queries).
+async function bpTraceExec(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const graphName = params.graph_name;
+  const startGuid = params.start_node_id;
+  if (!graphName) throw new Error('Missing required parameter: graph_name');
+  if (!startGuid) throw new Error('Missing required parameter: start_node_id');
+
+  const maxDepth = Math.max(1, Math.min(params.max_depth ?? 50, 500));
+  const pinNameFilter = params.pin_name ?? null;
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
+  const g = resolveTopologyGraph(topology, assetPath, graphName);
+  if (g.envelope) return g.envelope;
+
+  const nodes = g.graph.nodes;
+  if (!nodes[startGuid]) {
+    return {
+      available: false,
+      reason: 'node_not_found',
+      asset_path: assetPath,
+      graph_name: graphName,
+      start_node_id: startGuid,
+    };
+  }
+
+  const chain = [];
+  const visited = new Set();
+  let maxDepthReached = 0;
+  let depthCapHit = false;
+
+  // BFS — queue of {node_guid, depth, via_pin, via_pin_name, from_node_guid}
+  const queue = [{ node_guid: startGuid, depth: 0, via_pin: null, via_pin_name: null, from_node_guid: null }];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    if (visited.has(cur.node_guid)) continue;
+    visited.add(cur.node_guid);
+    const node = nodes[cur.node_guid];
+    if (!node) continue;
+    chain.push({
+      node_guid: cur.node_guid,
+      class_name: node.class_name,
+      via_pin: cur.via_pin,
+      via_pin_name: cur.via_pin_name,
+      from_node_guid: cur.from_node_guid,
+      depth: cur.depth,
+    });
+    if (cur.depth > maxDepthReached) maxDepthReached = cur.depth;
+    if (cur.depth >= maxDepth) { depthCapHit = true; continue; }
+
+    for (const [pinId, pin] of Object.entries(node.pins)) {
+      if (pin.direction !== 'EGPD_Output') continue;
+      if (!isExecPin(pin)) continue;
+      if (pinNameFilter !== null && pin.name !== pinNameFilter) continue;
+      for (const link of pin.linked_to) {
+        if (visited.has(link.node_guid)) continue;
+        queue.push({
+          node_guid: link.node_guid,
+          depth: cur.depth + 1,
+          via_pin: pinId,
+          via_pin_name: pin.name,
+          from_node_guid: cur.node_guid,
+        });
+      }
+    }
+  }
+
+  return {
+    asset_path: assetPath,
+    graph_name: graphName,
+    start_node_id: startGuid,
+    pin_name_filter: pinNameFilter,
+    max_depth: maxDepth,
+    max_depth_reached: maxDepthReached,
+    truncated_at_depth: depthCapHit,
+    chain_length: chain.length,
+    chain,
+    ...faBetaManifest([], ['exec_connectivity', 'pin_block']),
+  };
+}
+
+// ── bp_trace_data ──────────────────────────────────────────────────────────
+//
+// BFS walk of outgoing data (non-exec) pins from a source node. Each entry
+// in `sinks` represents one edge — if the source node has three output data
+// pins each linking to two consumers, you get six rows. Unlike exec traces,
+// data wires commonly have multiple consumers per source, so the flat edge
+// list is more natural than a deduped node chain.
+async function bpTraceData(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const graphName = params.graph_name;
+  const startGuid = params.start_node_id;
+  if (!graphName) throw new Error('Missing required parameter: graph_name');
+  if (!startGuid) throw new Error('Missing required parameter: start_node_id');
+
+  const maxDepth = Math.max(1, Math.min(params.max_depth ?? 50, 500));
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
+  const g = resolveTopologyGraph(topology, assetPath, graphName);
+  if (g.envelope) return g.envelope;
+
+  const nodes = g.graph.nodes;
+  if (!nodes[startGuid]) {
+    return {
+      available: false,
+      reason: 'node_not_found',
+      asset_path: assetPath,
+      graph_name: graphName,
+      start_node_id: startGuid,
+    };
+  }
+
+  const sinks = [];
+  const visited = new Set();
+  let depthCapHit = false;
+  let maxDepthReached = 0;
+
+  const queue = [{ node_guid: startGuid, depth: 0 }];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    if (visited.has(cur.node_guid)) continue;
+    visited.add(cur.node_guid);
+    if (cur.depth > maxDepthReached) maxDepthReached = cur.depth;
+    if (cur.depth >= maxDepth) { depthCapHit = true; continue; }
+
+    const node = nodes[cur.node_guid];
+    if (!node) continue;
+    for (const [pinId, pin] of Object.entries(node.pins)) {
+      if (pin.direction !== 'EGPD_Output') continue;
+      if (isExecPin(pin)) continue;
+      for (const link of pin.linked_to) {
+        const sinkNode = nodes[link.node_guid];
+        const sinkPin = sinkNode?.pins?.[link.pin_id];
+        sinks.push({
+          from_node_guid: cur.node_guid,
+          to_node_guid: link.node_guid,
+          class_name: sinkNode?.class_name ?? null,
+          source_pin: pinId,
+          source_pin_name: pin.name,
+          sink_pin: link.pin_id,
+          sink_pin_name: sinkPin?.name ?? null,
+          depth: cur.depth,
+        });
+        if (!visited.has(link.node_guid)) {
+          queue.push({ node_guid: link.node_guid, depth: cur.depth + 1 });
+        }
+      }
+    }
+  }
+
+  return {
+    asset_path: assetPath,
+    graph_name: graphName,
+    start_node_id: startGuid,
+    max_depth: maxDepth,
+    max_depth_reached: maxDepthReached,
+    truncated_at_depth: depthCapHit,
+    sink_count: sinks.length,
+    sinks,
+    ...faBetaManifest([], ['exec_connectivity', 'pin_block']),
+  };
+}
+
+// ── bp_neighbors ───────────────────────────────────────────────────────────
+//
+// Immediate-neighbor query. Returns edges adjacent to a target node in one
+// or both directions. Each edge is annotated with `edge_kind` (exec|data)
+// for client-side filtering. Self-loops are preserved per D70 invariant —
+// they appear in `outgoing` only (not double-counted in `incoming`).
+async function bpNeighbors(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const graphName = params.graph_name;
+  const nodeGuid = params.node_id;
+  if (!graphName) throw new Error('Missing required parameter: graph_name');
+  if (!nodeGuid) throw new Error('Missing required parameter: node_id');
+
+  const directionFilter = params.direction ?? 'both';
+  if (!['incoming', 'outgoing', 'both'].includes(directionFilter)) {
+    throw new Error(`Invalid direction: ${directionFilter} (expected 'incoming', 'outgoing', or 'both')`);
+  }
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
+  const g = resolveTopologyGraph(topology, assetPath, graphName);
+  if (g.envelope) return g.envelope;
+
+  const nodes = g.graph.nodes;
+  const target = nodes[nodeGuid];
+  if (!target) {
+    return {
+      available: false,
+      reason: 'node_not_found',
+      asset_path: assetPath,
+      graph_name: graphName,
+      node_id: nodeGuid,
+    };
+  }
+
+  const outgoing = [];
+  const incoming = [];
+
+  if (directionFilter !== 'incoming') {
+    for (const [pinId, pin] of Object.entries(target.pins)) {
+      if (pin.direction !== 'EGPD_Output') continue;
+      for (const link of pin.linked_to) {
+        const remote = nodes[link.node_guid];
+        const remotePin = remote?.pins?.[link.pin_id];
+        outgoing.push({
+          node_guid: link.node_guid,
+          class_name: remote?.class_name ?? null,
+          local_pin: pinId,
+          local_pin_name: pin.name,
+          remote_pin: link.pin_id,
+          remote_pin_name: remotePin?.name ?? null,
+          edge_kind: isExecPin(pin) ? 'exec' : 'data',
+        });
+      }
+    }
+  }
+
+  if (directionFilter !== 'outgoing') {
+    // Walk every node's output pins looking for links into the target.
+    // Self-loop handling: when direction='both', the self-loop is already
+    // captured in `outgoing`; skip in the incoming scan to avoid
+    // double-counting. When direction='incoming' alone, a self-loop IS
+    // semantically an incoming edge — include it.
+    const skipSelfLoops = directionFilter === 'both';
+    for (const [remoteGuid, remoteNode] of Object.entries(nodes)) {
+      if (skipSelfLoops && remoteGuid === nodeGuid) continue;
+      for (const [remotePinId, remotePin] of Object.entries(remoteNode.pins)) {
+        if (remotePin.direction !== 'EGPD_Output') continue;
+        for (const link of remotePin.linked_to) {
+          if (link.node_guid !== nodeGuid) continue;
+          const localPin = target.pins?.[link.pin_id];
+          incoming.push({
+            node_guid: remoteGuid,
+            class_name: remoteNode.class_name,
+            local_pin: link.pin_id,
+            local_pin_name: localPin?.name ?? null,
+            remote_pin: remotePinId,
+            remote_pin_name: remotePin.name,
+            edge_kind: isExecPin(remotePin) ? 'exec' : 'data',
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    asset_path: assetPath,
+    graph_name: graphName,
+    node_id: nodeGuid,
+    direction: directionFilter,
+    incoming_count: incoming.length,
+    outgoing_count: outgoing.length,
+    incoming,
+    outgoing,
+    ...faBetaManifest([], ['exec_connectivity', 'pin_block']),
+  };
+}
+
+// Guarded M-new verbs — ENOENT → FA-β graceful-degradation envelope.
+const bpTraceExecSafe = withAssetExistenceCheck(bpTraceExec);
+const bpTraceDataSafe = withAssetExistenceCheck(bpTraceData);
+const bpNeighborsSafe = withAssetExistenceCheck(bpNeighbors);
 
 // Guarded M-spatial verbs — ENOENT becomes FA-β graceful-degradation envelope.
 // Non-ENOENT errors still throw (D58 contract: distinguish absent from broken).
@@ -2540,6 +2954,18 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'bp_show_node':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await bpShowNodeSafe(projectRoot, params);
+
+    case 'bp_trace_exec':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpTraceExecSafe(projectRoot, params);
+
+    case 'bp_trace_data':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpTraceDataSafe(projectRoot, params);
+
+    case 'bp_neighbors':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await bpNeighborsSafe(projectRoot, params);
 
     case 'list_data_sources':
       return await listDataSources(projectRoot);

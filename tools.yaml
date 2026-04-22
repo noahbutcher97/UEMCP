@@ -234,29 +234,82 @@ toolsets:
         description: >-
           Enumerate graph entry points — K2Node_Event, K2Node_CustomEvent, and
           K2Node_FunctionEntry nodes. Returns member_name, graph_name,
-          position, enabled_state, and export_index per entry. **PARTIAL
-          COVERAGE** (FA-β) — this offline implementation uses class-identity
-          heuristics; exec-pin connectivity (which entries actually have
-          outgoing exec links) is not visible without the 3F sidecar or
-          editor. Response advertises `not_available: ["exec_connectivity"]`;
-          a later M-new pin-aware implementation will remove that field from
-          not_available.
+          position, enabled_state, export_index, and has_no_exec_in per
+          entry. has_no_exec_in is true when no other node's outgoing exec
+          pin links into this entry (true entry — reachable only as an
+          origin); false when some upstream node feeds exec here (rare —
+          complex macro instantiation); null when the graph lookup failed.
+          Now advertises `exec_connectivity` in available_fields via
+          S-B-base pin-topology. Offline; no editor or plugin.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
       bp_show_node:
         description: >-
           Return the full export record for a single K2Node or comment node —
           class, position (NodePosX/Y/Width/Height), enabled_state,
-          NodeComment, NodeGuid, and any other tagged UPROPERTYs the parser
-          could decode. **PARTIAL COVERAGE** (FA-β) — pin block (pin names,
-          types, defaults, LinkedTo edges) is not populated; response
-          advertises `not_available: ["pin_block"]`. A later M-new
-          pin-aware implementation will populate `pins[]` and remove
-          pin_block from not_available. node_id accepts export_index
-          (integer) or node_name (string).
+          NodeComment, NodeGuid, decoded UPROPERTYs, AND the pin block when
+          available via S-B-base topology. pins[] entries carry pin_id,
+          name, direction (EGPD_Input/Output), pin_kind (exec|data by
+          name-convention classification), and linked_to edge list. When
+          the node's NodeGuid resolves in the topology, response advertises
+          `pin_block` in available_fields; otherwise (non-graph-node,
+          malformed pin-block, no NodeGuid) pins=[] with pin_block in
+          not_available. node_id accepts export_index (integer or numeric
+          string) or full node objectName.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           node_id:    { type: string, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
+      bp_trace_exec:
+        description: >-
+          Walk the outgoing exec chain from a starting node in a specific
+          graph. BFS over exec-classified output pins, cycle-safe via
+          visited-set, capped by max_depth. Returns an ordered chain of
+          visited nodes with the pin each was reached through. Exec
+          classification is name-convention (execute/then/else/completed/
+          castfailed/loopbody/then_N/Out N/Default) — PinCategory is not
+          captured in the current S-B-base parse. Use pin_name to narrow to
+          a specific exec pin (e.g., 'then' to follow just the truthy branch
+          of an IfThenElse). Offline — uses Oracle-A-v2 topology. Missing
+          graph returns `reason: "graph_not_found"`; missing node returns
+          `reason: "node_not_found"`. start_node_id is the 32-hex-upper
+          NodeGuid (Oracle-A format, no dashes).
+        params:
+          asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          graph_name:    { type: string, required: true, description: "Graph name (EventGraph, ExecuteAbility, etc.) as returned by bp_list_graphs." }
+          start_node_id: { type: string, required: true, description: "NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500). Chain entries at depth=max_depth are included; their outgoing links are not followed." }
+          pin_name:      { type: string, required: false, description: "Restrict walk to a single exec pin name (e.g., 'then', 'else'). Omit to follow all exec outputs." }
+      bp_trace_data:
+        description: >-
+          Walk the outgoing data (non-exec) pin chain from a starting node.
+          Returns a flat list of sink edges — each entry is one wire from a
+          source pin to a sink pin on a downstream node. Data wires commonly
+          have multiple consumers per source, so the output is edge-keyed
+          rather than node-deduped. BFS cycle-safe; max_depth caps traversal
+          depth. Exec classification (to exclude exec pins) is name-convention
+          — see bp_trace_exec for the vocabulary. Offline. Missing graph
+          returns `reason: "graph_not_found"`; missing node returns
+          `reason: "node_not_found"`.
+        params:
+          asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          graph_name:    { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
+          start_node_id: { type: string, required: true, description: "NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500)." }
+      bp_neighbors:
+        description: >-
+          Immediate-neighbor query. Returns edges adjacent to a target node
+          in one or both directions. Each edge carries {node_guid, class_name,
+          local_pin, local_pin_name, remote_pin, remote_pin_name, edge_kind}
+          where edge_kind is exec|data by name-convention classification.
+          Self-loops preserved (appear only in outgoing when direction=both
+          to avoid double-counting). Offline — uses Oracle-A-v2 topology.
+          Use this for "what nodes connect to X" queries without walking a
+          full chain; chain bp_trace_exec/bp_trace_data for deeper traversal.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
+          graph_name: { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
+          node_id:    { type: string, required: true, description: "Target NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          direction:  { type: string, required: false, description: "Edge direction: 'incoming' | 'outgoing' | 'both' (default 'both')." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
         params: {}
