@@ -3,7 +3,7 @@
 > **Dispatch**: Fresh Claude Code session. **Hard-gated on S-B-base landing** — needs `server/*` scope unoccupied (M-enhance adds `tcp-tools.mjs` extensions + HTTP-client infrastructure; S-B-base currently owns that tree).
 > **Type**: Implementation — plugin C++ (compile-diagnostic capture + UEdGraph walkers + reflection broker + edge-case handlers) + server HTTP client infrastructure + M-enhance tool surface (~35 tools across RC + TCP + hybrid).
 > **Duration**: 3-5 sessions (per D58 + D66 verdict; unchanged from D58 baseline). Absorbs what was standalone Phase 4 (RC HTTP client) — aggregate Phase 3 delta is −2 to −4 sessions.
-> **D-log anchors**: D66 (FA-ε verdict HYBRID — load-bearing; read it first), D58 (M-enhance scope + re-sequence), D52 (near-plugin-parity goal refined), D53 (category-d tools split across L3/L4), D23 (4-layer architecture — Layer 4 activates inside M-enhance, not as standalone Phase 4), D59 (M1 scaffold infrastructure landed), D62 (Oracle-A commandlet precedent).
+> **D-log anchors**: D66 (FA-ε verdict HYBRID — load-bearing; read it first), D58 (M-enhance scope + re-sequence), D52 (near-plugin-parity goal refined), D53 (category-d tools split across L3/L4), D23 (4-layer architecture — Layer 4 activates inside M-enhance, not as standalone Phase 4), D59 (M1 scaffold infrastructure landed), D62 (Oracle-A commandlet precedent), D70 (S-B-base shipped + binary format invariants: 4-byte sentinel, NodeGuid-non-unique-across-graphs), D72 (Verb-surface shipped + **NodeGuid hex format mismatch interop hazard**: M-spatial LE-lowercase vs S-B-base/Oracle-A-v2 BE-uppercase-per-uint32; use `toOracleHexGuid` helper or match both formats when correlating IDs across subsystems).
 > **Deliverable**: 3-part shipment: (A) HYBRID transport infrastructure (plugin RemoteControl dep + server HTTP client + URL-scheme translator + tcp-tools.mjs extensions); (B) ~35 M-enhance tools implementing runtime/compile/reflection brokers per FA-ε §Q1 coverage table; (C) narrow sidecar (plugin-only fields) + save-hook + 3F-4 production commandlet + editor-menu prime.
 
 ---
@@ -29,7 +29,7 @@ Build the enhancement layer that augments (not enables) the offline MCP-first fo
 Verify before anything:
 1. **S-B-base landed** — `extractBPEdgeTopology()` exported from `offline-tools.mjs`. Verb-surface may or may not have shipped; irrelevant for M-enhance scope (no content dependency).
 2. **M1 scaffold + D57 gate still working** — `test-uemcp-gate.bat` [PASS]. You add handlers to M1's plugin infrastructure; it must be functional.
-3. **Test baseline**: confirm via `npm test` — should be ≥914 (914 pre-S-B-base + whatever S-B-base added).
+3. **Test baseline: 1052 passing / 0 failing across 9 files** (as of D72, 2026-04-22). Verify via `npm test` before your first commit. Confirmed green post-S-B-base + CL-1 + Verb-surface.
 4. **FA-ε deliverable read end-to-end** — `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. §Q1 coverage table is your per-tool work breakdown input; §Q2 RC capability inventory drives the RC endpoint usage; §Q3 cost/LOC breakdown calibrates expectations.
 5. **RC plugin availability** — Remote Control ships with UE 5.6 as an engine plugin (`Engine/Plugins/VirtualProduction/RemoteControl/`). Verify it's enabled for ProjectA via `ProjectA.uproject` Plugins[] section before depending on it.
 
@@ -161,7 +161,7 @@ Sidecar is M-enhance scope because D58 re-sequence moved it there (out of pre-M1
 
 ### §7 Test baseline + regression
 
-- Current baseline **[LATE-BINDING per S-B-base landing]** — likely 914 + ~40-80 from S-B-base = ~950-990.
+- Current baseline **1052 passing / 0 failing** across 9 files (post-Verb-surface, D72).
 - M-enhance additions: estimate +100-180 assertions.
 - Full rotation must stay green. No regressions in offline (D50 tagged-fallback + S-B-base + M-spatial verbs + EN-8/9).
 

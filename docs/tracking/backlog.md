@@ -94,11 +94,10 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-22 (M-new + Verb-surface fully shipped; M-enhance next):
+In-flight as of 2026-04-22 (M-enhance + T-1a parallel):
 
-- (none currently in flight)
-
-**D52 near-parity goal**: edge-topology offline foundation COMPLETE per D72 — 5 traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) ship as offline-primary, plugin-absent first-class. M-enhance next for runtime/compile/reflection augmentation layer.
+- **M-enhance** — handoff `docs/handoffs/m-enhance-hybrid-transport.md` (refreshed with D72 NodeGuid-format gotcha + 1052 baseline). 3-5 sessions. HYBRID transport per D66/FA-ε: RC HTTP for flat reflection reads + plugin TCP for compile diagnostics / UEdGraph walks / compiled-state. Phase 4 absorbed. Ships ~35 tools. Scope: `server/connection-manager.mjs`, `server/tcp-tools.mjs`, NEW `server/rc-url-translator.mjs`, `server/test-tcp-tools.mjs`, NEW `server/test-rc-wire.mjs`, `tools.yaml`, `server/server.mjs`, `plugin/UEMCP/*`.
+- **T-1a L2.5 synthetic fixture** — handoff `docs/handoffs/t-1a-l25-synthetic-fixture.md`. 30-45 min. Replaces live-fixture dependency in `test-uasset-parser.mjs` L2.5 with hand-constructed synthetic bytes. Obsoletes Vikram proto dependency. Scope: `server/test-uasset-parser.mjs` only. Zero collision with M-enhance.
 
 **Pre-drafted, NOT yet dispatched**:
 - **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
