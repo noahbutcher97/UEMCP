@@ -27,6 +27,7 @@ import {
   getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
   getWidgetsToolDefs, executeWidgetsTool,
 } from './tcp-tools.mjs';
+import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
 
 // ── Synchronous yaml preload (D44) ─────────────────────────────────
 // tools.yaml is the single source of truth for tool descriptions and params.
@@ -563,6 +564,50 @@ for (const [name, def] of Object.entries(widgetsToolDefs)) {
       try {
         log('info', `Executing widgets tool: ${name}`);
         const result = await executeWidgetsTool(name, args, connectionManager);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error in ${name}: ${err.message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
+}
+
+// ── Register RC tools (HTTP:30010) ────────────────────────────────
+// M-enhance CP2 (D66 HYBRID): 11 FULL-RC tools — 8 rc_* primitives from the
+// remote-control toolset, plus 3 RC-internal-substrate semantic delegates
+// (list_material_parameters, get_curve_asset, get_mesh_info) whose agent-facing
+// toolsets are materials/data-assets/geometry. All dispatch via sendHttp.
+
+const rcToolDefs = getRcToolDefs();
+
+for (const [name, def] of Object.entries(rcToolDefs)) {
+  const schema = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    schema[paramName] = zodField;
+  }
+
+  const handle = server.tool(
+    name,
+    def.description,
+    schema,
+    async (args, ctx) => {
+      try {
+        log('info', `Executing rc tool: ${name}`);
+        const result = await executeRcTool(name, args, connectionManager);
         return {
           content: [{
             type: 'text',

@@ -948,8 +948,8 @@ toolsets:
   # ── Remote Control API (HTTP:30010) ───────────────────────
   remote-control:
     layer: http-30010
-    priority: null   # Phase 4
-    description: Reflection-based property/function access on any UObject
+    priority: 3   # D66 HYBRID: Phase 4 absorbed into M-enhance, ships alongside reflection tools
+    description: Reflection-based property/function access on any UObject via Remote Control HTTP
     tools:
       rc_get_property:
         description: Get any UPROPERTY by object path + property name

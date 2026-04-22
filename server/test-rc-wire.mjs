@@ -208,5 +208,211 @@ console.log('\n── Test 7: toCdoPath resolves CDO suffix ──');
   t.assert(noDot === '', 'toCdoPath preserves empty input');
 }
 
+// ── Test 8: executeRcTool — rc_* primitives ───────────────────
+console.log('\n── Test 8: executeRcTool dispatches each rc_* primitive ──');
+{
+  const { executeRcTool, RC_SCHEMAS } = await import('./rc-tools.mjs');
+
+  // Verify all 11 tools present in schema map
+  const expected = [
+    'rc_get_property', 'rc_set_property', 'rc_call_function',
+    'rc_list_objects', 'rc_describe_object', 'rc_batch',
+    'rc_get_presets', 'rc_passthrough',
+    'list_material_parameters', 'get_curve_asset', 'get_mesh_info',
+  ];
+  for (const name of expected) {
+    t.assert(RC_SCHEMAS[name] !== undefined, `RC_SCHEMAS has ${name}`);
+  }
+
+  // Per-tool round-trip assertions
+  const rcMock = new FakeHttpResponder();
+  rcMock.on('PUT /remote/object/property', { Health: 100 });
+  rcMock.on('PUT /remote/object/call', { ReturnValue: 42 });
+  rcMock.on('PUT /remote/object/describe', { Properties: [] });
+  rcMock.on('PUT /remote/object/list', { Objects: [] });
+  rcMock.on('PUT /remote/batch', { Responses: [] });
+  rcMock.on('GET /remote/presets', { Presets: [] });
+  rcMock.on('GET /remote/preset/MyPreset', { Name: 'MyPreset', Properties: [] });
+  rcMock.on('POST /remote/custom', { ok: true });
+
+  const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+  // rc_get_property → PUT /remote/object/property
+  await executeRcTool('rc_get_property', {
+    object_path: '/Game/X.Y', property_name: 'Health',
+  }, conn);
+  const c1 = rcMock.lastCall('PUT /remote/object/property');
+  t.assert(c1 && c1.body.propertyName === 'Health', 'rc_get_property sends propertyName');
+  t.assert(c1.body.access === 'READ_ACCESS', 'rc_get_property defaults READ_ACCESS');
+
+  // rc_set_property → same endpoint, WRITE_TRANSACTION_ACCESS, skipCache
+  rcMock.resetCalls();
+  await executeRcTool('rc_set_property', {
+    object_path: '/Game/X.Y', property_name: 'Health', value: 50,
+  }, conn);
+  const c2 = rcMock.lastCall('PUT /remote/object/property');
+  t.assert(c2.body.access === 'WRITE_TRANSACTION_ACCESS', 'rc_set_property uses WRITE_TRANSACTION_ACCESS');
+  t.assert(c2.body.propertyValue.Health === 50, 'rc_set_property wraps value');
+  t.assert(c2.body.generateTransaction === true, 'rc_set_property default transaction=true');
+
+  // rc_call_function → PUT /remote/object/call
+  rcMock.resetCalls();
+  await executeRcTool('rc_call_function', {
+    object_path: '/Game/X.Y', function_name: 'Jump', args: { Force: 500 },
+  }, conn);
+  const c3 = rcMock.lastCall('PUT /remote/object/call');
+  t.assert(c3 && c3.body.functionName === 'Jump', 'rc_call_function sends functionName');
+  t.assert(c3.body.parameters.Force === 500, 'rc_call_function forwards args→parameters');
+  t.assert(c3.body.generateTransaction === false, 'rc_call_function default transaction=false');
+
+  // rc_list_objects → PUT /remote/object/list
+  rcMock.resetCalls();
+  await executeRcTool('rc_list_objects', { class_pattern: 'AActor', recursive: true }, conn);
+  const c4 = rcMock.lastCall('PUT /remote/object/list');
+  t.assert(c4 && c4.body.Class === 'AActor' && c4.body.Recursive === true,
+    'rc_list_objects emits Class + Recursive');
+
+  // rc_describe_object → PUT /remote/object/describe
+  rcMock.resetCalls();
+  await executeRcTool('rc_describe_object', { object_path: '/Game/X.Y' }, conn);
+  const c5 = rcMock.lastCall('PUT /remote/object/describe');
+  t.assert(c5 && c5.body.objectPath === '/Game/X.Y', 'rc_describe_object sends objectPath');
+
+  // rc_batch → PUT /remote/batch with {Requests: []}
+  rcMock.resetCalls();
+  await executeRcTool('rc_batch', {
+    operations: [
+      { method: 'PUT', path: '/remote/object/property', body: { objectPath: 'a', propertyName: 'b' } },
+    ],
+  }, conn);
+  const c6 = rcMock.lastCall('PUT /remote/batch');
+  t.assert(c6 && Array.isArray(c6.body.Requests) && c6.body.Requests.length === 1,
+    'rc_batch packs Requests array');
+
+  // rc_get_presets (no args) → GET /remote/presets
+  rcMock.resetCalls();
+  await executeRcTool('rc_get_presets', {}, conn);
+  const c7 = rcMock.lastCall('GET /remote/presets');
+  t.assert(c7 && c7.body === null, 'rc_get_presets uses GET with null body');
+
+  // rc_get_presets (with name) → GET /remote/preset/<name>
+  rcMock.resetCalls();
+  await executeRcTool('rc_get_presets', { preset: 'MyPreset' }, conn);
+  const c8 = rcMock.lastCall('GET /remote/preset/MyPreset');
+  t.assert(c8, 'rc_get_presets with name hits /remote/preset/<name>');
+
+  // rc_passthrough → user-supplied method/endpoint
+  rcMock.resetCalls();
+  await executeRcTool('rc_passthrough', {
+    method: 'POST', endpoint: '/remote/custom', body: { key: 'value' },
+  }, conn);
+  const c9 = rcMock.lastCall('POST /remote/custom');
+  t.assert(c9 && c9.body.key === 'value', 'rc_passthrough forwards method/path/body');
+
+  // rc_passthrough rejects non-/remote/ paths
+  await t.assertRejects(
+    async () => executeRcTool('rc_passthrough', { method: 'GET', endpoint: '/internal/X' }, conn),
+    /path must begin with/,
+    'rc_passthrough rejects non-/remote/ paths'
+  );
+}
+
+// ── Test 9: executeRcTool — semantic delegates ────────────────
+console.log('\n── Test 9: semantic delegates ride RC internally ──');
+{
+  const { executeRcTool } = await import('./rc-tools.mjs');
+
+  const rcMock = new FakeHttpResponder();
+  rcMock.on('PUT /remote/object/call', { ReturnValue: 7 });
+  rcMock.on('PUT /remote/object/property', { FloatCurves: [] });
+  const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+  // list_material_parameters → rcCallFunction on CDO with GetAllScalarParameterInfo
+  rcMock.resetCalls();
+  await executeRcTool('list_material_parameters', {
+    asset_path: '/Game/Materials/M_Base.M_Base_C',
+  }, conn);
+  const m = rcMock.lastCall('PUT /remote/object/call');
+  t.assert(m && m.body.functionName === 'GetAllScalarParameterInfo',
+    'list_material_parameters calls GetAllScalarParameterInfo');
+  t.assert(m.body.objectPath.includes(':Default__'),
+    `list_material_parameters resolves CDO path (got ${m.body.objectPath})`);
+
+  // get_curve_asset → rcGetProperty FloatCurves
+  rcMock.resetCalls();
+  await executeRcTool('get_curve_asset', {
+    asset_path: '/Game/Curves/C_Damage.C_Damage',
+  }, conn);
+  const g = rcMock.lastCall('PUT /remote/object/property');
+  t.assert(g && g.body.propertyName === 'FloatCurves',
+    'get_curve_asset reads FloatCurves');
+  t.assert(g.body.access === 'READ_ACCESS',
+    'get_curve_asset uses READ_ACCESS');
+
+  // get_mesh_info → rcCallFunction GetNumVertices
+  rcMock.resetCalls();
+  await executeRcTool('get_mesh_info', {
+    asset_path: '/Game/Meshes/SM_Cube.SM_Cube',
+  }, conn);
+  const mi = rcMock.lastCall('PUT /remote/object/call');
+  t.assert(mi && mi.body.functionName === 'GetNumVertices',
+    'get_mesh_info calls GetNumVertices');
+
+  // get_mesh_info requires one of asset_path / target
+  await t.assertRejects(
+    async () => executeRcTool('get_mesh_info', {}, conn),
+    /asset_path or target required/,
+    'get_mesh_info rejects empty args'
+  );
+}
+
+// ── Test 10: isReadOp → cache discipline ─────────────────────
+console.log('\n── Test 10: reads cache, writes skip cache ──');
+{
+  const { executeRcTool } = await import('./rc-tools.mjs');
+
+  const rcMock = new FakeHttpResponder();
+  rcMock.on('PUT /remote/object/property', { Health: 100 });
+  const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+  // Two identical reads — second hits cache
+  rcMock.resetCalls();
+  await executeRcTool('rc_get_property', { object_path: '/Game/X.Y', property_name: 'Health' }, conn);
+  await executeRcTool('rc_get_property', { object_path: '/Game/X.Y', property_name: 'Health' }, conn);
+  t.assert(rcMock.calls.length === 1, 'second rc_get_property served from cache');
+
+  // Two identical writes — both hit wire (skipCache)
+  rcMock.resetCalls();
+  await executeRcTool('rc_set_property', { object_path: '/Game/X.Y', property_name: 'Health', value: 50 }, conn);
+  await executeRcTool('rc_set_property', { object_path: '/Game/X.Y', property_name: 'Health', value: 50 }, conn);
+  t.assert(rcMock.calls.length === 2, 'rc_set_property bypasses cache (both calls hit wire)');
+}
+
+// ── Test 11: Zod validation bites ─────────────────────────────
+console.log('\n── Test 11: Zod rejects missing required fields ──');
+{
+  const { executeRcTool } = await import('./rc-tools.mjs');
+  const rcMock = new FakeHttpResponder();
+  const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+  await t.assertRejects(
+    async () => executeRcTool('rc_get_property', { object_path: '/Game/X.Y' /* missing property_name */ }, conn),
+    /property_name/,
+    'rc_get_property rejects missing property_name'
+  );
+
+  await t.assertRejects(
+    async () => executeRcTool('rc_call_function', { object_path: '/Game/X.Y' /* missing function_name */ }, conn),
+    /function_name/,
+    'rc_call_function rejects missing function_name'
+  );
+
+  await t.assertRejects(
+    async () => executeRcTool('unknown_tool', {}, conn),
+    /unknown tool/,
+    'executeRcTool rejects unknown tool name'
+  );
+}
+
 // ── Done ───────────────────────────────────────────────────────
 process.exit(t.summary());
