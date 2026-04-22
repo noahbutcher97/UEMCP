@@ -894,59 +894,87 @@ function writePropertyTypeName(name, params, names) {
 
 // ── Fixture 10: Level 2.5 — simple-element containers (D46) ────────
 //
-// BP_OSPlayerR_VikramProto CDO has three simple-element containers that
-// exercise different inner-type paths:
-//   - Rigged Character 2Colours: TArray<FLinearColor> (struct, native binary, flag 0x08)
-//   - DefaultAbilities:          TArray<ObjectProperty> (scalar, inline raw)
-//   - DefaultEffects:            TArray<ObjectProperty> (scalar, inline raw)
-// Plus BPGA_Block's DrainPerSecond: TArray<FOSResource> (custom struct →
-// complex_element_container marker).
+// Exercises the TArray<FLinearColor> native-binary + TArray<ObjectProperty>
+// scalar-inline decode paths against hand-constructed synthetic byte buffers.
 //
-// CL-1 drift refresh (2026-04-22): fixture was originally BP_OSPlayerR, but
-// that CDO no longer carries DefaultAbilities/DefaultEffects after a Path A
-// experiment refactor. The VikramProto sibling retains the original class
-// shape (10 abilities, 3 effects) and exercises the same parser code paths.
-async function testContainerHandlersOnPlayer() {
-  const path = join(ROOT, 'Content/WwiseAudio/Blueprints/BP_OSPlayerR_VikramProto.uasset');
-  if (!(await exists(path))) { console.log('  · skipped L2.5 container test (no file)'); return; }
-  const buf = await readFile(path);
-  const cur = new Cursor(buf);
-  const s = parseSummary(cur);
-  const names = readNameTable(cur, s);
-  const imports = readImportTable(cur, s, names);
-  const exports = readExportTable(cur, s, names);
-  const resolve = makePackageIndexResolver(exports, imports);
+// Prior revisions used a live ProjectA fixture (BP_OSPlayerR → BP_OSPlayerR_VikramProto
+// after CL-1 drift-swap on 2026-04-22 when the original CDO lost
+// DefaultAbilities/DefaultEffects in a loadouts refactor). T-1a replaces
+// that with synthetic bytes: UEMCP is a general UE 5.6 tool, its tests
+// shouldn't rely on a static project snapshot, and project-specific
+// fixtures drift as gameplay teams refactor. Synthetic fixtures are
+// drift-proof by construction.
+//
+// Byte-equivalent coverage: same ArrayProperty handler + SCALAR_ELEMENT_READERS
+// ObjectProperty path + readFLinearColorBinary struct handler. Zero .uasset IO.
+function testContainerSyntheticObjectsAndColors() {
   const structHandlers = buildStructHandlers();
   const containerHandlers = buildContainerHandlers();
-  const cdo = exports.find(e => e.objectName === 'Default__BP_OSPlayerR_VikramProto_C');
-  const r = readExportProperties(buf, cdo, names, { resolve, structHandlers, containerHandlers });
 
-  // TArray<FLinearColor> — native binary (flag 0x08 on outer). 4 colors.
-  const colors = r.properties['Rigged Character 2Colours'];
-  runner.assert(Array.isArray(colors),
-                'L2.5: Rigged Character 2Colours decodes as array',
-                `got=${typeof colors}`);
-  runner.assert(colors?.length === 4,
-                'L2.5: TArray<FLinearColor> count=4',
-                `got=${colors?.length}`);
-  runner.assert(colors?.[0]?.r === 1 && colors?.[0]?.g === 0 && colors?.[0]?.b === 0 && colors?.[0]?.a === 1,
-                'L2.5: TArray<FLinearColor>[0] = pure red RGBA(1,0,0,1)');
+  // TArray<FLinearColor> native binary (flag 0x08). 4 colors × 16 bytes each.
+  // Replaces live "Rigged Character 2Colours" check: pure-red first entry
+  // through the FLinearColor struct handler's native-binary path.
+  {
+    const buf = Buffer.alloc(4 + 4 * 16);
+    let p = 0;
+    buf.writeInt32LE(4, p); p += 4;
+    // Color 0 — pure red RGBA(1,0,0,1).
+    buf.writeFloatLE(1, p); buf.writeFloatLE(0, p + 4); buf.writeFloatLE(0, p + 8); buf.writeFloatLE(1, p + 12); p += 16;
+    // Colors 1-3 — arbitrary RGBA (shape-only coverage).
+    buf.writeFloatLE(0, p); buf.writeFloatLE(1, p + 4); buf.writeFloatLE(0, p + 8); buf.writeFloatLE(1, p + 12); p += 16;
+    buf.writeFloatLE(0, p); buf.writeFloatLE(0, p + 4); buf.writeFloatLE(1, p + 8); buf.writeFloatLE(1, p + 12); p += 16;
+    buf.writeFloatLE(0.5, p); buf.writeFloatLE(0.5, p + 4); buf.writeFloatLE(0.5, p + 8); buf.writeFloatLE(1, p + 12);
+    const tag = { flags: 0x08, size: buf.length, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'LinearColor', params: [] }] }] };
+    const colors = containerHandlers.get('ArrayProperty')(new Cursor(buf), tag, [], { structHandlers });
+    runner.assert(Array.isArray(colors),
+                  'L2.5 synth: TArray<FLinearColor> decodes as array',
+                  `got=${typeof colors}`);
+    runner.assert(colors?.length === 4,
+                  'L2.5 synth: TArray<FLinearColor> count=4',
+                  `got=${colors?.length}`);
+    runner.assert(colors?.[0]?.r === 1 && colors?.[0]?.g === 0 && colors?.[0]?.b === 0 && colors?.[0]?.a === 1,
+                  'L2.5 synth: TArray<FLinearColor>[0] = pure red RGBA(1,0,0,1)');
+  }
 
-  // TArray<ObjectProperty> — scalar inline raw (4 bytes FPackageIndex each).
-  const abilities = r.properties.DefaultAbilities;
-  runner.assert(Array.isArray(abilities) && abilities.length === 10,
-                'L2.5: TArray<ObjectProperty> DefaultAbilities has 10 entries',
-                `got=${abilities?.length}`);
-  runner.assert(abilities?.every(a => typeof a.objectName === 'string'),
-                'L2.5: each DefaultAbilities entry resolves to a named import/export');
-  runner.assert(abilities?.some(a => a.objectName === 'BPGA_Dodge_C'),
-                'L2.5: DefaultAbilities includes BPGA_Dodge_C');
+  // TArray<ObjectProperty> scalar inline (4 bytes FPackageIndex per element).
+  // Replaces live DefaultAbilities[10] + DefaultEffects[3]. Drives the
+  // SCALAR_ELEMENT_READERS ObjectProperty path with a synthetic resolver that
+  // returns {packageIndex, objectName} — same shape live makePackageIndexResolver produces.
+  {
+    const abilityNames = ['BPGA_Dodge_C', 'BPGA_Attack_C', 'BPGA_Jump_C',
+                          'BPGA_Block_C', 'BPGA_Sprint_C', 'BPGA_Crouch_C',
+                          'BPGA_Roll_C', 'BPGA_Parry_C', 'BPGA_Dash_C', 'BPGA_Heal_C'];
+    const abilitiesBuf = Buffer.alloc(4 + 10 * 4);
+    abilitiesBuf.writeInt32LE(10, 0);
+    for (let i = 0; i < 10; i++) abilitiesBuf.writeInt32LE(-(i + 1), 4 + i * 4);
+    const abilitiesTag = { flags: 0x00, size: abilitiesBuf.length, type: 'ArrayProperty',
+                           typeParams: [{ name: 'ObjectProperty', params: [] }] };
+    const abilitiesResolve = (idx) => ({ packageIndex: idx, objectName: abilityNames[-idx - 1] ?? null });
+    const abilities = containerHandlers.get('ArrayProperty')(new Cursor(abilitiesBuf), abilitiesTag, [],
+                                                              { resolve: abilitiesResolve });
+    runner.assert(Array.isArray(abilities) && abilities.length === 10,
+                  'L2.5 synth: TArray<ObjectProperty> DefaultAbilities has 10 entries',
+                  `got=${abilities?.length}`);
+    runner.assert(abilities?.every(a => typeof a.objectName === 'string'),
+                  'L2.5 synth: each DefaultAbilities entry resolves to a named import/export');
+    runner.assert(abilities?.some(a => a.objectName === 'BPGA_Dodge_C'),
+                  'L2.5 synth: DefaultAbilities includes BPGA_Dodge_C (resolver-produced)');
 
-  // TArray<ObjectProperty> (GameplayEffects).
-  const effects = r.properties.DefaultEffects;
-  runner.assert(Array.isArray(effects) && effects.length === 3,
-                'L2.5: TArray<ObjectProperty> DefaultEffects has 3 entries',
-                `got=${effects?.length}`);
+    const effectNames = ['GE_Damage_C', 'GE_Heal_C', 'GE_Stun_C'];
+    const effectsBuf = Buffer.alloc(4 + 3 * 4);
+    effectsBuf.writeInt32LE(3, 0);
+    for (let i = 0; i < 3; i++) effectsBuf.writeInt32LE(-(i + 100), 4 + i * 4);
+    const effectsTag = { flags: 0x00, size: effectsBuf.length, type: 'ArrayProperty',
+                         typeParams: [{ name: 'ObjectProperty', params: [] }] };
+    const effectsResolve = (idx) => ({ packageIndex: idx, objectName: effectNames[-idx - 100] ?? null });
+    const effects = containerHandlers.get('ArrayProperty')(new Cursor(effectsBuf), effectsTag, [],
+                                                            { resolve: effectsResolve });
+    runner.assert(Array.isArray(effects) && effects.length === 3,
+                  'L2.5 synth: TArray<ObjectProperty> DefaultEffects has 3 entries',
+                  `got=${effects?.length}`);
+  }
 }
 
 async function testComplexContainerMarker() {
@@ -1580,7 +1608,7 @@ async function main() {
   testTier1TaggedStructs();
   await testTier3UnknownStructFallback();
   testTier3BoundedFallback();
-  await testContainerHandlersOnPlayer();
+  testContainerSyntheticObjectsAndColors();
   await testComplexContainerMarker();
   testContainerSyntheticScalars();
   testFieldPathPropertySynthetic();
