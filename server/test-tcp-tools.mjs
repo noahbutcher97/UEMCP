@@ -1066,6 +1066,159 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// M-enhance CP4 — FULL-TCP subset (10 tools against CP3 plugin handlers)
+// ═══════════════════════════════════════════════════════════════
+
+{
+  console.log('\n═══ M-enhance CP4: TCP dispatch (FULL-TCP subset) ═══\n');
+
+  const { readFileSync } = await import('node:fs');
+  const yaml = (await import('js-yaml')).default;
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const toolsData = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
+
+  const {
+    initMenhanceTools,
+    executeMenhanceTool,
+    MENHANCE_SCHEMAS,
+  } = await import('./menhance-tcp-tools.mjs');
+
+  initMenhanceTools(toolsData);
+
+  // ── Schema surface matches the 10 tools we intend to ship ─────
+  const expected = [
+    'bp_compile_and_report',
+    'get_blueprint_event_dispatchers',
+    'get_widget_blueprint',
+    'get_material_graph',
+    'get_editor_state',
+    'start_pie', 'stop_pie', 'is_pie_running',
+    'execute_console_command',
+    'get_asset_references',
+  ];
+  for (const name of expected) {
+    t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
+  }
+
+  // ── Dispatch: verify each tool hits tcp-55558 with correct wire type ──
+  {
+    const fake = new FakeTcpResponder();
+    fake.on('ping',                     { status: 'success' });
+    fake.on('bp_compile_and_report',    { status: 'success', result: { compiled_ok: true, num_errors: 0 } });
+    fake.on('get_event_dispatchers',    { status: 'success', result: { dispatchers: [] } });
+    fake.on('get_widget_blueprint',     { status: 'success', result: { asset_path: '/Game/X' } });
+    fake.on('get_material_graph',       { status: 'success', result: { nodes: [] } });
+    fake.on('get_editor_state',         { status: 'success', result: { pie_running: false } });
+    fake.on('start_pie',                { status: 'success', result: { requested: true } });
+    fake.on('stop_pie',                 { status: 'success', result: { was_running: false } });
+    fake.on('is_pie_running',           { status: 'success', result: { running: false } });
+    fake.on('execute_console_command',  { status: 'success', result: { executed: true } });
+    fake.on('get_asset_references',     { status: 'success', result: { num_referencers: 0 } });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // bp_compile_and_report
+    await executeMenhanceTool('bp_compile_and_report', { asset_path: '/Game/X' }, cm);
+    {
+      const call = fake.lastCall('bp_compile_and_report');
+      t.assert(call && call.port === 55558, 'bp_compile_and_report routed to tcp-55558');
+      t.assert(call.params.asset_path === '/Game/X', 'bp_compile_and_report forwards asset_path');
+    }
+
+    // get_blueprint_event_dispatchers → wire_type get_event_dispatchers
+    await executeMenhanceTool('get_blueprint_event_dispatchers', { asset_path: '/Game/X' }, cm);
+    {
+      const call = fake.lastCall('get_event_dispatchers');
+      t.assert(call && call.port === 55558,
+        'get_blueprint_event_dispatchers translates to wire_type get_event_dispatchers');
+      t.assert(fake.lastCall('get_blueprint_event_dispatchers') === undefined,
+        'original tool name NOT used as wire type');
+    }
+
+    // Simple round-trip for the rest (dispatch + response shape)
+    for (const [tool, params] of [
+      ['get_widget_blueprint',    { asset_path: '/Game/X' }],
+      ['get_material_graph',      { asset_path: '/Game/X' }],
+      ['get_editor_state',        {}],
+      ['start_pie',               { mode: 'viewport' }],
+      ['stop_pie',                {}],
+      ['is_pie_running',          {}],
+      ['execute_console_command', { command: 'stat fps' }],
+      ['get_asset_references',    { asset_path: '/Game/X' }],
+    ]) {
+      const r = await executeMenhanceTool(tool, params, cm);
+      t.assert(r && typeof r === 'object', `${tool} returns object`);
+    }
+  }
+
+  // ── isReadOp → skipCache contract ─────────────────────────────
+  {
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('get_asset_references', { status: 'success', result: { num_referencers: 1 } });
+    fake.on('bp_compile_and_report', { status: 'success', result: { compiled_ok: true } });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // get_asset_references is a read — second call hits cache
+    await executeMenhanceTool('get_asset_references', { asset_path: '/Game/X' }, cm);
+    await executeMenhanceTool('get_asset_references', { asset_path: '/Game/X' }, cm);
+    t.assert(fake.callsFor('get_asset_references').length === 1,
+      'get_asset_references (read) caches — second call served from cache');
+
+    // bp_compile_and_report is write — both calls hit wire
+    await executeMenhanceTool('bp_compile_and_report', { asset_path: '/Game/X' }, cm);
+    await executeMenhanceTool('bp_compile_and_report', { asset_path: '/Game/X' }, cm);
+    t.assert(fake.callsFor('bp_compile_and_report').length === 2,
+      'bp_compile_and_report (write) bypasses cache');
+  }
+
+  // ── Zod validation + unknown-tool rejection ───────────────────
+  {
+    const { config } = createTestConfig('D:/FakeProject');
+    const cm = new ConnectionManager(config);
+
+    await t.assertRejects(
+      () => executeMenhanceTool('bp_compile_and_report', {}, cm),
+      /asset_path/,
+      'bp_compile_and_report rejects missing asset_path'
+    );
+
+    await t.assertRejects(
+      () => executeMenhanceTool('execute_console_command', {}, cm),
+      /command/,
+      'execute_console_command rejects missing command'
+    );
+
+    await t.assertRejects(
+      () => executeMenhanceTool('unknown_tool', {}, cm),
+      /unknown tool/,
+      'executeMenhanceTool rejects unknown tool name'
+    );
+  }
+
+  // ── Wire-type map identity fallback ───────────────────────────
+  {
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('get_material_graph', { status: 'success', result: { nodes: [] } });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // get_material_graph has no wire_type override → identity
+    await executeMenhanceTool('get_material_graph', { asset_path: '/Game/M' }, cm);
+    const call = fake.lastCall('get_material_graph');
+    t.assert(call && call.port === 55558,
+      'get_material_graph falls back to identity wire type when no override');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

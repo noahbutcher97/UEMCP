@@ -646,6 +646,14 @@ toolsets:
       # displaced_by: find_blueprint_nodes
       get_blueprint_event_dispatchers:
         description: All event dispatchers with parameter signatures
+        wire_type: get_event_dispatchers
+        params:
+          asset_path: { type: string, required: true }
+      # M-enhance CP3/CP4 addition — plugin bp_compile_and_report handler
+      # captures FCompilerResultsLog (what UBlueprintEditorLibrary::CompileBlueprint
+      # cannot — void return per D66 / FA-ε §Q1.4).
+      bp_compile_and_report:
+        description: Compile a Blueprint and return errors + warnings + notes + info with per-entry node_guid.
         params:
           asset_path: { type: string, required: true }
       # reduced_scope: widget hierarchy tree + property bindings only — EventGraph + functions subset MOVE-TO-SIDECAR (3F) per D56/§Q1.2

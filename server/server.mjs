@@ -28,6 +28,11 @@ import {
   getWidgetsToolDefs, executeWidgetsTool,
 } from './tcp-tools.mjs';
 import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
+import {
+  initMenhanceTools,
+  getMenhanceToolDefs,
+  executeMenhanceTool,
+} from './menhance-tcp-tools.mjs';
 
 // ── Synchronous yaml preload (D44) ─────────────────────────────────
 // tools.yaml is the single source of truth for tool descriptions and params.
@@ -630,6 +635,52 @@ for (const [name, def] of Object.entries(rcToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
+// ── Register M-enhance TCP tools (TCP:55558) ──────────────────────
+// M-enhance CP4 (D66 HYBRID): 10 FULL-TCP tools backed by CP3 plugin handlers.
+// bp_compile_and_report, get_blueprint_event_dispatchers, get_widget_blueprint,
+// get_material_graph, get_editor_state, start_pie/stop_pie/is_pie_running,
+// execute_console_command, get_asset_references. Wire-type mapping via
+// tools.yaml `wire_type:` field (e.g. get_blueprint_event_dispatchers →
+// get_event_dispatchers to match CP3's plugin registration).
+
+const menhanceToolDefs = getMenhanceToolDefs();
+
+for (const [name, def] of Object.entries(menhanceToolDefs)) {
+  const schema = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    schema[paramName] = zodField;
+  }
+
+  const handle = server.tool(
+    name,
+    def.description,
+    schema,
+    async (args, ctx) => {
+      try {
+        log('info', `Executing m-enhance tool: ${name}`);
+        const result = await executeMenhanceTool(name, args, connectionManager);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error in ${name}: ${err.message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  handle.disable();
+  toolsetManager.registerToolHandle(name, handle);
+}
+
 // ── Wire tools/list_changed notification ───────────────────────────
 
 // NOTE: tools/list_changed notifications are now handled automatically by the
@@ -653,6 +704,7 @@ async function main() {
   await toolsetManager.load();
   // Initialize TCP wire_type maps from parsed YAML
   initTcpTools(toolsetManager.getToolsData());
+  initMenhanceTools(toolsetManager.getToolsData());
 
   // Check offline layer availability
   await connectionManager.checkOfflineAvailable();
