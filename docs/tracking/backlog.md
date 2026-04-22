@@ -52,6 +52,16 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 
 Test-coverage gaps requiring artificial fixtures in ProjectA/ProjectB.
 
+### T-1 — Fixture philosophy migration: live project → synthetic / engine fixtures
+- **Source**: Noah orchestrator feedback 2026-04-22 after CL-1 fixture-swap surfaced that project-specific fixtures drift as ProjectA evolves
+- **Principle**: UEMCP is a general UE 5.6 tool; tests shouldn't rely on a static project snapshot. Three fixture tiers apply: (a) **synthetic** — byte-constructed in source, zero drift; (b) **engine-stable** — Engine/Content/*.uasset bytes, stable within UE point release; (c) **project-specific** — dev-time sanity only, not ship-gate.
+- **T-1a — L2.5 TArray<ObjectProperty> synthetic** (~30-45 min): replace live-fixture dependency in `test-uasset-parser.mjs` L2.5 (currently points at `BP_OSPlayerR_VikramProto` post-CL-1 swap) with hand-constructed byte buffer for minimal UObject with TArray<ObjectProperty>. Obsoletes Vikram proto dependency. Zero external dependency.
+- **T-1b — engine-fixture audit** (~1 session): survey test-offline-asset-info, test-query-asset-registry, test-inspect-and-level-actors for engine-fixture candidates. Migrate where feasible; document where project-specific is essential.
+- **T-1c — Oracle-A v3 against engine BPs** (larger, deferred): regenerate Oracle-A corpus against Engine/Content/*.uasset for cross-project portability. Only if ProjectB integration or agent-onboarding friction surfaces pressure. Oracle-A bytes DO benefit from real-world BP complexity; this is a portability-vs-realism tradeoff.
+- **Trigger**: any future fixture drift causing test failures, OR ProjectB onboarding, OR CI enablement for contributors without ProjectA access.
+- **Priority**: T-1a immediate-dispatchable (independent of M-enhance file-wise); T-1b/c deferred.
+- **Out of scope**: test-s-b-base-differential.mjs (Oracle-A is inherently commandlet-generated project-specific; acceptable as-is); BP_OSPlayerR sanity references (kept as dev-time specific-knowledge testing per Noah's guidance).
+
 ### FX-1 — TMap BP CDO micro-fixture
 - **Source**: Agent 10.5 manual tester Item #1 (2026-04-16)
 - **Gap**: no ProjectA BP CDO holds a `TMap<K,V>`; manual §2.1/§2.3 had to skip live-fixture testing. Synthetic unit tests cover both paths.
@@ -84,9 +94,11 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-22 (Verb-surface; CL-1 shipped):
+In-flight as of 2026-04-22 (M-new + Verb-surface fully shipped; M-enhance next):
 
-- **M-new Verb-surface** — handoff `docs/handoffs/m-new-verb-surface.md` (refreshed with D70 late-binding fills + file-collision update to use NEW `test-verb-surface.mjs`). 1-1.5 sessions. Ships 5 BP edge-topology verbs (`bp_trace_exec`, `bp_trace_data`, `bp_neighbors` edge mode, `bp_show_node` pin completion, `bp_list_entry_points` precision). Scope: `server/offline-tools.mjs` + NEW `server/test-verb-surface.mjs` + `tools.yaml` + `server/server.mjs`.
+- (none currently in flight)
+
+**D52 near-parity goal**: edge-topology offline foundation COMPLETE per D72 — 5 traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) ship as offline-primary, plugin-absent first-class. M-enhance next for runtime/compile/reflection augmentation layer.
 
 **Pre-drafted, NOT yet dispatched**:
 - **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
@@ -94,6 +106,7 @@ In-flight as of 2026-04-22 (Verb-surface; CL-1 shipped):
 
 Recently shipped (most recent first):
 
+- **M-new Verb-surface** (commits `aa131cd` core + `8acd0b9` test-phase1 placeholder refresh, 2026-04-22) — D72. 5 verbs ship offline-primary: bp_trace_exec, bp_trace_data, bp_neighbors edge mode, plus M-new extensions to bp_show_node (pins populated) and bp_list_entry_points (has_no_exec_in precision). Test baseline 1034 → **1052 passing / 0 failing**. +83 assertions in new test-verb-surface.mjs suite; net +3 in test-phase1.mjs (−4 M-spatial placeholders + 7 M-new confirmations). Oracle-cross-check on 3 fixtures (BP_OSPlayerR, BP_OSControlPoint, TestCharacter). Two format gotchas discovered + handled: PinCategory not captured in pin-block (name-convention classifier with documented Default false-positive risk); NodeGuid format mismatch M-spatial LE-lowercase vs topology BE-uppercase-per-uint32 (bridged via `toOracleHexGuid` helper at verb handler edge). Scope-deviation flagged + landed-correctly (touched test-phase1.mjs post-CL-1 for placeholder refresh; zero collision risk; separate commit for reversibility). BP-subclass variance gap flagged for S-B-overrides: UWidgetBlueprint/UAnimBP not in corpus yet.
 - **CL-1 test-drift refresh** (commit `1f0dd69`, 2026-04-22) — D71. Pre-existing drift failures on `test-phase1.mjs` (3) + `test-uasset-parser.mjs` (4) cleared: threshold drop 500→300 on P2 (size_budget_exceeded marker) cascaded 3 asserts; fixture swap to sibling `BP_OSPlayerR_VikramProto` for L2.5 TArray<ObjectProperty> decode (BP_OSPlayerR lost DefaultAbilities/DefaultEffects in gameplay refactor — content-side observation, not UEMCP regression). Test count 1027→1034 passing, 0 failing across 9 files. CL-2 CLAUDE.md bookkeeping also folded inline this session.
 - **M-new S-B-base offline edge-topology parser** (commits `cdf951b`+`e35f431`+`3c355fe`+`9250121`, 2026-04-22) — D70. Critical path for D52 edge-topology offline near-parity **complete**. 962/962 edges match (100%) via pure ID-match on all 6 Oracle-A-v2 fixtures. Shipped in 3 sessions (under 4-6 estimate). `extractBPEdgeTopologySafe()` exported from `offline-tools.mjs` for Verb-surface consumption. Test baseline **914 → ~1034** (+120: 36 CP1 + 16 CP2 + 68 differential). Corrects D67/D68 root-cause framing — the Session 1 "blocker" was worker's own test-harness map-collision bug using lossy NodeGuid-only keys; corrected to (graph_name, node_guid, pin_id) triple keying. Name-fallback architecturally present (Oracle-A-v2 emit) but unused at runtime — safety net for future format drifts. **Critical invariants for downstream consumers**: NodeGuids non-unique across sibling UEdGraphs; self-loops preserved; bNullPtr/bOrphanedPin pins pre-filtered; 4-byte int32 sentinel=0 between UPROPERTY terminator and pin trailer (undocumented).
 - **M-new Oracle-A-v2 pin-name amendment** (commit `b8ea754`, 2026-04-22) — D69. 9 files, 1603+/14− (fixture-regen dominated). Plugin compile clean after transient PCH-VM retry. All 6 fixtures regenerated with `name` field populated per pin; `pin_id` preserved as primary key; schema bumped `oracle-a-v1` → `oracle-a-v2`. Pin names for BP_OSPlayerR ApplyVFX_Niagara FunctionEntry empirically validated D68 theory: 13 names emitted match current function signature (`then, AuraSystem, Lifetime, SpawnRate, SpawnRate2, SpawnCount, ManualScale, Emissive, Opacity, MaterialInterface1-4`); parser's 23 disk pins include 10 stale-signature entries. D57 gate [PASS] preserved.
