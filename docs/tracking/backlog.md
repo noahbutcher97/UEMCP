@@ -84,11 +84,17 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-21 (wave-1 fully closed):
+In-flight as of 2026-04-21 (Wave 2 kickoff):
 
-- (none currently in flight)
+- **M-new S-B-base** — handoff `docs/handoffs/m-new-s-b-base-parser.md` (commit `708e405`). 4-6 sessions. Critical path for D52 edge-topology offline near-parity. Scope: `server/*` (path-limited per D49).
+- **FA-ε M-enhance transport research** — handoff `docs/handoffs/fa-epsilon-tcp-vs-rc-research.md` (commit `697b331`). 1-2 sessions. Decision document resolving D58 open orchestrator call (custom TCP brokers vs Phase 4 RC HTTP for M-enhance runtime/compile/reflection queries). Scope: `docs/research/` + optional D-log amendments (path-limited per D49).
 
-**S-B-base dispatchable NOW** — Wave 1 fully shipped (Oracle-A + EN-8/9 + sync-plugin + log-demotion all landed clean with zero merge conflicts across the 4-worker parallel dispatch). S-B-base handoff at `docs/handoffs/m-new-s-b-base-parser.md` contains D62 load-bearing API correction (`UEdGraphPin::LinkedTo` bytes-vs-runtime shape), Oracle-A fixture gotchas from README.md §Edge cases, test baseline 914 reference, and `withAssetExistenceCheck` import guidance for `extractBPEdgeTopology` wrapping.
+**Parallel coordination notes**:
+- Zero file-level collision between the two workers (S-B-base in server/*, FA-ε in docs/research/).
+- Both may surface D-log amendments at report-time; orchestrator merges on worker return.
+
+**Pre-drafted, NOT yet dispatched**:
+- **Verb-surface** — handoff skeleton at `docs/handoffs/m-new-verb-surface.md` (commit `697b331`). Has `[LATE-BINDING]` markers to be filled from S-B-base's final report (extractBPEdgeTopology signature, K2Node coverage gaps, format-variance notes). Dispatches sequentially after S-B-base lands.
 
 Recently shipped (most recent first):
 
