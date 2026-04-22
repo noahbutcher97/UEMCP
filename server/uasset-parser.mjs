@@ -1079,10 +1079,13 @@ export function isGraphNodeExportClass(className) {
  * Each `pins[]` entry has shape:
  *   {
  *     pin_id: '32-hex' | null,           // null when bNullPtr=true (orphan)
+ *     name: FName string | null,         // pin display name ('exec', 'Then', param names) — CP2+
+ *                                        //   used by Oracle-A-v2 hybrid matching (D68)
  *     direction: 'EGPD_Input' | 'EGPD_Output' | null,
  *     linked_to_raw: [                   // CP3 input — reference-shaped
  *       { owning_node_package_index: int32, pin_id: '32-hex' }
  *     ],
+ *     bOrphanedPin: bool,                // BitField bit 5; oracle drops these at load
  *     malformed: bool                    // true → byte stream ran out / unknown FText history
  *   }
  *
@@ -1189,7 +1192,7 @@ function readPinBody(cur, names, exportEnd) {
   //   int32 bNullPtr; if !bNullPtr: int32 OwningNode + FGuid PinId + recursive UEdGraphPin::Serialize
   const bNullPtr = cur.readInt32() !== 0;
   if (bNullPtr) {
-    return { pin_id: null, direction: null, linked_to_raw: [] };
+    return { pin_id: null, name: null, direction: null, linked_to_raw: [], bOrphanedPin: false };
   }
   // Skip outer OwningNode FPackageIndex (4 bytes).
   cur.skip(4);
@@ -1202,8 +1205,11 @@ function readPinBody(cur, names, exportEnd) {
 
   // OwningNode (redundant) + PinId (redundant) — skip 20 bytes.
   cur.skip(20);
-  // FName PinName — 8 bytes (int32 idx + int32 number).
-  cur.skip(8);
+  // FName PinName. Captured for Oracle-A-v2 hybrid matching (D68): when a
+  // pin's disk ID doesn't appear in oracle (K2Node_EditablePinBase /
+  // K2Node_PromotableOperator regenerate IDs via FGuid::NewGuid() on load),
+  // the (node_guid, pin_name) tuple still matches across the divide.
+  const pin_name = readFNameAtCursor(cur, names);
   // FText PinFriendlyName.
   skipFText(cur);
   // int32 SourceIndex (always present in UE 5.6 due to EdGraphPinSourceIndex
@@ -1245,7 +1251,7 @@ function readPinBody(cur, names, exportEnd) {
   const bitField = cur.readUInt32();
   const bOrphanedPin = (bitField & (1 << 5)) !== 0;
 
-  return { pin_id, direction, linked_to_raw, bOrphanedPin };
+  return { pin_id, name: pin_name, direction, linked_to_raw, bOrphanedPin };
 }
 
 /**
@@ -1422,6 +1428,161 @@ function extractNodeGuid(properties) {
     groups.push(beHex.toUpperCase());
   }
   return groups.join('');
+}
+
+/**
+ * Walk every graph-node export's pin block and resolve LinkedTo references
+ * into Oracle-A-v2-aligned graphs shape.
+ *
+ * CP3 (LinkedTo raw → resolved edges) + CP5 (graph-name grouping via
+ * one-hop outerIndex walk) fused — they share the same pass through
+ * the export table, so keeping them together avoids re-walking.
+ *
+ * Layout of output matches Oracle-A-v2:
+ *   {
+ *     schema_version: "sb-base-v1",
+ *     graphs: {
+ *       "<graph_name>": {
+ *         "nodes": {
+ *           "<node_guid>": {
+ *             "class_name": "K2Node_CallFunction",
+ *             "pins": {
+ *               "<pin_id>": {
+ *                 "name": "execute",              // D68 hybrid-match key
+ *                 "direction": "EGPD_Input",
+ *                 "linked_to": [
+ *                   { "node_guid": "<guid>", "pin_id": "<guid>" }
+ *                 ]
+ *               }
+ *             }
+ *           }
+ *         }
+ *       }
+ *     }
+ *   }
+ *
+ * Filtering behavior (mirrors Oracle's GetOwningNodeUnchecked() + orphan
+ * drops at line 49 of EdgeOnlyBPSerializer.cpp):
+ *   - bNullPtr pin slots are skipped entirely (no entry in pins map).
+ *   - bOrphanedPin pins are skipped (oracle doesn't include them).
+ *   - linked_to_raw entries whose target resolves to a non-graph-node
+ *     export are dropped silently (dangling ref).
+ *   - linked_to_raw entries whose target pin_id isn't in the parsed
+ *     pin set of the target node are kept as-is (target pin may be
+ *     regenerated post-load; hybrid matcher handles this).
+ *
+ * @param {Buffer} buf
+ * @param {Array} exports   FObjectExport rows from readExportTable
+ * @param {Array} imports   FObjectImport rows from readImportTable
+ * @param {string[]} names
+ * @param {object} [opts]   passed to readExportProperties
+ * @returns {{
+ *   schema_version: string,
+ *   graphs: Record<string, { nodes: Record<string, {
+ *     class_name: string,
+ *     pins: Record<string, {
+ *       name: string, direction: string, linked_to: Array<{node_guid: string, pin_id: string}>
+ *     }>
+ *   }> }>,
+ *   stats: {
+ *     graphNodeExports: number,
+ *     nodesEmitted: number,
+ *     pinsEmitted: number,
+ *     edgesEmitted: number,
+ *     danglingEdges: number,
+ *     malformedNodes: number,
+ *     orphanedPinsDropped: number,
+ *     nullPinsDropped: number,
+ *   }
+ * }}
+ */
+export function resolveLinkedToEdges(buf, exports, imports, names, opts = {}) {
+  const stats = {
+    graphNodeExports: 0, nodesEmitted: 0, pinsEmitted: 0, edgesEmitted: 0,
+    danglingEdges: 0, malformedNodes: 0, orphanedPinsDropped: 0, nullPinsDropped: 0,
+  };
+
+  const classOf = (exp) => {
+    if (exp.classIndex === 0) return null;
+    if (exp.classIndex > 0) return exports[exp.classIndex - 1]?.objectName ?? null;
+    return imports[-exp.classIndex - 1]?.objectName ?? null;
+  };
+
+  // Pass 1: parse each graph-node export's pin block into a working entry.
+  // Keyed by 1-based export index to match FPackageIndex semantics.
+  const parsedByExportIdx = new Map();
+  for (let i = 0; i < exports.length; i++) {
+    const exp = exports[i];
+    if (!isGraphNodeExportClass(classOf(exp))) continue;
+    stats.graphNodeExports++;
+    const pb = parsePinBlock(buf, exp, names, opts);
+    if (pb.malformed || !pb.nodeGuid) {
+      stats.malformedNodes++;
+      continue;
+    }
+    parsedByExportIdx.set(i + 1, {
+      exportIdx: i + 1,
+      outerIndex: exp.outerIndex,
+      nodeGuid: pb.nodeGuid,
+      className: classOf(exp),
+      pins: pb.pins,
+    });
+  }
+
+  // Helper: 1-based FPackageIndex → parsedNode (or null if target isn't a graph-node).
+  const targetNodeByPkgIdx = (idx) => {
+    if (idx <= 0) return null; // negative = import (not a node); zero = null ref
+    return parsedByExportIdx.get(idx) ?? null;
+  };
+
+  // Helper: one-hop outer walk → graph key. Each UEdGraphNode's outerIndex
+  // points to its owning UEdGraph export; that export's objectName IS the
+  // graph name Oracle uses ('EventGraph', 'UserConstructionScript',
+  // function-graph names like 'ApplyVFX_Material_Aura', etc.).
+  const graphNameFor = (node) => {
+    const outer = node.outerIndex;
+    if (outer > 0 && exports[outer - 1]) {
+      return exports[outer - 1].objectName;
+    }
+    // Fallback: unknown outer → place under synthetic key.
+    return '__unknown_graph__';
+  };
+
+  // Pass 2: group nodes by graph, emit Oracle-aligned shape, resolve edges.
+  const graphs = {};
+  for (const node of parsedByExportIdx.values()) {
+    const graphName = graphNameFor(node);
+    if (!graphs[graphName]) graphs[graphName] = { nodes: {} };
+    stats.nodesEmitted++;
+
+    const pinsOut = {};
+    for (const p of node.pins) {
+      if (p.pin_id === null) { stats.nullPinsDropped++; continue; }
+      if (p.bOrphanedPin) { stats.orphanedPinsDropped++; continue; }
+      stats.pinsEmitted++;
+
+      const linkedOut = [];
+      for (const ref of p.linked_to_raw) {
+        const tgtNode = targetNodeByPkgIdx(ref.owning_node_package_index);
+        if (!tgtNode) { stats.danglingEdges++; continue; }
+        linkedOut.push({ node_guid: tgtNode.nodeGuid, pin_id: ref.pin_id });
+        stats.edgesEmitted++;
+      }
+
+      pinsOut[p.pin_id] = {
+        name: p.name ?? '',
+        direction: p.direction,
+        linked_to: linkedOut,
+      };
+    }
+
+    graphs[graphName].nodes[node.nodeGuid] = {
+      class_name: node.className,
+      pins: pinsOut,
+    };
+  }
+
+  return { schema_version: 'sb-base-v1', graphs, stats };
 }
 
 /**
