@@ -894,15 +894,20 @@ function writePropertyTypeName(name, params, names) {
 
 // ── Fixture 10: Level 2.5 — simple-element containers (D46) ────────
 //
-// BP_OSPlayerR CDO has three simple-element containers that exercise different
-// inner-type paths:
+// BP_OSPlayerR_VikramProto CDO has three simple-element containers that
+// exercise different inner-type paths:
 //   - Rigged Character 2Colours: TArray<FLinearColor> (struct, native binary, flag 0x08)
 //   - DefaultAbilities:          TArray<ObjectProperty> (scalar, inline raw)
 //   - DefaultEffects:            TArray<ObjectProperty> (scalar, inline raw)
 // Plus BPGA_Block's DrainPerSecond: TArray<FOSResource> (custom struct →
 // complex_element_container marker).
+//
+// CL-1 drift refresh (2026-04-22): fixture was originally BP_OSPlayerR, but
+// that CDO no longer carries DefaultAbilities/DefaultEffects after a Path A
+// experiment refactor. The VikramProto sibling retains the original class
+// shape (10 abilities, 3 effects) and exercises the same parser code paths.
 async function testContainerHandlersOnPlayer() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = join(ROOT, 'Content/WwiseAudio/Blueprints/BP_OSPlayerR_VikramProto.uasset');
   if (!(await exists(path))) { console.log('  · skipped L2.5 container test (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -913,7 +918,7 @@ async function testContainerHandlersOnPlayer() {
   const resolve = makePackageIndexResolver(exports, imports);
   const structHandlers = buildStructHandlers();
   const containerHandlers = buildContainerHandlers();
-  const cdo = exports.find(e => e.objectName === 'Default__BP_OSPlayerR_C');
+  const cdo = exports.find(e => e.objectName === 'Default__BP_OSPlayerR_VikramProto_C');
   const r = readExportProperties(buf, cdo, names, { resolve, structHandlers, containerHandlers });
 
   // TArray<FLinearColor> — native binary (flag 0x08 on outer). 4 colors.
@@ -929,8 +934,8 @@ async function testContainerHandlersOnPlayer() {
 
   // TArray<ObjectProperty> — scalar inline raw (4 bytes FPackageIndex each).
   const abilities = r.properties.DefaultAbilities;
-  runner.assert(Array.isArray(abilities) && abilities.length === 15,
-                'L2.5: TArray<ObjectProperty> DefaultAbilities has 15 entries',
+  runner.assert(Array.isArray(abilities) && abilities.length === 10,
+                'L2.5: TArray<ObjectProperty> DefaultAbilities has 10 entries',
                 `got=${abilities?.length}`);
   runner.assert(abilities?.every(a => typeof a.objectName === 'string'),
                 'L2.5: each DefaultAbilities entry resolves to a named import/export');

@@ -867,16 +867,18 @@ if (PROJECT_ROOT) {
   }
 
   // P2: filtered read_asset_properties scopes unsupported[] to the filter.
-  // Use max_bytes=500 on BP_OSPlayerR to force size_budget_exceeded markers
+  // Use max_bytes=300 on BP_OSPlayerR to force size_budget_exceeded markers
   // — a reliable way to exercise the filter-scoping path without depending on
   // fixture-specific complex-container shapes (Agent 10.5's D50 tagged-fallback
-  // decodes most former "unsupported" properties).
+  // decodes most former "unsupported" properties). Threshold kept comfortably
+  // below the BP's current property-stream size (~490 bytes post-CL-1 drift
+  // refresh) so minor future re-saves don't silently skip this coverage.
   try {
     const full = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 500 }, PROJECT_ROOT);
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 300 }, PROJECT_ROOT);
     const markerNames = full.unsupported.map(m => m.name);
     assert(markerNames.length >= 2,
-      `P2 setup: BP_OSPlayerR with max_bytes=500 emits multiple markers (got ${markerNames.length})`);
+      `P2 setup: BP_OSPlayerR with max_bytes=300 emits multiple markers (got ${markerNames.length})`);
 
     // Pick one marker to keep and one to scope out.
     const keep = markerNames[0];
@@ -885,7 +887,7 @@ if (PROJECT_ROOT) {
 
     // Filter for only `keep` — `scopeOut` marker must NOT appear.
     const filtered = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 500,
+      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 300,
         property_names: [keep] }, PROJECT_ROOT);
     const leaked = filtered.unsupported.find(m => m.name === scopeOut);
     assert(leaked === undefined,
