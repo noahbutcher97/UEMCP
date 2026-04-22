@@ -1,6 +1,6 @@
 # M-new Verb-surface Worker — 5 S-B-dependent traversal verbs
 
-> **Dispatch**: Fresh Claude Code session. **Hard-gated on S-B-base landing** — needs the `extractBPEdgeTopology()` function exported from `offline-tools.mjs` as the caller surface.
+> **Dispatch**: Fresh Claude Code session. **S-B-base SHIPPED 2026-04-22** (commits `cdf951b` + `e35f431` + `3c355fe` + `9250121`, D70). Dispatch NOW. `extractBPEdgeTopologySafe()` exported from `offline-tools.mjs` is your caller surface.
 > **Type**: Implementation — yaml tool definitions + offline-tools.mjs handlers + tests for 5 verbs that depend on S-B-base's pin-topology parser.
 > **Duration**: 1-1.5 sessions (per D58 §Q5.3 sub-worker split).
 > **D-log anchors**: D58 (re-sequence, Verb-surface post-S-B-base), D52 (edge-topology offline near-parity), D50 (tagged-fallback — reused via S-B-base). Reference Oracle-A fixtures README for shape contracts.
@@ -29,18 +29,37 @@ Under D58's "MCP-first, plugin-enhances" framing, these ship as offline-primary 
 
 Verify before doing anything else:
 
-1. **S-B-base landed** — check for `extractBPEdgeTopology()` export in `server/offline-tools.mjs`. Read S-B-base worker's final report for the exact output shape (should be Oracle-aligned per handoff §4: `graphs → nodes → pins MAP`).
-2. **Oracle fixture corpus still at `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/`** with 6 fixtures (BP_OSPlayerR 596 edges et al.).
-3. **Test baseline**: check current assertion count via `npm test` — will be 914 + S-B-base's additions (estimate 954-994 range per S-B-base handoff §7).
-4. **withAssetExistenceCheck** imported and working in offline-tools.mjs (from EN-9).
+1. **S-B-base shipped (D70)** — `extractBPEdgeTopologySafe()` exported from `server/offline-tools.mjs`. Note `Safe` suffix: already wrapped with `withAssetExistenceCheck`.
+2. **Oracle-A-v2 fixture corpus at `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/`** — 6 fixtures, all with pin_name fields per schema v2.
+3. **Test baseline ~1034 passing** (914 + 120 S-B-base additions per D70). Verify via `npm test` before your first commit. **Also aware**: 7 pre-existing drift failures on test-phase1 (3) + test-uasset-parser (4) from Noah's BP_OSPlayerR/Player CDO re-saves changing property layouts. **Out of your D49 scope** — do NOT attempt to fix. Separate fixture-refresh worker candidate tracked in backlog.
+4. **withAssetExistenceCheck** helper working in offline-tools.mjs (from EN-9). S-B-base already consumed it; you wrap M-new verbs the same way for consistency.
 
-If any of the above is absent, **stop and surface to orchestrator** — do not ship verbs without S-B-base's parser + Oracle's fixture oracle for verification.
+### Filled from S-B-base final report (D70)
 
-**[LATE-BINDING: fill in from S-B-base final report]**
-- Exact `extractBPEdgeTopology()` call signature + return shape
-- Which of the 19 skeletal K2Node classes are format-verified vs extrapolated
-- Any S-B-base gotchas (e.g., cycle-handling conventions, sub-graph key conventions)
-- Any format-variance notes (UWidgetBlueprint vs UAnimBlueprint deltas)
+**Exact caller surface**:
+```js
+import { extractBPEdgeTopologySafe } from './offline-tools.mjs';
+
+// ENOENT: returns { available: false, reason: 'asset_not_found' } (FA-β).
+// Present asset: returns
+//   {
+//     schema_version: 'sb-base-v1',
+//     asset_path: '/Game/...',
+//     graphs: { <graph_name>: { nodes: { <node_guid>: { class_name, pins: { <pin_id>: {direction, name, linked_to: [...]} } } } } },
+//     stats: { edgesEmitted, danglingEdges }
+//   }
+// Oracle-A-v2 aligned — walk directly, no shape adapters needed.
+```
+
+**Critical S-B-base gotchas to honor** (from D70):
+- **NodeGuids are NOT unique across graphs in one BP** — key lookups MUST use `(graph_name, node_guid, pin_id)` triples, never `node_guid` alone. Sibling UEdGraphs can share guids; lossy maps drop data silently. This bug in the worker's own test harness is what caused S-B-base's Session 1 "blocker" — don't repeat it in your verbs.
+- **Self-loops are preserved** — a pin linking to itself is semantically valid; don't filter.
+- **`bNullPtr` / `bOrphanedPin` pins are already dropped upstream** — parser handles it. You don't need to filter; just walk.
+- **Name-fallback was architecturally present but unused** in S-B-base's harness — all 962/962 edges matched by pin_id alone. Name is available for fuzzy matches or cross-version compat if your verbs need it.
+
+**K2Node coverage** (from D70): 15 format-verified classes (CallFunction, VariableGet, Knot, FunctionEntry, Event, IfThenElse, VariableSet, MacroInstance, CallParentFunction, SwitchEnum, CustomEvent, BreakStruct, AddComponent, PromotableOperator, ExecutionSequence) + EdGraphNode_Comment. Format-extrapolated (not exercised): Timeline, CreateDelegate, Composite, Tunnel, Return, InputAction. For verb scope, treat any `startsWith('K2Node_')` or `=== 'EdGraphNode_Comment'` class as walkable.
+
+**Format-variance status**: no BP-subclass divergence (UWidgetBlueprint / UAnimBlueprint) yet tested — corpus is UBlueprint only. If your verbs run against UWidgetBlueprint fixtures and behavior differs, surface it.
 
 ### §2 Verb implementations
 
@@ -135,7 +154,7 @@ Error contract: ENOENT → `{available: false, reason: "asset_not_found", asset_
 
 ### §6 Test baseline + regression
 
-- **[LATE-BINDING from S-B-base final report]** Baseline will be 914 + S-B-base additions.
+- Test baseline per D70: **~1034 passing** (with 7 pre-existing drift failures out of scope).
 - Verb-surface additions: estimate +50-75 assertions.
 - Full rotation must stay green.
 - D50 tagged-fallback + S-B-base pin parser + existing skeletal + M-spatial — zero regressions.
@@ -147,7 +166,7 @@ Error contract: ENOENT → `{available: false, reason: "asset_not_found", asset_
 - **S-B-overrides** (UE 5.6↔5.7 delta). Next sub-worker after S-B-base; Verb-surface must not touch version-skew logic.
 - **v1.1 verbs** (`bp_paths_between`, cycle detection). D41-deferred.
 - **Plugin code**. You touch zero files under `plugin/UEMCP/`.
-- **Parser primitives** (`parsePinBlock`, `resolveLinkedToEdges`). S-B-base owns those; you call `extractBPEdgeTopology()` only.
+- **Parser primitives** (`parsePinBlock`, `resolveLinkedToEdges`). S-B-base owns those; you call `extractBPEdgeTopologySafe()` only.
 - **Oracle fixture regeneration**. Oracle-A / corpus changes are separate scope.
 - **withAssetExistenceCheck modifications**. EN-9 shipped the helper; use as-is.
 
@@ -160,7 +179,7 @@ Error contract: ENOENT → `{available: false, reason: "asset_not_found", asset_
 2. `docs/tracking/risks-and-decisions.md` D58, D59 (FA-β forward-compat rule for M-new).
 
 ### Tier 2 — S-B-base deliverables (post-landing)
-3. `server/offline-tools.mjs` — where `extractBPEdgeTopology()` is exported.
+3. `server/offline-tools.mjs` — where `extractBPEdgeTopologySafe()` is exported.
 4. `server/uasset-parser.mjs` — parser primitives (context only; don't modify).
 5. S-B-base worker's final report — for API signatures + gotchas.
 
