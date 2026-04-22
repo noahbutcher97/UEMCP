@@ -19,6 +19,8 @@ import {
   readExportProperties,
   readTaggedPropertyStream,
   makePackageIndexResolver,
+  isGraphNodeExportClass,
+  parsePinBlock,
   PACKAGE_FILE_TAG,
 } from './uasset-parser.mjs';
 import {
@@ -1365,6 +1367,118 @@ function testContainerSyntheticScalars() {
   }
 }
 
+// ── CP1 (S-B-base, M-new): pin-block offset detection ──────────────
+//
+// Validates that `parsePinBlock` lands cleanly on the UEdGraphNode pin
+// trailer across the full Oracle-A fixture corpus. Layout verified:
+//   [tagged UPROPERTY block]
+//   int32 postTagSentinel = 0
+//   int32 arrayCount (serialized pin slot count, includes bNullPtr slots)
+//
+// Tolerance: arrayCount >= oraclePinCount — UE's SaveAll orphan mode on
+// K2Node_FunctionEntry retains bNullPtr slots for back-compat, so the
+// serialized count can exceed Oracle's non-null-pin count. CP3 filters
+// bNullPtr entries via SerializePin reads.
+async function testPinBlockOffsetCP1() {
+  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES = [
+    { name: 'BP_OSPlayerR',       relPath: 'Content/Blueprints/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 204 },
+    { name: 'BP_OSPlayerR_Child', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
+    { name: 'TestCharacter',      relPath: 'Content/Blueprints/Character/TestCharacter.uasset',      oracle: 'TestCharacter.oracle.json',      expectedGraphNodes: 11 },
+    { name: 'BP_OSControlPoint',  relPath: 'Content/Blueprints/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 182 },
+  ];
+
+  for (const fx of FIXTURES) {
+    const assetPath = join(ROOT, fx.relPath);
+    const oraclePath = join(FIXTURES_DIR, fx.oracle);
+    if (!(await exists(assetPath)) || !(await exists(oraclePath))) {
+      console.log(`  · skipped CP1/${fx.name} (missing asset or oracle)`);
+      continue;
+    }
+    const buf = await readFile(assetPath);
+    const oracle = JSON.parse((await readFile(oraclePath)).toString('utf8'));
+
+    const cur = new Cursor(buf);
+    const s = parseSummary(cur);
+    const names = readNameTable(cur, s);
+    const imports = readImportTable(cur, s, names);
+    const exports = readExportTable(cur, s, names);
+    const resolver = makePackageIndexResolver(exports, imports);
+    const parseOpts = { resolve: resolver, structHandlers: buildStructHandlers() };
+
+    const oracleByGuid = new Map();
+    for (const [graphName, graph] of Object.entries(oracle.graphs)) {
+      for (const [nodeGuid, node] of Object.entries(graph.nodes)) {
+        oracleByGuid.set(nodeGuid, {
+          graphName,
+          className: node.class_name,
+          pinCount: Object.keys(node.pins).length,
+        });
+      }
+    }
+
+    const classOf = (exp) => {
+      if (exp.classIndex === 0) return null;
+      if (exp.classIndex > 0) return exports[exp.classIndex - 1]?.objectName ?? null;
+      return imports[-exp.classIndex - 1]?.objectName ?? null;
+    };
+
+    let graphNodeCount = 0;
+    let sentinelOk = 0;
+    let guidMatched = 0;
+    let arrayCountOk = 0;
+    let totalSerializedSlots = 0;
+    let totalOraclePins = 0;
+
+    for (const exp of exports) {
+      if (!isGraphNodeExportClass(classOf(exp))) continue;
+      graphNodeCount++;
+
+      const pb = parsePinBlock(buf, exp, names, parseOpts);
+      if (pb.sentinel === 0) sentinelOk++;
+      if (pb.nodeGuid && oracleByGuid.has(pb.nodeGuid)) {
+        guidMatched++;
+        const oInfo = oracleByGuid.get(pb.nodeGuid);
+        totalOraclePins += oInfo.pinCount;
+        totalSerializedSlots += pb.arrayCount;
+        // arrayCount (serialized slots) >= oracle pinCount (non-null pins)
+        if (pb.arrayCount >= oInfo.pinCount) arrayCountOk++;
+      }
+    }
+
+    runner.assert(graphNodeCount === fx.expectedGraphNodes,
+      `CP1/${fx.name}: graph-node exports = ${fx.expectedGraphNodes}`,
+      `got ${graphNodeCount}`);
+    runner.assert(sentinelOk === graphNodeCount,
+      `CP1/${fx.name}: post-tag sentinel == 0 on all graph-nodes`,
+      `${sentinelOk}/${graphNodeCount} had sentinel=0`);
+    runner.assert(guidMatched === graphNodeCount,
+      `CP1/${fx.name}: every parsed NodeGuid found in oracle`,
+      `${guidMatched}/${graphNodeCount} matched`);
+    runner.assert(arrayCountOk === graphNodeCount,
+      `CP1/${fx.name}: arrayCount >= oracle pin count on all nodes`,
+      `${arrayCountOk}/${graphNodeCount} satisfied`);
+    runner.assert(totalSerializedSlots >= totalOraclePins,
+      `CP1/${fx.name}: total slots >= oracle pin sum (${totalSerializedSlots} >= ${totalOraclePins})`);
+  }
+
+  // Non-graph-node predicate spot-checks (no I/O; runs even when fixtures absent).
+  runner.assert(isGraphNodeExportClass('K2Node_CallFunction') === true,
+    'CP1/predicate: K2Node_* matches');
+  runner.assert(isGraphNodeExportClass('EdGraphNode_Comment') === true,
+    'CP1/predicate: EdGraphNode_Comment matches');
+  runner.assert(isGraphNodeExportClass('UK2Node_CallFunction') === false,
+    'CP1/predicate: U-prefixed class does NOT match (UE strips prefix at serialization — D63)');
+  runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
+    'CP1/predicate: non-graph-node classes rejected');
+  runner.assert(isGraphNodeExportClass(null) === false,
+    'CP1/predicate: null className handled');
+  runner.assert(isGraphNodeExportClass(undefined) === false,
+    'CP1/predicate: undefined className handled');
+}
+
 async function main() {
   await testFootstepFixture();
   await testLevelMap();
@@ -1392,6 +1506,7 @@ async function main() {
   await testExportInt64Salvage();
   testBadMagic();
   testTruncated();
+  await testPinBlockOffsetCP1();
   process.exit(runner.summary());
 }
 
