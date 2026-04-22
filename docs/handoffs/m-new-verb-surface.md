@@ -120,7 +120,9 @@ M-spatial shipped `bp_neighbors` in spatial mode (positions); extend the existin
 
 ### §3 Test coverage
 
-Add to `server/test-phase1.mjs` (M-spatial + M-new verb tests live together):
+Create a **NEW** file `server/test-verb-surface.mjs` (matches S-B-base's `test-s-b-base-differential.mjs` precedent — dedicated suite per worker scope). **DO NOT edit `server/test-phase1.mjs`** — that file has 3 pre-existing drift failures being fixed in parallel by CL-1 worker; file-collision avoidance per D49.
+
+Structure the new file to cover:
 
 **Per-verb unit tests** (10-15 assertions per verb = ~50-75 new):
 - Happy path against BP_OSPlayerR (dense, known-topology fixture).
@@ -206,14 +208,14 @@ Error contract: ENOENT → `{available: false, reason: "asset_not_found", asset_
 5. Full test rotation green: baseline (S-B-base post-landing) + your ~50-75 additions.
 6. `tools.yaml` entries complete with params, returns, descriptions.
 7. TOOLSET_TIPS updated if cross-toolset workflows surface during dev.
-8. D50 tagged-fallback + S-B-base parser untouched (path-limited to `offline-tools.mjs`, `test-phase1.mjs`, `tools.yaml`, `server.mjs` for registration).
+8. D50 tagged-fallback + S-B-base parser untouched (path-limited to `offline-tools.mjs`, NEW `test-verb-surface.mjs`, `tools.yaml`, `server.mjs` for registration — explicitly NOT `test-phase1.mjs`).
 
 ---
 
 ## Constraints
 
 - **Desktop Commander for git** (shell: "cmd").
-- **Path-limited commits per D49** — scope: `server/offline-tools.mjs`, `server/test-phase1.mjs`, `tools.yaml`, `server/server.mjs` (toolset registration). Do NOT touch `uasset-parser.mjs` or any plugin file.
+- **Path-limited commits per D49** — scope: `server/offline-tools.mjs`, NEW `server/test-verb-surface.mjs`, `tools.yaml`, `server/server.mjs` (toolset registration). **Explicitly do NOT touch** `server/test-phase1.mjs` (CL-1 worker in flight there), `server/uasset-parser.mjs`, or any plugin file.
 - **UNREAL_PROJECT_ROOT env var required** for fixture-exercising tests.
 - **No AI attribution**.
 - **Checkpoint commits OK** — per-verb or yaml-first-then-handlers can each land separately.
