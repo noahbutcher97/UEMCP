@@ -2,6 +2,12 @@
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
+// M-enhance CP3 handler registration
+#include "CompileDiagnosticHandler.h"
+#include "EdgeCaseHandlers.h"
+#include "GraphTraversalHandlers.h"
+#include "ReflectionWalker.h"
+
 namespace UEMCP
 {
 	FMCPCommandRegistry& FMCPCommandRegistry::Get()
@@ -66,7 +72,13 @@ namespace UEMCP
 				BuildSuccessResponse(OutResponse, Result);
 			});
 
-		// Real tool handlers are M3+ territory. Any command other than `ping` returns
-		// UNKNOWN_COMMAND until M3 registers them.
+		// M-enhance CP3 (D66): wire the HYBRID plugin-C++ tools registered during
+		// Session 2. Each RegisterXxx call follows the same convention as `ping`
+		// above — they add their handlers to the same map. Order doesn't matter;
+		// the map is keyed by command type string.
+		RegisterCompileDiagnosticHandlers(*this);
+		RegisterReflectionHandlers(*this);
+		RegisterGraphTraversalHandlers(*this);
+		RegisterEdgeCaseHandlers(*this);
 	}
 }

@@ -33,6 +33,11 @@ public class UEMCP : ModuleRules
 			// HTTP traffic to the engine's WebRemoteControl server is server-side so no
 			// direct WebRemoteControl dep here.
 			"RemoteControl",
+			// M-enhance CP3 handler deps:
+			"UMG",           // UWidget / UPanelWidget base types
+			"UMGEditor",     // UWidgetBlueprint + WidgetTree (editor-only)
+			"AssetRegistry", // IAssetRegistry::GetReferencers / GetDependencies
+			"LevelEditor",   // GCurrentLevelEditingViewportClient for editor-state viewport info
 		});
 		// Note: GameplayAbilities removed per D60 — M1 scaffold doesn't reference GAS.
 		// M3+ GAS tool workers (create_gameplay_effect etc.) re-add it here AND to
