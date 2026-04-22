@@ -17,6 +17,7 @@ import {
   readAssetRegistryData,
   readExportProperties,
   makePackageIndexResolver,
+  resolveLinkedToEdges,
 } from './uasset-parser.mjs';
 import {
   buildStructHandlers,
@@ -2422,6 +2423,50 @@ export function withAssetExistenceCheck(handler) {
     }
   };
 }
+
+// ── S-B-base (M-new): offline BP edge topology extractor ─────────────────
+//
+// Returns Oracle-A-v2-aligned pin + edge topology for a Blueprint asset.
+// Verb-surface worker consumes this as the data layer for bp_trace_exec,
+// bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, and
+// bp_list_entry_points precision. See docs/handoffs/m-new-s-b-base-parser.md §6.
+//
+// Output shape:
+//   {
+//     schema_version: "sb-base-v1",
+//     asset_path: "/Game/...",
+//     graphs: { "<graphName>": { nodes: { "<nodeGuid>": {class_name, pins} } } }
+//     stats: { graphNodeExports, nodesEmitted, pinsEmitted, edgesEmitted, ... }
+//   }
+//
+// Contract matches Oracle-A-v2 per-pin dict (`name`+`direction`+`linked_to`)
+// so the differential harness can diff directly without shape adapters.
+//
+// @param {string} projectRoot
+// @param {{ asset_path: string }} params
+async function extractBPEdgeTopology(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { buf, names, imports, exports, resolve, structHandlers, containerHandlers } = ctx;
+  const topology = resolveLinkedToEdges(buf, exports, imports, names, {
+    resolve, structHandlers, containerHandlers,
+  });
+  return {
+    schema_version: topology.schema_version,
+    asset_path: assetPath,
+    graphs: topology.graphs,
+    stats: topology.stats,
+  };
+}
+
+/**
+ * Guarded `extractBPEdgeTopology`. Returns an FA-β graceful-degradation
+ * envelope (`{available: false, reason: 'asset_not_found', asset_path}`)
+ * when the asset is absent, otherwise forwards to the inner handler.
+ *
+ * Exported for Verb-surface worker + the differential test harness.
+ */
+export const extractBPEdgeTopologySafe = withAssetExistenceCheck(extractBPEdgeTopology);
 
 // Guarded M-spatial verbs — ENOENT becomes FA-β graceful-degradation envelope.
 // Non-ENOENT errors still throw (D58 contract: distinguish absent from broken).
