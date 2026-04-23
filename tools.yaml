@@ -953,6 +953,17 @@ toolsets:
         params:
           asset_path: { type: string, required: true }
 
+  # ── Sidecar / narrow-sidecar writer (M-enhance CP5) ──────
+  sidecar:
+    layer: tcp-55558
+    priority: 4
+    description: Narrow-sidecar regeneration — plugin-only fields (compile status + full reflection) to <project>/Saved/UEMCP/
+    tools:
+      regenerate_sidecar:
+        description: On-demand narrow-sidecar write for a Blueprint. Save-hook triggers this automatically on BP save; this tool is for backfilling assets that weren't resaved.
+        params:
+          asset_path: { type: string, required: true }
+
   # ── Remote Control API (HTTP:30010) ───────────────────────
   remote-control:
     layer: http-30010

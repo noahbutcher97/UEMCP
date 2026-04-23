@@ -1369,6 +1369,45 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       `4 animation tools each dispatch to reflection_walk (got ${reflectionCalls.length})`);
   }
 
+  // ── CP5: regenerate_sidecar dispatches to tcp-55558 as mutation ──
+  {
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('regenerate_sidecar', {
+      status: 'success',
+      result: {
+        written: true,
+        asset_path: '/Game/BP/BP_X',
+        sidecar_path: 'D:/Proj/Saved/UEMCP/Game/BP/BP_X.sidecar.json',
+      },
+    });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // First call — hits wire. FULL-TCP path returns the raw envelope
+    // ({status, result}); partialRc transforms unwrap but FULL-TCP does not.
+    const res = await executeMenhanceTool('regenerate_sidecar', { asset_path: '/Game/BP/BP_X' }, cm);
+    t.assert(res && res.result && res.result.written === true, 'regenerate_sidecar returns {written: true}');
+    t.assert(res.result.sidecar_path.includes('Saved/UEMCP'), 'response includes sidecar_path under Saved/UEMCP');
+
+    const call = fake.lastCall('regenerate_sidecar');
+    t.assert(call && call.port === 55558, 'regenerate_sidecar routed to tcp-55558');
+    t.assert(call.params.asset_path === '/Game/BP/BP_X', 'asset_path forwarded');
+
+    // Second call with same args — writes should NOT cache (isReadOp: false)
+    await executeMenhanceTool('regenerate_sidecar', { asset_path: '/Game/BP/BP_X' }, cm);
+    t.assert(fake.callsFor('regenerate_sidecar').length === 2,
+      'regenerate_sidecar (mutation) bypasses cache — both calls hit wire');
+
+    // Missing asset_path → Zod rejects
+    await t.assertRejects(
+      () => executeMenhanceTool('regenerate_sidecar', {}, cm),
+      /asset_path/,
+      'regenerate_sidecar rejects missing asset_path'
+    );
+  }
+
   // ── PARTIAL-RC: Zod validation still bites ───────────────────
   {
     const { config } = createTestConfig('D:/FakeProject');

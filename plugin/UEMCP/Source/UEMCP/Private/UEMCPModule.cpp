@@ -2,6 +2,7 @@
 #include "UEMCPModule.h"
 #include "MCPCommandRegistry.h"
 #include "MCPServerRunnable.h"
+#include "SidecarSaveHook.h"
 
 #include "Misc/App.h"
 #include "Modules/ModuleManager.h"
@@ -123,10 +124,17 @@ void FUEMCPModule::StartupModule()
 	{
 		UE_LOG(LogUEMCP, Warning, TEXT("UEMCP: TCP server failed to start; module loaded but inactive"));
 	}
+
+	// CP5: narrow-sidecar save-hook. Plugin-only fields (compile status +
+	// full reflection surface) emitted to <Project>/Saved/UEMCP/... on BP save.
+	// Gated by the same non-commandlet guard above — commandlets produce
+	// sidecars via the 3F-4 production commandlet, not via save-hook.
+	UEMCP::RegisterSidecarSaveHook();
 }
 
 void FUEMCPModule::ShutdownModule()
 {
+	UEMCP::UnregisterSidecarSaveHook();
 	StopTcpServer();
 	UE_LOG(LogUEMCP, Log, TEXT("UEMCP: module shutdown"));
 }

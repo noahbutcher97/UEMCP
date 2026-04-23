@@ -8,6 +8,7 @@
 #include "EdgeCaseHandlers.h"
 #include "GraphTraversalHandlers.h"
 #include "ReflectionWalker.h"
+#include "SidecarSaveHook.h"
 
 namespace UEMCP
 {
@@ -82,5 +83,6 @@ namespace UEMCP
 		RegisterGraphTraversalHandlers(*this);
 		RegisterEdgeCaseHandlers(*this);
 		RegisterDataSourceHandlers(*this);
+		RegisterSidecarCommands(*this);
 	}
 }

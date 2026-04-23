@@ -32,7 +32,7 @@ let MENHANCE_WIRE_MAP = {};
 export function initMenhanceTools(toolsData) {
   MENHANCE_WIRE_MAP = {};
   const toolsets = toolsData?.toolsets || {};
-  for (const toolsetName of ['blueprint-read', 'materials', 'editor-utility', 'input-and-pie', 'asset-registry']) {
+  for (const toolsetName of ['blueprint-read', 'materials', 'editor-utility', 'input-and-pie', 'asset-registry', 'sidecar']) {
     const toolset = toolsets[toolsetName];
     if (!toolset?.tools) continue;
     for (const [name, def] of Object.entries(toolset.tools)) {
@@ -243,6 +243,16 @@ export const MENHANCE_SCHEMAS = {
     schema: {},
     isReadOp: true,
     partialRc: { tcpWireType: 'list_data_asset_types', transform: 'identity' },
+  },
+
+  // ── CP5: narrow-sidecar regen ────────────────────────────────
+  regenerate_sidecar: {
+    description: 'Force-write a narrow sidecar for a Blueprint — backfill for assets not touched by the save-hook',
+    schema: {
+      asset_path: z.string().describe('/Game/... path to the Blueprint asset'),
+    },
+    // Writes to disk — mutation, skip cache.
+    isReadOp: false,
   },
 };
 
