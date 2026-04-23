@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
 - Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **1034 total assertions passing** across 9 test files (as of D71 / 2026-04-22). Pre-Agent-10 baseline was 436; Agent 10 added 125; Agent 10.5 added 51; Polish worker added 37; Parser Extensions added 34; Cleanup worker added 26; Pre-Phase-3 Fixes worker added 8 (F-1 coerce); MCP-Wire Integration Test Harness added 50; F-1.5 Worker added 16; EN-2 Worker added 42; M-spatial Worker added 74; EN-8/9 Worker added 15 (comment_ids + withAssetExistenceCheck helper); S-B-base Worker added 120 (CP1+CP2 parser + new test-s-b-base-differential.mjs). CL-1 Worker refreshed 7 drift failures without changing count.
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **1203 total assertions passing** across 10 test files (as of D77 / 2026-04-23, M-enhance ship-complete). Pre-Agent-10 baseline was 436; Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120 (new test-s-b-base-differential.mjs); CL-1 refreshed 7 drifts; Verb-surface +83 (new test-verb-surface.mjs); M-enhance across 4 sessions +166 (new test-rc-wire.mjs + test-tcp-tools.mjs extensions covering rc-tools + menhance-tcp-tools).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -143,6 +143,8 @@ UEMCP/
 │   ├── test-query-asset-registry.mjs ← bulk scan + pagination + tag filtering (16 assertions)
 │   ├── test-inspect-and-level-actors.mjs ← inspect_blueprint + list_level_actors (30 assertions)
 │   ├── test-s-b-base-differential.mjs ← S-B-base pin-block parser differential vs Oracle-A-v2 (68 assertions, D70)
+│   ├── test-verb-surface.mjs ← M-new Verb-surface 5 verbs (bp_trace_exec/data/neighbors/show_node/list_entry_points) + oracle cross-check (83 assertions, D72)
+│   ├── test-rc-wire.mjs   ← M-enhance RC HTTP wire-mock + 11 FULL-RC tools + cross-transport consistency (72 assertions, D74+D76)
 │   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
 ├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
 ├── docs/
@@ -270,7 +272,7 @@ See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 t
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: 1034 assertions across 9 test files** (as of D71 / 2026-04-22). Primary + supplementary rotations both grew substantially through S-B-base's edge-topology parser work. Per-file counts (S-B-base shipped `test-s-b-base-differential.mjs` with 68 assertions; EN-8/9 Worker added +15 to test-phase1; CL-1 Worker refreshed but did not change counts). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base.
+**Total: 1203 assertions across 10 test files** (as of D77 / 2026-04-23, M-enhance ship-complete). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base (new test-s-b-base-differential.mjs), +83 Verb-surface (new test-verb-surface.mjs), +166 M-enhance across 4 sessions (new test-rc-wire.mjs + test-tcp-tools.mjs extensions). CL-1 refreshed 7 drifts without count change.
 
 ### Test Files — Primary Rotation
 
@@ -293,6 +295,8 @@ These exercise real ProjectA fixtures (`.uasset`/`.umap` bytes on disk) and requ
 | `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-query-asset-registry.mjs` |
 | `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-inspect-and-level-actors.mjs` |
 | `server/test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 fixtures — 6 fixtures × per-graph edge-set hybrid match (68 assertions, D70) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-s-b-base-differential.mjs` |
+| `server/test-verb-surface.mjs` | M-new Verb-surface — 5 offline traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) + oracle cross-check on 3 fixtures (83 assertions, D72) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-verb-surface.mjs` |
+| `server/test-rc-wire.mjs` | M-enhance RC HTTP wire-mock — 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates) + cross-transport consistency checks (72 assertions, D74+D76) | `cd /d D:\DevTools\UEMCP\server && node test-rc-wire.mjs` |
 
 **Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
 
