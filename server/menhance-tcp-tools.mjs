@@ -122,10 +122,215 @@ export const MENHANCE_SCHEMAS = {
     },
     isReadOp: true,
   },
+
+  // ── PARTIAL-RC group (CP4 remainder, Session 3) ─────────────────
+  // Hybrid dispatch per FA-ε §Q6: agent-facing signature is TCP-external
+  // while internal substrate is plugin-reflection for full flag fidelity
+  // (RC's SanitizeMetadata allowlist can't cover Category/Replicated/etc.).
+  // RC augmentation is a future optimization — Session 3 ships plugin-primary.
+
+  get_blueprint_info: {
+    description: 'Parent class, interfaces, component list, variable count, function count. Overview without loading full graph.',
+    schema: {
+      asset_path: z.string().describe('/Game/... BP path (BP_C class path or Blueprint asset path)'),
+    },
+    isReadOp: true,
+    // Internal: dispatches to reflection_walk then extracts summary fields client-side.
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'blueprint_info' },
+  },
+
+  get_blueprint_variables: {
+    description: 'All variables with types, default values, categories, replication flags, tooltips (full flag set — RC allowlist bypassed)',
+    schema: {
+      asset_path: z.string().describe('/Game/... BP path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'blueprint_variables' },
+  },
+
+  get_blueprint_functions: {
+    description: 'All functions with full signatures — params, return, static/const/pure/net flags',
+    schema: {
+      asset_path: z.string().describe('/Game/... BP path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'blueprint_functions' },
+  },
+
+  get_blueprint_components: {
+    description: 'Component hierarchy — class references declared as UActorComponent-subclassed UPROPERTIES',
+    schema: {
+      asset_path: z.string().describe('/Game/... BP path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'blueprint_components' },
+  },
+
+  get_niagara_system_info: {
+    description: 'UNiagaraSystem metadata — emitter names, user-exposed parameters, fixed bounds (reflection)',
+    schema: {
+      asset_path: z.string().describe('/Game/... UNiagaraSystem path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
+  },
+
+  get_montage_full: {
+    description: 'Deep montage read — sections, notifies, slots, blend settings (reflection schema; values via read_asset_properties)',
+    schema: {
+      asset_path: z.string().describe('/Game/... UAnimMontage path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
+  },
+
+  get_anim_sequence_info: {
+    description: 'AnimSequence metadata — skeleton, notify tracks, curves, sync markers (reflection schema)',
+    schema: {
+      asset_path: z.string().describe('/Game/... UAnimSequence path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
+  },
+
+  get_blend_space: {
+    description: 'Blend axes, sample points, interpolation mode (reflection schema) — covers BlendSpace and BlendSpace1D',
+    schema: {
+      asset_path: z.string().describe('/Game/... UBlendSpace or UBlendSpace1D path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
+  },
+
+  get_anim_curve_data: {
+    description: 'Float/vector/transform curve UPROPERTY schema from any animation asset',
+    schema: {
+      asset_path: z.string().describe('/Game/... animation asset path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
+  },
+
+  get_struct_definition: {
+    description: 'Read UUserDefinedStruct / UScriptStruct members with full metadata and flag surface',
+    schema: {
+      asset_path: z.string().describe('/Game/... UUserDefinedStruct path or native /Script/... struct path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'get_struct_reflection', transform: 'identity' },
+  },
+
+  get_datatable_contents: {
+    description: 'Read all rows from a UDataTable — CSV + row names + row struct reflection',
+    schema: {
+      asset_path: z.string().describe('/Game/... UDataTable path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'get_datatable_contents', transform: 'identity' },
+  },
+
+  get_string_table: {
+    description: 'Read UStringTable key/source pairs with namespace',
+    schema: {
+      asset_path: z.string().describe('/Game/... UStringTable path'),
+    },
+    isReadOp: true,
+    partialRc: { tcpWireType: 'get_string_table_contents', transform: 'identity' },
+  },
+
+  list_data_asset_types: {
+    description: 'Enumerate UDataAsset subclasses loaded in memory — surface for create_data_asset subclass param',
+    schema: {},
+    isReadOp: true,
+    partialRc: { tcpWireType: 'list_data_asset_types', transform: 'identity' },
+  },
+};
+
+// ── PARTIAL-RC response transforms ────────────────────────────
+//
+// Plugin reflection_walk returns full class reflection; caller-facing tools
+// want semantically-filtered subsets. Transforms run client-side on the raw
+// plugin response before returning to the caller — no extra wire round-trip.
+
+/**
+ * `blueprint_info` transform — summary fields from a UClass reflection walk.
+ * Callers wanting full variables list use get_blueprint_variables instead.
+ */
+function transformBlueprintInfo(raw) {
+  const inner = raw?.result || raw;
+  return {
+    name:        inner?.name,
+    path:        inner?.path,
+    super_class: inner?.super_class,
+    interfaces:  inner?.interfaces || [],
+    class_flags: inner?.class_flags || [],
+    property_count: (inner?.properties || []).length,
+    function_count: (inner?.functions || []).length,
+  };
+}
+
+/** `blueprint_variables` transform — extract properties[]. */
+function transformBlueprintVariables(raw) {
+  const inner = raw?.result || raw;
+  return {
+    asset_path: inner?.path,
+    variables:  inner?.properties || [],
+    count:      (inner?.properties || []).length,
+  };
+}
+
+/** `blueprint_functions` transform — extract functions[]. */
+function transformBlueprintFunctions(raw) {
+  const inner = raw?.result || raw;
+  return {
+    asset_path: inner?.path,
+    functions:  inner?.functions || [],
+    count:      (inner?.functions || []).length,
+  };
+}
+
+/**
+ * `blueprint_components` transform — filter properties for types that look
+ * like ActorComponent subclasses. We match by property_class suffix (since
+ * the walker emits /Script/Engine.ActorComponent-style paths) plus the
+ * "Component" name-suffix heuristic for BP-declared component variables.
+ */
+function transformBlueprintComponents(raw) {
+  const inner = raw?.result || raw;
+  const all = inner?.properties || [];
+  const components = all.filter(p => {
+    // Object/SoftObject properties pointing at component classes
+    const cls = (p?.property_class || '').toLowerCase();
+    if (cls.includes('component')) return true;
+    // SCS-generated names usually end in _GEN_VARIABLE for Blueprint-declared components.
+    // Use a conservative name-suffix heuristic as fallback.
+    if (typeof p?.name === 'string' && p.name.endsWith('_GEN_VARIABLE')) return true;
+    return false;
+  });
+  return {
+    asset_path: inner?.path,
+    components,
+    count:      components.length,
+  };
+}
+
+const TRANSFORMS = {
+  identity:               (raw) => raw?.result || raw,
+  blueprint_info:         transformBlueprintInfo,
+  blueprint_variables:    transformBlueprintVariables,
+  blueprint_functions:    transformBlueprintFunctions,
+  blueprint_components:   transformBlueprintComponents,
 };
 
 /**
  * Dispatch an M-enhance TCP tool call.
+ *
+ * For FULL-TCP tools (no `partialRc` field): dispatches to tools.yaml
+ * wire_type on tcp-55558 directly.
+ *
+ * For PARTIAL-RC tools (has `partialRc` field): dispatches to the
+ * `partialRc.tcpWireType` command then runs the named transform over
+ * the plugin response to shape it for the agent-facing surface.
  *
  * @param {string} toolName                            tools.yaml name
  * @param {object} args                                raw args (validated here)
@@ -137,8 +342,19 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
   if (!def) throw new Error(`menhance-tcp-tools: unknown tool "${toolName}"`);
 
   const validated = z.object(def.schema).parse(args);
-  const wireType = MENHANCE_WIRE_MAP[toolName] || toolName;
 
+  // PARTIAL-RC path: internal substrate + client transform.
+  if (def.partialRc) {
+    const { tcpWireType, transform } = def.partialRc;
+    const raw = await connectionManager.send(
+      'tcp-55558', tcpWireType, validated, { skipCache: !def.isReadOp },
+    );
+    const transformFn = TRANSFORMS[transform] || TRANSFORMS.identity;
+    return transformFn(raw);
+  }
+
+  // FULL-TCP path: wire_type translation + direct dispatch.
+  const wireType = MENHANCE_WIRE_MAP[toolName] || toolName;
   return connectionManager.send('tcp-55558', wireType, validated, { skipCache: !def.isReadOp });
 }
 

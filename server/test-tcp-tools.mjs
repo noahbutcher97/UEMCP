@@ -1216,6 +1216,175 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     t.assert(call && call.port === 55558,
       'get_material_graph falls back to identity wire type when no override');
   }
+
+  // ── PARTIAL-RC schema completeness ────────────────────────────
+  {
+    const expectedPartial = [
+      'get_blueprint_info', 'get_blueprint_variables', 'get_blueprint_functions',
+      'get_blueprint_components', 'get_niagara_system_info',
+      'get_montage_full', 'get_anim_sequence_info', 'get_blend_space',
+      'get_anim_curve_data', 'get_struct_definition',
+      'get_datatable_contents', 'get_string_table', 'list_data_asset_types',
+    ];
+    for (const name of expectedPartial) {
+      t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
+      t.assert(MENHANCE_SCHEMAS[name].partialRc !== undefined,
+        `${name} declares partialRc dispatch config`);
+    }
+  }
+
+  // ── PARTIAL-RC: reflection_walk-backed tools dispatch correctly ──
+  {
+    const fakeReflectionResponse = {
+      status: 'success',
+      result: {
+        name: 'BP_Player_C',
+        path: '/Game/Blueprints/BP_Player.BP_Player_C',
+        super_class: '/Script/Engine.Character',
+        interfaces: ['/Script/Engine.IHittable'],
+        class_flags: ['Blueprintable'],
+        properties: [
+          { name: 'Health', cpp_type: 'float', class: 'FloatProperty',
+            flags: ['BlueprintReadWrite', 'Replicated'], metadata: { Category: 'Stats' } },
+          { name: 'MeshComp', cpp_type: 'UStaticMeshComponent*', class: 'ObjectProperty',
+            property_class: '/Script/Engine.StaticMeshComponent', flags: [], metadata: {} },
+          { name: 'InventoryVar_GEN_VARIABLE', cpp_type: 'UObject*', class: 'ObjectProperty',
+            flags: [], metadata: {} },
+        ],
+        functions: [
+          { name: 'Jump', flags: ['BlueprintCallable'], parameters: [] },
+          { name: 'TakeDamage', flags: ['BlueprintCallable'], parameters: [] },
+        ],
+      },
+    };
+
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('reflection_walk', fakeReflectionResponse);
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // get_blueprint_info — summary transform
+    const info = await executeMenhanceTool('get_blueprint_info', { asset_path: '/Game/BP' }, cm);
+    t.assert(info.name === 'BP_Player_C', 'blueprint_info transform extracts name');
+    t.assert(info.super_class === '/Script/Engine.Character', 'blueprint_info emits super_class');
+    t.assert(info.property_count === 3, `blueprint_info counts properties (got ${info.property_count})`);
+    t.assert(info.function_count === 2, 'blueprint_info counts functions');
+    t.assert(Array.isArray(info.interfaces), 'blueprint_info includes interfaces');
+
+    // Wire check — went to reflection_walk, not to get_blueprint_info
+    t.assert(fake.lastCall('reflection_walk') !== undefined,
+      'get_blueprint_info dispatches to reflection_walk wire type');
+    t.assert(fake.lastCall('get_blueprint_info') === undefined,
+      'get_blueprint_info does NOT use identity wire type');
+
+    // get_blueprint_variables — extract properties[]
+    fake.resetCalls();
+    const vars = await executeMenhanceTool('get_blueprint_variables', { asset_path: '/Game/BP' }, cm);
+    // Cache is shared: reflection_walk was just called above, same args → cached.
+    // Use unique arg to bypass cache.
+    // Actually above used same asset_path; second call will cache-hit. Accept that.
+    t.assert(Array.isArray(vars.variables), 'blueprint_variables returns array');
+    t.assert(vars.count === 3, 'blueprint_variables counts correctly');
+    t.assert(vars.variables[0].name === 'Health', 'blueprint_variables preserves property shape');
+
+    // get_blueprint_functions — extract functions[]
+    const fns = await executeMenhanceTool('get_blueprint_functions', { asset_path: '/Game/BP' }, cm);
+    t.assert(fns.count === 2, 'blueprint_functions counts correctly');
+    t.assert(fns.functions[0].name === 'Jump', 'blueprint_functions preserves function shape');
+
+    // get_blueprint_components — filter for component-like properties
+    const comps = await executeMenhanceTool('get_blueprint_components', { asset_path: '/Game/BP' }, cm);
+    t.assert(comps.count === 2,
+      `blueprint_components filters correctly (MeshComp + _GEN_VARIABLE, got ${comps.count})`);
+    t.assert(comps.components.some(c => c.name === 'MeshComp'),
+      'blueprint_components identifies MeshComp via property_class');
+    t.assert(comps.components.some(c => c.name === 'InventoryVar_GEN_VARIABLE'),
+      'blueprint_components catches SCS _GEN_VARIABLE suffix');
+    t.assert(!comps.components.some(c => c.name === 'Health'),
+      'blueprint_components excludes non-component Health');
+  }
+
+  // ── PARTIAL-RC: identity transforms pass through plugin response ──
+  {
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('reflection_walk', {
+      status: 'success',
+      result: { name: 'UNiagaraSystem', properties: [], functions: [] },
+    });
+    fake.on('get_struct_reflection', {
+      status: 'success',
+      result: { name: 'FMyStruct', properties: [{ name: 'Field1' }] },
+    });
+    fake.on('get_datatable_contents', {
+      status: 'success',
+      result: { asset_path: '/Game/DT', num_rows: 5, csv: 'a,b\n1,2' },
+    });
+    fake.on('get_string_table_contents', {
+      status: 'success',
+      result: { namespace: 'UI', entries: [{ key: 'hello', source: 'Hello' }] },
+    });
+    fake.on('list_data_asset_types', {
+      status: 'success',
+      result: { num_classes: 42, classes: [] },
+    });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    // Niagara — identity pass-through
+    const niagara = await executeMenhanceTool('get_niagara_system_info', { asset_path: '/Game/N' }, cm);
+    t.assert(niagara.name === 'UNiagaraSystem', 'get_niagara_system_info pass-through');
+
+    // Struct — dispatches to get_struct_reflection
+    const struct = await executeMenhanceTool('get_struct_definition', { asset_path: '/Game/S' }, cm);
+    t.assert(struct.name === 'FMyStruct', 'get_struct_definition pass-through');
+    t.assert(fake.lastCall('get_struct_reflection'),
+      'get_struct_definition dispatches to get_struct_reflection wire type');
+
+    // DataTable — dedicated wire type
+    const dt = await executeMenhanceTool('get_datatable_contents', { asset_path: '/Game/DT' }, cm);
+    t.assert(dt.num_rows === 5, 'get_datatable_contents pass-through');
+    t.assert(dt.csv.includes('a,b'), 'CSV content preserved');
+
+    // StringTable — dedicated wire type (note: tool name is get_string_table but wire is get_string_table_contents)
+    const st = await executeMenhanceTool('get_string_table', { asset_path: '/Game/ST' }, cm);
+    t.assert(st.namespace === 'UI', 'get_string_table pass-through');
+    t.assert(fake.lastCall('get_string_table_contents'),
+      'get_string_table translates to get_string_table_contents');
+
+    // list_data_asset_types — no params
+    const types = await executeMenhanceTool('list_data_asset_types', {}, cm);
+    t.assert(types.num_classes === 42, 'list_data_asset_types pass-through');
+
+    // Animation tools — each hits reflection_walk with identity transform
+    fake.resetCalls();
+    for (const tool of ['get_montage_full', 'get_anim_sequence_info', 'get_blend_space', 'get_anim_curve_data']) {
+      await executeMenhanceTool(tool, { asset_path: '/Game/Anim/Uniq' + tool }, cm);
+    }
+    const reflectionCalls = fake.callsFor('reflection_walk');
+    t.assert(reflectionCalls.length >= 4,
+      `4 animation tools each dispatch to reflection_walk (got ${reflectionCalls.length})`);
+  }
+
+  // ── PARTIAL-RC: Zod validation still bites ───────────────────
+  {
+    const { config } = createTestConfig('D:/FakeProject');
+    const cm = new ConnectionManager(config);
+
+    await t.assertRejects(
+      () => executeMenhanceTool('get_blueprint_variables', {}, cm),
+      /asset_path/,
+      'get_blueprint_variables rejects missing asset_path'
+    );
+    await t.assertRejects(
+      () => executeMenhanceTool('get_struct_definition', {}, cm),
+      /asset_path/,
+      'get_struct_definition rejects missing asset_path'
+    );
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

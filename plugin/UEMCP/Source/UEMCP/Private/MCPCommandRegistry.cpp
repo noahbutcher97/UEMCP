@@ -4,6 +4,7 @@
 
 // M-enhance CP3 handler registration
 #include "CompileDiagnosticHandler.h"
+#include "DataSourceHandlers.h"
 #include "EdgeCaseHandlers.h"
 #include "GraphTraversalHandlers.h"
 #include "ReflectionWalker.h"
@@ -80,5 +81,6 @@ namespace UEMCP
 		RegisterReflectionHandlers(*this);
 		RegisterGraphTraversalHandlers(*this);
 		RegisterEdgeCaseHandlers(*this);
+		RegisterDataSourceHandlers(*this);
 	}
 }

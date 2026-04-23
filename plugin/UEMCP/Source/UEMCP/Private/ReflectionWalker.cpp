@@ -6,6 +6,7 @@
 
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/UserDefinedStruct.h"
 #include "UObject/Class.h"
 #include "UObject/Interface.h"
 #include "UObject/Package.h"
@@ -269,6 +270,71 @@ namespace UEMCP
 			return nullptr;
 		}
 
+		/**
+		 * Resolve a struct path → UStruct*. Handles both UUserDefinedStruct
+		 * ('/Game/Structs/X.X' loads the asset; cast to UUserDefinedStruct)
+		 * and native UScriptStruct ('/Script/Engine.Transform').
+		 */
+		UStruct* ResolveStruct(const FString& Path)
+		{
+			const FSoftObjectPath Soft(Path);
+			if (UObject* Obj = Soft.TryLoad())
+			{
+				if (UUserDefinedStruct* Uds = Cast<UUserDefinedStruct>(Obj))
+				{
+					return Uds;
+				}
+				if (UScriptStruct* Ss = Cast<UScriptStruct>(Obj))
+				{
+					return Ss;
+				}
+				// Some callers pass a class path to our struct handler by mistake —
+				// if the object is actually a UClass, surface it as a struct too
+				// (UClass IS-A UStruct). Keeps the handler forgiving.
+				if (UClass* C = Cast<UClass>(Obj))
+				{
+					return C;
+				}
+			}
+			return nullptr;
+		}
+
+		void HandleStructReflection(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			if (!Params.IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("get_struct_reflection requires params.asset_path"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			FString AssetPath;
+			if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath) || AssetPath.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("get_struct_reflection requires non-empty asset_path"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UStruct* Struct = ResolveStruct(AssetPath);
+			if (!Struct)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Could not resolve UStruct / UUserDefinedStruct at '%s'"), *AssetPath),
+					TEXT("ASSET_NOT_FOUND"));
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("name"),            Struct->GetName());
+			Result->SetStringField(TEXT("path"),            Struct->GetPathName());
+			Result->SetStringField(TEXT("struct_class"),    Struct->GetClass()->GetName());
+			if (Struct->GetSuperStruct())
+			{
+				Result->SetStringField(TEXT("super_struct"), Struct->GetSuperStruct()->GetPathName());
+			}
+			Result->SetArrayField(TEXT("properties"),       SerializeStructProperties(Struct));
+
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleReflectionWalk(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			if (!Params.IsValid())
@@ -298,6 +364,7 @@ namespace UEMCP
 
 	void RegisterReflectionHandlers(FMCPCommandRegistry& Registry)
 	{
-		Registry.Register(TEXT("reflection_walk"), &HandleReflectionWalk);
+		Registry.Register(TEXT("reflection_walk"),       &HandleReflectionWalk);
+		Registry.Register(TEXT("get_struct_reflection"), &HandleStructReflection);
 	}
 }
