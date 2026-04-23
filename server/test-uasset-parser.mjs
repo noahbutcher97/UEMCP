@@ -1500,7 +1500,7 @@ async function testPinBlockOffsetCP1() {
     { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
     { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
     { name: 'TestCharacter',      relPath: 'Content/Blueprints/Character/TestCharacter.uasset',      oracle: 'TestCharacter.oracle.json',      expectedGraphNodes: 11 },
-    { name: 'BP_OSControlPoint',  relPath: 'Content/Blueprints/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 182 },
+    { name: 'BP_OSControlPoint',  relPath: 'Content/Blueprints/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
   ];
 
   for (const fx of FIXTURES) {

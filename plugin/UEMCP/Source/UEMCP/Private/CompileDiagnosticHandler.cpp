@@ -9,6 +9,7 @@
 #include "Kismet2/CompilerResultsLog.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Logging/TokenizedMessage.h"
+#include "Misc/UObjectToken.h"
 #include "UObject/SoftObjectPath.h"
 
 namespace UEMCP

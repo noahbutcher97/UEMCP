@@ -25,8 +25,8 @@
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
-									"node_guid": "A5F648294A67F5C35EBC41A9DD9D8802",
-									"pin_id": "697B06E54F611EF9F598A19574033769"
+									"node_guid": "B6E1BCE54F66D12F3ABB7AA9CD32147B",
+									"pin_id": "AB1016094D00BEA2289EB49D4ADF8B21"
 								}
 							]
 						}
@@ -246,8 +246,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "79194D4445B5B060BD12DA9C8EF9F300",
-									"pin_id": "D39E3E9D474DFFA82C14D2941DE026E9"
+									"node_guid": "1B2B98A34C03A9BFC28859AEB7DDC212",
+									"pin_id": "E1B6DB734B0498DA8DD3AD85CE1A3615"
 								}
 							]
 						},
@@ -809,8 +809,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "6D30FADD4F9A4023A5BFCBA2A60908EC",
-									"pin_id": "87A5AED94AFCB8CA083485976D582FAC"
+									"node_guid": "B6E1BCE54F66D12F3ABB7AA9CD32147B",
+									"pin_id": "A370C67D454060F48C71419644A00907"
 								}
 							]
 						},
@@ -878,8 +878,8 @@
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
-									"node_guid": "345D70534570594412591BB8AFB9A6B0",
-									"pin_id": "504C76FD451751E9114C65914162D6EE"
+									"node_guid": "225DDDC8407D470C1BAF2F862E6681AD",
+									"pin_id": "6999B22C47251C301917A0842E188464"
 								}
 							]
 						},
@@ -903,6 +903,1008 @@
 						"85B4C9F1490F9E3179A6528500EFA3C0":
 						{
 							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E2D2886445145314781CA8A4A1A159D1":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"A92900734F6581D399990CA6E8C75B6C":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FB48F0134DF78E55B6A68DB581D6D929":
+						{
+							"name": "WorldContextObject",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"90B6B5DE415CC36E2898E69A37EA908A":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "225DDDC8407D470C1BAF2F862E6681AD",
+									"pin_id": "1CCFC77241238DB0C546F5B079CFDC36"
+								}
+							]
+						}
+					}
+				},
+				"225DDDC8407D470C1BAF2F862E6681AD":
+				{
+					"class_name": "K2Node_DynamicCast",
+					"pins":
+					{
+						"6999B22C47251C301917A0842E188464":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "79194D4445B5B060BD12DA9C8EF9F300",
+									"pin_id": "D39E3E9D474DFFA82C14D2941DE026E9"
+								}
+							]
+						},
+						"63EA5105446E09949CC8708F75CC4E8D":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "1B2B98A34C03A9BFC28859AEB7DDC212",
+									"pin_id": "A0DD4A864FC06DA23AD68280837225A0"
+								}
+							]
+						},
+						"C5B8EB6E4E15479C34B80F94A27A1097":
+						{
+							"name": "CastFailed",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"1CCFC77241238DB0C546F5B079CFDC36":
+						{
+							"name": "Object",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E2D2886445145314781CA8A4A1A159D1",
+									"pin_id": "90B6B5DE415CC36E2898E69A37EA908A"
+								}
+							]
+						},
+						"E23EF87E44B889944EC2B2920764DA76":
+						{
+							"name": "AsOSGame State Domination",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "0B82D9BF4901A30523F4858AF597B8D8",
+									"pin_id": "873DF9F14907C9057D4D9B93B878578C"
+								}
+							]
+						},
+						"3F720D7D45290B5D800EECA68FFCFC49":
+						{
+							"name": "bSuccess",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"0B82D9BF4901A30523F4858AF597B8D8":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"21C4B2994607449252E224BCB9520869":
+						{
+							"name": "ControlPoints",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "1B2B98A34C03A9BFC28859AEB7DDC212",
+									"pin_id": "19B5EFB94F4C14359BA2009DE5867040"
+								}
+							]
+						},
+						"873DF9F14907C9057D4D9B93B878578C":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "225DDDC8407D470C1BAF2F862E6681AD",
+									"pin_id": "E23EF87E44B889944EC2B2920764DA76"
+								}
+							]
+						}
+					}
+				},
+				"1B2B98A34C03A9BFC28859AEB7DDC212":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"A0DD4A864FC06DA23AD68280837225A0":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "225DDDC8407D470C1BAF2F862E6681AD",
+									"pin_id": "63EA5105446E09949CC8708F75CC4E8D"
+								}
+							]
+						},
+						"E1B6DB734B0498DA8DD3AD85CE1A3615":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "345D70534570594412591BB8AFB9A6B0",
+									"pin_id": "504C76FD451751E9114C65914162D6EE"
+								}
+							]
+						},
+						"19B5EFB94F4C14359BA2009DE5867040":
+						{
+							"name": "Control Points",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "0B82D9BF4901A30523F4858AF597B8D8",
+									"pin_id": "21C4B2994607449252E224BCB9520869"
+								}
+							]
+						},
+						"D1AE8D934C5A7DD52EAAEFBEA3084206":
+						{
+							"name": "Output_Get",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"35BB58C94576BE299C6C2D88339C3FC2":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"9C9FC816402DFAE04572B78AE6DC80A2":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"B21D6D584766B63288D4538EC39AD398":
+						{
+							"name": "OutputDelegate",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"80C0125C49D5B1384EE5248EC8EC55C4":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"6E187BDB4AE58AE3EF02839E7604C0A4":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"B80798F540191BF97AB3D28B6159F5D7":
+						{
+							"name": "Control Points",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"B3819FBE4A91C863CB7D958D98450B37":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"E8BE1BAA446B27B10A4E1FA7086BA04D":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"B239E15D4B209EEBD95437A237BBFABF":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "09159CAE4A208CD46786E0AF088C183F",
+									"pin_id": "3284FC734FE5A9CE35E6239CBF2357D6"
+								}
+							]
+						},
+						"E45A81A0427627A9B30A6EA3B229B6A4":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9B55790E47614FEAFD3826A9CD33D21C",
+									"pin_id": "4BFEA197448340E6FB5D72A9B23B981F"
+								}
+							]
+						},
+						"02AA2F444AB2376D8E2688AEE3E51901":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"65AC67C347F9BC7D612733A82D6FEE5C":
+						{
+							"name": "Highest Progress",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DD6EEEB44BA1C4D3FC18C4830AE13360",
+									"pin_id": "637DF4464B6F1270F2BC11B82E1FF8EF"
+								},
+								{
+									"node_guid": "418035BD44FEFCBE2E9D11BD0ACD9D14",
+									"pin_id": "1FD06FF24FD0F82A3577E49351A1854D"
+								},
+								{
+									"node_guid": "B0FDCA234F4529AFCE247AB14E41053A",
+									"pin_id": "240820D54E386A444786DE9AD06B6D5B"
+								}
+							]
+						}
+					}
+				},
+				"A8A57EC4438F9AE7746128A3C4A663B6":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"3E8BE64649EA6A71BF3F278B06644A1B":
+						{
+							"name": "AkGlobalManager_Ref",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CD4BABF54D155F90C702A9ACBF1FA742",
+									"pin_id": "D3D86C694EDE20ED1B603193E67E9633"
+								}
+							]
+						},
+						"3D49C3BC402274D50968A784F66FE7E1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"CD4BABF54D155F90C702A9ACBF1FA742":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E21E901C401B0F13C63497B2B46A2559":
+						{
+							"name": "AkGlobalComponent",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DD6EEEB44BA1C4D3FC18C4830AE13360",
+									"pin_id": "5871CDD7490A2321934622AE461D0385"
+								}
+							]
+						},
+						"D3D86C694EDE20ED1B603193E67E9633":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A8A57EC4438F9AE7746128A3C4A663B6",
+									"pin_id": "3E8BE64649EA6A71BF3F278B06644A1B"
+								}
+							]
+						}
+					}
+				},
+				"DD6EEEB44BA1C4D3FC18C4830AE13360":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"5E52A53B4D7B9A12B435E6BA274DD500":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "9B55790E47614FEAFD3826A9CD33D21C",
+									"pin_id": "5762380D497629C8726A498A8A89ED3B"
+								}
+							]
+						},
+						"1636EFE144D60EE1D84BBC9A2AAA53AD":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "543EE01C4DD2BA3A9696389937D3498C",
+									"pin_id": "913A86AD4A56589BCDBBD1AFB8701FDD"
+								}
+							]
+						},
+						"5871CDD7490A2321934622AE461D0385":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CD4BABF54D155F90C702A9ACBF1FA742",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
+								}
+							]
+						},
+						"8DF2BD33477589E0113B678D2D0F49C4":
+						{
+							"name": "RTPCValue",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"637DF4464B6F1270F2BC11B82E1FF8EF":
+						{
+							"name": "Value",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E8BE1BAA446B27B10A4E1FA7086BA04D",
+									"pin_id": "65AC67C347F9BC7D612733A82D6FEE5C"
+								}
+							]
+						},
+						"9AB220CC4A25457012E495A41574A151":
+						{
+							"name": "InterpolationTimeMs",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"464B92324D27ED1B907992AC005A87D2":
+						{
+							"name": "RTPC",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"418035BD44FEFCBE2E9D11BD0ACD9D14":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"1FD06FF24FD0F82A3577E49351A1854D":
+						{
+							"name": "A",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E8BE1BAA446B27B10A4E1FA7086BA04D",
+									"pin_id": "65AC67C347F9BC7D612733A82D6FEE5C"
+								}
+							]
+						},
+						"8EB0F5EF48F51815BB9CC6A6E371C6C9":
+						{
+							"name": "B",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"49505C60456EAE12940AFB9F0A076DDE":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "543EE01C4DD2BA3A9696389937D3498C",
+									"pin_id": "7AABEA354FEF7BC72DEDACAB60A210FF"
+								}
+							]
+						},
+						"187B87ED4DFAF746CDF50898DBCB2A02":
+						{
+							"name": "ErrorTolerance",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"543EE01C4DD2BA3A9696389937D3498C":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"913A86AD4A56589BCDBBD1AFB8701FDD":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "DD6EEEB44BA1C4D3FC18C4830AE13360",
+									"pin_id": "1636EFE144D60EE1D84BBC9A2AAA53AD"
+								}
+							]
+						},
+						"7AABEA354FEF7BC72DEDACAB60A210FF":
+						{
+							"name": "Condition",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "418035BD44FEFCBE2E9D11BD0ACD9D14",
+									"pin_id": "49505C60456EAE12940AFB9F0A076DDE"
+								}
+							]
+						},
+						"2FF5DAD84D537B2210FF61B6F6C5B11D":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E33246374DD2B10E5B543AA51F85B310",
+									"pin_id": "DF025FAD4A6B8E2DB292189A60E3095A"
+								}
+							]
+						},
+						"145175A8403961DA26D954B37D280B89":
+						{
+							"name": "else",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "02F3856E4FCE64179CE49EB5ED4F9BD0",
+									"pin_id": "DF025FAD4A6B8E2DB292189A60E3095A"
+								}
+							]
+						}
+					}
+				},
+				"35C4653942DF48AB35636784AF26D14B":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"3E8BE64649EA6A71BF3F278B06644A1B":
+						{
+							"name": "AkGlobalManager_Ref",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9416C7734441AE279B74C0A49CB7EF8E",
+									"pin_id": "D3D86C694EDE20ED1B603193E67E9633"
+								}
+							]
+						},
+						"3D49C3BC402274D50968A784F66FE7E1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"9416C7734441AE279B74C0A49CB7EF8E":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E21E901C401B0F13C63497B2B46A2559":
+						{
+							"name": "AkGlobalComponent",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E33246374DD2B10E5B543AA51F85B310",
+									"pin_id": "371061D546AC50CDAF80D1A5BB6B5693"
+								}
+							]
+						},
+						"D3D86C694EDE20ED1B603193E67E9633":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "35C4653942DF48AB35636784AF26D14B",
+									"pin_id": "3E8BE64649EA6A71BF3F278B06644A1B"
+								}
+							]
+						}
+					}
+				},
+				"E33246374DD2B10E5B543AA51F85B310":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"DF025FAD4A6B8E2DB292189A60E3095A":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "543EE01C4DD2BA3A9696389937D3498C",
+									"pin_id": "2FF5DAD84D537B2210FF61B6F6C5B11D"
+								}
+							]
+						},
+						"123C0CBC4F70D93F26AB25B85FFC1755":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"371061D546AC50CDAF80D1A5BB6B5693":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "9416C7734441AE279B74C0A49CB7EF8E",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
+								}
+							]
+						},
+						"AEE85605472BA675263A3D8EBDD5DDB2":
+						{
+							"name": "AkEvent",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8F37AD08457098C478B3B983034E4A88":
+						{
+							"name": "CallbackMask",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"81F96065475652E2CA613BBBC8C4E384":
+						{
+							"name": "PostEventCallback",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"67EB150147454F37B59329908D1E362A":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"1E59C75D43453E8BCCA3CF8F789DDDDD":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"3E8BE64649EA6A71BF3F278B06644A1B":
+						{
+							"name": "AkGlobalManager_Ref",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "BD11F435490F160DB8C9FEAADB203122",
+									"pin_id": "D3D86C694EDE20ED1B603193E67E9633"
+								}
+							]
+						},
+						"3D49C3BC402274D50968A784F66FE7E1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"BD11F435490F160DB8C9FEAADB203122":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E21E901C401B0F13C63497B2B46A2559":
+						{
+							"name": "AkGlobalComponent",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "02F3856E4FCE64179CE49EB5ED4F9BD0",
+									"pin_id": "371061D546AC50CDAF80D1A5BB6B5693"
+								}
+							]
+						},
+						"D3D86C694EDE20ED1B603193E67E9633":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1E59C75D43453E8BCCA3CF8F789DDDDD",
+									"pin_id": "3E8BE64649EA6A71BF3F278B06644A1B"
+								}
+							]
+						}
+					}
+				},
+				"02F3856E4FCE64179CE49EB5ED4F9BD0":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"DF025FAD4A6B8E2DB292189A60E3095A":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "543EE01C4DD2BA3A9696389937D3498C",
+									"pin_id": "145175A8403961DA26D954B37D280B89"
+								}
+							]
+						},
+						"123C0CBC4F70D93F26AB25B85FFC1755":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"371061D546AC50CDAF80D1A5BB6B5693":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "BD11F435490F160DB8C9FEAADB203122",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
+								}
+							]
+						},
+						"AEE85605472BA675263A3D8EBDD5DDB2":
+						{
+							"name": "AkEvent",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"8F37AD08457098C478B3B983034E4A88":
+						{
+							"name": "CallbackMask",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"81F96065475652E2CA613BBBC8C4E384":
+						{
+							"name": "PostEventCallback",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"67EB150147454F37B59329908D1E362A":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"3460FCB5402D1645886409A6CBD4F3F3":
+				{
+					"class_name": "K2Node_SwitchEnum",
+					"pins":
+					{
+						"72F2EF9B4EC00FE2C5F34890E3FE5900":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"49F892FC425794C3C19AC0AC2A45A553":
+						{
+							"name": "Selection",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"E3CEFDEE49718FD5D4D60FB5F6C856D4":
+						{
+							"name": "NotEqual_ByteByte",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"26F6360C4BF9598F94FC3395DCE18D87":
+						{
+							"name": "Uninitialized",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"660C4756438BACAD087BE0B019F91D31":
+						{
+							"name": "Neutral",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"7749725F45CF109FFC43709A74FB8006":
+						{
+							"name": "Capturing",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"790B5C6841F3FA08647B86B26B0F03AE":
+						{
+							"name": "Contested",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"BCED46864D8AB31AB061A0942CD07BB6":
+						{
+							"name": "Neutralizing",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"3FED29E548643C6629654DBE7F807714":
+						{
+							"name": "Captured",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"09159CAE4A208CD46786E0AF088C183F":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"85C07DAA4BC2278EAA446D927FAC0FDA":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"3284FC734FE5A9CE35E6239CBF2357D6":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E8BE1BAA446B27B10A4E1FA7086BA04D",
+									"pin_id": "B239E15D4B209EEBD95437A237BBFABF"
+								}
+							]
+						},
+						"AA0553184472C005FB250BA2AA843D1C":
+						{
+							"name": "HighestProgress",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"7818732B4ABC49AB54D7B284039AABFC":
+						{
+							"name": "Output_Get",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"699DBDAF42BA78B5022715BB6BDDFB1F":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"9B55790E47614FEAFD3826A9CD33D21C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"4BFEA197448340E6FB5D72A9B23B981F":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E8BE1BAA446B27B10A4E1FA7086BA04D",
+									"pin_id": "E45A81A0427627A9B30A6EA3B229B6A4"
+								}
+							]
+						},
+						"5762380D497629C8726A498A8A89ED3B":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "DD6EEEB44BA1C4D3FC18C4830AE13360",
+									"pin_id": "5E52A53B4D7B9A12B435E6BA274DD500"
+								}
+							]
+						},
+						"33696A164E29D63169C358AE3142EEE1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DE404F8D419B6A1286725FB725911826":
+						{
+							"name": "WorldContextObject",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"5A8C2529484970C3D30121AD56FABB48":
+						{
+							"name": "InString",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B0FDCA234F4529AFCE247AB14E41053A",
+									"pin_id": "BC9A3E684D60373515049FBA45C0429E"
+								}
+							]
+						},
+						"BBCE7F734F5A534716717096C9065521":
+						{
+							"name": "bPrintToScreen",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"33C16AF14D8B431EF71D1CAB09D9650F":
+						{
+							"name": "bPrintToLog",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"587FA7134E32935134A62698C74D29DC":
+						{
+							"name": "TextColor",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"9668424A418987594B2BF2B45E277E06":
+						{
+							"name": "Duration",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"B942A68F4132BCD9F7EB1A993806CF25":
+						{
+							"name": "Key",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"299FC8ED41B16325BDD9CC8A60023B8A":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"15CA211C490459FBBEAA2E863C45E0F1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D88E59574D03F6DA891A77AEDBFCAB1F":
+						{
+							"name": "Object",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"6F2921EF431C218929F9388816A9294D":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"B0FDCA234F4529AFCE247AB14E41053A":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"9203836744F92EC34F913B9796F70B14":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"240820D54E386A444786DE9AD06B6D5B":
+						{
+							"name": "InDouble",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E8BE1BAA446B27B10A4E1FA7086BA04D",
+									"pin_id": "65AC67C347F9BC7D612733A82D6FEE5C"
+								}
+							]
+						},
+						"BC9A3E684D60373515049FBA45C0429E":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "9B55790E47614FEAFD3826A9CD33D21C",
+									"pin_id": "5A8C2529484970C3D30121AD56FABB48"
+								}
+							]
+						}
+					}
+				},
+				"B6E1BCE54F66D12F3ABB7AA9CD32147B":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"AB1016094D00BEA2289EB49D4ADF8B21":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "6D30FADD4F9A4023A5BFCBA2A60908EC",
+									"pin_id": "87A5AED94AFCB8CA083485976D582FAC"
+								}
+							]
+						},
+						"A370C67D454060F48C71419644A00907":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A5F648294A67F5C35EBC41A9DD9D8802",
+									"pin_id": "697B06E54F611EF9F598A19574033769"
+								}
+							]
+						},
+						"8B0B647B48282885EDB5FBB6BBF9EC02":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"DC8B297E4F5C1503507D67A80812C7E7":
+						{
+							"name": "WorldContextObject",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"85F3A59C46D726DE6EDD878D3C400BF2":
+						{
+							"name": "Duration",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"09B54313421329A0E1B231A5CD87D053":
+						{
+							"name": "LatentInfo",
 							"direction": "EGPD_Input",
 							"linked_to": []
 						}
@@ -1964,7 +2966,7 @@
 								}
 							]
 						},
-						"6C8DBF984F4A7798EE11EF8E257BE328":
+						"C8377CB043150FFEA1287388E3E06B8C":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -2969,12 +3971,7 @@
 						{
 							"name": "Capturing",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "90A42DA84B5433F014A5E48F1E70E910",
-									"pin_id": "C0E945C14E6F5EAC6EA459A2FEA7B290"
-								}
-							]
+							"linked_to": []
 						},
 						"790B5C6841F3FA08647B86B26B0F03AE":
 						{
@@ -2991,12 +3988,7 @@
 						{
 							"name": "Neutralizing",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "90A42DA84B5433F014A5E48F1E70E910",
-									"pin_id": "C0E945C14E6F5EAC6EA459A2FEA7B290"
-								}
-							]
+							"linked_to": []
 						},
 						"B5080AB94BE9F8A0BAF10C8EE1F5F291":
 						{
@@ -3057,16 +4049,7 @@
 						{
 							"name": "execute",
 							"direction": "EGPD_Input",
-							"linked_to": [
-								{
-									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
-									"pin_id": "7749725F45CF109FFC43709A74FB8006"
-								},
-								{
-									"node_guid": "F34F38B547D0904B8BB7F0A613FBBBBE",
-									"pin_id": "BCED46864D8AB31AB061A0942CD07BB6"
-								}
-							]
+							"linked_to": []
 						},
 						"F19F439F4F7B8BD4605664BD08981BE1":
 						{
@@ -3797,6 +4780,54 @@
 							"linked_to": []
 						}
 					}
+				},
+				"B9F673E544FE1A54B09D1487EF81BA39":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"3E8BE64649EA6A71BF3F278B06644A1B":
+						{
+							"name": "AkGlobalManager_Ref",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "6DC3D34C4564255ABFCA6E8916CF6756",
+									"pin_id": "D3D86C694EDE20ED1B603193E67E9633"
+								}
+							]
+						},
+						"3D49C3BC402274D50968A784F66FE7E1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"6DC3D34C4564255ABFCA6E8916CF6756":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E21E901C401B0F13C63497B2B46A2559":
+						{
+							"name": "AkGlobalComponent",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"D3D86C694EDE20ED1B603193E67E9633":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B9F673E544FE1A54B09D1487EF81BA39",
+									"pin_id": "3E8BE64649EA6A71BF3F278B06644A1B"
+								}
+							]
+						}
+					}
 				}
 			}
 		},
@@ -3866,12 +4897,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "EAA5BB424280F4A3E6C376B1B615018E",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -3890,12 +4916,7 @@
 						{
 							"name": "execute",
 							"direction": "EGPD_Input",
-							"linked_to": [
-								{
-									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
-									"pin_id": "C67037114DC519F366E204A66296C46A"
-								}
-							]
+							"linked_to": []
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
@@ -3907,12 +4928,7 @@
 						{
 							"name": "self",
 							"direction": "EGPD_Input",
-							"linked_to": [
-								{
-									"node_guid": "4EA4614749201B6261981BA2FF34F3A7",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
-								}
-							]
+							"linked_to": []
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
@@ -4050,12 +5066,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "E3326DF24B878E4AE7B3D982C4391DBC",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4093,8 +5104,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "E93153864BBD2B3375C952891DC2F11D",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
 								}
 							]
 						},
@@ -4133,12 +5144,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4168,12 +5174,7 @@
 						{
 							"name": "then",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "EAA5BB424280F4A3E6C376B1B615018E",
-									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
-								}
-							]
+							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
@@ -4181,8 +5182,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "8B41BC2C43E1929AF92C3080609A823B",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
 								}
 							]
 						},
@@ -4221,12 +5222,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "EDF72CA04E1B5EBE6656D285403E7049",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4264,8 +5260,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "6E00E8BA487F26AFD40536AA791D5BB8",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
 								}
 							]
 						},
@@ -4328,12 +5324,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "5CF70B4448D6059B335DDD8C4D4542B3",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4352,12 +5343,7 @@
 						{
 							"name": "execute",
 							"direction": "EGPD_Input",
-							"linked_to": [
-								{
-									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
-									"pin_id": "C67037114DC519F366E204A66296C46A"
-								}
-							]
+							"linked_to": []
 						},
 						"C67037114DC519F366E204A66296C46A":
 						{
@@ -4369,12 +5355,7 @@
 						{
 							"name": "self",
 							"direction": "EGPD_Input",
-							"linked_to": [
-								{
-									"node_guid": "78790718475D0FD81232F9A717C18D87",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
-								}
-							]
+							"linked_to": []
 						},
 						"4F96E4A74BF7C5A942CD628C8606D33D":
 						{
@@ -4416,12 +5397,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4451,12 +5427,7 @@
 						{
 							"name": "then",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "5CF70B4448D6059B335DDD8C4D4542B3",
-									"pin_id": "0635AB9740CF01284333CE8CCAAE24BA"
-								}
-							]
+							"linked_to": []
 						},
 						"EDE3E4E24273305079C36A891783E133":
 						{
@@ -4464,8 +5435,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "1BAB1BE94CFF7716767653AB15FC0FA3",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
 								}
 							]
 						},
@@ -4504,12 +5475,7 @@
 						{
 							"name": "AkCapturePoint",
 							"direction": "EGPD_Output",
-							"linked_to": [
-								{
-									"node_guid": "F3CFD4764B0B3A56CBFBBDBC9AAD4169",
-									"pin_id": "EDE3E4E24273305079C36A891783E133"
-								}
-							]
+							"linked_to": []
 						},
 						"7FCB2B944F0C88ACF052FEB4CC1B2C21":
 						{
@@ -4547,8 +5513,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "2D681D3349367D10D3140985BE32FEB1",
-									"pin_id": "67423035415C6C7C462358B5751FD4BA"
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "E21E901C401B0F13C63497B2B46A2559"
 								}
 							]
 						},
@@ -4575,6 +5541,75 @@
 							"name": "RTPC",
 							"direction": "EGPD_Input",
 							"linked_to": []
+						}
+					}
+				},
+				"2DF7D9284AD6C15C85DB21A29063363D":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"3E8BE64649EA6A71BF3F278B06644A1B":
+						{
+							"name": "AkGlobalManager_Ref",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A3A98DF842F8C9DD626201BA0AFA206D",
+									"pin_id": "D3D86C694EDE20ED1B603193E67E9633"
+								}
+							]
+						},
+						"3D49C3BC402274D50968A784F66FE7E1":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"A3A98DF842F8C9DD626201BA0AFA206D":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E21E901C401B0F13C63497B2B46A2559":
+						{
+							"name": "AkGlobalComponent",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "EDF72CA04E1B5EBE6656D285403E7049",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								},
+								{
+									"node_guid": "F3CFD4764B0B3A56CBFBBDBC9AAD4169",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								},
+								{
+									"node_guid": "688C848E4245EEC9F90BD0B8BE58E2C8",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								},
+								{
+									"node_guid": "94216E2E48BF2F78EFB89ABD2E4D074F",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								},
+								{
+									"node_guid": "E3326DF24B878E4AE7B3D982C4391DBC",
+									"pin_id": "EDE3E4E24273305079C36A891783E133"
+								}
+							]
+						},
+						"D3D86C694EDE20ED1B603193E67E9633":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "2DF7D9284AD6C15C85DB21A29063363D",
+									"pin_id": "3E8BE64649EA6A71BF3F278B06644A1B"
+								}
+							]
 						}
 					}
 				}
@@ -5252,7 +6287,7 @@
 								}
 							]
 						},
-						"1007BE1449AF68AF2E963998A1531689":
+						"C45CDB8D4615F82534FEB997F8685B5A":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -5339,7 +6374,7 @@
 								}
 							]
 						},
-						"E8BEC0A04B2907E704DA72A716825864":
+						"C7A45EA7471014FE304275B45C023466":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -6837,7 +7872,7 @@
 								}
 							]
 						},
-						"B9761940431E917F2E907B84A001BE28":
+						"D56AA10A4512B39F35492D9552C34418":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -7010,6 +8045,527 @@
 								{
 									"node_guid": "69D6A54F45BA1F88E6945E96AC3401C2",
 									"pin_id": "68AD389A4E541DFC7BACE78D1B3905A3"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"FindHighestProgress":
+		{
+			"nodes":
+			{
+				"2E1349B54F9793E9CB6D2694DDFAEC9C":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"40886F794A08C660E6C025968824C333":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		},
+		"GetHighestCaptureProgress":
+		{
+			"nodes":
+			{
+				"589AD1B2404A5A56B453238D69E04360":
+				{
+					"class_name": "K2Node_FunctionEntry",
+					"pins":
+					{
+						"BB4473DD492B5753B2DEC49682128964":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C84FFEFD4D0F4D6A55C817BBEC7F643C",
+									"pin_id": "3DC173F1482A70FBCD4BB6A2299B571C"
+								}
+							]
+						}
+					}
+				},
+				"54FD1A1C41B3C26D89955F9A476EA5B1":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"30EAF92D42D050CC195A07BA26A6DF9E":
+						{
+							"name": "Exec",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C84FFEFD4D0F4D6A55C817BBEC7F643C",
+									"pin_id": "BB1C665C4E08FB274C3B9693CD531E0A"
+								}
+							]
+						},
+						"6D3509C348387829883D0BA885C2FC54":
+						{
+							"name": "Array",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4EEC5D0C4D30B8B233A6F19C6D1FEE78",
+									"pin_id": "21E3EE7847A02F71FE1AE9AE73198227"
+								}
+							]
+						},
+						"69FF183846FBCB00B2D14B99CD53EE41":
+						{
+							"name": "LoopBody",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "044847DA45095BD3F23AB58EA3708130",
+									"pin_id": "C9996296485EE053B2D1E0803832B9FA"
+								}
+							]
+						},
+						"00CFB0354968D074FD3B95B59E8C2CC0":
+						{
+							"name": "Array Element",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "B5B155C34410137DD9153C82507A1213",
+									"pin_id": "DB937EDF4A6E32AF7AEAEE934CBE75DE"
+								}
+							]
+						},
+						"62DED50144F16FBA13B34E98F9D9091D":
+						{
+							"name": "Array Index",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"A00CF49846B988F69333F782091BFE3F":
+						{
+							"name": "Completed",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5D3A75854262E4825151578B1DF0C6E9",
+									"pin_id": "C638F0964059B1A6FB1FF3866660F204"
+								}
+							]
+						}
+					}
+				},
+				"4EEC5D0C4D30B8B233A6F19C6D1FEE78":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"21E3EE7847A02F71FE1AE9AE73198227":
+						{
+							"name": "Control Points",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "54FD1A1C41B3C26D89955F9A476EA5B1",
+									"pin_id": "6D3509C348387829883D0BA885C2FC54"
+								},
+								{
+									"node_guid": "4556742540F77E5C0F26339475C2F55B",
+									"pin_id": "117359A24B1D621030546F8469C7D808"
+								}
+							]
+						},
+						"BEF700664D87EE81CB3497B6FC39C64A":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"B5B155C34410137DD9153C82507A1213":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"DB937EDF4A6E32AF7AEAEE934CBE75DE":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "54FD1A1C41B3C26D89955F9A476EA5B1",
+									"pin_id": "00CFB0354968D074FD3B95B59E8C2CC0"
+								}
+							]
+						},
+						"39C05484430A691AD13496B287DDBBC8":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3F84391A471A75CD9AF9A7B72E4CEDC1",
+									"pin_id": "3CC471494316200679B175A1ECC6491B"
+								},
+								{
+									"node_guid": "CB665F2345D72CE8159B78B0BA86E7BD",
+									"pin_id": "8B8EF6FC46BF997C84FEA4BAE7A225F3"
+								}
+							]
+						}
+					}
+				},
+				"3F84391A471A75CD9AF9A7B72E4CEDC1":
+				{
+					"class_name": "K2Node_PromotableOperator",
+					"pins":
+					{
+						"3CC471494316200679B175A1ECC6491B":
+						{
+							"name": "A",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B5B155C34410137DD9153C82507A1213",
+									"pin_id": "39C05484430A691AD13496B287DDBBC8"
+								}
+							]
+						},
+						"042017F44BCC1A79ED4B849218AB327B":
+						{
+							"name": "B",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "712289194AD9C15F4B5FBB809FD5F7DB",
+									"pin_id": "FFB75E1C4AB8A8ABC5302C955F994EA4"
+								}
+							]
+						},
+						"D0E4C9484C6C2975766770851C25FEAE":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "044847DA45095BD3F23AB58EA3708130",
+									"pin_id": "7BC3D660451F695FBFE7089FE08D7CEF"
+								}
+							]
+						},
+						"31E00CF74DD4B9181BC85A801605FB00":
+						{
+							"name": "ErrorTolerance",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"712289194AD9C15F4B5FBB809FD5F7DB":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"FFB75E1C4AB8A8ABC5302C955F994EA4":
+						{
+							"name": "HighestProgress",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "3F84391A471A75CD9AF9A7B72E4CEDC1",
+									"pin_id": "042017F44BCC1A79ED4B849218AB327B"
+								}
+							]
+						},
+						"31498D6144685E9A91A469A6979A0FA8":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"044847DA45095BD3F23AB58EA3708130":
+				{
+					"class_name": "K2Node_IfThenElse",
+					"pins":
+					{
+						"C9996296485EE053B2D1E0803832B9FA":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "54FD1A1C41B3C26D89955F9A476EA5B1",
+									"pin_id": "69FF183846FBCB00B2D14B99CD53EE41"
+								}
+							]
+						},
+						"7BC3D660451F695FBFE7089FE08D7CEF":
+						{
+							"name": "Condition",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "3F84391A471A75CD9AF9A7B72E4CEDC1",
+									"pin_id": "D0E4C9484C6C2975766770851C25FEAE"
+								}
+							]
+						},
+						"337B3875460A0176584E8BBB10430850":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "CB665F2345D72CE8159B78B0BA86E7BD",
+									"pin_id": "1A77BC53460B07036C6024AE5C518317"
+								}
+							]
+						},
+						"A78B64824908C6F9E50C79847535E515":
+						{
+							"name": "else",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"CB665F2345D72CE8159B78B0BA86E7BD":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"1A77BC53460B07036C6024AE5C518317":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "044847DA45095BD3F23AB58EA3708130",
+									"pin_id": "337B3875460A0176584E8BBB10430850"
+								}
+							]
+						},
+						"D6518AE64E4F162C4CE658B70D4098E8":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"8B8EF6FC46BF997C84FEA4BAE7A225F3":
+						{
+							"name": "HighestProgress",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B5B155C34410137DD9153C82507A1213",
+									"pin_id": "39C05484430A691AD13496B287DDBBC8"
+								}
+							]
+						},
+						"39C2C3C04CB34D7FF8DCBF974AED24E4":
+						{
+							"name": "Output_Get",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "5D3A75854262E4825151578B1DF0C6E9",
+									"pin_id": "1549B6694092454298F25096AD8BEE39"
+								}
+							]
+						},
+						"0C3E8AB743C279788F176AB30DFA38BD":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"5D3A75854262E4825151578B1DF0C6E9":
+				{
+					"class_name": "K2Node_FunctionResult",
+					"pins":
+					{
+						"C638F0964059B1A6FB1FF3866660F204":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "54FD1A1C41B3C26D89955F9A476EA5B1",
+									"pin_id": "A00CF49846B988F69333F782091BFE3F"
+								}
+							]
+						},
+						"1549B6694092454298F25096AD8BEE39":
+						{
+							"name": "Highest Progress",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "CB665F2345D72CE8159B78B0BA86E7BD",
+									"pin_id": "39C2C3C04CB34D7FF8DCBF974AED24E4"
+								}
+							]
+						}
+					}
+				},
+				"C84FFEFD4D0F4D6A55C817BBEC7F643C":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"3DC173F1482A70FBCD4BB6A2299B571C":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "589AD1B2404A5A56B453238D69E04360",
+									"pin_id": "BB4473DD492B5753B2DEC49682128964"
+								}
+							]
+						},
+						"BB1C665C4E08FB274C3B9693CD531E0A":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "54FD1A1C41B3C26D89955F9A476EA5B1",
+									"pin_id": "30EAF92D42D050CC195A07BA26A6DF9E"
+								}
+							]
+						},
+						"985527A6419683D8CB2EEB96DC6DD540":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"87CED3E54D3C707E1F3C77B205B27B66":
+						{
+							"name": "WorldContextObject",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"D396A0B1402A25FE9EA59BA97C4BD7DE":
+						{
+							"name": "InString",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F125BD0040B1F3A0BE58C1BEB64DD75E",
+									"pin_id": "31C706D440F4DC2966C6A1B5DA8CE1B7"
+								}
+							]
+						},
+						"B04816374C48CD3072513987F8E57376":
+						{
+							"name": "bPrintToScreen",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FDA800234ED16B70EFCE7A89B7E3C779":
+						{
+							"name": "bPrintToLog",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"48DE270048487CCB755467A5A5DF1D04":
+						{
+							"name": "TextColor",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"044C186A435273C4C3F382BDA56DAD1E":
+						{
+							"name": "Duration",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10E2D92E4DD3168BF6861EA1DAB2E55B":
+						{
+							"name": "Key",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"4556742540F77E5C0F26339475C2F55B":
+				{
+					"class_name": "K2Node_CallArrayFunction",
+					"pins":
+					{
+						"3E41A954417B408910C654852F10223E":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"117359A24B1D621030546F8469C7D808":
+						{
+							"name": "TargetArray",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4EEC5D0C4D30B8B233A6F19C6D1FEE78",
+									"pin_id": "21E3EE7847A02F71FE1AE9AE73198227"
+								}
+							]
+						},
+						"202DB0F14FAA3FD20D6A229D2C7A7642":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "F125BD0040B1F3A0BE58C1BEB64DD75E",
+									"pin_id": "98FA40614FAAE00EEACB6E89533718AD"
+								}
+							]
+						}
+					}
+				},
+				"F125BD0040B1F3A0BE58C1BEB64DD75E":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"6C763EA443D00273E2F27E86F5A6FC6B":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"98FA40614FAAE00EEACB6E89533718AD":
+						{
+							"name": "InInt",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "4556742540F77E5C0F26339475C2F55B",
+									"pin_id": "202DB0F14FAA3FD20D6A229D2C7A7642"
+								}
+							]
+						},
+						"31C706D440F4DC2966C6A1B5DA8CE1B7":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C84FFEFD4D0F4D6A55C817BBEC7F643C",
+									"pin_id": "D396A0B1402A25FE9EA59BA97C4BD7DE"
 								}
 							]
 						}

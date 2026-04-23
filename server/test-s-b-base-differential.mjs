@@ -33,7 +33,7 @@ const FIXTURES = [
   { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
   { name: 'TestCharacter',       assetPath: '/Game/Blueprints/Character/TestCharacter',       oracle: 'TestCharacter.oracle.json',       expectedEdges: 24 },
-  { name: 'BP_OSControlPoint',   assetPath: '/Game/Blueprints/Level/BP_OSControlPoint',       oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 330 },
+  { name: 'BP_OSControlPoint',   assetPath: '/Game/Blueprints/Level/BP_OSControlPoint',       oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
 ];
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
