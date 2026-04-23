@@ -148,6 +148,61 @@ const TOOLSET_TIPS = {
     ],
   },
 
+  'remote-control': {
+    core: [
+      'Uses HTTP:30010 (Remote Control API) — editor must be running AND have RemoteControl engine plugin enabled (UEMCP\'s uplugin transitively requests it; verify ProjectA.uproject Plugins[] if RC calls fail).',
+      'rc_get_property / rc_set_property / rc_call_function operate on ANY UObject by object path. CDO form: /Game/Path/BP.BP_C:Default__BP_C for class-default-object reads.',
+      'rc_set_property wraps value in a propertyName-keyed object automatically (don\'t pre-wrap). generateTransaction:true records in editor Undo stack — leave on unless you have a reason.',
+      'SanitizeMetadata allowlist (D66) caps RC metadata to {UIMin, UIMax, ClampMin, ClampMax, ToolTip}. For Category/Replicated/EditAnywhere flag surface, use blueprint-read tools (plugin-backed) instead — they bypass the allowlist.',
+      'rc_passthrough accepts any /remote/* endpoint — escape hatch for RC calls the structured helpers don\'t cover. Paths not starting with /remote/ are rejected.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['blueprint-read'],
+        tip: 'For Blueprint variable inspection: prefer blueprint-read.get_blueprint_variables over rc_describe_object — it returns the full flag set (Category, Replicated, EditAnywhere) that RC\'s allowlist cannot expose.',
+      },
+      {
+        requires: ['actors'],
+        tip: 'To write a property on a live actor (not CDO), get the actor path via get_actor_properties first, then rc_set_property with that object_path. For CDO edits, use set_blueprint_property (blueprints-write toolset) — it\'s the transactional editor path.',
+      },
+    ],
+  },
+
+  'blueprint-read': {
+    core: [
+      'Plugin-backed (tcp-55558) — full flag surface including Category/Replicated/EditAnywhere that RC\'s SanitizeMetadata allowlist strips out. Prefer these over rc_describe_object when you need reflection fidelity.',
+      'get_blueprint_info returns summary {super_class, interfaces, property_count, function_count}. Follow up with get_blueprint_variables or get_blueprint_functions for the full lists.',
+      'get_blueprint_components filters get_blueprint_variables down to component-class properties (heuristic: property_class contains "Component" OR name ends _GEN_VARIABLE SCS suffix). Conservative — may miss exotic cases.',
+      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog. Unlike the blueprints-write.compile_blueprint on tcp-55557 (old UnrealMCP), this returns errors + warnings + node_guid attribution.',
+      'get_widget_blueprint walks UWidgetTree root recursively. Empty widget trees return root_widget:null (valid, not an error).',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['offline'],
+        tip: 'For asset-file-level reads without editor running, use inspect_blueprint + read_asset_properties (offline). blueprint-read tools require the editor loaded — they give LIVE reflection, offline tools give on-disk state.',
+      },
+      {
+        requires: ['sidecar'],
+        tip: 'If sidecar files exist at <Project>/Saved/UEMCP/..., their narrow-sidecar-v1 shape carries the same reflection surface these tools return — useful as a cache when editor is closed. regenerate_sidecar backfills missing ones.',
+      },
+    ],
+  },
+
+  'sidecar': {
+    core: [
+      'Narrow-sidecar = plugin-only fields (compile status + full reflection surface) written to <Project>/Saved/UEMCP/<package-path>.sidecar.json.',
+      'Save-hook auto-writes on every Blueprint save (FCoreUObjectDelegates::OnObjectPreSave). regenerate_sidecar is for backfill — assets that exist but haven\'t been re-saved since save-hook shipped.',
+      'Sidecar does NOT contain edge topology (use S-B-base offline tools like bp_list_graphs / bp_trace_exec), positions (M-spatial), or via_knots (offline post-pass). Those layers are offline-primary by design (phase3-resequence §L).',
+      'schema_version "narrow-sidecar-v1" — future bumps change the marker. Consumers should check before trusting fields.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['offline'],
+        tip: 'For fully offline BP introspection, combine: S-B-base edge tools (offline) + sidecar files on disk (plugin-only reflection). Save-hook keeps sidecars fresh; regenerate_sidecar backfills untouched assets.',
+      },
+    ],
+  },
+
 };
 
 /**
