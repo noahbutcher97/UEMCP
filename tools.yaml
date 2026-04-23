@@ -941,10 +941,13 @@ toolsets:
         params:
           quality: { type: string, required: false, default: medium }
       get_asset_preview_render:
-        description: Offscreen 3D preview via FPreviewScene. For meshes, materials, particles. Configurable camera/lighting.
+        description: Asset thumbnail as inline PNG (any UObject with a UThumbnailRenderer). Covers meshes/materials/textures/blueprints/animations/data-assets. Full FPreviewScene offscreen render deferred.
         params:
-          asset_path: { type: string, required: true }
-          quality:    { type: string, required: false, default: medium }
+          asset_path:    { type: string, required: true }
+          width:         { type: number, required: false, default: 256 }
+          height:        { type: number, required: false, default: 256 }
+          return_base64: { type: boolean, required: false, default: true }
+          output_path:   { type: string, required: false }
       capture_active_editor_tab:
         description: Active editor panel (BP graph, material editor, etc.) via FWidgetRenderer. Asset must be open.
         params: {}

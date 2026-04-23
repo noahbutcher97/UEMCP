@@ -2,6 +2,7 @@
 #include "UEMCPModule.h"
 #include "MCPCommandRegistry.h"
 #include "MCPServerRunnable.h"
+#include "SidecarMenuHook.h"
 #include "SidecarSaveHook.h"
 
 #include "Misc/App.h"
@@ -130,10 +131,16 @@ void FUEMCPModule::StartupModule()
 	// Gated by the same non-commandlet guard above — commandlets produce
 	// sidecars via the 3F-4 production commandlet, not via save-hook.
 	UEMCP::RegisterSidecarSaveHook();
+
+	// S4: Content Browser context menu — "Regenerate UEMCP Sidecar" on
+	// right-click of a Blueprint asset. User-facing UI path alongside the
+	// save-hook (automatic) and regenerate_sidecar MCP command (agent-driven).
+	UEMCP::RegisterSidecarMenuHook();
 }
 
 void FUEMCPModule::ShutdownModule()
 {
+	UEMCP::UnregisterSidecarMenuHook();
 	UEMCP::UnregisterSidecarSaveHook();
 	StopTcpServer();
 	UE_LOG(LogUEMCP, Log, TEXT("UEMCP: module shutdown"));

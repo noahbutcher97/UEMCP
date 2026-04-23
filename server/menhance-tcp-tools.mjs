@@ -32,7 +32,7 @@ let MENHANCE_WIRE_MAP = {};
 export function initMenhanceTools(toolsData) {
   MENHANCE_WIRE_MAP = {};
   const toolsets = toolsData?.toolsets || {};
-  for (const toolsetName of ['blueprint-read', 'materials', 'editor-utility', 'input-and-pie', 'asset-registry', 'sidecar']) {
+  for (const toolsetName of ['blueprint-read', 'materials', 'editor-utility', 'input-and-pie', 'asset-registry', 'sidecar', 'visual-capture']) {
     const toolset = toolsets[toolsetName];
     if (!toolset?.tools) continue;
     for (const [name, def] of Object.entries(toolset.tools)) {
@@ -253,6 +253,20 @@ export const MENHANCE_SCHEMAS = {
     },
     // Writes to disk — mutation, skip cache.
     isReadOp: false,
+  },
+
+  // ── S4: visual capture via thumbnail pipeline ────────────────
+  get_asset_preview_render: {
+    description: 'Render an asset thumbnail as PNG (inline base64 + optional disk write). Uses UThumbnailManager\'s registered renderer — supports any asset class with one.',
+    schema: {
+      asset_path:    z.string().describe('/Game/... path to any asset'),
+      width:         z.number().int().optional().describe('Output width in pixels (default 256)'),
+      height:        z.number().int().optional().describe('Output height in pixels (default 256)'),
+      return_base64: z.boolean().optional().describe('Inline base64 PNG in response (default true)'),
+      output_path:   z.string().optional().describe('Optional disk output — absolute path or relative to Saved/'),
+    },
+    // Reading-style — safe to cache per (asset + dimensions).
+    isReadOp: true,
   },
 };
 

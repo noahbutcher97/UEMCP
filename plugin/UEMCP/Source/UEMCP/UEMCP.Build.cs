@@ -38,6 +38,8 @@ public class UEMCP : ModuleRules
 			"UMGEditor",     // UWidgetBlueprint + WidgetTree (editor-only)
 			"AssetRegistry", // IAssetRegistry::GetReferencers / GetDependencies
 			"LevelEditor",   // GCurrentLevelEditingViewportClient for editor-state viewport info
+			// S4 additions:
+			"ContentBrowser", // S4-4 Sidecar menu extension (FContentBrowserMenuExtender_SelectedAssets)
 		});
 		// Note: GameplayAbilities removed per D60 — M1 scaffold doesn't reference GAS.
 		// M3+ GAS tool workers (create_gameplay_effect etc.) re-add it here AND to

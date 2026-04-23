@@ -1369,6 +1369,57 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       `4 animation tools each dispatch to reflection_walk (got ${reflectionCalls.length})`);
   }
 
+  // ── S4: get_asset_preview_render dispatches to tcp-55558 ─────
+  {
+    const fakePng = 'iVBORw0KGgoAAAANSUhEUgAA...';  // truncated base64
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('get_asset_preview_render', {
+      status: 'success',
+      result: {
+        asset_path: '/Game/Meshes/SM_Cube.SM_Cube',
+        asset_class: 'StaticMesh',
+        width: 256, height: 256,
+        mime: 'image/png',
+        byte_length: 4096,
+        base64: fakePng,
+      },
+    });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+
+    const res = await executeMenhanceTool('get_asset_preview_render',
+      { asset_path: '/Game/Meshes/SM_Cube.SM_Cube' }, cm);
+    t.assert(res && res.result && res.result.base64 === fakePng,
+      'get_asset_preview_render returns inline base64 PNG');
+    t.assert(res.result.width === 256 && res.result.height === 256,
+      'dimensions round-trip through wire');
+    t.assert(res.result.mime === 'image/png',
+      'MIME type preserved');
+
+    const call = fake.lastCall('get_asset_preview_render');
+    t.assert(call && call.port === 55558,
+      'get_asset_preview_render routed to tcp-55558');
+
+    // Width/height/return_base64 passthrough
+    fake.resetCalls();
+    await executeMenhanceTool('get_asset_preview_render',
+      { asset_path: '/Game/X', width: 512, height: 512, return_base64: false }, cm);
+    const call2 = fake.lastCall('get_asset_preview_render');
+    t.assert(call2.params.width === 512 && call2.params.height === 512,
+      'width/height forwarded to wire');
+    t.assert(call2.params.return_base64 === false,
+      'return_base64 flag forwarded');
+
+    // Zod validation
+    await t.assertRejects(
+      () => executeMenhanceTool('get_asset_preview_render', {}, cm),
+      /asset_path/,
+      'get_asset_preview_render rejects missing asset_path'
+    );
+  }
+
   // ── CP5: regenerate_sidecar dispatches to tcp-55558 as mutation ──
   {
     const fake = new FakeTcpResponder();

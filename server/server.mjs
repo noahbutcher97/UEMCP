@@ -203,6 +203,79 @@ const TOOLSET_TIPS = {
     ],
   },
 
+  'animation': {
+    core: [
+      'Read-tools (get_montage_full, get_anim_sequence_info, get_blend_space, get_anim_curve_data) are PARTIAL-RC — they dispatch to plugin reflection_walk and return the UPROPERTY schema. For runtime-evaluated values (baked curve points, compiled blend output), pair with read_asset_properties (offline).',
+      'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55557 (old UnrealMCP) — they take BP-style name-only lookup (NOT full /Game/ paths). Deprecated post-Phase-3; UEMCP rewrite forthcoming.',
+      'section_name + time for add_montage_section must not collide with existing sections — API silently overwrites (known quirk of the UnrealMCP handler).',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['offline'],
+        tip: 'For montage sections / notifies / curve keyframes without editor, use read_asset_properties — D50 tagged-fallback covers their struct-typed fields via FPropertyTag iteration.',
+      },
+    ],
+  },
+
+  'data-assets': {
+    core: [
+      'get_struct_definition / get_datatable_contents / get_string_table / list_data_asset_types all PARTIAL-RC — plugin reflection walk for schema + engine APIs for row data (UDataTable::GetTableAsCSV, UStringTable::EnumerateSourceStrings).',
+      'get_datatable_contents returns {csv, row_names, row_struct_properties}. For per-row structured values, parse the CSV OR use offline read_asset_properties — both give the same data, the latter is editor-optional.',
+      'list_data_asset_types walks TObjectIterator<UClass> in-memory — only modules currently loaded appear. If you expect a class to show but it\'s missing, the owning module hasn\'t been loaded yet.',
+      'set_data_asset_property uses the old TCP:55557 handler — name-only lookup, type coercion quirks on struct-typed fields.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['offline'],
+        tip: 'read_asset_properties (offline) + tagged-fallback D50 covers 601 unique struct names without loading the owning module — preferred for batch analysis that doesn\'t need the editor.',
+      },
+    ],
+  },
+
+  'input-and-pie': {
+    core: [
+      'Enhanced Input tools (create_input_action, create_mapping_context, add_mapping) are asset-creation only — they do NOT bind runtime input. Binding happens in BP graph or C++.',
+      'start_pie accepts mode: "viewport" (default), "standalone" (new process), "new_window" (in-process). Async request — IsPlaySessionInProgress may not flip immediately.',
+      'stop_pie returns {was_running, requested_stop} — success means the request was issued, not that teardown completed. PIE teardown is async and may leave references briefly.',
+      'execute_console_command runs against PlayWorld if PIE is active, else editor world. Commands like "stat fps" need PIE; "listassets *" works editor-side.',
+      'is_pie_running is a snapshot query — volatile across calls (skip cache).',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['actors'],
+        tip: 'Test loop: spawn_blueprint_actor → start_pie → observe → stop_pie. For hot-reload without full PIE cycle, compile_blueprint reliably hot-reloads CDO changes into the open editor.',
+      },
+    ],
+  },
+
+  'editor-utility': {
+    core: [
+      'get_editor_state returns {selected_actors, viewport: {location, rotation, fov}, pie_running, world_path}. Useful as a cheap snapshot before a complex multi-tool operation.',
+      'run_python_command has a deny-list for dangerous APIs (os, subprocess, eval, exec, open, __import__) AND requires confirmation. Use sparingly — prefer structured tools.',
+      'Many tools here have been displaced by offline equivalents (inspect_blueprint, read_asset_properties) — prefer those when editor-closed is viable.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['actors'],
+        tip: 'Before spawning or modifying actors, get_editor_state confirms which level is current + which actors are selected — lets you scope operations without ambiguity.',
+      },
+    ],
+  },
+
+  'asset-registry': {
+    core: [
+      'get_asset_references returns {referencers, dependencies, num_*}. The referencers list answers "who uses this asset" — essential before delete_asset.',
+      'Package-name normalization is automatic: accepts both object path (/Game/X.X_C) and package path (/Game/X); strips the object suffix internally.',
+      'For broad queries (all assets of class X, path pattern globs), use offline query_asset_registry — it reads AssetRegistry.bin directly without editor.',
+    ].join(' '),
+    workflows: [
+      {
+        requires: ['offline'],
+        tip: 'Combine: query_asset_registry (offline bulk scan) → get_asset_references (editor-side reverse-deps) for a full impact-analysis workflow without round-tripping asset-by-asset.',
+      },
+    ],
+  },
+
 };
 
 /**
