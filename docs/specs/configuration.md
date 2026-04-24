@@ -6,15 +6,15 @@
 
 ### Claude Code (.mcp.json)
 
-**ProjectA**:
+**Project A** (primary target — shorter timeout):
 ```json
 {
   "unreal": {
     "command": "node",
     "args": ["D:/DevTools/UEMCP/server/server.mjs"],
     "env": {
-      "UNREAL_PROJECT_ROOT": "D:/UnrealProjects/5.6/ProjectA/ProjectA",
-      "UNREAL_PROJECT_NAME": "ProjectA",
+      "UNREAL_PROJECT_ROOT": "path/to/YourProject",
+      "UNREAL_PROJECT_NAME": "YourProject",
       "UNREAL_TCP_PORT_EXISTING": "55557",
       "UNREAL_TCP_PORT_CUSTOM": "55558",
       "UNREAL_TCP_TIMEOUT_MS": "5000",
@@ -25,15 +25,15 @@
 }
 ```
 
-**ProjectB**:
+**Project B** (secondary target — longer timeout for heavier asset loads):
 ```json
 {
   "unreal": {
     "command": "node",
     "args": ["D:/DevTools/UEMCP/server/server.mjs"],
     "env": {
-      "UNREAL_PROJECT_ROOT": "D:/UnrealProjects/5.6/BreakoutWeek/ProjectB",
-      "UNREAL_PROJECT_NAME": "ProjectB",
+      "UNREAL_PROJECT_ROOT": "path/to/OtherProject",
+      "UNREAL_PROJECT_NAME": "OtherProject",
       "UNREAL_TCP_PORT_EXISTING": "55557",
       "UNREAL_TCP_PORT_CUSTOM": "55558",
       "UNREAL_TCP_TIMEOUT_MS": "30000",
@@ -46,7 +46,7 @@
 
 ### Cowork (claude_desktop_config.json)
 
-Same structure as above but with `unreal-projecta` and `unreal-projectb` keys.
+Same structure as above but with per-project prefixed keys (e.g. `unreal-<project>`).
 
 ### Environment Variables Reference
 

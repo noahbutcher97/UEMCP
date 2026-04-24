@@ -23,8 +23,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
 
-const ROOT = process.env.UNREAL_PROJECT_ROOT
-  || 'D:/UnrealProjects/5.6/ProjectA/ProjectA';
+const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
 
 const FIXTURES = [

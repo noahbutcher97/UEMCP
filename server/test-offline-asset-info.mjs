@@ -7,7 +7,7 @@
 // ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
 // PROJECT-SPECIFIC FIXTURE DEPENDENCY:
 // This suite exercises the parseAssetHeader cache + get_asset_info shape
-// against byte-accurate ground truth from real ProjectA assets
+// against byte-accurate ground truth from real target-project assets
 // (AN_OSAnimNotify_Footstep and Steve_TestMap). Specific counts
 // (exportCount=3, nameCount=33, assetRegistryObjects=2) pin to the current
 // serialised form; if the notify BP is re-saved or refactored the numbers
@@ -35,8 +35,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('offline get_asset_info + cache tests');
 
-const ROOT = process.env.UNREAL_PROJECT_ROOT
-  || 'D:/UnrealProjects/5.6/ProjectA/ProjectA';
+const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 
 async function exists(p) {
   try { await stat(p); return true; } catch { return false; }

@@ -10,7 +10,7 @@ REM
 REM Arg mode (path to .uproject) auto-detects workspace:
 REM   - If the parent of the .uproject's dir has .claude\ or CLAUDE.md,
 REM     that parent is treated as the workspace root (wrapped layout,
-REM     e.g. ProjectA where the P4-synced wrapper holds .claude + CLAUDE.md).
+REM     e.g. P4-synced project layouts where a wrapper dir holds .claude + CLAUDE.md).
 REM   - Otherwise .mcp.json is written next to the .uproject (flat layout).
 REM
 REM Also copies the UEMCP plugin into <project>\Plugins\UEMCP (physical copy;
@@ -220,7 +220,7 @@ if "!UPROJECT_DIR:~-1!"=="\" set "UPROJECT_DIR=!UPROJECT_DIR:~0,-1!"
 set "UPROJECT_DIR_FWD=!UPROJECT_DIR:\=/!"
 
 REM --- Auto-detect workspace root (where .mcp.json is consumed by Claude) ---
-REM Wrapped layout: <parent>\.claude\ or <parent>\CLAUDE.md present (ProjectA pattern).
+REM Wrapped layout: <parent>\.claude\ or <parent>\CLAUDE.md present (common P4 pattern).
 REM Flat layout: default to the .uproject's own directory.
 for %%I in ("!UPROJECT_DIR!\..") do set "PARENT_DIR=%%~fI"
 if "!PARENT_DIR:~-1!"=="\" set "PARENT_DIR=!PARENT_DIR:~0,-1!"

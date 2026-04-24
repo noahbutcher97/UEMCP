@@ -4,8 +4,8 @@ setlocal
 rem ============================================================================
 rem test-uemcp-gate.bat — verify the D57 commandlet gate in UEMCP plugin
 rem
-rem Usage: test-uemcp-gate.bat [path-to-.uproject]
-rem   Default project: D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject
+rem Usage: test-uemcp-gate.bat <path-to-.uproject>
+rem   Pass the absolute path to your local .uproject as the first arg.
 rem
 rem What it does:
 rem   1. Checks that TCP:55558 is free before the test.
@@ -18,8 +18,9 @@ rem   LogUEMCP: UEMCP: commandlet detected — TCP server suppressed (D57 gate)
 rem ============================================================================
 
 if "%~1"=="" (
-    set "UPROJECT=D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject"
-    echo [INFO] No .uproject arg passed — defaulting to ProjectA.
+    echo [FAIL] No .uproject arg passed.
+    echo        Usage: test-uemcp-gate.bat "path\to\YourProject.uproject"
+    goto :end
 ) else (
     set "UPROJECT=%~1"
 )

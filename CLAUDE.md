@@ -4,7 +4,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 ## Project Overview
 
-**UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for two projects: **ProjectA** (combat game) and **ProjectB** (BreakoutWeek).
+**UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (referred to internally as **Project A** — the primary/combat-game target — and **Project B** — secondary); the tool itself is project-agnostic.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin (Phase 3, not yet implemented)
@@ -62,11 +62,11 @@ UEMCP follows conventions established by existing MCP servers at `~/.claude/mcp-
 | `perforce-bridge` | `~/.claude/mcp-servers/perforce-bridge/server.mjs` | P4 read operations |
 | `miro-bridge` | `~/.claude/mcp-servers/miro-bridge/server.mjs` | Miro board access |
 
-All are single `server.mjs` files, Node.js ES modules, stdio transport — same pattern UEMCP follows (D1, D17). In Cowork mode, these run with project-specific prefixes (e.g., `jira-projecta`, `jira-projectb`, `perforce-projecta`, `miro-projecta`).
+All are single `server.mjs` files, Node.js ES modules, stdio transport — same pattern UEMCP follows (D1, D17). In Cowork mode, these run with project-specific prefixes (e.g., `jira-<project>`, `perforce-<project>`).
 
 ## Existing UnrealMCP C++ Plugin Structure
 
-The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (relevant for Phase 2/3):
+The conformance oracle (at `<PROJECT_ROOT>\Plugins\UnrealMCP\` in our development environment) has this structure (relevant for Phase 2/3):
 
 - `MCPServerRunnable` — `FRunnable`-based TCP listener on port 55557
 - Command files (the pattern we'll replicate/improve on 55558):
@@ -77,7 +77,7 @@ The conformance oracle at `ProjectA\Plugins\UnrealMCP\` has this structure (rele
 - Each command file registers handlers keyed by the `type` field from incoming JSON
 - **Known issues** to fix in our reimplementation: no error normalization, limited introspection, no batch support
 
-Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-main\` — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin at `ProjectA\Plugins\NodeToCode-main\` is a separate BP-to-code tool, also not part of UEMCP.
+Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target project — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin (found at `<PROJECT_ROOT>\Plugins\NodeToCode-main\`) is a separate BP-to-code tool, also not part of UEMCP.
 
 ## Current State — Phase 2 Complete + Level 1+2+2.5 + Option C + L3A S-A Shipped
 
@@ -116,7 +116,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists at `ProjectA\unreal-mcp-
 - 3F sidecar writer (editor plugin)
 - C++ editor plugin (Phase 3 — deferred per D39; scope has shrunk progressively via D32/D35/D45/D48)
 - HTTP client for Remote Control API (Phase 4)
-- Distribution to ProjectB via P4 (Phase 5)
+- Distribution to Project B via P4 (Phase 5)
 - Per-project tuning (Phase 6)
 
 ## File Layout
@@ -239,7 +239,7 @@ forward slashes), run `npm install` in `server/`, then restart Claude Code.
 ### Running the server locally
 ```bash
 cd D:\DevTools\UEMCP\server
-UNREAL_PROJECT_ROOT="D:/UnrealProjects/5.6/ProjectA/ProjectA" node server.mjs
+UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
 ```
 
 ### Adding a tool to an existing toolset
@@ -278,24 +278,24 @@ Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage + EN-2 bulk-scan coverage (224 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-phase1.mjs` |
+| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage + EN-2 bulk-scan coverage (224 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
-| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-mcp-wire.mjs` |
+| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 ### Test Files — Supplementary Rotation
 
-These exercise real ProjectA fixtures (`.uasset`/`.umap` bytes on disk) and require `UNREAL_PROJECT_ROOT`. Wired into rotation 2026-04-16 after M6 fix propagated F1/F2 changes.
+These exercise real Project-A fixtures (`.uasset`/`.umap` bytes on disk) and require `UNREAL_PROJECT_ROOT`. Wired into rotation 2026-04-16 after M6 fix propagated F1/F2 changes.
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-uasset-parser.mjs` |
-| `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-offline-asset-info.mjs` |
-| `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-query-asset-registry.mjs` |
-| `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-inspect-and-level-actors.mjs` |
-| `server/test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 fixtures — 6 fixtures × per-graph edge-set hybrid match (68 assertions, D70) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-s-b-base-differential.mjs` |
-| `server/test-verb-surface.mjs` | M-new Verb-surface — 5 offline traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) + oracle cross-check on 3 fixtures (83 assertions, D72) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-verb-surface.mjs` |
+| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-uasset-parser.mjs` |
+| `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-offline-asset-info.mjs` |
+| `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-query-asset-registry.mjs` |
+| `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-inspect-and-level-actors.mjs` |
+| `server/test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 fixtures — 6 fixtures × per-graph edge-set hybrid match (68 assertions, D70) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-s-b-base-differential.mjs` |
+| `server/test-verb-surface.mjs` | M-new Verb-surface — 5 offline traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) + oracle cross-check on 3 fixtures (83 assertions, D72) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-verb-surface.mjs` |
 | `server/test-rc-wire.mjs` | M-enhance RC HTTP wire-mock — 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates) + cross-transport consistency checks (72 assertions, D74+D76) | `cd /d D:\DevTools\UEMCP\server && node test-rc-wire.mjs` |
 
 **Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
@@ -316,19 +316,19 @@ These exercise real ProjectA fixtures (`.uasset`/`.umap` bytes on disk) and requ
 
 UEMCP is referenced from `.mcp.json` files in each UE project root. These need updating when UEMCP server args or env vars change:
 
-- **ProjectA**: `D:\UnrealProjects\5.6\ProjectA\.mcp.json` — `UNREAL_PROJECT_ROOT` → `D:/UnrealProjects/5.6/ProjectA/ProjectA`
-- **ProjectB**: `D:\UnrealProjects\5.6\BreakoutWeek\.mcp.json` — `UNREAL_PROJECT_ROOT` → `D:/UnrealProjects/5.6/BreakoutWeek/ProjectB`
-- **Template**: `D:\DevTools\UEMCP\.mcp.json.example` — copy and customize per project
+- **Project A**: per-project `.mcp.json` with `UNREAL_PROJECT_ROOT` pointing at the local `.uproject` root.
+- **Project B**: same pattern, different local path.
+- **Template**: `D:\DevTools\UEMCP\.mcp.json.example` — copy and customize per project.
 
-In Cowork mode (Claude Desktop), the config lives in `claude_desktop_config.json` and servers get project-specific names (e.g., the Jira bridge runs as `jira-projecta` for ProjectA and `jira-projectb` for ProjectB).
+In Cowork mode (Claude Desktop), the config lives in `claude_desktop_config.json` and servers get project-specific name prefixes (e.g., the Jira bridge runs as `jira-<project>`).
 
 ## Related Projects
 
-- **ProjectA**: `D:\UnrealProjects\5.6\ProjectA\ProjectA\` — primary target project (Perforce: `//DepotA/ProjectA`)
-- **ProjectB**: `D:\UnrealProjects\5.6\BreakoutWeek\ProjectB\` — secondary target (Perforce: separate depot)
-- **Existing UnrealMCP**: Plugin at `ProjectA\Plugins\UnrealMCP\` (TCP:55557) — conformance oracle for Phase 2, deprecated post-Phase 3
-- **unreal-mcp-main**: Python MCP server at `ProjectA\unreal-mcp-main\` — third-party reference, not used in production
-- **NodeToCode-main**: BP-to-code plugin at `ProjectA\Plugins\NodeToCode-main\` — separate tool, not part of UEMCP
+- **Project A**: primary target (combat game) — tracked in Perforce in our dev environment.
+- **Project B**: secondary target (BreakOut-style entry) — separate Perforce depot.
+- **Existing UnrealMCP**: Plugin at `<PROJECT_ROOT>\Plugins\UnrealMCP\` (TCP:55557) — conformance oracle for Phase 2, deprecated post-Phase 3.
+- **unreal-mcp-main**: Python MCP server co-located with Project A — third-party reference, not used in production.
+- **NodeToCode-main**: BP-to-code plugin at `<PROJECT_ROOT>\Plugins\NodeToCode-main\` — separate tool, not part of UEMCP.
 
 ## Documentation Reading Order
 

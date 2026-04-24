@@ -2,7 +2,7 @@
 
 Reference doc for every command handler in the existing UnrealMCP C++ plugin (TCP:55557). This is the conformance oracle for UEMCP Phase 2 TCP client implementation and Phase 3 reimplementation.
 
-**Source**: `ProjectA\Plugins\UnrealMCP\Source\UnrealMCP\`
+**Source**: `<PROJECT_ROOT>\Plugins\UnrealMCP\Source\UnrealMCP\` (co-located with the target project in our dev setup)
 **Port**: TCP 55557, localhost only
 **Generated**: 2026-04-12 from direct source code reading
 
@@ -1016,7 +1016,7 @@ This handler is already in tools.yaml under the `widgets` toolset as `add_input_
 | **C++ Type String** | `create_input_mapping` |
 | **Handler Class** | ProjectCommands |
 | **Decision** | **Skip — do not add to tools.yaml** |
-| **Rationale** | Uses legacy `FInputActionKeyMapping` (not Enhanced Input). Both target projects (ProjectA, ProjectB) use Enhanced Input exclusively. The `input-and-pie` toolset already has `create_input_action`, `create_mapping_context`, and `add_mapping` for Enhanced Input. Exposing the legacy system would confuse Claude. |
+| **Rationale** | Uses legacy `FInputActionKeyMapping` (not Enhanced Input). Both target projects (Project A and Project B) use Enhanced Input exclusively. The `input-and-pie` toolset already has `create_input_action`, `create_mapping_context`, and `add_mapping` for Enhanced Input. Exposing the legacy system would confuse Claude. |
 
 ### 8.4 `add_blueprint_get_component_node` — Dead Route, Skip
 

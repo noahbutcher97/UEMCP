@@ -4,9 +4,10 @@
 // PROJECT-SPECIFIC FIXTURE DEPENDENCY
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Tests importing from this module reference ProjectA-specific assets. Expected
-// values derived from these constants (e.g., generated-class suffix, CDO export
-// name) will drift when the referenced assets are renamed or refactored.
+// Tests importing from this module reference fixtures from a specific target-
+// project's Content directory. Expected values derived from these constants
+// (e.g., generated-class suffix, CDO export name) will drift when the
+// referenced assets are renamed or refactored.
 //
 // Symptoms: assertion failures on clean HEAD that reference these constants.
 //
@@ -23,8 +24,7 @@
 //      class X" check).
 //
 // See D71 + D75 (docs/tracking/risks-and-decisions.md) for prior drift-fix
-// incidents and the fixture-philosophy rationale (D73 + Noah's 2026-04-22
-// guidance).
+// incidents and the fixture-philosophy rationale (D73 + 2026-04-22 guidance).
 //
 // Byte-level decode coverage lives in test-uasset-parser.mjs via synthetic
 // helpers (no project fixtures). This module is for integration-level tests

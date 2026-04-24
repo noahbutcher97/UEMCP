@@ -2,7 +2,7 @@
 //
 // Unlike the unit test suites (mock-seam driven), this test hits the REAL TCP port on localhost
 // and requires:
-//   1. The plugin compiled into the target UE project (ProjectA).
+//   1. The plugin compiled into the target UE project.
 //   2. The editor running with UEMCP enabled (non-commandlet — D57 gate is active in commandlets).
 //
 // If the connection is refused (editor not running, plugin disabled, port blocked), the test

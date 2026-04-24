@@ -9,7 +9,7 @@ parser's `LinkedTo` resolution against these golden JSONs.
 ## Oracle contract for S-B-base
 
 Each `*.oracle.json` file is the output of `UnrealEditor-Cmd.exe -run=DumpBPGraph`
-against a single ProjectA Blueprint asset. The commandlet loads the BP through
+against a single target-project Blueprint asset. The commandlet loads the BP through
 UE's own `LoadObject<UBlueprint>`, walks every authored `UEdGraph` (ubergraph
 pages, function graphs, macro graphs, delegate-signature graphs, plus any
 collapsed-node sub-graphs), and emits node + pin + edge topology.
@@ -73,7 +73,7 @@ they're declared by the node type.
 S-B-base's differential harness uses **hybrid ID+name matching**:
 
 1. **Primary pass**: match by `pin_id` (strong identity when it matches — covers
-   ~96.5% of pins across the ProjectA corpus).
+   ~96.5% of pins across our production corpus).
 2. **Fallback pass**: for entries unmatched by ID, match by `(node_guid, name)`
    tuple (covers the ~3.5% K2Node_EditablePinBase + K2Node_PromotableOperator
    divergence).
@@ -142,7 +142,7 @@ artifacts with different output shapes**; don't conflate.
    a now-deleted node. The serializer's `Linked->GetOwningNodeUnchecked()`
    null-check handles this — dangling refs are silently dropped.
 5. **Recursion depth** — deeply-nested collapsed nodes produce dotted keys
-   like `EventGraph.Collapsed.Collapsed_0`. ProjectA BPs tested so far nest
+   like `EventGraph.Collapsed.Collapsed_0`. BPs tested so far nest
    at most 2 levels; no depth limit is enforced in the serializer.
 
 See `fixtures.txt` for the corpus manifest and per-BP rationale.

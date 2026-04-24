@@ -4,7 +4,7 @@
 
 ### Why This Section Exists
 
-Blueprint introspection is the single most important capability for Claude Code/Cowork integration. Without it, Claude can read C++ source code but is blind to Blueprint logic — which in ProjectA contains event graphs, combo state machines, GAS ability graphs, and UI widget trees. NodeToCode solves this for its LLM code-generation use case. UEMCP must match that fidelity and surpass it for Claude's analysis use case.
+Blueprint introspection is the single most important capability for Claude Code/Cowork integration. Without it, Claude can read C++ source code but is blind to Blueprint logic — which in the primary target project contains event graphs, combo state machines, GAS ability graphs, and UI widget trees. NodeToCode solves this for its LLM code-generation use case. UEMCP must match that fidelity and surpass it for Claude's analysis use case.
 
 ### NodeToCode Analysis Summary
 
@@ -190,7 +190,7 @@ UEMCP adopts NodeToCode's proven token reduction techniques and extends them. Th
 - Omit-defaults pattern: pins omit `type` if Exec, omit all bool flags if false, omit strings if empty
 - `flows` separation: execution chains as compact strings, data connections as flat map — avoids embedding connection info redundantly on each pin
 - New `components`, `variables`, `event_dispatchers` top-level sections provide the metadata NodeToCode doesn't capture
-- `variables` section includes `replication` field — critical for ProjectA's multiplayer code review
+- `variables` section includes `replication` field — critical for multiplayer code review in the primary target
 - `metadata.interfaces` list — needed to understand ability interface contracts
 
 ### Detail Levels
@@ -335,9 +335,9 @@ This guarantees 100% coverage of all graphs in a Blueprint, not just the visible
 
 NodeToCode only handles `UK2Node`-based graphs (Kismet scripting nodes). UE5 has several other graph types that use different node base classes. Here's what UEMCP can additionally cover:
 
-#### Animation Blueprint Graphs (High Priority for ProjectA)
+#### Animation Blueprint Graphs (High Priority for the primary target)
 
-ProjectA has `UOSAnimInstance` (420+ line C++ class) with extensive combat state, locomotion, stance tracking, and foot IK. The AnimBP content assets built on this class contain:
+The primary target has a `UOSAnimInstance` (420+ line C++ class) with extensive combat state, locomotion, stance tracking, and foot IK. The AnimBP content assets built on this class contain:
 
 | AnimBP Graph Type | Node Base Class | NodeToCode | UEMCP |
 |-------------------|----------------|-----------|-------|
@@ -389,7 +389,7 @@ ProjectA has `UOSAnimInstance` (420+ line C++ class) with extensive combat state
 
 **Implementation note**: `UAnimBlueprint` extends `UBlueprint`. Its `UbergraphPages` contain the standard EventGraph (with UK2Node). The AnimGraph lives in a separate array — `UAnimBlueprint` has anim-specific graph pages that contain `UAnimGraphNode_Base` subclasses instead of `UK2Node`. We need the `AnimGraph` module dependency for this.
 
-#### Widget Blueprint Graphs (High Priority — 169 Widget BPs in ProjectA)
+#### Widget Blueprint Graphs (High Priority — 169 Widget BPs in the primary target)
 
 Widget Blueprints (`UWidgetBlueprint`) extend `UBlueprint` and add a designer hierarchy:
 
@@ -486,9 +486,9 @@ Material graphs are structurally simpler than Blueprint graphs (no execution flo
 
 **Implementation**: Iterate `UMaterial::Expressions` (TArray of `UMaterialExpression*`). Each expression has `GetInputs()` / `GetOutputs()` and class-specific properties. Connections are stored as `FExpressionInput` structs on each expression's input pins.
 
-#### Animation Asset Introspection (High Priority for ProjectA)
+#### Animation Asset Introspection (High Priority for the primary target)
 
-ProjectA's combat timing is entirely driven by AnimNotifies on AnimSequences and Montages. The project uses 8 custom AnimNotify classes including `OSAnimNotifyState_GASAttackTrace` (hit detection windows), `OSAnimNotify_ActionComboBuffer` (combo input windows), and `OSAnimNotifyState_OSTrackMotionWarpTarget` (motion warping). Being able to read notify placements and timestamps is critical for debugging combat.
+Combat timing in the primary target is entirely driven by AnimNotifies on AnimSequences and Montages. The project uses 8 custom AnimNotify classes including `OSAnimNotifyState_GASAttackTrace` (hit detection windows), `OSAnimNotify_ActionComboBuffer` (combo input windows), and `OSAnimNotifyState_OSTrackMotionWarpTarget` (motion warping). Being able to read notify placements and timestamps is critical for debugging combat.
 
 **Anim Sequence serialization format** (tool: `get_anim_sequence_info`):
 
@@ -560,7 +560,7 @@ ProjectA's combat timing is entirely driven by AnimNotifies on AnimSequences and
 - Registered editor menu entries
 - The `Run` function that can be invoked via `run_editor_utility`
 
-Not found in ProjectA's C++ source, but Content assets may exist. These are useful for project tooling — custom batch operations, asset validators, etc.
+Not found in our target project's C++ source, but Content assets may exist. These are useful for project tooling — custom batch operations, asset validators, etc.
 
 ### Updated Tool List — New Tools from Expanded Graph Coverage
 

@@ -1,11 +1,11 @@
-// Tests for inspect_blueprint + list_level_actors on real ProjectA fixtures.
+// Tests for inspect_blueprint + list_level_actors on real target-project fixtures.
 // Gated on UNREAL_PROJECT_ROOT. Exits 1 on any failure.
 //
 // ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
 // PROJECT-SPECIFIC FIXTURE DEPENDENCY:
-// This suite references ProjectA-specific assets via `test-fixtures.mjs`. The
-// suite is integration-level — it exercises the full executeOfflineTool
-// pipeline on real assets, which inherently couples to ProjectA content.
+// This suite references target-project-specific assets via `test-fixtures.mjs`.
+// The suite is integration-level — it exercises the full executeOfflineTool
+// pipeline on real assets, which inherently couples to project content.
 // Structural parser coverage (byte-level decode) lives in test-uasset-parser
 // .mjs via synthetic helpers and is unaffected by content drift.
 //
@@ -23,9 +23,9 @@ if (!projectRoot) {
   process.exit(0);
 }
 
-// Parent class is a genuine semantic ProjectA dependency (BPGA_Block inherits
-// from the GA_OSBlock C++ class). Kept explicit here so drift surfaces as a
-// labelled failure rather than a mystery mismatch downstream.
+// Parent class is a genuine semantic target-project dependency (BPGA_Block
+// inherits from the GA_OSBlock C++ class). Kept explicit here so drift surfaces
+// as a labelled failure rather than a mystery mismatch downstream.
 const GAS_ABILITY_BP_PARENT = 'GA_OSBlock';
 
 let pass = 0, fail = 0;
@@ -57,7 +57,7 @@ async function run() {
   check('inspect: objectClassName is BPGC', bp.objectClassName === '/Script/Engine.BlueprintGeneratedClass', bp.objectClassName);
   check('inspect: generatedClass derives from asset name',
         bp.generatedClass === GAS_ABILITY_BP.generatedClassName, bp.generatedClass);
-  check('inspect: parentClass is GAS_ABILITY_BP_PARENT (semantic ProjectA dep)',
+  check('inspect: parentClass is GAS_ABILITY_BP_PARENT (semantic project dep)',
         bp.parentClass === GAS_ABILITY_BP_PARENT, bp.parentClass);
   check('inspect: exportCount > 0',        bp.exportCount > 0, `exports=${bp.exportCount}`);
   check('inspect: importCount > 0',        bp.importCount > 0, `imports=${bp.importCount}`);

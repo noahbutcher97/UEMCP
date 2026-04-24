@@ -2,7 +2,7 @@
 
 A monorepo that gives Claude (via MCP) read + write access to Unreal Engine 5.6 projects. Ships a **Node.js MCP server** (`server/`) and a **C++ UE5 editor plugin** (`plugin/UEMCP/`).
 
-Target projects: **ProjectA** (combat game) + **ProjectB** (BreakoutWeek).
+Built for a pair of private Unreal Engine 5 projects; the tool itself is project-agnostic (accepts any `.uproject` via `UNREAL_PROJECT_ROOT`).
 
 ---
 
@@ -21,7 +21,7 @@ Target projects: **ProjectA** (combat game) + **ProjectB** (BreakoutWeek).
 ### Arg mode (scripted / repeat-run)
 
 ```cmd
-setup-uemcp.bat "D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject"
+setup-uemcp.bat "path\to\YourProject\YourProject.uproject"
 ```
 
 Auto-detects the workspace root: if the `.uproject`'s parent directory contains `.claude\` or `CLAUDE.md`, that parent is used; otherwise the `.uproject`'s own directory.
@@ -31,7 +31,7 @@ Auto-detects the workspace root: if the `.uproject`'s parent directory contains 
 When the plugin source changes (e.g. after a `git pull` that updates `plugin/UEMCP/`), re-copy it into the target project:
 
 ```cmd
-sync-plugin.bat "D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject"
+sync-plugin.bat "path\to\YourProject\YourProject.uproject"
 ```
 
 Source of truth is `D:\DevTools\UEMCP\plugin\UEMCP\`; the script xcopies it into `<project>\Plugins\UEMCP\`, excluding `Binaries\` and `Intermediate\` so UBT cache stays intact.
@@ -65,7 +65,7 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 
 ```cmd
 cd D:\DevTools\UEMCP\server
-set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA
+set UNREAL_PROJECT_ROOT=path/to/YourProject
 node server.mjs
 ```
 

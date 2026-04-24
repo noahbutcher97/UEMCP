@@ -77,7 +77,7 @@ Node.js client                          UnrealMCP Plugin (port 55557)
 ## Timeout Behavior
 
 - Python server: 5-second `socket.timeout` on receive
-- UEMCP plan: configurable via `UNREAL_TCP_TIMEOUT_MS` (default 5000ms for ProjectA, 30000ms for ProjectB)
+- UEMCP plan: configurable via `UNREAL_TCP_TIMEOUT_MS` (default 5000ms for the primary target, 30000ms for heavier secondary loads)
 - If timeout fires while chunks exist, Python tries `json.loads()` on partial data as last resort
 
 ## Known Quirks

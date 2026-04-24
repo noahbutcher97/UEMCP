@@ -13,16 +13,16 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 ### EN-1 — `query_asset_registry.size_field` filter (`min_size_bytes` / `max_size_bytes`)
 - **Source**: Agent Workflow Catalog Q4; Noah accepted as "worth queuing" (2026-04-16)
 - **Scope**: one yaml param addition; parser already tracks `sizeBytes` — no parser work
-- **Enables**: "which ProjectA assets > 5 MB?", "audit size-optimization candidates"
+- **Enables**: "which assets > 5 MB?", "audit size-optimization candidates"
 - **Cost**: ~15-min enhancement worker
 - **Trigger**: next enhancement round, fold into M0 yaml grooming, or bundle with whatever post-scope-refresh worker next touches `offline-tools.mjs`
 
 ### EN-3 — Agent-infra parity audit workflow
 - **Source**: Workflow Catalog §7a amendment (2026-04-16), Noah Q3 — surfaced as a missed workflow category
-- **Scope**: tool(s) comparing CLAUDE.md / plugin config / tool coverage / toolset setup between ProjectA and ProjectB, reporting drift
+- **Scope**: tool(s) comparing CLAUDE.md / plugin config / tool coverage / toolset setup between Project A and Project B, reporting drift
 - **NOT game-content diff** — about agent-infrastructure symmetry
 - **Cost**: open-ended; design work needed before scoping
-- **Trigger**: agent-config drift between the two projects starts causing workflow confusion, OR ProjectB matures enough that parity auditing becomes routine
+- **Trigger**: agent-config drift between the two projects starts causing workflow confusion, OR Project B matures enough that parity auditing becomes routine
 
 ### EN-4 — Math/comparison K2Node graduations for S-A skeletal
 - **Source**: Agent 11.5 Q-2, D48 — explicitly deferred
@@ -50,23 +50,23 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 
 ## Fixture planting
 
-Test-coverage gaps requiring artificial fixtures in ProjectA/ProjectB.
+Test-coverage gaps requiring artificial fixtures in Project A / Project B.
 
 ### T-1 — Fixture philosophy migration: live project → synthetic / engine fixtures
-- **Source**: Noah orchestrator feedback 2026-04-22 after CL-1 fixture-swap surfaced that project-specific fixtures drift as ProjectA evolves
+- **Source**: orchestrator feedback 2026-04-22 after CL-1 fixture-swap surfaced that project-specific fixtures drift as the primary target evolves
 - **Principle**: UEMCP is a general UE 5.6 tool; tests shouldn't rely on a static project snapshot. Three fixture tiers apply: (a) **synthetic** — byte-constructed in source, zero drift; (b) **engine-stable** — Engine/Content/*.uasset bytes, stable within UE point release; (c) **project-specific** — dev-time sanity only, not ship-gate.
 - ~~**T-1a**~~ — SHIPPED 2026-04-22 per D73 (commit `525d7843`). Approach A (extend existing synthetic helpers) validated.
-- **T-1b — engine-fixture audit / migration** (~2-3 sessions per T-1a worker's feasibility assessment, D73). **Priority bumped per D75**: BP_OSControlPoint drift in M-enhance Session 2 is the second such drift event in two cycles (BP_OSPlayerR drifted in D71's CL-1 cycle). Every future session that runs tests against ProjectA fixtures risks another drift encounter. Scope: `test-phase1.mjs`, `test-query-asset-registry.mjs`, `test-inspect-and-level-actors.mjs`, plus the remaining project-coupled tests in `test-uasset-parser.mjs` (beyond L2.5 which T-1a migrated) and `test-s-b-base-differential.mjs`. Hand-rolling synthetic packages requires ~300-500 bytes of scaffolding per test — **3-5× the effort of T-1a**. Per-test decision: synthetic (tight unit-level) vs engine-stable tier-2 (UE 5.6 Engine/Content/*.uasset as cross-project stable fixture) vs keep project-specific with explicit dev-time-only framing.
-- **T-1c — Oracle-A v3 against engine BPs** (larger, deferred): regenerate Oracle-A corpus against Engine/Content/*.uasset for cross-project portability. Only if ProjectB integration or agent-onboarding friction surfaces pressure. Oracle-A bytes DO benefit from real-world BP complexity; this is a portability-vs-realism tradeoff.
-- **Trigger**: any future fixture drift causing test failures, OR ProjectB onboarding, OR CI enablement for contributors without ProjectA access.
+- **T-1b — engine-fixture audit / migration** (~2-3 sessions per T-1a worker's feasibility assessment, D73). **Priority bumped per D75**: BP_OSControlPoint drift in M-enhance Session 2 is the second such drift event in two cycles (BP_OSPlayerR drifted in D71's CL-1 cycle). Every future session that runs tests against target-project fixtures risks another drift encounter. Scope: `test-phase1.mjs`, `test-query-asset-registry.mjs`, `test-inspect-and-level-actors.mjs`, plus the remaining project-coupled tests in `test-uasset-parser.mjs` (beyond L2.5 which T-1a migrated) and `test-s-b-base-differential.mjs`. Hand-rolling synthetic packages requires ~300-500 bytes of scaffolding per test — **3-5× the effort of T-1a**. Per-test decision: synthetic (tight unit-level) vs engine-stable tier-2 (UE 5.6 Engine/Content/*.uasset as cross-project stable fixture) vs keep project-specific with explicit dev-time-only framing.
+- **T-1c — Oracle-A v3 against engine BPs** (larger, deferred): regenerate Oracle-A corpus against Engine/Content/*.uasset for cross-project portability. Only if Project B integration or agent-onboarding friction surfaces pressure. Oracle-A bytes DO benefit from real-world BP complexity; this is a portability-vs-realism tradeoff.
+- **Trigger**: any future fixture drift causing test failures, OR Project B onboarding, OR CI enablement for contributors without target-project access.
 - **Priority**: T-1a immediate-dispatchable (independent of M-enhance file-wise); T-1b/c deferred.
-- **Out of scope**: test-s-b-base-differential.mjs (Oracle-A is inherently commandlet-generated project-specific; acceptable as-is); BP_OSPlayerR sanity references (kept as dev-time specific-knowledge testing per Noah's guidance).
+- **Out of scope**: test-s-b-base-differential.mjs (Oracle-A is inherently commandlet-generated project-specific; acceptable as-is); BP_OSPlayerR sanity references (kept as dev-time specific-knowledge testing per orchestrator guidance).
 
 ### FX-1 — TMap BP CDO micro-fixture
 - **Source**: Agent 10.5 manual tester Item #1 (2026-04-16)
-- **Gap**: no ProjectA BP CDO holds a `TMap<K,V>`; manual §2.1/§2.3 had to skip live-fixture testing. Synthetic unit tests cover both paths.
+- **Gap**: no target-project BP CDO holds a `TMap<K,V>`; manual §2.1/§2.3 had to skip live-fixture testing. Synthetic unit tests cover both paths.
 - **Disposition**: optional; small maintenance burden for marginal value
-- **Trigger**: ProjectB naturally introduces TMap usage, OR TMap-parse regression surfaces that synthetic tests missed
+- **Trigger**: Project B naturally introduces TMap usage, OR TMap-parse regression surfaces that synthetic tests missed
 
 ---
 
@@ -112,7 +112,7 @@ File-collision analysis: zero overlap across the three. All three dispatchable i
 **Phase 3 milestone**: **Wave 3 (M-enhance) ship-complete** per D77 — 4 sessions, 9 commits, 36 agent-facing MCP tools + 16 plugin C++ handlers + HTTP:30010 RC transport + save-hook + Content Browser menu + batch commandlet. Test baseline 1037 → 1203 passing. Waves 1 + 2 + 3 all shipped; Phase 3 ~60-70% complete by session count (M3 + M4 + M5 remain, ~15-25 sessions estimated).
 
 **User-action: integration smoke test** (orthogonal to next dispatch; all paths ready per D77):
-1. Close editor → `sync-plugin.bat "D:/UnrealProjects/5.6/ProjectA/ProjectA/ProjectA.uproject"` → `Build.bat ProjectAEditor Win64 Development -project=...`
+1. Close editor → `sync-plugin.bat "path\to\YourProject\YourProject.uproject"` → `Build.bat YourProjectEditor Win64 Development -project=...`
 2. Open editor → save a BP → verify `<Project>/Saved/UEMCP/<pkg>.sidecar.json` materializes with `narrow-sidecar-v1` schema
 3. Right-click BP in Content Browser → see "Regenerate UEMCP Sidecar" item → click shows confirmation dialog
 4. `UnrealEditor-Cmd.exe <uproject> -run=DumpBPSidecar -PathRoot=/Game/Blueprints -Recursive -unattended -nop4` → batch-emits sidecars
@@ -121,7 +121,7 @@ File-collision analysis: zero overlap across the three. All three dispatchable i
 
 **Pre-drafted, NOT yet dispatched**:
 - **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
-- **S-B-overrides** (not drafted) — 1.5-2 session worker per D58. UE 5.6↔5.7 delta buffer (hints from D70 §7: watch `FEdGraphPinType.Serialize`'s trailing bool `bSerializeAsSinglePrecisionFloat`; verify FText HistoryType enum additions). Touches `server/uasset-parser.mjs`. Lower priority until ProjectB materializes on 5.7.
+- **S-B-overrides** (not drafted) — 1.5-2 session worker per D58. UE 5.6↔5.7 delta buffer (hints from D70 §7: watch `FEdGraphPinType.Serialize`'s trailing bool `bSerializeAsSinglePrecisionFloat`; verify FText HistoryType enum additions). Touches `server/uasset-parser.mjs`. Lower priority until the secondary target materializes on 5.7.
 
 Recently shipped (most recent first):
 
@@ -136,10 +136,10 @@ Recently shipped (most recent first):
 - **M-new Oracle-A-v2 pin-name amendment** (commit `b8ea754`, 2026-04-22) — D69. 9 files, 1603+/14− (fixture-regen dominated). Plugin compile clean after transient PCH-VM retry. All 6 fixtures regenerated with `name` field populated per pin; `pin_id` preserved as primary key; schema bumped `oracle-a-v1` → `oracle-a-v2`. Pin names for BP_OSPlayerR ApplyVFX_Niagara FunctionEntry empirically validated D68 theory: 13 names emitted match current function signature (`then, AuraSystem, Lifetime, SpawnRate, SpawnRate2, SpawnCount, ManualScale, Emissive, Opacity, MaterialInterface1-4`); parser's 23 disk pins include 10 stale-signature entries. D57 gate [PASS] preserved.
 - **FA-ε M-enhance transport research** (commit `56ff6f6`, 2026-04-21) — 404-line decision document at `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. Verdict: HYBRID (RC HTTP for flat reflection + metadata allowlist subset; TCP for compile diagnostics / UEdGraph walks / compiled-state / editor-static). **Phase 4 as a scheduled milestone absorbed into M-enhance**; D23 Layer 4 semantic allocation persists. Aggregate Phase 3 delta: −2 to −4 sessions. Full context in D66.
 - **UEMCPModule log-demotion** (commit `60bb94a`, 2026-04-21) — D61 follow-on closed. Warning → Log demote at `UEMCPModule.cpp` StartupModule. Clean rebuild via D61 nuke recipe (12.19s, 16 actions); DLL mtime post source mtime confirmed no UBT cache staleness; D57 gate re-run [PASS]. Baseline unchanged. D65 for full report.
-- **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against ProjectA; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
+- **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against the primary target; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
 - **EN-8 + EN-9 bundle** (commit `1bc3e8b`, 2026-04-21) — workflow gaps from M-spatial manual testing closed. `bp_list_graphs` emits `comment_ids: []` per-graph row; all 5 M-spatial verbs return FA-β `{available: false, reason: "asset_not_found"}` on ENOENT. `withAssetExistenceCheck` helper exported for Verb-surface reuse. **Test baseline 899 → 914** (+15 assertions including full-contract helper coverage). Comment class-name confirmed as `EdGraphNode_Comment` (no U prefix — UE strips at serialization). D63 for full report.
 - **M-new Oracle-A** (commits `b8e64a5` + `b1fb2e7`, 2026-04-21) — 6-BP fixture corpus seeded (BP_OSPlayerR 204/596 edges densest; TestCharacter 11/24 smallest; BP_OSPlayerR_Child triple for inheritance). 280 LOC commandlet + serializer; 20.66s clean build; 9s cold BP_OSPlayerR invocation; D57 gate regression-tested PASS. **Critical API correction captured in D62**: `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` runtime / `TArray<FEdGraphPinReference>` bytes — propagated to S-B-base handoff.
-- **M1 3A TCP scaffolding** (commits `2b86369` / `8030930` / `be282c0` / `510c5bb` / `d7a2192` / `1d3f6cf`) — plugin/UEMCP/ scaffold with D57 commandlet gate + 6 P0 helpers (P0-1/2/3/4/9/10) + MCPServerRunnable on TCP:55558 + MCPCommandRegistry + ping handler + 8 automation tests + server-side integration test. Unblocks M-new Oracle-A. Response envelope is single-shape `{status, result}` / `{status, error, code}` — deliberate P0-1 break from UnrealMCP (55557)'s two-format legacy. **Pending user verification**: plugin visibility in ProjectA (mklink /D or AdditionalPluginDirectories), UBT compile, commandlet-gate log line. Test baseline unchanged at 899.
+- **M1 3A TCP scaffolding** (commits `2b86369` / `8030930` / `be282c0` / `510c5bb` / `d7a2192` / `1d3f6cf`) — plugin/UEMCP/ scaffold with D57 commandlet gate + 6 P0 helpers (P0-1/2/3/4/9/10) + MCPServerRunnable on TCP:55558 + MCPCommandRegistry + ping handler + 8 automation tests + server-side integration test. Unblocks M-new Oracle-A. Response envelope is single-shape `{status, result}` / `{status, error, code}` — deliberate P0-1 break from UnrealMCP (55557)'s two-format legacy. **Pending user verification**: plugin visibility in the target project (mklink /D or AdditionalPluginDirectories), UBT compile, commandlet-gate log line. Test baseline unchanged at 899.
 - **M-spatial manual testing** (commit `8ad69bd`) — 18/18 PASS through live MCP wire. FA-β manifest + FA-δ plugin-absent first-class both held. Exact numeric match with unit tests (10 graphs, 53→7 events, 11 contained nodes, 17 entry points, 1424×544 rect) → second independent verification of D50 tagged-fallback UPROPERTY coverage. Workflow gap surfaced: comment-ids not enumerable → EN-8 queued.
 - **M-spatial** (commits `08be682` / `4105fa0` / `4938248`) — 5 BP traversal verbs + FA-β/FA-δ test invariants. Zero parser code needed — D50 tagged-fallback already decoded every required UPROPERTY (verified empirically on BP_OSPlayerR). Test baseline 825 → 899 (+74). Notable finding: `EnabledState` absent on nearly all fixture nodes because UE omits class-default values; spatial extraction treats missing positions as 0.
 

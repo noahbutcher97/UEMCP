@@ -1,9 +1,9 @@
-// Tests for query_asset_registry — bulk scan + filter on real ProjectA fixtures.
+// Tests for query_asset_registry — bulk scan + filter on real target-project fixtures.
 // Gated on UNREAL_PROJECT_ROOT. Exits 1 on any failure.
 //
 // ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
 // PROJECT-SPECIFIC FIXTURE DEPENDENCY:
-// This suite scans ProjectA-specific asset-registry path prefixes via
+// This suite scans target-project-specific asset-registry path prefixes via
 // `test-fixtures.mjs`. Assertions are structural (count > 0, filter matches,
 // pagination behavior) rather than pinned to specific asset names, so content
 // drift within the scanned prefixes is tolerated — only a prefix rename or

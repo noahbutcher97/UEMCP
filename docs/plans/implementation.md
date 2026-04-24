@@ -46,7 +46,7 @@
 |------|--------|
 | `ProjectA/.mcp.json` | Replace `unreal` server entry |
 | `ProjectB/.mcp.json` | Replace `unreal` server entry |
-| `claude_desktop_config.json` | Add `unreal-projecta` and `unreal-projectb` entries |
+| `claude_desktop_config.json` | Add per-project `unreal-<project>` entries |
 | `ProjectA/CLAUDE.md` | Update Unreal MCP documentation |
 | `ProjectA/ProjectA.uproject` | Add UEMCP plugin reference + enable RC API, RC Components, Python Editor Script, Geometry Script, Sequencer Scripting |
 | `ProjectB/ProjectB.uproject` | Same plugin additions |
@@ -242,17 +242,17 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 **Build**:
 34. Update `ProjectA/.mcp.json` — swap unreal entry
 35. Update `ProjectB/.mcp.json` — swap unreal entry
-36. Update `claude_desktop_config.json` — add `unreal-projecta` and `unreal-projectb` entries
+36. Update `claude_desktop_config.json` — add per-project `unreal-<project>` entries
 37. Enable plugins in both .uproject files (RC API, RC Components, Python Editor Script, Geometry Script, Sequencer Scripting)
-38. **[AUDIT]** Run `sync-uemcp-plugins.ps1` to copy plugin to ProjectB. Submit to P4. See D15.
+38. **[AUDIT]** Run `sync-uemcp-plugins.ps1` to copy plugin to Project B. Submit to P4. See D15.
 
 **Testing & Revision** (see `testing-strategy.md` Tests 34–40):
-39. ProjectA end-to-end: exercise one tool from each layer (offline, TCP:55557, TCP:55558, HTTP:30010) in a single session
-40. ProjectB end-to-end: same as above, verify auto-detection picks up correct project
+39. Project A end-to-end: exercise one tool from each layer (offline, TCP:55557, TCP:55558, HTTP:30010) in a single session
+40. Project B end-to-end: same as above, verify auto-detection picks up correct project
 41. Cowork (editor open): natural language prompt → auto-detect → tool execution → result
 42. Cowork (editor closed): prompt → offline fallback → result, no error noise about missing editor
-43. Wrong-project detection: ProjectB config but ProjectA editor open → clear warning
-44. Plugin distribution: `sync-uemcp-plugins.ps1` copies cleanly, ProjectB editor loads plugin
+43. Wrong-project detection: Project B config but Project A editor open → clear warning
+44. Plugin distribution: `sync-uemcp-plugins.ps1` copies cleanly, Project B editor loads plugin
 45. Coexistence: old Python server files on disk, no port conflicts, no stale config references
 46. **Regression**: Full regression — run critical tests from all prior phases (Phase 1 Tests 2–5, Phase 2 Tests 17–19, Phase 3 Tests 20a–20d + 28, Phase 4 Tests 34–35). This is the final integration gate.
 47. **Revision**: If auto-detection fails for one project, check PowerShell process inspection output. If Cowork config doesn't load, verify `claude_desktop_config.json` key names match expected format.
@@ -267,7 +267,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 - Actual time: ___
 - Auto-detection reliability: worked first try / needed tuning? ___
 - Cowork vs. Claude Code differences: any? ___
-- ProjectB distribution: clean / required manual fixup? ___
+- Project B distribution: clean / required manual fixup? ___
 - Old server coexistence: any conflicts? ___
 - Carry-forward items for Phase 6: ___
 
@@ -276,7 +276,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 **Build**:
 42. Update `ProjectA/CLAUDE.md` with dynamic toolset documentation (toolset names, typical workflows)
 43. Create `ProjectB/CLAUDE.md` if needed
-44. Publish Confluence page for ProjectB team (plugin overview, zero-action install, FAQ, troubleshooting)
+44. Publish Confluence page for the Project B team (plugin overview, zero-action install, FAQ, troubleshooting)
 45. Optional: Remove old `unreal` entry from .mcp.json (keep Python servers on disk)
 46. Add project-specific aliases to ToolIndex based on team feedback
 

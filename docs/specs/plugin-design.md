@@ -68,13 +68,13 @@
 ### Why a Separate Plugin
 
 1. **Perforce safety**: Existing UnrealMCP is team-shared. Zero risk of merge conflicts.
-2. **Independent iteration**: We can add/modify commands without coordinating with ProjectB team.
+2. **Independent iteration**: We can add/modify commands without coordinating with the Project B team.
 3. **Separate port**: Both plugins run simultaneously without conflict.
 4. **Additive**: If we ever distribute to the team, it's a clean addition, not a modification.
 
 ### Command Handlers (New Plugin)
 
-**GAS Asset Commands** (highest priority for ProjectA):
+**GAS Asset Commands** (highest priority for the primary target):
 | Command | Description |
 |---------|-------------|
 | `create_gameplay_effect` | Create GE_ data asset with configurable duration policy, modifiers, tags |
@@ -236,10 +236,10 @@ PublicDependencyModuleNames.AddRange(new string[] {
 
 ### Perforce Distribution Strategy
 
-For **ProjectA**: Plugin lives in `ProjectA/Plugins/UEMCP/`. Tracked normally in Perforce.
+For **Project A** (primary target): Plugin lives in `<PROJECT_ROOT>/Plugins/UEMCP/`. Tracked normally in Perforce.
 
-For **ProjectB**: Two options (decide at implementation time):
-- **Option A**: Plugin lives in `ProjectB/Plugins/UEMCP/`. Added to Perforce for the team.
+For **Project B** (secondary target): Two options (decide at implementation time):
+- **Option A**: Plugin lives in `<PROJECT_ROOT>/Plugins/UEMCP/`. Added to Perforce for the team.
 - **Option B**: Plugin lives outside Perforce (local-only install). Team doesn't see it.
 
 Recommendation: **Option A** after initial development is stable. The team benefits from the expanded tool surface. Communicate via Confluence.

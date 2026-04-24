@@ -20,7 +20,7 @@
 // Option B (subprocess + stdio) at 1/10 the overhead. If a stdio-specific
 // defect ever surfaces that this harness misses, add Option B then.
 //
-// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA&& node test-mcp-wire.mjs
+// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

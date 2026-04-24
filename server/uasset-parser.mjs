@@ -659,8 +659,8 @@ export function readAssetRegistryData(cur, summary) {
 //     [value bytes, length Size]
 //   FName "None"                                   (terminates stream; 4-byte trailer not consumed)
 //
-// Empirically verified against ProjectA fixtures BPGA_Block, GA_Sprint,
-// BP_OSPlayerR on 2026-04-16 (fileVersionUE5=1017).
+// Empirically verified against a production UE 5.6 Blueprint corpus
+// (GameplayAbility + Character BPs) on 2026-04-16 (fileVersionUE5=1017).
 //
 // References:
 //   Engine/Source/Runtime/CoreUObject/Public/UObject/PropertyTag.h (EPropertyTagFlags)
@@ -806,8 +806,8 @@ function readScalarPropertyValue(cur, tag, names, opts) {
       //   Engine/Source/Runtime/CoreUObject/Private/UObject/FieldPath.cpp
       //     → FArchive& operator<<(FArchive& Ar, FFieldPath& InOutFieldPath)
       //   CUE4Parse master: CUE4Parse/UE4/Objects/UObject/FFieldPath.cs
-      // Common occurrence in ProjectA: FGameplayAttribute.Attribute (TFieldPath<FProperty>)
-      // encountered inside tagged FOSResource / FAttributeBasedFloat structs.
+      // Common occurrence in GAS-using projects: FGameplayAttribute.Attribute (TFieldPath<FProperty>)
+      // encountered inside tagged custom-resource / FAttributeBasedFloat structs.
       const pathCount = cur.readInt32();
       if (pathCount < 0 || pathCount > 64) return null;  // defensive: real paths are 1-3 entries
       const path = [];

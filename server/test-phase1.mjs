@@ -1,5 +1,5 @@
 // Phase 1 Verification Tests
-// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA && node test-phase1.mjs
+// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject && node test-phase1.mjs
 //
 // ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
 // PROJECT-SPECIFIC FIXTURE DEPENDENCY:
@@ -7,13 +7,13 @@
 // (buildZodSchema, matchTagGlob, ToolIndex, computeCommentContainment,
 // withAssetExistenceCheck) is drift-proof. The fixture-backed sections
 // (Tests 3, 9, 10, 11, 12, 13, 14) are integration-level and use
-// ProjectA-specific assets via `test-fixtures.mjs`.
+// target-project-specific assets via `test-fixtures.mjs`.
 //
 // Drift-prone hardcoded values were either:
 //   (a) derived from path constants (e.g., `_C` suffix, `Default__` prefix),
 //   (b) softened to structural assertions (e.g., "filter narrows match
 //       count" instead of "filter finds N specific rows"), or
-//   (c) named at the top of this file when they're genuine ProjectA content
+//   (c) named at the top of this file when they're genuine project-content
 //       dependencies (e.g., a specific FGameplayTag path on a BP CDO).
 //
 // See D71 / D75 for prior drift-incident handling; D73 for philosophy.
@@ -34,7 +34,7 @@ import {
   ABILITIES_PREFIX, CHARACTERS_PREFIX, BLUEPRINTS_PREFIX, GAME_ROOT_PREFIX,
 } from './test-fixtures.mjs';
 
-// Genuine ProjectA-content expected values. When these drift, update here and
+// Genuine project-content expected values. When these drift, update here and
 // the downstream assertions follow. See test-fixtures.mjs drift policy.
 //
 // BPGA_Block has an `IsBlocking` FGameplayTag CDO default pointing at the
@@ -872,7 +872,7 @@ await testFindBlueprintNodes();
 // CDO tagged-property entries — so FDelegateProperty / FMulticastDelegateProperty
 // tags never surface in a CDO's FPropertyTag stream. The parser branch exists
 // per Agent 9 design to never silently skip if such a tag DID appear (e.g.,
-// in a hand-authored asset), but real-world ProjectA corpus coverage confirms
+// in a hand-authored asset), but real-world corpus coverage confirms
 // it won't fire on BP/Widget/AnimBP/DataTable CDOs. No fixture constructed.
 if (PROJECT_ROOT) {
   console.log(`\n═══ Test 12: Polish Worker — response-shape ergonomics ═══`);
@@ -1158,7 +1158,7 @@ if (PROJECT_ROOT) {
     assert(false, 'EN-2: scan_truncated semantics', e.message);
   }
 
-  // Corpus-wide honesty: /Game/ default max_scan=500 covers ~all ProjectA BPs
+  // Corpus-wide honesty: /Game/ default max_scan=500 covers ~all BPs in the target project
   // (the reason we switched to BP-count semantics in the first place — file
   // semantics gave ~130 BPs for the same budget).
   try {
@@ -1214,7 +1214,7 @@ if (PROJECT_ROOT) {
 //   • FA-β: every verb returns schema_version + available_fields + not_available
 //     + plugin_enhancement_available. Partial verbs list what's missing so
 //     callers know to expect M-new to fill in.
-//   • FA-δ: all 5 verbs return non-empty correct data on real ProjectA BPs
+//   • FA-δ: all 5 verbs return non-empty correct data on real target-project BPs
 //     with no sidecar, no plugin, no editor — this is the plugin-absent
 //     first-class-functional guard.
 //   • D44: yaml is the source of truth — tools/list and find_tools read
@@ -1489,7 +1489,7 @@ if (!PROJECT_ROOT) {
   }
 
   // ── FA-δ invariant: all 5 verbs return non-empty correct data
-  //    on a real ProjectA BP with NO plugin, NO editor, NO sidecar.
+  //    on a real target-project BP with NO plugin, NO editor, NO sidecar.
   //    This is the plugin-absent first-class-functional guard per D58.
   console.log('\n═══ FA-δ invariant: plugin-absent first-class functionality ═══');
   try {
@@ -1505,7 +1505,7 @@ if (!PROJECT_ROOT) {
       assert(Array.isArray(r.available_fields) && r.available_fields.length > 0,
         `FA-δ: ${verb} returns non-empty available_fields manifest (plugin-absent)`);
       assert(nonEmpty(r),
-        `FA-δ: ${verb} returns correct non-empty payload on plugin-absent ProjectA BP`);
+        `FA-δ: ${verb} returns correct non-empty payload on plugin-absent BP`);
       assert(r.plugin_enhancement_available === false,
         `FA-δ: ${verb} advertises plugin_enhancement_available=false (offline-primary)`);
     }

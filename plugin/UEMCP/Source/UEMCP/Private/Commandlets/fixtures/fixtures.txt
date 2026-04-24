@@ -1,7 +1,7 @@
 M-new Oracle-A fixture manifest
 ================================
 
-Curated ProjectA Blueprint set for M-new S-B-base differential tests.
+Curated target-project Blueprint set for M-new S-B-base differential tests.
 Every entry has at least one LinkedTo edge — zero-edge BPs excluded.
 
 Format per line: <asset path> — <nodes/edges> — <rationale>.
@@ -62,7 +62,7 @@ When UE 5.6 patches change deserialization behavior (unlikely but possible),
 re-run the commandlet against each fixture to refresh the golden JSONs:
 
     set UE="C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-    set UPROJ=D:\UnrealProjects\5.6\ProjectA\ProjectA\ProjectA.uproject
+    set UPROJ=path\to\YourProject\YourProject.uproject
     %UE% %UPROJ% -run=DumpBPGraph ^
       -BP=/Game/Blueprints/Character/BP_OSPlayerR ^
       -Out=D:\DevTools\UEMCP\plugin\UEMCP\Source\UEMCP\Private\Commandlets\fixtures\BP_OSPlayerR.oracle.json ^

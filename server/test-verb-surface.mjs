@@ -14,7 +14,7 @@
 //   - D70 invariants: NodeGuid scoped (graph, guid) tuple uniqueness;
 //     self-loops preserved; exec/data classification by name-convention
 //
-// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA && node test-verb-surface.mjs
+// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject && node test-verb-surface.mjs
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

@@ -15,7 +15,7 @@
 // a `{__unsupported__, reason}` marker so the top-level reader emits a
 // {unsupported, reason} entry for the property without crashing.
 //
-// References (verified 2026-04-16 against ProjectA fixtures + CUE4Parse master):
+// References (verified 2026-04-16 against a production UE 5.6 project corpus + CUE4Parse master):
 //   - FVector/FRotator/FQuat: 3/3/4 × double (UE5 switched from float to double)
 //   - FTransform: FQuat(32) + FVector(24) Translation + FVector(24) Scale3D = 80
 //   - FLinearColor: 4 × float32 = 16
@@ -445,7 +445,7 @@ function handleFBox(cur, tag, names, opts) {
 //   int32 MaskR, MaskG, MaskB, MaskA (4 × 4)
 //
 // Verified against UE 5.6 SerializeExpressionInput (MaterialShared.cpp:408).
-// Observed 99.8% native / 0.2% tagged in ProjectA bulk validation.
+// Observed 99.8% native / 0.2% tagged in production-corpus bulk validation.
 // Cross-referenced CUE4Parse FExpressionInput.cs (master) — matches.
 function readFExpressionInputBinary(cur, names, opts) {
   const exprIdx = cur.readInt32();

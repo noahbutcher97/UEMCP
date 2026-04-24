@@ -1,8 +1,8 @@
 // test-uasset-parser.mjs — format-correctness tests for the .uasset parser.
 //
-// Runs against real fixtures pulled from the ProjectA Content directory. The
-// ProjectA path is read from UNREAL_PROJECT_ROOT; fixtures are skipped when the
-// path doesn't resolve (so CI without a mounted depot still reports clean).
+// Runs against real fixtures pulled from the target project's Content directory.
+// The project root is read from UNREAL_PROJECT_ROOT; fixtures are skipped when
+// the path doesn't resolve (so CI without a mounted depot still reports clean).
 //
 // Run: cd server && node test-uasset-parser.mjs
 
@@ -42,8 +42,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
 
-const ROOT = process.env.UNREAL_PROJECT_ROOT
-  || 'D:/UnrealProjects/5.6/ProjectA/ProjectA';
+const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 
 async function exists(p) {
   try { await stat(p); return true; } catch { return false; }
@@ -224,7 +223,9 @@ async function testExportInt64Salvage() {
   // SM_auraHousya.uasset: VFX mesh whose export row carries 64-bit hash /
   // sentinel values > 2^53. Pre-fix: readExportTable threw. Post-fix: table
   // parses fully, the offending export is marked with int64Overflow.
-  const path = join(ROOT, 'Content/ProjectA/Art/VFX/Meshes/SM_auraHousya.uasset');
+  // Relative to UNREAL_PROJECT_ROOT. Override via UEMCP_VFX_FIXTURE_RELPATH if your project layout differs.
+  const vfxRel = process.env.UEMCP_VFX_FIXTURE_RELPATH || 'Content/VfxCorpus/SM_auraHousya.uasset';
+  const path = ROOT ? join(ROOT, vfxRel) : '';
   if (!(await exists(path))) {
     console.log('  · skipped SM_auraHousya fixture (no file at ' + path + ')');
     return;
@@ -897,7 +898,7 @@ function writePropertyTypeName(name, params, names) {
 // Exercises the TArray<FLinearColor> native-binary + TArray<ObjectProperty>
 // scalar-inline decode paths against hand-constructed synthetic byte buffers.
 //
-// Prior revisions used a live ProjectA fixture (BP_OSPlayerR → BP_OSPlayerR_VikramProto
+// Prior revisions used a live target-project fixture (BP_OSPlayerR → BP_OSPlayerR_VikramProto
 // after CL-1 drift-swap on 2026-04-22 when the original CDO lost
 // DefaultAbilities/DefaultEffects in a loadouts refactor). T-1a replaces
 // that with synthetic bytes: UEMCP is a general UE 5.6 tool, its tests

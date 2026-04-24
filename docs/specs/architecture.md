@@ -4,7 +4,7 @@
 
 ## Problem Statement (unchanged from v1)
 
-Two identical copies of a third-party Unreal MCP server exist across ProjectA and ProjectB. The current system:
+Two identical copies of a third-party Unreal MCP server exist across the two target projects (Project A and Project B). The current system:
 1. Crashes if editor isn't running (no Cowork support)
 2. Duplicated code with one-line difference (5s vs 30s timeout)
 3. Limited to 35 TCP commands — no Remote Control API, no offline tools
@@ -13,8 +13,8 @@ Two identical copies of a third-party Unreal MCP server exist across ProjectA an
 6. Fragile connection with no graceful degradation
 
 ### Constraints
-- **Existing UnrealMCP C++ plugin**: Shared via Perforce with ProjectB team. **Do not modify.**
-- **Existing Python MCP server**: May be tracked in Perforce for ProjectB. **Leave in place.** New server runs alongside.
+- **Existing UnrealMCP C++ plugin**: Shared via Perforce with the Project B team. **Do not modify.**
+- **Existing Python MCP server**: May be tracked in Perforce for Project B. **Leave in place.** New server runs alongside.
 - **One editor at a time**: Typical usage. Auto-detection handles rare simultaneous case.
 
 ---
@@ -109,8 +109,8 @@ Layer 1: Process Inspection (PRIMARY — 95%+ reliability)
   │  Extracts .uproject path from UnrealEditor.exe command line
   │  Falls back to WMIC on older Windows
   │
-  ├─ Found ProjectA.uproject → route to ProjectA ports
-  ├─ Found ProjectB.uproject → route to ProjectB ports  
+  ├─ Found ProjectA.uproject → route to Project A ports
+  ├─ Found ProjectB.uproject → route to Project B ports
   ├─ Found both → use UNREAL_PROJECT_ROOT env to disambiguate
   └─ Found none → offline mode only
 

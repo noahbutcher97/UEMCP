@@ -27,13 +27,13 @@ The Node.js MCP server runs, connects via stdio, and exposes 16 tools (6 managem
 ```bash
 # From terminal, run the server directly with env vars
 cd ~/.claude/mcp-servers/unreal
-UNREAL_PROJECT_ROOT="D:/UnrealProjects/5.6/ProjectA/ProjectA" node server.mjs
+UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
 # Should start without errors, listen on stdio
 # Ctrl+C to exit
 ```
 
 **Test 2 — Claude Code integration**
-1. Open Claude Code in the ProjectA project (which has `.mcp.json` pointing to the new server)
+1. Open Claude Code in the target project (which has `.mcp.json` pointing to the new server)
 2. Ask: "What tools do you have for Unreal?"
 3. Claude should see the 6 management tools and call `list_toolsets`
 4. All TCP/HTTP toolsets should show unavailable (editor closed)
@@ -68,8 +68,8 @@ These searches won't *execute* the tools (layers unavailable), but they should f
 5. `list_toolsets` → verify state
 
 **Test 6 — Auto-detection with editor running**
-1. Open Unreal Editor with ProjectA
-2. Run `detect_project` — should return "ProjectA" with high confidence
+1. Open Unreal Editor with the primary target project
+2. Run `detect_project` — should return the project name with high confidence
 3. `connection_info` — should show TCP:55557 as "unknown" (haven't tried connecting yet), offline as "available"
 
 **Test 7 — [AUDIT] Unavailable toolset reporting**
@@ -104,7 +104,7 @@ The server can now talk to the existing UnrealMCP plugin over TCP. Three toolset
 ### Testing Strategy
 
 **Test 9 — TCP connection and basic command**
-1. Editor open with ProjectA loaded
+1. Editor open with the primary target project loaded
 2. `connection_info` — TCP:55557 should show "connected"
 3. `enable_toolset(["actors"])` — should succeed
 4. Call `list_actors` or `get_actor_properties` — should return level actors
@@ -152,7 +152,7 @@ This is the big phase. The new C++ plugin runs on port 55558, adding 64 tools ac
 
 ### What You Can Do
 
-**GAS toolset (5 tools)** — the highest-value addition for ProjectA:
+**GAS toolset (5 tools)** — the highest-value addition for the primary target:
 - Create GameplayEffects (damage, buffs, costs) from Claude
 - Create GameplayAbilities with boilerplate
 - Modify GE parameters (duration, period, modifiers)
@@ -178,7 +178,7 @@ This is the big phase. The new C++ plugin runs on port 55558, adding 64 tools ac
 
 ### What You Can't Do Yet
 - Remote Control API property reflection
-- Multi-project config (both ProjectA + ProjectB wired up)
+- Multi-project config (both Project A + Project B wired up)
 
 ### Testing Strategy
 
@@ -328,16 +328,16 @@ Phase 3 has 4 internal priority tiers. Test each tier before moving to the next.
 Both projects fully wired up. Cowork mode works. Auto-detection handles which project you're in. Everything is connected end-to-end.
 
 ### What You Can Do
-- **Switch between ProjectA and ProjectB** — each has its own server instance with correct paths
+- **Switch between Project A and Project B** — each has its own server instance with correct paths
 - **Cowork mode** — open Cowork, talk to Claude about Unreal, offline tools work immediately, editor tools work when editor is open
 - **Claude Code** — same as before but both projects configured
-- **ProjectB team** — plugin distributed via P4, they get the same capabilities
+- **Project B team** — plugin distributed via P4, they get the same capabilities
 
 ### Testing Strategy
 
-**Test 34 — ProjectA end-to-end**
-1. Open Claude Code in ProjectA project
-2. Open Unreal Editor with ProjectA
+**Test 34 — Project A end-to-end**
+1. Open Claude Code in Project A
+2. Open Unreal Editor with Project A
 3. `list_toolsets` — all layers should show available
 4. Exercise one tool from each layer:
    - Offline: `project_info`
@@ -345,15 +345,15 @@ Both projects fully wired up. Cowork mode works. Auto-detection handles which pr
    - TCP:55558: `create_gameplay_effect`
    - HTTP:30010: `get_property`
 
-**Test 35 — ProjectB end-to-end**
-1. Same as above but with ProjectB project
-2. Verify auto-detection picks up ProjectB (not ProjectA)
+**Test 35 — Project B end-to-end**
+1. Same as above but with Project B
+2. Verify auto-detection picks up Project B (not Project A)
 
 **Test 36 — Cowork mode (editor open)**
 1. Open Cowork desktop app
-2. Editor running with ProjectA
+2. Editor running with Project A
 3. Ask: "What actors are in my level?"
-4. Should auto-detect ProjectA, connect, return actor list
+4. Should auto-detect Project A, connect, return actor list
 
 **Test 37 — Cowork mode (editor closed)**
 1. Close Unreal Editor
@@ -362,15 +362,15 @@ Both projects fully wired up. Cowork mode works. Auto-detection handles which pr
 4. Should NOT show errors about editor not connected — clean fallback
 
 **Test 38 — Auto-detection edge case**
-1. Open editor with ProjectA
-2. Run `detect_project` from ProjectB Claude Code instance
-3. Should detect ProjectA is running but report it's the wrong project
-4. Should warn: "Detected ProjectA but expected ProjectB"
+1. Open editor with Project A
+2. Run `detect_project` from Project B's Claude Code instance
+3. Should detect Project A is running but report it's the wrong project
+4. Should warn: "Detected Project A but expected Project B"
 
 **Test 39 — [AUDIT] Plugin distribution**
 1. Run `sync-uemcp-plugins.ps1`
 2. Verify UEMCP plugin copied to `ProjectB/Plugins/UEMCP/`
-3. Open ProjectB in editor — plugin should load, TCP:55558 responsive
+3. Open Project B in editor — plugin should load, TCP:55558 responsive
 
 **Test 40 — Old server coexistence**
 1. Verify old Python server files still on disk
@@ -382,7 +382,7 @@ Both projects fully wired up. Cowork mode works. Auto-detection handles which pr
 ## Phase 6: Documentation & Cleanup
 
 ### What You Get
-No new functionality. Clean documentation, Confluence page for ProjectB team, verified coexistence.
+No new functionality. Clean documentation, Confluence page for the Project B team, verified coexistence.
 
 ### What You Can Do
 - Everything from Phase 5 — this phase is polish
@@ -390,19 +390,19 @@ No new functionality. Clean documentation, Confluence page for ProjectB team, ve
 ### Testing Strategy
 
 **Test 41 — CLAUDE.md accuracy**
-1. Open Claude Code in ProjectA
+1. Open Claude Code in Project A
 2. Start a fresh conversation
 3. Ask Claude: "How do I use the Unreal MCP tools?"
 4. Claude should reference the updated CLAUDE.md and explain toolsets, `find_tools`, etc.
 5. The explanation should match reality — no references to old Python server workflow
 
-**Test 42 — Confluence page (ProjectB)**
+**Test 42 — Confluence page (Project B)**
 1. Verify page exists and is accurate
-2. Have a ProjectB team member follow the instructions
+2. Have a Project B team member follow the instructions
 3. They should be able to use the plugin without asking you for help
 
 **Test 43 — Project-specific aliases**
-1. Test that `find_tools("aura")` returns GAS-related tools (aura = mana/magic system in ProjectA)
+1. Test that `find_tools("aura")` returns GAS-related tools (aura = mana/magic system in the primary target)
 2. Test that project-specific terminology maps to correct toolsets
 
 ---

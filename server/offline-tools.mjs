@@ -1143,8 +1143,8 @@ async function parseAssetTables(diskPath) {
 /**
  * Classes that identify an asset as a Blueprint subclass whose CDO name
  * follows the `Default__<AssetName>_C` convention. Includes GAS as a
- * defensive add (Agent 9 §4 Q4) even though ProjectA compiles GAS as plain
- * BlueprintGeneratedClass today.
+ * defensive add (Agent 9 §4 Q4) even though our target project compiles GAS
+ * as plain BlueprintGeneratedClass today.
  */
 const BP_GENERATED_CLASSES = new Set([
   'BlueprintGeneratedClass',
