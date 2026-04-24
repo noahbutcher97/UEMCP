@@ -161,11 +161,16 @@ export function rcListObjects({ className, outer = null, recursive = false }) {
 }
 
 /**
- * Resolve a CDO objectPath for a UClass asset path.
+ * Resolve a CDO objectPath for a Blueprint-generated UClass asset path.
  * `/Game/Blueprints/X.BP_X_C` → `/Game/Blueprints/X.BP_X_C:Default__BP_X_C`
  *
  * Helper used by tool handlers that want CDO property reads without the
  * caller having to remember the `:Default__<ClassName>` suffix convention.
+ *
+ * F-7 guard (audit 2026-04-24): only BP-generated class paths end in `_C`
+ * and have CDOs. Non-class assets (UMaterial, UStaticMesh, UCurveFloat, …)
+ * are raw UObjects with no CDO — pass their path through unchanged so RC
+ * can resolve to the asset object directly.
  *
  * @param {string} classPath  e.g. "/Game/Blueprints/Character/BP_OSPlayerR.BP_OSPlayerR_C"
  */
@@ -173,6 +178,9 @@ export function toCdoPath(classPath) {
   if (!classPath) return classPath;
   // Already resolved (has subobject marker).
   if (classPath.includes(':Default__')) return classPath;
+  // Only BP-generated class paths carry the `_C` suffix. Non-class assets
+  // (materials, meshes, curves, data tables, …) have no CDO — pass-through.
+  if (!classPath.endsWith('_C')) return classPath;
   // Extract class name after the last '.' — e.g. "BP_OSPlayerR_C".
   const dot = classPath.lastIndexOf('.');
   if (dot < 0) return classPath;

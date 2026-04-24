@@ -769,7 +769,7 @@ toolsets:
       # reduced_scope: compiled shader uniforms (compile-time constants baked by the editor material compiler); static parameter defaults shipped offline
       # displaced_by: read_asset_properties (D50 tagged-fallback for FMaterialParameterInfo)
       list_material_parameters:
-        description: Get all parameters and current values from material
+        description: Get scalar, vector, and texture parameter info (names + IDs) from a UMaterialInterface via batched RC calls. Values require a separate rc_call_function with GetScalar/Vector/TextureParameterValue per parameter.
         params:
           asset_path: { type: string, required: true }
       get_material_graph:
@@ -803,9 +803,10 @@ toolsets:
       # reduced_scope: compiled/baked curve evaluation + complex UCurveTable joins; simple UCurveFloat/Vector/Color keyframes shipped offline
       # displaced_by: read_asset_properties
       get_curve_asset:
-        description: Read UCurveFloat/Vector/Color keyframes with tangents and interpolation. Also UCurveTable.
+        description: Read UCurveFloat / UCurveVector / UCurveLinearColor keyframes with tangents and interpolation. Probes class via RC describe, then reads the subclass-specific curve property (FloatCurve singular for UCurveFloat; FloatCurves array for Vector/LinearColor).
         params:
-          asset_path: { type: string, required: true }
+          asset_path:  { type: string, required: true }
+          curve_class: { type: string, required: false }
       # reduced_scope: localization compilation + culture-specific lookups; binary UStringTable key/value entries shipped offline via D50 tagged-fallback
       # displaced_by: read_asset_properties
       get_string_table:
@@ -881,9 +882,10 @@ toolsets:
       # reduced_scope: compiled vertex buffer evaluation + runtime bounds
       # displaced_by: (deferred — offline static-mesh header parse could cover vertex/triangle counts in a future enhancement per §Q1.8)
       get_mesh_info:
-        description: Get vertex count, triangle count, bounds, material slots
+        description: Get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials). One of asset_path or target is required.
         params:
-          target: { type: string, required: true }
+          asset_path: { type: string, required: false }
+          target:     { type: string, required: false }
 
   editor-utility:
     layer: tcp-55558

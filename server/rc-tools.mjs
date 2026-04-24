@@ -110,8 +110,10 @@ export const RC_SCHEMAS = {
   },
 
   // ── 3 semantic delegates (RC-internal substrate, TCP-external signature) ──
+  // Dispatched via DELEGATE_EXECS in executeRcTool — multi-call orchestrations,
+  // not single-shot primitives.
   list_material_parameters: {
-    description: 'Get scalar/vector/texture parameters with current values from a UMaterialInterface',
+    description: 'Get scalar, vector, and texture parameter info from a UMaterialInterface (names and IDs only; values require rc_call_function with GetScalar/Vector/TextureParameterValue per name).',
     schema: {
       asset_path: z.string().describe('/Game/... path to the material or material instance'),
     },
@@ -119,15 +121,16 @@ export const RC_SCHEMAS = {
   },
 
   get_curve_asset: {
-    description: 'Read UCurveFloat / UCurveVector / UCurveLinearColor keyframes, tangents, and interpolation',
+    description: 'Read UCurveFloat / UCurveVector / UCurveLinearColor keyframes, tangents, and interpolation. Probes class via describe, then reads the subclass-specific curve property.',
     schema: {
-      asset_path: z.string().describe('/Game/... path to the curve asset'),
+      asset_path:  z.string().describe('/Game/... path to the curve asset'),
+      curve_class: z.string().optional().describe('Optional hint: CurveFloat | CurveVector | CurveLinearColor. Skips the describe probe when supplied.'),
     },
     isReadOp: true,
   },
 
   get_mesh_info: {
-    description: 'Get vertex count, triangle count, bounds, and material slots for a UStaticMesh',
+    description: 'Get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls',
     schema: {
       asset_path: z.string().optional().describe('/Game/... path to the UStaticMesh asset'),
       target:     z.string().optional().describe('Actor name (alternative to asset_path — reads from spawned instance)'),
@@ -197,48 +200,145 @@ function buildRcRequest(toolName, args) {
         body: args.body || null,
       });
 
-    // ── Semantic delegates (RC under the hood) ──────────────
-    case 'list_material_parameters': {
-      // Call BlueprintCallable UFUNCTION GetAllScalarParameterInfo via RC.
-      // Material parameters live on the CDO of the material class — resolve path.
-      const objectPath = rc.toCdoPath(args.asset_path);
-      return rc.rcCallFunction({
-        objectPath,
-        functionName: 'GetAllScalarParameterInfo',
-        parameters: {},
-        generateTransaction: false,
-      });
-    }
-
-    case 'get_curve_asset': {
-      // UCurveFloat / UCurveVector have FloatCurves / VectorCurves as UPROPERTY.
-      // Read the whole curve struct via get_property.
-      const objectPath = args.asset_path;
-      return rc.rcGetProperty({
-        objectPath,
-        propertyName: 'FloatCurves',  // default — callers may pass through via rc_get_property for other curve types
-        access: 'READ_ACCESS',
-      });
-    }
-
-    case 'get_mesh_info': {
-      // UStaticMesh::GetNumVertices / GetNumTriangles / GetBounds are all
-      // BlueprintCallable. Call one and let the caller compose if they need
-      // all three — or we expose a batch in a future revision.
-      const objectPath = args.asset_path || args.target;
-      if (!objectPath) throw new Error('get_mesh_info: asset_path or target required');
-      return rc.rcCallFunction({
-        objectPath,
-        functionName: 'GetNumVertices',
-        parameters: {},
-        generateTransaction: false,
-      });
-    }
-
     default:
+      // Semantic delegates (list_material_parameters, get_curve_asset,
+      // get_mesh_info) route through DELEGATE_EXECS instead of this single-shot
+      // builder — executeRcTool handles that branch.
       throw new Error(`rc-tools: unknown tool "${toolName}"`);
   }
 }
+
+// ── Semantic-delegate orchestrators ───────────────────────────
+// These ride RC internally per D66 (TCP-external signature / RC-internal
+// substrate). Each issues multiple HTTP calls and aggregates results; the
+// agent-facing response is a flat structured object matching the yaml
+// description's promised surface.
+
+/**
+ * list_material_parameters — batch-call the three info UFUNCTIONs
+ * (scalar, vector, texture) on a UMaterialInterface and merge results.
+ *
+ * Returns parameter info only (names + IDs); values require per-parameter
+ * GetScalarParameterValue/GetVectorParameterValue/GetTextureParameterValue
+ * calls, exposed via rc_call_function. Batching values inline would inflate
+ * round-trips proportional to parameter count without a clear ceiling.
+ */
+async function execListMaterialParameters(args, connectionManager) {
+  const objectPath = rc.toCdoPath(args.asset_path);
+  const batch = rc.rcBatch([
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetAllScalarParameterInfo', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetAllVectorParameterInfo', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetAllTextureParameterInfo', parameters: {}, generateTransaction: false } },
+  ]);
+  const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
+  const r = res.Responses || [];
+  return {
+    object_path: objectPath,
+    scalar:  extractParamInfo(r[0]),
+    vector:  extractParamInfo(r[1]),
+    texture: extractParamInfo(r[2]),
+  };
+}
+
+function extractParamInfo(response) {
+  if (!response || !response.ResponseBody) return [];
+  // Treat non-2xx batch sub-responses as empty rather than leaking an error body.
+  if (response.ResponseCode && (response.ResponseCode < 200 || response.ResponseCode >= 300)) return [];
+  const body = response.ResponseBody;
+  return body.OutInfo || body.OutParameterInfo || body.ReturnValue || [];
+}
+
+/**
+ * get_curve_asset — probe curve subclass via describe, then read the
+ * subclass-specific curve property.
+ *
+ * UCurveFloat exposes the curve as `FloatCurve` (singular, one FRichCurve).
+ * UCurveVector / UCurveLinearColor expose `FloatCurves` (array of 3 / 4
+ * FRichCurves respectively). Callers can pass `curve_class` to skip the
+ * describe probe when they already know the subclass (e.g. from get_asset_info).
+ */
+async function execGetCurveAsset(args, connectionManager) {
+  const objectPath = args.asset_path;
+  let className = args.curve_class;
+  if (!className) {
+    const desc = await connectionManager.sendHttp(
+      'PUT', '/remote/object/describe',
+      { objectPath },
+      { skipCache: false }
+    );
+    const classPath = desc && desc.Class ? String(desc.Class) : '';
+    className = classPath.split('.').pop() || '';
+  }
+
+  // UCurveFloat → singular FloatCurve; UCurveVector / UCurveLinearColor → FloatCurves array.
+  const propertyName = /^U?CurveFloat$/.test(className) ? 'FloatCurve' : 'FloatCurves';
+
+  const curves = await connectionManager.sendHttp(
+    'PUT', '/remote/object/property',
+    { objectPath, propertyName, access: 'READ_ACCESS' },
+    { skipCache: false }
+  );
+
+  return {
+    object_path: objectPath,
+    class: className,
+    property: propertyName,
+    curves,
+  };
+}
+
+/**
+ * get_mesh_info — batch-call 5 UStaticMesh UFUNCTIONs in one round-trip
+ * and flatten into a structured response.
+ *
+ * All five are BlueprintCallable on UStaticMesh: GetNumVertices,
+ * GetNumTriangles, GetNumLODs, GetBounds, GetStaticMaterials. Per-call
+ * responses arrive in `Responses[]` with the originating order preserved.
+ */
+async function execGetMeshInfo(args, connectionManager) {
+  const objectPath = args.asset_path || args.target;
+  if (!objectPath) throw new Error('get_mesh_info: asset_path or target required');
+
+  const batch = rc.rcBatch([
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetNumVertices', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetNumTriangles', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetNumLODs', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetBounds', parameters: {}, generateTransaction: false } },
+    { method: 'PUT', path: '/remote/object/call',
+      body: { objectPath, functionName: 'GetStaticMaterials', parameters: {}, generateTransaction: false } },
+  ]);
+  const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
+  const r = res.Responses || [];
+  return {
+    object_path:    objectPath,
+    vertices:       pickReturn(r[0]),
+    triangles:      pickReturn(r[1]),
+    lods:           pickReturn(r[2]),
+    bounds:         pickReturn(r[3]),
+    material_slots: pickReturn(r[4]),
+  };
+}
+
+function pickReturn(response) {
+  if (!response || !response.ResponseBody) return null;
+  // Treat non-2xx batch sub-responses as null rather than leaking an error body.
+  if (response.ResponseCode && (response.ResponseCode < 200 || response.ResponseCode >= 300)) return null;
+  const body = response.ResponseBody;
+  return body.ReturnValue !== undefined ? body.ReturnValue : body;
+}
+
+const DELEGATE_EXECS = {
+  list_material_parameters: execListMaterialParameters,
+  get_curve_asset:          execGetCurveAsset,
+  get_mesh_info:            execGetMeshInfo,
+};
 
 /**
  * Execute an RC-backed tool.
@@ -255,6 +355,11 @@ export async function executeRcTool(toolName, args, connectionManager) {
   // Defensive Zod parse — tests, internal reuse, and mock harnesses bypass the
   // SDK's tools/call parsing, so we can't assume args are already shaped.
   const validated = z.object(def.schema).parse(args);
+
+  // Semantic delegates orchestrate multiple RC calls + aggregate.
+  if (DELEGATE_EXECS[toolName]) {
+    return DELEGATE_EXECS[toolName](validated, connectionManager);
+  }
 
   const { method, path, body } = buildRcRequest(toolName, validated);
   return connectionManager.sendHttp(method, path, body, { skipCache: !def.isReadOp });

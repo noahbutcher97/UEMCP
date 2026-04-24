@@ -198,7 +198,7 @@ console.log('\n── Test 7: toCdoPath resolves CDO suffix ──');
 {
   const resolved = rc.toCdoPath('/Game/Blueprints/Character/BP_OSPlayerR.BP_OSPlayerR_C');
   t.assert(resolved === '/Game/Blueprints/Character/BP_OSPlayerR.BP_OSPlayerR_C:Default__BP_OSPlayerR_C',
-    'toCdoPath appends :Default__ClassName suffix');
+    'toCdoPath appends :Default__ClassName suffix for BP class paths');
 
   const already = rc.toCdoPath('/Game/X.X_C:Default__X_C');
   t.assert(already === '/Game/X.X_C:Default__X_C',
@@ -206,6 +206,28 @@ console.log('\n── Test 7: toCdoPath resolves CDO suffix ──');
 
   const noDot = rc.toCdoPath('');
   t.assert(noDot === '', 'toCdoPath preserves empty input');
+
+  // F-7 fix — non-BP asset paths don't have CDOs and must pass through.
+  const material = rc.toCdoPath('/Game/Materials/M_Brick.M_Brick');
+  t.assert(material === '/Game/Materials/M_Brick.M_Brick',
+    'toCdoPath passes UMaterial paths through (no _C, no CDO)');
+
+  const curve = rc.toCdoPath('/Game/Curves/C_Damage.C_Damage');
+  t.assert(curve === '/Game/Curves/C_Damage.C_Damage',
+    'toCdoPath passes UCurveFloat paths through');
+
+  const mesh = rc.toCdoPath('/Game/Meshes/SM_Cube.SM_Cube');
+  t.assert(mesh === '/Game/Meshes/SM_Cube.SM_Cube',
+    'toCdoPath passes UStaticMesh paths through');
+
+  const anim = rc.toCdoPath('/Game/Anims/A_Walk.A_Walk');
+  t.assert(anim === '/Game/Anims/A_Walk.A_Walk',
+    'toCdoPath passes UAnimSequence paths through');
+
+  // Subclass of UBlueprint — widget/anim BPs also generate _C classes.
+  const widget = rc.toCdoPath('/Game/UI/W_HUD.W_HUD_C');
+  t.assert(widget === '/Game/UI/W_HUD.W_HUD_C:Default__W_HUD_C',
+    'toCdoPath resolves UWidgetBlueprint class paths (any _C suffix)');
 }
 
 // ── Test 8: executeRcTool — rc_* primitives ───────────────────
@@ -322,48 +344,204 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
 {
   const { executeRcTool } = await import('./rc-tools.mjs');
 
-  const rcMock = new FakeHttpResponder();
-  rcMock.on('PUT /remote/object/call', { ReturnValue: 7 });
-  rcMock.on('PUT /remote/object/property', { FloatCurves: [] });
-  const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+  // ── list_material_parameters (F-6) — batches 3 Info UFUNCTIONs via rc_batch ──
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/batch', {
+      Responses: [
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'BaseColor' }, { Name: 'Tint' }] } },
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Diffuse' }] } },
+      ],
+    });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
-  // list_material_parameters → rcCallFunction on CDO with GetAllScalarParameterInfo
-  rcMock.resetCalls();
-  await executeRcTool('list_material_parameters', {
-    asset_path: '/Game/Materials/M_Base.M_Base_C',
-  }, conn);
-  const m = rcMock.lastCall('PUT /remote/object/call');
-  t.assert(m && m.body.functionName === 'GetAllScalarParameterInfo',
-    'list_material_parameters calls GetAllScalarParameterInfo');
-  t.assert(m.body.objectPath.includes(':Default__'),
-    `list_material_parameters resolves CDO path (got ${m.body.objectPath})`);
+    const result = await executeRcTool('list_material_parameters', {
+      asset_path: '/Game/Materials/M_Brick.M_Brick',
+    }, conn);
 
-  // get_curve_asset → rcGetProperty FloatCurves
-  rcMock.resetCalls();
-  await executeRcTool('get_curve_asset', {
-    asset_path: '/Game/Curves/C_Damage.C_Damage',
-  }, conn);
-  const g = rcMock.lastCall('PUT /remote/object/property');
-  t.assert(g && g.body.propertyName === 'FloatCurves',
-    'get_curve_asset reads FloatCurves');
-  t.assert(g.body.access === 'READ_ACCESS',
-    'get_curve_asset uses READ_ACCESS');
+    const bcall = rcMock.lastCall('PUT /remote/batch');
+    t.assert(bcall, 'list_material_parameters dispatches via /remote/batch');
+    t.assert(Array.isArray(bcall.body.Requests) && bcall.body.Requests.length === 3,
+      'list_material_parameters batches 3 requests');
+    const fnNames = bcall.body.Requests.map(r => r.Body.functionName);
+    t.assert(fnNames.includes('GetAllScalarParameterInfo'), 'batch includes GetAllScalarParameterInfo');
+    t.assert(fnNames.includes('GetAllVectorParameterInfo'), 'batch includes GetAllVectorParameterInfo');
+    t.assert(fnNames.includes('GetAllTextureParameterInfo'), 'batch includes GetAllTextureParameterInfo');
 
-  // get_mesh_info → rcCallFunction GetNumVertices
-  rcMock.resetCalls();
-  await executeRcTool('get_mesh_info', {
-    asset_path: '/Game/Meshes/SM_Cube.SM_Cube',
-  }, conn);
-  const mi = rcMock.lastCall('PUT /remote/object/call');
-  t.assert(mi && mi.body.functionName === 'GetNumVertices',
-    'get_mesh_info calls GetNumVertices');
+    // F-7 interaction — non-BP material path must NOT get CDO suffix.
+    const targetPath = bcall.body.Requests[0].Body.objectPath;
+    t.assert(targetPath === '/Game/Materials/M_Brick.M_Brick',
+      `list_material_parameters preserves non-BP asset path (got ${targetPath})`);
 
-  // get_mesh_info requires one of asset_path / target
-  await t.assertRejects(
-    async () => executeRcTool('get_mesh_info', {}, conn),
-    /asset_path or target required/,
-    'get_mesh_info rejects empty args'
-  );
+    // Aggregated response shape.
+    t.assert(result.scalar.length === 1 && result.scalar[0].Name === 'Opacity',
+      'list_material_parameters returns scalar params');
+    t.assert(result.vector.length === 2,
+      'list_material_parameters returns vector params');
+    t.assert(result.texture.length === 1 && result.texture[0].Name === 'Diffuse',
+      'list_material_parameters returns texture params');
+
+    // F-7 regression guard — BP-class material path (unusual but valid) still gets CDO.
+    rcMock.resetCalls();
+    await executeRcTool('list_material_parameters', {
+      asset_path: '/Game/Materials/M_Base.M_Base_C',
+    }, conn);
+    const bpcall = rcMock.lastCall('PUT /remote/batch');
+    const bpPath = bpcall.body.Requests[0].Body.objectPath;
+    t.assert(bpPath === '/Game/Materials/M_Base.M_Base_C:Default__M_Base_C',
+      `list_material_parameters resolves CDO for _C class paths (got ${bpPath})`);
+  }
+
+  // ── get_curve_asset (F-4) — describe-probe then subclass-specific property read ──
+  {
+    // UCurveFloat path: describe returns CurveFloat class → reads `FloatCurve` (singular).
+    const floatMock = new FakeHttpResponder();
+    floatMock.on('PUT /remote/object/describe', { Class: '/Script/Engine.CurveFloat', Properties: [] });
+    floatMock.on('PUT /remote/object/property', { FloatCurve: { Keys: [] } });
+    const floatConn = new ConnectionManager({ ...baseConfig, httpCommandFn: floatMock.handler() });
+
+    const floatRes = await executeRcTool('get_curve_asset', {
+      asset_path: '/Game/Curves/C_Damage.C_Damage',
+    }, floatConn);
+
+    const describeCall = floatMock.lastCall('PUT /remote/object/describe');
+    t.assert(describeCall, 'get_curve_asset probes class via /remote/object/describe');
+    t.assert(describeCall.body.objectPath === '/Game/Curves/C_Damage.C_Damage',
+      'describe targets the supplied asset_path');
+
+    const propCall = floatMock.lastCall('PUT /remote/object/property');
+    t.assert(propCall.body.propertyName === 'FloatCurve',
+      'UCurveFloat → reads singular FloatCurve property');
+    t.assert(propCall.body.access === 'READ_ACCESS',
+      'get_curve_asset uses READ_ACCESS');
+    t.assert(floatRes.class === 'CurveFloat' && floatRes.property === 'FloatCurve',
+      'response surfaces resolved class + property');
+
+    // UCurveVector path: describe returns CurveVector → reads `FloatCurves` (array).
+    const vecMock = new FakeHttpResponder();
+    vecMock.on('PUT /remote/object/describe', { Class: '/Script/Engine.CurveVector', Properties: [] });
+    vecMock.on('PUT /remote/object/property', { FloatCurves: [{}, {}, {}] });
+    const vecConn = new ConnectionManager({ ...baseConfig, httpCommandFn: vecMock.handler() });
+
+    await executeRcTool('get_curve_asset', {
+      asset_path: '/Game/Curves/CV_Path.CV_Path',
+    }, vecConn);
+    const vecProp = vecMock.lastCall('PUT /remote/object/property');
+    t.assert(vecProp.body.propertyName === 'FloatCurves',
+      'UCurveVector → reads FloatCurves array');
+
+    // UCurveLinearColor: same FloatCurves array property.
+    const colMock = new FakeHttpResponder();
+    colMock.on('PUT /remote/object/describe', { Class: '/Script/Engine.CurveLinearColor', Properties: [] });
+    colMock.on('PUT /remote/object/property', { FloatCurves: [{}, {}, {}, {}] });
+    const colConn = new ConnectionManager({ ...baseConfig, httpCommandFn: colMock.handler() });
+    await executeRcTool('get_curve_asset', {
+      asset_path: '/Game/Curves/CLC_Tint.CLC_Tint',
+    }, colConn);
+    const colProp = colMock.lastCall('PUT /remote/object/property');
+    t.assert(colProp.body.propertyName === 'FloatCurves',
+      'UCurveLinearColor → reads FloatCurves array');
+
+    // curve_class hint skips the describe probe.
+    const hintMock = new FakeHttpResponder();
+    hintMock.on('PUT /remote/object/property', { FloatCurve: {} });
+    const hintConn = new ConnectionManager({ ...baseConfig, httpCommandFn: hintMock.handler() });
+    await executeRcTool('get_curve_asset', {
+      asset_path:  '/Game/Curves/C_Damage.C_Damage',
+      curve_class: 'CurveFloat',
+    }, hintConn);
+    t.assert(!hintMock.lastCall('PUT /remote/object/describe'),
+      'curve_class hint skips describe probe');
+    t.assert(hintMock.lastCall('PUT /remote/object/property'),
+      'curve_class hint still issues property read');
+  }
+
+  // ── get_mesh_info (F-5) — batches 5 UFUNCTIONs via rc_batch ──
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/batch', {
+      Responses: [
+        { ResponseCode: 200, ResponseBody: { ReturnValue: 1024 } },  // GetNumVertices
+        { ResponseCode: 200, ResponseBody: { ReturnValue: 2048 } },  // GetNumTriangles
+        { ResponseCode: 200, ResponseBody: { ReturnValue: 4 } },     // GetNumLODs
+        { ResponseCode: 200, ResponseBody: { ReturnValue: { Origin: [0,0,0], BoxExtent: [50,50,50] } } }, // GetBounds
+        { ResponseCode: 200, ResponseBody: { ReturnValue: [{ MaterialSlotName: 'Default' }] } },         // GetStaticMaterials
+      ],
+    });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    const result = await executeRcTool('get_mesh_info', {
+      asset_path: '/Game/Meshes/SM_Cube.SM_Cube',
+    }, conn);
+
+    const bcall = rcMock.lastCall('PUT /remote/batch');
+    t.assert(bcall, 'get_mesh_info dispatches via /remote/batch');
+    t.assert(bcall.body.Requests.length === 5, 'get_mesh_info batches 5 requests');
+    const fnNames = bcall.body.Requests.map(r => r.Body.functionName);
+    t.assert(fnNames.includes('GetNumVertices'),    'batch includes GetNumVertices');
+    t.assert(fnNames.includes('GetNumTriangles'),   'batch includes GetNumTriangles');
+    t.assert(fnNames.includes('GetNumLODs'),        'batch includes GetNumLODs');
+    t.assert(fnNames.includes('GetBounds'),         'batch includes GetBounds');
+    t.assert(fnNames.includes('GetStaticMaterials'),'batch includes GetStaticMaterials');
+
+    t.assert(result.vertices === 1024,  'get_mesh_info returns vertex count');
+    t.assert(result.triangles === 2048, 'get_mesh_info returns triangle count');
+    t.assert(result.lods === 4,         'get_mesh_info returns LOD count');
+    t.assert(result.bounds && Array.isArray(result.bounds.BoxExtent),
+      'get_mesh_info returns bounds struct');
+    t.assert(Array.isArray(result.material_slots) && result.material_slots.length === 1,
+      'get_mesh_info returns material slots');
+
+    // Empty-args rejection.
+    await t.assertRejects(
+      async () => executeRcTool('get_mesh_info', {}, conn),
+      /asset_path or target required/,
+      'get_mesh_info rejects empty args'
+    );
+
+    // Accepts `target` (live actor name) as alternative to asset_path.
+    rcMock.resetCalls();
+    await executeRcTool('get_mesh_info', { target: 'BP_MyMesh_2' }, conn);
+    const tcall = rcMock.lastCall('PUT /remote/batch');
+    t.assert(tcall && tcall.body.Requests[0].Body.objectPath === 'BP_MyMesh_2',
+      'get_mesh_info honors target param');
+  }
+
+  // ── Error sub-responses in a batch don't leak into the aggregate ──
+  {
+    const errMock = new FakeHttpResponder();
+    errMock.on('PUT /remote/batch', {
+      Responses: [
+        { ResponseCode: 200, ResponseBody: { ReturnValue: 100 } },  // GetNumVertices ok
+        { ResponseCode: 500, ResponseBody: { ErrorCode: 'SomeError', Message: 'bad' } },  // GetNumTriangles failed
+        { ResponseCode: 200, ResponseBody: { ReturnValue: 1 } },    // GetNumLODs
+        { ResponseCode: 404, ResponseBody: { ErrorCode: 'NoFn' } }, // GetBounds failed
+        { ResponseCode: 200, ResponseBody: { ReturnValue: [] } },   // GetStaticMaterials
+      ],
+    });
+    const errConn = new ConnectionManager({ ...baseConfig, httpCommandFn: errMock.handler() });
+    const errRes = await executeRcTool('get_mesh_info', { asset_path: '/Game/Meshes/SM_Partial.SM_Partial' }, errConn);
+    t.assert(errRes.vertices === 100, 'successful sub-responses decode normally');
+    t.assert(errRes.triangles === null, 'non-2xx sub-response → null (no error-body leak)');
+    t.assert(errRes.bounds === null, 'non-2xx sub-response → null for bounds');
+
+    const partialMock = new FakeHttpResponder();
+    partialMock.on('PUT /remote/batch', {
+      Responses: [
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
+        { ResponseCode: 500, ResponseBody: { ErrorCode: 'X' } },
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Diffuse' }] } },
+      ],
+    });
+    const pConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
+    const pRes = await executeRcTool('list_material_parameters', {
+      asset_path: '/Game/Materials/M_Partial.M_Partial',
+    }, pConn);
+    t.assert(pRes.scalar.length === 1, 'partial batch: scalar still populates');
+    t.assert(Array.isArray(pRes.vector) && pRes.vector.length === 0, 'failed vector sub-response → empty array');
+    t.assert(pRes.texture.length === 1, 'partial batch: texture still populates');
+  }
 }
 
 // ── Test 10: isReadOp → cache discipline ─────────────────────
