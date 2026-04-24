@@ -16,12 +16,24 @@ Desktop.ini
 *.swp
 *.swo
 
-# UE plugin build artifacts (plugin/)
-plugin/Binaries/
-plugin/Intermediate/
-plugin/DerivedDataCache/
+# UE plugin build artifacts (match any nesting under plugin/)
+plugin/**/Binaries/
+plugin/**/Intermediate/
+plugin/**/DerivedDataCache/
 *.sln
 *.vcxproj*
 
 # Logs
 *.log
+
+# MCP config (per-machine — template is .mcp.json.example)
+.mcp.json
+.claude/settings.local.json
+
+# Session-local documentation (handoffs, audits, testing logs, research)
+# These are artifacts of individual agent dispatches, not product docs.
+# Kept on disk for local reference; not tracked in the public repo.
+docs/handoffs/
+docs/audits/
+docs/testing/
+docs/research/
