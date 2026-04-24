@@ -1,7 +1,22 @@
 // Tests for query_asset_registry — bulk scan + filter on real ProjectA fixtures.
 // Gated on UNREAL_PROJECT_ROOT. Exits 1 on any failure.
+//
+// ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
+// PROJECT-SPECIFIC FIXTURE DEPENDENCY:
+// This suite scans ProjectA-specific asset-registry path prefixes via
+// `test-fixtures.mjs`. Assertions are structural (count > 0, filter matches,
+// pagination behavior) rather than pinned to specific asset names, so content
+// drift within the scanned prefixes is tolerated — only a prefix rename or
+// removal would surface here.
+//
+// Drift symptoms: scan returns 0 results despite a populated prefix (indicates
+// the path was renamed or moved). Fix: update the corresponding prefix
+// constant in test-fixtures.mjs.
+// See D71 / D75 for prior drift-incident handling.
+// ─────────────────────────────────────────────────────────────────────────
 
 import { executeOfflineTool, assetCache } from './offline-tools.mjs';
+import { ABILITIES_PREFIX, CHARACTERS_PREFIX } from './test-fixtures.mjs';
 
 const projectRoot = process.env.UNREAL_PROJECT_ROOT;
 if (!projectRoot) {
@@ -28,12 +43,14 @@ async function run() {
   const t0 = Date.now();
   const abilities = await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: '/Game/GAS/Abilities', class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 50 },
+    { path_prefix: ABILITIES_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 50 },
     projectRoot
   );
   const elapsed = Date.now() - t0;
   check('narrow scan returns results', abilities.results.length > 0, `got ${abilities.results.length}`);
-  check('narrow scan honors scanRoot', abilities.scanRoot.includes('Abilities'), abilities.scanRoot);
+  check('narrow scan honors scanRoot',
+        abilities.scanRoot.includes(ABILITIES_PREFIX.replace('/Game/', '').split('/').pop()),
+        abilities.scanRoot);
   check('narrow scan class filter exact', abilities.results.every(r => r.objectClassName === '/Script/Engine.BlueprintGeneratedClass'));
   check('narrow scan has tags', abilities.results.some(r => Object.keys(r.tags).length > 0));
   check('narrow scan packageName populated', abilities.results.every(r => r.packageName));
@@ -53,7 +70,7 @@ async function run() {
   reset();
   const capped = await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: '/Game/Characters', limit: 3 },
+    { path_prefix: CHARACTERS_PREFIX, limit: 3 },
     projectRoot
   );
   check('limit cap respected', capped.results.length <= 3, `got ${capped.results.length}`);
@@ -72,7 +89,7 @@ async function run() {
   reset();
   const tagged = await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: '/Game/GAS/Abilities', tag_key: 'BlueprintType', limit: 20 },
+    { path_prefix: ABILITIES_PREFIX, tag_key: 'BlueprintType', limit: 20 },
     projectRoot
   );
   check('tag_key presence filter', tagged.results.length > 0);
@@ -85,7 +102,7 @@ async function run() {
   if (sampleValue) {
     const valueFiltered = await executeOfflineTool(
       'query_asset_registry',
-      { path_prefix: '/Game/GAS/Abilities', tag_key: 'BlueprintType', tag_value: sampleValue, limit: 20 },
+      { path_prefix: ABILITIES_PREFIX, tag_key: 'BlueprintType', tag_value: sampleValue, limit: 20 },
       projectRoot
     );
     check('tag_value exact match filters', valueFiltered.results.every(r => r.tags.BlueprintType === sampleValue));
@@ -111,7 +128,7 @@ async function run() {
   reset();
   await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: '/Game/GAS/Abilities', class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 10 },
+    { path_prefix: ABILITIES_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 10 },
     projectRoot
   );
   const cacheSize = assetCache.entries.size;

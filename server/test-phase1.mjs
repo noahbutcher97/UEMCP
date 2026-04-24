@@ -1,5 +1,23 @@
 // Phase 1 Verification Tests
 // Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=D:/UnrealProjects/5.6/ProjectA/ProjectA && node test-phase1.mjs
+//
+// ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
+// PROJECT-SPECIFIC FIXTURE DEPENDENCY:
+// This suite is the broad offline-tool smoke test. Synthetic / unit coverage
+// (buildZodSchema, matchTagGlob, ToolIndex, computeCommentContainment,
+// withAssetExistenceCheck) is drift-proof. The fixture-backed sections
+// (Tests 3, 9, 10, 11, 12, 13, 14) are integration-level and use
+// ProjectA-specific assets via `test-fixtures.mjs`.
+//
+// Drift-prone hardcoded values were either:
+//   (a) derived from path constants (e.g., `_C` suffix, `Default__` prefix),
+//   (b) softened to structural assertions (e.g., "filter narrows match
+//       count" instead of "filter finds N specific rows"), or
+//   (c) named at the top of this file when they're genuine ProjectA content
+//       dependencies (e.g., a specific FGameplayTag path on a BP CDO).
+//
+// See D71 / D75 for prior drift-incident handling; D73 for philosophy.
+// ─────────────────────────────────────────────────────────────────────────
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,6 +29,20 @@ import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetE
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
 import { ErrorTcpResponder } from './test-helpers.mjs';
+import {
+  GAS_ABILITY_BP, PLAYER_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
+  ABILITIES_PREFIX, CHARACTERS_PREFIX, BLUEPRINTS_PREFIX, GAME_ROOT_PREFIX,
+} from './test-fixtures.mjs';
+
+// Genuine ProjectA-content expected values. When these drift, update here and
+// the downstream assertions follow. See test-fixtures.mjs drift policy.
+//
+// BPGA_Block has an `IsBlocking` FGameplayTag CDO default pointing at the
+// "Guard.IsActive" tag — this specific tag path is the semantic check for
+// FGameplayTag struct decoding. If the BP is reauthored to remove or retag
+// IsBlocking, swap this constant or switch to a sibling ability BP that still
+// has a tag-valued CDO default.
+const GAS_ABILITY_BP_ISBLOCKING_TAG = 'Gameplay.State.Guard.IsActive';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
 let passed = 0;
@@ -415,7 +447,7 @@ if (PROJECT_ROOT) {
   // F0: get_asset_info strips verbose blob tags by default
   try {
     const info = await executeOfflineTool('get_asset_info',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     // Default (verbose=false): heavy tags should be omitted or absent
     assert(info.tags !== undefined, 'F0: get_asset_info still has tags field');
     assert(!info.tags.FiBData || (info.tags.FiBData && String(info.tags.FiBData).length <= 1024),
@@ -426,13 +458,13 @@ if (PROJECT_ROOT) {
 
   try {
     const infoV = await executeOfflineTool('get_asset_info',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', verbose: true }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path, verbose: true }, PROJECT_ROOT);
     assert(infoV.tags !== undefined, 'F0: verbose=true returns tags');
     assert(!infoV.heavyTagsOmitted, 'F0: verbose=true has no heavyTagsOmitted');
     // Verify verbose actually passes through: if any heavy tag existed in default mode,
     // verbose mode must include it unstripped (blob length > 1024)
     const infoDefault = await executeOfflineTool('get_asset_info',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     if (infoDefault.heavyTagsOmitted && infoDefault.heavyTagsOmitted.length > 0) {
       const firstOmitted = infoDefault.heavyTagsOmitted[0];
       assert(infoV.tags[firstOmitted] !== undefined,
@@ -447,7 +479,7 @@ if (PROJECT_ROOT) {
   // F2: inspect_blueprint no longer returns tags
   try {
     const bp = await executeOfflineTool('inspect_blueprint',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     assert(bp.tags === undefined, 'F2: inspect_blueprint has no tags field');
     assert(bp.exports !== undefined, 'F2: inspect_blueprint still has exports');
     assert(bp.parentClass !== undefined, 'F2: inspect_blueprint still has parentClass');
@@ -460,7 +492,7 @@ if (PROJECT_ROOT) {
   // transforms+pagination response-shape update (Option C).
   try {
     const lvl = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Maps/Deployable/MarketPlace/MarketPlace_P' }, PROJECT_ROOT);
+      { asset_path: MARKETPLACE_MAP.path }, PROJECT_ROOT);
     assert(lvl.total_placed_actors !== undefined, 'F4: response has total_placed_actors (Option C rename)');
     assert(lvl.total_placed_actors < lvl.exportCount,
       `F4: placed actors (${lvl.total_placed_actors}) < total exports (${lvl.exportCount})`);
@@ -510,7 +542,7 @@ if (PROJECT_ROOT) {
   // list_level_actors: transforms always-on, outer-index reverse scan (V9.5 #1).
   try {
     const lvl = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 50 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 50 }, PROJECT_ROOT);
     assert(lvl.total_placed_actors > 0, 'Option C: total_placed_actors > 0');
     assert(lvl.actors.every(a => 'transform' in a),
            'Option C: every actor row has a transform field (may be null)');
@@ -540,7 +572,7 @@ if (PROJECT_ROOT) {
   // Pagination: limit + offset work, truncated flag set correctly.
   try {
     const page1 = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 3, offset: 0 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 3, offset: 0 }, PROJECT_ROOT);
     assert(page1.limit === 3, 'Option C: limit echoed');
     assert(page1.offset === 0, 'Option C: offset echoed');
     assert(page1.actors.length === 3, 'Option C: page size respects limit');
@@ -548,7 +580,7 @@ if (PROJECT_ROOT) {
       assert(page1.truncated === true, 'Option C: truncated=true when total > limit');
     }
     const page2 = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 3, offset: 3 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 3, offset: 3 }, PROJECT_ROOT);
     assert(page2.offset === 3, 'Option C: page 2 offset echoed');
     if (page1.actors.length === 3 && page2.actors.length > 0) {
       assert(page2.actors[0].name !== page1.actors[0].name,
@@ -561,7 +593,7 @@ if (PROJECT_ROOT) {
   // limit cap at 500.
   try {
     const huge = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 99999 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 99999 }, PROJECT_ROOT);
     assert(huge.limit === 500, 'Option C: limit capped at 500');
   } catch (e) {
     assert(false, 'Option C: limit cap', e.message);
@@ -570,7 +602,7 @@ if (PROJECT_ROOT) {
   // summarize_by_class: returns summary dict, no actors array.
   try {
     const sum = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', summarize_by_class: true }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, summarize_by_class: true }, PROJECT_ROOT);
     assert(sum.summary !== undefined && typeof sum.summary === 'object',
            'Option C: summarize_by_class returns summary dict');
     assert(sum.actors === undefined, 'Option C: summarize_by_class omits actors array');
@@ -587,7 +619,7 @@ if (PROJECT_ROOT) {
   // inspect_blueprint: include_defaults=false (default) does NOT include variable_defaults.
   try {
     const bp = await executeOfflineTool('inspect_blueprint',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     assert(bp.variable_defaults === undefined,
            'Option C: inspect_blueprint default has no variable_defaults');
   } catch (e) {
@@ -597,12 +629,12 @@ if (PROJECT_ROOT) {
   // inspect_blueprint: include_defaults=true attaches CDO UPROPERTY values.
   try {
     const bp = await executeOfflineTool('inspect_blueprint',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', include_defaults: true }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path, include_defaults: true }, PROJECT_ROOT);
     assert(bp.variable_defaults !== undefined,
            'Option C: include_defaults=true attaches variable_defaults');
-    assert(bp.cdo_export_name === 'Default__BPGA_Block_C',
+    assert(bp.cdo_export_name === GAS_ABILITY_BP.cdoExportName,
            'Option C: cdo_export_name resolves to Default__<GeneratedClass>');
-    assert(bp.variable_defaults.IsBlocking?.tagName === 'Gameplay.State.Guard.IsActive',
+    assert(bp.variable_defaults.IsBlocking?.tagName === GAS_ABILITY_BP_ISBLOCKING_TAG,
            'Option C: variable_defaults decode FGameplayTag correctly');
     assert(Array.isArray(bp.variable_defaults.ActivationOwnedTags?.tags),
            'Option C: variable_defaults decode FGameplayTagContainer');
@@ -616,7 +648,7 @@ if (PROJECT_ROOT) {
   // at the executeOfflineTool level it's silently ignored — document expected behaviour).
   try {
     const bp = await executeOfflineTool('inspect_blueprint',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', verbose: true }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path, verbose: true }, PROJECT_ROOT);
     // The handler ignores `verbose`; include_defaults is the only gate now.
     assert(bp.variable_defaults === undefined,
            'Option C: legacy `verbose` param does not trigger include_defaults semantics');
@@ -627,10 +659,10 @@ if (PROJECT_ROOT) {
   // read_asset_properties: default export for BP-subclass asset is the CDO.
   try {
     const rap = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
-    assert(rap.export_name === 'Default__BPGA_Block_C',
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
+    assert(rap.export_name === GAS_ABILITY_BP.cdoExportName,
            'Option C: read_asset_properties default export = Default__<Name>_C');
-    assert(rap.struct_type === 'BPGA_Block_C',
+    assert(rap.struct_type === GAS_ABILITY_BP.generatedClassName,
            `Option C: struct_type resolves to the CDO's direct class (got ${rap.struct_type})`);
     assert(rap.property_count_total === rap.property_count_returned,
            'Option C: unfiltered query returns all properties');
@@ -643,7 +675,7 @@ if (PROJECT_ROOT) {
   // read_asset_properties: property_names filter narrows output.
   try {
     const filtered = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', property_names: ['ActivationOwnedTags'] },
+      { asset_path: GAS_ABILITY_BP.path, property_names: ['ActivationOwnedTags'] },
       PROJECT_ROOT);
     assert(filtered.property_count_returned === 1,
            `Option C: filter narrows to 1 property (got ${filtered.property_count_returned})`);
@@ -660,7 +692,7 @@ if (PROJECT_ROOT) {
   // read_asset_properties: max_bytes triggers truncation.
   try {
     const trunc = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', max_bytes: 50 }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path, max_bytes: 50 }, PROJECT_ROOT);
     assert(trunc.truncated === true,
            'Option C: max_bytes=50 triggers truncated=true');
     const budgetMarkers = trunc.unsupported.filter(u => u.reason === 'size_budget_exceeded');
@@ -677,7 +709,7 @@ if (PROJECT_ROOT) {
     let caught = null;
     try {
       await executeOfflineTool('read_asset_properties',
-        { asset_path: '/Game/GAS/Abilities/BPGA_Block', export_name: 'DoesNotExist' }, PROJECT_ROOT);
+        { asset_path: GAS_ABILITY_BP.path, export_name: 'DoesNotExist' }, PROJECT_ROOT);
     } catch (e) { caught = e; }
     assert(caught !== null && /Export not found/.test(caught.message),
            'Option C: unknown export_name throws "Export not found"');
@@ -727,7 +759,7 @@ async function testFindBlueprintNodes() {
   // Unfiltered call — returns all skeletal K2Nodes paginated.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR' }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP.path }, PROJECT_ROOT);
     assert(r.total_skeletal > 0, `T4: BP_OSPlayerR has skeletal K2Nodes (got ${r.total_skeletal})`);
     assert(Array.isArray(r.nodes), 'T4: response includes nodes[] array');
     assert(typeof r.truncated === 'boolean', 'T4: truncated flag present');
@@ -748,7 +780,7 @@ async function testFindBlueprintNodes() {
   // node_class filter narrows to just events.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', node_class: 'K2Node_Event' },
+      { asset_path: PLAYER_BP.path, node_class: 'K2Node_Event' },
       PROJECT_ROOT);
     assert(r.nodes.every(n => n.node_class === 'K2Node_Event'),
       `T4: node_class filter returns only Events (got ${r.nodes.length} rows)`);
@@ -762,25 +794,42 @@ async function testFindBlueprintNodes() {
     assert(false, 'T4: K2Node_Event filter', e.message);
   }
 
-  // member_name filter — CreateDynamicMaterialInstance appears multiple times.
+  // member_name filter — bootstrap a probe name from an unfiltered scan so the
+  // test exercises the filter's round-trip contract without pinning to a
+  // specific member that could drift when the BP is refactored.
   try {
-    const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', member_name: 'CreateDynamicMaterialInstance' },
+    const unfiltered = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: PLAYER_BP.path, node_class: 'K2Node_CallFunction' },
       PROJECT_ROOT);
-    assert(r.total_matched > 0, 'T4: member_name filter finds matching calls');
-    assert(r.nodes.every(n => n.member_name === 'CreateDynamicMaterialInstance'),
+    const probeMember = unfiltered.nodes.find(n => typeof n.member_name === 'string')?.member_name;
+    assert(typeof probeMember === 'string',
+      'T4: unfiltered CallFunction scan surfaces at least one named member (bootstrap probe)');
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: PLAYER_BP.path, member_name: probeMember },
+      PROJECT_ROOT);
+    assert(r.total_matched > 0, `T4: member_name filter ('${probeMember}') finds matching calls`);
+    assert(r.nodes.every(n => n.member_name === probeMember),
       'T4: every returned node has the requested member_name');
   } catch (e) {
     assert(false, 'T4: member_name filter', e.message);
   }
 
-  // target_class suffix filter.
+  // target_class suffix filter — bootstrap a probe class from an unfiltered
+  // scan (same drift-proofing pattern as member_name above).
   try {
-    const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', target_class: 'MaterialInstanceDynamic' },
+    const unfiltered = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: PLAYER_BP.path, node_class: 'K2Node_CallFunction' },
       PROJECT_ROOT);
-    assert(r.total_matched > 0, 'T4: target_class suffix filter finds matches');
-    assert(r.nodes.every(n => n.target_class?.endsWith('MaterialInstanceDynamic')),
+    const probeFull = unfiltered.nodes.find(n => typeof n.target_class === 'string' && n.target_class.length > 0)?.target_class;
+    assert(typeof probeFull === 'string',
+      'T4: unfiltered CallFunction scan surfaces at least one target_class (bootstrap probe)');
+    // Use the suffix (last dotted segment) to exercise the "suffix filter" contract.
+    const probeSuffix = probeFull.split('.').pop().split('/').pop();
+    const r = await executeOfflineTool('find_blueprint_nodes',
+      { asset_path: PLAYER_BP.path, target_class: probeSuffix },
+      PROJECT_ROOT);
+    assert(r.total_matched > 0, `T4: target_class suffix filter ('${probeSuffix}') finds matches`);
+    assert(r.nodes.every(n => n.target_class?.endsWith(probeSuffix)),
       'T4: every match ends in the target_class suffix');
   } catch (e) {
     assert(false, 'T4: target_class filter', e.message);
@@ -789,9 +838,9 @@ async function testFindBlueprintNodes() {
   // Pagination: limit=5, offset=0 + offset=5 yield disjoint rows.
   try {
     const p1 = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', limit: 5, offset: 0 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP.path, limit: 5, offset: 0 }, PROJECT_ROOT);
     const p2 = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', limit: 5, offset: 5 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP.path, limit: 5, offset: 5 }, PROJECT_ROOT);
     assert(p1.nodes.length === 5, 'T4 pagination: page 1 has limit=5 rows');
     assert(p1.offset === 0, 'T4 pagination: page 1 offset echoed');
     assert(p2.offset === 5, 'T4 pagination: page 2 offset echoed');
@@ -847,7 +896,7 @@ if (PROJECT_ROOT) {
   // P1: summarize_by_class omits offset/limit.
   try {
     const sum = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', summarize_by_class: true }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, summarize_by_class: true }, PROJECT_ROOT);
     assert(!('offset' in sum), 'P1: summary mode omits offset');
     assert(!('limit' in sum), 'P1: summary mode omits limit');
     assert(sum.summary !== undefined, 'P1: summary dict still present');
@@ -859,7 +908,7 @@ if (PROJECT_ROOT) {
   // P1 (complement): non-summary response still echoes pagination fields.
   try {
     const page = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 5 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 5 }, PROJECT_ROOT);
     assert(page.offset === 0, 'P1 complement: non-summary mode still has offset');
     assert(page.limit === 5, 'P1 complement: non-summary mode still has limit');
   } catch (e) {
@@ -875,7 +924,7 @@ if (PROJECT_ROOT) {
   // refresh) so minor future re-saves don't silently skip this coverage.
   try {
     const full = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 300 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP.path, max_bytes: 300 }, PROJECT_ROOT);
     const markerNames = full.unsupported.map(m => m.name);
     assert(markerNames.length >= 2,
       `P2 setup: BP_OSPlayerR with max_bytes=300 emits multiple markers (got ${markerNames.length})`);
@@ -887,7 +936,7 @@ if (PROJECT_ROOT) {
 
     // Filter for only `keep` — `scopeOut` marker must NOT appear.
     const filtered = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/Blueprints/Character/BP_OSPlayerR', max_bytes: 300,
+      { asset_path: PLAYER_BP.path, max_bytes: 300,
         property_names: [keep] }, PROJECT_ROOT);
     const leaked = filtered.unsupported.find(m => m.name === scopeOut);
     assert(leaked === undefined,
@@ -904,15 +953,15 @@ if (PROJECT_ROOT) {
   // P3: packageIndex is stripped from all response objects.
   try {
     const rap = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     assertNoPackageIndex('P3 read_asset_properties', rap);
 
     const bp = await executeOfflineTool('inspect_blueprint',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block', include_defaults: true }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path, include_defaults: true }, PROJECT_ROOT);
     assertNoPackageIndex('P3 inspect_blueprint', bp);
 
     const lvl = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 10 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 10 }, PROJECT_ROOT);
     assertNoPackageIndex('P3 list_level_actors', lvl);
 
     // Object refs must still have their useful surface — objectName, kind, (packagePath).
@@ -929,7 +978,7 @@ if (PROJECT_ROOT) {
   // a real fixture (no duplicates expected) and an internal invariant check.
   try {
     const rap = await executeOfflineTool('read_asset_properties',
-      { asset_path: '/Game/GAS/Abilities/BPGA_Block' }, PROJECT_ROOT);
+      { asset_path: GAS_ABILITY_BP.path }, PROJECT_ROOT);
     const keys = rap.unsupported.map(m => `${m.name}::${m.reason}`);
     const unique = new Set(keys);
     assert(keys.length === unique.size,
@@ -955,7 +1004,7 @@ if (PROJECT_ROOT) {
   // transform (or transform followed by unsupported when present).
   try {
     const lvl = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', limit: 20 }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, limit: 20 }, PROJECT_ROOT);
     const expectedPrefix = ['name', 'className', 'classPackage', 'outer', 'bIsAsset', 'transform'];
     for (const row of lvl.actors) {
       const keys = Object.keys(row);
@@ -971,7 +1020,7 @@ if (PROJECT_ROOT) {
 
     // Top-level: summary mode has summary as the last payload field.
     const sum = await executeOfflineTool('list_level_actors',
-      { asset_path: '/Game/Developers/steve/Steve_TestMap', summarize_by_class: true }, PROJECT_ROOT);
+      { asset_path: DEV_TEST_MAP.path, summarize_by_class: true }, PROJECT_ROOT);
     const sumKeys = Object.keys(sum);
     assert(sumKeys[sumKeys.length - 1] === 'summary',
       'P7: summary mode puts summary as the trailing key');
@@ -1014,7 +1063,7 @@ if (PROJECT_ROOT) {
   // skeletal K2Nodes when unfiltered.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', max_scan: 500 }, PROJECT_ROOT);
+      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 500 }, PROJECT_ROOT);
     assert(r.total_bps_scanned > 0, `EN-2: total_bps_scanned > 0 (got ${r.total_bps_scanned})`);
     assert(r.total_bps_matched > 0, `EN-2: unfiltered scan finds matched BPs (got ${r.total_bps_matched})`);
     assert(Array.isArray(r.results), 'EN-2: results[] is array');
@@ -1043,7 +1092,7 @@ if (PROJECT_ROOT) {
   // name that appears in many BPs. Should match at least 1 BP.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', member_name: 'ReceiveBeginPlay', max_scan: 500 },
+      { path_prefix: BLUEPRINTS_PREFIX, member_name: 'ReceiveBeginPlay', max_scan: 500 },
       PROJECT_ROOT);
     assert(r.total_bps_matched > 0,
       `EN-2 filter: ReceiveBeginPlay matches some BPs (got ${r.total_bps_matched})`);
@@ -1055,7 +1104,7 @@ if (PROJECT_ROOT) {
   // include_nodes=true surfaces per-BP nodes[]; each node has node_class + export_index.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
         include_nodes: true, max_scan: 500, limit: 5 }, PROJECT_ROOT);
     assert(r.results.length > 0, 'EN-2 include_nodes: some BPs have events');
     const first = r.results[0];
@@ -1076,10 +1125,10 @@ if (PROJECT_ROOT) {
   // Pagination: limit=1 pages yield disjoint BP paths.
   try {
     const p1 = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
         limit: 1, offset: 0, max_scan: 500 }, PROJECT_ROOT);
     const p2 = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', node_class: 'K2Node_Event',
+      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
         limit: 1, offset: 1, max_scan: 500 }, PROJECT_ROOT);
     assert(p1.offset === 0 && p1.limit === 1, 'EN-2 pagination: page 1 echoes offset/limit');
     assert(p2.offset === 1 && p2.limit === 1, 'EN-2 pagination: page 2 echoes offset/limit');
@@ -1100,7 +1149,7 @@ if (PROJECT_ROOT) {
   // "max_scan means BPs, not files" contract.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', max_scan: 2 }, PROJECT_ROOT);
+      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 2 }, PROJECT_ROOT);
     assert(r.total_bps_scanned === 2,
       `EN-2 scan cap: max_scan=2 caps BP count (got total_bps_scanned=${r.total_bps_scanned})`);
     assert(r.scan_truncated === true,
@@ -1114,7 +1163,7 @@ if (PROJECT_ROOT) {
   // semantics gave ~130 BPs for the same budget).
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/', member_name: 'ReceiveBeginPlay' }, PROJECT_ROOT);
+      { path_prefix: GAME_ROOT_PREFIX, member_name: 'ReceiveBeginPlay' }, PROJECT_ROOT);
     assert(r.total_bps_scanned > 100,
       `EN-2 corpus: default max_scan=500 reaches >100 BPs in /Game/ (got ${r.total_bps_scanned})`);
     assert(r.total_bps_matched > 0,
@@ -1142,10 +1191,10 @@ if (PROJECT_ROOT) {
   try {
     // Warm once.
     await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', max_scan: 1000 }, PROJECT_ROOT);
+      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
     const startWarm = Date.now();
     const warm = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: '/Game/Blueprints', max_scan: 1000 }, PROJECT_ROOT);
+      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
     const warmMs = Date.now() - startWarm;
     console.log(`  ℹ EN-2 perf: warm scan of ${warm.total_bps_scanned} BPs in ${warmMs}ms (budget 5000ms)`);
     assert(warmMs < 5000,
@@ -1273,7 +1322,7 @@ try {
 if (!PROJECT_ROOT) {
   console.log('  SKIP: UNREAL_PROJECT_ROOT not set — skipping fixture-backed M-spatial tests');
 } else {
-  const BP = '/Game/Blueprints/Character/BP_OSPlayerR';
+  const BP = PLAYER_BP.path;
 
   // ── bp_list_graphs ─────────────────────────────────────
   try {

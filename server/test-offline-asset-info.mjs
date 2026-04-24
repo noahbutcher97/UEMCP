@@ -3,6 +3,25 @@
 //
 // Run: cd server && node test-offline-asset-info.mjs
 // Gated on UNREAL_PROJECT_ROOT; fixtures skip when the path does not resolve.
+//
+// ─── FIXTURE PHILOSOPHY ──────────────────────────────────────────────────
+// PROJECT-SPECIFIC FIXTURE DEPENDENCY:
+// This suite exercises the parseAssetHeader cache + get_asset_info shape
+// against byte-accurate ground truth from real ProjectA assets
+// (AN_OSAnimNotify_Footstep and Steve_TestMap). Specific counts
+// (exportCount=3, nameCount=33, assetRegistryObjects=2) pin to the current
+// serialised form; if the notify BP is re-saved or refactored the numbers
+// drift and must be re-oracled here.
+//
+// Scope is out of shared `test-fixtures.mjs` because these fixtures are only
+// used in this suite and the specific-integer assertions ARE the point — the
+// test is byte-accurate ground-truth verification, not structural behavior
+// (which lives in test-uasset-parser.mjs via synthetic helpers).
+//
+// Drift symptoms: exportCount / nameCount / assetRegistryObjects mismatch on
+// clean HEAD. Fix: re-parse the asset and update the expected numbers, OR
+// swap to a sibling asset that the author can pin stably. See D71 / D75.
+// ─────────────────────────────────────────────────────────────────────────
 
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
