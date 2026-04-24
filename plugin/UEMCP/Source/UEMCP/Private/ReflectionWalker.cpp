@@ -6,7 +6,7 @@
 
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
-#include "Engine/UserDefinedStruct.h"
+#include "StructUtils/UserDefinedStruct.h"
 #include "UObject/Class.h"
 #include "UObject/Interface.h"
 #include "UObject/Package.h"

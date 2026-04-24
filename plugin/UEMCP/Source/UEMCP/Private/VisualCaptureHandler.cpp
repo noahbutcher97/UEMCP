@@ -9,9 +9,9 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "ObjectTools.h"
+#include "Misc/ObjectThumbnail.h"
 #include "ThumbnailRendering/ThumbnailManager.h"
 #include "UObject/Object.h"
-#include "UObject/ObjectThumbnail.h"
 #include "UObject/SoftObjectPath.h"
 
 namespace UEMCP
@@ -67,10 +67,10 @@ namespace UEMCP
 			ThumbnailTools::RenderThumbnail(Asset, Width, Height, ThumbnailTools::EThumbnailTextureFlushMode::AlwaysFlush, nullptr, &Thumbnail);
 
 			// Extract compressed PNG bytes. FObjectThumbnail's internal format is raw
-			// BGRA; GetCompressedImageData() returns a cached PNG-encoded copy that
-			// lazy-inits from the raw buffer. Always non-null after RenderThumbnail
-			// succeeds with non-zero dimensions.
-			const TArray<uint8>& PngBytes = Thumbnail.GetCompressedImageData();
+			// BGRA; AccessCompressedImageData() returns the cached PNG-encoded buffer
+			// (lazy-inits from the raw BGRA on first access). Always non-null after
+			// RenderThumbnail succeeds with non-zero dimensions.
+			const TArray<uint8>& PngBytes = Thumbnail.AccessCompressedImageData();
 			if (PngBytes.Num() == 0)
 			{
 				BuildErrorResponse(OutResponse,
