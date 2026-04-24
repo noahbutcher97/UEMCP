@@ -94,14 +94,20 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-24 (M-enhance ship-complete; verification cycle queued):
+In-flight as of 2026-04-24 (audit + T-1b shipped; 3 surgical follow-on fixes queued):
 
 - (none currently in flight)
 
-**Verification cycle queued** pre-Wave-4:
-- **AI audit worker** — handoff `docs/handoffs/phase3-post-m-enhance-audit.md`. 2-3 sessions. Code-level + workflow + save-hook invariance + cross-transport semantics + D44/D70 invariant checks. Read-only; writes `docs/audits/phase3-post-m-enhance-audit-2026-04-24.md` findings doc.
-- **AI T-1b worker** — handoff `docs/handoffs/t-1b-fixture-philosophy-migration.md`. 2-3 sessions. Per-test decision + migration (synthetic / engine-stable / keep-project-specific-documented). Parallel-safe with audit (different file write scopes).
-- **Human integration smoke** — checklist `docs/testing/human-integration-smoke-2026-04-24.md`. 30-45 min. Live-editor verification of all M-enhance features. Not dispatchable to AI.
+**Audit-triage follow-on queue** (3 parallel-safe workers, all dispatchable NOW):
+- **AUDIT-FIX-1** — handoff `docs/handoffs/audit-fix-1-thread-safety.md`. Plugin C++ thread marshaling (F-1, the highest-severity finding). 1-2 sessions. Scope: `plugin/UEMCP/*` only.
+- **AUDIT-FIX-2** — handoff `docs/handoffs/audit-fix-2-rc-delegates.md`. Expand 3 RC semantic delegates to full coverage + fix toCdoPath (F-4+F-5+F-6+F-7). 0.5-1 session. Scope: `server/rc-tools.mjs` + `tools.yaml` + `server/test-rc-wire.mjs`.
+- **AUDIT-FIX-3** — handoff `docs/handoffs/audit-fix-3-nodeguid-input-bridge.md`. Verb-surface input normalization for NodeGuid format (F-2+F-21). 0.5 session. Scope: `server/offline-tools.mjs` + `server/test-verb-surface.mjs`.
+
+File-collision analysis: zero overlap across the three. All three dispatchable in parallel.
+
+**Remaining user-action item**: integration smoke test resume at Step 2 (editor launch) per `docs/testing/human-integration-smoke-2026-04-24.md`. Plugin compile now clean post-D78.
+
+**Remaining audit findings** (22 not in the top-3 batch): queued for post-fix audit-fix second wave. Categories: D44 yaml-RC drift (F-9), SidecarWriter atomic-write (F-3), heuristic-filter refinement, response-size cap on reflection_walk, PARTIAL-RC commit/collapse decision, cross-transport transaction semantics untested, PIE teardown race root-cause, UE 5.7 drift candidates. None blocking Wave 4.
 
 **Phase 3 milestone**: **Wave 3 (M-enhance) ship-complete** per D77 — 4 sessions, 9 commits, 36 agent-facing MCP tools + 16 plugin C++ handlers + HTTP:30010 RC transport + save-hook + Content Browser menu + batch commandlet. Test baseline 1037 → 1203 passing. Waves 1 + 2 + 3 all shipped; Phase 3 ~60-70% complete by session count (M3 + M4 + M5 remain, ~15-25 sessions estimated).
 
@@ -119,6 +125,9 @@ In-flight as of 2026-04-24 (M-enhance ship-complete; verification cycle queued):
 
 Recently shipped (most recent first):
 
+- **T-1b fixture-philosophy migration** (commit `3c7d4a9`, 2026-04-24) — D80. 4 test files migrated via shared `server/test-fixtures.mjs` module; ~80% drift-surface reduction (10 → 2 centralised named constants). test-phase1.mjs 316 → 318 (+2 bootstrap-probe assertions). `offline-tools.resolveAssetDiskPath` `/Engine/` path support flagged as T-1c prereq. No CL-1-style follow-ons.
+- **Phase 3 post-M-enhance audit** (commit `a9f5f0d`, 2026-04-24) — D79. 29 findings (7 high / 11 medium / 11 low). Top 3 high: F-1 plugin thread-safety marshaling, F-2+F-21 NodeGuid input bridge, F-4+F-5+F-6+F-7 RC semantic-delegate placeholder bodies. Follow-on queue: 3 parallel-safe fix workers dispatchable now.
+- **Integration-smoke compile fixes** (commit `15b97f9`, 2026-04-24) — D78. 3 UE 5.6 API drifts patched in CP3 + S4-3 plugin C++: `UUserDefinedStruct` moved Engine→CoreUObject/StructUtils; `FObjectThumbnail` in Misc/ not UObject/; `AccessCompressedImageData` not `GetCompressedImageData`. Plugin compile clean post-fix.
 - **M-enhance ship-complete across 4 sessions** (commits `12b1a13` → `7e91e1d` → `ca479f7` → `1e811b7` → `0964cd9` → `576d69b` → `dc41193` → `a503372` → `69496a9`, 2026-04-22 / 2026-04-23) — D74 / D75 / D76 / D77. **36 agent-facing MCP tools** (11 FULL-RC + 10 FULL-TCP + 13 PARTIAL-RC + 1 sidecar + 1 visual-capture), **16 plugin C++ command handlers** on TCP:55558, HTTP:30010 RC transport (Phase 4 fully absorbed per D66), OnObjectPreSave save-hook, Content Browser "Regenerate UEMCP Sidecar" context menu, `DumpBPSidecarCommandlet` batch emitter, `narrow-sidecar-v1` schema, 8 TOOLSET_TIPS entries. Test baseline 1037 → **1203 passing / 0 failing** across 10 files (+166). Pragmatic visual-capture shortcut via ThumbnailTools (full FPreviewScene deferred — noted in tool description). UE 5.6 API findings preserved: OnObjectPreSave vs deprecated OnObjectSaved; FContentBrowserMenuExtender_SelectedAssets handle via Extenders.Last().GetHandle(); FUObjectToken in Misc/UObjectToken.h (not TokenizedMessage.h).
 - **T-1a L2.5 synthetic fixture migration** (commit `525d7843`, 2026-04-22) — D73. Vikram proto live-fixture dependency removed from `test-uasset-parser.mjs` L2.5; replaced via Approach A (extended existing synthetic helpers). 7→7 assertion count (zero shift). Test rotation 1037 passing / 0 failing. First validated fixture-philosophy migration; T-1b+ feasibility note captured in T-1 entry below.
 - **M-new Verb-surface** (commits `aa131cd` core + `8acd0b9` test-phase1 placeholder refresh, 2026-04-22) — D72. 5 verbs ship offline-primary: bp_trace_exec, bp_trace_data, bp_neighbors edge mode, plus M-new extensions to bp_show_node (pins populated) and bp_list_entry_points (has_no_exec_in precision). Test baseline 1034 → **1052 passing / 0 failing**. +83 assertions in new test-verb-surface.mjs suite; net +3 in test-phase1.mjs (−4 M-spatial placeholders + 7 M-new confirmations). Oracle-cross-check on 3 fixtures (BP_OSPlayerR, BP_OSControlPoint, TestCharacter). Two format gotchas discovered + handled: PinCategory not captured in pin-block (name-convention classifier with documented Default false-positive risk); NodeGuid format mismatch M-spatial LE-lowercase vs topology BE-uppercase-per-uint32 (bridged via `toOracleHexGuid` helper at verb handler edge). Scope-deviation flagged + landed-correctly (touched test-phase1.mjs post-CL-1 for placeholder refresh; zero collision risk; separate commit for reversibility). BP-subclass variance gap flagged for S-B-overrides: UWidgetBlueprint/UAnimBP not in corpus yet.
