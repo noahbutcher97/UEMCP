@@ -94,9 +94,14 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-23 (M-enhance ship-complete; Wave 4 dispatchable):
+In-flight as of 2026-04-24 (M-enhance ship-complete; verification cycle queued):
 
 - (none currently in flight)
+
+**Verification cycle queued** pre-Wave-4:
+- **AI audit worker** — handoff `docs/handoffs/phase3-post-m-enhance-audit.md`. 2-3 sessions. Code-level + workflow + save-hook invariance + cross-transport semantics + D44/D70 invariant checks. Read-only; writes `docs/audits/phase3-post-m-enhance-audit-2026-04-24.md` findings doc.
+- **AI T-1b worker** — handoff `docs/handoffs/t-1b-fixture-philosophy-migration.md`. 2-3 sessions. Per-test decision + migration (synthetic / engine-stable / keep-project-specific-documented). Parallel-safe with audit (different file write scopes).
+- **Human integration smoke** — checklist `docs/testing/human-integration-smoke-2026-04-24.md`. 30-45 min. Live-editor verification of all M-enhance features. Not dispatchable to AI.
 
 **Phase 3 milestone**: **Wave 3 (M-enhance) ship-complete** per D77 — 4 sessions, 9 commits, 36 agent-facing MCP tools + 16 plugin C++ handlers + HTTP:30010 RC transport + save-hook + Content Browser menu + batch commandlet. Test baseline 1037 → 1203 passing. Waves 1 + 2 + 3 all shipped; Phase 3 ~60-70% complete by session count (M3 + M4 + M5 remain, ~15-25 sessions estimated).
 
