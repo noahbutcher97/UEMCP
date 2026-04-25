@@ -102,6 +102,10 @@ In-flight as of 2026-04-25 (SMOKE-FIX shipped; M3 + M4 dispatchable; M5 waits on
 - **M3 + M4 dispatchable NOW** — neither depends on visual-capture; deployment cycle (sync-plugin.bat + Build.bat + relaunch) needed for Bugs 1 / 3-thread / 4-crash to close end-to-end (those are deployment gaps, not code defects per D87).
 - **M5 WAIT** — includes visual-capture toolset; depends on Bug 4 follow-up (thumbnail empty post-marshal) landing first.
 
+**D81 sanitization-regression audit + fix queue** (dispatchable now; parallel-safe with deployment-cycle work):
+- **D81-SANITIZATION-AUDIT** — handoff `docs/handoffs/d81-sanitization-regression-audit.md` (session-local per gitignore). 0.5-1 session. Read-only audit producing findings doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`. Triggered by user-flagged test-uemcp-gate.bat regression (commit `66bf214` was a targeted-tactical fix; this audit scans for the rest).
+- **D81-SANITIZATION-FIXES** — handoff `docs/handoffs/d81-sanitization-fixes-worker.md` (session-local). 0.5-1.5 sessions. Hard-gated on audit landing. Implements per-finding fixes + verifies all repo-root `.bat` scripts comply with CLAUDE.md §.bat convention. Must not re-introduce codenames (D82 gate blocks).
+
 **Pending micro-fix candidates** (size-of-finding doesn't justify own audit-batch wave; queue for next plugin C++ pass):
 - **Thumbnail empty-result follow-up**: `ThumbnailTools::RenderThumbnail` returns empty bytes post-marshal for both StaticMesh + Blueprint. Worker theory: UE 5.6 render commands queue async; `AccessCompressedImageData` reads before pixels written. Fix sketch: `FlushRenderingCommands()` after RenderThumbnail OR `EThumbnailTextureFlushMode::ConditionallyFlush` mode. ~30 min worker scope.
 - **MCPThreadMarshal use-after-free latent defect**: `RunOnGameThread` captures `handler/Params/OutResponse` by reference; on 30s GT_TIMEOUT path the worker thread unwinds while the queued AsyncTask can still fire, dereferencing freed stack memory. Doesn't trigger in steady-state but is a real hazard. Fix: capture by value or shared_ptr. ~30-45 min.
