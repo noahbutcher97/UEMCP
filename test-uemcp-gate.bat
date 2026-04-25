@@ -1,11 +1,12 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 rem ============================================================================
 rem test-uemcp-gate.bat — verify the D57 commandlet gate in UEMCP plugin
 rem
-rem Usage: test-uemcp-gate.bat <path-to-.uproject>
-rem   Pass the absolute path to your local .uproject as the first arg.
+rem Usage: test-uemcp-gate.bat [<path-to-.uproject>]
+rem   With arg:    runs against that .uproject.
+rem   Without arg: opens GUI file-picker so you can browse for the .uproject.
 rem
 rem What it does:
 rem   1. Checks that TCP:55558 is free before the test.
@@ -18,9 +19,16 @@ rem   LogUEMCP: UEMCP: commandlet detected — TCP server suppressed (D57 gate)
 rem ============================================================================
 
 if "%~1"=="" (
-    echo [FAIL] No .uproject arg passed.
-    echo        Usage: test-uemcp-gate.bat "path\to\YourProject.uproject"
-    goto :end
+    echo Opening .uproject file picker...
+    for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Unreal Project|*.uproject'; $f.Title = 'Select the .uproject to run the D57 gate test against'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.FileName } else { 'CANCELLED_PROJECT' }"`) do set "UPROJECT=%%I"
+    if "!UPROJECT!"=="CANCELLED_PROJECT" (
+        echo [INFO] .uproject selection cancelled. Exiting.
+        goto :end
+    )
+    if "!UPROJECT!"=="" (
+        echo [FAIL] No .uproject path returned from dialog.
+        goto :end
+    )
 ) else (
     set "UPROJECT=%~1"
 )
