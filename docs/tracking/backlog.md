@@ -106,10 +106,12 @@ In-flight as of 2026-04-25 (SMOKE-FIX shipped; M3 + M4 dispatchable; M5 waits on
 - **D81-SANITIZATION-AUDIT** — handoff `docs/handoffs/d81-sanitization-regression-audit.md` (session-local per gitignore). 0.5-1 session. Read-only audit producing findings doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`. Triggered by user-flagged test-uemcp-gate.bat regression (commit `66bf214` was a targeted-tactical fix; this audit scans for the rest).
 - **D81-SANITIZATION-FIXES** — handoff `docs/handoffs/d81-sanitization-fixes-worker.md` (session-local). 0.5-1.5 sessions. Hard-gated on audit landing. Implements per-finding fixes + verifies all repo-root `.bat` scripts comply with CLAUDE.md §.bat convention. Must not re-introduce codenames (D82 gate blocks).
 
-**Pending micro-fix candidates** (size-of-finding doesn't justify own audit-batch wave; queue for next plugin C++ pass):
-- **Thumbnail empty-result follow-up**: `ThumbnailTools::RenderThumbnail` returns empty bytes post-marshal for both StaticMesh + Blueprint. Worker theory: UE 5.6 render commands queue async; `AccessCompressedImageData` reads before pixels written. Fix sketch: `FlushRenderingCommands()` after RenderThumbnail OR `EThumbnailTextureFlushMode::ConditionallyFlush` mode. ~30 min worker scope.
-- **MCPThreadMarshal use-after-free latent defect**: `RunOnGameThread` captures `handler/Params/OutResponse` by reference; on 30s GT_TIMEOUT path the worker thread unwinds while the queued AsyncTask can still fire, dereferencing freed stack memory. Doesn't trigger in steady-state but is a real hazard. Fix: capture by value or shared_ptr. ~30-45 min.
-- **rc_passthrough body Zod-validation**: structured-object body param arrives stringified via MCP wire. Either schema accepts both shapes (`z.union([z.record(z.any()), z.string()])` with parse-on-string), OR description warns callers to pre-stringify. ~15 min.
+**CLEANUP-MICRO worker dispatchable** — handoff `docs/handoffs/cleanup-micro-worker.md` (session-local). 1-1.5 hr. Bundles three small fixes (file-disjoint, single CL):
+- **Bug 4 thumbnail PNG-compression** (per D88 corrected root cause): one-line fix + comment/error-message cleanup in `VisualCaptureHandler.cpp`. UE pipeline gotcha: `RenderThumbnail()` populates raw BGRA but NOT PNG; `AccessCompressedImageData()` has no lazy-encode fallback. Fix is `Thumbnail.CompressImageData();` after render.
+- **MCPThreadMarshal use-after-free** (per D87 latent defect): capture-by-value/shared-ptr in `RunOnGameThread<T>` lambda chain. Steady-state doesn't trigger but timeout path (30s GT_TIMEOUT) unwinds worker thread while AsyncTask still pending → freed-stack deref. M3 will exercise timeout path more.
+- **rc_passthrough body Zod-validation** (per D86): structured-object body param arrives stringified via MCP wire. Recommended fix: schema accepts both shapes via `z.union([z.record(z.any()), z.string()])` + handler normalizes.
+
+Closing CLEANUP-MICRO unblocks M5 dispatch (visual-capture toolset) and removes the latent C++ hazard before M3 writes-rebuild compounds it.
 
 **HIGH-PRIORITY SMOKE-FIX dispatchable** — handoff `docs/handoffs/smoke-fix-thread-and-identifier-bugs.md`. **Blocks Wave 4 dispatch.** 5 plugin bugs from human-integration-smoke 2026-04-25 (D86):
 - **Bug 1 BLOCKER**: `bp_compile_and_report` editor crash (IsInAsyncLoadingThread assert)
