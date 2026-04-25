@@ -99,9 +99,9 @@ In-flight as of 2026-04-24 (audit + T-1b shipped; 3 surgical follow-on fixes que
 - (none currently in flight)
 
 **Audit-triage follow-on queue**:
-- ~~**AUDIT-FIX-1**~~ — SHIPPED 2026-04-24 per D83 (commit `4cc6275` impl + `67f8efb` wrap; renumbered D81 → D83 due to deconflict with Noah's parallel sanitization D81). All 18 plugin handlers game-thread-marshaled via new MCPThreadMarshal helper.
-- ~~**AUDIT-FIX-2**~~ — SHIPPED 2026-04-24 per D84 (commit `c512df2`). 3 RC semantic delegates expanded (get_curve_asset / get_mesh_info / list_material_parameters); toCdoPath heuristic fix. test-rc-wire.mjs 72 → 110 (+38). Caveat: curve property names mock-test-validated, runtime verification belongs to live-editor smoke.
-- **AUDIT-FIX-3** — handoff `docs/handoffs/audit-fix-3-nodeguid-input-bridge.md`. Verb-surface NodeGuid input normalization (F-2+F-21). 0.5 session. Scope: `server/offline-tools.mjs` + `server/test-verb-surface.mjs`. **Likely already in-flight — `server/offline-tools.mjs` shows local modification (~36 LOC, +34/-2)**. Worker may have started; check session before re-dispatching.
+- ~~**AUDIT-FIX-1**~~ — SHIPPED 2026-04-24 per D83.
+- ~~**AUDIT-FIX-2**~~ — SHIPPED 2026-04-24 per D84.
+- ~~**AUDIT-FIX-3**~~ — SHIPPED 2026-04-24 per D85 (commit `7edd55d`). Top-3 audit-fix batch COMPLETE.
 
 **F-14 PIE teardown race upgraded from open-item → first-class follow-on**: per D81 hint, AUDIT-FIX-1's game-thread marshaling fixes the REQUEST side but `UEditorEngine::RequestEndPlayMap` is engine-internal async — post-request teardown lag remains a real race. Flag for future PIE-adjacent tool work. Not blocking Wave 4 but queue if PIE workflows become important.
 
@@ -129,6 +129,7 @@ File-collision analysis: zero overlap across the three. All three dispatchable i
 
 Recently shipped (most recent first):
 
+- **AUDIT-FIX-3 NodeGuid input bridge** (commit `7edd55d`, 2026-04-24) — D85. 3 handlers normalized via lookup-by-success pattern (bp_trace_exec, bp_trace_data, bp_neighbors). bp_show_node + bp_subgraph_in_comment correctly disambiguated as not-applicable (export_index / objectName, not NodeGuid). F-21 fallback removed in bpShowNode (D70 invariant: cross-graph NodeGuid scan can return wrong-graph node; degrades to FA-β not_available envelope). Behavior change: handler responses now echo canonical form, not raw input. Test rotation 1338 passing / 0 failing.
 - **AUDIT-FIX-2 RC semantic delegate expansion + toCdoPath fix** (commit `c512df2`, 2026-04-24) — D84. F-4 get_curve_asset (Float/Vector/LinearColor curve dispatch via describe-probe), F-5 get_mesh_info (5 UFUNCTIONs batched), F-6 list_material_parameters (scalar/vector/texture info-only), F-7 toCdoPath heuristic (only append `:Default__<>` when path ends in `_C`). test-rc-wire.mjs 72 → 110 (+38). Yaml descriptions narrowed to match implementation per D44 invariant.
 - **AUDIT-FIX-1 plugin thread-safety marshaling** (commit `4cc6275`+`67f8efb`, 2026-04-24) — D83 (was D81 before deconflict). — D81. All 18 plugin C++ handlers game-thread-marshaled via new MCPThreadMarshal helper. `RunOnGameThread` + 30s timeout + GT_TIMEOUT envelope + per-call wall-clock instrumentation. Test baseline unchanged (C++-only). Three worker hints captured: F-14 PIE teardown race still UNRESOLVED (engine-internal async beyond request-side marshaling); Edit tool silently drops multi-line edits on CRLF files in plugin/UEMCP/ tree (verify via git diff); Async/Future.h canonical UE 5.6 path (not Templates/Future.h).
 - **T-1b fixture-philosophy migration** (commit `3c7d4a9`, 2026-04-24) — D80. 4 test files migrated via shared `server/test-fixtures.mjs` module; ~80% drift-surface reduction (10 → 2 centralised named constants). test-phase1.mjs 316 → 318 (+2 bootstrap-probe assertions). `offline-tools.resolveAssetDiskPath` `/Engine/` path support flagged as T-1c prereq. No CL-1-style follow-ons.
