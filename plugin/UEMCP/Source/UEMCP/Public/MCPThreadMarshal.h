@@ -38,6 +38,15 @@ namespace UEMCP
 	 *   moves on but the queued task can still complete safely without
 	 *   touching freed state.
 	 *
+	 * CALLER RESPONSIBILITY (D87 audit-queue note): on the timeout path the
+	 * outer caller stack frame unwinds, but the queued AsyncTask may still
+	 * fire afterward. `Work` itself is moved into the AsyncTask lambda and
+	 * survives, but anything `Work` captured BY REFERENCE in the caller's
+	 * scope does NOT. Capture caller-scope state BY VALUE (or via TSharedPtr /
+	 * TSharedRef) — never by reference — when constructing the lambda you
+	 * pass to this helper. See FMCPCommandRegistry::Dispatch for the canonical
+	 * pattern (handler pointer + TSharedPtr<Params> + TSharedRef<Out>).
+	 *
 	 * `OutWallClockSeconds`, when non-null, receives the wall-clock time
 	 * `Work` spent executing on the game thread (excludes queue wait).
 	 * Used by Dispatch to log hitch candidates per handoff §6.

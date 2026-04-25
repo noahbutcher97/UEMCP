@@ -349,6 +349,44 @@ console.log('\n── Test 8: executeRcTool dispatches each rc_* primitive ─�
     /path must begin with/,
     'rc_passthrough rejects non-/remote/ paths'
   );
+
+  // rc_passthrough body normalization (D86 / D87 audit-queue item):
+  // some MCP wire wrappers JSON-stringify object literals during transit, so
+  // schema must accept both shapes and parse strings before dispatch.
+  rcMock.resetCalls();
+  await executeRcTool('rc_passthrough', {
+    method: 'POST',
+    endpoint: '/remote/custom',
+    body: JSON.stringify({ key: 'fromString', nested: { n: 1 } }),
+  }, conn);
+  const cStr = rcMock.lastCall('POST /remote/custom');
+  t.assert(cStr && cStr.body && cStr.body.key === 'fromString',
+    'rc_passthrough preprocess parses JSON-string body to object');
+  t.assert(cStr.body.nested && cStr.body.nested.n === 1,
+    'rc_passthrough preprocess preserves nested structure through JSON.parse');
+
+  // Object body still passes through unchanged (existing contract preserved).
+  rcMock.resetCalls();
+  await executeRcTool('rc_passthrough', {
+    method: 'POST',
+    endpoint: '/remote/custom',
+    body: { obj: true, count: 7 },
+  }, conn);
+  const cObj = rcMock.lastCall('POST /remote/custom');
+  t.assert(cObj && cObj.body && cObj.body.obj === true && cObj.body.count === 7,
+    'rc_passthrough still accepts object body unchanged');
+
+  // Malformed JSON-string falls through preprocess and Zod rejects with a
+  // typed error (not a SyntaxError leak from inside preprocess).
+  await t.assertRejects(
+    async () => executeRcTool('rc_passthrough', {
+      method: 'POST',
+      endpoint: '/remote/custom',
+      body: '{not-valid-json',
+    }, conn),
+    /expected.*object|invalid_type|Expected object/i,
+    'rc_passthrough rejects malformed JSON string with clean Zod error'
+  );
 }
 
 // ── Test 9: executeRcTool — semantic delegates ────────────────

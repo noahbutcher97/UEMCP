@@ -66,16 +66,29 @@ namespace UEMCP
 			FObjectThumbnail Thumbnail;
 			ThumbnailTools::RenderThumbnail(Asset, Width, Height, ThumbnailTools::EThumbnailTextureFlushMode::AlwaysFlush, nullptr, &Thumbnail);
 
-			// Extract compressed PNG bytes. FObjectThumbnail's internal format is raw
-			// BGRA; AccessCompressedImageData() returns the cached PNG-encoded buffer
-			// (lazy-inits from the raw BGRA on first access). Always non-null after
-			// RenderThumbnail succeeds with non-zero dimensions.
+			// FObjectThumbnail has two independent buffers: ImageData (raw BGRA,
+			// populated by RenderThumbnail above) and CompressedImageData (PNG,
+			// populated only by an explicit CompressImageData() call or by
+			// Serialize-from-disk). AccessCompressedImageData() below has NO
+			// lazy-encode fallback — without this explicit compression step it
+			// returns empty bytes even when the renderer ran successfully.
+			Thumbnail.CompressImageData();
+
 			const TArray<uint8>& PngBytes = Thumbnail.AccessCompressedImageData();
 			if (PngBytes.Num() == 0)
 			{
+				// Distinguish "no renderer registered for this class" (lookup
+				// returned null) from "renderer ran but produced 0 bytes" (real
+				// renderer pathology — e.g., asset-state issue, unsupported
+				// subclass). Same outcome, very different debug story.
+				const FThumbnailRenderingInfo* RenderInfo =
+					UThumbnailManager::Get().GetRenderingInfo(Asset);
+				const bool bHasRenderer = (RenderInfo != nullptr) && (RenderInfo->Renderer != nullptr);
+				const FString Detail = bHasRenderer
+					? FString(TEXT("renderer ran but produced 0 bytes (asset state may not support thumbnail rendering)"))
+					: FString::Printf(TEXT("no UThumbnailRenderer registered for class %s"), *Asset->GetClass()->GetName());
 				BuildErrorResponse(OutResponse,
-					FString::Printf(TEXT("Thumbnail rendered empty for '%s' — no UThumbnailRenderer may be registered for %s"),
-						*AssetPath, *Asset->GetClass()->GetName()),
+					FString::Printf(TEXT("Thumbnail rendered empty for '%s' — %s"), *AssetPath, *Detail),
 					TEXT("RENDER_FAILED"));
 				return;
 			}

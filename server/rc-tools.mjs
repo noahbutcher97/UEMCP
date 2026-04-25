@@ -103,7 +103,21 @@ export const RC_SCHEMAS = {
     schema: {
       method:   z.string().describe('HTTP verb'),
       endpoint: z.string().describe('Path starting with /remote/'),
-      body:     z.record(z.any()).optional().describe('Optional JSON body'),
+      // Mirrors zod-builder.mjs's F-1.5 preprocess for `type: object` params.
+      // RC tools register their Zod schemas directly with the SDK (server.mjs
+      // line ~733), bypassing buildZodSchema — so the auto-parse for stringified
+      // object params doesn't apply unless we replicate it here. Some MCP wire
+      // wrappers JSON-stringify object literals during transit; preprocess
+      // parses the string before z.record validates. Malformed JSON falls
+      // through as a string, producing a clean "expected object" Zod error
+      // rather than a SyntaxError.
+      body: z.preprocess(
+        (val) => {
+          if (typeof val !== 'string') return val;
+          try { return JSON.parse(val); } catch { return val; }
+        },
+        z.record(z.any())
+      ).optional().describe('Optional JSON body — accepts an object (preferred) or a pre-stringified JSON string'),
     },
     // Conservative: we don't know what the caller is doing — skip cache.
     isReadOp: false,

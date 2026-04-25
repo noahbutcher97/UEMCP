@@ -57,20 +57,34 @@ namespace UEMCP
 		// The protocol-layer null-check for entirely-missing `params` field happens in
 		// MCPServerRunnable (malformed-request response), not here — Params may legitimately
 		// be null for parameter-less commands like ping.
-		const FCommandHandler& HandlerRef = *Handler;
-		TSharedPtr<FJsonObject>* OutPtr = &OutResponse;
+		//
+		// Use-after-free guard (D87 audit-queue): on the GT_TIMEOUT path, this method
+		// returns and its stack frame unwinds — but the AsyncTask queued by
+		// RunOnGameThread can still fire afterward. Capturing OutResponse / Params by
+		// reference would dereference freed stack memory inside the late-firing lambda.
+		// Fix: hoist the response payload into a TSharedRef the lambda owns by value;
+		// copy back into the caller's OutResponse only on the success path.
+		// The handler pointer is safe to capture by value: `*Handler` lives in the
+		// singleton's TMap slot, which outlives any dispatch call. ParamsCopy bumps
+		// the TSharedPtr refcount so the JSON payload survives any caller unwind.
+		const FCommandHandler* HandlerPtr = Handler;
+		const TSharedPtr<FJsonObject> ParamsCopy = Params;
+		TSharedRef<TSharedPtr<FJsonObject>, ESPMode::ThreadSafe> SharedOut =
+			MakeShared<TSharedPtr<FJsonObject>, ESPMode::ThreadSafe>();
 		double WallClockSeconds = 0.0;
 
-		const bool bDispatched = RunOnGameThread([&HandlerRef, &Params, OutPtr]()
+		const bool bDispatched = RunOnGameThread([HandlerPtr, ParamsCopy, SharedOut]()
 		{
-			HandlerRef(Params, *OutPtr);
+			(*HandlerPtr)(ParamsCopy, *SharedOut);
 		}, /*TimeoutSeconds=*/30.0, &WallClockSeconds);
 
 		if (!bDispatched)
 		{
 			// 30s timeout — game thread saturated or editor shutting down. Emit a typed
 			// error envelope so the caller doesn't trip the belt-and-suspenders branch
-			// below with a misleading "did not populate a response".
+			// below with a misleading "did not populate a response". The orphaned
+			// AsyncTask may still complete later and write into SharedOut — harmless,
+			// no consumer left.
 			BuildErrorResponse(OutResponse,
 				FString::Printf(TEXT("handler for '%s' did not complete within 30s on game thread"), *CommandType),
 				TEXT("GT_TIMEOUT"));
@@ -78,6 +92,9 @@ namespace UEMCP
 				TEXT("dispatch timeout for '%s' (>30s on game thread)"), *CommandType);
 			return;
 		}
+
+		// Success path: surface the lambda's reply into the caller's OutResponse.
+		OutResponse = *SharedOut;
 
 		// Per handoff §6: surface handlers that hitch the editor (>100ms on GT). Verbose
 		// always, Warning on hitch — `grep` after a smoke run produces the report list.
