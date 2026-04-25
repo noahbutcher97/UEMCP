@@ -36,9 +36,7 @@ docs/
 - `tracking/risks-and-decisions.md` for decision rationale
 
 **Phase 3 context** (current phase):
-- `research/phase3-resequence-mcp-first-2026-04-20.md` — D58 re-sequence plan (M-sequence, wave split)
-- `research/phase3-scope-refresh-2026-04-20.md` — scope clarification
-- `handoffs/m-new-s-b-base-parser.md` — next critical-path worker
+- See `tracking/risks-and-decisions.md` D58/D77/D87 for the current Phase 3 wave structure; session-local research and handoffs (in `research/`, `handoffs/`) are not tracked.
 
 ---
 
@@ -73,9 +71,7 @@ Self-contained task specs for individual workers. Each handoff has its own lifec
 Recent in-flight / recently-shipped handoffs are tracked in [tracking/backlog.md](tracking/backlog.md).
 
 ### audits/ — point-in-time reports
-Snapshots — never edited after creation.
-- [phase1-audit-2026-04-12.md](audits/phase1-audit-2026-04-12.md) — Phase 1 implementation audit
-- [phase2-tier2-parser-validation-2026-04-15.md](audits/phase2-tier2-parser-validation-2026-04-15.md) — Phase 2 tier-2 parser validation
+Snapshots — never edited after creation. Audit findings are folded into the D-log entries in [tracking/risks-and-decisions.md](tracking/risks-and-decisions.md); the audit files themselves are session-local artifacts kept on the maintainer's local checkout (matching how `handoffs/`, `research/`, `testing/` are described above).
 
 ### testing/ — manual verification reports
 Manual-test deliverables tied to specific milestones. Tracks what humans verified vs what automation covers.

@@ -23,12 +23,13 @@ REM See CLAUDE.md "Onboarding a new machine" for details.
 
 setlocal EnableDelayedExpansion
 
-REM --- Interactive-mode detection for pause-before-exit ---
+REM --- AUTO_YES detection for pause-before-exit (per CLAUDE.md §.bat convention) ---
 REM When double-clicked from Explorer or run from a fresh cmd, the console
 REM closes on exit. `pause` before exit keeps errors visible. We only pause
 REM when no arg is passed (GUI / double-click launch pattern).
-set "INTERACTIVE=0"
-if "%~1"=="" set "INTERACTIVE=1"
+REM AUTO_YES=1 means scripted mode (no pause); AUTO_YES=0 means interactive.
+set "AUTO_YES=1"
+if "%~1"=="" set "AUTO_YES=0"
 set "EXIT_CODE=0"
 
 REM --- Detect UEMCP repo location (this script's directory) ---
@@ -397,7 +398,7 @@ goto :end
 
 :end
 echo.
-if "!INTERACTIVE!"=="1" (
+if "!AUTO_YES!"=="0" (
   echo [Setup exit code: !EXIT_CODE!]
   pause
 )

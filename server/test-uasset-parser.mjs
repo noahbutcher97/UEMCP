@@ -227,7 +227,7 @@ async function testExportInt64Salvage() {
   const vfxRel = process.env.UEMCP_VFX_FIXTURE_RELPATH || 'Content/VfxCorpus/SM_auraHousya.uasset';
   const path = ROOT ? join(ROOT, vfxRel) : '';
   if (!(await exists(path))) {
-    console.log('  · skipped SM_auraHousya fixture (no file at ' + path + ')');
+    console.log('  · [SKIP-NEED-ENV] SM_auraHousya: set UEMCP_VFX_FIXTURE_RELPATH to enable int64 salvage coverage (tried ' + path + ')');
     return;
   }
   const buf = await readFile(path);

@@ -89,8 +89,8 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
 - ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
-- Phase 1 audit completed — see `docs/audits/phase1-audit-2026-04-12.md`
-- Phase 2 tier-2 audit completed — see `docs/audits/phase2-tier2-parser-validation-2026-04-15.md`
+- Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
+- Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
 - Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **1203 total assertions passing** across 10 test files (as of D77 / 2026-04-23, M-enhance ship-complete). Pre-Agent-10 baseline was 436; Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120 (new test-s-b-base-differential.mjs); CL-1 refreshed 7 drifts; Verb-surface +83 (new test-verb-surface.mjs); M-enhance across 4 sessions +166 (new test-rc-wire.mjs + test-tcp-tools.mjs extensions covering rc-tools + menhance-tcp-tools).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
@@ -164,6 +164,29 @@ This is a public repository. The target projects are private under NDA.
 **Don't commit project codenames into tracked content.** Use generic
 labels: `Project A` / `Project B` / `the primary target` /
 `path/to/YourProject` / `${UNREAL_PROJECT_ROOT}`.
+
+**Placeholder vocabulary by file type** (pick one, stay consistent):
+- **Config templates** that get programmatically substituted (e.g.,
+  `.mcp.json.example`): angle-bracket placeholders — `<UEMCP_REPO_PATH>`,
+  `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>`. The setup script
+  string-replaces these at install time.
+- **Shell command examples** in tracked docs (CLAUDE.md, README.md,
+  spec/plan docs): `path/to/YourProject` with forward slashes (works in
+  cmd, bash, PowerShell), or `${UNREAL_PROJECT_ROOT}` for env-var-style.
+- **Narrative mentions** of the target projects: `Project A` / `Project B` /
+  `the primary target` / `the secondary target`.
+
+**Asset-name namespace trade-off**: target-project-specific Blueprint /
+anim-notify / gameplay-tag prefixes (e.g., `BP_*` for Blueprint
+conventions plus other project-specific prefixes scattered through
+`docs/tracking/backlog.md` and `server/test-*.mjs` fixtures) are
+**intentionally retained** as dev-time sanity references — they're NOT
+in the pre-push gate's `forbidden-tokens` list. If asset-namespace
+classification ever changes (e.g., a publisher decides specific prefixes
+qualify as confidential), add them to `.git/info/forbidden-tokens` per
+checkout. Absence of a name from that list does NOT mean it's
+contractually safe to commit; it means the maintainer judged it
+non-NDA at the time the gate was configured.
 
 **Project-specific session content** (handoffs, audits, testing logs,
 research notes) lives in **gitignored** doc trees: `docs/handoffs/`,
@@ -365,8 +388,6 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L4**: MCP Resources deferred (D21)
 
 See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D50).
-See `docs/audits/phase1-audit-2026-04-12.md` for the Phase 1 audit.
-See `docs/audits/phase2-tier2-parser-validation-2026-04-15.md` for the Phase 2 tier-2 audit (parser production-grade, 7 handler findings).
 
 ## Testing
 
@@ -389,7 +410,7 @@ These exercise real Project-A fixtures (`.uasset`/`.umap` bytes on disk) and req
 
 | File | Purpose | Run command |
 |------|---------|-------------|
-| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-uasset-parser.mjs` |
+| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& set UEMCP_VFX_FIXTURE_RELPATH=Content/<your-vfx-dir>/SM_auraHousya.uasset&& node test-uasset-parser.mjs` (the `UEMCP_VFX_FIXTURE_RELPATH` env var points at a real VFX mesh whose export row carries int64-overflow values; without it the int64 salvage test skips with `[SKIP-NEED-ENV]`) |
 | `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-offline-asset-info.mjs` |
 | `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-query-asset-registry.mjs` |
 | `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-inspect-and-level-actors.mjs` |

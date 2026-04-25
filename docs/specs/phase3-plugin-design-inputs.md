@@ -1,6 +1,6 @@
 # Phase 3 Plugin Design Inputs — P0 Requirements
 
-> **Source audit**: `docs/audits/unrealmcp-comprehensive-audit-2026-04-12.md` (sealed)
+> **Source audit**: UnrealMCP comprehensive audit completed 2026-04-12 (session-local artifact; framing distilled into this doc + the D-log).
 > **Scope rationale**: D23 (UnrealMCP plugin deprecated post-Phase 3) + D35 (server defends at wire boundary; plugin-side P0s documented here, C++ untouched).
 > **How to read this doc**: Each entry is a requirement for the Phase 3 **UEMCP custom plugin** on TCP:55558 — not a task against the legacy UnrealMCP plugin on TCP:55557. Entries that pair with a server-side partial fix call out the plugin-side residue explicitly.
 > **Subsystem buckets** (audit §"Implementation Priority Order"):

@@ -21,7 +21,7 @@ Built for a pair of private Unreal Engine 5 projects; the tool itself is project
 ### Arg mode (scripted / repeat-run)
 
 ```cmd
-setup-uemcp.bat "path\to\YourProject\YourProject.uproject"
+setup-uemcp.bat "path/to/YourProject/YourProject.uproject"
 ```
 
 Auto-detects the workspace root: if the `.uproject`'s parent directory contains `.claude\` or `CLAUDE.md`, that parent is used; otherwise the `.uproject`'s own directory.
@@ -31,7 +31,7 @@ Auto-detects the workspace root: if the `.uproject`'s parent directory contains 
 When the plugin source changes (e.g. after a `git pull` that updates `plugin/UEMCP/`), re-copy it into the target project:
 
 ```cmd
-sync-plugin.bat "path\to\YourProject\YourProject.uproject"
+sync-plugin.bat "path/to/YourProject/YourProject.uproject"
 ```
 
 Source of truth is `D:\DevTools\UEMCP\plugin\UEMCP\`; the script xcopies it into `<project>\Plugins\UEMCP\`, excluding `Binaries\` and `Intermediate\` so UBT cache stays intact.
@@ -53,7 +53,7 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 ## Manual setup (if setup script fails)
 
 1. Install Node.js LTS (v20+): `winget install OpenJS.NodeJS.LTS` or https://nodejs.org/.
-2. `cd D:\DevTools\UEMCP\server && npm install`.
+2. `cd <UEMCP_REPO_PATH>/server && npm install`.
 3. Copy `.mcp.json.example` to your workspace root as `.mcp.json`; substitute `<UEMCP_REPO_PATH>`, `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>` with real paths (use forward slashes).
 4. Copy `plugin/UEMCP/` into `<your-project>/Plugins/UEMCP/` (or run `sync-plugin.bat <uproject>`).
 5. Open the project in Unreal Editor once to compile the plugin.
