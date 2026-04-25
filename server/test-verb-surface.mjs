@@ -504,6 +504,144 @@ console.log('\n═══ tools.yaml registration for M-new verbs ═══');
   }
 }
 
+// ── F-2 NodeGuid input bridge (D81 follow-on) ────────────────────────
+//
+// Audit F-2: Verb-surface trace verbs key topology by Oracle-A canonical
+// (uppercase BE-per-uint32) but agents commonly pipe raw M-spatial form
+// (lowercase byte-LE) emitted by bp_list_entry_points / bp_find_in_graph
+// straight into start_node_id / node_id. Without input normalization the
+// lookup silently fails with `node_not_found`. These tests validate the
+// exact agent-composition gap the audit flagged.
+function toOracleProbe(raw) {
+  if (typeof raw !== 'string' || raw.length !== 32) return null;
+  let out = '';
+  for (let g = 0; g < 4; g++) {
+    const chunk = raw.substr(g * 8, 8);
+    out += chunk.match(/../g).reverse().join('').toUpperCase();
+  }
+  return out;
+}
+
+console.log('\n═══ F-2 input bridge: bp_list_entry_points → trace verbs (no manual reformat) ═══');
+{
+  const ep = await executeOfflineTool('bp_list_entry_points',
+    { asset_path: BP_DENSE }, PROJECT_ROOT);
+  // Pick an entry whose graph_name resolves AND whose node has outgoing edges,
+  // so the trace is non-trivial. EventGraph entries are reliable.
+  const seed = ep.entry_points.find(
+    e => e.graph_name === 'EventGraph' && typeof e.node_guid === 'string' && e.node_guid.length === 32);
+  assert(seed != null,
+    'composition seed: bp_list_entry_points returned at least one EventGraph entry with 32-char node_guid');
+
+  // Sanity: the M-spatial raw form must actually differ from canonical, else
+  // the bridge isn't being exercised (advisor's caveat).
+  const canonical = toOracleProbe(seed.node_guid);
+  assert(canonical !== null && canonical !== seed.node_guid,
+    `composition seed differs from canonical form (raw=${seed.node_guid}, canonical=${canonical}) — bridge is exercised`);
+
+  // bp_trace_exec accepts raw M-spatial form without manual reformatting.
+  const traceExec = await executeOfflineTool('bp_trace_exec', {
+    asset_path: BP_DENSE,
+    graph_name: seed.graph_name,
+    start_node_id: seed.node_guid,
+  }, PROJECT_ROOT);
+  assert(traceExec.available !== false,
+    `bp_trace_exec accepts M-spatial raw form (was ${traceExec.reason ?? 'OK'})`);
+  assert(Array.isArray(traceExec.chain) && traceExec.chain.length >= 1,
+    'bp_trace_exec with M-spatial input returns non-empty chain');
+  // Response echoes canonical form (normalization is observable).
+  assert(traceExec.start_node_id === canonical,
+    `bp_trace_exec echoes canonical start_node_id (got ${traceExec.start_node_id})`);
+  assert(traceExec.chain[0].node_guid === canonical,
+    'bp_trace_exec chain[0].node_guid is canonical form');
+
+  // bp_trace_data accepts raw M-spatial form. Use the same seed; data sinks
+  // may be empty for a pure entry-point — assert envelope shape, not content.
+  const traceData = await executeOfflineTool('bp_trace_data', {
+    asset_path: BP_DENSE,
+    graph_name: seed.graph_name,
+    start_node_id: seed.node_guid,
+  }, PROJECT_ROOT);
+  assert(traceData.available !== false,
+    `bp_trace_data accepts M-spatial raw form (was ${traceData.reason ?? 'OK'})`);
+  assert(traceData.start_node_id === canonical,
+    'bp_trace_data echoes canonical start_node_id');
+
+  // bp_neighbors accepts raw M-spatial form via node_id.
+  const neighbors = await executeOfflineTool('bp_neighbors', {
+    asset_path: BP_DENSE,
+    graph_name: seed.graph_name,
+    node_id: seed.node_guid,
+  }, PROJECT_ROOT);
+  assert(neighbors.available !== false,
+    `bp_neighbors accepts M-spatial raw form (was ${neighbors.reason ?? 'OK'})`);
+  assert(neighbors.node_id === canonical,
+    'bp_neighbors echoes canonical node_id');
+}
+
+console.log('\n═══ F-2 input bridge: per-verb dual-format equivalence ═══');
+{
+  // Use execSource (Oracle-A canonical) and convert to LE-lowercase by reversing
+  // the parser-internal canonicalization. This exercises the bridge in the
+  // opposite direction (canonical → fake-raw → bridge → canonical).
+  function fromCanonicalToRaw(canonical) {
+    if (typeof canonical !== 'string' || canonical.length !== 32) return null;
+    let out = '';
+    for (let g = 0; g < 4; g++) {
+      const chunk = canonical.substr(g * 8, 8);
+      out += chunk.match(/../g).reverse().join('').toLowerCase();
+    }
+    return out;
+  }
+  const canonical = execSource.node_guid;
+  const raw = fromCanonicalToRaw(canonical);
+  assert(raw !== null && raw !== canonical,
+    `dual-format seed: round-trip raw differs from canonical (raw=${raw}, canonical=${canonical})`);
+
+  // bp_trace_exec — both forms produce identical chain content.
+  const rCanon = await executeOfflineTool('bp_trace_exec', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', start_node_id: canonical,
+  }, PROJECT_ROOT);
+  const rRaw = await executeOfflineTool('bp_trace_exec', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', start_node_id: raw,
+  }, PROJECT_ROOT);
+  assert(rCanon.chain_length === rRaw.chain_length,
+    `bp_trace_exec dual-format: chain_length matches (${rCanon.chain_length} === ${rRaw.chain_length})`);
+  assert(rCanon.chain[0].node_guid === rRaw.chain[0].node_guid,
+    'bp_trace_exec dual-format: chain[0].node_guid matches across both input forms');
+
+  // bp_trace_data — both forms equivalent.
+  const dCanon = await executeOfflineTool('bp_trace_data', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', start_node_id: canonical,
+  }, PROJECT_ROOT);
+  const dRaw = await executeOfflineTool('bp_trace_data', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', start_node_id: raw,
+  }, PROJECT_ROOT);
+  assert(dCanon.sink_count === dRaw.sink_count,
+    `bp_trace_data dual-format: sink_count matches (${dCanon.sink_count} === ${dRaw.sink_count})`);
+
+  // bp_neighbors — both forms equivalent.
+  const nCanon = await executeOfflineTool('bp_neighbors', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', node_id: canonical,
+  }, PROJECT_ROOT);
+  const nRaw = await executeOfflineTool('bp_neighbors', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph', node_id: raw,
+  }, PROJECT_ROOT);
+  assert(nCanon.outgoing_count === nRaw.outgoing_count,
+    `bp_neighbors dual-format: outgoing_count matches (${nCanon.outgoing_count} === ${nRaw.outgoing_count})`);
+  assert(nCanon.incoming_count === nRaw.incoming_count,
+    `bp_neighbors dual-format: incoming_count matches (${nCanon.incoming_count} === ${nRaw.incoming_count})`);
+
+  // Genuinely-bogus 32-char hex (zero-padded — never the form of a real GUID
+  // and never matches any topology key) still surfaces node_not_found.
+  const bogus = await executeOfflineTool('bp_trace_exec', {
+    asset_path: BP_DENSE, graph_name: 'EventGraph',
+    start_node_id: '0123456789abcdef0123456789abcdef',
+  }, PROJECT_ROOT);
+  assert(bogus.available === false && bogus.reason === 'node_not_found',
+    'bp_trace_exec bogus 32-hex input still surfaces node_not_found (no false-positive bridging)');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────
 console.log('\n═══ Summary ═══');
 console.log(`  Passed: ${passed}`);

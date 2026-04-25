@@ -2404,20 +2404,17 @@ async function bpShowNode(projectRoot, params) {
 
   // Pin-block completion via topology. Share the ctx already parsed above —
   // avoids a second read of the uasset bytes. Keyed by (graph_name, guid)
-  // per D70 uniqueness invariant; fall back to scanning all graphs when the
-  // M-spatial graph lookup returned null (e.g., orphan graphs).
+  // per D70 uniqueness invariant. When the M-spatial graph lookup returned
+  // null (orphan graph case), pin_block degrades to not_available rather
+  // than scanning all graphs — NodeGuids are NOT unique across sibling
+  // graphs in one BP, so a cross-graph scan could return pins from a
+  // coincident-guid node in the wrong graph (audit F-10).
   let pinsOut = [];
   let pinBlockAvailable = false;
   const oracleGuid = toOracleHexGuid(shape.row.node_guid);
-  if (oracleGuid) {
+  if (oracleGuid && graph) {
     const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
-    const primary = graph ? topology.graphs?.[graph.name]?.nodes?.[oracleGuid] : null;
-    const match = primary ?? (() => {
-      for (const gEntry of Object.values(topology.graphs ?? {})) {
-        if (gEntry.nodes?.[oracleGuid]) return gEntry.nodes[oracleGuid];
-      }
-      return null;
-    })();
+    const match = topology.graphs?.[graph.name]?.nodes?.[oracleGuid];
     if (match) {
       pinsOut = Object.entries(match.pins).map(([pinId, pin]) => shapePublicPin(pinId, pin));
       pinBlockAvailable = true;
@@ -2576,6 +2573,34 @@ function toOracleHexGuid(rawGuid) {
 }
 
 /**
+ * Bridge a NodeGuid input to whichever form is keyed in `nodes`. Verb-surface
+ * handlers (bp_trace_exec/bp_trace_data/bp_neighbors) key topology by the
+ * Oracle-A-v2 canonical form (uppercase BE-per-uint32) but agents commonly
+ * pipe NodeGuids straight from M-spatial-output verbs (bp_list_entry_points,
+ * bp_find_in_graph, bp_list_graphs.comment_ids[]) which emit the raw
+ * tagged-fallback FGuid form (lowercase byte-LE). Without this bridge the
+ * lookup silently fails with `node_not_found` even though the node exists
+ * (audit F-2). Tries in order:
+ *   1. as-is — caller already canonical OR happens to be keyed verbatim.
+ *   2. uppercase — caller passed canonical form with mixed case.
+ *   3. toOracleHexGuid(lowercase) — caller passed M-spatial raw form.
+ * Returns the form present in `nodes`, or rawInput unchanged when nothing
+ * matches (downstream surfaces `node_not_found` per existing contract).
+ */
+function normalizeNodeGuidInput(rawInput, nodes) {
+  if (typeof rawInput !== 'string' || rawInput.length !== 32) return rawInput;
+  if (!nodes) return rawInput;
+  if (nodes[rawInput]) return rawInput;
+  const upper = rawInput.toUpperCase();
+  if (upper !== rawInput && nodes[upper]) return upper;
+  if (/^[0-9a-fA-F]{32}$/.test(rawInput)) {
+    const oracle = toOracleHexGuid(rawInput.toLowerCase());
+    if (oracle && nodes[oracle]) return oracle;
+  }
+  return rawInput;
+}
+
+/**
  * Look up a graph by name in topology.graphs, returning the graph entry or
  * an FA-β `graph_not_found` envelope with the available_graphs enumeration.
  * Shared by bp_trace_exec, bp_trace_data, bp_neighbors.
@@ -2618,9 +2643,9 @@ function shapePublicPin(pinId, pin) {
 async function bpTraceExec(projectRoot, params) {
   const assetPath = params.asset_path;
   const graphName = params.graph_name;
-  const startGuid = params.start_node_id;
+  const rawStartGuid = params.start_node_id;
   if (!graphName) throw new Error('Missing required parameter: graph_name');
-  if (!startGuid) throw new Error('Missing required parameter: start_node_id');
+  if (!rawStartGuid) throw new Error('Missing required parameter: start_node_id');
 
   const maxDepth = Math.max(1, Math.min(params.max_depth ?? 50, 500));
   const pinNameFilter = params.pin_name ?? null;
@@ -2631,6 +2656,10 @@ async function bpTraceExec(projectRoot, params) {
   if (g.envelope) return g.envelope;
 
   const nodes = g.graph.nodes;
+  // F-2 input bridge: agents commonly pipe `bp_list_entry_points.entry_points
+  // [].node_guid` (M-spatial raw lowercase-LE) straight into start_node_id.
+  // Normalize against topology key form (Oracle-A canonical uppercase-BE).
+  const startGuid = normalizeNodeGuidInput(rawStartGuid, nodes);
   if (!nodes[startGuid]) {
     return {
       available: false,
@@ -2706,9 +2735,9 @@ async function bpTraceExec(projectRoot, params) {
 async function bpTraceData(projectRoot, params) {
   const assetPath = params.asset_path;
   const graphName = params.graph_name;
-  const startGuid = params.start_node_id;
+  const rawStartGuid = params.start_node_id;
   if (!graphName) throw new Error('Missing required parameter: graph_name');
-  if (!startGuid) throw new Error('Missing required parameter: start_node_id');
+  if (!rawStartGuid) throw new Error('Missing required parameter: start_node_id');
 
   const maxDepth = Math.max(1, Math.min(params.max_depth ?? 50, 500));
 
@@ -2718,6 +2747,8 @@ async function bpTraceData(projectRoot, params) {
   if (g.envelope) return g.envelope;
 
   const nodes = g.graph.nodes;
+  // F-2 input bridge: see bpTraceExec.
+  const startGuid = normalizeNodeGuidInput(rawStartGuid, nodes);
   if (!nodes[startGuid]) {
     return {
       available: false,
@@ -2788,9 +2819,9 @@ async function bpTraceData(projectRoot, params) {
 async function bpNeighbors(projectRoot, params) {
   const assetPath = params.asset_path;
   const graphName = params.graph_name;
-  const nodeGuid = params.node_id;
+  const rawNodeGuid = params.node_id;
   if (!graphName) throw new Error('Missing required parameter: graph_name');
-  if (!nodeGuid) throw new Error('Missing required parameter: node_id');
+  if (!rawNodeGuid) throw new Error('Missing required parameter: node_id');
 
   const directionFilter = params.direction ?? 'both';
   if (!['incoming', 'outgoing', 'both'].includes(directionFilter)) {
@@ -2803,6 +2834,8 @@ async function bpNeighbors(projectRoot, params) {
   if (g.envelope) return g.envelope;
 
   const nodes = g.graph.nodes;
+  // F-2 input bridge: see bpTraceExec.
+  const nodeGuid = normalizeNodeGuidInput(rawNodeGuid, nodes);
   const target = nodes[nodeGuid];
   if (!target) {
     return {

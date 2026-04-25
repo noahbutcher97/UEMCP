@@ -271,12 +271,15 @@ toolsets:
           a specific exec pin (e.g., 'then' to follow just the truthy branch
           of an IfThenElse). Offline — uses Oracle-A-v2 topology. Missing
           graph returns `reason: "graph_not_found"`; missing node returns
-          `reason: "node_not_found"`. start_node_id is the 32-hex-upper
-          NodeGuid (Oracle-A format, no dashes).
+          `reason: "node_not_found"`. start_node_id accepts either Oracle-A
+          canonical (32-hex uppercase BE-per-uint32) OR the M-spatial raw
+          form (lowercase byte-LE) emitted by bp_list_entry_points /
+          bp_find_in_graph / bp_show_node — both are normalized at the
+          input edge.
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name (EventGraph, ExecuteAbility, etc.) as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points.entry_points[].node_guid or bp_show_node.node.node_guid without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500). Chain entries at depth=max_depth are included; their outgoing links are not followed." }
           pin_name:      { type: string, required: false, description: "Restrict walk to a single exec pin name (e.g., 'then', 'else'). Omit to follow all exec outputs." }
       bp_trace_data:
@@ -289,11 +292,12 @@ toolsets:
           depth. Exec classification (to exclude exec pins) is name-convention
           — see bp_trace_exec for the vocabulary. Offline. Missing graph
           returns `reason: "graph_not_found"`; missing node returns
-          `reason: "node_not_found"`.
+          `reason: "node_not_found"`. start_node_id accepts either Oracle-A
+          canonical or M-spatial raw NodeGuid form (see bp_trace_exec).
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500)." }
       bp_neighbors:
         description: >-
@@ -305,10 +309,12 @@ toolsets:
           to avoid double-counting). Offline — uses Oracle-A-v2 topology.
           Use this for "what nodes connect to X" queries without walking a
           full chain; chain bp_trace_exec/bp_trace_data for deeper traversal.
+          node_id accepts either Oracle-A canonical or M-spatial raw
+          NodeGuid form (see bp_trace_exec).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name: { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          node_id:    { type: string, required: true, description: "Target NodeGuid in Oracle-A format: 32 hex chars, uppercase, no dashes." }
+          node_id:    { type: string, required: true, description: "Target NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           direction:  { type: string, required: false, description: "Edge direction: 'incoming' | 'outgoing' | 'both' (default 'both')." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
