@@ -24,10 +24,7 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **CLEANUP-MICRO** — dispatched 2026-04-25 via conversation opener (per §Multi-agent orchestration handoff convention). Worker scope: Bug 4 thumbnail PNG-compression + MCPThreadMarshal use-after-free + rc_passthrough Zod body validation. Awaiting final report.
-- **D81-SANITIZATION-AUDIT** — dispatched 2026-04-25 via conversation opener. Read-only audit deliverable at `docs/audits/d81-sanitization-regressions-2026-04-25.md`. Awaiting final report.
-
-D81-SANITIZATION-FIXES remains drafted-but-not-dispatched (gated on audit landing). M3/M4/M5 still pending Noah signal on Wave 4 readiness.
+- **None currently dispatched.** CLEANUP-MICRO + D81-SANITIZATION-AUDIT both shipped per D90 + D89. D81-SANITIZATION-FIXES gate cleared; ready for next dispatch.
 
 ### Test baseline
 
@@ -65,13 +62,15 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ## Pending user actions (orthogonal to dispatch)
 
-1. **Bug 4 follow-up smoke** — after CLEANUP-MICRO lands + plugin redeploys, live-fire `get_asset_preview_render` against StaticMesh + Blueprint to confirm PNG bytes return.
-2. **FA-ε §Open 3 + M-enhance §Biggest-unknowns 4** still unverified (cross-transport transaction semantics + PIE teardown race). Bundling with CLEANUP-MICRO smoke pass is fine.
-3. **D87 deployment-cycle pattern**: any audit-fix landing C++ code requires editor close + sync-plugin.bat + Build.bat + relaunch + MCP-server restart. Don't trust "code committed" as "live."
+1. **Bug 4 follow-up smoke** — CLEANUP-MICRO commit `c95c2bb` shipped the 1-line `Thumbnail.CompressImageData()` fix per D88 corrected root cause; once Noah sync-plugin.bat + Build.bat + relaunches editor + restarts Claude Code, live-fire `get_asset_preview_render` against StaticMesh + Blueprint to confirm PNG bytes return. M5 visual-capture toolset gate clears empirically here. CLEANUP-MICRO §2 use-after-free fix also requires this same deployment cycle to verify no-crash on timeout path.
+2. **FA-ε §Open 3 + M-enhance §Biggest-unknowns 4** still unverified (cross-transport transaction semantics + PIE teardown race). Naturally exercised during the Bug 4 follow-up smoke pass — bundle for free.
+3. **D81-SANITIZATION-FIXES dispatch decision** — audit landed with 10 findings (D89). Recommended fix order F-1 → F-5 → batch (F-2/3/4/7) → batch (F-6/8/9) → F-10. Single-commit feasible. Whether to dispatch immediately vs batch with M3/M4 wave is a Noah call; orchestrator default = dispatch immediately since it's small + clears the audit-tracked drift.
+4. **S-B-overrides scope decision** — D91 surfaced that Project B is on UE 5.7 AND in active use AND the offline parser breaks at header walk on every 5.7 BP. Was previously "lower priority until secondary target materializes." Materialized. Whether to bump ahead of Wave 4 (M3/M4/M5), run S-B-overrides parallel, or accept Project-B-via-sidecar-only-for-now is an open call.
+5. **D87 deployment-cycle pattern**: any audit-fix landing C++ code requires editor close + sync-plugin.bat + Build.bat + relaunch + MCP-server restart. Don't trust "code committed" as "live."
 
 ---
 
-## Recent D-log highlights (D77 → D88)
+## Recent D-log highlights (D77 → D91)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -87,6 +86,9 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D86** Smoke surfaced 5 plugin bugs (initial framing as "recurrences" of D83/D85; SUPERSEDED by D87).
 - **D87** SMOKE-FIX shipped + **CRITICAL FINDING**: 3 of 5 "recurrences" were DEPLOYMENT GAPS not code defects. AUDIT-FIX-1/3 were always correct; just never sync-plugin.bat'd to live editor + MCP server process. New rule: "code committed + tests green ≠ fix is live."
 - **D88** Deployment cycle complete + Bug 4 corrected root cause. `Thumbnail.CompressImageData()` is the missing 1-line fix. **D87 deployment-gap framing empirically validated**: 3 audit-fixes verified live post-deployment.
+- **D89** D81-SANITIZATION-AUDIT shipped (10 findings: 1 high · 4 medium · 5 low; gitignored deliverable; meta-finding about handoff template's SHA-requirement for post-D81 audits).
+- **D90** CLEANUP-MICRO shipped (commit `c95c2bb`, 5 files, 3 fixes). §2 use-after-free actually lived at the `Dispatch` call site, not the helper named in handoff — legitimate D72 scope deviation. Audit-batch-2 hint: orphan AsyncTasks invisible to wallclock instrumentation post-timeout.
+- **D91** Project B on UE 5.7 + offline parser breaks at header walk on every 5.7 .uasset attempted. Sidecar artifacts reliable cross-version (engine-generated); binary parser is broken. S-B-overrides scope amended to include header-layer delta, not just K2Node-layer drift.
 
 ---
 
@@ -165,9 +167,10 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | Wave 2 (M-new S-B-base + Verb-surface) | ✅ Shipped | — |
 | Wave 3 (M-enhance HYBRID + Phase 4 absorbed) | ✅ Shipped | — |
 | Validation cycle (audit + T-1b + smoke + audit-fixes 1/2/3 + SMOKE-FIX + deployment) | ✅ Complete | — |
-| CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | 🚀 In flight (dispatched 2026-04-25) | 1-1.5 hr |
-| D81-SANITIZATION-AUDIT | 🚀 In flight (dispatched 2026-04-25) | 0.5-1 session |
-| D81-SANITIZATION-FIXES | ⏸ Drafted; gated on audit landing | 0.5-1.5 sessions |
+| CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | ✅ Shipped 2026-04-25 (commit `c95c2bb`, see D90) | — |
+| D81-SANITIZATION-AUDIT | ✅ Shipped 2026-04-25 (audit doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`, see D89) | — |
+| D81-SANITIZATION-FIXES | ⏸ Dispatchable now — audit gate cleared (10 findings: 1 high · 4 medium · 5 low) | 0.5-1.5 sessions |
+| S-B-overrides scope amendment | ⏸ Decision pending — Project B on UE 5.7 + parser breaks at header walk per D91; Noah call whether to bump ahead of Wave 4 | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 
