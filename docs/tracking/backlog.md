@@ -94,14 +94,25 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-24 (audit + T-1b shipped; 3 surgical follow-on fixes queued):
+In-flight as of 2026-04-25 (smoke landed 5 bugs; SMOKE-FIX queued; Wave 4 BLOCKED):
 
 - (none currently in flight)
 
-**Audit-triage follow-on queue**:
-- ~~**AUDIT-FIX-1**~~ — SHIPPED 2026-04-24 per D83.
-- ~~**AUDIT-FIX-2**~~ — SHIPPED 2026-04-24 per D84.
-- ~~**AUDIT-FIX-3**~~ — SHIPPED 2026-04-24 per D85 (commit `7edd55d`). Top-3 audit-fix batch COMPLETE.
+**HIGH-PRIORITY SMOKE-FIX dispatchable** — handoff `docs/handoffs/smoke-fix-thread-and-identifier-bugs.md`. **Blocks Wave 4 dispatch.** 5 plugin bugs from human-integration-smoke 2026-04-25 (D86):
+- **Bug 1 BLOCKER**: `bp_compile_and_report` editor crash (IsInAsyncLoadingThread assert)
+- **Bug 2 MEDIUM**: `rc_list_objects` HTTP 404 (UE 5.6 removed `/remote/object/list`)
+- **Bug 3 LOW-MED**: `get_blueprint_*` log spam + partial results on cold BPs (same thread-class as Bug 1 + missing `_C` suffix)
+- **Bug 4 BLOCKER**: `get_asset_preview_render` editor crash (IsInGameThread assert)
+- **Bug 5 MEDIUM**: `bp_trace_exec` node_not_found from `bp_list_entry_points` output
+
+**3 of 5 are RECURRENCES** of audit findings believed shipped (D83 AUDIT-FIX-1 thread marshaling — Bugs 1+3+4; D85 AUDIT-FIX-3 NodeGuid bridge — Bug 5). SMOKE-FIX worker's first task: root-cause why marshaling/bridge didn't catch these handlers' code paths. 1-2 sessions expected.
+
+**Two §Reporting-back items deferred** (FA-ε §Open 3 cross-transport transaction + M-enhance §Biggest-unknowns 4 PIE teardown race) — pending follow-up smoke pass after SMOKE-FIX lands.
+
+**Audit-triage follow-on history**:
+- ~~**AUDIT-FIX-1**~~ — SHIPPED 2026-04-24 per D83. **PARTIALLY EFFECTIVE per D86 smoke** — Bugs 1+3+4 prove marshaling didn't cover all handler code paths.
+- ~~**AUDIT-FIX-2**~~ — SHIPPED 2026-04-24 per D84. Bug 2 is a separate UE-5.6-API drift, not an AUDIT-FIX-2 regression.
+- ~~**AUDIT-FIX-3**~~ — SHIPPED 2026-04-24 per D85. **PARTIALLY EFFECTIVE per D86 smoke** — Bug 5 proves bridge didn't catch the live `bp_list_entry_points → bp_trace_exec` composition path.
 
 **F-14 PIE teardown race upgraded from open-item → first-class follow-on**: per D81 hint, AUDIT-FIX-1's game-thread marshaling fixes the REQUEST side but `UEditorEngine::RequestEndPlayMap` is engine-internal async — post-request teardown lag remains a real race. Flag for future PIE-adjacent tool work. Not blocking Wave 4 but queue if PIE workflows become important.
 
