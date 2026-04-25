@@ -60,11 +60,11 @@ export const RC_SCHEMAS = {
   },
 
   rc_list_objects: {
-    description: 'Search for UObjects by class name (/remote/object/list). Recursive walks subobjects.',
+    description: 'Search for assets on disk by class name via the AssetRegistry (PUT /remote/search/assets in UE 5.6 — replaces the removed /remote/object/list). Returns asset paths matching ClassNames; live-object inspection requires rc_describe_object on a known path.',
     schema: {
-      class_pattern: z.string().describe('Unreal class name (e.g. AActor, UMaterialInterface)'),
-      outer:         z.string().optional().describe('Restrict search to subobjects of this outer path'),
-      recursive:     z.boolean().optional().describe('Walk subobjects recursively (default false)'),
+      class_pattern: z.string().describe('Unreal class name (e.g. AActor, UMaterialInterface, UWorld). U/A prefix is stripped automatically.'),
+      outer:         z.string().optional().describe('Restrict search to a package path (e.g. /Game/Maps)'),
+      recursive:     z.boolean().optional().describe('Recurse into subclasses + subpackages (default false)'),
     },
     isReadOp: true,
   },

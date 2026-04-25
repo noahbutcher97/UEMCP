@@ -165,8 +165,20 @@ console.log('\n── Test 6: rc-url-translator emits RC endpoint shapes ──'
     `rcGetPreset url-encodes preset name (got ${one.path})`);
 
   const list = rc.rcListObjects({ className: 'AActor', recursive: true });
-  t.assert(list.body.Class === 'AActor' && list.body.Recursive === true,
-    'rcListObjects emits {Class, Recursive} body');
+  t.assert(list.path === '/remote/search/assets',
+    'rcListObjects targets /remote/search/assets (UE 5.6 endpoint)');
+  t.assert(list.method === 'PUT',
+    'rcListObjects uses PUT');
+  t.assert(Array.isArray(list.body.Filter.ClassNames) && list.body.Filter.ClassNames[0] === 'Actor',
+    'rcListObjects strips A/U prefix into Filter.ClassNames (AActor → Actor)');
+  t.assert(list.body.Filter.RecursiveClasses === true,
+    'rcListObjects forwards recursive flag onto Filter.RecursiveClasses');
+
+  const listOuter = rc.rcListObjects({ className: 'UWorld', outer: '/Game/Maps', recursive: true });
+  t.assert(listOuter.body.Filter.ClassNames[0] === 'World',
+    'rcListObjects strips U prefix on UWorld → World');
+  t.assert(listOuter.body.Filter.PackagePaths[0] === '/Game/Maps' && listOuter.body.Filter.RecursivePaths === true,
+    'rcListObjects maps outer → Filter.PackagePaths with RecursivePaths flag');
 
   const pass = rc.rcPassthrough({ method: 'POST', path: '/remote/batch', body: { X: 1 } });
   t.assert(pass.method === 'POST' && pass.body.X === 1,
@@ -251,7 +263,7 @@ console.log('\n── Test 8: executeRcTool dispatches each rc_* primitive ─�
   rcMock.on('PUT /remote/object/property', { Health: 100 });
   rcMock.on('PUT /remote/object/call', { ReturnValue: 42 });
   rcMock.on('PUT /remote/object/describe', { Properties: [] });
-  rcMock.on('PUT /remote/object/list', { Objects: [] });
+  rcMock.on('PUT /remote/search/assets', { Assets: [] });
   rcMock.on('PUT /remote/batch', { Responses: [] });
   rcMock.on('GET /remote/presets', { Presets: [] });
   rcMock.on('GET /remote/preset/MyPreset', { Name: 'MyPreset', Properties: [] });
@@ -287,12 +299,12 @@ console.log('\n── Test 8: executeRcTool dispatches each rc_* primitive ─�
   t.assert(c3.body.parameters.Force === 500, 'rc_call_function forwards args→parameters');
   t.assert(c3.body.generateTransaction === false, 'rc_call_function default transaction=false');
 
-  // rc_list_objects → PUT /remote/object/list
+  // rc_list_objects → PUT /remote/search/assets (UE 5.6 — replaced /remote/object/list)
   rcMock.resetCalls();
   await executeRcTool('rc_list_objects', { class_pattern: 'AActor', recursive: true }, conn);
-  const c4 = rcMock.lastCall('PUT /remote/object/list');
-  t.assert(c4 && c4.body.Class === 'AActor' && c4.body.Recursive === true,
-    'rc_list_objects emits Class + Recursive');
+  const c4 = rcMock.lastCall('PUT /remote/search/assets');
+  t.assert(c4 && c4.body.Filter.ClassNames[0] === 'Actor' && c4.body.Filter.RecursiveClasses === true,
+    'rc_list_objects emits Filter.ClassNames (prefix-stripped) + RecursiveClasses');
 
   // rc_describe_object → PUT /remote/object/describe
   rcMock.resetCalls();

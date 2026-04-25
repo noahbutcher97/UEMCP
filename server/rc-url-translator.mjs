@@ -148,16 +148,31 @@ export function rcPassthrough({ method, path, body = null }) {
 }
 
 /**
- * List objects by class name via the discovery endpoint.
- * RC exposes /remote/object/list which takes {Class, Outer?, Recursive?} and
- * returns an array of object paths. Useful for inventory without knowing
- * specific paths up-front.
+ * List assets by class name via the AssetRegistry search endpoint.
+ *
+ * UE 5.6 RemoteControl removed `/remote/object/list` (the live-object enumerator).
+ * The sanctioned discovery path is `/remote/search/assets`, which queries the
+ * AssetRegistry for asset packages on disk. Filter.ClassNames takes the SHORT
+ * class name without the `U`/`A` prefix (e.g. `World` for UWorld), so we strip
+ * the prefix on the way in. Callers passing already-stripped names pass through.
+ *
+ * Semantic note: this returns asset packages on disk, not live UObjects in
+ * memory — which matches what most callers actually want from `rc_list_objects`
+ * (browsing the project, finding paths to load). Live-object inspection still
+ * goes through `rc_describe_object` on a known path.
  */
 export function rcListObjects({ className, outer = null, recursive = false }) {
   if (!className) throw new Error('rcListObjects: className required');
-  const body = { Class: className, Recursive: !!recursive };
-  if (outer) body.Outer = outer;
-  return { method: 'PUT', path: '/remote/object/list', body };
+  const shortName = className.replace(/^[UA](?=[A-Z])/, '');
+  const Filter = {
+    ClassNames: [shortName],
+    RecursiveClasses: !!recursive,
+  };
+  if (outer) {
+    Filter.PackagePaths = [outer];
+    Filter.RecursivePaths = !!recursive;
+  }
+  return { method: 'PUT', path: '/remote/search/assets', body: { Filter } };
 }
 
 /**

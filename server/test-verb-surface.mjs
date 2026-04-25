@@ -642,6 +642,48 @@ console.log('\n═══ F-2 input bridge: per-verb dual-format equivalence ═�
     'bp_trace_exec bogus 32-hex input still surfaces node_not_found (no false-positive bridging)');
 }
 
+// ── F-2 input bridge: SMOKE-FIX regression (D86) ─────────────────────
+//
+// Smoke 2026-04-24/25 saw `bp_trace_exec` return `node_not_found` when fed the
+// raw `node_guid` from `bp_list_entry_points` for `BP_OSPlayerR.ReceiveBeginPlay`
+// — even though D85's bridge was supposed to handle exactly that composition.
+// Root cause turned out to be a stale MCP server process (D85's offline-tools.mjs
+// landed after the server was already loaded; ESM modules don't hot-reload).
+//
+// The pre-existing F-2 input-bridge test above picks the FIRST EventGraph entry
+// via `find()`, which returned a different node than the smoke's
+// ReceiveBeginPlay. To turn the agent-composition gap into a deterministic
+// regression that EVERY entry exercises, this block iterates ALL entry-points
+// in BP_OSPlayerR EventGraph and asserts none degrade to `node_not_found`. If
+// `normalizeNodeGuidInput` stops handling any one entry's emitted form, the
+// failure surfaces here regardless of `find()` ordering.
+console.log('\n═══ F-2 input bridge: SMOKE-FIX exhaustive regression (every entry pipes cleanly) ═══');
+{
+  const ep = await executeOfflineTool('bp_list_entry_points',
+    { asset_path: BP_DENSE }, PROJECT_ROOT);
+  const eventGraphEntries = ep.entry_points.filter(
+    e => e.graph_name === 'EventGraph' && typeof e.node_guid === 'string' && e.node_guid.length === 32);
+  assert(eventGraphEntries.length >= 4,
+    `BP_OSPlayerR EventGraph has ≥4 entry-point nodes (got ${eventGraphEntries.length}) — exhaustive coverage worth running`);
+
+  for (const entry of eventGraphEntries) {
+    const label = entry.member_name || entry.node_name || entry.node_guid;
+    const trace = await executeOfflineTool('bp_trace_exec', {
+      asset_path: BP_DENSE,
+      graph_name: entry.graph_name,
+      start_node_id: entry.node_guid,
+    }, PROJECT_ROOT);
+    assert(trace.available !== false || trace.reason !== 'node_not_found',
+      `bp_trace_exec accepts ${label} from bp_list_entry_points (raw guid ${entry.node_guid.slice(0, 8)}…)`);
+    assert(typeof trace.start_node_id === 'string' && trace.start_node_id.length === 32,
+      `bp_trace_exec echoes 32-char canonical start_node_id for ${label}`);
+    // Echoed canonical must NOT equal the raw input — otherwise the bridge
+    // didn't do anything (e.g., topology accidentally keyed by raw form).
+    assert(trace.start_node_id !== entry.node_guid,
+      `bp_trace_exec normalizes ${label}: raw ≠ canonical (raw=${entry.node_guid}, echoed=${trace.start_node_id})`);
+  }
+}
+
 // ── Summary ──────────────────────────────────────────────────────────
 console.log('\n═══ Summary ═══');
 console.log(`  Passed: ${passed}`);

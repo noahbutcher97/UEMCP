@@ -999,9 +999,11 @@ toolsets:
           function_name: { type: string, required: true }
           args:          { type: object, required: false }
       rc_list_objects:
-        description: Search for UObjects by class name pattern
+        description: Search the AssetRegistry for assets by class name (UE 5.6 — backed by /remote/search/assets; the prior /remote/object/list endpoint was removed). U/A prefix is stripped. Use rc_describe_object for live-object inspection on a known path.
         params:
           class_pattern: { type: string, required: true }
+          outer:         { type: string, required: false }
+          recursive:     { type: boolean, required: false }
       rc_describe_object:
         description: List all properties and functions on a specific object
         params:
