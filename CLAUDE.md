@@ -182,6 +182,19 @@ Then create `.git/info/forbidden-tokens` with one codename per line (use
 `regex:<pattern>` lines for regex matches). Bypass in genuine emergencies:
 `git push --no-verify` (rare).
 
+### Multi-agent orchestration handoff convention
+
+Orchestrator session migrations + parallel multi-agent dispatches frequently need to share project codenames so workers can operate on actual file paths, asset paths, and live editor invocations — but those codenames **must never enter committed documentation** (per the public-repo hygiene rule above). Use a **two-channel pattern**:
+
+- **Committed channel** (handoff docs in `docs/tracking/`, commit messages, D-log entries, README, CLAUDE.md): use placeholder vocabulary only (`<target-project>`, `Project A`, `Project B`, `<your-project>`, `${UNREAL_PROJECT_ROOT}`). Never include codenames. The pre-push hook will block them anyway.
+- **Ephemeral channel** (the inline opener / dispatch message that gets pasted into a new orchestrator session OR into a worker session at dispatch time): may include codenames so the receiving session can fill placeholders when invoking tools, reading paths, or writing local-only inputs.
+
+**The receiving session translates codenames → placeholders before writing to disk.** Codenames stay in chat history; placeholders go to committed files. Same rule for worker handoffs that need codename info: pass codenames in the dispatch message, NOT in the worker's handoff doc on disk.
+
+This convention is what makes D82 NDA-gate operationally workable. Without the chat-side codename channel, every orchestrator migration would either lose project context (forcing rediscovery) or leak codenames into commits (forcing recovery cycles). With it: clean separation between knowable-context and committed-record.
+
+Established 2026-04-25 alongside D88-era orchestrator-state migration; codifies the chat-vs-disk separation that D82 sanitization implies but didn't previously make explicit.
+
 ## Shell & Tooling Requirements
 
 **Desktop Commander is MANDATORY for git and filesystem write operations.** The Cowork sandbox bash (`mcp__workspace__bash`) mounts the repo via a FUSE-like layer that cannot acquire `.git/index.lock` or `.git/HEAD.lock` files, causing git commits to fail or leave stale locks. All agents, workers, and conversations working in this repo MUST use Desktop Commander (`mcp__Desktop_Commander__start_process` with `shell: "cmd"`) for:
