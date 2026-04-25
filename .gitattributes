@@ -1,0 +1,9 @@
+# Force LF line endings for shell scripts and git hooks. Git on Windows
+# defaults to CRLF, which breaks bash scripts ("bad interpreter" on
+# `#!/usr/bin/env bash` if the line ends with CR). These files must stay
+# LF in the working tree regardless of platform.
+*.sh           text eol=lf
+.githooks/*    text eol=lf
+
+# Documentation + source can use platform-native line endings; let git
+# normalize via core.autocrlf. No explicit rule needed for them.

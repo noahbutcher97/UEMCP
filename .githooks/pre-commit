@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-commit hook: scan the *added* lines in staged content against the
+# token list. Skips deletions (which are obviously safe), unchanged
+# context, and the pattern-source files themselves (which by design
+# contain the patterns and would always self-match). ~50ms typical.
+set -u
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+# Files that legitimately contain the literal patterns and must be excluded
+# from the scan to avoid self-match false-positives. The committed pattern
+# file lives in .githooks/; the local token list lives in .git/info/ which
+# never appears in staged diffs anyway, but listed for completeness.
+exclude_paths=(
+  ":(exclude).githooks/forbidden-patterns.committed.txt"
+  ":(exclude).git/info/forbidden-tokens"
+)
+
+diff_output="$(git diff --cached -U0 --no-color --diff-filter=ACM -- . "${exclude_paths[@]}")"
+
+# Extract added lines (those starting with '+' but not '+++' file headers)
+added_lines="$(printf '%s\n' "$diff_output" | grep -E '^\+[^+]' || true)"
+
+if [[ -z "$added_lines" ]]; then
+  exit 0
+fi
+
+printf '%s\n' "$added_lines" | "$here/check-tokens.sh" --label "staged content (this commit)"

@@ -280,6 +280,23 @@ if not exist "!UEMCP_PATH!\server\node_modules\" (
   echo server\node_modules already present; skipping npm install.
 )
 
+REM --- Install git hooks (skippable via SETUP_SKIP_HOOKS=1) ---
+if /I "!SETUP_SKIP_HOOKS!"=="1" (
+  echo Skipping git-hooks install ^(SETUP_SKIP_HOOKS=1^).
+) else (
+  echo Installing git hooks for public-repo hygiene...
+  pushd "!UEMCP_PATH!"
+  call "!UEMCP_PATH!\scripts\install-hooks.bat"
+  set "HOOKS_EXIT=!errorlevel!"
+  popd
+  if not "!HOOKS_EXIT!"=="0" (
+    echo [WARN] install-hooks.bat exited with code !HOOKS_EXIT!.
+    echo        UEMCP will keep running, but commits will not be scanned for
+    echo        sensitive-token leakage. Re-run scripts\install-hooks.bat
+    echo        manually to fix. See docs\security-policy.md for context.
+  )
+)
+
 REM --- Generate .mcp.json from template via node -e ---
 set "TEMPLATE_PATH=!UEMCP_PATH!\.mcp.json.example"
 if not exist "!TEMPLATE_PATH!" (

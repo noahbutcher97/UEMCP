@@ -37,3 +37,12 @@ docs/handoffs/
 docs/audits/
 docs/testing/
 docs/research/
+
+# Sanitization scratch — these files contain literal sensitive tokens.
+# Used during one-off filter-repo passes; never tracked.
+.filter-repo-replacements.txt
+.filter-repo-mailmap.txt
+.git-rewrite/
+
+# Backup bundles
+*.bundle

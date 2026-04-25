@@ -158,6 +158,43 @@ UEMCP/
 └── .claude/               ← project-level Claude settings
 ```
 
+## Public-Repo Hygiene (HARD RULES)
+
+This repository is public on GitHub. Committed content must be free of:
+
+1. **Project codenames** — names of the private projects this tool was built
+   for. Use `Project A` / `Project B` / `the primary target` /
+   `the secondary target` in narrative; `path/to/YourProject` in templates;
+   `${UNREAL_PROJECT_ROOT}` in runnable shells.
+2. **Personal identifiers** — surnames, personal email addresses, employer
+   email addresses, Windows usernames in absolute paths.
+3. **Internal infrastructure** — absolute Windows dev paths
+   (`<drive>:\<org-tree>\...`), Perforce depot identifiers (`//depot/...`),
+   internal hostnames / URLs / VPN endpoints.
+4. **Credentials** — API keys, OAuth tokens, PATs, private keys, passwords.
+   Real credentials never belong in this repo, including example configs and
+   test fixtures. Use placeholders (`<your-api-key>`).
+
+**Three layers enforce this**:
+- Pre-commit + commit-msg + pre-push git hooks (`.githooks/`) block matches
+- `scripts/check-leaks.bat` performs full-tree scans pre-PR
+- `server/test-leak-scan.mjs` runs the scan inside the standard test rotation
+
+**Project-specific local content** (handoffs, audit reports, manual test
+results, research notes) lives in **gitignored** doc trees:
+`docs/handoffs/`, `docs/audits/`, `docs/testing/`, `docs/research/`.
+These directories are intentionally excluded from tracking — write freely
+with full project specificity; nothing in them ever leaks because nothing
+in them ever enters the index.
+
+**On a fresh clone**, run `scripts\install-hooks.bat` to wire up the hooks
+(invoked automatically by `setup-uemcp.bat` unless `SETUP_SKIP_HOOKS=1`).
+After install, edit `.git/info/forbidden-tokens` (created with a stub
+template) to populate your project's actual sensitive tokens.
+
+Full rationale, threat model, and bypass policy:
+**`docs/security-policy.md`**.
+
 ## Shell & Tooling Requirements
 
 **Desktop Commander is MANDATORY for git and filesystem write operations.** The Cowork sandbox bash (`mcp__workspace__bash`) mounts the repo via a FUSE-like layer that cannot acquire `.git/index.lock` or `.git/HEAD.lock` files, causing git commits to fail or leave stale locks. All agents, workers, and conversations working in this repo MUST use Desktop Commander (`mcp__Desktop_Commander__start_process` with `shell: "cmd"`) for:
@@ -297,6 +334,7 @@ These exercise real Project-A fixtures (`.uasset`/`.umap` bytes on disk) and req
 | `server/test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 fixtures — 6 fixtures × per-graph edge-set hybrid match (68 assertions, D70) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-s-b-base-differential.mjs` |
 | `server/test-verb-surface.mjs` | M-new Verb-surface — 5 offline traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) + oracle cross-check on 3 fixtures (83 assertions, D72) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-verb-surface.mjs` |
 | `server/test-rc-wire.mjs` | M-enhance RC HTTP wire-mock — 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates) + cross-transport consistency checks (72 assertions, D74+D76) | `cd /d D:\DevTools\UEMCP\server && node test-rc-wire.mjs` |
+| `server/test-leak-scan.mjs` | Public-repo hygiene — invokes `scripts/check-leaks.sh` and asserts the full tracked tree has zero forbidden-token matches against `.git/info/forbidden-tokens` + `.githooks/forbidden-patterns.committed.txt`. Skips gracefully if bash absent or token list missing (D82) | `cd /d D:\DevTools\UEMCP\server && node test-leak-scan.mjs` |
 
 **Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
 

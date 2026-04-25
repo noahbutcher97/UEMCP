@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Pre-push hook: backstop scan of the diff between local and remote refs.
+# Catches anything the pre-commit hook missed (e.g. amended/rebased commits,
+# commits made with --no-verify, or commits authored before hooks were
+# installed).
+#
+# git provides on stdin: <local_ref> <local_sha> <remote_ref> <remote_sha>
+set -u
+
+here="$(cd "$(dirname "$0")" && pwd)"
+zero="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ "$local_sha" == "$zero" ]] && continue   # branch deletion
+
+  if [[ "$remote_sha" == "$zero" ]]; then
+    # New branch — scan all reachable commits (capped to limit work)
+    range="$local_sha"
+    diff_args=(-U0 --no-color "${range}" -- ".[!g]*" "[!.]*")
+  else
+    range="${remote_sha}..${local_sha}"
+    diff_args=(-U0 --no-color "${range}")
+  fi
+
+  diff_output="$(git diff "${diff_args[@]}" 2>/dev/null || true)"
+  added_lines="$(printf '%s\n' "$diff_output" | grep -E '^\+[^+]' || true)"
+
+  if [[ -n "$added_lines" ]]; then
+    printf '%s\n' "$added_lines" | "$here/check-tokens.sh" --label "outgoing diff ($range)" || exit 1
+  fi
+
+  # Also scan commit messages of outgoing commits
+  if [[ "$remote_sha" != "$zero" ]]; then
+    msgs="$(git log --format='%B%n--commit-end--' "${remote_sha}..${local_sha}" 2>/dev/null || true)"
+    if [[ -n "$msgs" ]]; then
+      printf '%s\n' "$msgs" | "$here/check-tokens.sh" --label "outgoing commit messages" || exit 1
+    fi
+  fi
+done
+
+exit 0
