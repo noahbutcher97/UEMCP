@@ -94,9 +94,18 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-25 (smoke landed 5 bugs; SMOKE-FIX queued; Wave 4 BLOCKED):
+In-flight as of 2026-04-25 (SMOKE-FIX shipped; M3 + M4 dispatchable; M5 waits on Bug 4 follow-up):
 
 - (none currently in flight)
+
+**Wave 4 dispatch readiness updated post-D87**:
+- **M3 + M4 dispatchable NOW** — neither depends on visual-capture; deployment cycle (sync-plugin.bat + Build.bat + relaunch) needed for Bugs 1 / 3-thread / 4-crash to close end-to-end (those are deployment gaps, not code defects per D87).
+- **M5 WAIT** — includes visual-capture toolset; depends on Bug 4 follow-up (thumbnail empty post-marshal) landing first.
+
+**Pending micro-fix candidates** (size-of-finding doesn't justify own audit-batch wave; queue for next plugin C++ pass):
+- **Thumbnail empty-result follow-up**: `ThumbnailTools::RenderThumbnail` returns empty bytes post-marshal for both StaticMesh + Blueprint. Worker theory: UE 5.6 render commands queue async; `AccessCompressedImageData` reads before pixels written. Fix sketch: `FlushRenderingCommands()` after RenderThumbnail OR `EThumbnailTextureFlushMode::ConditionallyFlush` mode. ~30 min worker scope.
+- **MCPThreadMarshal use-after-free latent defect**: `RunOnGameThread` captures `handler/Params/OutResponse` by reference; on 30s GT_TIMEOUT path the worker thread unwinds while the queued AsyncTask can still fire, dereferencing freed stack memory. Doesn't trigger in steady-state but is a real hazard. Fix: capture by value or shared_ptr. ~30-45 min.
+- **rc_passthrough body Zod-validation**: structured-object body param arrives stringified via MCP wire. Either schema accepts both shapes (`z.union([z.record(z.any()), z.string()])` with parse-on-string), OR description warns callers to pre-stringify. ~15 min.
 
 **HIGH-PRIORITY SMOKE-FIX dispatchable** — handoff `docs/handoffs/smoke-fix-thread-and-identifier-bugs.md`. **Blocks Wave 4 dispatch.** 5 plugin bugs from human-integration-smoke 2026-04-25 (D86):
 - **Bug 1 BLOCKER**: `bp_compile_and_report` editor crash (IsInAsyncLoadingThread assert)
@@ -140,6 +149,7 @@ File-collision analysis: zero overlap across the three. All three dispatchable i
 
 Recently shipped (most recent first):
 
+- **SMOKE-FIX** (commit `151ae4d`, 2026-04-25) — D87. 4/5 smoke-surfaced bugs CLOSED end-to-end. Critical finding: 3 "recurrences" in D86 weren't recurrences — they were deployment gaps (project-local plugin tree + MCP server process never picked up D83/D85 code). AUDIT-FIX-1 + AUDIT-FIX-3 were always correct. Real code fixes shipped: ReflectionWalker `_C` suffix normalization (Bug 3 path-half), rc_list_objects via `/remote/search/assets` (Bug 2), exhaustive 8-entry-point Bug 5 regression. Test rotation 1338 → 1381 passing across 12 files. New follow-up: thumbnail-empty post-marshal (Bug 4 second-order finding). New latent defect flagged: MCPThreadMarshal use-after-free on GT_TIMEOUT path.
 - **AUDIT-FIX-3 NodeGuid input bridge** (commit `7edd55d`, 2026-04-24) — D85. 3 handlers normalized via lookup-by-success pattern (bp_trace_exec, bp_trace_data, bp_neighbors). bp_show_node + bp_subgraph_in_comment correctly disambiguated as not-applicable (export_index / objectName, not NodeGuid). F-21 fallback removed in bpShowNode (D70 invariant: cross-graph NodeGuid scan can return wrong-graph node; degrades to FA-β not_available envelope). Behavior change: handler responses now echo canonical form, not raw input. Test rotation 1338 passing / 0 failing.
 - **AUDIT-FIX-2 RC semantic delegate expansion + toCdoPath fix** (commit `c512df2`, 2026-04-24) — D84. F-4 get_curve_asset (Float/Vector/LinearColor curve dispatch via describe-probe), F-5 get_mesh_info (5 UFUNCTIONs batched), F-6 list_material_parameters (scalar/vector/texture info-only), F-7 toCdoPath heuristic (only append `:Default__<>` when path ends in `_C`). test-rc-wire.mjs 72 → 110 (+38). Yaml descriptions narrowed to match implementation per D44 invariant.
 - **AUDIT-FIX-1 plugin thread-safety marshaling** (commit `4cc6275`+`67f8efb`, 2026-04-24) — D83 (was D81 before deconflict). — D81. All 18 plugin C++ handlers game-thread-marshaled via new MCPThreadMarshal helper. `RunOnGameThread` + 30s timeout + GT_TIMEOUT envelope + per-call wall-clock instrumentation. Test baseline unchanged (C++-only). Three worker hints captured: F-14 PIE teardown race still UNRESOLVED (engine-internal async beyond request-side marshaling); Edit tool silently drops multi-line edits on CRLF files in plugin/UEMCP/ tree (verify via git diff); Async/Future.h canonical UE 5.6 path (not Templates/Future.h).
