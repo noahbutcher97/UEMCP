@@ -4,29 +4,36 @@
 # commits made with --no-verify, or commits authored before hooks were
 # installed).
 #
+# Excludes the pattern-source files themselves (which by design contain the
+# patterns and would always self-match).
+#
 # git provides on stdin: <local_ref> <local_sha> <remote_ref> <remote_sha>
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
 zero="0000000000000000000000000000000000000000"
 
+exclude_paths=(
+  ":(exclude).githooks/forbidden-patterns.committed.txt"
+  ":(exclude).git/info/forbidden-tokens"
+)
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue   # branch deletion
 
   if [[ "$remote_sha" == "$zero" ]]; then
-    # New branch — scan all reachable commits (capped to limit work)
-    range="$local_sha"
-    diff_args=(-U0 --no-color "${range}" -- ".[!g]*" "[!.]*")
+    # New branch — scan all reachable commits via git log -p
+    diff_output="$(git log -p --no-color "${local_sha}" -- . "${exclude_paths[@]}" 2>/dev/null || true)"
+    range_label="new-branch ${local_sha}"
   else
-    range="${remote_sha}..${local_sha}"
-    diff_args=(-U0 --no-color "${range}")
+    diff_output="$(git diff -U0 --no-color "${remote_sha}..${local_sha}" -- . "${exclude_paths[@]}" 2>/dev/null || true)"
+    range_label="${remote_sha}..${local_sha}"
   fi
 
-  diff_output="$(git diff "${diff_args[@]}" 2>/dev/null || true)"
   added_lines="$(printf '%s\n' "$diff_output" | grep -E '^\+[^+]' || true)"
 
   if [[ -n "$added_lines" ]]; then
-    printf '%s\n' "$added_lines" | "$here/check-tokens.sh" --label "outgoing diff ($range)" || exit 1
+    printf '%s\n' "$added_lines" | "$here/check-tokens.sh" --label "outgoing diff ($range_label)" || exit 1
   fi
 
   # Also scan commit messages of outgoing commits
