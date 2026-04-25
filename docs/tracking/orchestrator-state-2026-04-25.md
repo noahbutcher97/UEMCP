@@ -24,7 +24,10 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **None currently dispatched.** Handoffs drafted + ready below.
+- **CLEANUP-MICRO** — dispatched 2026-04-25 via conversation opener (per §Multi-agent orchestration handoff convention). Worker scope: Bug 4 thumbnail PNG-compression + MCPThreadMarshal use-after-free + rc_passthrough Zod body validation. Awaiting final report.
+- **D81-SANITIZATION-AUDIT** — dispatched 2026-04-25 via conversation opener. Read-only audit deliverable at `docs/audits/d81-sanitization-regressions-2026-04-25.md`. Awaiting final report.
+
+D81-SANITIZATION-FIXES remains drafted-but-not-dispatched (gated on audit landing). M3/M4/M5 still pending Noah signal on Wave 4 readiness.
 
 ### Test baseline
 
@@ -162,8 +165,9 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | Wave 2 (M-new S-B-base + Verb-surface) | ✅ Shipped | — |
 | Wave 3 (M-enhance HYBRID + Phase 4 absorbed) | ✅ Shipped | — |
 | Validation cycle (audit + T-1b + smoke + audit-fixes 1/2/3 + SMOKE-FIX + deployment) | ✅ Complete | — |
-| CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | ⏸ Drafted, not dispatched | 1-1.5 hr |
-| D81-SANITIZATION-AUDIT + FIXES | ⏸ Drafted, not dispatched | 1-2.5 sessions |
+| CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | 🚀 In flight (dispatched 2026-04-25) | 1-1.5 hr |
+| D81-SANITIZATION-AUDIT | 🚀 In flight (dispatched 2026-04-25) | 0.5-1 session |
+| D81-SANITIZATION-FIXES | ⏸ Drafted; gated on audit landing | 0.5-1.5 sessions |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 
