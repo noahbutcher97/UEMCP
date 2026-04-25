@@ -197,6 +197,47 @@ Read operations (grep, glob, file reads) can use sandbox bash or Claude's built-
 
 **Handoff documents must include this guidance** — any handoff that involves git operations should note the Desktop Commander requirement.
 
+### .bat script convention — pause-on-exit so users can read output
+
+**Every `.bat` script in this repo must route all exits through a single `:end` label that pauses before exiting unless an explicit auto-yes / scripted-mode flag is set.** When users double-click a script from Explorer (no persistent terminal), the console closes instantly on `exit /b` regardless of success/failure. Without an explicit pause, error messages disappear before the user can read them — and silent success looks identical to silent failure.
+
+**Required pattern**:
+
+```cmd
+@echo off
+setlocal EnableDelayedExpansion
+
+set "EXIT_CODE=0"
+set "AUTO_YES=0"
+REM ...arg parsing; if user passes -y / --yes, set AUTO_YES=1...
+
+REM Replace every `exit /b N` with:
+REM   set "EXIT_CODE=N" & goto :end
+
+REM ...script body...
+
+set "EXIT_CODE=0"
+goto :end
+
+:end
+echo.
+if "!AUTO_YES!"=="0" (
+  echo [<script-name> exit code: !EXIT_CODE!]
+  pause
+)
+endlocal & exit /b %EXIT_CODE%
+```
+
+**Why this exact shape**:
+- Single point-of-exit means error messages always print before the pause
+- `AUTO_YES` flag lets CI / scripted callers skip the pause without code changes
+- `endlocal & exit /b %EXIT_CODE%` propagates the EXIT_CODE past `endlocal` (immediate-expansion idiom; `%` substitutes before `endlocal` runs)
+- Echo the exit code in interactive mode so users can distinguish success (0) from specific failure modes
+
+**Convention applies to all repo-root `.bat` files**: `setup-uemcp.bat`, `sync-plugin.bat`, `test-uemcp-gate.bat`, and any future scripts. Established 2026-04-25 (D87 era) after sync-plugin.bat exhibited the bug; setup-uemcp.bat had been patched the same way previously.
+
+**Source of the convention**: integration smoke test 2026-04-24/25 surfaced that sync-plugin.bat closed before user could verify success. Same class as setup-uemcp.bat's earlier "opens and closes immediately" issue.
+
 ## Code Standards
 
 - **ES Modules** (.mjs) — `import/export`, no CommonJS

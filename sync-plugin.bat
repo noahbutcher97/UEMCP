@@ -16,6 +16,11 @@ REM             2 xcopy failure, 3 user declined overwrite.
 
 setlocal EnableDelayedExpansion
 
+REM --- Pause-on-exit unless -y/--yes (scripted use) ---
+REM Without this, double-click + error paths close the window before user
+REM can read output. Same class as setup-uemcp.bat had (D78-era).
+set "EXIT_CODE=0"
+
 REM --- Detect UEMCP repo location (this script's directory) ---
 set "UEMCP_PATH=%~dp0"
 if "!UEMCP_PATH:~-1!"=="\" set "UEMCP_PATH=!UEMCP_PATH:~0,-1!"
@@ -41,7 +46,7 @@ if "!PROJECT_ARG!"=="" (
   goto :parse_args
 )
 echo [ERROR] Unexpected extra arg: %~1
-exit /b 1
+set "EXIT_CODE=1" & goto :end
 :parse_done
 
 REM --- No arg: GUI picker (reuse setup-uemcp.bat pattern) ---
@@ -50,7 +55,7 @@ if "!PROJECT_ARG!"=="" (
   for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Unreal Project|*.uproject'; $f.Title = 'Select the .uproject to sync UEMCP plugin into'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.FileName } else { 'CANCELLED_PROJECT' }"`) do set "PROJECT_ARG=%%I"
   if "!PROJECT_ARG!"=="CANCELLED_PROJECT" (
     echo [INFO] .uproject selection cancelled. Exiting.
-    exit /b 1
+    set "EXIT_CODE=1" & goto :end
   )
 )
 
@@ -58,7 +63,7 @@ REM Strip any surrounding quotes from arg or GUI output.
 set "PROJECT_ARG=!PROJECT_ARG:"=!"
 if "!PROJECT_ARG!"=="" (
   echo [ERROR] No project path provided.
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 REM --- Resolve and validate the .uproject path ---
@@ -70,11 +75,11 @@ for %%I in ("!PROJECT_ARG!") do (
 )
 if not exist "!UPROJECT_FULL!" (
   echo [ERROR] File not found: !UPROJECT_FULL!
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 if /i not "!PROJECT_EXT!"==".uproject" (
   echo [ERROR] Expected a .uproject file, got extension: !PROJECT_EXT!
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 set "UPROJECT_DIR=!UPROJECT_DIR_RAW!"
@@ -83,7 +88,7 @@ if "!UPROJECT_DIR:~-1!"=="\" set "UPROJECT_DIR=!UPROJECT_DIR:~0,-1!"
 REM Smoke-check this is a real UE project directory.
 if not exist "!UPROJECT_DIR!\Content\" (
   echo [ERROR] !UPROJECT_DIR!\Content\ not found — doesn't look like a UE project.
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 REM --- Compute source + target paths ---
@@ -92,7 +97,7 @@ set "PLUGIN_DEST=!UPROJECT_DIR!\Plugins\UEMCP"
 
 if not exist "!PLUGIN_SRC!" (
   echo [ERROR] Plugin source not found at !PLUGIN_SRC!
-  exit /b 1
+  set "EXIT_CODE=1" & goto :end
 )
 
 echo.
@@ -114,7 +119,7 @@ if not errorlevel 1 (
     echo [ERROR] UnrealEditor.exe is running and plugin DLL exists at target:
     echo         !DLL_PATH!
     echo         The DLL is locked. Close Unreal Editor and re-run this script.
-    exit /b 1
+    set "EXIT_CODE=1" & goto :end
   )
   echo [WARN] UnrealEditor.exe is running but no plugin DLL at target yet.
   echo        Sync will proceed; restart the editor after to load the plugin.
@@ -129,7 +134,7 @@ if exist "!PLUGIN_DEST!" (
     set /p "CONFIRM=Overwrite? [y/N]: "
     if /i not "!CONFIRM!"=="y" (
       echo Aborted. Existing plugin preserved.
-      exit /b 3
+      set "EXIT_CODE=3" & goto :end
     )
   ) else (
     echo Overwriting existing plugin at !PLUGIN_DEST! [auto-yes].
@@ -155,7 +160,7 @@ del /q "!EXCLUDE_FILE!" >nul 2>&1
 
 if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] xcopy failed with exit code !XCOPY_EXIT!.
-  exit /b 2
+  set "EXIT_CODE=2" & goto :end
 )
 
 echo [SUCCESS] Plugin synced to !PLUGIN_DEST!.
@@ -174,6 +179,13 @@ echo.
 echo If only .cpp bodies changed, a normal editor Live Coding or hot reload
 echo should suffice; no nuke needed.
 echo ----------------------------------------------------------------------
+set "EXIT_CODE=0"
+goto :end
 
-endlocal
-exit /b 0
+:end
+echo.
+if "!AUTO_YES!"=="0" (
+  echo [Sync exit code: !EXIT_CODE!]
+  pause
+)
+endlocal & exit /b %EXIT_CODE%
