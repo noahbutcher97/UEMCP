@@ -184,16 +184,37 @@ Then create `.git/info/forbidden-tokens` with one codename per line (use
 
 ### Multi-agent orchestration handoff convention
 
-Orchestrator session migrations + parallel multi-agent dispatches frequently need to share project codenames so workers can operate on actual file paths, asset paths, and live editor invocations — but those codenames **must never enter committed documentation** (per the public-repo hygiene rule above). Use a **two-channel pattern**:
+This codifies how UEMCP runs orchestrator + worker sessions in practice.
 
-- **Committed channel** (handoff docs in `docs/tracking/`, commit messages, D-log entries, README, CLAUDE.md): use placeholder vocabulary only (`<target-project>`, `Project A`, `Project B`, `<your-project>`, `${UNREAL_PROJECT_ROOT}`). Never include codenames. The pre-push hook will block them anyway.
-- **Ephemeral channel** (the inline opener / dispatch message that gets pasted into a new orchestrator session OR into a worker session at dispatch time): may include codenames so the receiving session can fill placeholders when invoking tools, reading paths, or writing local-only inputs.
+**Dispatch mechanism — orchestrator drafts openers, user dispatches.** The orchestrator session does NOT invoke the `Agent` tool to spawn workers from inside its own conversation. Instead, the orchestrator drafts a self-contained **conversation opener** for each worker, and the user (Noah) opens a fresh Claude Code conversation and pastes the opener as that conversation's first message. This applies equally to:
 
-**The receiving session translates codenames → placeholders before writing to disk.** Codenames stay in chat history; placeholders go to committed files. Same rule for worker handoffs that need codename info: pass codenames in the dispatch message, NOT in the worker's handoff doc on disk.
+- **Worker dispatches** (CLEANUP-MICRO, audit-fix workers, M-* implementation workers, audit workers, etc.)
+- **Orchestrator-state migrations** (when the current orchestrator hits context limits and needs to hand off to a successor — same pattern: write the state doc, draft the inline opener, user opens fresh session and pastes).
 
-This convention is what makes D82 NDA-gate operationally workable. Without the chat-side codename channel, every orchestrator migration would either lose project context (forcing rediscovery) or leak codenames into commits (forcing recovery cycles). With it: clean separation between knowable-context and committed-record.
+Why human-in-the-loop dispatch and not subagents:
+- **Clean context windows per worker** — each worker gets a fresh conversation, no inherited orchestrator context bloat, full ~200k available for the actual task.
+- **Human gate at dispatch boundary** — Noah reviews the opener before dispatching; catches scope drift, codename leaks, or stale assumptions before a worker burns budget.
+- **Deployment cycle ownership** (per D87) — workers ship code commits; Noah runs `sync-plugin.bat` + `Build.bat` + relaunches editor + restarts MCP server. The dispatch handoff is also where Noah picks up the deployment baton; an in-process subagent would blur that ownership.
+- **Parallelism without context contention** — multiple workers run as independent conversation forks, not as competing tool calls in one session.
 
-Established 2026-04-25 alongside D88-era orchestrator-state migration; codifies the chat-vs-disk separation that D82 sanitization implies but didn't previously make explicit.
+**Two-channel codename pattern** (established alongside the dispatch convention so codenames flow safely through openers):
+
+- **Committed channel** (handoff docs in `docs/tracking/`, commit messages, D-log entries, README, CLAUDE.md, and the standing handoff docs at `docs/handoffs/*.md` — even though those are gitignored, they're treated as committed-channel for hygiene and `Edit`/`Read` predictability): use placeholder vocabulary only (`<target-project>`, `Project A`, `Project B`, `<your-project>`, `${UNREAL_PROJECT_ROOT}`). Never include codenames. The pre-push hook will block them anyway.
+- **Ephemeral channel** (the inline opener / dispatch message that gets pasted into a new orchestrator session OR into a worker session at dispatch time, plus chat history within any session): may include codenames so the receiving session can fill placeholders when invoking tools, reading paths, or writing local-only inputs.
+
+**The receiving session translates codenames → placeholders before writing to disk.** Codenames stay in chat history; placeholders go to committed files. Same rule for worker openers that need codename info: pass codenames in the dispatch message, NOT in the worker's handoff doc on disk.
+
+**Opener content checklist** (what every worker opener must include):
+1. Worker role + 1-line mission.
+2. Explicit pointer to the worker's handoff doc at `docs/handoffs/<name>.md` (which uses placeholder vocabulary).
+3. Required pre-reads: D-log anchors, related handoff docs, prior-art commits.
+4. Codenames (if needed for live-editor invocations or absolute paths) — clearly delimited as ephemeral, with a "translate to placeholders for disk writes" reminder.
+5. Constraints: D49 path-limit, D82 NDA-gate, no AI attribution, Desktop Commander for git, single-commit preference, report-length cap.
+6. Final-report format the orchestrator expects back.
+
+This convention is what makes D82 NDA-gate operationally workable AND keeps the orchestration-as-conversation-fork pattern consistent. Without the chat-side codename channel, every orchestrator migration would either lose project context (forcing rediscovery) or leak codenames into commits (forcing recovery cycles). Without the human-in-the-loop dispatch rule, the orchestrator would silently spawn subagents inside its own context, defeating the parallelism + clean-context-per-worker design that drove the multi-conversation pattern in the first place.
+
+Established 2026-04-25 alongside D88-era orchestrator-state migration; codifies the chat-vs-disk separation that D82 sanitization implies but didn't previously make explicit. Dispatch-mechanism rule (orchestrator drafts openers; user dispatches) added later same day after a fresh-orchestrator session attempted to invoke `Agent` tool directly — clarification was missing from the original convention.
 
 ## Shell & Tooling Requirements
 
