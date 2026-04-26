@@ -24,9 +24,7 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **CLEANUP-M3-FIXES** — dispatched 2026-04-26 via conversation opener. Worker scope: 5 D99 smoke-finding fixes + 1 RC tip doc fix bundled. **Note (per D100 gauntlet sharpening)**: scope is narrower than gauntlet's broader patterns surfaced. When CLEANUP-M3-FIXES lands, evaluate whether worker caught the broader patterns (subobject-resolution-universal, all-3-widgets-PIE-lookup, BP-CDO-PIE-unload); if not, queue CLEANUP-M3-FIXES-2 follow-on. Awaiting final report.
-
-M5 scope-verifier shipped per D101 (verdict: PARTIALLY-REMAINING; 3 sub-workers, ~4.5-6.5 sessions including M5-PREP). Combined post-M3 smoke + streamlined gauntlet shipped per D100 (9 findings; new full-gauntlet handoff at `docs/handoffs/post-milestone-gauntlet.md` available for major milestone boundaries).
+- **None currently dispatched.** CLEANUP-M3-FIXES shipped per D102 (commit `78032c4`); worker proactively covered broader gauntlet patterns from D100, so CLEANUP-M3-FIXES-2 is NOT NEEDED. M5 scope-verifier shipped per D101. Combined smoke + gauntlet shipped per D100. Three new dispatch options ready: M5-PREP (gating M5 sub-workers), TEST-IMPORTS-FIX (tiny — fixes test-tcp-tools.mjs broken since D97), and the still-queued WIDGETS-PERF + FA-ε write-side audit.
 
 ### Test baseline
 
@@ -72,7 +70,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D101)
+## Recent D-log highlights (D77 → D102)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -101,6 +99,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D99** Post-M3 deployment smoke complete — Bug 4 CLOSED LIVE (M5 gate clears); M3 hotfix verified live; M3-bpw §7 full pass 7/7. **8 new findings surfaced** that wire-mock + tests couldn't catch: M3-actors handler gaps (Mobility traversal + screenshot silent-fail); M3-widgets gaps (PIE lookup + bind chain + 2-4s perf hitches); FA-ε write-side cross-transport inconsistency; RC CDO-path tip wrong; Bug 4 mime label JPEG-not-PNG. **TCP:55557 retirement gate PARTIAL** — needs CLEANUP-M3-FIXES + re-smoke before formal deprecation. M-enhance §Biggest-unknowns 4 (PIE teardown race) closed (NO-RACE-OBSERVED). Three new follow-on workers queued (CLEANUP-M3-FIXES + WIDGETS-PERF + FA-ε WRITE-SIDE AUDIT).
 - **D100** Streamlined gauntlet shipped (combined session with post-M3 smoke). 30-call gauntlet at smoke-tail; sharpened 3 D99 findings + surfaced 3 new ones. **Key sharpenings**: ALL 3 widgets-toolset asset-lookup tools fail under PIE (not just 1); subobject traversal pattern is universal (not just Mobility — also Visibility + Intensity on different subobjects); BP CDOs unload from memory after PIE cycles. New full-gauntlet handoff at `docs/handoffs/post-milestone-gauntlet.md` (~250 calls, for major milestone boundaries). Streamlined-gauntlet pattern (~30 calls, ~30 min) recommended as routine smoke-tail "dessert course" — codify into next post-deployment-smoke handoff.
 - **D101** M5 scope-verifier shipped. Verdict: PARTIALLY-REMAINING. Empirical scope = 19 tools across 5 toolsets (not 31). M-enhance D77 absorbed 12/31 tools as reads-side coverage. **3 sub-workers, ~4-5.5 sessions** (down from 6-10): M5-animation+materials (7 tools) + M5-input+geometry (6 tools) + M5-editor-utility (6 tools, security-sensitive). File-collision-safety: shard-upfront via M5-PREP scaffolding worker before sub-workers dispatch. **5 open decisions resolved**: defer M-enhance reads audit to audit-batch-2; ship `set_material_parameter` as RC delegate; verify Geometry Script plugin enabled (Noah action); `run_python_command` gets deny-list + startup flag + per-call logging; verify `get_audio_asset_info` offline-displaced (drop from M5 if confirmed).
+- **D102** CLEANUP-M3-FIXES shipped (commit `78032c4`, 5 fixes + 1 doc, +421/-66). Worker PROACTIVELY covered D100 gauntlet's broader patterns (subobject-traversal-universal in §1; all-3-widgets-PIE-lookup in §3) — CLEANUP-M3-FIXES-2 NOT NEEDED. Bonus: closed D93's FImageUtils 5.7-deprecation note via §2 migration. **NEW DRIFT FINDING**: `server/test-tcp-tools.mjs` has been broken at HEAD since D97 (M3-bpw deleted barrel `tcp-tools.mjs` but test imports never re-pointed). CLAUDE.md "1563/0" rotation count is stale by however many assertions test-tcp-tools contributed (likely 100+). Tiny TEST-IMPORTS-FIX worker queued (~0.25-0.5 session). **Pattern lesson** for future M5 sub-workers: when deleting from a barrel file, grep for imports of the barrel + re-point or flag for orchestrator. **6 UE 5.6 institutional-memory additions** captured (FImageUtils::CompressImage signature, FKismetEditorUtilities silent-nullptr, UK2Node_ComponentBoundEvent canonical fields, LoadObject vs LoadAsset under PIE, FObjectThumbnail JPEG-not-PNG naming, AActor::GetComponents SCS recursion).
 
 ---
 
@@ -200,7 +199,9 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **M5-animation+materials** | ⏸ Gated on M5-PREP — handoff drafts post-M5-PREP. Scope: 7 not-shipped (4 anim mutations + 3 materials mutations). `set_material_parameter` should ship as RC delegate per D101 (ii). | 1.5-2 sessions |
 | **M5-input+geometry** | ⏸ Gated on M5-PREP — handoff drafts post-M5-PREP. Scope: 6 not-shipped (3 Enhanced Input + 3 procedural mesh). Confirm Geometry Script plugin enabled in projects per D101 (iii) before dispatch | 1-1.5 sessions |
 | **M5-editor-utility** | ⏸ Gated on M5-PREP — handoff drafts post-M5-PREP. Scope: 6 not-shipped, **security-sensitive** (Python exec + asset delete per D101 (iv)). `run_python_command` deny-list + `--enable-python-exec` startup flag + log every call | 1.5-2 sessions |
-| **CLEANUP-M3-FIXES-2** (gauntlet-broader scope) | ⏸ Provisional — dispatch only if CLEANUP-M3-FIXES (in flight) lands at narrow scope per D100 finding. Broader scope: subobject-resolution-universal (set_actor_property + set_component_property family), all-3-widgets-PIE-lookup (not just 1), BP-CDO-PIE-unload | 1-2 sessions |
+| ~~CLEANUP-M3-FIXES-2~~ | ❌ NOT NEEDED — D102 worker proactively covered gauntlet's broader patterns (subobject-traversal-universal in §1, all-3-widgets-PIE-lookup in §3) within CLEANUP-M3-FIXES scope | — |
+| **CLEANUP-M3-FIXES** | ✅ Shipped 2026-04-26 (commit `78032c4`, see D102 — 5 fixes + 1 doc + gauntlet-broader patterns covered + 6 UE 5.6 institutional-memory additions) | — |
+| **TEST-IMPORTS-FIX** | ⏸ Drafting recommended — D102 surfaced that `server/test-tcp-tools.mjs` has been broken since D97 (M3-bpw deleted barrel `tcp-tools.mjs`; test imports never re-pointed). Tiny re-pointing + Group 21 wire-map test migration to per-toolset semantics | 0.25-0.5 session |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
