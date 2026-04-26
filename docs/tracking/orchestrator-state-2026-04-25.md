@@ -70,7 +70,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D95)
+## Recent D-log highlights (D77 → D98)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -93,6 +93,9 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D93** M3-actors shipped (commits `916a688` + `c161aec`, 10 actors tools live on TCP:55558). Pattern decisions captured for M3-blueprints-write + M3-widgets siblings: flat-file layout (single `<Toolset>Handlers.cpp` pair, NOT subdir); no per-handler MCPThreadMarshal (central marshal at Dispatch covers all); wire-type strings identical to oracle; per-toolset test files. Test rotation 1376 → 1401. UE 5.6 deprecation flag: `FImageUtils::CompressImageArray` (still works in 5.6 but deprecated-since-5.0).
 - **D94** DOCS-GROOMING shipped (commit `1a65d0f`, 6/6 audit Open Items + .githooks/pre-commit hook). **CRITICAL safety finding**: pre-existing UTF-8 locale bug in .githooks/pre-push silently missed multi-byte char lines for years. Orchestrator inline-fixed in this D-log commit (added `export LC_ALL=C.UTF-8` to pre-push). Pattern lesson: locale assumptions in shell scripts are silent failures.
 - **D95** M4 scope-empty redirect — all 12 M4-scoped reads-side tools were already shipped under M-enhance (D77). Worker correctly stopped before any implementation; provided 12-row evidence table. Orchestrator drafting error: M4 handoff drafted by analogy to M3 without verifying tools.yaml `layer:` empirically. Saved to memory at `feedback_orchestrator_handoff_starting_state_check.md`. Wave 4 remaining drops to M3-blueprints-write + M3-widgets + M5 (~10-15 sessions, down from ~13-20).
+- **D96** M3-widgets shipped (commit `315efb2`, 7 tools live on TCP:55558, both KNOWN-ISSUE handlers fixed during rebuild). Bug-1 fix: pure function graph + `FDelegateEditorBinding` registration. Bug-2 fix: PIE-gated CreateWidget+AddToViewport. UMG institutional-memory additions captured. Test 1401 → 1435. **CRITICAL parallel-worker shared-file collision finding** codified in `feedback_parallel_subworker_shared_config_collision.md` — handler-file disjointness alone insufficient; M3-widgets+M3-bpw needed 3 stash cycles to land cleanly. M3 umbrella overview amended post-hoc.
+- **D97** M3-blueprints-write shipped (commit `0c7448c`, 15 BP-write tools live; NOT 21 — 6 BP-node "orphans" already absorbed in oracle's 15-tool toolset). Landed atop M3-widgets via shared-file re-application. UE 5.6 API findings: `PC_Float` deprecated → `PC_Real` with subcategory; `FindOrCreateEventGraph` reimplemented via `FBlueprintEditorUtils::FindEventGraph`. Test rotation post-both-ships: 1563 / 0. 2 stale stashes safe to drop.
+- **D98** M3 milestone complete — all 32 transitional tools live on TCP:55558. tools.yaml grep confirms ZERO toolsets remain on `tcp-55557`. D23 oracle retirement now empirically actionable. Phase 3 ~95% complete; M5 is the only remaining Wave 4 milestone. TCP:55557 formal retirement queued for ~1 deploy-cycle post-smoke.
 
 ---
 
@@ -176,11 +179,14 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | D81-SANITIZATION-FIXES | ✅ Shipped 2026-04-26 (commit `5c48718`, see D92 — all 10 audit findings closed) | — |
 | DOCS-GROOMING (Open Items §2-§5 + pre-commit hook) | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94 — also surfaced UTF-8 locale bug in pre-push hook; orchestrator inline-fixed in same D-log commit) | — |
 | M3-actors | ✅ Shipped 2026-04-26 (commits `916a688` + `c161aec`, see D93 — pattern decisions captured for siblings) | — |
-| M3-blueprints-write | ⏸ Dispatchable — handoff updated 2026-04-26 with M3-actors pattern decisions (flat-file layout, central marshal, wire-type identity, test naming) | 3-4 sessions |
-| M3-widgets | ⏸ Dispatchable parallel-with-M3-blueprints-write — handoff updated 2026-04-26 | 1.5-2.5 sessions |
-| M4 reduced reads | ❌ SUPERSEDED 2026-04-26 (see D95 — all 12 tools already shipped via M-enhance per D77; handoff updated with SUPERSEDED header) | 0 sessions remaining |
-| M-enhance reads conformance audit (M4 redirect option 2) | ⏸ Optional follow-on — bundle with audit-batch-2 (22 remaining D79 findings) when that fires | TBD |
+| M3-widgets | ✅ Shipped 2026-04-26 (commit `315efb2`, see D96 — both KNOWN-ISSUE handlers fixed in rebuild; UMG institutional memory extended) | — |
+| M3-blueprints-write | ✅ Shipped 2026-04-26 (commit `0c7448c`, see D97 — landed atop M3-widgets via shared-file re-application) | — |
+| **M3 milestone** | ✅ COMPLETE 2026-04-26 (D98) — all 32 tools live on TCP:55558; D23 oracle retirement now empirically actionable | — |
+| M4 reduced reads | ❌ SUPERSEDED 2026-04-26 (see D95) | 0 sessions remaining |
+| M-enhance reads conformance audit (M4 redirect option 2) | ⏸ Optional follow-on — bundle with audit-batch-2 when that fires | TBD |
 | S-B-overrides scope amendment | ⏸ Orchestrator recommends (c) defer with switch-to-(a) trigger; awaiting Noah call | — |
+| **M5 — animation/materials/visual-capture/etc.** | ⏸ Operative Wave 4 dispatch surface; awaiting Noah signal. **Per D96 lesson, draft umbrella overview with shared-file integration strategy explicit before drafting sub-worker handoffs** — recommend option (b) shard-upfront for clean parallelism with 3-4 sub-workers | 6-10 sessions |
+| TCP:55557 formal retirement | ⏸ Queued — defer ~1 deployment cycle so live-fire smoke confirms all 32 tools end-to-end (particularly 2 PIE-dependent widgets fixes), then strip 55557 client code + remove `<project>/Plugins/UnrealMCP/` | 0.5-1 session post-smoke |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 
