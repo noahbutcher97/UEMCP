@@ -70,7 +70,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D92)
+## Recent D-log highlights (D77 → D95)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -90,6 +90,9 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D90** CLEANUP-MICRO shipped (commit `c95c2bb`, 5 files, 3 fixes). §2 use-after-free actually lived at the `Dispatch` call site, not the helper named in handoff — legitimate D72 scope deviation. Audit-batch-2 hint: orphan AsyncTasks invisible to wallclock instrumentation post-timeout.
 - **D91** Project B on UE 5.7 + offline parser breaks at header walk on every 5.7 .uasset attempted. Sidecar artifacts reliable cross-version (engine-generated); binary parser is broken. S-B-overrides scope amended to include header-layer delta, not just K2Node-layer drift.
 - **D92** D81-SANITIZATION-FIXES shipped (commit `5c48718`, 7 files, all 10 audit findings closed). All 3 repo-root .bat scripts now §.bat-convention compliant. Test rotation 1372/0 (4-assertion fixture-noise delta vs CLEANUP-MICRO baseline; no regression). D81 sanitization saga officially closed. Audit Open Items §2-§5 (CLAUDE.md/README drift) queued as a small grooming pass.
+- **D93** M3-actors shipped (commits `916a688` + `c161aec`, 10 actors tools live on TCP:55558). Pattern decisions captured for M3-blueprints-write + M3-widgets siblings: flat-file layout (single `<Toolset>Handlers.cpp` pair, NOT subdir); no per-handler MCPThreadMarshal (central marshal at Dispatch covers all); wire-type strings identical to oracle; per-toolset test files. Test rotation 1376 → 1401. UE 5.6 deprecation flag: `FImageUtils::CompressImageArray` (still works in 5.6 but deprecated-since-5.0).
+- **D94** DOCS-GROOMING shipped (commit `1a65d0f`, 6/6 audit Open Items + .githooks/pre-commit hook). **CRITICAL safety finding**: pre-existing UTF-8 locale bug in .githooks/pre-push silently missed multi-byte char lines for years. Orchestrator inline-fixed in this D-log commit (added `export LC_ALL=C.UTF-8` to pre-push). Pattern lesson: locale assumptions in shell scripts are silent failures.
+- **D95** M4 scope-empty redirect — all 12 M4-scoped reads-side tools were already shipped under M-enhance (D77). Worker correctly stopped before any implementation; provided 12-row evidence table. Orchestrator drafting error: M4 handoff drafted by analogy to M3 without verifying tools.yaml `layer:` empirically. Saved to memory at `feedback_orchestrator_handoff_starting_state_check.md`. Wave 4 remaining drops to M3-blueprints-write + M3-widgets + M5 (~10-15 sessions, down from ~13-20).
 
 ---
 
@@ -171,8 +174,13 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | ✅ Shipped 2026-04-25 (commit `c95c2bb`, see D90) | — |
 | D81-SANITIZATION-AUDIT | ✅ Shipped 2026-04-25 (audit doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`, see D89) | — |
 | D81-SANITIZATION-FIXES | ✅ Shipped 2026-04-26 (commit `5c48718`, see D92 — all 10 audit findings closed) | — |
+| DOCS-GROOMING (Open Items §2-§5 + pre-commit hook) | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94 — also surfaced UTF-8 locale bug in pre-push hook; orchestrator inline-fixed in same D-log commit) | — |
+| M3-actors | ✅ Shipped 2026-04-26 (commits `916a688` + `c161aec`, see D93 — pattern decisions captured for siblings) | — |
+| M3-blueprints-write | ⏸ Dispatchable — handoff updated 2026-04-26 with M3-actors pattern decisions (flat-file layout, central marshal, wire-type identity, test naming) | 3-4 sessions |
+| M3-widgets | ⏸ Dispatchable parallel-with-M3-blueprints-write — handoff updated 2026-04-26 | 1.5-2.5 sessions |
+| M4 reduced reads | ❌ SUPERSEDED 2026-04-26 (see D95 — all 12 tools already shipped via M-enhance per D77; handoff updated with SUPERSEDED header) | 0 sessions remaining |
+| M-enhance reads conformance audit (M4 redirect option 2) | ⏸ Optional follow-on — bundle with audit-batch-2 (22 remaining D79 findings) when that fires | TBD |
 | S-B-overrides scope amendment | ⏸ Orchestrator recommends (c) defer with switch-to-(a) trigger; awaiting Noah call | — |
-| CLAUDE.md/README grooming pass | ⏸ Drafting recommended — bundles audit Open Items §2-§5 (CLAUDE.md D-log header numbering, "1203 assertions" reconciliation, README.md:124 typo, README.md:67 hardcoded path, testing-strategy.md template path) | ~0.25-0.5 session |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 

@@ -8,6 +8,14 @@
 # Bypass: git push --no-verify
 set -u
 
+# Force UTF-8 locale — empty LANG on Git Bash for Windows causes
+# `grep -F -i -f` to silently miss matches on lines containing
+# multi-byte chars (Unicode box-drawing in CLAUDE.md, em-dashes in
+# READMEs). Without this export, the pre-push gate is leakier than
+# it appears. Discovered by DOCS-GROOMING worker 2026-04-26 while
+# wiring the matching .githooks/pre-commit hook.
+export LC_ALL=C.UTF-8
+
 tokens=".git/info/forbidden-tokens"
 if [[ ! -f "$tokens" ]]; then
   exit 0
