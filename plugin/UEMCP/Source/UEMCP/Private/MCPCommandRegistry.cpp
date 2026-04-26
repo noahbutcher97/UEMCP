@@ -24,6 +24,17 @@
 // add_widget_to_viewport) shipped with corrected behavior.
 #include "WidgetHandlers.h"
 
+// M5-PREP scaffold: 19 not-yet-shipped tool stubs across 5 toolsets (D101).
+// Each Register*Handlers below registers `not_implemented` lambda stubs that
+// emit a typed error envelope so live editor calls fail loudly. The 3 M5
+// sub-workers (animation+materials, input+geometry, editor-utility) replace
+// the stubs with real handlers in their respective .cpp files.
+#include "AnimationHandlers.h"
+#include "MaterialsHandlers.h"
+#include "InputAndPieHandlers.h"
+#include "GeometryHandlers.h"
+#include "EditorUtilityHandlers.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogUEMCPDispatch, Log, All);
 
 namespace UEMCP
@@ -167,5 +178,15 @@ namespace UEMCP
 		// 6 UMG handlers + 1 BP-node handler (add_blueprint_input_action_node)
 		// surfaced via the widgets toolset for legacy UI grouping reasons.
 		RegisterWidgetHandlers(*this);
+
+		// M5-PREP: 19 not-yet-shipped tool stubs across 5 toolsets (D101).
+		// Sub-workers replace the lambda stubs with real handlers; until then
+		// every wire-type registers a `not_implemented` envelope so live calls
+		// surface loudly rather than as UNKNOWN_COMMAND.
+		RegisterAnimationHandlers(*this);
+		RegisterMaterialsHandlers(*this);
+		RegisterInputAndPieHandlers(*this);
+		RegisterGeometryHandlers(*this);
+		RegisterEditorUtilityHandlers(*this);
 	}
 }

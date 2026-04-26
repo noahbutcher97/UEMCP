@@ -42,6 +42,36 @@ import {
   getMenhanceToolDefs,
   executeMenhanceTool,
 } from './menhance-tcp-tools.mjs';
+// M5-PREP scaffold (D101) — 5 toolset stubs covering 19 not-yet-shipped tools.
+// Each module exports an empty SCHEMAS object until the sub-worker fills it.
+// The for-loops below iterate zero times until then, so no MCP tools register
+// — sub-workers ship their toolset by editing ONLY their own m5-*-tools.mjs
+// file (no edit to server.mjs required).
+import {
+  initM5AnimationTools,
+  getM5AnimationToolDefs,
+  executeM5AnimationTool,
+} from './m5-animation-tools.mjs';
+import {
+  initM5MaterialsTools,
+  getM5MaterialsToolDefs,
+  executeM5MaterialsTool,
+} from './m5-materials-tools.mjs';
+import {
+  initM5InputPieTools,
+  getM5InputPieToolDefs,
+  executeM5InputPieTool,
+} from './m5-input-pie-tools.mjs';
+import {
+  initM5GeometryTools,
+  getM5GeometryToolDefs,
+  executeM5GeometryTool,
+} from './m5-geometry-tools.mjs';
+import {
+  initM5EditorUtilityTools,
+  getM5EditorUtilityToolDefs,
+  executeM5EditorUtilityTool,
+} from './m5-editor-utility-tools.mjs';
 
 // ── Synchronous yaml preload (D44) ─────────────────────────────────
 // tools.yaml is the single source of truth for tool descriptions and params.
@@ -826,6 +856,61 @@ for (const [name, def] of Object.entries(menhanceToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
+// ── Register M5-PREP scaffold tools (TCP:55558) ────────────────────
+// M5-PREP (D101): 5 stub toolsets reserving registration insertion points so
+// the 3 M5 sub-workers can each fill in their own m5-*-tools.mjs without
+// touching server.mjs. Each loop iterates the (currently empty) SCHEMAS
+// object — zero MCP tools register until sub-workers populate them. When a
+// sub-worker adds entries, this loop registers them at next startup with
+// the same handle.disable() + toolsetManager.registerToolHandle convention
+// the other TCP toolsets use.
+
+const m5ToolsetGroups = [
+  { name: 'animation',      defs: getM5AnimationToolDefs(),      execute: executeM5AnimationTool      },
+  { name: 'materials',      defs: getM5MaterialsToolDefs(),      execute: executeM5MaterialsTool      },
+  { name: 'input-and-pie',  defs: getM5InputPieToolDefs(),       execute: executeM5InputPieTool       },
+  { name: 'geometry',       defs: getM5GeometryToolDefs(),       execute: executeM5GeometryTool       },
+  { name: 'editor-utility', defs: getM5EditorUtilityToolDefs(),  execute: executeM5EditorUtilityTool  },
+];
+
+for (const group of m5ToolsetGroups) {
+  for (const [name, def] of Object.entries(group.defs)) {
+    const schema = {};
+    for (const [paramName, zodField] of Object.entries(def.schema)) {
+      schema[paramName] = zodField;
+    }
+
+    const handle = server.tool(
+      name,
+      def.description,
+      schema,
+      async (args, ctx) => {
+        try {
+          log('info', `Executing m5 ${group.name} tool: ${name}`);
+          const result = await group.execute(name, args, connectionManager);
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            }],
+          };
+        } catch (err) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error in ${name}: ${err.message}`,
+            }],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    handle.disable();
+    toolsetManager.registerToolHandle(name, handle);
+  }
+}
+
 // ── Wire tools/list_changed notification ───────────────────────────
 
 // NOTE: tools/list_changed notifications are now handled automatically by the
@@ -852,6 +937,13 @@ async function main() {
   initBlueprintsWriteTools(toolsetManager.getToolsData());
   initWidgetsTools(toolsetManager.getToolsData());
   initMenhanceTools(toolsetManager.getToolsData());
+  // M5-PREP scaffold (D101) — wire_type maps for the 5 stub toolsets.
+  // No-op until sub-workers add `wire_type:` fields to tools.yaml entries.
+  initM5AnimationTools(toolsetManager.getToolsData());
+  initM5MaterialsTools(toolsetManager.getToolsData());
+  initM5InputPieTools(toolsetManager.getToolsData());
+  initM5GeometryTools(toolsetManager.getToolsData());
+  initM5EditorUtilityTools(toolsetManager.getToolsData());
 
   // Check offline layer availability
   await connectionManager.checkOfflineAvailable();
