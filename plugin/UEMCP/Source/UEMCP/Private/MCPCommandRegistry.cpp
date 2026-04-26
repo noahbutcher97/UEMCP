@@ -13,6 +13,9 @@
 #include "SidecarSaveHook.h"
 #include "VisualCaptureHandler.h"
 
+// M3-actors: 10 actor-toolset handlers reimplemented on TCP:55558 (D23).
+#include "ActorHandlers.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogUEMCPDispatch, Log, All);
 
 namespace UEMCP
@@ -145,5 +148,8 @@ namespace UEMCP
 		RegisterDataSourceHandlers(*this);
 		RegisterSidecarCommands(*this);
 		RegisterVisualCaptureHandler(*this);
+
+		// M3-actors: 10 actor-toolset commands (oracle retirement, D23).
+		RegisterActorHandlers(*this);
 	}
 }

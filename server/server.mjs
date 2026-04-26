@@ -23,10 +23,14 @@ import { executeOfflineTool } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import {
   initTcpTools,
-  getActorsToolDefs, executeActorsTool,
   getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
   getWidgetsToolDefs, executeWidgetsTool,
 } from './tcp-tools.mjs';
+import {
+  initActorsTools,
+  getActorsToolDefs,
+  executeActorsTool,
+} from './actors-tcp-tools.mjs';
 import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
 import {
   initMenhanceTools,
@@ -595,8 +599,9 @@ for (const [name, def] of Object.entries(offlineToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
-// ── Register actors tools (TCP:55557) ─────────────────────────────
-// Phase 2: actors toolset — 10 tools that talk to the existing UnrealMCP plugin.
+// ── Register actors tools (TCP:55558) ─────────────────────────────
+// M3 (D23 oracle retirement): actors toolset — 10 tools that talk to the
+// UEMCP custom plugin on TCP:55558. Handlers live in server/actors-tcp-tools.mjs.
 // Same pattern as offline tools: capture handle, start disabled, register with ToolsetManager.
 
 const actorsToolDefs = getActorsToolDefs();
@@ -832,6 +837,7 @@ async function main() {
   await toolsetManager.load();
   // Initialize TCP wire_type maps from parsed YAML
   initTcpTools(toolsetManager.getToolsData());
+  initActorsTools(toolsetManager.getToolsData());
   initMenhanceTools(toolsetManager.getToolsData());
 
   // Check offline layer availability

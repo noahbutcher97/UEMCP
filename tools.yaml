@@ -335,8 +335,8 @@ toolsets:
 
   # ── Existing Plugin (TCP:55557) ───────────────────────────
   actors:
-    layer: tcp-55557
-    priority: null   # existing plugin, not ours to implement
+    layer: tcp-55558
+    priority: null   # M3 (D23): reimplemented on UEMCP custom plugin TCP:55558
     description: Level editing, actor manipulation, viewport
     tools:
       get_actors:
