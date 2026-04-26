@@ -24,7 +24,10 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **None currently dispatched.** CLEANUP-MICRO + D81-SANITIZATION-AUDIT both shipped per D90 + D89. D81-SANITIZATION-FIXES gate cleared; ready for next dispatch.
+- **CLEANUP-M3-FIXES** — dispatched 2026-04-26 via conversation opener. Worker scope: 5 D99 smoke-finding fixes + 1 RC tip doc fix bundled (set_actor_property Mobility traversal, take_screenshot silent-fail + FImageUtils 5.7-deprecation migration, M3-widgets PIE-lookup, bind_widget_event chain, Bug 4 mime label, RC CDO-path tip). File-disjoint across ActorHandlers + WidgetHandlers + VisualCaptureHandler + tools.yaml. Awaiting final report.
+- **M5 scope-verifier** — dispatched 2026-04-26 via conversation opener. Read-only audit deliverable at `docs/audits/m5-scope-verification-2026-04-26.md`. Per `feedback_orchestrator_handoff_starting_state_check.md` precaution + D95 framing-error precedent — empirically verifies what M5 actually needs to ship before sub-worker handoffs draft. Awaiting final report.
+
+WIDGETS-PERF + FA-ε write-side audit + TCP:55557 client-deletion cleanup queue stays parallel-safe with both in-flight workers; available for fan-out if Noah wants throughput.
 
 ### Test baseline
 
