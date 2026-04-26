@@ -26,7 +26,7 @@ The Node.js MCP server runs, connects via stdio, and exposes 16 tools (6 managem
 **Test 1 — Server boots clean (smoke test)**
 ```bash
 # From terminal, run the server directly with env vars
-cd ~/.claude/mcp-servers/unreal
+cd <UEMCP_REPO_PATH>/server
 UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
 # Should start without errors, listen on stdio
 # Ctrl+C to exit

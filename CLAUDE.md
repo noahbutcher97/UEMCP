@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **1203 total assertions passing** across 10 test files (as of D77 / 2026-04-23, M-enhance ship-complete). Pre-Agent-10 baseline was 436; Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120 (new test-s-b-base-differential.mjs); CL-1 refreshed 7 drifts; Verb-surface +83 (new test-verb-surface.mjs); M-enhance across 4 sessions +166 (new test-rc-wire.mjs + test-tcp-tools.mjs extensions covering rc-tools + menhance-tcp-tools).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1376 unit-runnable assertions** (post-D92 baseline; varies ±4 by fixture availability — see T-1b synthetic-fixture migration status) across 11 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120 (new test-s-b-base-differential.mjs); CL-1 refreshed 7 drifts; Verb-surface +83 (new test-verb-surface.mjs); M-enhance across 4 sessions +166 (new test-rc-wire.mjs + test-tcp-tools.mjs extensions covering rc-tools + menhance-tcp-tools); AUDIT-FIX-3 +17 (test-verb-surface NodeGuid normalization, D85); SMOKE-FIX +43 (test-verb-surface exhaustive Bug 5 regression + test-rc-wire shape assertions, D87); CLEANUP-MICRO +4 (test-rc-wire body-normalization regression, D90).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -154,7 +154,7 @@ UEMCP/
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   ├── research/          ← parser survey, audit, design options (5 files)
 │   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D50)
+│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D92, growing)
 └── .claude/               ← project-level Claude settings
 ```
 
@@ -193,17 +193,26 @@ research notes) lives in **gitignored** doc trees: `docs/handoffs/`,
 `docs/audits/`, `docs/testing/`, `docs/research/`. Write freely there with
 full project specificity — those directories never enter the index.
 
-**A pre-push hook** (`.githooks/pre-push`) scans outgoing commits for
-codenames listed in `.git/info/forbidden-tokens` (per-checkout, untracked)
-and blocks the push if any match. One-time setup on a fresh clone:
+**Two hooks** in `.githooks/` scan content against
+`.git/info/forbidden-tokens` (per-checkout, untracked):
+
+- **`.githooks/pre-commit`** — scans staged diff at commit time. Catches
+  leaks one cycle earlier so the operator doesn't have to grep manually
+  before each commit.
+- **`.githooks/pre-push`** — scans the outgoing commit range (file diff +
+  commit messages) at push time. Final gate before content goes public.
+
+Both block on match; bypass in genuine emergencies with
+`git commit --no-verify` or `git push --no-verify` (rare).
+
+One-time setup on a fresh clone:
 
 ```cmd
 git config core.hooksPath .githooks
 ```
 
 Then create `.git/info/forbidden-tokens` with one codename per line (use
-`regex:<pattern>` lines for regex matches). Bypass in genuine emergencies:
-`git push --no-verify` (rare).
+`regex:<pattern>` lines for regex matches).
 
 ### Multi-agent orchestration handoff convention
 
@@ -387,12 +396,12 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D50).
+See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D92, growing).
 
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: 1203 assertions across 10 test files** (as of D77 / 2026-04-23, M-enhance ship-complete). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base (new test-s-b-base-differential.mjs), +83 Verb-surface (new test-verb-surface.mjs), +166 M-enhance across 4 sessions (new test-rc-wire.mjs + test-tcp-tools.mjs extensions). CL-1 refreshed 7 drifts without count change.
+**Total: ~1376 unit-runnable assertions across 11 test files** (post-D92 baseline; varies ±4 by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base (new test-s-b-base-differential.mjs), +83 Verb-surface (new test-verb-surface.mjs), +166 M-enhance across 4 sessions (new test-rc-wire.mjs + test-tcp-tools.mjs extensions), +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90). CL-1 refreshed 7 drifts without count change. test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Test Files — Primary Rotation
 

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Pre-commit: scan staged diff for NDA codenames listed in
+# .git/info/forbidden-tokens (per-checkout, untracked).
+#
+# Catches leaks one cycle earlier than pre-push so the operator
+# doesn't have to grep manually before each commit. Pre-push remains
+# the public-boundary gate (covers commit messages + remote sync).
+#
+# Bypass: git commit --no-verify
+set -u
+
+# Force UTF-8 locale so grep -F -i case-folding doesn't silently drop
+# matches on lines containing multi-byte chars (Git Bash for Windows
+# defaults LANG empty; without this, Unicode box-drawing in CLAUDE.md
+# and similar files masks token hits).
+export LC_ALL=C.UTF-8
+
+tokens=".git/info/forbidden-tokens"
+if [[ ! -f "$tokens" ]]; then
+  exit 0
+fi
+
+literals="$(mktemp)"
+regexes="$(mktemp)"
+trap 'rm -f "$literals" "$regexes"' EXIT
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -z "${line// /}" || "${line:0:1}" == "#" ]] && continue
+  if [[ "$line" == regex:* ]]; then
+    printf '%s\n' "${line#regex:}" >> "$regexes"
+  else
+    printf '%s\n' "$line" >> "$literals"
+  fi
+done < "$tokens"
+
+if [[ ! -s "$literals" && ! -s "$regexes" ]]; then
+  exit 0
+fi
+
+content="$(git diff --cached --no-color 2>/dev/null)"
+[[ -z "$content" ]] && exit 0
+
+hits=""
+if [[ -s "$literals" ]]; then
+  m="$(printf '%s\n' "$content" | grep -F -i -n -f "$literals" 2>/dev/null | head -10 || true)"
+  [[ -n "$m" ]] && hits+="$m"$'\n'
+fi
+if [[ -s "$regexes" ]]; then
+  m="$(printf '%s\n' "$content" | grep -E -i -n -f "$regexes" 2>/dev/null | head -10 || true)"
+  [[ -n "$m" ]] && hits+="$m"$'\n'
+fi
+
+if [[ -n "$hits" ]]; then
+  {
+    echo ""
+    echo "✗ Commit blocked: NDA codename detected in staged diff"
+    echo ""
+    printf '%s' "$hits"
+    echo ""
+    echo "  Edit content to remove/replace, or bypass with 'git commit --no-verify'."
+    echo "  Token list: .git/info/forbidden-tokens"
+    echo ""
+  } >&2
+  exit 1
+fi
+
+exit 0

@@ -64,7 +64,7 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 ## Running the server locally (dev only)
 
 ```cmd
-cd D:\DevTools\UEMCP\server
+cd <UEMCP_REPO_PATH>/server
 set UNREAL_PROJECT_ROOT=path/to/YourProject
 node server.mjs
 ```
@@ -121,4 +121,4 @@ See [`docs/README.md`](docs/README.md) for the full documentation index and read
 | `node --version` not recognized after install | Close the cmd window and open a fresh one; Windows PATH doesn't refresh mid-session. |
 | Plugin doesn't appear in Unreal Editor | Verify `<project>\Plugins\UEMCP\UEMCP.uplugin` exists. Re-run `sync-plugin.bat`. |
 | Port 55558 conflict in editor | Another UEMCP editor is running. Close it first. |
-| `test-uemcp-gate.bat` reports `[FAIL]` | Likely stale DLL from UBT cache — `rmdir /s /q <project>\Plugins\UEMCP\Binaries Intermediate` then rebuild via `Build.bat`. See D61 in `docs/tracking/risks-and-decisions.md`. |
+| `test-uemcp-gate.bat` reports `[FAIL]` | Likely stale DLL from UBT cache — `rmdir /s /q <project>\Plugins\UEMCP\Binaries <project>\Plugins\UEMCP\Intermediate` then rebuild via `Build.bat`. See D61 in `docs/tracking/risks-and-decisions.md`. |
