@@ -1,14 +1,22 @@
-// TCP toolset handlers — Phase 2
+// Blueprints-write toolset TCP handlers — M3 (D23 oracle retirement).
 //
-// Each toolset gets a section with:
-//   - Zod param schemas (matching contracts doc, not tools.yaml stubs)
-//   - Handler function that validates, translates, and dispatches via ConnectionManager
-//   - Tool-def export for server.mjs registration
+// 15 tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
+// legacy blueprints-write section of tcp-tools.mjs, which routed to the
+// conformance oracle (UnrealMCP plugin BlueprintCommands + BlueprintNodeCommands,
+// TCP:55557).
 //
-// Name translation (tools.yaml name → C++ type string) is driven by
-// wire_type fields in tools.yaml, loaded once via initTcpTools().
+// Per conformance-oracle-contracts.md §8.1, the toolset already absorbed the
+// 6 BlueprintNodeCommands "orphans" (function_node, variable, self_reference,
+// component_reference, connect_nodes, find_nodes) — total 15 endpoints, NOT 21
+// as the M3 handoff prose suggested.
 //
-// Reference: docs/specs/conformance-oracle-contracts.md Sections 1, 3, 4, 6, 7, 8
+// Wire-shape parity preserved against the oracle (per docs/specs/conformance-
+// oracle-contracts.md §2 + §3) — only the port + P0-1 envelope differ. Wire-
+// type strings unchanged so migrated callers see no rename churn.
+//
+// Convention matches actors-tcp-tools.mjs (M3-actors precedent):
+// {description, schema, isReadOp} per tool, wire_type translation via
+// tools.yaml (`blueprints-write:` toolset), ConnectionManager.send dispatch.
 
 import { z } from 'zod';
 
@@ -16,49 +24,38 @@ import { z } from 'zod';
 
 const Vec3 = z.array(z.number()).length(3).describe('[x, y, z]');
 const Vec3Optional = Vec3.optional();
-const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] position');
+const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] graph position');
 
-// ── Wire-type name maps (populated by initTcpTools) ────────────
-// Each maps tools.yaml name → C++ type string. Only entries where
-// the two differ are stored; identity mappings use fallback.
+// ── Wire-type map (populated by initBlueprintsWriteTools from tools.yaml) ──
+// tools.yaml `blueprints-write:` is the single source of truth (D44). Only
+// entries where the tools.yaml name differs from the C++ type string are
+// stored — identity mappings fall through via `toolName`.
 
-// M3 (D23): the actors-toolset and widgets-toolset wire maps moved to
-// server/actors-tcp-tools.mjs and server/widgets-tcp-tools.mjs when those
-// toolsets flipped to TCP:55558. blueprints-write remains here until the
-// M3-blueprints-write sub-worker ships.
 let BLUEPRINTS_WRITE_WIRE_MAP = {};
 
 /**
- * Build a wire_type map for a single toolset from parsed tools.yaml.
- * @param {object} toolsData — parsed tools.yaml root
- * @param {string} toolsetName
- * @returns {Record<string, string>} toolName → wireType (non-identity only)
- */
-function buildWireTypeMap(toolsData, toolsetName) {
-  const map = {};
-  const toolset = toolsData?.toolsets?.[toolsetName];
-  if (!toolset?.tools) return map;
-  for (const [name, def] of Object.entries(toolset.tools)) {
-    if (def.wire_type) {
-      map[name] = def.wire_type;
-    }
-  }
-  return map;
-}
-
-/**
- * Initialize wire_type maps from parsed tools.yaml data.
+ * Initialize wire_type map from parsed tools.yaml.
  * Call once from server.mjs after toolsetManager.load().
  * @param {object} toolsData — parsed tools.yaml root object
  */
-export function initTcpTools(toolsData) {
-  // actors moved to actors-tcp-tools.mjs (M3, D23). initActorsTools handles its map.
-  // widgets moved to widgets-tcp-tools.mjs (M3, D23). initWidgetsTools handles its map.
-  BLUEPRINTS_WRITE_WIRE_MAP = buildWireTypeMap(toolsData, 'blueprints-write');
+export function initBlueprintsWriteTools(toolsData) {
+  BLUEPRINTS_WRITE_WIRE_MAP = {};
+  const toolset = toolsData?.toolsets?.['blueprints-write'];
+  if (!toolset?.tools) return;
+  for (const [name, def] of Object.entries(toolset.tools)) {
+    if (def.wire_type) {
+      BLUEPRINTS_WRITE_WIRE_MAP[name] = def.wire_type;
+    }
+  }
 }
 
-// ── Blueprints-write toolset (tcp-55557) ──────────────────────
-// 15 tools — contracts: conformance-oracle-contracts.md Sections 3, 6, 8
+// ── Schemas ────────────────────────────────────────────────────
+//
+// Field names match the C++ handler param names (params pass straight
+// through). Derived from conformance-oracle-contracts.md §2 + §3, NOT
+// the tools.yaml `(unstubbed)` placeholders. P0-9 / P0-10 defense-in-
+// depth validation runs here so bad shapes never reach the wire (where
+// the plugin's TryReadVector3 silently zeros them on shape mismatch).
 
 export const BLUEPRINTS_WRITE_SCHEMAS = {
 
@@ -90,13 +87,13 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       blueprint_name: z.string().describe('Blueprint asset name'),
       component_name: z.string().describe('SCS node variable name'),
       property_name: z.string().describe('UProperty name'),
-      property_value: z.any().describe('Value — special SpringArm handling for Vector/Rotator'),
+      property_value: z.any().describe('Value — Vector struct accepts [x,y,z] array or scalar broadcast'),
     },
     isReadOp: false,
   },
 
   compile_blueprint: {
-    description: 'Compile a Blueprint (does not report compile errors)',
+    description: 'Compile a Blueprint (does not report compile errors — see bp_compile_and_report for diagnostics)',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
     },
@@ -108,7 +105,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       property_name: z.string().describe('UProperty name on the CDO'),
-      property_value: z.any().describe('Value — type coerced via SetObjectProperty'),
+      property_value: z.any().describe('Value — type coerced via SetUProperty'),
     },
     isReadOp: false,
   },
@@ -165,7 +162,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function name to call'),
-      target: z.string().optional().describe('Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP own class.'),
+      target: z.string().optional().describe('Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP\'s own class.'),
       node_position: Vec2Optional,
       params: z.record(z.any()).optional().describe('Default values for function input pins'),
     },
@@ -221,29 +218,34 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       node_type: z.string().describe("Currently only 'Event' supported"),
       event_name: z.string().optional().describe('Required when node_type=Event'),
     },
-    isReadOp: true,  // read operation — cacheable
+    isReadOp: true,
   },
 };
 
+/**
+ * Execute a blueprints-write toolset tool against TCP:55558.
+ *
+ * @param {string} toolName — tools.yaml name (e.g., 'create_blueprint')
+ * @param {object} args — raw args (validated here via Zod)
+ * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
+ * @returns {Promise<object>} — wire response (Bridge envelope, normalized by ConnectionManager)
+ */
 export async function executeBlueprintsWriteTool(toolName, args, connectionManager) {
-  const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;
   const def = BLUEPRINTS_WRITE_SCHEMAS[toolName];
-  const skipCache = def ? !def.isReadOp : true;
+  if (!def) throw new Error(`blueprints-write-tcp-tools: unknown tool "${toolName}"`);
 
-  // P0-9 / P0-10 defense-in-depth parse — see executeActorsTool for rationale.
-  const validated = def ? z.object(def.schema).parse(args) : args;
+  // P0-9 (required-param) / P0-10 (vector shape) — Zod here so bad shapes
+  // never hit the wire. The SDK already parses at tools/call, but direct
+  // callers (tests, internal reuse) bypass that layer.
+  const validated = z.object(def.schema).parse(args);
 
-  const result = await connectionManager.send('tcp-55557', typeString, { ...validated }, { skipCache });
-  return result;
+  // Wire-type translation: tools.yaml name → C++ type string.
+  const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;
+
+  return connectionManager.send('tcp-55558', typeString, { ...validated }, { skipCache: !def.isReadOp });
 }
 
-
-// ── Tool definition exports ──────────────────────────────────
-// server.mjs imports these to register tools with the MCP server.
-// Returns { name -> { description, schema, isReadOp } } for each tool.
-// Note: getActorsToolDefs  lives in actors-tcp-tools.mjs  (M3, D23).
-// Note: getWidgetsToolDefs lives in widgets-tcp-tools.mjs (M3, D23).
-
+/** Export tool-def shape for server.mjs registration. */
 export function getBlueprintsWriteToolDefs() {
   return BLUEPRINTS_WRITE_SCHEMAS;
 }

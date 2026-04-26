@@ -402,7 +402,7 @@ toolsets:
           resolution_y: { type: number, required: false, description: "Screenshot height in pixels" }
 
   blueprints-write:
-    layer: tcp-55557
+    layer: tcp-55558
     priority: null
     description: Blueprint creation, components, nodes
     note: >

@@ -22,14 +22,15 @@ import { ToolsetManager } from './toolset-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import {
-  initTcpTools,
-  getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
-} from './tcp-tools.mjs';
-import {
   initActorsTools,
   getActorsToolDefs,
   executeActorsTool,
 } from './actors-tcp-tools.mjs';
+import {
+  initBlueprintsWriteTools,
+  getBlueprintsWriteToolDefs,
+  executeBlueprintsWriteTool,
+} from './blueprints-write-tcp-tools.mjs';
 import {
   initWidgetsTools,
   getWidgetsToolDefs,
@@ -646,8 +647,11 @@ for (const [name, def] of Object.entries(actorsToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
-// ── Register blueprints-write tools (TCP:55557) ─────────────────────
-// Phase 2: blueprints-write toolset — 15 tools for BP creation, components, graph nodes.
+// ── Register blueprints-write tools (TCP:55558) ─────────────────────
+// M3 (D23 oracle retirement): blueprints-write toolset — 15 tools for BP
+// creation, components, and graph nodes. Handlers live in
+// server/blueprints-write-tcp-tools.mjs and dispatch to the UEMCP custom
+// plugin on TCP:55558 (replaced the conformance-oracle path post-M3).
 
 const bpWriteToolDefs = getBlueprintsWriteToolDefs();
 
@@ -844,8 +848,8 @@ async function main() {
   // Load tools.yaml and build the search index
   await toolsetManager.load();
   // Initialize TCP wire_type maps from parsed YAML
-  initTcpTools(toolsetManager.getToolsData());
   initActorsTools(toolsetManager.getToolsData());
+  initBlueprintsWriteTools(toolsetManager.getToolsData());
   initWidgetsTools(toolsetManager.getToolsData());
   initMenhanceTools(toolsetManager.getToolsData());
 
