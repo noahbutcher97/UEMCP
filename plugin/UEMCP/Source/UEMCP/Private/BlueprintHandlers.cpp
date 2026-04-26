@@ -1004,7 +1004,9 @@ namespace UEMCP
 
 			// Resolve the UFunction — walk the target class hierarchy or the BP class.
 			UFunction* Function = nullptr;
-			UClass* SearchClass = TargetClass ? TargetClass : Blueprint->GeneratedClass;
+			// Blueprint->GeneratedClass is TSubclassOf<UObject> in UE 5.6;
+			// .Get() to UClass* so the ternary types match TargetClass (UClass*).
+			UClass* SearchClass = TargetClass ? TargetClass : Blueprint->GeneratedClass.Get();
 			while (SearchClass && !Function)
 			{
 				Function = SearchClass->FindFunctionByName(*FunctionName);
