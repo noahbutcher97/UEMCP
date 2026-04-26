@@ -70,7 +70,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D98)
+## Recent D-log highlights (D77 → D99)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -96,6 +96,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D96** M3-widgets shipped (commit `315efb2`, 7 tools live on TCP:55558, both KNOWN-ISSUE handlers fixed during rebuild). Bug-1 fix: pure function graph + `FDelegateEditorBinding` registration. Bug-2 fix: PIE-gated CreateWidget+AddToViewport. UMG institutional-memory additions captured. Test 1401 → 1435. **CRITICAL parallel-worker shared-file collision finding** codified in `feedback_parallel_subworker_shared_config_collision.md` — handler-file disjointness alone insufficient; M3-widgets+M3-bpw needed 3 stash cycles to land cleanly. M3 umbrella overview amended post-hoc.
 - **D97** M3-blueprints-write shipped (commit `0c7448c`, 15 BP-write tools live; NOT 21 — 6 BP-node "orphans" already absorbed in oracle's 15-tool toolset). Landed atop M3-widgets via shared-file re-application. UE 5.6 API findings: `PC_Float` deprecated → `PC_Real` with subcategory; `FindOrCreateEventGraph` reimplemented via `FBlueprintEditorUtils::FindEventGraph`. Test rotation post-both-ships: 1563 / 0. 2 stale stashes safe to drop.
 - **D98** M3 milestone complete — all 32 transitional tools live on TCP:55558. tools.yaml grep confirms ZERO toolsets remain on `tcp-55557`. D23 oracle retirement now empirically actionable. Phase 3 ~95% complete; M5 is the only remaining Wave 4 milestone. TCP:55557 formal retirement queued for ~1 deploy-cycle post-smoke.
+- **D99** Post-M3 deployment smoke complete — Bug 4 CLOSED LIVE (M5 gate clears); M3 hotfix verified live; M3-bpw §7 full pass 7/7. **8 new findings surfaced** that wire-mock + tests couldn't catch: M3-actors handler gaps (Mobility traversal + screenshot silent-fail); M3-widgets gaps (PIE lookup + bind chain + 2-4s perf hitches); FA-ε write-side cross-transport inconsistency; RC CDO-path tip wrong; Bug 4 mime label JPEG-not-PNG. **TCP:55557 retirement gate PARTIAL** — needs CLEANUP-M3-FIXES + re-smoke before formal deprecation. M-enhance §Biggest-unknowns 4 (PIE teardown race) closed (NO-RACE-OBSERVED). Three new follow-on workers queued (CLEANUP-M3-FIXES + WIDGETS-PERF + FA-ε WRITE-SIDE AUDIT).
 
 ---
 
@@ -186,7 +187,11 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | M-enhance reads conformance audit (M4 redirect option 2) | ⏸ Optional follow-on — bundle with audit-batch-2 when that fires | TBD |
 | S-B-overrides scope amendment | ⏸ Orchestrator recommends (c) defer with switch-to-(a) trigger; awaiting Noah call | — |
 | **M5 — animation/materials/visual-capture/etc.** | ⏸ Operative Wave 4 dispatch surface; awaiting Noah signal. **Per D96 lesson, draft umbrella overview with shared-file integration strategy explicit before drafting sub-worker handoffs** — recommend option (b) shard-upfront for clean parallelism with 3-4 sub-workers | 6-10 sessions |
-| TCP:55557 formal retirement | ⏸ Queued — defer ~1 deployment cycle so live-fire smoke confirms all 32 tools end-to-end (particularly 2 PIE-dependent widgets fixes), then strip 55557 client code + remove `<project>/Plugins/UnrealMCP/` | 0.5-1 session post-smoke |
+| TCP:55557 formal retirement | ⏸ Queued — PARTIAL gate per D99 smoke: BP-write CLEAR; actors + widgets need CLEANUP-M3-FIXES first then re-smoke. Then strip 55557 client code + remove `<project>/Plugins/UnrealMCP/` | 0.5-1 session post-CLEANUP-M3-FIXES + re-smoke |
+| Bug 4 (M5 visual-capture gate) | ✅ CLOSED LIVE 2026-04-26 (D99 — get_asset_preview_render returns thumbnail bytes for StaticMesh + BP) | — |
+| **CLEANUP-M3-FIXES** | ⏸ Drafting recommended — bundles 5 D99 findings (set_actor_property Mobility traversal, take_screenshot silent fail, M3-widgets PIE-lookup, bind_widget_event chain, Bug 4 mime label, RC CDO path tip). File-disjoint across ActorHandlers.cpp + WidgetHandlers.cpp + VisualCaptureHandler.cpp + tools.yaml | 1-2 sessions |
+| **WIDGETS-PERF investigation** | ⏸ Drafting recommended — D99 finding #5: M3-widgets mutations hitch 2-4s (4 of 8 hitch log entries; well above 300ms threshold). Measure-then-fix workflow | 1-2 sessions |
+| **FA-ε write-side audit** | ⏸ Drafting recommended — D99 finding #6: TCP write returns success, RC read returns stale value. Cross-transport transactional semantics broken in write→read direction. Could be structural fix or documented limitation | 1-2 sessions |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 
