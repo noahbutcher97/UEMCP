@@ -24,13 +24,17 @@ import { buildZodSchema } from './zod-builder.mjs';
 import {
   initTcpTools,
   getBlueprintsWriteToolDefs, executeBlueprintsWriteTool,
-  getWidgetsToolDefs, executeWidgetsTool,
 } from './tcp-tools.mjs';
 import {
   initActorsTools,
   getActorsToolDefs,
   executeActorsTool,
 } from './actors-tcp-tools.mjs';
+import {
+  initWidgetsTools,
+  getWidgetsToolDefs,
+  executeWidgetsTool,
+} from './widgets-tcp-tools.mjs';
 import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
 import {
   initMenhanceTools,
@@ -140,8 +144,8 @@ const TOOLSET_TIPS = {
       'Widget blueprints live under /Game/Widgets/ (not /Game/Blueprints/). Pass name only.',
       'create_widget auto-adds a root CanvasPanel. add_text_block and add_button require this root — they fail if the root is not a CanvasPanel.',
       'add_button creates a child TextBlock named <widget_name>_Text automatically.',
-      'WARNING: add_widget_to_viewport is a NO-OP — it returns the widget class path but does NOT add to viewport. Use Blueprint nodes (CreateWidget + AddToViewport) instead.',
-      'WARNING: set_text_block_binding has a broken pin connection (exec→data). The binding will not work at runtime.',
+      'add_widget_to_viewport requires PIE running (engine restriction — AddToViewport needs a live game world). Returns NOT_IN_PIE error if PIE is not active; start_pie first then re-call.',
+      'set_text_block_binding creates a pure FText getter function and registers FDelegateEditorBinding on the TextBlock\'s Text property — fully wired, ready to evaluate at runtime.',
       'bind_widget_event checks for existing events first — safe to call multiple times without creating duplicates.',
     ].join(' '),
     workflows: [
@@ -683,8 +687,12 @@ for (const [name, def] of Object.entries(bpWriteToolDefs)) {
   toolsetManager.registerToolHandle(name, handle);
 }
 
-// ── Register widgets tools (TCP:55557) ──────────────────────────────
-// Phase 2: widgets toolset — 7 tools for UMG widget creation and binding.
+// ── Register widgets tools (TCP:55558) ──────────────────────────────
+// M3 (D23 oracle retirement): widgets toolset — 7 tools for UMG widget
+// creation and binding. Handlers live in server/widgets-tcp-tools.mjs and
+// dispatch to the UEMCP custom plugin on TCP:55558. The 2 previously-broken
+// handlers (set_text_block_binding, add_widget_to_viewport) ship CORRECTED
+// behavior here — see plugin/.../WidgetHandlers.cpp for bug-fix details.
 
 const widgetsToolDefs = getWidgetsToolDefs();
 
@@ -838,6 +846,7 @@ async function main() {
   // Initialize TCP wire_type maps from parsed YAML
   initTcpTools(toolsetManager.getToolsData());
   initActorsTools(toolsetManager.getToolsData());
+  initWidgetsTools(toolsetManager.getToolsData());
   initMenhanceTools(toolsetManager.getToolsData());
 
   // Check offline layer availability

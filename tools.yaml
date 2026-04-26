@@ -527,7 +527,7 @@ toolsets:
           event_name:     { type: string, required: false, description: "Required when node_type=Event" }
 
   widgets:
-    layer: tcp-55557
+    layer: tcp-55558
     priority: null
     description: UMG widget creation and binding
     tools:
@@ -559,22 +559,24 @@ toolsets:
           widget_name:    { type: string, required: true, description: "Widget to bind event on" }
           event_name:     { type: string, required: true, description: "Event name e.g. OnClicked" }
       set_text_block_binding:
-        # KNOWN ISSUE: C++ handler connects exec pin to data pin (invalid connection).
-        # The getter function graph is incomplete — binding will not work at runtime.
-        # See conformance-oracle-contracts.md Section 4.6.
-        description: Set text block data binding (BROKEN — see known issue)
+        # M3-widgets fix (D23 oracle retirement): TCP:55558 handler creates a pure
+        # FText getter (correct K2 schema connections) and registers an
+        # FDelegateEditorBinding on the TextBlock's Text property. Binding now
+        # evaluates at runtime; oracle's exec→data invalid pin connection retired.
+        description: Set text block data binding — creates pure FText getter and registers FDelegateEditorBinding
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "TextBlock widget to bind" }
           binding_name:   { type: string, required: true, description: "Variable name for the binding" }
       add_widget_to_viewport:
-        # KNOWN ISSUE: C++ handler is a NO-OP. Does NOT actually add widget to viewport.
-        # Returns class path with instructions to use Blueprint nodes instead.
-        # See conformance-oracle-contracts.md Section 4.3.
-        description: Show widget in game viewport (NO-OP — returns class path only, does not add to viewport)
+        # M3-widgets fix (D23 oracle retirement): TCP:55558 handler now creates a
+        # widget instance against the PIE world's PlayerController and calls
+        # AddToViewport(z_order). Returns NOT_IN_PIE error if PIE is not running
+        # (engine restriction — AddToViewport requires a live game world).
+        description: Show widget in PIE game viewport (requires PIE running — returns NOT_IN_PIE error otherwise)
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
-          z_order:        { type: integer, required: false, description: "Z-order, default 0 (unused — handler is a no-op)" }
+          z_order:        { type: integer, required: false, description: "Z-order, default 0" }
       add_input_action_node:
         wire_type: add_blueprint_input_action_node
         description: Add input action event node (legacy Input Actions, NOT Enhanced Input)

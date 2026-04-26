@@ -1,14 +1,15 @@
-// Tests for Phase 2 TCP tools — blueprints-write + widgets.
+// Tests for Phase 2 TCP tools — blueprints-write only (widgets moved to
+// test-m3-widgets.mjs when the widgets layer flipped to TCP:55558 per D23).
 //
-// (M3 actors moved to test-m3-actors.mjs when the actors layer flipped to
-//  TCP:55558 per D23 oracle retirement.)
+// (M3 actors  moved to test-m3-actors.mjs  when the actors  layer flipped.)
+// (M3 widgets moved to test-m3-widgets.mjs when the widgets layer flipped.)
 //
 // Exercises:
 //   1. Name translation via wire_type (tools.yaml → C++ type string)
 //   2. Error normalization (all 3 formats: Bridge, CommonUtils, UMG ad-hoc)
 //   3. Read-op caching vs write-op skip-cache
-//   4. Tool registration completeness (blueprints-write + widgets)
-//   5. Port routing (blueprints-write + widgets → tcp-55557, transitional)
+//   4. Tool registration completeness (blueprints-write)
+//   5. Port routing (blueprints-write → tcp-55557, transitional)
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs
 
@@ -17,7 +18,6 @@ import { FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } fro
 import {
   initTcpTools,
   executeBlueprintsWriteTool, getBlueprintsWriteToolDefs, BLUEPRINTS_WRITE_SCHEMAS,
-  executeWidgetsTool, getWidgetsToolDefs, WIDGETS_SCHEMAS,
 } from './tcp-tools.mjs';
 
 // ── Initialize wire_type maps from fake YAML structure ──────────
@@ -42,20 +42,12 @@ const fakeToolsYaml = {
         find_nodes: { wire_type: 'find_blueprint_nodes' },
       }
     },
-    widgets: {
-      tools: {
-        create_widget: { wire_type: 'create_umg_widget_blueprint' },
-        add_text_block: { wire_type: 'add_text_block_to_widget' },
-        add_button: { wire_type: 'add_button_to_widget' },
-        bind_widget_event: {}, set_text_block_binding: {}, add_widget_to_viewport: {},
-        add_input_action_node: { wire_type: 'add_blueprint_input_action_node' },
-      }
-    },
+    // widgets toolset moved to widgets-tcp-tools.mjs (M3, D23) — see test-m3-widgets.mjs.
   }
 };
 initTcpTools(fakeToolsYaml);
 
-const t = new TestRunner('Phase 2 — TCP Tools (blueprints-write + widgets)');
+const t = new TestRunner('Phase 2 — TCP Tools (blueprints-write)');
 
 // ═══════════════════════════════════════════════════════════════
 // Group 12: Blueprints-write — tool definitions
@@ -263,130 +255,8 @@ console.log('\n── Group 16: Blueprints-write Port Routing ──');
   t.assert(call.port === 55557, 'Blueprints-write tools route to port 55557');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Group 17: Widgets — tool definitions
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\n── Group 17: Widgets Tool Definitions ──');
-
-{
-  const defs = getWidgetsToolDefs();
-  const expectedWidgetTools = [
-    'create_widget', 'add_text_block', 'add_button',
-    'bind_widget_event', 'set_text_block_binding',
-    'add_widget_to_viewport', 'add_input_action_node',
-  ];
-
-  t.assert(Object.keys(defs).length === 7, '7 widgets tools defined');
-
-  for (const name of expectedWidgetTools) {
-    t.assert(defs[name] !== undefined, `Widget tool "${name}" is defined`);
-    t.assert(typeof defs[name].description === 'string' && defs[name].description.length > 0,
-      `Widget tool "${name}" has a non-empty description`);
-    t.assert(typeof defs[name].schema === 'object', `Widget tool "${name}" has a schema object`);
-    t.assert(typeof defs[name].isReadOp === 'boolean', `Widget tool "${name}" has isReadOp flag`);
-  }
-
-  for (const name of expectedWidgetTools) {
-    t.assert(defs[name].isReadOp === false, `Widget tool "${name}" is a write op`);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Group 18: Widgets — name translation
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\n── Group 18: Widgets Name Translation ──');
-
-{
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-
-  const wireNames = {
-    'create_umg_widget_blueprint': { status: 'success', result: { path: '/Game/Widgets/MyWidget' } },
-    'add_text_block_to_widget': { status: 'success', result: { success: true } },
-    'add_button_to_widget': { status: 'success', result: { success: true } },
-    'add_blueprint_input_action_node': { status: 'success', result: { node_id: 'n1' } },
-    'bind_widget_event': { status: 'success', result: { success: true } },
-    'set_text_block_binding': { status: 'success', result: { success: true } },
-    'add_widget_to_viewport': { status: 'success', result: { class_path: '/Game/Widgets/MyWidget.MyWidget_C' } },
-  };
-
-  for (const [name, resp] of Object.entries(wireNames)) {
-    fake.on(name, resp);
-  }
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('create_widget', { name: 'MyWidget' }, cm);
-  t.assert(fake.lastCall('create_umg_widget_blueprint') !== undefined, 'create_widget -> create_umg_widget_blueprint');
-
-  await executeWidgetsTool('add_text_block', { blueprint_name: 'W', widget_name: 'Title', text: 'Hello' }, cm);
-  t.assert(fake.lastCall('add_text_block_to_widget') !== undefined, 'add_text_block -> add_text_block_to_widget');
-
-  await executeWidgetsTool('add_button', { blueprint_name: 'W', widget_name: 'Btn', text: 'Click' }, cm);
-  t.assert(fake.lastCall('add_button_to_widget') !== undefined, 'add_button -> add_button_to_widget');
-
-  await executeWidgetsTool('add_input_action_node', { blueprint_name: 'W', action_name: 'Jump' }, cm);
-  t.assert(fake.lastCall('add_blueprint_input_action_node') !== undefined, 'add_input_action_node -> add_blueprint_input_action_node');
-
-  await executeWidgetsTool('bind_widget_event', { blueprint_name: 'W', widget_name: 'Btn', event_name: 'OnClicked' }, cm);
-  t.assert(fake.lastCall('bind_widget_event') !== undefined, 'bind_widget_event is identity-mapped');
-
-  await executeWidgetsTool('set_text_block_binding', { blueprint_name: 'W', widget_name: 'Title', binding_name: 'ScoreText' }, cm);
-  t.assert(fake.lastCall('set_text_block_binding') !== undefined, 'set_text_block_binding is identity-mapped');
-
-  await executeWidgetsTool('add_widget_to_viewport', { blueprint_name: 'W' }, cm);
-  t.assert(fake.lastCall('add_widget_to_viewport') !== undefined, 'add_widget_to_viewport is identity-mapped');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Group 19: Widgets — param pass-through
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\n── Group 19: Widgets Param Pass-through ──');
-
-{
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('add_button_to_widget', { status: 'success', result: { success: true } });
-  fake.on('add_widget_to_viewport', { status: 'success', result: { class_path: '/Game/Widgets/W.W_C' } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('add_button', {
-    blueprint_name: 'HUD', widget_name: 'StartBtn', text: 'Start Game', position: [100, 200],
-  }, cm);
-  const btnCall = fake.lastCall('add_button_to_widget');
-  t.assert(btnCall.params.blueprint_name === 'HUD', 'add_button: blueprint_name passed');
-  t.assert(btnCall.params.text === 'Start Game', 'add_button: text passed');
-  t.assert(JSON.stringify(btnCall.params.position) === '[100,200]', 'add_button: position vector passed');
-
-  await executeWidgetsTool('add_widget_to_viewport', { blueprint_name: 'HUD', z_order: 5 }, cm);
-  const vpCall = fake.lastCall('add_widget_to_viewport');
-  t.assert(vpCall.params.z_order === 5, 'add_widget_to_viewport: z_order passed');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Group 20: Widgets — port routing
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\n── Group 20: Widgets Port Routing ──');
-
-{
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('create_umg_widget_blueprint', { status: 'success', result: { path: '/Game/Widgets/W' } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('create_widget', { name: 'W' }, cm);
-  const call = fake.lastCall('create_umg_widget_blueprint');
-  t.assert(call.port === 55557, 'Widgets tools route to port 55557');
-}
+// Groups 17-20 (Widgets) moved to test-m3-widgets.mjs when the widgets layer
+// flipped to TCP:55558 per D23 oracle retirement.
 
 // ═══════════════════════════════════════════════════════════════
 // Group 21: initTcpTools — wire_type map building
@@ -484,79 +354,14 @@ console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
     'Multi-key result with error field is not treated as ad-hoc error');
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Group 23: P0-7 — widget path suffix normalization
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\n── Group 23: P0-7 Widget Path Suffix Strip ──');
-
-{
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('create_umg_widget_blueprint', { status: 'success', result: { success: true } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('create_widget', { name: 'MyHUD.MyHUD' }, cm);
-  const call = fake.lastCall('create_umg_widget_blueprint');
-  t.assert(call.params.name === 'MyHUD',
-    'create_widget strips "Name.Name" self-doubled suffix on name param');
-}
-
-{
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('add_text_block_to_widget', { status: 'success', result: { success: true } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('add_text_block',
-    { blueprint_name: 'MyHUD.MyHUD', widget_name: 'TitleText' }, cm);
-  const call = fake.lastCall('add_text_block_to_widget');
-  t.assert(call.params.blueprint_name === 'MyHUD',
-    'add_text_block strips "Name.Name" on blueprint_name');
-  t.assert(call.params.widget_name === 'TitleText',
-    'add_text_block leaves widget_name untouched');
-}
-
-{
-  // No-op: plain name unchanged
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('create_umg_widget_blueprint', { status: 'success', result: { success: true } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('create_widget', { name: 'MyHUD' }, cm);
-  const call = fake.lastCall('create_umg_widget_blueprint');
-  t.assert(call.params.name === 'MyHUD',
-    'Plain name (no dot) is unchanged by suffix stripper');
-}
-
-{
-  // No-op: Name.Other (different halves) unchanged
-  const fake = new FakeTcpResponder();
-  fake.on('ping', { status: 'success' });
-  fake.on('add_text_block_to_widget', { status: 'success', result: { success: true } });
-
-  const { config } = createTestConfig('D:/FakeProject', fake);
-  const cm = new ConnectionManager(config);
-
-  await executeWidgetsTool('add_text_block',
-    { blueprint_name: 'MyHUD.Other', widget_name: 'T' }, cm);
-  const call = fake.lastCall('add_text_block_to_widget');
-  t.assert(call.params.blueprint_name === 'MyHUD.Other',
-    'Non-self-doubled dot pattern (Name.Other) is unchanged');
-}
+// Group 23 (Widgets P0-7 path suffix) moved to test-m3-widgets.mjs (M3, D23).
 
 // ═══════════════════════════════════════════════════════════════
 // Group 24: P0-9 — required-param rejection at Zod layer
 // ═══════════════════════════════════════════════════════════════
-// Actors-side P0-9 / P0-10 lives in test-m3-actors.mjs (M3 D23). The
-// blueprints-write + widgets coverage stays here.
+// Actors-side P0-9 / P0-10 lives in test-m3-actors.mjs (M3 D23).
+// Widgets-side P0-9 / P0-10 lives in test-m3-widgets.mjs (M3 D23).
+// The blueprints-write coverage stays here.
 
 console.log('\n── Group 24: P0-9 Required Param Validation ──');
 
@@ -566,13 +371,6 @@ console.log('\n── Group 24: P0-9 Required Param Validation ──');
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
-
-  // add_text_block requires blueprint_name + widget_name
-  await t.assertRejects(
-    () => executeWidgetsTool('add_text_block', { blueprint_name: 'HUD' }, cm),
-    /widget_name/i,
-    'add_text_block rejects when required `widget_name` is missing'
-  );
 
   // create_blueprint requires `name`
   await t.assertRejects(

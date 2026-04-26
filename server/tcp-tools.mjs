@@ -22,11 +22,11 @@ const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] p
 // Each maps tools.yaml name → C++ type string. Only entries where
 // the two differ are stored; identity mappings use fallback.
 
-// M3 (D23): the actors-toolset wire map moved to server/actors-tcp-tools.mjs
-// when the actors toolset flipped to TCP:55558. blueprints-write + widgets
-// remain here until their respective M3 sub-workers ship.
+// M3 (D23): the actors-toolset and widgets-toolset wire maps moved to
+// server/actors-tcp-tools.mjs and server/widgets-tcp-tools.mjs when those
+// toolsets flipped to TCP:55558. blueprints-write remains here until the
+// M3-blueprints-write sub-worker ships.
 let BLUEPRINTS_WRITE_WIRE_MAP = {};
-let WIDGETS_WIRE_MAP = {};
 
 /**
  * Build a wire_type map for a single toolset from parsed tools.yaml.
@@ -53,8 +53,8 @@ function buildWireTypeMap(toolsData, toolsetName) {
  */
 export function initTcpTools(toolsData) {
   // actors moved to actors-tcp-tools.mjs (M3, D23). initActorsTools handles its map.
+  // widgets moved to widgets-tcp-tools.mjs (M3, D23). initWidgetsTools handles its map.
   BLUEPRINTS_WRITE_WIRE_MAP = buildWireTypeMap(toolsData, 'blueprints-write');
-  WIDGETS_WIRE_MAP = buildWireTypeMap(toolsData, 'widgets');
 }
 
 // ── Blueprints-write toolset (tcp-55557) ──────────────────────
@@ -238,133 +238,12 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
 }
 
 
-// ── Widgets toolset (tcp-55557) ───────────────────────────────
-// 7 tools — contracts: conformance-oracle-contracts.md Sections 4, 8
-// Known issues: set_text_block_binding BROKEN, add_widget_to_viewport NO-OP
-
-export const WIDGETS_SCHEMAS = {
-
-  create_widget: {
-    description: 'Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel',
-    schema: {
-      name: z.string().describe('Widget blueprint name'),
-    },
-    isReadOp: false,
-  },
-
-  add_text_block: {
-    description: 'Add text block to widget (requires root CanvasPanel)',
-    schema: {
-      blueprint_name: z.string().describe('Widget blueprint name'),
-      widget_name: z.string().describe('Name for the TextBlock'),
-      text: z.string().optional().describe("Initial text, default 'New Text Block'"),
-      position: Vec2Optional,
-    },
-    isReadOp: false,
-  },
-
-  add_button: {
-    description: 'Add button with child TextBlock to widget (requires root CanvasPanel)',
-    schema: {
-      blueprint_name: z.string().describe('Widget blueprint name'),
-      widget_name: z.string().describe('Button widget name'),
-      text: z.string().describe('Button label text'),
-      position: Vec2Optional,
-    },
-    isReadOp: false,
-  },
-
-  bind_widget_event: {
-    description: 'Bind widget event (e.g. OnClicked) to function in event graph',
-    schema: {
-      blueprint_name: z.string().describe('Widget blueprint name'),
-      widget_name: z.string().describe('Widget to bind event on'),
-      event_name: z.string().describe('Event name e.g. OnClicked'),
-    },
-    isReadOp: false,
-  },
-
-  set_text_block_binding: {
-    description: 'Set text block data binding (BROKEN — exec pin connection is invalid)',
-    schema: {
-      blueprint_name: z.string().describe('Widget blueprint name'),
-      widget_name: z.string().describe('TextBlock widget to bind'),
-      binding_name: z.string().describe('Variable name for the binding'),
-    },
-    isReadOp: false,
-  },
-
-  add_widget_to_viewport: {
-    description: 'Show widget in game viewport (NO-OP — returns class path only)',
-    schema: {
-      blueprint_name: z.string().describe('Widget blueprint name'),
-      z_order: z.number().int().optional().describe('Z-order, default 0 (unused — handler is a no-op)'),
-    },
-    isReadOp: false,
-  },
-
-  add_input_action_node: {
-    description: 'Add input action event node (legacy Input Actions, NOT Enhanced Input)',
-    schema: {
-      blueprint_name: z.string().describe('Blueprint asset name (works on any BP, not just widgets)'),
-      action_name: z.string().describe('Input action name'),
-      node_position: Vec2Optional,
-    },
-    isReadOp: false,
-  },
-};
-
-/**
- * Strip a self-doubled asset suffix like "MyWidget.MyWidget" → "MyWidget" (P0-7).
- * The plugin's UMG handlers split into two groups: commands 1-3 expect
- * "/Game/Widgets/<name>" while commands 4-6 append ".<name>" internally.
- * Users who read plugin source and pre-double their name now hit the 4-6
- * handlers with "<name>.<name>.<name>" and load fails. Normalize here so
- * users can always pass the short form regardless of which handler they hit.
- * Plugin-side full fix (standardize all paths) documented as Phase 3D input.
- * @param {string} value
- * @returns {string}
- */
-function stripDoubledAssetSuffix(value) {
-  if (typeof value !== 'string') return value;
-  const dotIdx = value.indexOf('.');
-  if (dotIdx <= 0) return value;
-  const left = value.slice(0, dotIdx);
-  const right = value.slice(dotIdx + 1);
-  return left === right ? left : value;
-}
-
-export async function executeWidgetsTool(toolName, args, connectionManager) {
-  const typeString = WIDGETS_WIRE_MAP[toolName] || toolName;
-  const def = WIDGETS_SCHEMAS[toolName];
-  const skipCache = def ? !def.isReadOp : true;
-
-  // P0-9 / P0-10 defense-in-depth parse.
-  const validated = def ? z.object(def.schema).parse(args) : args;
-
-  // P0-7: normalize "Name.Name" → "Name" on widget blueprint params.
-  const wireParams = { ...validated };
-  if (typeof wireParams.blueprint_name === 'string') {
-    wireParams.blueprint_name = stripDoubledAssetSuffix(wireParams.blueprint_name);
-  }
-  if (toolName === 'create_widget' && typeof wireParams.name === 'string') {
-    wireParams.name = stripDoubledAssetSuffix(wireParams.name);
-  }
-
-  const result = await connectionManager.send('tcp-55557', typeString, wireParams, { skipCache });
-  return result;
-}
-
-
 // ── Tool definition exports ──────────────────────────────────
 // server.mjs imports these to register tools with the MCP server.
 // Returns { name -> { description, schema, isReadOp } } for each tool.
-// Note: getActorsToolDefs lives in actors-tcp-tools.mjs (M3, D23).
+// Note: getActorsToolDefs  lives in actors-tcp-tools.mjs  (M3, D23).
+// Note: getWidgetsToolDefs lives in widgets-tcp-tools.mjs (M3, D23).
 
 export function getBlueprintsWriteToolDefs() {
   return BLUEPRINTS_WRITE_SCHEMAS;
-}
-
-export function getWidgetsToolDefs() {
-  return WIDGETS_SCHEMAS;
 }

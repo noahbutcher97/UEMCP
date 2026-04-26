@@ -16,6 +16,11 @@
 // M3-actors: 10 actor-toolset handlers reimplemented on TCP:55558 (D23).
 #include "ActorHandlers.h"
 
+// M3-widgets: 7 widgets-toolset handlers reimplemented on TCP:55558 (D23).
+// Includes 2 previously-broken handlers (set_text_block_binding,
+// add_widget_to_viewport) shipped with corrected behavior.
+#include "WidgetHandlers.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogUEMCPDispatch, Log, All);
 
 namespace UEMCP
@@ -151,5 +156,10 @@ namespace UEMCP
 
 		// M3-actors: 10 actor-toolset commands (oracle retirement, D23).
 		RegisterActorHandlers(*this);
+
+		// M3-widgets: 7 widgets-toolset commands (oracle retirement, D23).
+		// 6 UMG handlers + 1 BP-node handler (add_blueprint_input_action_node)
+		// surfaced via the widgets toolset for legacy UI grouping reasons.
+		RegisterWidgetHandlers(*this);
 	}
 }
