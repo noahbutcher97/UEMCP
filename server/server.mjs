@@ -160,7 +160,7 @@ const TOOLSET_TIPS = {
   'remote-control': {
     core: [
       'Uses HTTP:30010 (Remote Control API) — editor must be running AND have RemoteControl engine plugin enabled (UEMCP\'s uplugin transitively requests it; verify your .uproject Plugins[] if RC calls fail).',
-      'rc_get_property / rc_set_property / rc_call_function operate on ANY UObject by object path. CDO form: /Game/Path/BP.BP_C:Default__BP_C for class-default-object reads.',
+      'rc_get_property / rc_set_property / rc_call_function operate on ANY UObject by object path. CDO form: /Game/Path/<AssetName>.Default__<AssetName>_C for class-default-object reads (single-dot separator; the doubled "BP_C:Default__BP_C" form does NOT resolve).',
       'rc_set_property wraps value in a propertyName-keyed object automatically (don\'t pre-wrap). generateTransaction:true records in editor Undo stack — leave on unless you have a reason.',
       'SanitizeMetadata allowlist (D66) caps RC metadata to {UIMin, UIMax, ClampMin, ClampMax, ToolTip}. For Category/Replicated/EditAnywhere flag surface, use blueprint-read tools (plugin-backed) instead — they bypass the allowlist.',
       'rc_passthrough accepts any /remote/* endpoint — escape hatch for RC calls the structured helpers don\'t cover. Paths not starting with /remote/ are rejected.',

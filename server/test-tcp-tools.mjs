@@ -715,8 +715,12 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
   }
 
   // ── S4: get_asset_preview_render dispatches to tcp-55558 ─────
+  // D99 finding #8 (CLEANUP-M3-FIXES §5): UE's FObjectThumbnail::CompressImageData
+  // produces JPEG (bytes start with FFD8 FFE0 SOI+JFIF), not PNG. Plugin response
+  // mime field corrected from "image/png" to "image/jpeg"; bytes are unchanged.
   {
-    const fakePng = 'iVBORw0KGgoAAAANSUhEUgAA...';  // truncated base64
+    // /9j/4AAQSkZJRg... is canonical base64 for the JPEG SOI + JFIF header.
+    const fakeJpegBase64 = '/9j/4AAQSkZJRgABAQEAAAAAAAAA';
     const fake = new FakeTcpResponder();
     fake.on('ping', { status: 'success' });
     fake.on('get_asset_preview_render', {
@@ -725,9 +729,9 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         asset_path: '/Game/Meshes/SM_Cube.SM_Cube',
         asset_class: 'StaticMesh',
         width: 256, height: 256,
-        mime: 'image/png',
+        mime: 'image/jpeg',
         byte_length: 4096,
-        base64: fakePng,
+        base64: fakeJpegBase64,
       },
     });
 
@@ -736,12 +740,14 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
 
     const res = await executeMenhanceTool('get_asset_preview_render',
       { asset_path: '/Game/Meshes/SM_Cube.SM_Cube' }, cm);
-    t.assert(res && res.result && res.result.base64 === fakePng,
-      'get_asset_preview_render returns inline base64 PNG');
+    t.assert(res && res.result && res.result.base64 === fakeJpegBase64,
+      'get_asset_preview_render returns inline base64 thumbnail');
     t.assert(res.result.width === 256 && res.result.height === 256,
       'dimensions round-trip through wire');
-    t.assert(res.result.mime === 'image/png',
-      'MIME type preserved');
+    t.assert(res.result.mime === 'image/jpeg',
+      'MIME type honestly labels JPEG bytes (D99 #8 — CompressImageData produces JPEG, not PNG)');
+    t.assert(res.result.base64.startsWith('/9j/'),
+      'base64 carries JPEG SOI marker (FFD8 → /9j/ in base64)');
 
     const call = fake.lastCall('get_asset_preview_render');
     t.assert(call && call.port === 55558,

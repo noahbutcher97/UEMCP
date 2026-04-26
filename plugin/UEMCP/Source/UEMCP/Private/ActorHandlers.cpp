@@ -18,11 +18,13 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "ImageCore.h"
 #include "ImageUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "LevelEditorViewport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
@@ -541,9 +543,57 @@ namespace UEMCP
 			AActor* Actor = ResolveActorByName(Name, OutResponse);
 			if (!Actor) return;
 
+			// Lookup priority: actor → root component → named subobject components.
+			// Properties like Mobility / RelativeLocation live on USceneComponent
+			// (root component), not on AActor itself. set_component_property is the
+			// explicit-subobject path when the caller already knows which component
+			// to write; this fallback covers callers writing canonical actor-level
+			// properties without needing to know whether the property lives on the
+			// actor proper or on its root component.
+			UObject* Target = nullptr;
+			FString TargetLabel;
+			if (Actor->GetClass()->FindPropertyByName(*PropertyName))
+			{
+				Target = Actor;
+				TargetLabel = TEXT("actor");
+			}
+			if (!Target)
+			{
+				if (USceneComponent* Root = Actor->GetRootComponent())
+				{
+					if (Root->GetClass()->FindPropertyByName(*PropertyName))
+					{
+						Target = Root;
+						TargetLabel = TEXT("root_component");
+					}
+				}
+			}
+			if (!Target)
+			{
+				TArray<UActorComponent*> Components;
+				Actor->GetComponents(Components);
+				for (UActorComponent* C : Components)
+				{
+					if (!C || C == Actor->GetRootComponent()) continue;
+					if (C->GetClass()->FindPropertyByName(*PropertyName))
+					{
+						Target = C;
+						TargetLabel = FString::Printf(TEXT("component:%s"), *C->GetName());
+						break;
+					}
+				}
+			}
+			if (!Target)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Property not found: %s (checked actor, root component, and all named components)"), *PropertyName),
+					TEXT("PROPERTY_NOT_FOUND"));
+				return;
+			}
+
 			TSharedPtr<FJsonValue> Value = Params->Values.FindRef(TEXT("property_value"));
 			FString ErrorMessage;
-			if (!SetActorPropertyValue(Actor, PropertyName, Value, ErrorMessage))
+			if (!SetActorPropertyValue(Target, PropertyName, Value, ErrorMessage))
 			{
 				BuildErrorResponse(OutResponse, ErrorMessage, TEXT("PROPERTY_SET_FAILED"));
 				return;
@@ -552,6 +602,7 @@ namespace UEMCP
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("actor"), Name);
 			Result->SetStringField(TEXT("property"), PropertyName);
+			Result->SetStringField(TEXT("set_on"), TargetLabel);  // Transparency: where the write actually landed
 			Result->SetBoolField(TEXT("success"), true);
 			Result->SetObjectField(TEXT("actor_details"), ActorToJsonObject(Actor));
 			BuildSuccessResponse(OutResponse, Result);
@@ -718,16 +769,28 @@ namespace UEMCP
 				return;
 			}
 
-			// FImageUtils::CompressImageArray is the legacy 5.0 API the oracle uses.
-			// In UE 5.6 it remains available (with deprecation warning) — tracked as an
-			// audit follow-on for migration to FImageUtils::CompressImage. Matching the
-			// oracle signature here reduces conformance risk for the M3 ship.
-			TArray<uint8> CompressedPng;
-			FImageUtils::CompressImageArray(Size.X, Size.Y, Bitmap, CompressedPng);
+			// CompressImageArray is deprecated since 5.0 (becomes hard error in 5.7
+			// per Project B materialization). The replacement signature uses FImageView
+			// which infers BGRA8/sRGB from FColor*. TArray64<uint8> is canonical for
+			// CompressImage's output — it converts implicitly to TArrayView<const uint8>
+			// which FFileHelper::SaveArrayToFile accepts.
+			TArray64<uint8> CompressedPng;
+			FImageView View(Bitmap.GetData(), Size.X, Size.Y);
+			FImageUtils::CompressImage(CompressedPng, TEXT("png"), View, 0);
 			if (CompressedPng.Num() == 0)
 			{
 				BuildErrorResponse(OutResponse, TEXT("PNG compression produced empty buffer"), TEXT("PNG_COMPRESS_FAILED"));
 				return;
+			}
+
+			// Relative paths must be resolved under ProjectDir or FFileHelper writes
+			// them relative to the editor's working directory (typically
+			// Engine/Binaries/Win64), surfacing as a "silent file-write" from the
+			// caller's POV. Returning the resolved absolute path tells the caller
+			// where the file actually landed.
+			if (FPaths::IsRelative(FilePath))
+			{
+				FilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), FilePath);
 			}
 			if (!FFileHelper::SaveArrayToFile(CompressedPng, *FilePath))
 			{
@@ -738,7 +801,8 @@ namespace UEMCP
 			}
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-			Result->SetStringField(TEXT("filepath"), FilePath);
+			Result->SetStringField(TEXT("filepath"), FilePath);  // Resolved absolute path
+			Result->SetNumberField(TEXT("byte_length"), CompressedPng.Num());
 			BuildSuccessResponse(OutResponse, Result);
 		}
 	} // anonymous namespace

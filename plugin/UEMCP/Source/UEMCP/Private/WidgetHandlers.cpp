@@ -20,6 +20,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_Event.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_FunctionResult.h"
@@ -37,10 +38,13 @@ namespace UEMCP
 	{
 		// ── Path + lookup helpers ────────────────────────────────────────────────
 		//
-		// Oracle convention: widget blueprints live at /Game/Widgets/<name>. Some
-		// oracle handlers used the doubled "/Game/Widgets/<name>.<name>" object-path
-		// form; LoadAsset accepts both, so we pick the simpler package-path here and
-		// let UEditorAssetLibrary's resolver normalize.
+		// Widget blueprints live at /Game/Widgets/<name>. UEditorAssetLibrary::LoadAsset
+		// resolves the package-path form reliably in editor mode but fails when PIE is
+		// active (D99 finding #3 — empirically observed: "Widget Blueprint 'X' not
+		// found" in PIE; same path resolves clean PIE-off). Use LoadObject directly
+		// with the canonical doubled object-path form, which works regardless of PIE
+		// world state. Falls back to the package-path form via LoadObject for any
+		// edge case where the doubled form doesn't resolve.
 
 		FString WidgetAssetPath(const FString& BlueprintName)
 		{
@@ -49,11 +53,23 @@ namespace UEMCP
 
 		UWidgetBlueprint* LoadWidgetBlueprintByName(const FString& BlueprintName, FString& OutError)
 		{
-			const FString FullPath = WidgetAssetPath(BlueprintName);
-			UWidgetBlueprint* WB = Cast<UWidgetBlueprint>(UEditorAssetLibrary::LoadAsset(FullPath));
+			const FString PackagePath = WidgetAssetPath(BlueprintName);
+			const FString ObjectPath = FString::Printf(TEXT("/Game/Widgets/%s.%s"), *BlueprintName, *BlueprintName);
+
+			// Canonical doubled form via LoadObject — survives PIE state where
+			// UEditorAssetLibrary::LoadAsset can fail to resolve.
+			UWidgetBlueprint* WB = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPath);
 			if (!WB)
 			{
-				OutError = FString::Printf(TEXT("Widget Blueprint '%s' not found at %s"), *BlueprintName, *FullPath);
+				WB = LoadObject<UWidgetBlueprint>(nullptr, *PackagePath);
+			}
+			if (!WB)
+			{
+				WB = Cast<UWidgetBlueprint>(UEditorAssetLibrary::LoadAsset(PackagePath));
+			}
+			if (!WB)
+			{
+				OutError = FString::Printf(TEXT("Widget Blueprint '%s' not found at %s"), *BlueprintName, *PackagePath);
 				return nullptr;
 			}
 			return WB;
@@ -340,51 +356,86 @@ namespace UEMCP
 				return;
 			}
 
-			// Idempotency: if an event node for this widget+event already exists, return its GUID.
-			TArray<UK2Node_Event*> AllEventNodes;
-			FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_Event>(WidgetBlueprint, AllEventNodes);
-			UK2Node_Event* EventNode = nullptr;
-			for (UK2Node_Event* Node : AllEventNodes)
-			{
-				if (Node->CustomFunctionName == FName(*EventName)
-					&& Node->EventReference.GetMemberParentClass() == Widget->GetClass())
-				{
-					EventNode = Node;
-					break;
-				}
-			}
+			// UK2Node_ComponentBoundEvent identifies bindings by DelegatePropertyName +
+			// ComponentPropertyName, not by CustomFunctionName / EventReference (the
+			// pre-D99-fix lookup never matched, so idempotency-by-search broke). Match
+			// against the canonical fields instead.
+			const FName DelegatePropName(*EventName);
+			const FName WidgetPropName(*WidgetName);
 
+			auto FindExistingBoundEvent = [&]() -> UK2Node_ComponentBoundEvent*
+			{
+				TArray<UK2Node_ComponentBoundEvent*> All;
+				FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_ComponentBoundEvent>(WidgetBlueprint, All);
+				for (UK2Node_ComponentBoundEvent* Node : All)
+				{
+					if (Node && Node->DelegatePropertyName == DelegatePropName
+						&& Node->ComponentPropertyName == WidgetPropName)
+					{
+						return Node;
+					}
+				}
+				return nullptr;
+			};
+
+			UK2Node_ComponentBoundEvent* EventNode = FindExistingBoundEvent();
 			if (!EventNode)
 			{
+				// CreateNewBoundEventForClass returns null and silently fails when
+				// the FObjectProperty pointing at the widget instance on the
+				// generated class is null. The compiler creates that property from
+				// the WidgetTree, so a freshly-added widget needs an explicit
+				// recompile before its binding can be wired (this was the D99
+				// finding #4 root cause — calling bind_widget_event after add_button
+				// never compiled-then-found-property between the two ops).
+				if (!WidgetBlueprint->GeneratedClass)
+				{
+					FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
+				}
+				UClass* GenClass = WidgetBlueprint->GeneratedClass;
+				FObjectProperty* WidgetProp = GenClass
+					? FindFProperty<FObjectProperty>(GenClass, WidgetPropName)
+					: nullptr;
+				if (!WidgetProp)
+				{
+					// Recompile once more in case the widget was added since the
+					// last compile and isn't yet reified as a generated-class member.
+					FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
+					GenClass = WidgetBlueprint->GeneratedClass;
+					WidgetProp = GenClass
+						? FindFProperty<FObjectProperty>(GenClass, WidgetPropName)
+						: nullptr;
+				}
+				if (!WidgetProp)
+				{
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Widget '%s' has no FObjectProperty on generated class — recompile blueprint and retry"), *WidgetName),
+						TEXT("WIDGET_PROPERTY_MISSING"));
+					return;
+				}
+
+				EventNode = FKismetEditorUtilities::CreateNewBoundEventForClass(
+					Widget->GetClass(), DelegatePropName, WidgetBlueprint, WidgetProp);
+
+				if (!EventNode)
+				{
+					BuildErrorResponse(OutResponse,
+						TEXT("Failed to create bound event node — verify widget class exposes the named delegate"),
+						TEXT("EVENT_CREATE_FAILED"));
+					return;
+				}
+
+				// Position below existing nodes for legibility.
 				float MaxHeight = 0.0f;
 				for (UEdGraphNode* Node : EventGraph->Nodes)
 				{
-					MaxHeight = FMath::Max(MaxHeight, static_cast<float>(Node->NodePosY));
-				}
-				const FVector2D NodePos(200.0f, MaxHeight + 200.0f);
-
-				FKismetEditorUtilities::CreateNewBoundEventForClass(
-					Widget->GetClass(), FName(*EventName), WidgetBlueprint, nullptr);
-
-				TArray<UK2Node_Event*> Updated;
-				FBlueprintEditorUtils::GetAllNodesOfClass<UK2Node_Event>(WidgetBlueprint, Updated);
-				for (UK2Node_Event* Node : Updated)
-				{
-					if (Node->CustomFunctionName == FName(*EventName)
-						&& Node->EventReference.GetMemberParentClass() == Widget->GetClass())
+					if (Node != EventNode)
 					{
-						EventNode = Node;
-						EventNode->NodePosX = NodePos.X;
-						EventNode->NodePosY = NodePos.Y;
-						break;
+						MaxHeight = FMath::Max(MaxHeight, static_cast<float>(Node->NodePosY));
 					}
 				}
-			}
-
-			if (!EventNode)
-			{
-				BuildErrorResponse(OutResponse, TEXT("Failed to create event node"), TEXT("EVENT_CREATE_FAILED"));
-				return;
+				EventNode->NodePosX = 200;
+				EventNode->NodePosY = MaxHeight + 200.0f;
 			}
 
 			FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
@@ -393,6 +444,8 @@ namespace UEMCP
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetBoolField(TEXT("success"), true);
 			Result->SetStringField(TEXT("event_name"), EventName);
+			Result->SetStringField(TEXT("widget_name"), WidgetName);
+			Result->SetStringField(TEXT("node_id"), EventNode->NodeGuid.ToString());
 			BuildSuccessResponse(OutResponse, Result);
 		}
 

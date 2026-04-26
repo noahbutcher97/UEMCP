@@ -67,15 +67,17 @@ namespace UEMCP
 			ThumbnailTools::RenderThumbnail(Asset, Width, Height, ThumbnailTools::EThumbnailTextureFlushMode::AlwaysFlush, nullptr, &Thumbnail);
 
 			// FObjectThumbnail has two independent buffers: ImageData (raw BGRA,
-			// populated by RenderThumbnail above) and CompressedImageData (PNG,
-			// populated only by an explicit CompressImageData() call or by
-			// Serialize-from-disk). AccessCompressedImageData() below has NO
+			// populated by RenderThumbnail above) and CompressedImageData (JPEG —
+			// despite the field name suggesting PNG, UE's CompressImageData() uses
+			// JPEG encoding internally; bytes start with FFD8 FFE0 SOI+JFIF). The
+			// buffer is populated only by an explicit CompressImageData() call or
+			// by Serialize-from-disk. AccessCompressedImageData() below has NO
 			// lazy-encode fallback — without this explicit compression step it
 			// returns empty bytes even when the renderer ran successfully.
 			Thumbnail.CompressImageData();
 
-			const TArray<uint8>& PngBytes = Thumbnail.AccessCompressedImageData();
-			if (PngBytes.Num() == 0)
+			const TArray<uint8>& JpegBytes = Thumbnail.AccessCompressedImageData();
+			if (JpegBytes.Num() == 0)
 			{
 				// Distinguish "no renderer registered for this class" (lookup
 				// returned null) from "renderer ran but produced 0 bytes" (real
@@ -98,20 +100,20 @@ namespace UEMCP
 			Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
 			Result->SetNumberField(TEXT("width"),  Thumbnail.GetImageWidth());
 			Result->SetNumberField(TEXT("height"), Thumbnail.GetImageHeight());
-			Result->SetStringField(TEXT("mime"),   TEXT("image/png"));
-			Result->SetNumberField(TEXT("byte_length"), PngBytes.Num());
+			Result->SetStringField(TEXT("mime"),   TEXT("image/jpeg"));
+			Result->SetNumberField(TEXT("byte_length"), JpegBytes.Num());
 
 			// Optional write to disk — useful for chat clients that can't render base64
-			// PNG inline but can preview file paths.
+			// JPEG inline but can preview file paths.
 			if (!OutputFilePath.IsEmpty())
 			{
 				if (FPaths::IsRelative(OutputFilePath))
 				{
 					OutputFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir(), OutputFilePath);
 				}
-				if (!FFileHelper::SaveArrayToFile(PngBytes, *OutputFilePath))
+				if (!FFileHelper::SaveArrayToFile(JpegBytes, *OutputFilePath))
 				{
-					UE_LOG(LogTemp, Warning, TEXT("get_asset_preview_render: failed to write PNG to '%s'"), *OutputFilePath);
+					UE_LOG(LogTemp, Warning, TEXT("get_asset_preview_render: failed to write JPEG to '%s'"), *OutputFilePath);
 				}
 				else
 				{
@@ -124,7 +126,7 @@ namespace UEMCP
 				// Base64 payload size: ~4/3 × byte_length. For a 256×256 thumbnail that's
 				// typically 20-60 KB base64-encoded — well under stdio frame limits but
 				// worth flagging so callers can opt out when streaming many thumbnails.
-				Result->SetStringField(TEXT("base64"), FBase64::Encode(PngBytes));
+				Result->SetStringField(TEXT("base64"), FBase64::Encode(JpegBytes));
 			}
 
 			BuildSuccessResponse(OutResponse, Result);

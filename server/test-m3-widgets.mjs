@@ -571,6 +571,112 @@ console.log('\n── Group 12: Unknown Tool Rejection ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 13: CLEANUP-M3-FIXES — D99 finding #3 + #4 response shapes
+// ═══════════════════════════════════════════════════════════════
+//
+// D99 #3 (PIE-time widget lookup) — LoadWidgetBlueprintByName now
+// uses LoadObject<UWidgetBlueprint> with the canonical doubled
+// object-path form (/Game/Widgets/<name>.<name>) before falling
+// back to the package-path form via UEditorAssetLibrary. The
+// canonical form survives PIE-active state where UEditorAssetLibrary
+// can fail to resolve. Wire-mock here documents that the same
+// type/param contract is unchanged across PIE state — the C++
+// resolution path is what differs and is verified live.
+//
+// D99 #4 (bind_widget_event post-add_button) — handler now resolves
+// the FObjectProperty for the named widget on GeneratedClass before
+// calling CreateNewBoundEventForClass (UE 5.6's implementation
+// returns null silently when ComponentProperty is null), recompiles
+// if the property isn't yet reified, matches by ComponentBoundEvent's
+// canonical fields (DelegatePropertyName + ComponentPropertyName,
+// not CustomFunctionName), and emits node_id + widget_name.
+
+console.log('\n── Group 13: CLEANUP-M3-FIXES regression (D99 #3 + #4) ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §3 — PIE-on add_widget_to_viewport happy path. Wire contract is
+  // unchanged; the C++ resolution path differs (LoadObject canonical form).
+  fake.on('add_widget_to_viewport', {
+    status: 'success',
+    result: {
+      blueprint_name: 'WBP_M3Smoke',
+      class_path: '/Game/Widgets/WBP_M3Smoke.WBP_M3Smoke_C',
+      z_order: 0,
+      added_to_viewport: true,
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await executeWidgetsTool('add_widget_to_viewport', { blueprint_name: 'WBP_M3Smoke' }, cm);
+  t.assert(r.result.added_to_viewport === true,
+    'add_widget_to_viewport HAPPY response shape preserved post-PIE-lookup fix (D99 #3)');
+  t.assert(r.result.class_path && r.result.class_path.includes('WBP_M3Smoke'),
+    'class_path returned (PIE-on lookup landed)');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §4 bind_widget_event — new response carries node_id + widget_name
+  fake.on('bind_widget_event', {
+    status: 'success',
+    result: {
+      success: true,
+      event_name: 'OnClicked',
+      widget_name: 'SmokeBtn',
+      node_id: 'A1B2C3D4E5F6789012345678ABCDEF01',
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await executeWidgetsTool('bind_widget_event',
+    { blueprint_name: 'WBP_M3Smoke', widget_name: 'SmokeBtn', event_name: 'OnClicked' }, cm);
+  t.assert(r.result.event_name === 'OnClicked', 'bind_widget_event preserves event_name');
+  t.assert(r.result.widget_name === 'SmokeBtn',
+    'bind_widget_event response carries widget_name (D99 #4 — additive transparency)');
+  t.assert(typeof r.result.node_id === 'string' && r.result.node_id.length > 0,
+    'bind_widget_event response carries node_id (NodeGuid as string)');
+
+  const call = fake.lastCall('bind_widget_event');
+  t.assert(call.params.blueprint_name === 'WBP_M3Smoke',
+    'blueprint_name passes through to wire');
+  t.assert(call.params.widget_name === 'SmokeBtn',
+    'widget_name passes through to wire');
+  t.assert(call.params.event_name === 'OnClicked',
+    'event_name passes through to wire');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §4 — typed WIDGET_PROPERTY_MISSING when generated class lacks the FObjectProperty
+  fake.on('bind_widget_event', {
+    status: 'error',
+    error: "Widget 'SmokeBtn' has no FObjectProperty on generated class — recompile blueprint and retry",
+    code: 'WIDGET_PROPERTY_MISSING',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeWidgetsTool('bind_widget_event',
+      { blueprint_name: 'WBP_M3Smoke', widget_name: 'SmokeBtn', event_name: 'OnClicked' }, cm),
+    /no FObjectProperty/,
+    'WIDGET_PROPERTY_MISSING typed error propagates (replaces silent null-return failure)',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

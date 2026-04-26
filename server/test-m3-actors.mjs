@@ -498,6 +498,130 @@ console.log('\n── Group 11: Unknown Tool Rejection ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 12: CLEANUP-M3-FIXES — D99 finding #1 + #2 response shapes
+// ═══════════════════════════════════════════════════════════════
+//
+// D99 #1 (set_actor_property Mobility) — handler now walks
+//   actor → root component → named subobject components
+// and returns a `set_on` field indicating where the write actually
+// landed: "actor", "root_component", or "component:<Name>". The
+// wire-mock here documents the new response contract; C++ traversal
+// itself is verified live during smoke (D87 deployment-gap pattern).
+//
+// D99 #2 (take_screenshot silent file-write) — handler now resolves
+// relative paths under FPaths::ProjectDir() and returns the resolved
+// absolute path + byte_length. CompressImageArray (deprecated 5.0,
+// hard error 5.7) migrated to CompressImage(FImageView).
+
+console.log('\n── Group 12: CLEANUP-M3-FIXES regression (D99 #1 + #2) ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §1 set_actor_property Mobility — write lands on root component
+  fake.on('set_actor_property', {
+    status: 'success',
+    result: {
+      actor: 'StaticMeshActor_0',
+      property: 'Mobility',
+      set_on: 'root_component',
+      success: true,
+      actor_details: { name: 'StaticMeshActor_0', class: 'StaticMeshActor', location: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await executeActorsTool('set_actor_property',
+    { name: 'StaticMeshActor_0', property_name: 'Mobility', property_value: 'Movable' }, cm);
+  t.assert(r.result.set_on === 'root_component',
+    'set_actor_property response carries set_on indicating root-component traversal (D99 #1)');
+  t.assert(r.result.property === 'Mobility', 'property field preserved');
+  t.assert(r.result.success === true, 'success field preserved');
+
+  // Wire mock: param pass-through verified
+  const call = fake.lastCall('set_actor_property');
+  t.assert(call.params.property_name === 'Mobility',
+    'property_name passes through to wire (Mobility)');
+  t.assert(call.params.property_value === 'Movable',
+    'property_value passes through to wire (Movable)');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §1 set_actor_property — write found on named subobject component
+  fake.on('set_actor_property', {
+    status: 'success',
+    result: {
+      actor: 'TestActor',
+      property: 'Intensity',
+      set_on: 'component:LightComponent',
+      success: true,
+      actor_details: { name: 'TestActor', class: 'PointLight', location: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await executeActorsTool('set_actor_property',
+    { name: 'TestActor', property_name: 'Intensity', property_value: 5000 }, cm);
+  t.assert(typeof r.result.set_on === 'string' && r.result.set_on.startsWith('component:'),
+    'set_on identifies named subobject component when property lives there');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §1 — typed PROPERTY_NOT_FOUND when no chain target has the property
+  fake.on('set_actor_property', {
+    status: 'error',
+    error: 'Property not found: NotARealProperty (checked actor, root component, and all named components)',
+    code: 'PROPERTY_NOT_FOUND',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeActorsTool('set_actor_property',
+      { name: 'X', property_name: 'NotARealProperty', property_value: 1 }, cm),
+    /Property not found/,
+    'PROPERTY_NOT_FOUND propagates with chain-walked diagnostic message',
+  );
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+
+  // §2 take_screenshot — response now carries resolved absolute path + byte_length
+  fake.on('take_screenshot', {
+    status: 'success',
+    result: {
+      filepath: 'D:/UnrealProjects/MyProject/Saved/cap.png',  // absolute, ProjectDir-resolved
+      byte_length: 142336,
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const r = await executeActorsTool('take_screenshot', { filepath: 'Saved/cap.png' }, cm);
+  t.assert(typeof r.result.byte_length === 'number' && r.result.byte_length > 0,
+    'take_screenshot response carries byte_length (D99 #2 — silent-fail diagnostic)');
+  t.assert(r.result.filepath.endsWith('.png'),
+    'take_screenshot filepath preserved (.png)');
+  t.assert(r.result.filepath.startsWith('D:/'),
+    'take_screenshot returns absolute resolved path (FPaths::ProjectDir resolution)');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

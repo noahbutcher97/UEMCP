@@ -951,7 +951,7 @@ toolsets:
         params:
           quality: { type: string, required: false, default: medium }
       get_asset_preview_render:
-        description: Asset thumbnail as inline PNG (any UObject with a UThumbnailRenderer). Covers meshes/materials/textures/blueprints/animations/data-assets. Full FPreviewScene offscreen render deferred.
+        description: Asset thumbnail as inline JPEG (any UObject with a UThumbnailRenderer). Covers meshes/materials/textures/blueprints/animations/data-assets. UE's FObjectThumbnail::CompressImageData uses JPEG encoding internally despite the buffer name; mime in response is image/jpeg. Full FPreviewScene offscreen render deferred.
         params:
           asset_path:    { type: string, required: true }
           width:         { type: number, required: false, default: 256 }
