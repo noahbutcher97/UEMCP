@@ -9,16 +9,16 @@
 //   2. Error normalization (all 3 formats: Bridge, CommonUtils, UMG ad-hoc)
 //   3. Read-op caching vs write-op skip-cache
 //   4. Tool registration completeness (blueprints-write)
-//   5. Port routing (blueprints-write → tcp-55557, transitional)
+//   5. Port routing (blueprints-write → tcp-55558 post M3-bpw, D97)
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs
 
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import {
-  initTcpTools,
+  initBlueprintsWriteTools,
   executeBlueprintsWriteTool, getBlueprintsWriteToolDefs, BLUEPRINTS_WRITE_SCHEMAS,
-} from './tcp-tools.mjs';
+} from './blueprints-write-tcp-tools.mjs';
 
 // ── Initialize wire_type maps from fake YAML structure ──────────
 // Must be called before any execute*Tool() that relies on wire_type translation.
@@ -45,7 +45,7 @@ const fakeToolsYaml = {
     // widgets toolset moved to widgets-tcp-tools.mjs (M3, D23) — see test-m3-widgets.mjs.
   }
 };
-initTcpTools(fakeToolsYaml);
+initBlueprintsWriteTools(fakeToolsYaml);
 
 const t = new TestRunner('Phase 2 — TCP Tools (blueprints-write)');
 
@@ -252,24 +252,24 @@ console.log('\n── Group 16: Blueprints-write Port Routing ──');
 
   await executeBlueprintsWriteTool('add_component', { blueprint_name: 'BP', component_type: 'SM', component_name: 'M' }, cm);
   const call = fake.lastCall('add_component_to_blueprint');
-  t.assert(call.port === 55557, 'Blueprints-write tools route to port 55557');
+  t.assert(call.port === 55558, 'Blueprints-write tools route to port 55558 (post M3-bpw, D97)');
 }
 
 // Groups 17-20 (Widgets) moved to test-m3-widgets.mjs when the widgets layer
 // flipped to TCP:55558 per D23 oracle retirement.
 
 // ═══════════════════════════════════════════════════════════════
-// Group 21: initTcpTools — wire_type map building
+// Group 21: initBlueprintsWriteTools — wire_type map building
 // ═══════════════════════════════════════════════════════════════
 
-console.log('\n── Group 21: initTcpTools Wire Map Building ──');
+console.log('\n── Group 21: initBlueprintsWriteTools Wire Map Building ──');
 
 {
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
   fake.on('add_component', { status: 'success', result: { success: true } });
 
-  initTcpTools({ toolsets: {} });
+  initBlueprintsWriteTools({ toolsets: {} });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
@@ -278,7 +278,7 @@ console.log('\n── Group 21: initTcpTools Wire Map Building ──');
   t.assert(fake.lastCall('add_component') !== undefined,
     'With empty wire map, tool name is used as-is (identity fallback)');
 
-  initTcpTools(fakeToolsYaml);
+  initBlueprintsWriteTools(fakeToolsYaml);
 }
 
 // ═══════════════════════════════════════════════════════════════

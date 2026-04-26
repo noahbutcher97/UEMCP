@@ -137,7 +137,7 @@ UEMCP/
 │   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
 │   ├── test-phase1.mjs    ← Phase 1 + Agent 10/10.5 + EN-2 offline tool tests (224 assertions)
 │   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
-│   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests (234 assertions)
+│   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests — blueprints-write only post M3-bpw split (197 assertions)
 │   ├── test-uasset-parser.mjs ← Parser format + Level 1+2+2.5 + tagged-fallback (152 assertions)
 │   ├── test-offline-asset-info.mjs ← get_asset_info shape + cache (15 assertions)
 │   ├── test-query-asset-registry.mjs ← bulk scan + pagination + tag filtering (16 assertions)
@@ -409,7 +409,7 @@ Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by
 |------|---------|-------------|
 | `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage + EN-2 bulk-scan coverage (224 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-phase1.mjs` |
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
-| `server/test-tcp-tools.mjs` | Phase 2 TCP tools: actors (10), blueprints-write (15), widgets (7) — name translation, param pass-through, caching, port routing, wire map building (234 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
+| `server/test-tcp-tools.mjs` | Phase 2 TCP tools: blueprints-write only (15 tools) — name translation, param pass-through, caching, port routing (tcp-55558 post M3-bpw D97), wire map building. Actors moved to test-m3-actors.mjs (D93), widgets to test-m3-widgets.mjs (D96). (197 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
