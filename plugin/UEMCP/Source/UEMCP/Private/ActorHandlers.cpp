@@ -201,6 +201,12 @@ namespace UEMCP
 				if (EnumDef && Value->Type == EJson::String)
 				{
 					FString EnumName = Value->AsString();
+					// Numeric-string fast path (oracle parity): "2" → 2.
+					if (EnumName.IsNumeric())
+					{
+						ByteProp->SetPropertyValue(Addr, static_cast<uint8>(FCString::Atoi(*EnumName)));
+						return true;
+					}
 					if (EnumName.Contains(TEXT("::")))
 					{
 						EnumName.Split(TEXT("::"), nullptr, &EnumName);
@@ -234,6 +240,12 @@ namespace UEMCP
 				if (Value->Type == EJson::String)
 				{
 					FString EnumName = Value->AsString();
+					// Numeric-string fast path (oracle parity).
+					if (EnumName.IsNumeric())
+					{
+						Underlying->SetIntPropertyValue(Addr, static_cast<int64>(FCString::Atoi(*EnumName)));
+						return true;
+					}
 					if (EnumName.Contains(TEXT("::")))
 					{
 						EnumName.Split(TEXT("::"), nullptr, &EnumName);
