@@ -64,13 +64,13 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 1. **Bug 4 follow-up smoke** — CLEANUP-MICRO commit `c95c2bb` shipped the 1-line `Thumbnail.CompressImageData()` fix per D88 corrected root cause; once Noah sync-plugin.bat + Build.bat + relaunches editor + restarts Claude Code, live-fire `get_asset_preview_render` against StaticMesh + Blueprint to confirm PNG bytes return. M5 visual-capture toolset gate clears empirically here. CLEANUP-MICRO §2 use-after-free fix also requires this same deployment cycle to verify no-crash on timeout path.
 2. **FA-ε §Open 3 + M-enhance §Biggest-unknowns 4** still unverified (cross-transport transaction semantics + PIE teardown race). Naturally exercised during the Bug 4 follow-up smoke pass — bundle for free.
-3. **D81-SANITIZATION-FIXES dispatch decision** — audit landed with 10 findings (D89). Recommended fix order F-1 → F-5 → batch (F-2/3/4/7) → batch (F-6/8/9) → F-10. Single-commit feasible. Whether to dispatch immediately vs batch with M3/M4 wave is a Noah call; orchestrator default = dispatch immediately since it's small + clears the audit-tracked drift.
+3. ~~**D81-SANITIZATION-FIXES dispatch decision**~~ — RESOLVED via D92 ship. Audit Open Items §2-§5 (CLAUDE.md/README drift held out-of-scope per dispatch) now queued as a small grooming pass — orchestrator default = bundle into next CLAUDE.md-touching commit, but standalone is fine if no near-term commit is touching it.
 4. **S-B-overrides scope decision** — D91 surfaced that Project B is on UE 5.7 AND in active use AND the offline parser breaks at header walk on every 5.7 BP. Was previously "lower priority until secondary target materializes." Materialized. Whether to bump ahead of Wave 4 (M3/M4/M5), run S-B-overrides parallel, or accept Project-B-via-sidecar-only-for-now is an open call.
 5. **D87 deployment-cycle pattern**: any audit-fix landing C++ code requires editor close + sync-plugin.bat + Build.bat + relaunch + MCP-server restart. Don't trust "code committed" as "live."
 
 ---
 
-## Recent D-log highlights (D77 → D91)
+## Recent D-log highlights (D77 → D92)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -89,6 +89,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D89** D81-SANITIZATION-AUDIT shipped (10 findings: 1 high · 4 medium · 5 low; gitignored deliverable; meta-finding about handoff template's SHA-requirement for post-D81 audits).
 - **D90** CLEANUP-MICRO shipped (commit `c95c2bb`, 5 files, 3 fixes). §2 use-after-free actually lived at the `Dispatch` call site, not the helper named in handoff — legitimate D72 scope deviation. Audit-batch-2 hint: orphan AsyncTasks invisible to wallclock instrumentation post-timeout.
 - **D91** Project B on UE 5.7 + offline parser breaks at header walk on every 5.7 .uasset attempted. Sidecar artifacts reliable cross-version (engine-generated); binary parser is broken. S-B-overrides scope amended to include header-layer delta, not just K2Node-layer drift.
+- **D92** D81-SANITIZATION-FIXES shipped (commit `5c48718`, 7 files, all 10 audit findings closed). All 3 repo-root .bat scripts now §.bat-convention compliant. Test rotation 1372/0 (4-assertion fixture-noise delta vs CLEANUP-MICRO baseline; no regression). D81 sanitization saga officially closed. Audit Open Items §2-§5 (CLAUDE.md/README drift) queued as a small grooming pass.
 
 ---
 
@@ -169,8 +170,9 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | Validation cycle (audit + T-1b + smoke + audit-fixes 1/2/3 + SMOKE-FIX + deployment) | ✅ Complete | — |
 | CLEANUP-MICRO (Bug 4 PNG + use-after-free + Zod) | ✅ Shipped 2026-04-25 (commit `c95c2bb`, see D90) | — |
 | D81-SANITIZATION-AUDIT | ✅ Shipped 2026-04-25 (audit doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`, see D89) | — |
-| D81-SANITIZATION-FIXES | ⏸ Dispatchable now — audit gate cleared (10 findings: 1 high · 4 medium · 5 low) | 0.5-1.5 sessions |
-| S-B-overrides scope amendment | ⏸ Decision pending — Project B on UE 5.7 + parser breaks at header walk per D91; Noah call whether to bump ahead of Wave 4 | — |
+| D81-SANITIZATION-FIXES | ✅ Shipped 2026-04-26 (commit `5c48718`, see D92 — all 10 audit findings closed) | — |
+| S-B-overrides scope amendment | ⏸ Orchestrator recommends (c) defer with switch-to-(a) trigger; awaiting Noah call | — |
+| CLAUDE.md/README grooming pass | ⏸ Drafting recommended — bundles audit Open Items §2-§5 (CLAUDE.md D-log header numbering, "1203 assertions" reconciliation, README.md:124 typo, README.md:67 hardcoded path, testing-strategy.md template path) | ~0.25-0.5 session |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
 
