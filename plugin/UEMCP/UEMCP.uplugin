@@ -34,6 +34,18 @@
 		{
 			"Name": "RemoteControl",
 			"Enabled": true
+		},
+		{
+			"Name": "GeometryScripting",
+			"Enabled": true
+		},
+		{
+			"Name": "Blutility",
+			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Optional": true
 		}
 	]
 }

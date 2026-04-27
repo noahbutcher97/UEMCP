@@ -40,9 +40,19 @@ public class UEMCP : ModuleRules
 			"LevelEditor",   // GCurrentLevelEditingViewportClient for editor-state viewport info
 			// S4 additions:
 			"ContentBrowser", // S4-4 Sidecar menu extension (FContentBrowserMenuExtender_SelectedAssets)
+			// M5-input+geometry additions:
+			"EnhancedInput",          // UInputAction / UInputMappingContext / FEnhancedActionKeyMapping
+			"GeometryScriptingCore",  // UGeometryScriptLibrary_Mesh* function libs
+			"GeometryFramework",      // ADynamicMeshActor + UDynamicMeshComponent
+			"GeometryCore",            // FDynamicMesh3 (referenced indirectly via UDynamicMesh)
+			// M5-editor-utility additions (D101 (iv) security model):
+			"Blutility",          // UEditorUtilityBlueprint / UEditorUtilityWidgetBlueprint headers for get_editor_utility_blueprint + run_editor_utility
+			"PythonScriptPlugin", // IPythonScriptPlugin / FPythonCommandEx for run_python_command. Headers compile-time; runtime nullptr-checked via IPythonScriptPlugin::Get()->IsPythonAvailable() so a project that disables the plugin in .uproject Plugins[] still builds and surfaces a typed PYTHON_PLUGIN_NOT_AVAILABLE error rather than crashing.
 		});
 		// Note: GameplayAbilities removed per D60 — M1 scaffold doesn't reference GAS.
 		// M3+ GAS tool workers (create_gameplay_effect etc.) re-add it here AND to
 		// UEMCP.uplugin Plugins[] when they land (UBT warns on module-dep-without-plugin-dep).
+		// M5 GeometryScriptingCore + GeometryFramework + GeometryCore all live under the
+		// "GeometryScripting" plugin — plugin-dep added in UEMCP.uplugin alongside this.
 	}
 }

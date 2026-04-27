@@ -1,15 +1,27 @@
-// M5 geometry toolset stubs (M5-PREP scaffold).
+// M5 geometry toolset — procedural mesh + CSG (3 not-yet-shipped tools).
 //
-// Placeholder for the 3 not-yet-shipped procedural-mesh tools:
-//   create_procedural_mesh, mesh_boolean, generate_uvs
+// Requires Geometry Script plugin enabled in the consuming project (per
+// tools.yaml). The plugin C++ handlers in GeometryHandlers.cpp gate every call
+// on IPluginManager::FindPlugin("GeometryScripting")->IsEnabled() and return a
+// typed GEOMETRY_SCRIPT_PLUGIN_DISABLED error when missing.
 //
-// The 1 shipped tool (get_mesh_info via rc-tools.mjs FULL-RC under M-enhance
-// D77) is NOT in scope here — do NOT duplicate it.
+// get_mesh_info (the only shipped geometry tool) lives in rc-tools.mjs as a
+// FULL-RC delegate under M-enhance D77 — NOT in this file.
 //
-// Geometry Script plugin is required per tools.yaml note. Sub-worker
-// M5-input+geometry handles the gating in the plugin C++ handlers (see
-// GeometryHandlers.cpp), then populates M5_GEOMETRY_SCHEMAS and the execute
-// body. Mirror actors-tcp-tools.mjs for the reference shape.
+// Convention matches actors-tcp-tools.mjs: {description, schema, isReadOp}
+// per tool, identity wire-type routing (no wire_type override in tools.yaml),
+// ConnectionManager.send dispatch on TCP:55558.
+
+import { z } from 'zod';
+
+const Vec3 = z.array(z.number()).length(3).describe('[x, y, z]');
+
+// Operation token accepted by the plugin's ParseBooleanOp (tolerant of
+// difference/subtract + intersection/intersect aliases).
+const BOOLEAN_OPS = ['union', 'difference', 'subtract', 'intersection', 'intersect'];
+
+// Shape token accepted by the plugin's ParseShape.
+const SHAPES = ['box', 'sphere', 'cylinder', 'cone'];
 
 let M5_GEOMETRY_WIRE_MAP = {};
 
@@ -24,22 +36,55 @@ export function initM5GeometryTools(toolsData) {
   }
 }
 
-export const M5_GEOMETRY_SCHEMAS = {};
+export const M5_GEOMETRY_SCHEMAS = {
 
-export async function executeM5GeometryTool(toolName, _args, _connectionManager) {
+  create_procedural_mesh: {
+    description: 'Spawn ADynamicMeshActor with primitive shape (box / sphere / cylinder / cone)',
+    schema: {
+      shape:    z.enum(SHAPES).describe('Primitive shape (case-insensitive on wire)'),
+      location: Vec3.optional().describe('World location of the spawned actor (default [0,0,0])'),
+      size:     z.number().positive().optional().describe('Linear extent in cm (default 100; must be > 0)'),
+      name:     z.string().optional().describe('Optional actor name (auto-generated if omitted)'),
+    },
+    isReadOp: false,
+  },
+
+  mesh_boolean: {
+    description: 'CSG operation between two ADynamicMeshActor (target ← op(target, tool); destructive on target)',
+    schema: {
+      target:    z.string().min(1).describe('Target ADynamicMeshActor name (receives the result)'),
+      tool:      z.string().min(1).describe('Tool ADynamicMeshActor name (operand)'),
+      operation: z.enum(BOOLEAN_OPS).describe('union / difference / intersection (aliases accepted)'),
+    },
+    isReadOp: false,
+  },
+
+  generate_uvs: {
+    description: 'Auto-unwrap UVs on a dynamic mesh via box projection (channel 0 by default)',
+    schema: {
+      target:     z.string().min(1).describe('Target ADynamicMeshActor name'),
+      uv_channel: z.number().int().min(0).max(7).optional().describe('UV channel index (default 0; 0–7)'),
+    },
+    isReadOp: false,
+  },
+};
+
+/**
+ * Execute an M5 geometry tool against TCP:55558.
+ *
+ * @param {string} toolName — tools.yaml name (e.g., 'create_procedural_mesh')
+ * @param {object} args — raw args (validated here via Zod)
+ * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
+ * @returns {Promise<object>}
+ */
+export async function executeM5GeometryTool(toolName, args, connectionManager) {
   const def = M5_GEOMETRY_SCHEMAS[toolName];
-  if (!def) {
-    return {
-      status: 'error',
-      code: 'not_implemented',
-      error: `M5 tool '${toolName}' not yet shipped (stub from M5-PREP)`,
-    };
-  }
-  return {
-    status: 'error',
-    code: 'not_implemented',
-    error: `M5 tool '${toolName}' has a schema but no execute body (sub-worker incomplete)`,
-  };
+  if (!def) throw new Error(`m5-geometry-tools: unknown tool "${toolName}"`);
+
+  const validated = z.object(def.schema).parse(args);
+
+  const typeString = M5_GEOMETRY_WIRE_MAP[toolName] || toolName;
+  return connectionManager.send('tcp-55558', typeString, validated, { skipCache: !def.isReadOp });
 }
 
 export function getM5GeometryToolDefs() {
