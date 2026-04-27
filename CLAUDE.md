@@ -373,6 +373,30 @@ cd D:\DevTools\UEMCP\server
 UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
 ```
 
+### Security flag — `--enable-python-exec` (M5-editor-utility, D101 (iv))
+
+`run_python_command` is the only tool that can execute arbitrary code in
+the editor. Per D101 (iv) the security model is defense-in-depth: Layer 1
+is a server-side opt-in flag, Layer 2 is a plugin-side deny-list scan,
+Layer 3 is a per-call audit log. The Layer 1 flag is **off by default**;
+without it `run_python_command` returns `PYTHON_EXEC_DISABLED` before any
+wire dispatch (it never even reaches the editor). Enable with either:
+
+```bash
+node server.mjs --enable-python-exec
+# or
+UEMCP_ENABLE_PYTHON_EXEC=1 node server.mjs
+```
+
+When enabled, scripts are still scanned at the plugin layer for
+`os` / `subprocess` / `eval(` / `exec(` / `open(` / `__import__` and
+rejected with `PYTHON_EXEC_DENY_LIST` + matched-pattern detail. Every
+executed call is logged to `<UNREAL_PROJECT_NAME>.log` under the
+`[UEMCP-PYTHON-EXEC]` prefix (alongside `[UEMCP-DELETE-ASSET]` for
+asset-delete audit). The flag is the per-session opt-in; deny-list +
+audit-log run regardless. To enable in the .mcp.json env block, add
+`"UEMCP_ENABLE_PYTHON_EXEC": "1"` rather than mutating argv.
+
 ### Adding a tool to an existing toolset
 1. Add the tool entry in `tools.yaml` under the appropriate toolset
 2. If offline: implement handler in `offline-tools.mjs`, add case to `executeOfflineTool` switch

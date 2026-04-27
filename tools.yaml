@@ -898,43 +898,48 @@ toolsets:
   editor-utility:
     layer: tcp-55558
     priority: 4
-    description: Editor state, Python execution, editor utility Blueprints, asset management
+    description: Editor state, Python execution, editor utility Blueprints, asset management. Security-sensitive — Python execution is gated by --enable-python-exec startup flag (off by default) AND a deny-list scan; asset deletion defaults to soft-delete (recoverable from /Game/_Deleted/) with referencer-block.
     note: >
       Includes asset manipulation tools (duplicate/rename/delete). If 8 tools causes
       selection issues, split into editor-utility + asset-management sub-toolset.
+      Defense-in-depth posture lives in EditorUtilityHandlers.cpp + the JS executor
+      gate in m5-editor-utility-tools.mjs (D101 (iv)).
     tools:
       get_editor_state:
         description: Current level, selected actors, viewport info
         params: {}
       run_python_command:
-        description: Execute Python script in editor (requires Python Editor Script Plugin). Security note — arbitrary code execution.
+        description: Execute Python script. SECURITY-SENSITIVE — requires --enable-python-exec startup flag (Layer 1 server-side gate; PYTHON_EXEC_DISABLED otherwise) AND must pass plugin-side deny-list (rejects os/subprocess/eval/exec/open/__import__ → PYTHON_EXEC_DENY_LIST). Every call audit-logged via LogUEMCPSecurity.
         params:
           command: { type: string, required: true }
       # reduced_scope: Run method binding + editor menu registration; standard BP introspection shipped offline
       # displaced_by: inspect_blueprint, read_asset_properties
       get_editor_utility_blueprint:
-        description: Read EUB/EUW — standard BP introspection + run method + editor menu registration
+        description: Read EUB/EUW — parent class, generated class, Run-method signature, editor-menu registration, variable + function counts
         params:
           asset_path: { type: string, required: true }
       run_editor_utility:
-        description: Execute an Editor Utility Blueprint's Run action
+        description: Invoke EUB/EUW Run (or K2_Run) on a transient instance. Run must be zero-arg.
         params:
           asset_path: { type: string, required: true }
       duplicate_asset:
-        description: Duplicate existing asset to new path
+        description: Duplicate asset to new path. Refuses pre-existing destination unless overwrite:true.
         params:
           source_path: { type: string, required: true }
           dest_path:   { type: string, required: true }
+          overwrite:   { type: boolean, required: false, default: false }
       rename_asset:
-        description: Rename/move asset with automatic reference fixup
+        description: Rename / move asset with automatic reference fixup. new_name accepts bare name OR full /Game/... path.
         params:
           asset_path: { type: string, required: true }
           new_name:   { type: string, required: true }
       delete_asset_safe:
-        description: Delete asset after checking for dependencies
+        description: Delete asset with dependency-check + soft-delete defaults. SECURITY-SENSITIVE — blocks on referencers unless force:true (ASSET_HAS_DEPENDENCIES); defaults to soft-delete (rename to /Game/_Deleted/<name>); permanent:true requires force:true (BAD_PARAMS otherwise). Every successful delete audit-logged.
         params:
-          asset_path: { type: string, required: true }
-          force:      { type: boolean, required: false, default: false }
+          asset_path:    { type: string, required: true }
+          force:         { type: boolean, required: false, default: false }
+          permanent:     { type: boolean, required: false, default: false }
+          move_to_trash: { type: boolean, required: false, default: true }
 
   visual-capture:
     layer: tcp-55558

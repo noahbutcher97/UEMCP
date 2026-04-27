@@ -290,13 +290,21 @@ const TOOLSET_TIPS = {
   'editor-utility': {
     core: [
       'get_editor_state returns {selected_actors, viewport: {location, rotation, fov}, pie_running, world_path}. Useful as a cheap snapshot before a complex multi-tool operation.',
-      'run_python_command has a deny-list for dangerous APIs (os, subprocess, eval, exec, open, __import__) AND requires confirmation. Use sparingly — prefer structured tools.',
+      'run_python_command — SECURITY-SENSITIVE. Two layers must both pass: (1) MCP server must be launched with --enable-python-exec flag (or UEMCP_ENABLE_PYTHON_EXEC=1 env var); without it every call returns PYTHON_EXEC_DISABLED. (2) The script is scanned against a deny-list (os, subprocess, eval, exec, open, __import__) and refused with PYTHON_EXEC_DENY_LIST + matched_pattern. Every executed call is audit-logged to <ProjectName>.log under [UEMCP-PYTHON-EXEC]. Prefer structured tools when possible.',
+      'delete_asset_safe defaults to soft-delete: asset is renamed into /Game/_Deleted/<name>_<hash> with reference fixup (recoverable by renaming back). Hard delete requires permanent:true AND force:true; passing permanent:true alone yields BAD_PARAMS. Referencers block the delete unless force:true; the response detail.referencers field lists them. Every successful delete is audit-logged under [UEMCP-DELETE-ASSET].',
+      'duplicate_asset refuses pre-existing destinations unless overwrite:true — pass it explicitly when you intend to replace.',
+      'rename_asset accepts a bare new_name (target package directory inferred from source) OR a full /Game/... destination path.',
+      'get_editor_utility_blueprint surfaces EUB-specific run_method.{present, name, num_params, has_return} + editor_menu.{registered, custom_tab_name} fields beyond the standard parent_class/generated_class. For reflection-deep BP fields use get_blueprint_info instead.',
       'Many tools here have been displaced by offline equivalents (inspect_blueprint, read_asset_properties) — prefer those when editor-closed is viable.',
     ].join(' '),
     workflows: [
       {
         requires: ['actors'],
         tip: 'Before spawning or modifying actors, get_editor_state confirms which level is current + which actors are selected — lets you scope operations without ambiguity.',
+      },
+      {
+        requires: ['asset-registry'],
+        tip: 'Before delete_asset_safe with force:true, run get_asset_references to see exactly which assets will have broken references. Soft-delete with force:true preserves references via rename-fixup; hard-delete with force:true breaks them.',
       },
     ],
   },
@@ -943,7 +951,17 @@ async function main() {
   initM5MaterialsTools(toolsetManager.getToolsData());
   initM5InputPieTools(toolsetManager.getToolsData());
   initM5GeometryTools(toolsetManager.getToolsData());
-  initM5EditorUtilityTools(toolsetManager.getToolsData());
+
+  // M5-editor-utility (D101 (iv)) — `run_python_command` Layer 1 gate.
+  // Off by default; enable via `--enable-python-exec` argv flag OR
+  // `UEMCP_ENABLE_PYTHON_EXEC=1` env var. See CLAUDE.md §Environment.
+  const pythonExecEnabled =
+    process.argv.includes('--enable-python-exec') ||
+    process.env.UEMCP_ENABLE_PYTHON_EXEC === '1';
+  initM5EditorUtilityTools(toolsetManager.getToolsData(), { pythonExecEnabled });
+  if (pythonExecEnabled) {
+    process.stderr.write('[uemcp] Python execution enabled — run_python_command will accept calls (deny-list still applies)\n');
+  }
 
   // Check offline layer availability
   await connectionManager.checkOfflineAvailable();
