@@ -349,14 +349,26 @@ The script:
   (D61 established physical copy as the working dev workflow over
   symlink/junction approaches). Prompts before overwriting existing.
 - Enables UEMCP's required built-in plugin dependencies in the target
-  `.uproject`'s `Plugins[]` array (`RemoteControl` per D66/D77,
-  `PythonScriptPlugin` + `Blutility` per D107, `GeometryScripting`
-  per D106). Idempotent: skips plugins already enabled, flips
-  `Enabled: false` to `true`, appends missing entries. Writes
-  atomically (PowerShell to `<file>.uemcp-tmp` then `Move-Item -Force`)
-  so a partial-write failure can't corrupt the project. Layered explicit
-  enablement on top of UEMCP.uplugin's declared deps as defense-in-depth
-  — D106/D107 confirmed `.uproject` Plugins[] gating is the empirical
+  `.uproject`'s `Plugins[]` array: `RemoteControl` (per D66/D77),
+  `PythonScriptPlugin` (per D107), `GeometryScripting` (per D106).
+  All three are real `.uplugin` files shipped with UE 5.6 at
+  `Engine/Plugins/{VirtualProduction,Experimental,Runtime}/`.
+  **Note:** `Blutility` is *not* a plugin — it's an engine-built-in
+  *module* at `Engine/Source/Editor/Blutility/` providing the
+  `UEditorUtilityBlueprint` / `UEditorUtilityWidgetBlueprint` headers
+  used by UEMCP's editor-utility handlers. The module dep is satisfied
+  by `Blutility` in `UEMCP.Build.cs PrivateDependencyModuleNames`;
+  adding it to `.uproject Plugins[]` triggers UE's "Missing Plugin"
+  dialog at editor startup. An earlier version of this script
+  incorrectly added it; the script now self-heals by REMOVING any
+  stale `Blutility` entry from `.uproject Plugins[]` on every run.
+  Idempotent overall: skips plugins already enabled, flips
+  `Enabled: false` to `true`, appends missing entries, removes
+  stale-cleanup entries. Writes atomically (PowerShell to
+  `<file>.uemcp-tmp` then `Move-Item -Force`) so a partial-write
+  failure can't corrupt the project. Layered explicit enablement on
+  top of `UEMCP.uplugin`'s declared deps as defense-in-depth —
+  D106/D107 confirmed `.uproject Plugins[]` gating is the empirical
   contract for full toolset coverage; transitive auto-enable from the
   parent plugin alone is not load-bearing for these. Note:
   `PythonScriptPlugin` enables `run_python_command` which is itself

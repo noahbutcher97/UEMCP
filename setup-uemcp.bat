@@ -368,27 +368,39 @@ set "PLUGIN_COPIED=1"
 :plugin_done
 
 REM --- Enable UEMCP's required built-in plugin deps in target .uproject ---
-REM Per D66 (RemoteControl HYBRID transport), D106 (GeometryScripting),
-REM D107 (PythonScriptPlugin + Blutility runtime checks). Idempotent: skips
-REM already-enabled plugins, flips Enabled=false to true, appends missing
-REM entries. Atomic write (temp + Move-Item -Force) guards against
-REM partial-write corruption. Layered explicit enablement on top of
-REM UEMCP.uplugin's declared deps as defense-in-depth — D106/D107 confirmed
-REM that .uproject Plugins[] gating is the empirical contract for full
-REM toolset coverage; UE's transitive auto-enable from .uplugin alone is
-REM not load-bearing for these.
+REM Required plugins (real .uplugin files in UE 5.6):
+REM   - RemoteControl       per D66/D77 (Layer 4 HYBRID transport)
+REM   - PythonScriptPlugin  per D107 (Layer 0 IPythonScriptPlugin runtime check)
+REM   - GeometryScripting   per D106 (procedural mesh tools)
+REM
+REM NOT a plugin (do NOT add to .uproject Plugins[]):
+REM   - Blutility — engine-built-in MODULE at Engine/Source/Editor/Blutility/.
+REM     Provides UEditorUtilityBlueprint / UEditorUtilityWidgetBlueprint headers
+REM     used by UEMCP's editor-utility handlers (D107). The module is satisfied
+REM     by Blutility in UEMCP.Build.cs PrivateDependencyModuleNames; it does
+REM     NOT correspond to any .uplugin file. Adding "Blutility" to .uproject
+REM     Plugins[] causes UE to surface the "Missing Plugin" dialog at editor
+REM     startup ("This project requires the 'Blutility' plugin, which could
+REM     not be found"). An earlier version of this script incorrectly added it;
+REM     the cleanup list below removes the stale entry idempotently from any
+REM     .uproject that ran the broken version.
+REM
+REM Idempotent: skips already-enabled, flips Enabled=false to true, appends
+REM missing entries, removes stale-cleanup entries. Atomic write (temp +
+REM Move-Item -Force) guards against partial-write corruption.
 REM
 REM Path passes via env var (avoids CMD quoting hazards on paths with
 REM single-quotes or special chars; matches the .mcp.json node -e pattern
 REM at line 295). PS emits a single-line result:
-REM   CHANGED:   <deltas>   (write happened; +N=added, ~N=flipped, =N=ok)
-REM   UNCHANGED: <deltas>   (idempotent skip; all 4 already correct)
+REM   CHANGED:   <deltas>   (write happened; +N=added, ~N=flipped,
+REM                          =N=ok, -N=removed-stale)
+REM   UNCHANGED: <deltas>   (idempotent skip; all required already correct)
 REM   ERROR:     <message>  (read/parse/write failure -> EXIT_CODE 5)
 echo.
 echo Updating UEMCP plugin dependencies in !UPROJECT_FULL!...
 set "PLUGIN_DEPS_UPROJECT=!UPROJECT_FULL!"
 set "PLUGIN_DEPS_RESULT="
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = $env:PLUGIN_DEPS_UPROJECT; $u = Get-Content -Raw $p | ConvertFrom-Json; $cur = @(); if ($u.PSObject.Properties.Match('Plugins').Count -and $null -ne $u.Plugins) { $cur = @($u.Plugins) }; $req = @('RemoteControl','PythonScriptPlugin','GeometryScripting','Blutility'); $changed = $false; $rep = @(); foreach ($n in $req) { $e = $cur | Where-Object { $_.Name -eq $n } | Select-Object -First 1; if (-not $e) { $cur += [pscustomobject]@{ Name = $n; Enabled = $true }; $changed = $true; $rep += ('+' + $n) } elseif (-not $e.Enabled) { $e.Enabled = $true; $changed = $true; $rep += ('~' + $n) } else { $rep += ('=' + $n) } }; if ($changed) { if ($u.PSObject.Properties.Match('Plugins').Count) { $u.Plugins = $cur } else { $u | Add-Member -Name Plugins -Value $cur -MemberType NoteProperty }; $tmp = $p + '.uemcp-tmp'; $json = $u | ConvertTo-Json -Depth 32; [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false)); Move-Item -Force $tmp $p; Write-Output ('CHANGED: ' + ($rep -join ' ')) } else { Write-Output ('UNCHANGED: ' + ($rep -join ' ')) } } catch { Write-Output ('ERROR: ' + ($_.Exception.Message -replace '[\r\n]+', ' | ')) }"`) do set "PLUGIN_DEPS_RESULT=%%I"
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = $env:PLUGIN_DEPS_UPROJECT; $u = Get-Content -Raw $p | ConvertFrom-Json; $cur = @(); if ($u.PSObject.Properties.Match('Plugins').Count -and $null -ne $u.Plugins) { $cur = @($u.Plugins) }; $req = @('RemoteControl','PythonScriptPlugin','GeometryScripting'); $cleanup = @('Blutility'); $changed = $false; $rep = @(); $kept = @(); foreach ($entry in $cur) { if ($cleanup -contains $entry.Name) { $changed = $true; $rep += ('-' + $entry.Name) } else { $kept += $entry } }; $cur = $kept; foreach ($n in $req) { $e = $cur | Where-Object { $_.Name -eq $n } | Select-Object -First 1; if (-not $e) { $cur += [pscustomobject]@{ Name = $n; Enabled = $true }; $changed = $true; $rep += ('+' + $n) } elseif (-not $e.Enabled) { $e.Enabled = $true; $changed = $true; $rep += ('~' + $n) } else { $rep += ('=' + $n) } }; if ($changed) { if ($u.PSObject.Properties.Match('Plugins').Count) { $u.Plugins = $cur } else { $u | Add-Member -Name Plugins -Value $cur -MemberType NoteProperty }; $tmp = $p + '.uemcp-tmp'; $json = $u | ConvertTo-Json -Depth 32; [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false)); Move-Item -Force $tmp $p; Write-Output ('CHANGED: ' + ($rep -join ' ')) } else { Write-Output ('UNCHANGED: ' + ($rep -join ' ')) } } catch { Write-Output ('ERROR: ' + ($_.Exception.Message -replace '[\r\n]+', ' | ')) }"`) do set "PLUGIN_DEPS_RESULT=%%I"
 if "!PLUGIN_DEPS_RESULT!"=="" (
   echo [ERROR] Plugin-deps PowerShell returned no output ^(unexpected^).
   set "EXIT_CODE=5" & goto :end
