@@ -247,12 +247,14 @@ console.log('\n── Test 8: executeRcTool dispatches each rc_* primitive ─�
 {
   const { executeRcTool, RC_SCHEMAS } = await import('./rc-tools.mjs');
 
-  // Verify all 11 tools present in schema map
+  // Verify all 12 tools present in schema map (M5 added set_material_parameter
+  // as RC delegate per D101 (ii) — see rc-tools.mjs DELEGATE_EXECS).
   const expected = [
     'rc_get_property', 'rc_set_property', 'rc_call_function',
     'rc_list_objects', 'rc_describe_object', 'rc_batch',
     'rc_get_presets', 'rc_passthrough',
     'list_material_parameters', 'get_curve_asset', 'get_mesh_info',
+    'set_material_parameter',
   ];
   for (const name of expected) {
     t.assert(RC_SCHEMAS[name] !== undefined, `RC_SCHEMAS has ${name}`);
@@ -640,6 +642,194 @@ console.log('\n── Test 11: Zod rejects missing required fields ──');
     /unknown tool/,
     'executeRcTool rejects unknown tool name'
   );
+}
+
+// ── Test 12: set_material_parameter (M5 — D101 (ii) RC delegate) ──
+console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParameterValueEditorOnly ──');
+{
+  const { executeRcTool } = await import('./rc-tools.mjs');
+
+  // Scalar: number value → SetScalarParameterValueEditorOnly
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    const res = await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Roughness',
+      value:          0.42,
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call, 'scalar set dispatches to /remote/object/call');
+    t.assert(call.body.objectPath === '/Game/Materials/MIC_Brick.MIC_Brick',
+      'objectPath = MIC asset path');
+    t.assert(call.body.functionName === 'SetScalarParameterValueEditorOnly',
+      'auto-detected scalar → SetScalarParameterValueEditorOnly');
+    t.assert(call.body.parameters.ParameterInfo.Name === 'Roughness',
+      'ParameterInfo.Name = parameter_name');
+    t.assert(call.body.parameters.ParameterInfo.Association === 2,
+      'ParameterInfo.Association = 2 (GlobalParameter — note: not 0!)');
+    t.assert(call.body.parameters.ParameterInfo.Index === -1,
+      'ParameterInfo.Index = -1 (non-layered)');
+    t.assert(call.body.parameters.Value === 0.42,
+      'scalar Value passed through');
+    t.assert(call.body.generateTransaction === true,
+      'set_material_parameter wraps in transaction by default');
+    t.assert(res.parameter_type === 'scalar',
+      'response surfaces detected parameter_type');
+    t.assert(res.function_called === 'SetScalarParameterValueEditorOnly',
+      'response surfaces dispatched function name');
+  }
+
+  // Vector via array [r,g,b,a] → SetVectorParameterValueEditorOnly
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Tint',
+      value:          [0.1, 0.2, 0.3, 1.0],
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call.body.functionName === 'SetVectorParameterValueEditorOnly',
+      'array value → SetVectorParameterValueEditorOnly');
+    const v = call.body.parameters.Value;
+    t.assert(v.R === 0.1 && v.G === 0.2 && v.B === 0.3 && v.A === 1.0,
+      'array [r,g,b,a] mapped to {R,G,B,A} (RC-native FLinearColor shape)');
+  }
+
+  // Vector via {R,G,B,A} object → SetVectorParameterValueEditorOnly
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Tint',
+      value:          { R: 0.5, G: 0.6, B: 0.7, A: 0.8 },
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call.body.functionName === 'SetVectorParameterValueEditorOnly',
+      'object value → SetVectorParameterValueEditorOnly');
+    const v = call.body.parameters.Value;
+    t.assert(v.R === 0.5 && v.G === 0.6 && v.B === 0.7 && v.A === 0.8,
+      '{R,G,B,A} object passed through');
+  }
+
+  // Lowercase {r,g,b,a} object → mapped to uppercase
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Tint',
+      value:          { r: 0.9, g: 0.8, b: 0.7, a: 0.6 },
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call.body.parameters.Value.R === 0.9 && call.body.parameters.Value.A === 0.6,
+      'lowercase {r,g,b,a} mapped to uppercase {R,G,B,A}');
+  }
+
+  // Texture: string value (asset path) → SetTextureParameterValueEditorOnly
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Diffuse',
+      value:          '/Game/Textures/T_Brick.T_Brick',
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call.body.functionName === 'SetTextureParameterValueEditorOnly',
+      'string value → SetTextureParameterValueEditorOnly');
+    t.assert(call.body.parameters.Value === '/Game/Textures/T_Brick.T_Brick',
+      'texture asset-path string passed through unchanged');
+  }
+
+  // Explicit parameter_type override beats auto-detect
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'AlphaMask',
+      value:          '/Game/Textures/T_Mask.T_Mask',
+      parameter_type: 'texture',
+    }, conn);
+
+    const call = rcMock.lastCall('PUT /remote/object/call');
+    t.assert(call.body.functionName === 'SetTextureParameterValueEditorOnly',
+      'explicit parameter_type=texture honored');
+  }
+
+  // Type-mismatch errors are loud (scalar with non-numeric value)
+  {
+    const rcMock = new FakeHttpResponder();
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await t.assertRejects(
+      async () => executeRcTool('set_material_parameter', {
+        asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+        parameter_name: 'Roughness',
+        value:          'not-a-number',
+        parameter_type: 'scalar',
+      }, conn),
+      /scalar requires numeric value/,
+      'parameter_type=scalar with string value rejects loudly'
+    );
+  }
+
+  // Unknown parameter_type rejects
+  {
+    const rcMock = new FakeHttpResponder();
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await t.assertRejects(
+      async () => executeRcTool('set_material_parameter', {
+        asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+        parameter_name: 'X',
+        value:          1,
+        parameter_type: 'bogus',
+      }, conn),
+      /unknown parameter_type/,
+      'unknown parameter_type rejects'
+    );
+  }
+
+  // isReadOp false — write skips cache (two identical calls both hit wire)
+  {
+    const rcMock = new FakeHttpResponder();
+    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
+
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Roughness',
+      value:          0.5,
+    }, conn);
+    await executeRcTool('set_material_parameter', {
+      asset_path:     '/Game/Materials/MIC_Brick.MIC_Brick',
+      parameter_name: 'Roughness',
+      value:          0.5,
+    }, conn);
+    t.assert(rcMock.calls.length === 2,
+      'set_material_parameter is a write — both identical calls hit wire (skipCache)');
+  }
 }
 
 // ── Done ───────────────────────────────────────────────────────

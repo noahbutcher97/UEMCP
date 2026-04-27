@@ -123,7 +123,7 @@ export const RC_SCHEMAS = {
     isReadOp: false,
   },
 
-  // ── 3 semantic delegates (RC-internal substrate, TCP-external signature) ──
+  // ── 4 semantic delegates (RC-internal substrate, TCP-external signature) ──
   // Dispatched via DELEGATE_EXECS in executeRcTool — multi-call orchestrations,
   // not single-shot primitives.
   list_material_parameters: {
@@ -132,6 +132,22 @@ export const RC_SCHEMAS = {
       asset_path: z.string().describe('/Game/... path to the material or material instance'),
     },
     isReadOp: true,
+  },
+
+  // M5 (D101 (ii)): set_material_parameter ships as an RC delegate rather
+  // than a plugin C++ handler — UMaterialInstance exposes
+  // SetScalar/Vector/TextureParameterValueEditorOnly UFUNCTIONs that take
+  // FMaterialParameterInfo + value, so RC can drive the write directly. The
+  // agent-facing toolset is `materials`; the dispatch layer is RC HTTP.
+  set_material_parameter: {
+    description: 'Set scalar, vector, or texture parameter on a UMaterialInstanceConstant. Parameter type is auto-detected from `value` shape (number → scalar, [r,g,b,a] or {R,G,B,A} → vector, /Game/... string → texture); pass `parameter_type` to override. Transactional by default (records in editor Undo stack).',
+    schema: {
+      asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
+      parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
+      value:          z.any().describe('Scalar (number), Vector (4-element array or {R,G,B,A} object), or Texture (asset path string)'),
+      parameter_type: z.string().optional().describe('Optional override: scalar | vector | texture (default: auto-detect from value shape)'),
+    },
+    isReadOp: false,
   },
 
   get_curve_asset: {
@@ -348,10 +364,110 @@ function pickReturn(response) {
   return body.ReturnValue !== undefined ? body.ReturnValue : body;
 }
 
+/**
+ * set_material_parameter — set a scalar, vector, or texture parameter on a
+ * UMaterialInstanceConstant via RC HTTP (D101 (ii) — RC delegate over plugin
+ * C++ handler).
+ *
+ * Routes through SetScalar/Vector/TextureParameterValueEditorOnly UFUNCTIONs
+ * on the MIC asset itself. ParameterInfo's Association field is `2`
+ * (GlobalParameter) — note: not 0; LayerParameter occupies 0 in
+ * EMaterialParameterAssociation, GlobalParameter is the 3rd enum value.
+ * Index is -1 for global (non-layered) parameters.
+ *
+ * Type discrimination:
+ *   - `parameter_type` explicit override wins
+ *   - else auto-detect: number → scalar, array/object → vector, string → texture
+ *
+ * Vector value normalization: accepts either {R,G,B,A} object (RC-native
+ * FLinearColor shape) or [r,g,b,a] array (caller convenience). Texture value
+ * is passed as the asset path string — RC resolves it to UTexture* internally.
+ */
+async function execSetMaterialParameter(args, connectionManager) {
+  const objectPath = args.asset_path;
+  const parameterName = args.parameter_name;
+  const value = args.value;
+
+  let paramType = args.parameter_type;
+  if (!paramType) {
+    if (typeof value === 'number') {
+      paramType = 'scalar';
+    } else if (Array.isArray(value) || (value && typeof value === 'object')) {
+      paramType = 'vector';
+    } else if (typeof value === 'string') {
+      paramType = 'texture';
+    } else {
+      throw new Error(`set_material_parameter: cannot auto-detect parameter_type from value (${typeof value}); pass parameter_type explicitly`);
+    }
+  }
+
+  const ParameterInfo = {
+    Name: parameterName,
+    Association: 2,  // EMaterialParameterAssociation::GlobalParameter
+    Index: -1,
+  };
+
+  let functionName;
+  let parameters;
+  switch (paramType) {
+    case 'scalar': {
+      if (typeof value !== 'number') {
+        throw new Error(`set_material_parameter: scalar requires numeric value (got ${typeof value})`);
+      }
+      functionName = 'SetScalarParameterValueEditorOnly';
+      parameters = { ParameterInfo, Value: value };
+      break;
+    }
+    case 'vector': {
+      let r = 0, g = 0, b = 0, a = 1;
+      if (Array.isArray(value)) {
+        [r = 0, g = 0, b = 0, a = 1] = value;
+      } else if (value && typeof value === 'object') {
+        // Accept either {R,G,B,A} (RC-native) or {r,g,b,a} (lowercase).
+        r = value.R ?? value.r ?? 0;
+        g = value.G ?? value.g ?? 0;
+        b = value.B ?? value.b ?? 0;
+        a = value.A ?? value.a ?? 1;
+      } else {
+        throw new Error(`set_material_parameter: vector requires array or object value (got ${typeof value})`);
+      }
+      functionName = 'SetVectorParameterValueEditorOnly';
+      parameters = { ParameterInfo, Value: { R: r, G: g, B: b, A: a } };
+      break;
+    }
+    case 'texture': {
+      if (typeof value !== 'string') {
+        throw new Error(`set_material_parameter: texture requires asset-path string (got ${typeof value})`);
+      }
+      functionName = 'SetTextureParameterValueEditorOnly';
+      parameters = { ParameterInfo, Value: value };
+      break;
+    }
+    default:
+      throw new Error(`set_material_parameter: unknown parameter_type '${paramType}' (expected scalar|vector|texture)`);
+  }
+
+  const req = rc.rcCallFunction({
+    objectPath,
+    functionName,
+    parameters,
+    generateTransaction: true,
+  });
+  const res = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  return {
+    asset_path: objectPath,
+    parameter_name: parameterName,
+    parameter_type: paramType,
+    function_called: functionName,
+    response: res,
+  };
+}
+
 const DELEGATE_EXECS = {
   list_material_parameters: execListMaterialParameters,
   get_curve_asset:          execGetCurveAsset,
   get_mesh_info:            execGetMeshInfo,
+  set_material_parameter:   execSetMaterialParameter,
 };
 
 /**
