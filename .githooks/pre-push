@@ -18,6 +18,13 @@ export LC_ALL=C.UTF-8
 
 tokens=".git/info/forbidden-tokens"
 if [[ ! -f "$tokens" ]]; then
+  echo "" >&2
+  echo "⚠ UEMCP NDA-codename hook: .git/info/forbidden-tokens is ABSENT in this checkout." >&2
+  echo "  Per CLAUDE.md §Public-Repo Hygiene, this file is per-checkout one-time setup." >&2
+  echo "  Without it, the codename gate is not active in this checkout." >&2
+  echo "  Action: populate .git/info/forbidden-tokens with one codename per line." >&2
+  echo "  Continuing without gate (this hook will exit 0)." >&2
+  echo "" >&2
   exit 0
 fi
 

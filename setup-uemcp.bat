@@ -17,7 +17,8 @@ REM Also copies the UEMCP plugin into <project>\Plugins\UEMCP (physical copy;
 REM junctions proved unreliable for UE commandlet discovery 2026-04-21).
 REM
 REM Exit codes: 0 success, 1 bad args/cancelled/missing deps, 2 npm install fail,
-REM             3 .mcp.json write fail, 4 plugin copy fail.
+REM             3 .mcp.json write fail, 4 plugin copy fail,
+REM             5 plugin-deps update fail (.uproject read/write/JSON-parse error).
 REM
 REM See CLAUDE.md "Onboarding a new machine" for details.
 
@@ -365,6 +366,42 @@ echo [SUCCESS] Plugin installed at !PLUGIN_DEST!.
 set "PLUGIN_COPIED=1"
 
 :plugin_done
+
+REM --- Enable UEMCP's required built-in plugin deps in target .uproject ---
+REM Per D66 (RemoteControl HYBRID transport), D106 (GeometryScripting),
+REM D107 (PythonScriptPlugin + Blutility runtime checks). Idempotent: skips
+REM already-enabled plugins, flips Enabled=false to true, appends missing
+REM entries. Atomic write (temp + Move-Item -Force) guards against
+REM partial-write corruption. Layered explicit enablement on top of
+REM UEMCP.uplugin's declared deps as defense-in-depth — D106/D107 confirmed
+REM that .uproject Plugins[] gating is the empirical contract for full
+REM toolset coverage; UE's transitive auto-enable from .uplugin alone is
+REM not load-bearing for these.
+REM
+REM Path passes via env var (avoids CMD quoting hazards on paths with
+REM single-quotes or special chars; matches the .mcp.json node -e pattern
+REM at line 295). PS emits a single-line result:
+REM   CHANGED:   <deltas>   (write happened; +N=added, ~N=flipped, =N=ok)
+REM   UNCHANGED: <deltas>   (idempotent skip; all 4 already correct)
+REM   ERROR:     <message>  (read/parse/write failure -> EXIT_CODE 5)
+echo.
+echo Updating UEMCP plugin dependencies in !UPROJECT_FULL!...
+set "PLUGIN_DEPS_UPROJECT=!UPROJECT_FULL!"
+set "PLUGIN_DEPS_RESULT="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = $env:PLUGIN_DEPS_UPROJECT; $u = Get-Content -Raw $p | ConvertFrom-Json; $cur = @(); if ($u.PSObject.Properties.Match('Plugins').Count -and $null -ne $u.Plugins) { $cur = @($u.Plugins) }; $req = @('RemoteControl','PythonScriptPlugin','GeometryScripting','Blutility'); $changed = $false; $rep = @(); foreach ($n in $req) { $e = $cur | Where-Object { $_.Name -eq $n } | Select-Object -First 1; if (-not $e) { $cur += [pscustomobject]@{ Name = $n; Enabled = $true }; $changed = $true; $rep += ('+' + $n) } elseif (-not $e.Enabled) { $e.Enabled = $true; $changed = $true; $rep += ('~' + $n) } else { $rep += ('=' + $n) } }; if ($changed) { if ($u.PSObject.Properties.Match('Plugins').Count) { $u.Plugins = $cur } else { $u | Add-Member -Name Plugins -Value $cur -MemberType NoteProperty }; $tmp = $p + '.uemcp-tmp'; $json = $u | ConvertTo-Json -Depth 32; [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false)); Move-Item -Force $tmp $p; Write-Output ('CHANGED: ' + ($rep -join ' ')) } else { Write-Output ('UNCHANGED: ' + ($rep -join ' ')) } } catch { Write-Output ('ERROR: ' + ($_.Exception.Message -replace '[\r\n]+', ' | ')) }"`) do set "PLUGIN_DEPS_RESULT=%%I"
+if "!PLUGIN_DEPS_RESULT!"=="" (
+  echo [ERROR] Plugin-deps PowerShell returned no output ^(unexpected^).
+  set "EXIT_CODE=5" & goto :end
+)
+echo !PLUGIN_DEPS_RESULT! | findstr /B /C:"ERROR:" >nul
+if not errorlevel 1 (
+  echo [ERROR] !PLUGIN_DEPS_RESULT!
+  echo         If the .uproject is read-only ^(Perforce / git checkout^),
+  echo         check it out then re-run. Otherwise verify the JSON is valid.
+  set "EXIT_CODE=5" & goto :end
+)
+echo [SUCCESS] Plugin deps: !PLUGIN_DEPS_RESULT!
+
 echo.
 echo Next steps:
 echo   1. Close any running Claude Code session in this project.

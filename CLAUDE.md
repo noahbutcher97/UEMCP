@@ -348,12 +348,27 @@ The script:
 - Physical-copies `plugin/UEMCP/` into `<project>\Plugins\UEMCP\`
   (D61 established physical copy as the working dev workflow over
   symlink/junction approaches). Prompts before overwriting existing.
+- Enables UEMCP's required built-in plugin dependencies in the target
+  `.uproject`'s `Plugins[]` array (`RemoteControl` per D66/D77,
+  `PythonScriptPlugin` + `Blutility` per D107, `GeometryScripting`
+  per D106). Idempotent: skips plugins already enabled, flips
+  `Enabled: false` to `true`, appends missing entries. Writes
+  atomically (PowerShell to `<file>.uemcp-tmp` then `Move-Item -Force`)
+  so a partial-write failure can't corrupt the project. Layered explicit
+  enablement on top of UEMCP.uplugin's declared deps as defense-in-depth
+  — D106/D107 confirmed `.uproject` Plugins[] gating is the empirical
+  contract for full toolset coverage; transitive auto-enable from the
+  parent plugin alone is not load-bearing for these. Note:
+  `PythonScriptPlugin` enables `run_python_command` which is itself
+  gated by the `--enable-python-exec` startup flag per D101 (iv) — the
+  plugin being available does NOT expose the tool.
 - Pauses before exit on interactive launch so errors stay visible
   (fixed 2026-04-21 per friend-machine repro where double-click
   launches closed the window on the Node-missing check).
 
 Exit codes: 0 success, 1 bad args / cancelled / missing deps,
-2 npm install failure, 3 .mcp.json write failure, 4 plugin copy failure.
+2 npm install failure, 3 .mcp.json write failure, 4 plugin copy failure,
+5 plugin-deps update failure (.uproject read/write/JSON-parse error).
 
 Env var `SETUP_AUTO_YES=1` auto-accepts Node-install prompts (CI use).
 
