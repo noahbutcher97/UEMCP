@@ -40,11 +40,8 @@
 			"Enabled": true
 		},
 		{
-			"Name": "Blutility",
-			"Enabled": true
-		},
-		{
 			"Name": "PythonScriptPlugin",
+			"Enabled": true,
 			"Optional": true
 		}
 	]
