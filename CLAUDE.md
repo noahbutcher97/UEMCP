@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1376 unit-runnable assertions** (post-D92 baseline; varies ±4 by fixture availability — see T-1b synthetic-fixture migration status) across 11 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120 (new test-s-b-base-differential.mjs); CL-1 refreshed 7 drifts; Verb-surface +83 (new test-verb-surface.mjs); M-enhance across 4 sessions +166 (new test-rc-wire.mjs + test-tcp-tools.mjs extensions covering rc-tools + menhance-tcp-tools); AUDIT-FIX-3 +17 (test-verb-surface NodeGuid normalization, D85); SMOKE-FIX +43 (test-verb-surface exhaustive Bug 5 regression + test-rc-wire shape assertions, D87); CLEANUP-MICRO +4 (test-rc-wire body-normalization regression, D90).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1929 unit-runnable assertions** (post-D112 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 19 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -154,7 +154,7 @@ UEMCP/
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   ├── research/          ← parser survey, audit, design options (5 files)
 │   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D92, growing)
+│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D112, growing)
 └── .claude/               ← project-level Claude settings
 ```
 
@@ -447,12 +447,12 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D92, growing).
+See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D112, growing). D-log entries D78-D112 collectively catalog 30+ UE 5.6 plugin-development institutional-memory items (module-vs-plugin distinctions per D110, deprecation paths per D93/D102, link-time module deps per D111, parameter-association struct gotchas per D105, Python plugin runtime gates per D107, and more) — search `(extends D78/...)` in the D-log to follow the chain.
 
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~1376 unit-runnable assertions across 11 test files** (post-D92 baseline; varies ±4 by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base (new test-s-b-base-differential.mjs), +83 Verb-surface (new test-verb-surface.mjs), +166 M-enhance across 4 sessions (new test-rc-wire.mjs + test-tcp-tools.mjs extensions), +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90). CL-1 refreshed 7 drifts without count change. test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~1929 unit-runnable assertions across 19 test files** (post-D112 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Test Files — Primary Rotation
 
