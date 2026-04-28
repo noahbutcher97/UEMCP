@@ -206,11 +206,15 @@ namespace UEMCP
 				TArray<TSharedPtr<FJsonValue>> LogArr;
 				for (const FPythonLogOutputEntry& Entry : Cmd.LogOutput)
 				{
-					TSharedPtr<FJsonObject> LogObj = MakeShared<FJsonObject>();
-					LogObj->SetStringField(TEXT("type"),
+					// Local var name chosen to avoid UE's many DECLARE_LOG_CATEGORY_EXTERN
+					// globals (LogJson in JsonGlobals.h, LogObj in UObject/Object.h, etc.).
+					// Anything starting with "Log" risks a -Wshadow conflict; "JsonEntry"
+					// is descriptive and unambiguously local.
+					TSharedPtr<FJsonObject> JsonEntry = MakeShared<FJsonObject>();
+					JsonEntry->SetStringField(TEXT("type"),
 						Entry.Type == EPythonLogOutputType::Error ? TEXT("error") : TEXT("info"));
-					LogObj->SetStringField(TEXT("output"), Entry.Output);
-					LogArr.Add(MakeShared<FJsonValueObject>(LogObj));
+					JsonEntry->SetStringField(TEXT("output"), Entry.Output);
+					LogArr.Add(MakeShared<FJsonValueObject>(JsonEntry));
 				}
 				Result->SetArrayField(TEXT("log_output"), LogArr);
 			}
