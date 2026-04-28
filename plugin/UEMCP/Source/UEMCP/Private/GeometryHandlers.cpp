@@ -336,11 +336,14 @@ namespace UEMCP
 			}
 
 			FGeometryScriptMeshBooleanOptions BoolOptions;
-			FGeometryScriptDebug Debug;
+			// Debug param is UGeometryScriptDebug* (UObject pointer), defaults nullptr.
+			// UEMCP doesn't surface debug output via wire protocol, so passing nullptr
+			// keeps the call simple. If we ever need debug captures, instantiate via
+			// NewObject<UGeometryScriptDebug>(GetTransientPackage()).
 			UGeometryScriptLibrary_MeshBooleanFunctions::ApplyMeshBoolean(
 				TargetMesh, TargetActor->GetActorTransform(),
 				ToolMesh,   ToolActor->GetActorTransform(),
-				Op, BoolOptions, &Debug);
+				Op, BoolOptions, /*Debug=*/nullptr);
 
 			if (UDynamicMeshComponent* MeshComp = TargetActor->GetDynamicMeshComponent())
 			{
@@ -414,11 +417,11 @@ namespace UEMCP
 			// Box projection — simplest auto-UV path that works without per-shape
 			// tuning. Caller can override the projection box transform later via a
 			// dedicated tool if more sophisticated unwrapping is needed.
-			FGeometryScriptDebug Debug;
+			// Debug param is UGeometryScriptDebug* — see ApplyMeshBoolean note above.
 			UGeometryScriptLibrary_MeshUVFunctions::SetMeshUVsFromBoxProjection(
 				TargetMesh, UVChannel, FTransform::Identity,
 				FGeometryScriptMeshSelection(),
-				/*MinIslandTriCount=*/2, &Debug);
+				/*MinIslandTriCount=*/2, /*Debug=*/nullptr);
 
 			if (UDynamicMeshComponent* MeshComp = TargetActor->GetDynamicMeshComponent())
 			{

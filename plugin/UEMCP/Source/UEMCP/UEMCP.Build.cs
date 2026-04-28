@@ -8,6 +8,17 @@ public class UEMCP : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Per-handler files use anonymous-namespace file-local helpers
+		// (TryReadVector3, GetEditorWorld, ToObjectPath, GetStringOr, etc.)
+		// that overlap across files. Unity builds flatten all .cpp files into
+		// one translation unit, collapsing anonymous namespaces into one and
+		// causing duplicate-definition errors. Disabling unity preserves the
+		// per-file isolation each handler-file's design relies on. Slower
+		// clean builds for this single module; zero refactoring across 9
+		// handler files. Re-enable later if helpers are deduplicated into a
+		// shared header.
+		bUseUnity = false;
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",

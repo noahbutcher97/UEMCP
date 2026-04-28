@@ -414,8 +414,13 @@ namespace UEMCP
 					return;
 				}
 
-				EventNode = FKismetEditorUtilities::CreateNewBoundEventForClass(
+				// UE 5.6: CreateNewBoundEventForClass returns void (was
+				// UK2Node_ComponentBoundEvent* in 5.3-). Look up the freshly-
+				// created node by its canonical (DelegatePropertyName,
+				// ComponentPropertyName) pair via the existing lambda above.
+				FKismetEditorUtilities::CreateNewBoundEventForClass(
 					Widget->GetClass(), DelegatePropName, WidgetBlueprint, WidgetProp);
+				EventNode = FindExistingBoundEvent();
 
 				if (!EventNode)
 				{

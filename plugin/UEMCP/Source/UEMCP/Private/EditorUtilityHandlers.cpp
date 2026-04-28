@@ -206,11 +206,11 @@ namespace UEMCP
 				TArray<TSharedPtr<FJsonValue>> LogArr;
 				for (const FPythonLogOutputEntry& Entry : Cmd.LogOutput)
 				{
-					TSharedPtr<FJsonObject> LogJson = MakeShared<FJsonObject>();
-					LogJson->SetStringField(TEXT("type"),
+					TSharedPtr<FJsonObject> LogObj = MakeShared<FJsonObject>();
+					LogObj->SetStringField(TEXT("type"),
 						Entry.Type == EPythonLogOutputType::Error ? TEXT("error") : TEXT("info"));
-					LogJson->SetStringField(TEXT("output"), Entry.Output);
-					LogArr.Add(MakeShared<FJsonValueObject>(LogJson));
+					LogObj->SetStringField(TEXT("output"), Entry.Output);
+					LogArr.Add(MakeShared<FJsonValueObject>(LogObj));
 				}
 				Result->SetArrayField(TEXT("log_output"), LogArr);
 			}
