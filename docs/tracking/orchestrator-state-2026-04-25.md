@@ -24,7 +24,9 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **None currently dispatched.** CLEANUP-M3-FIXES shipped per D102 (commit `78032c4`); worker proactively covered broader gauntlet patterns from D100, so CLEANUP-M3-FIXES-2 is NOT NEEDED. M5 scope-verifier shipped per D101. Combined smoke + gauntlet shipped per D100. Three new dispatch options ready: M5-PREP (gating M5 sub-workers), TEST-IMPORTS-FIX (tiny — fixes test-tcp-tools.mjs broken since D97), and the still-queued WIDGETS-PERF + FA-ε write-side audit.
+- **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** — dispatched 2026-04-28 via conversation opener per D109. Worker's WIP visible in `plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp` showing centralization to new `BlueprintLookupHelper.h` (3-case chain: full-path / legacy back-compat / AssetRegistry fallback with explicit ambiguity errors). Awaiting final report.
+
+Recently shipped (since prior in-flight snapshot): SETUP-BAT-PLUGIN-DEPS per D110 (3 commits — main + Blutility-fix + .uplugin cleanup); M5 deployment compile-fix wave per D111 (3 commits — 5 build errors + LogObj rename + InputCore/Projects deps); §6 .githooks warn-on-missing **bundled into D110** (closes D103+D107 cross-worker reproduction structurally).
 
 ### Test baseline
 
@@ -70,7 +72,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D109)
+## Recent D-log highlights (D77 → D111)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -107,6 +109,8 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D107** M5-editor-utility shipped (commit `f36e4e1`, 6 tools with 4-layer security defense-in-depth). Layer 1 (server flag) + Layer 0 (plugin runtime) + Layer 2 (deny-list) + Layer 3 (audit log). +94 assertions including security-path coverage. **CRITICAL CROSS-WORKER CONFIRMATION**: `.git/info/forbidden-tokens` absent in this worker's checkout TOO (D103 §2 reproduction across 2 worker sessions in 2 days). Promoting `.githooks` warn-on-missing fix from "queue alongside grooming" to **SHIP SOON**.
 - **D108** M5 milestone complete — all 19/19 not-shipped tools landed across 3 parallel sub-workers (~3.5 sessions actual vs 6-10 estimate). **Phase 3 ~99% complete**; M5 was the last primary dispatch milestone. Remaining items are entirely optional follow-ons (live-fire smoke + TCP:55557 retirement + WIDGETS-PERF + FA-ε write-side audit + audit-batch-2 + various small improvements). The Phase 3 scope-refresh sequence (D58 §Q5) is empirically closed.
 - **D109** BLUEPRINT-ASSET-PATH-RESOLUTION bug surfaced 2026-04-28 by a third UEMCP-deployed test target (non-`/Game/Blueprints/` content layout). `ActorHandlers.cpp:630` + `BlueprintHandlers.cpp:46` `LegacyPath()` helper (cascades to 15 BP-write tools) + `WidgetHandlers.cpp:734-736` + tip text all hardcode `/Game/Blueprints/` prefix → 17 tools silently broken on non-standard layouts. Fix: `ResolveBlueprintAssetPath()` 3-case chain (full-path → legacy back-compat → AssetRegistry fallback w/ ambiguity errors). Standalone fix worker queued (~1-2 sessions); D49-clean across 5 plugin C++ + tools.yaml + 3 test files.
+- **D110** SETUP-BAT-PLUGIN-DEPS shipped (3 commits — main + Blutility-fix + .uplugin cleanup). Setup script now enables RemoteControl + PythonScriptPlugin + GeometryScripting in target .uproject (idempotent, atomic-write, EXIT_CODE 5). **Blutility is NOT a plugin — it's an engine MODULE** (Build.cs only, NOT .uproject Plugins[] or .uplugin Plugins[]); UE 5.6 institutional-memory item. **§6 .githooks warn-on-missing BUNDLED** — closes D103+D107 cross-worker reproduction.
+- **D111** M5 deployment compile-fix wave (3 commits). 5 build errors + LogObj symbol-collision rename + InputCore/Projects link deps. **Wire-mock vs build-time gap empirically demonstrated**: M5 wire-mock-green code surfaced build errors only when Noah ran Build.bat against real UE 5.6 module graph. D87 framing reinforced: "code committed + tests green ≠ build clean against real UE." Future M-* sub-worker handoffs should include "build-on-real-UE final verification before final-report" in the success criteria.
 
 ---
 
@@ -207,9 +211,10 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **M5-input+geometry** | ✅ Shipped 2026-04-26 (commit `112b749`, see D106 — 6 tools; Geometry Script plugin pre-flight PASSED; +109 assertions; M5-PREP scaffold parallel-safety EMPIRICALLY VINDICATED — 0 collisions vs M3-era 3 stash cycles) | — |
 | **M5-editor-utility** | ✅ Shipped 2026-04-26 (commit `f36e4e1`, see D107 — 6 tools with 4-layer security defense-in-depth; +94 assertions; CLAUDE.md §Security flag + tools.yaml + smoke plan handoff at `docs/handoffs/m5-editor-utility-smoke-plan.md`) | — |
 | **M5 milestone** | ✅ COMPLETE 2026-04-26 (D108) — 19/19 not-shipped tools shipped across 3 parallel sub-workers; D101 verifier verdict empirically closed; ~3.5 sessions actual vs 6-10 estimate | — |
-| **.githooks pre-commit/pre-push missing-file warning** | ⏸ **PROMOTED to SHIP SOON priority** — D103 finding #2 + D107 EMPIRICAL REPRODUCTION across 2 worker checkouts in 2 days = real fresh-clone risk, not hypothetical. Add WARNING (not block) when `.git/info/forbidden-tokens` missing | 0.1-0.25 session; standalone tiny dispatch recommended |
-| **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** | ⏸ Drafted; ready to dispatch — D109 surfaced BLOCKING bug for non-`/Game/Blueprints/` projects. 17 tools silently broken on non-standard layouts. Centralize via `ResolveBlueprintAssetPath()` helper (Case 1 full-path / Case 2 legacy back-compat / Case 3 AssetRegistry fallback). 5 edit sites across 3 plugin C++ files + tools.yaml + 3 test files | 1-2 sessions |
-| **SETUP-BAT-PLUGIN-DEPS** | ⏸ Drafted; ready to dispatch — extends setup-uemcp.bat to enable RemoteControl + PythonScriptPlugin + GeometryScripting + Blutility in target .uproject | 0.5-1 session |
+| **.githooks pre-commit/pre-push missing-file warning** | ✅ Shipped 2026-04-27 (bundled into SETUP-BAT-PLUGIN-DEPS commit `d45ca29` §6, see D110) — both hooks print loud WARNING when `.git/info/forbidden-tokens` absent |
+| **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** | 🚀 In flight (dispatched 2026-04-28 per D109) — WIP visible in BlueprintHandlers.cpp; new BlueprintLookupHelper.h centralization landed; awaiting final report |
+| **SETUP-BAT-PLUGIN-DEPS** | ✅ Shipped 2026-04-27 (commits `d45ca29` + `43fc722` Blutility-fix + `3b705de` .uplugin cleanup, see D110) — script enables RemoteControl + PythonScriptPlugin + GeometryScripting in target .uproject; Blutility correctly identified as engine module not plugin |
+| **M5 deployment compile-fix wave** | ✅ Shipped 2026-04-27 (commits `59d7c63` + `6059d4c` + `f42c04e`, see D111) — 5 build errors + LogObj symbol-collision rename + InputCore/Projects link deps |
 | ~~CLEANUP-M3-FIXES-2~~ | ❌ NOT NEEDED — D102 worker proactively covered gauntlet's broader patterns (subobject-traversal-universal in §1, all-3-widgets-PIE-lookup in §3) within CLEANUP-M3-FIXES scope | — |
 | **CLEANUP-M3-FIXES** | ✅ Shipped 2026-04-26 (commit `78032c4`, see D102 — 5 fixes + 1 doc + gauntlet-broader patterns covered + 6 UE 5.6 institutional-memory additions) | — |
 | **TEST-IMPORTS-FIX** | ✅ Shipped 2026-04-26 (commit `5028c47`, see D104) — 197 assertions restored to rotation; bonus fixes for Group 16 stale port + lying header comment |
