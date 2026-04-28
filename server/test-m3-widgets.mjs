@@ -740,6 +740,127 @@ console.log('\n── Group 14: D109 — add_input_action_node resolution surfac
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 15: WIDGETS-PERF — caller-pattern contract documented
+// ═══════════════════════════════════════════════════════════════
+//
+// WIDGETS-PERF defers FKismetEditorUtilities::CompileBlueprint +
+// UEditorAssetLibrary::SaveAsset out of the pure-mutation handlers
+// (add_text_block_to_widget, add_button_to_widget) so callers can batch
+// mutations cheaply and compile once. The contract is documented in the
+// tool descriptions; these assertions guard against silent regression of
+// the contract wording (e.g., a future refactor that re-adds an auto-
+// compile would also need to update the description, or this test fails).
+//
+// Per the WIDGETS-PERF investigation report: D83 hitch log evidence shows
+// cold add_text_block_to_widget = 2027.1ms / warm = 872.2ms / add_button =
+// 4155.5ms, all dominated by CompileBlueprint + SaveAsset. The per-call
+// cost post-fix will be re-measured against the same D83 instrumentation.
+// We DO NOT assert specific ms thresholds here — wire-mock returns
+// instantly so timing assertions would be uninformative; the live-editor
+// hitch grep IS the perf verification mechanism.
+//
+// Note: schema descriptions are loaded from tools.yaml at startup via the
+// fakeToolsYaml stub at the top of this file — so to test the YAML
+// description text directly, we read from disk. This is a structural
+// regression test, not a wire-protocol test.
+
+console.log('\n── Group 15: WIDGETS-PERF — caller-pattern contract ──');
+
+{
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const url = await import('node:url');
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const yamlPath = path.join(here, '..', 'tools.yaml');
+  const yamlText = await fs.readFile(yamlPath, 'utf8');
+
+  // Mutation handlers — must signal "no auto-compile" so callers know to
+  // invoke compile_blueprint after a batch.
+  const mutationContractPatterns = [
+    { tool: 'add_text_block', pattern: /does not auto-compile/i },
+    { tool: 'add_button',     pattern: /does not auto-compile or save/i },
+    { tool: 'add_input_action_node', pattern: /only marks bp modified/i },
+  ];
+  for (const { tool, pattern } of mutationContractPatterns) {
+    t.assert(yamlText.match(pattern),
+      `WIDGETS-PERF: ${tool} description signals deferred-compile contract (${pattern})`);
+  }
+
+  // Mutation handlers must reference the follow-on compile path so callers
+  // know what to invoke after batch mutations.
+  const mutationCompileRefs = ['add_text_block', 'add_button', 'add_input_action_node'];
+  for (const tool of mutationCompileRefs) {
+    // Find the tool's full block in YAML and check its description references compile_blueprint.
+    const blockMatch = yamlText.match(new RegExp(`^      ${tool}:[\\s\\S]*?(?=^      \\w+:|^  \\w+:)`, 'm'));
+    t.assert(blockMatch && /compile_blueprint/.test(blockMatch[0]),
+      `WIDGETS-PERF: ${tool} description points callers at compile_blueprint`);
+  }
+
+  // Property-resolving handlers (bind_widget_event, set_text_block_binding)
+  // must signal that they self-compile — callers can chain through them
+  // without manually invoking compile_blueprint afterwards.
+  const completionContractPatterns = [
+    { tool: 'bind_widget_event',      pattern: /self-compiles \+ saves on completion/i },
+    { tool: 'set_text_block_binding', pattern: /self-compiles \+ saves on completion/i },
+  ];
+  for (const { tool, pattern } of completionContractPatterns) {
+    t.assert(yamlText.match(pattern),
+      `WIDGETS-PERF: ${tool} description signals self-compile contract (${pattern})`);
+  }
+
+  // Toolset-level description must mention the batch-then-compile pattern
+  // and point at the D83 hitch instrumentation as the verification mechanism.
+  t.assert(/d83 hitch instrumentation/i.test(yamlText),
+    'WIDGETS-PERF: widgets toolset description references D83 hitch instrumentation as verification mechanism');
+  t.assert(/batch of mutations/i.test(yamlText),
+    'WIDGETS-PERF: widgets toolset description signals batch-mutation pattern');
+}
+
+{
+  // Defense-in-depth: the C++ source-of-truth for the deferred compile
+  // (WidgetHandlers.cpp) must NOT contain `FKismetEditorUtilities::CompileBlueprint`
+  // inside HandleAddTextBlockToWidget or HandleAddButtonToWidget. Because the
+  // function bodies are anonymous-namespaced in a single .cpp file, a literal
+  // grep for the WIDGETS-PERF-tagged comment block adjacent to MarkBlueprintAsModified
+  // is the simplest structural check.
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const url = await import('node:url');
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const cppPath = path.join(here, '..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'WidgetHandlers.cpp');
+  const cppText = await fs.readFile(cppPath, 'utf8');
+
+  // Both pure-mutation handlers carry the WIDGETS-PERF tag in their tail-comment,
+  // and the tail must call MarkBlueprintAsModified, NOT CompileBlueprint.
+  const widgetsPerfMatches = cppText.match(/WIDGETS-PERF/g) || [];
+  t.assert(widgetsPerfMatches.length >= 2,
+    `WIDGETS-PERF: C++ source carries the WIDGETS-PERF tag on the deferred-compile sites (got ${widgetsPerfMatches.length} matches, expected >=2)`);
+
+  // Block-level structural check: HandleAddTextBlockToWidget body must NOT
+  // contain CompileBlueprint(WidgetBlueprint) directly anymore.
+  const handleAddTextBlock = cppText.match(/HandleAddTextBlockToWidget[\s\S]*?^\t\t\}/m);
+  t.assert(handleAddTextBlock && !/FKismetEditorUtilities::CompileBlueprint\(WidgetBlueprint\)/.test(handleAddTextBlock[0]),
+    'WIDGETS-PERF: HandleAddTextBlockToWidget no longer calls CompileBlueprint inline');
+
+  const handleAddButton = cppText.match(/HandleAddButtonToWidget[\s\S]*?^\t\t\}/m);
+  t.assert(handleAddButton && !/FKismetEditorUtilities::CompileBlueprint\(WidgetBlueprint\)/.test(handleAddButton[0]),
+    'WIDGETS-PERF: HandleAddButtonToWidget no longer calls CompileBlueprint inline');
+  t.assert(handleAddButton && !/SaveAsset\(WidgetAssetPath/.test(handleAddButton[0]),
+    'WIDGETS-PERF: HandleAddButtonToWidget no longer calls SaveAsset inline (asymmetry with add_text_block fixed)');
+
+  // Property-resolving handlers MUST still compile internally — that's the
+  // load-bearing semantic; removing it would break the binding-materialization
+  // contract. Guard against an over-eager refactor.
+  const handleBindWidgetEvent = cppText.match(/HandleBindWidgetEvent[\s\S]*?^\t\t\}/m);
+  t.assert(handleBindWidgetEvent && /FKismetEditorUtilities::CompileBlueprint/.test(handleBindWidgetEvent[0]),
+    'WIDGETS-PERF: HandleBindWidgetEvent still self-compiles (load-bearing — needs FObjectProperty on GeneratedClass)');
+
+  const handleSetTextBlockBinding = cppText.match(/HandleSetTextBlockBinding[\s\S]*?^\t\t\}/m);
+  t.assert(handleSetTextBlockBinding && /FKismetEditorUtilities::CompileBlueprint/.test(handleSetTextBlockBinding[0]),
+    'WIDGETS-PERF: HandleSetTextBlockBinding still self-compiles (load-bearing — needs new function graph translated to UFunction)');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

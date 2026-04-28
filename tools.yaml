@@ -531,12 +531,13 @@ toolsets:
     priority: null
     description: |
       UMG widget creation and binding. Mutation handlers (add_text_block, add_button,
-      add_input_action_node) are FAST (~50-100ms) and DO NOT auto-compile or save —
-      they only mark the BP modified. After a batch of mutations, call
-      blueprints-write.compile_blueprint (or bp_compile_and_report for diagnostics)
-      to materialize generated-class properties; bind_widget_event /
-      set_text_block_binding self-compile + save on completion (~1-2s each), so a
-      typical flow that ends with a binding op is auto-finalized.
+      add_input_action_node) DO NOT auto-compile or save — they only mark the BP
+      modified. After a batch of mutations, call blueprints-write.compile_blueprint
+      (or bp_compile_and_report for diagnostics) to materialize generated-class
+      properties; bind_widget_event / set_text_block_binding self-compile + save
+      on completion, so a typical flow that ends with a binding op is auto-finalized.
+      Per-call cost: D83 hitch instrumentation logs 'hitch: <handler> ran XXXms'
+      to <ProjectName>.log for live-editor verification.
     tools:
       create_widget:
         wire_type: create_umg_widget_blueprint
@@ -545,7 +546,7 @@ toolsets:
           name: { type: string, required: true, description: "Widget blueprint name" }
       add_text_block:
         wire_type: add_text_block_to_widget
-        description: Add text block to widget (requires root CanvasPanel). Fast (~50-100ms) — does NOT auto-compile; call compile_blueprint after batch mutations.
+        description: Add text block to widget (requires root CanvasPanel). Does NOT auto-compile — call compile_blueprint after batch mutations to materialize generated-class properties.
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Name for the TextBlock" }
@@ -553,14 +554,14 @@ toolsets:
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       add_button:
         wire_type: add_button_to_widget
-        description: Add button with child TextBlock to widget (requires root CanvasPanel). Fast (~50-100ms) — does NOT auto-compile or save; call compile_blueprint and persist explicitly after batch mutations.
+        description: Add button with child TextBlock to widget (requires root CanvasPanel). Does NOT auto-compile or save — call compile_blueprint after batch mutations and persist explicitly when ready.
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Button widget name" }
           text:           { type: string, required: true, description: "Button label text" }
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       bind_widget_event:
-        description: Bind widget event (e.g. OnClicked) to function in event graph. Self-compiles + saves on completion (~1-2s).
+        description: Bind widget event (e.g. OnClicked) to function in event graph. Self-compiles + saves on completion (compile is required to materialize the FObjectProperty on GeneratedClass before wiring the bound event).
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Widget to bind event on" }
@@ -570,7 +571,7 @@ toolsets:
         # FText getter (correct K2 schema connections) and registers an
         # FDelegateEditorBinding on the TextBlock's Text property. Binding now
         # evaluates at runtime; oracle's exec→data invalid pin connection retired.
-        description: Set text block data binding — creates pure FText getter and registers FDelegateEditorBinding. Self-compiles + saves on completion (~1-2s).
+        description: Set text block data binding — creates pure FText getter and registers FDelegateEditorBinding. Self-compiles + saves on completion (compile is required to translate the new function graph into the generated class).
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "TextBlock widget to bind" }
@@ -586,7 +587,7 @@ toolsets:
           z_order:        { type: integer, required: false, description: "Z-order, default 0" }
       add_input_action_node:
         wire_type: add_blueprint_input_action_node
-        description: Add input action event node (legacy Input Actions, NOT Enhanced Input)
+        description: Add input action event node (legacy Input Actions, NOT Enhanced Input). Only marks BP modified — call compile_blueprint to materialize the new node into the generated class.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name (works on any BP, not just widgets)" }
           action_name:    { type: string, required: true, description: "Input action name" }

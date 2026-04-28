@@ -215,8 +215,19 @@ namespace UEMCP
 				PanelSlot->SetPosition(Position);
 			}
 
-			WidgetBlueprint->MarkPackageDirty();
-			FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
+			// WIDGETS-PERF: pure WidgetTree mutation marks the BP dirty but does NOT
+			// auto-compile. Pre-fix D83 hitch log (<ProjectName>.log 2026-04-26) recorded
+			// 'add_text_block_to_widget ran 2027.1ms' (cold) and '872.2ms' (warm) —
+			// dominated by FKismetEditorUtilities::CompileBlueprint regenerating the
+			// UWidgetBlueprintGeneratedClass + Slate template. Removing the auto-
+			// compile leaves only WidgetTree mutation + dirty mark; the new per-call
+			// cost will be re-measured against the same D83 instrumentation post-
+			// deployment. Callers batch mutations and invoke `compile_blueprint`
+			// (or `bp_compile_and_report`) when they need generated-class properties
+			// materialized for downstream lookup. Property-resolving handlers
+			// (bind_widget_event, set_text_block_binding) still self-compile because
+			// they read FObjectProperty on GeneratedClass.
+			FBlueprintEditorUtils::MarkBlueprintAsModified(WidgetBlueprint);
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("widget_name"), WidgetName);
@@ -295,9 +306,16 @@ namespace UEMCP
 				}
 			}
 
-			WidgetBlueprint->MarkPackageDirty();
-			FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
-			UEditorAssetLibrary::SaveAsset(WidgetAssetPath(BlueprintName), false);
+			// WIDGETS-PERF: pure WidgetTree mutation — same contract as
+			// add_text_block_to_widget. Drops the asymmetric SaveAsset() that
+			// the oracle copied; persistence happens on completion handlers
+			// (bind_widget_event / set_text_block_binding) or via explicit
+			// caller invocation. Pre-fix D83 hitch log (<ProjectName>.log 2026-04-26)
+			// recorded 'add_button_to_widget ran 4155.5ms'; that single data
+			// point is the worst case in the captured trace, dominated by
+			// CompileBlueprint + SaveAsset together. Post-fix per-call cost
+			// will be re-measured against the same D83 instrumentation.
+			FBlueprintEditorUtils::MarkBlueprintAsModified(WidgetBlueprint);
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetBoolField(TEXT("success"), true);
