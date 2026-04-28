@@ -5,7 +5,8 @@
   "type": "module",
   "main": "server.mjs",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node run-rotation.mjs"
   },
   "keywords": ["mcp", "unreal-engine", "claude"],
   "license": "UNLICENSED",

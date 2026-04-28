@@ -454,6 +454,42 @@ See `docs/tracking/risks-and-decisions.md` for full risk table and decision log 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
 **Total: ~1929 unit-runnable assertions across 19 test files** (post-D112 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112). test-m1-ping live-editor-gated and excluded from rotation count.
 
+### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
+
+`server/run-rotation.mjs` enumerates every `server/test-*.mjs` (excluding the
+two library helpers and the live-gated `test-m1-ping`), spawns each as an
+isolated `node` subprocess, parses the `Passed/Failed/Total` summary from
+stdout, and produces a single authoritative aggregate count. It is the
+canonical way to run the rotation; per-file commands in the tables below remain
+useful for narrow iteration but no longer set the rotation count.
+
+**Run**:
+
+```bash
+cd D:\DevTools\UEMCP\server
+node run-rotation.mjs           # standard
+node run-rotation.mjs --json    # machine-readable
+node run-rotation.mjs --snapshot  # writes server/.test-rotation-snapshot.json
+npm test                        # equivalent to `node run-rotation.mjs`
+```
+
+For full coverage of the supplementary rotation set (the fixture-backed tests
+listed below), prefix with `set UNREAL_PROJECT_ROOT=path/to/YourProject&& `
+(no space before `&&`) — without it, those tests legitimately skip.
+
+**FAIL-LOUD on import errors (closes D104 silent-zero meta-finding)**: the
+runner classifies each subprocess outcome into one of `PASS`, `SKIPPED` (live-
+or env-gated), `ASSERTION_FAILED`, `IMPORT_ERROR` (stderr matches Node module-
+resolution patterns AND no summary parsed), `CRASHED_NO_SUMMARY` (exit ≠ 0,
+no summary, not an import error — top-level throw), or `NO_SUMMARY_PARSED`
+(exit 0 but no Pass/Fail/Total — silent-zero shape, investigate). Any non-PASS,
+non-SKIPPED bucket exits non-zero with file-name attribution. The historic
+silent-zero failure mode where a deleted-barrel import error masqueraded as
+0/0 is structurally impossible to reproduce against this runner.
+
+The runner does NOT replace per-file invocation for narrow debugging — those
+commands still work and are documented in the tables below for that purpose.
+
 ### Test Files — Primary Rotation
 
 | File | Purpose | Run command |

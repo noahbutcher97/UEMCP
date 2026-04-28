@@ -26,6 +26,10 @@ plugin/**/DerivedDataCache/
 # Logs
 *.log
 
+# Test rotation snapshot — runtime artifact from run-rotation.mjs --snapshot.
+# Per-checkout aggregate counts; useful for local drift detection, not source.
+server/.test-rotation-snapshot.json
+
 # MCP config (per-machine — template is .mcp.json.example)
 .mcp.json
 .claude/settings.local.json
