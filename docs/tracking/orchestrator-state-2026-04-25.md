@@ -24,9 +24,9 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ### In flight
 
-- **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** — dispatched 2026-04-28 via conversation opener per D109. Worker's WIP visible in `plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp` showing centralization to new `BlueprintLookupHelper.h` (3-case chain: full-path / legacy back-compat / AssetRegistry fallback with explicit ambiguity errors). Awaiting final report.
+- **None currently dispatched.** BLUEPRINT-ASSET-PATH-RESOLUTION-FIX shipped per D112 (commit `3a5b600`); 17 tools previously broken on non-standard layouts now work (verified-by-test; verified-pending-deployment + 5-case live-smoke folded into Post-M5 handoff §1.0).
 
-Recently shipped (since prior in-flight snapshot): SETUP-BAT-PLUGIN-DEPS per D110 (3 commits — main + Blutility-fix + .uplugin cleanup); M5 deployment compile-fix wave per D111 (3 commits — 5 build errors + LogObj rename + InputCore/Projects deps); §6 .githooks warn-on-missing **bundled into D110** (closes D103+D107 cross-worker reproduction structurally).
+Recently shipped (since prior in-flight snapshot): SETUP-BAT-PLUGIN-DEPS per D110 (3 commits — main + Blutility-fix + .uplugin cleanup); M5 deployment compile-fix wave per D111 (3 commits — 5 build errors + LogObj rename + InputCore/Projects deps); §6 .githooks warn-on-missing **bundled into D110** (closes D103+D107 cross-worker reproduction structurally); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX per D112 (commit `3a5b600`, +427/-39 across 12 files; 14 BP-write handlers cascade through new `ResolveBlueprint()` chokepoint; 3 new UE 5.6 institutional-memory items).
 
 ### Test baseline
 
@@ -72,7 +72,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D111)
+## Recent D-log highlights (D77 → D112)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -111,6 +111,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D109** BLUEPRINT-ASSET-PATH-RESOLUTION bug surfaced 2026-04-28 by a third UEMCP-deployed test target (non-`/Game/Blueprints/` content layout). `ActorHandlers.cpp:630` + `BlueprintHandlers.cpp:46` `LegacyPath()` helper (cascades to 15 BP-write tools) + `WidgetHandlers.cpp:734-736` + tip text all hardcode `/Game/Blueprints/` prefix → 17 tools silently broken on non-standard layouts. Fix: `ResolveBlueprintAssetPath()` 3-case chain (full-path → legacy back-compat → AssetRegistry fallback w/ ambiguity errors). Standalone fix worker queued (~1-2 sessions); D49-clean across 5 plugin C++ + tools.yaml + 3 test files.
 - **D110** SETUP-BAT-PLUGIN-DEPS shipped (3 commits — main + Blutility-fix + .uplugin cleanup). Setup script now enables RemoteControl + PythonScriptPlugin + GeometryScripting in target .uproject (idempotent, atomic-write, EXIT_CODE 5). **Blutility is NOT a plugin — it's an engine MODULE** (Build.cs only, NOT .uproject Plugins[] or .uplugin Plugins[]); UE 5.6 institutional-memory item. **§6 .githooks warn-on-missing BUNDLED** — closes D103+D107 cross-worker reproduction.
 - **D111** M5 deployment compile-fix wave (3 commits). 5 build errors + LogObj symbol-collision rename + InputCore/Projects link deps. **Wire-mock vs build-time gap empirically demonstrated**: M5 wire-mock-green code surfaced build errors only when Noah ran Build.bat against real UE 5.6 module graph. D87 framing reinforced: "code committed + tests green ≠ build clean against real UE." Future M-* sub-worker handoffs should include "build-on-real-UE final verification before final-report" in the success criteria.
+- **D112** BLUEPRINT-ASSET-PATH-RESOLUTION-FIX shipped (commit `3a5b600`, 12 files, +427/-39, +16 assertions). New `BlueprintLookupHelper.{h,cpp}` exports `ResolveBlueprintAssetPath` 3-case chain (full-path / legacy back-compat / AssetRegistry fallback with explicit ambiguity errors). 14 BP-write handlers cascade through single `ResolveBlueprint()` chokepoint in BlueprintHandlers.cpp. 17 tools previously broken on non-standard layouts now work. 3 new UE 5.6 institutional-memory items (AR canonical BP enumerator pattern; FAssetData::PackageName as lightest accessor; editor AR is always populated post-startup, no caching needed). 5-case live-smoke folded into Post-M5 deployment-smoke handoff §1.0; D109 saga closes empirically when Noah's smoke runs.
 
 ---
 
@@ -212,7 +213,7 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **M5-editor-utility** | ✅ Shipped 2026-04-26 (commit `f36e4e1`, see D107 — 6 tools with 4-layer security defense-in-depth; +94 assertions; CLAUDE.md §Security flag + tools.yaml + smoke plan handoff at `docs/handoffs/m5-editor-utility-smoke-plan.md`) | — |
 | **M5 milestone** | ✅ COMPLETE 2026-04-26 (D108) — 19/19 not-shipped tools shipped across 3 parallel sub-workers; D101 verifier verdict empirically closed; ~3.5 sessions actual vs 6-10 estimate | — |
 | **.githooks pre-commit/pre-push missing-file warning** | ✅ Shipped 2026-04-27 (bundled into SETUP-BAT-PLUGIN-DEPS commit `d45ca29` §6, see D110) — both hooks print loud WARNING when `.git/info/forbidden-tokens` absent |
-| **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** | 🚀 In flight (dispatched 2026-04-28 per D109) — WIP visible in BlueprintHandlers.cpp; new BlueprintLookupHelper.h centralization landed; awaiting final report |
+| **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** | ✅ Shipped 2026-04-28 (commit `3a5b600`, see D112 — 12 files, +427/-39; 17 tools fixed via single chokepoint; 5-case live-smoke folded into Post-M5 deploy smoke §1.0) |
 | **SETUP-BAT-PLUGIN-DEPS** | ✅ Shipped 2026-04-27 (commits `d45ca29` + `43fc722` Blutility-fix + `3b705de` .uplugin cleanup, see D110) — script enables RemoteControl + PythonScriptPlugin + GeometryScripting in target .uproject; Blutility correctly identified as engine module not plugin |
 | **M5 deployment compile-fix wave** | ✅ Shipped 2026-04-27 (commits `59d7c63` + `6059d4c` + `f42c04e`, see D111) — 5 build errors + LogObj symbol-collision rename + InputCore/Projects link deps |
 | ~~CLEANUP-M3-FIXES-2~~ | ❌ NOT NEEDED — D102 worker proactively covered gauntlet's broader patterns (subobject-traversal-universal in §1, all-3-widgets-PIE-lookup in §3) within CLEANUP-M3-FIXES scope | — |
