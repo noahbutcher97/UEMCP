@@ -29,6 +29,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "BlueprintLookupHelper.h"
 #include "UObject/Package.h"
 #include "WidgetBlueprint.h"
 
@@ -731,15 +732,23 @@ namespace UEMCP
 				return;
 			}
 
-			// BP lookup convention: regular blueprints under /Game/Blueprints/<name>.
-			// (Different from widget blueprints which live at /Game/Widgets/.)
-			const FString BlueprintPath = FString::Printf(TEXT("/Game/Blueprints/%s"), *BlueprintName);
+			// D109: project-layout-aware resolution. blueprint_name accepts a bare
+			// name (legacy /Game/Blueprints/<name> probe + AssetRegistry fallback)
+			// or a fully-qualified /Game/... path. Different from widget blueprints
+			// (which live under /Game/Widgets/) — this handler edits the embedded
+			// graph of a regular UBlueprint that hosts an Input Action node.
+			FString BlueprintPath, ResolveError, ResolveErrorCode;
+			if (!ResolveBlueprintAssetPath(BlueprintName, BlueprintPath, ResolveError, ResolveErrorCode))
+			{
+				BuildErrorResponse(OutResponse, ResolveError, ResolveErrorCode);
+				return;
+			}
 			UBlueprint* Blueprint = Cast<UBlueprint>(UEditorAssetLibrary::LoadAsset(BlueprintPath));
 			if (!Blueprint)
 			{
 				BuildErrorResponse(OutResponse,
-					FString::Printf(TEXT("Blueprint '%s' not found at %s"), *BlueprintName, *BlueprintPath),
-					TEXT("BLUEPRINT_NOT_FOUND"));
+					FString::Printf(TEXT("Blueprint '%s' could not be loaded from %s"), *BlueprintName, *BlueprintPath),
+					TEXT("BLUEPRINT_LOAD_FAILED"));
 				return;
 			}
 

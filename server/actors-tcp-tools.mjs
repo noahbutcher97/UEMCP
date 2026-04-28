@@ -120,7 +120,7 @@ export const ACTORS_SCHEMAS = {
   spawn_blueprint_actor: {
     description: 'Spawn instance of a Blueprint class in the level',
     schema: {
-      blueprint_name: z.string().describe('Blueprint asset name (looked up under /Game/Blueprints/)'),
+      blueprint_name: z.string().describe('Blueprint asset name (bare — resolved via /Game/Blueprints/ then AssetRegistry) OR fully-qualified /Game/... path'),
       actor_name: z.string().describe('Name for the spawned actor'),
       location: Vec3Optional,
       rotation: Vec3Optional,

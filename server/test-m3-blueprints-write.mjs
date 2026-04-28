@@ -655,6 +655,80 @@ console.log('\n── Group 11: Unknown Tool Rejection ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 12: D109 — blueprints-write project-layout-aware resolution
+// ═══════════════════════════════════════════════════════════════
+//
+// D109: Plugin's ResolveBlueprintAssetPath helper accepts a fully-qualified
+// /Game/... path OR a bare asset name. All BP-write tools route through
+// ResolveBlueprint() which delegates to the helper, so blueprint_name is
+// passed to the wire unchanged in either form. New typed BLUEPRINT_AMBIGUOUS
+// error surfaces when Case 3 (AR fallback) returns multiple matches.
+//
+// Sample tools (compile_blueprint + add_event_node) cover both read and
+// write surfaces. C++ resolution path is verified live during smoke.
+
+console.log('\n── Group 12: D109 — blueprints-write resolution surface ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('compile_blueprint', { status: 'success', result: { name: 'BP', compiled: true } });
+  fake.on('add_blueprint_event_node', { status: 'success', result: { node_id: 'GUID-EV' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Case 1: fully-qualified /Game/... path passes through to wire unchanged
+  await executeBlueprintsWriteTool('compile_blueprint',
+    { blueprint_name: '/Game/Custom/Path/BP_Player' }, cm);
+  let call = fake.lastCall('compile_blueprint');
+  t.assert(call.params.blueprint_name === '/Game/Custom/Path/BP_Player',
+    'D109: compile_blueprint full /Game/... path passes through unmodified (Case 1)');
+
+  // Case 2/3: bare asset name passes through to wire unchanged (plugin resolves)
+  fake.resetCalls();
+  await executeBlueprintsWriteTool('add_event_node',
+    { blueprint_name: 'BP_Player', event_name: 'ReceiveBeginPlay' }, cm);
+  call = fake.lastCall('add_blueprint_event_node');
+  t.assert(call.params.blueprint_name === 'BP_Player',
+    'D109: add_event_node bare name passes through unmodified (plugin resolves Case 2/3)');
+}
+
+{
+  // BLUEPRINT_AMBIGUOUS — typed error code propagates through executeBlueprintsWriteTool
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('compile_blueprint', {
+    status: 'error',
+    error: "Ambiguous Blueprint name 'BP_Player' (2 matches: /Game/Blueprints/BP_Player, /Game/Custom/BP_Player) — pass a fully-qualified /Game/... path to disambiguate",
+    code: 'BLUEPRINT_AMBIGUOUS',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('compile_blueprint',
+      { blueprint_name: 'BP_Player' }, cm),
+    /Ambiguous Blueprint name/,
+    'D109: BLUEPRINT_AMBIGUOUS propagates from any blueprints-write tool',
+  );
+}
+
+// create_blueprint description regression: still says "/Game/Blueprints/" (it's the
+// creation root, NOT a lookup site — kept per handoff §Scope-out) but ALSO
+// documents the new cross-tool convention for blueprint_name on other tools.
+{
+  const desc = BLUEPRINTS_WRITE_SCHEMAS.create_blueprint.description;
+  t.assert(typeof desc === 'string' && desc.length > 0,
+    'create_blueprint has a description');
+  t.assert(/\/Game\/Blueprints\//.test(desc),
+    'D109: create_blueprint description still names /Game/Blueprints/ as creation root (kept per §Scope-out)');
+  t.assert(/fully-qualified|\/Game\/\.\.\./i.test(desc),
+    'D109: create_blueprint description acknowledges full /Game/... paths on other tools in toolset');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

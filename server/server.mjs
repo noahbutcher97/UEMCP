@@ -132,7 +132,7 @@ const TOOLSET_TIPS = {
       'Actor names are exact-match lookups (case-sensitive). Use find_actors(pattern) for substring search, get_actors() for full list.',
       'set_actor_property supports bool/int/float/string/enum only — no Vector, Rotator, or struct types. Use set_actor_transform for position/rotation/scale.',
       'focus_viewport needs either target (actor name) OR location — not both. Camera offsets on X axis at the given distance.',
-      'spawn_blueprint_actor looks up blueprints under /Game/Blueprints/ only — pass just the asset name, not a full path.',
+      'spawn_blueprint_actor accepts a fully-qualified `/Game/...` path (preferred — unambiguous) or a bare asset name (resolved via /Game/Blueprints/ first, then AssetRegistry project-wide; ambiguous bare names error explicitly with all candidates listed).',
       'take_screenshot saves to the editor machine filesystem. For inline base64, use get_viewport_screenshot (visual-capture toolset).',
     ].join(' '),
     workflows: [
@@ -149,7 +149,7 @@ const TOOLSET_TIPS = {
 
   'blueprints-write': {
     core: [
-      'All blueprint commands use name-only lookup under /Game/Blueprints/ — pass "MyBP", not "/Game/Blueprints/MyBP".',
+      'blueprint_name accepts a fully-qualified `/Game/...` path or a bare asset name. Bare names check `/Game/Blueprints/<Name>` first (back-compat), then fall back to project-wide AssetRegistry lookup. Pass a full path to disambiguate when multiple BPs share a name.',
       'add_component auto-compiles the blueprint. Other mutations (set_component_property, set_blueprint_property) do NOT — call compile_blueprint explicitly.',
       'compile_blueprint always returns compiled:true even if there are compile errors — no error output in response.',
       'set_pawn_props returns per-property results — partial success is possible. Check the results object.',
@@ -172,7 +172,7 @@ const TOOLSET_TIPS = {
 
   'widgets': {
     core: [
-      'Widget blueprints live under /Game/Widgets/ (not /Game/Blueprints/). Pass name only.',
+      'Widget blueprints live under /Game/Widgets/ — pass name only to create_widget / add_text_block / add_button / bind_widget_event / set_text_block_binding / add_widget_to_viewport. add_input_action_node operates on a regular UBlueprint and accepts a fully-qualified `/Game/...` path or a bare name (same resolution chain as the blueprints-write toolset).',
       'create_widget auto-adds a root CanvasPanel. add_text_block and add_button require this root — they fail if the root is not a CanvasPanel.',
       'add_button creates a child TextBlock named <widget_name>_Text automatically.',
       'add_widget_to_viewport requires PIE running (engine restriction — AddToViewport needs a live game world). Returns NOT_IN_PIE error if PIE is not active; start_pie first then re-call.',

@@ -381,7 +381,7 @@ toolsets:
       spawn_blueprint_actor:
         description: Spawn instance of a Blueprint class
         params:
-          blueprint_name: { type: string, required: true, description: "Asset name only (looked up under /Game/Blueprints/)" }
+          blueprint_name: { type: string, required: true, description: "Bare asset name (resolved via /Game/Blueprints/ then AssetRegistry) OR fully-qualified /Game/... path" }
           actor_name:     { type: string, required: true, description: "Name for the spawned actor" }
           location:       { type: array, required: false, description: "[x, y, z] default [0,0,0]" }
           rotation:       { type: array, required: false, description: "[pitch, yaw, roll] default [0,0,0]" }
@@ -412,9 +412,9 @@ toolsets:
       add_input_action_node stays under widgets (already listed there).
     tools:
       create_blueprint:
-        description: Create new Blueprint class at /Game/Blueprints/<name>
+        description: Create new Blueprint class under /Game/Blueprints/<name>. Other tools in this toolset accept either a bare asset name or a fully-qualified /Game/... path for blueprint_name (resolved via AssetRegistry).
         params:
-          name:         { type: string, required: true, description: "Blueprint asset name" }
+          name:         { type: string, required: true, description: "Blueprint asset name (created at /Game/Blueprints/<name>)" }
           parent_class: { type: string, required: false, description: "Parent class name, default AActor. Supports Pawn/Actor shorthand." }
       add_component:
         wire_type: add_component_to_blueprint

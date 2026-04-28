@@ -622,6 +622,103 @@ console.log('\n── Group 12: CLEANUP-M3-FIXES regression (D99 #1 + #2) ──
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 13: D109 — spawn_blueprint_actor project-layout-aware resolution
+// ═══════════════════════════════════════════════════════════════
+//
+// D109: Plugin's ResolveBlueprintAssetPath helper accepts a fully-qualified
+// /Game/... path OR a bare asset name (legacy /Game/Blueprints/<Name> probe
+// + AssetRegistry fallback). Wire-shape impact for the JS tool layer is:
+//   - blueprint_name passes through to the wire unchanged in both forms
+//   - BLUEPRINT_AMBIGUOUS is a new typed error code (Case 3 multiple matches)
+//   - BLUEPRINT_NOT_FOUND error message now references "AssetRegistry"
+//
+// The C++ resolution chain itself is verified live during smoke (D87
+// deployment-gap pattern); these wire-mock assertions document the JS-layer
+// contract and the new error-code surface.
+
+console.log('\n── Group 13: D109 — spawn_blueprint_actor resolution surface ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('spawn_blueprint_actor', {
+    status: 'success',
+    result: { name: 'BP_X_1', class: 'BP_X_C', location: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Case 1: fully-qualified path passes through to the wire unchanged
+  await executeActorsTool('spawn_blueprint_actor',
+    { blueprint_name: '/Game/Custom/Path/BP_X', actor_name: 'BP_X_1' }, cm);
+  let call = fake.lastCall('spawn_blueprint_actor');
+  t.assert(call.params.blueprint_name === '/Game/Custom/Path/BP_X',
+    'D109: fully-qualified /Game/... path passes through to wire unmodified (Case 1)');
+
+  // Case 2/3: bare asset name passes through to the wire unchanged (plugin resolves)
+  fake.resetCalls();
+  await executeActorsTool('spawn_blueprint_actor',
+    { blueprint_name: 'BP_X', actor_name: 'BP_X_2' }, cm);
+  call = fake.lastCall('spawn_blueprint_actor');
+  t.assert(call.params.blueprint_name === 'BP_X',
+    'D109: bare asset name passes through to wire unmodified (plugin resolves Case 2/3)');
+}
+
+{
+  // BLUEPRINT_AMBIGUOUS — typed error code propagates through executeActorsTool
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('spawn_blueprint_actor', {
+    status: 'error',
+    error: "Ambiguous Blueprint name 'BP_X' (2 matches: /Game/Blueprints/BP_X, /Game/Other/BP_X) — pass a fully-qualified /Game/... path to disambiguate",
+    code: 'BLUEPRINT_AMBIGUOUS',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeActorsTool('spawn_blueprint_actor',
+      { blueprint_name: 'BP_X', actor_name: 'X1' }, cm),
+    /Ambiguous Blueprint name/,
+    'D109: BLUEPRINT_AMBIGUOUS error message propagates with full diagnostic',
+  );
+}
+
+{
+  // BLUEPRINT_NOT_FOUND — diagnostic now references AssetRegistry, not just /Game/Blueprints/
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('spawn_blueprint_actor', {
+    status: 'error',
+    error: "Blueprint 'BP_DoesNotExist' not found (checked /Game/Blueprints/BP_DoesNotExist, then AssetRegistry project-wide)",
+    code: 'BLUEPRINT_NOT_FOUND',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeActorsTool('spawn_blueprint_actor',
+      { blueprint_name: 'BP_DoesNotExist', actor_name: 'X' }, cm),
+    /AssetRegistry/,
+    'D109: BLUEPRINT_NOT_FOUND diagnostic mentions AssetRegistry fallback (not /Game/Blueprints/-only)',
+  );
+}
+
+// Schema-text regression: blueprint_name describe no longer claims /Game/Blueprints/-only
+{
+  const desc = ACTORS_SCHEMAS.spawn_blueprint_actor.schema.blueprint_name._def.description;
+  t.assert(typeof desc === 'string' && desc.length > 0,
+    'spawn_blueprint_actor.blueprint_name has a description');
+  t.assert(!/looked up under \/Game\/Blueprints\/\)/.test(desc),
+    'D109: spawn_blueprint_actor.blueprint_name no longer claims /Game/Blueprints/ exclusively');
+  t.assert(/\/Game\/\.\.\.|AssetRegistry/i.test(desc),
+    'D109: spawn_blueprint_actor.blueprint_name describes new resolution chain (full path or AssetRegistry)');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

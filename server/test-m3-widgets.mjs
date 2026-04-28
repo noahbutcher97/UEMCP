@@ -677,6 +677,69 @@ console.log('\n── Group 13: CLEANUP-M3-FIXES regression (D99 #3 + #4) ──
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 14: D109 — add_input_action_node project-layout-aware resolution
+// ═══════════════════════════════════════════════════════════════
+//
+// D109: add_input_action_node operates on a regular UBlueprint (NOT a widget BP),
+// so its blueprint_name now routes through ResolveBlueprintAssetPath — accepting
+// fully-qualified /Game/... paths or bare names with /Game/Blueprints/ + AR fallback.
+// Wire-shape impact: blueprint_name passes through unchanged; BLUEPRINT_AMBIGUOUS
+// is a new typed error surface here.
+//
+// Note: the 6 widget-BP handlers (create_widget, add_text_block, add_button,
+// bind_widget_event, set_text_block_binding, add_widget_to_viewport) operate on
+// widget blueprints under /Game/Widgets/ and are NOT affected by D109.
+
+console.log('\n── Group 14: D109 — add_input_action_node resolution surface ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_input_action_node', {
+    status: 'success', result: { node_id: 'D109-GUID-AAAA' },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Case 1: fully-qualified /Game/... path passes through to wire unchanged
+  await executeWidgetsTool('add_input_action_node',
+    { blueprint_name: '/Game/Custom/Char/BP_PlayerR', action_name: 'Jump' }, cm);
+  let call = fake.lastCall('add_blueprint_input_action_node');
+  t.assert(call.params.blueprint_name === '/Game/Custom/Char/BP_PlayerR',
+    'D109: add_input_action_node full /Game/... path passes through unmodified (Case 1)');
+
+  // Case 2/3: bare name passes through unchanged (plugin resolves)
+  fake.resetCalls();
+  await executeWidgetsTool('add_input_action_node',
+    { blueprint_name: 'BP_PlayerR', action_name: 'Jump' }, cm);
+  call = fake.lastCall('add_blueprint_input_action_node');
+  t.assert(call.params.blueprint_name === 'BP_PlayerR',
+    'D109: add_input_action_node bare name passes through unmodified (plugin resolves)');
+}
+
+{
+  // BLUEPRINT_AMBIGUOUS — typed error propagates through executeWidgetsTool
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_input_action_node', {
+    status: 'error',
+    error: "Ambiguous Blueprint name 'BP_PlayerR' (2 matches: /Game/Blueprints/Char/BP_PlayerR, /Game/Custom/Char/BP_PlayerR) — pass a fully-qualified /Game/... path to disambiguate",
+    code: 'BLUEPRINT_AMBIGUOUS',
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeWidgetsTool('add_input_action_node',
+      { blueprint_name: 'BP_PlayerR', action_name: 'Jump' }, cm),
+    /Ambiguous Blueprint name/,
+    'D109: BLUEPRINT_AMBIGUOUS propagates through add_input_action_node',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

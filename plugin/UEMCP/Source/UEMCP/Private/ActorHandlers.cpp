@@ -2,6 +2,7 @@
 #include "ActorHandlers.h"
 
 #include "ActorLookupHelper.h"
+#include "BlueprintLookupHelper.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -627,19 +628,21 @@ namespace UEMCP
 				return;
 			}
 
-			const FString AssetPath = FString::Printf(TEXT("/Game/Blueprints/%s"), *BlueprintName);
-			if (!FPackageName::DoesPackageExist(AssetPath))
+			// D109: project-layout-aware resolution — accepts both bare names
+			// (legacy /Game/Blueprints/<Name> back-compat + AssetRegistry fallback)
+			// and fully-qualified /Game/... paths. Ambiguity surfaces as a typed
+			// BLUEPRINT_AMBIGUOUS error with all candidate paths listed.
+			FString AssetPath, ResolveError, ResolveErrorCode;
+			if (!ResolveBlueprintAssetPath(BlueprintName, AssetPath, ResolveError, ResolveErrorCode))
 			{
-				BuildErrorResponse(OutResponse,
-					FString::Printf(TEXT("Blueprint '%s' not found under /Game/Blueprints/"), *BlueprintName),
-					TEXT("BLUEPRINT_NOT_FOUND"));
+				BuildErrorResponse(OutResponse, ResolveError, ResolveErrorCode);
 				return;
 			}
 			UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
 			if (!Blueprint || !Blueprint->GeneratedClass)
 			{
 				BuildErrorResponse(OutResponse,
-					FString::Printf(TEXT("Failed to load Blueprint or generated class: %s"), *BlueprintName),
+					FString::Printf(TEXT("Failed to load Blueprint or generated class: %s"), *AssetPath),
 					TEXT("BLUEPRINT_LOAD_FAILED"));
 				return;
 			}

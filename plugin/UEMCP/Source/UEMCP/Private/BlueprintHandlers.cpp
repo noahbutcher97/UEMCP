@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "BlueprintHandlers.h"
 
+#include "BlueprintLookupHelper.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -37,28 +38,20 @@ namespace UEMCP
 	{
 		// ── Path / lookup helpers ───────────────────────────────────────────────
 		//
-		// Oracle convention: blueprint_name is asset-name only, looked up under
-		// /Game/Blueprints/. We preserve the convention so migrated callers see
-		// no rename churn (P0-1 envelope is the only client-visible delta).
-
-		FString MakeBlueprintAssetPath(const FString& Name)
-		{
-			return FString::Printf(TEXT("/Game/Blueprints/%s"), *Name);
-		}
-
-		/** Load a UBlueprint by short name under /Game/Blueprints/. nullptr if missing. */
-		UBlueprint* FindBlueprintByName(const FString& Name)
-		{
-			const FString Path = MakeBlueprintAssetPath(Name);
-			return LoadObject<UBlueprint>(nullptr, *Path);
-		}
+		// blueprint_name accepts either a bare asset name (legacy convention; kept
+		// for back-compat with Epic-template-derived projects) or a fully-qualified
+		// /Game/... path. Resolution is delegated to UEMCP::ResolveBlueprintAssetPath
+		// which adds an AssetRegistry fallback for projects whose Blueprint content
+		// tree doesn't sit under /Game/Blueprints/ (D109).
 
 		/**
 		 * Resolve blueprint_name → UBlueprint*, encoding the standard error envelope
-		 * for missing/empty params and not-found cases. Returns nullptr on failure;
-		 * caller should `return` immediately when nullptr is returned.
+		 * for missing/empty params and not-found / ambiguous cases. Returns nullptr
+		 * on failure; caller should `return` immediately when nullptr is returned.
 		 *
 		 * Centralizes the most-frequent failure paths (~80% of BP-write handlers).
+		 * Error codes are surfaced as-is from the resolver: BLUEPRINT_NOT_FOUND or
+		 * BLUEPRINT_AMBIGUOUS. Callers that need branching can switch on the code.
 		 */
 		UBlueprint* ResolveBlueprint(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse, FString* OutName = nullptr)
 		{
@@ -73,12 +66,18 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Missing 'blueprint_name' parameter"), TEXT("MISSING_PARAMS"));
 				return nullptr;
 			}
-			UBlueprint* BP = FindBlueprintByName(Name);
+			FString PackagePath, ResolveError, ResolveErrorCode;
+			if (!ResolveBlueprintAssetPath(Name, PackagePath, ResolveError, ResolveErrorCode))
+			{
+				BuildErrorResponse(OutResponse, ResolveError, ResolveErrorCode);
+				return nullptr;
+			}
+			UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *PackagePath);
 			if (!BP)
 			{
 				BuildErrorResponse(OutResponse,
-					FString::Printf(TEXT("Blueprint not found: %s"), *Name),
-					TEXT("BLUEPRINT_NOT_FOUND"));
+					FString::Printf(TEXT("Failed to load Blueprint: %s"), *PackagePath),
+					TEXT("BLUEPRINT_LOAD_FAILED"));
 				return nullptr;
 			}
 			if (OutName) *OutName = Name;
