@@ -22,11 +22,24 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 ## Active state (as of 2026-04-25)
 
-### In flight
+### In flight (5 parallel workers — maximum-parallel dispatch shape)
 
-- **None currently dispatched.** BLUEPRINT-ASSET-PATH-RESOLUTION-FIX shipped per D112 (commit `3a5b600`); 17 tools previously broken on non-standard layouts now work (verified-by-test; verified-pending-deployment + 5-case live-smoke folded into Post-M5 handoff §1.0).
+All 5 dispatched 2026-04-28 via conversation openers per the §Multi-agent orchestration handoff convention:
 
-Recently shipped (since prior in-flight snapshot): SETUP-BAT-PLUGIN-DEPS per D110 (3 commits — main + Blutility-fix + .uplugin cleanup); M5 deployment compile-fix wave per D111 (3 commits — 5 build errors + LogObj rename + InputCore/Projects deps); §6 .githooks warn-on-missing **bundled into D110** (closes D103+D107 cross-worker reproduction structurally); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX per D112 (commit `3a5b600`, +427/-39 across 12 files; 14 BP-write handlers cascade through new `ResolveBlueprint()` chokepoint; 3 new UE 5.6 institutional-memory items).
+- **Post-M5 deployment smoke** — `docs/handoffs/post-m5-deployment-smoke.md`. Bundled scope: 19 M5 tools + 6 CLEANUP-M3-FIXES patches + M3-bpw hotfix + D110 SETUP-BAT-PLUGIN-DEPS + D111 compile fixes + **D112 5-case smoke (§1.0)** + streamlined gauntlet at smoke-tail. **Pre-flight gated on Noah's deploy cycle being complete** (sync + Build + relaunch + Claude restart). FINAL gate for Phase 3 primary dispatch surface — clears TCP:55557 retirement gate.
+- **WIDGETS-PERF investigation** — `docs/handoffs/widgets-perf-investigation.md`. Profile-then-fix worker for D99 #5 (M3-widgets 2-4s mutation hitches). Touches `WidgetHandlers.cpp` instrumentation possibly + `test-m3-widgets.mjs` perf-regression test.
+- **FA-ε write-side audit** — `docs/handoffs/fa-epsilon-write-side-audit.md`. Investigation worker for D99 #6 (TCP write / RC read inconsistency) + D100 enrichment (BP CDO PIE-unload). Audit deliverable to `docs/audits/`; possible structural fix or documented limitation. May touch `BlueprintHandlers.cpp` / `rc-tools.mjs` / `tools.yaml`.
+- **ROTATION-RUNNER-FAIL-LOUD** — `docs/handoffs/rotation-runner-fail-loud.md`. Closes D104 silent-zero meta-finding. Adds `server/run-rotation.mjs` (or extends `test-helpers.mjs`); touches `package.json` + CLAUDE.md §Testing.
+- **CLAUDE.md/README/yaml grooming** — `docs/handoffs/claude-md-readme-yaml-grooming.md`. Closes D94→D112 accumulated drift items. Touches CLAUDE.md + tools.yaml + README + testing-strategy.md.
+
+**Coordination risks across the 5**:
+- **CLAUDE.md collision**: ROTATION-RUNNER-FAIL-LOUD updates §Testing with new run command; grooming refreshes test-assertion count. Handoff §2 of grooming explicitly tells worker to "use ROTATION-RUNNER's number if it landed first" — sequential awareness exists. Worst case: small merge conflict to resolve at fold time.
+- **tools.yaml collision**: FA-ε audit may update tools.yaml descriptions; grooming may too. FA-ε's scope is structural-fix-or-documentation per finding, so likely-low yaml touches; grooming handoff §4 already says "coordinate with in-flight workers" — should be fine.
+- **Plugin C++ collision**: only WIDGETS-PERF + FA-ε audit may touch plugin C++. WIDGETS-PERF touches `WidgetHandlers.cpp`; FA-ε may touch `BlueprintHandlers.cpp` (TCP write side) — file-disjoint.
+
+**Maximum parallel capacity used**: 5 workers; ceiling per orchestration retrospective is 3-4 with clean parallelism. Exceeding by 1-2 is feasible because: (a) the BLUEPRINT-ASSET-PATH-RESOLUTION-FIX worker shipped + freed M3-handler-file capacity; (b) 3 of the 5 are JS / docs (no plugin C++ shared-file pressure); (c) Post-M5 smoke is read-only on plugin source.
+
+Recently shipped (since prior in-flight snapshot): SETUP-BAT-PLUGIN-DEPS per D110; M5 deployment compile-fix wave per D111; .githooks warn-on-missing per D110 §6; BLUEPRINT-ASSET-PATH-RESOLUTION-FIX per D112.
 
 ### Test baseline
 
@@ -205,8 +218,8 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | TCP:55557 formal retirement | ⏸ Queued — PARTIAL gate per D99 smoke: BP-write CLEAR; actors + widgets need CLEANUP-M3-FIXES first then re-smoke. Then strip 55557 client code + remove `<project>/Plugins/UnrealMCP/` | 0.5-1 session post-CLEANUP-M3-FIXES + re-smoke |
 | Bug 4 (M5 visual-capture gate) | ✅ CLOSED LIVE 2026-04-26 (D99 — get_asset_preview_render returns thumbnail bytes for StaticMesh + BP) | — |
 | **CLEANUP-M3-FIXES** | ⏸ Drafting recommended — bundles 5 D99 findings (set_actor_property Mobility traversal, take_screenshot silent fail, M3-widgets PIE-lookup, bind_widget_event chain, Bug 4 mime label, RC CDO path tip). File-disjoint across ActorHandlers.cpp + WidgetHandlers.cpp + VisualCaptureHandler.cpp + tools.yaml | 1-2 sessions |
-| **WIDGETS-PERF investigation** | ⏸ Drafting recommended — D99 finding #5: M3-widgets mutations hitch 2-4s (4 of 8 hitch log entries; well above 300ms threshold). Measure-then-fix workflow | 1-2 sessions |
-| **FA-ε write-side audit** | ⏸ Drafting recommended — D99 finding #6 + D100 enrichment: TCP write returns success, RC read returns stale value; AND newly-created BP CDOs get unloaded post-PIE-cycle. Cross-transport transactional semantics + CDO lifecycle. | 1-2 sessions |
+| **WIDGETS-PERF investigation** | 🚀 In flight (dispatched 2026-04-28) — profile-then-fix for D99 #5 | 1-2 sessions |
+| **FA-ε write-side audit** | 🚀 In flight (dispatched 2026-04-28) — D99 #6 + D100 enrichment | 1-2 sessions |
 | **M5-PREP** (shard-upfront infrastructure) | ✅ Shipped 2026-04-26 (commit `a5b565f`, see D103 — 19 stubs, m5ToolsetGroups[] empty-loop scaffold + NotImplemented lambda factory; sub-workers can fan out with zero collision) | — |
 | **M5-animation+materials** | ✅ Shipped 2026-04-26 (commit `24cb115`, see D105 — 6 tools incl. RC delegate; get_audio_asset_info SUPERSEDED-as-offline; +93 assertions) | — |
 | **M5-input+geometry** | ✅ Shipped 2026-04-26 (commit `112b749`, see D106 — 6 tools; Geometry Script plugin pre-flight PASSED; +109 assertions; M5-PREP scaffold parallel-safety EMPIRICALLY VINDICATED — 0 collisions vs M3-era 3 stash cycles) | — |
@@ -219,7 +232,9 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | ~~CLEANUP-M3-FIXES-2~~ | ❌ NOT NEEDED — D102 worker proactively covered gauntlet's broader patterns (subobject-traversal-universal in §1, all-3-widgets-PIE-lookup in §3) within CLEANUP-M3-FIXES scope | — |
 | **CLEANUP-M3-FIXES** | ✅ Shipped 2026-04-26 (commit `78032c4`, see D102 — 5 fixes + 1 doc + gauntlet-broader patterns covered + 6 UE 5.6 institutional-memory additions) | — |
 | **TEST-IMPORTS-FIX** | ✅ Shipped 2026-04-26 (commit `5028c47`, see D104) — 197 assertions restored to rotation; bonus fixes for Group 16 stale port + lying header comment |
-| **Rotation-runner harness improvement** | ⏸ Tiny — D104 surfaced "silent-zero test failures" as the worst regression class. Add fail-loud detection for import errors in test files so future barrel-deletion refactors don't silently drop assertions | 0.25-0.5 session |
+| **ROTATION-RUNNER-FAIL-LOUD** | 🚀 In flight (dispatched 2026-04-28) — closes D104 silent-zero meta-finding | 0.25-0.5 session |
+| **CLAUDE.md/README/yaml grooming** | 🚀 In flight (dispatched 2026-04-28) — closes D94→D112 accumulated drift items | 0.25-0.5 session |
+| **Post-M5 deployment smoke** | 🚀 In flight (dispatched 2026-04-28) — bundled M5 + CLEANUP-M3-FIXES + D110 + D111 + **D112 5-case smoke** + streamlined gauntlet | 60-90 min |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
