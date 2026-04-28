@@ -204,6 +204,10 @@ const TOOLSET_TIPS = {
         requires: ['actors'],
         tip: 'To write a property on a live actor (not CDO), get the actor path via get_actor_properties first, then rc_set_property with that object_path. For CDO edits, use set_blueprint_property (blueprints-write toolset) — it\'s the transactional editor path.',
       },
+      {
+        requires: ['blueprints-write'],
+        tip: 'D100 contract — after PIE start/stop cycles, newly-created BP CDOs may be GC\'d. If rc_get_property returns "object not found" on a path the AssetRegistry confirms exists on disk, call compile_blueprint on that BP first to force-reload the GeneratedClass + CDO, then retry the read.',
+      },
     ],
   },
 

@@ -529,16 +529,23 @@ toolsets:
   widgets:
     layer: tcp-55558
     priority: null
-    description: UMG widget creation and binding
+    description: |
+      UMG widget creation and binding. Mutation handlers (add_text_block, add_button,
+      add_input_action_node) are FAST (~50-100ms) and DO NOT auto-compile or save —
+      they only mark the BP modified. After a batch of mutations, call
+      blueprints-write.compile_blueprint (or bp_compile_and_report for diagnostics)
+      to materialize generated-class properties; bind_widget_event /
+      set_text_block_binding self-compile + save on completion (~1-2s each), so a
+      typical flow that ends with a binding op is auto-finalized.
     tools:
       create_widget:
         wire_type: create_umg_widget_blueprint
-        description: Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel
+        description: Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel (compiles on creation to establish GeneratedClass)
         params:
           name: { type: string, required: true, description: "Widget blueprint name" }
       add_text_block:
         wire_type: add_text_block_to_widget
-        description: Add text block to widget (requires root CanvasPanel)
+        description: Add text block to widget (requires root CanvasPanel). Fast (~50-100ms) — does NOT auto-compile; call compile_blueprint after batch mutations.
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Name for the TextBlock" }
@@ -546,14 +553,14 @@ toolsets:
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       add_button:
         wire_type: add_button_to_widget
-        description: Add button with child TextBlock to widget (requires root CanvasPanel)
+        description: Add button with child TextBlock to widget (requires root CanvasPanel). Fast (~50-100ms) — does NOT auto-compile or save; call compile_blueprint and persist explicitly after batch mutations.
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Button widget name" }
           text:           { type: string, required: true, description: "Button label text" }
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       bind_widget_event:
-        description: Bind widget event (e.g. OnClicked) to function in event graph
+        description: Bind widget event (e.g. OnClicked) to function in event graph. Self-compiles + saves on completion (~1-2s).
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "Widget to bind event on" }
@@ -563,7 +570,7 @@ toolsets:
         # FText getter (correct K2 schema connections) and registers an
         # FDelegateEditorBinding on the TextBlock's Text property. Binding now
         # evaluates at runtime; oracle's exec→data invalid pin connection retired.
-        description: Set text block data binding — creates pure FText getter and registers FDelegateEditorBinding
+        description: Set text block data binding — creates pure FText getter and registers FDelegateEditorBinding. Self-compiles + saves on completion (~1-2s).
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
           widget_name:    { type: string, required: true, description: "TextBlock widget to bind" }
@@ -989,7 +996,7 @@ toolsets:
     description: Reflection-based property/function access on any UObject via Remote Control HTTP
     tools:
       rc_get_property:
-        description: Get any UPROPERTY by object path + property name
+        description: Get any UPROPERTY by object path + property name. NOTE (D100) — after PIE start/stop cycles, newly-created BP CDOs may be GC'd by the editor; if RC returns "object not found" on a path the AssetRegistry confirms exists on disk, call compile_blueprint on that BP first to force-reload the GeneratedClass + CDO, then retry.
         params:
           object_path:   { type: string, required: true }
           property_name: { type: string, required: true }

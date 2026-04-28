@@ -734,6 +734,17 @@ namespace UEMCP
 				return;
 			}
 
+			// D99 #6: fire PostEditChangeProperty so listeners (RC handles,
+			// AssetRegistry tag cache, BP-instancing graph) bust caches before
+			// any subsequent cross-transport read. SetUProperty writes raw
+			// memory; without this broadcast, RC HTTP READ_ACCESS observes the
+			// pre-edit value via cached property handles.
+			if (FProperty* Property = CDO->GetClass()->FindPropertyByName(*PropertyName))
+			{
+				FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+				CDO->PostEditChangeProperty(Event);
+			}
+
 			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("property"), PropertyName);
@@ -866,6 +877,12 @@ namespace UEMCP
 				if (SetUProperty(CDO, PropName, V, Err))
 				{
 					bAnySet = true;
+					// D99 #6: per-property PostEditChangeProperty broadcast.
+					if (FProperty* Property = CDO->GetClass()->FindPropertyByName(PropName))
+					{
+						FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+						CDO->PostEditChangeProperty(Event);
+					}
 					Entry->SetBoolField(TEXT("success"), true);
 				}
 				else
