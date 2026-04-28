@@ -24,6 +24,8 @@ public class UEMCP : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"InputCore", // FKey + FKey::IsValid for Enhanced Input mapping handlers (D106)
+			"Projects",  // IPluginManager::Get for GeometryHandlers' IsGeometryScriptPluginEnabled gate (D106)
 			"Sockets",
 			"Networking",
 		});
