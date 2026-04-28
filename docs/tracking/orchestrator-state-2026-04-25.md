@@ -70,7 +70,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D108)
+## Recent D-log highlights (D77 → D109)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -106,6 +106,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D106** M5-input+geometry shipped (commit `112b749`, 6 tools). Geometry Script plugin pre-flight PASSED. +109 assertions. **M5-PREP scaffold parallel-safety EMPIRICALLY VINDICATED**: 0 merge conflicts vs M3-era 3-stash-cycle thrash. D96 expensive lesson + D101 verifier shard-upfront recommendation + D103 M5-PREP empty-loop scaffold = end-to-end structural fix verified across 3 sub-workers.
 - **D107** M5-editor-utility shipped (commit `f36e4e1`, 6 tools with 4-layer security defense-in-depth). Layer 1 (server flag) + Layer 0 (plugin runtime) + Layer 2 (deny-list) + Layer 3 (audit log). +94 assertions including security-path coverage. **CRITICAL CROSS-WORKER CONFIRMATION**: `.git/info/forbidden-tokens` absent in this worker's checkout TOO (D103 §2 reproduction across 2 worker sessions in 2 days). Promoting `.githooks` warn-on-missing fix from "queue alongside grooming" to **SHIP SOON**.
 - **D108** M5 milestone complete — all 19/19 not-shipped tools landed across 3 parallel sub-workers (~3.5 sessions actual vs 6-10 estimate). **Phase 3 ~99% complete**; M5 was the last primary dispatch milestone. Remaining items are entirely optional follow-ons (live-fire smoke + TCP:55557 retirement + WIDGETS-PERF + FA-ε write-side audit + audit-batch-2 + various small improvements). The Phase 3 scope-refresh sequence (D58 §Q5) is empirically closed.
+- **D109** BLUEPRINT-ASSET-PATH-RESOLUTION bug surfaced 2026-04-28 by a third UEMCP-deployed test target (non-`/Game/Blueprints/` content layout). `ActorHandlers.cpp:630` + `BlueprintHandlers.cpp:46` `LegacyPath()` helper (cascades to 15 BP-write tools) + `WidgetHandlers.cpp:734-736` + tip text all hardcode `/Game/Blueprints/` prefix → 17 tools silently broken on non-standard layouts. Fix: `ResolveBlueprintAssetPath()` 3-case chain (full-path → legacy back-compat → AssetRegistry fallback w/ ambiguity errors). Standalone fix worker queued (~1-2 sessions); D49-clean across 5 plugin C++ + tools.yaml + 3 test files.
 
 ---
 
@@ -207,6 +208,8 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **M5-editor-utility** | ✅ Shipped 2026-04-26 (commit `f36e4e1`, see D107 — 6 tools with 4-layer security defense-in-depth; +94 assertions; CLAUDE.md §Security flag + tools.yaml + smoke plan handoff at `docs/handoffs/m5-editor-utility-smoke-plan.md`) | — |
 | **M5 milestone** | ✅ COMPLETE 2026-04-26 (D108) — 19/19 not-shipped tools shipped across 3 parallel sub-workers; D101 verifier verdict empirically closed; ~3.5 sessions actual vs 6-10 estimate | — |
 | **.githooks pre-commit/pre-push missing-file warning** | ⏸ **PROMOTED to SHIP SOON priority** — D103 finding #2 + D107 EMPIRICAL REPRODUCTION across 2 worker checkouts in 2 days = real fresh-clone risk, not hypothetical. Add WARNING (not block) when `.git/info/forbidden-tokens` missing | 0.1-0.25 session; standalone tiny dispatch recommended |
+| **BLUEPRINT-ASSET-PATH-RESOLUTION-FIX** | ⏸ Drafted; ready to dispatch — D109 surfaced BLOCKING bug for non-`/Game/Blueprints/` projects. 17 tools silently broken on non-standard layouts. Centralize via `ResolveBlueprintAssetPath()` helper (Case 1 full-path / Case 2 legacy back-compat / Case 3 AssetRegistry fallback). 5 edit sites across 3 plugin C++ files + tools.yaml + 3 test files | 1-2 sessions |
+| **SETUP-BAT-PLUGIN-DEPS** | ⏸ Drafted; ready to dispatch — extends setup-uemcp.bat to enable RemoteControl + PythonScriptPlugin + GeometryScripting + Blutility in target .uproject | 0.5-1 session |
 | ~~CLEANUP-M3-FIXES-2~~ | ❌ NOT NEEDED — D102 worker proactively covered gauntlet's broader patterns (subobject-traversal-universal in §1, all-3-widgets-PIE-lookup in §3) within CLEANUP-M3-FIXES scope | — |
 | **CLEANUP-M3-FIXES** | ✅ Shipped 2026-04-26 (commit `78032c4`, see D102 — 5 fixes + 1 doc + gauntlet-broader patterns covered + 6 UE 5.6 institutional-memory additions) | — |
 | **TEST-IMPORTS-FIX** | ✅ Shipped 2026-04-26 (commit `5028c47`, see D104) — 197 assertions restored to rotation; bonus fixes for Group 16 stale port + lying header comment |
