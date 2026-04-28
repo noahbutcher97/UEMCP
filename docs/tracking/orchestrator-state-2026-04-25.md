@@ -26,7 +26,7 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 All 5 dispatched 2026-04-28 via conversation openers per the §Multi-agent orchestration handoff convention:
 
-- **Post-M5 deployment smoke** — `docs/handoffs/post-m5-deployment-smoke.md`. Bundled scope: 19 M5 tools + 6 CLEANUP-M3-FIXES patches + M3-bpw hotfix + D110 SETUP-BAT-PLUGIN-DEPS + D111 compile fixes + **D112 5-case smoke (§1.0)** + streamlined gauntlet at smoke-tail. **Pre-flight gated on Noah's deploy cycle being complete** (sync + Build + relaunch + Claude restart). FINAL gate for Phase 3 primary dispatch surface — clears TCP:55557 retirement gate.
+- ~~**Post-M5 deployment smoke**~~ — BLOCKED at §0 (D113); deployed plugin tree 9-11 commits behind HEAD. Re-dispatch contract: Noah completes 4-step sequence (setup-uemcp.bat + sync-plugin.bat + Build.bat + relaunch + Claude restart) + re-dispatches same opener (zero handoff edits needed). Same handoff is structurally re-runnable once deploy state catches up.
 - **WIDGETS-PERF investigation** — `docs/handoffs/widgets-perf-investigation.md`. Profile-then-fix worker for D99 #5 (M3-widgets 2-4s mutation hitches). Touches `WidgetHandlers.cpp` instrumentation possibly + `test-m3-widgets.mjs` perf-regression test.
 - **FA-ε write-side audit** — `docs/handoffs/fa-epsilon-write-side-audit.md`. Investigation worker for D99 #6 (TCP write / RC read inconsistency) + D100 enrichment (BP CDO PIE-unload). Audit deliverable to `docs/audits/`; possible structural fix or documented limitation. May touch `BlueprintHandlers.cpp` / `rc-tools.mjs` / `tools.yaml`.
 - **ROTATION-RUNNER-FAIL-LOUD** — `docs/handoffs/rotation-runner-fail-loud.md`. Closes D104 silent-zero meta-finding. Adds `server/run-rotation.mjs` (or extends `test-helpers.mjs`); touches `package.json` + CLAUDE.md §Testing.
@@ -85,7 +85,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D112)
+## Recent D-log highlights (D77 → D113)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -125,6 +125,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D110** SETUP-BAT-PLUGIN-DEPS shipped (3 commits — main + Blutility-fix + .uplugin cleanup). Setup script now enables RemoteControl + PythonScriptPlugin + GeometryScripting in target .uproject (idempotent, atomic-write, EXIT_CODE 5). **Blutility is NOT a plugin — it's an engine MODULE** (Build.cs only, NOT .uproject Plugins[] or .uplugin Plugins[]); UE 5.6 institutional-memory item. **§6 .githooks warn-on-missing BUNDLED** — closes D103+D107 cross-worker reproduction.
 - **D111** M5 deployment compile-fix wave (3 commits). 5 build errors + LogObj symbol-collision rename + InputCore/Projects link deps. **Wire-mock vs build-time gap empirically demonstrated**: M5 wire-mock-green code surfaced build errors only when Noah ran Build.bat against real UE 5.6 module graph. D87 framing reinforced: "code committed + tests green ≠ build clean against real UE." Future M-* sub-worker handoffs should include "build-on-real-UE final verification before final-report" in the success criteria.
 - **D112** BLUEPRINT-ASSET-PATH-RESOLUTION-FIX shipped (commit `3a5b600`, 12 files, +427/-39, +16 assertions). New `BlueprintLookupHelper.{h,cpp}` exports `ResolveBlueprintAssetPath` 3-case chain (full-path / legacy back-compat / AssetRegistry fallback with explicit ambiguity errors). 14 BP-write handlers cascade through single `ResolveBlueprint()` chokepoint in BlueprintHandlers.cpp. 17 tools previously broken on non-standard layouts now work. 3 new UE 5.6 institutional-memory items (AR canonical BP enumerator pattern; FAssetData::PackageName as lightest accessor; editor AR is always populated post-startup, no caching needed). 5-case live-smoke folded into Post-M5 deployment-smoke handoff §1.0; D109 saga closes empirically when Noah's smoke runs.
+- **D113** Post-M5 deployment smoke BLOCKED at §0. Deployed plugin tree at ~`94e115a` (M3-bpw hotfix); HEAD when smoke dispatched was `173293c`. **9-11 commit / 2-day deployment lag**. Worker correctly stopped per handoff §0 instruction; provided clear re-dispatch contract (Noah's 4-step sequence + re-dispatch same opener). **CRITICAL ORCHESTRATION-LEARNING (codified in feedback memory)**: pre-dispatch deploy-state verification — orchestrator should `git rev-parse HEAD` against deployed plugin source markers BEFORE dispatching deployment-smoke handoffs in high-velocity batch periods. Would have saved the smoke worker session. **D110 .uproject Plugins[] baseline empirically verified absent** in current Project A — confirms setup-uemcp.bat re-run is REQUIRED, not just sync-plugin.bat. **§8 forbidden-tokens PRESENT** in this checkout (337 bytes) — D103/D107 absent finding may be SPECIFIC to fresh-clone worker checkouts. Phase 3 close-out remains 1 deployment cycle away.
 
 ---
 
@@ -234,7 +235,7 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **TEST-IMPORTS-FIX** | ✅ Shipped 2026-04-26 (commit `5028c47`, see D104) — 197 assertions restored to rotation; bonus fixes for Group 16 stale port + lying header comment |
 | **ROTATION-RUNNER-FAIL-LOUD** | 🚀 In flight (dispatched 2026-04-28) — closes D104 silent-zero meta-finding | 0.25-0.5 session |
 | **CLAUDE.md/README/yaml grooming** | 🚀 In flight (dispatched 2026-04-28) — closes D94→D112 accumulated drift items | 0.25-0.5 session |
-| **Post-M5 deployment smoke** | 🚀 In flight (dispatched 2026-04-28) — bundled M5 + CLEANUP-M3-FIXES + D110 + D111 + **D112 5-case smoke** + streamlined gauntlet | 60-90 min |
+| **Post-M5 deployment smoke** | ⏸ BLOCKED-at-§0 (D113) — deployed plugin 9-11 commits behind HEAD; awaiting Noah's deploy cycle (setup-uemcp.bat + sync-plugin.bat + Build.bat + relaunch + Claude restart). Re-dispatchable with same opener (zero handoff edits). | 60-90 min post-redeploy |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
