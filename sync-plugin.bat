@@ -91,6 +91,36 @@ if not exist "!UPROJECT_DIR!\Content\" (
   set "EXIT_CODE=1" & goto :end
 )
 
+REM --- Auto-register project codenames into NDA forbidden-tokens block-list ---
+REM Mirrors setup-uemcp.bat — sync-plugin.bat is the other universal entry
+REM point where new projects enter UEMCP's deployment surface, so any new
+REM .uproject this script touches must also auto-register its codename.
+REM Idempotent + sorted dedup; skips generic UE / version-folder names.
+REM See setup-uemcp.bat for full rationale + standing NDA-scope policy.
+for %%I in ("!UPROJECT_DIR!\..") do set "PARENT_DIR_FULL=%%~fI"
+if "!PARENT_DIR_FULL:~-1!"=="\" set "PARENT_DIR_FULL=!PARENT_DIR_FULL:~0,-1!"
+for %%I in ("!PARENT_DIR_FULL!") do set "PARENT_DIR_NAME=%%~nxI"
+node --version >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] Node.js not on PATH; skipping codename registration.
+  echo        Install Node + run setup-uemcp.bat once to populate forbidden-tokens.
+  goto :codename_reg_done
+)
+echo Registering project codenames in NDA forbidden-tokens block-list...
+REM CMD-quoting: nest a DisableDelayedExpansion scope so `!` (JS not-op) and
+REM `^` (JS regex anchor) inside the node -e body are literal during CMD's
+REM scan. See setup-uemcp.bat for full rationale.
+setlocal DisableDelayedExpansion
+set "TOKENS_PATH=%UEMCP_PATH%\.git\info\forbidden-tokens"
+set "CANDIDATES=%PROJECT_NAME%|%PARENT_DIR_NAME%"
+node -e "const f=require('fs'),p=require('path');const tp=process.env.TOKENS_PATH;const cs=(process.env.CANDIDATES||'').split('|').filter(Boolean);const sl=new Set(['engine','ue5','unrealprojects','unrealengine','plugins','source','content','config','saved','game','unrealeditor','intermediate','binaries','deriveddatacache','programs','restricted','platforms','editor','build','target','public','private','default','local','staged','cooked','tools','batchfiles']);const sr=/^\d+(\.\d+)*$/;const hd=['# .git/info/forbidden-tokens - NDA codenames for this checkout.','# Per-checkout (under .git/), never tracked or pushed. Edit freely.','#','# Format: literal substrings (case-insensitive) by default; lines starting','# with regex: prefix use extended regex.','','# Target-project codenames (NDA-protected)'];let ph=null,ex=[],er=[];try{f.mkdirSync(p.dirname(tp),{recursive:true});}catch(e){}if(f.existsSync(tp)){const ls=f.readFileSync(tp,'utf8').split(/\r?\n/);if(ls.length&&ls[ls.length-1]==='')ls.pop();let bs=false;const hb=[];for(const l of ls){const t=l.trim();if(!bs){if(t===''||t.startsWith('#')){hb.push(l);continue;}bs=true;}if(t===''||t.startsWith('#'))continue;if(t.startsWith('regex:')){er.push(t);continue;}ex.push(t);}if(hb.length>0)ph=hb;}if(!ph)ph=hd;const seen=new Set(ex.map(l=>l.toLowerCase()));const add=[];for(const cR of cs){const c=(cR||'').trim();if(!c)continue;if(sr.test(c)){console.log('SKIP-VERSION: '+c);continue;}if(sl.has(c.toLowerCase())){console.log('SKIP-GENERIC: '+c);continue;}if(seen.has(c.toLowerCase())){console.log('Already registered: '+c);continue;}seen.add(c.toLowerCase());add.push(c);console.log('Added '+c+' to forbidden-tokens');}if(add.length>0){const all=[...ex,...add];const ds=new Set();const ded=[];for(const l of all){const k=l.toLowerCase();if(!ds.has(k)){ds.add(k);ded.push(l);}}ded.sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));const out=[...ph,...ded];if(er.length>0){out.push('');out.push(...er);}const tmp=tp+'.uemcp-tmp';f.writeFileSync(tmp,out.join('\n')+'\n','utf8');f.renameSync(tmp,tp);}"
+set "REG_EXIT=%errorlevel%"
+endlocal & set "REG_EXIT=%REG_EXIT%"
+if not "!REG_EXIT!"=="0" (
+  echo [WARN] Codename registration returned exit !REG_EXIT!; continuing.
+)
+:codename_reg_done
+
 REM --- Compute source + target paths ---
 set "PLUGIN_SRC=!UEMCP_PATH!\plugin\UEMCP"
 set "PLUGIN_DEST=!UPROJECT_DIR!\Plugins\UEMCP"

@@ -9,7 +9,7 @@
 //   Launched by Claude via .mcp.json — not run manually in production.
 //   For development: UNREAL_PROJECT_ROOT="D:/path/to/project" node server.mjs
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import yaml from 'js-yaml';
@@ -100,6 +100,85 @@ const config = Object.freeze({
   rcRateCap:              parseFloat(process.env.UEMCP_RC_RATE_CAP             || '0') || 0,
   rcRelaunchHintAfterN:   parseInt(process.env.UEMCP_RC_RELAUNCH_HINT_AFTER_N  || '0', 10) || 0,
 });
+
+// ── Auto-codename registration (D122 / D3 worker) ──────────────────
+// Captures the project + parent-dir codenames from UNREAL_PROJECT_ROOT into
+// .git/info/known-test-targets.txt so the pre-commit hook can auto-merge
+// them into .git/info/forbidden-tokens. Catches any project Claude attaches
+// to via .mcp.json that bypassed setup-uemcp.bat (e.g., a manually-edited
+// MCP config). Per-checkout, untracked. Logged via stderr (stdout is the
+// MCP protocol stream — never use console.log here). Best-effort: any
+// failure is logged and swallowed so a write hiccup never breaks startup.
+
+function registerProjectCodenames() {
+  const root = process.env.UNREAL_PROJECT_ROOT;
+  if (!root) return;
+
+  const norm = root.replace(/[\\\/]+$/, '');
+  const parts = norm.split(/[\\\/]/).filter(Boolean);
+  const candidates = [];
+  if (parts.length >= 1) candidates.push(parts[parts.length - 1]);
+  if (parts.length >= 2) candidates.push(parts[parts.length - 2]);
+
+  // Skip-list mirrors setup-uemcp.bat's deny-list (D3 Phase 1).
+  const skipLiterals = new Set([
+    'engine', 'ue5', 'unrealprojects', 'unrealengine', 'plugins', 'source',
+    'content', 'config', 'saved', 'game', 'unrealeditor', 'intermediate',
+    'binaries', 'deriveddatacache', 'programs', 'restricted', 'platforms',
+    'editor', 'build', 'target', 'public', 'private', 'default', 'local',
+    'staged', 'cooked', 'tools', 'batchfiles',
+  ]);
+  const skipPattern = /^\d+(\.\d+)*$/;
+
+  // server.mjs lives in <repo>/server/ — repo root is one level up.
+  const repoRoot = dirname(__dirname);
+  const targetsPath = join(repoRoot, '.git', 'info', 'known-test-targets.txt');
+
+  // Read existing entries (case-insensitive comparison).
+  const existing = new Set();
+  if (existsSync(targetsPath)) {
+    try {
+      for (const line of readFileSync(targetsPath, 'utf8').split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) continue;
+        existing.add(t.toLowerCase());
+      }
+    } catch (e) {
+      process.stderr.write(`[uemcp] WARN: known-test-targets read failed: ${e.message}\n`);
+    }
+  }
+
+  const toAdd = [];
+  for (const c of candidates) {
+    if (!c) continue;
+    if (skipPattern.test(c)) continue;
+    if (skipLiterals.has(c.toLowerCase())) continue;
+    if (existing.has(c.toLowerCase())) continue;
+    existing.add(c.toLowerCase());
+    toAdd.push(c);
+  }
+
+  if (toAdd.length === 0) return;
+
+  try {
+    mkdirSync(dirname(targetsPath), { recursive: true });
+    let prefix = '';
+    if (!existsSync(targetsPath)) {
+      prefix =
+        '# .git/info/known-test-targets.txt\n' +
+        '# Codenames captured by server.mjs at startup from UNREAL_PROJECT_ROOT.\n' +
+        '# Auto-merged into .git/info/forbidden-tokens by .githooks/pre-commit.\n' +
+        '# Per-checkout, untracked. Safe to delete (server repopulates on next start).\n' +
+        '\n';
+    }
+    appendFileSync(targetsPath, prefix + toAdd.join('\n') + '\n', 'utf8');
+    for (const c of toAdd) {
+      process.stderr.write(`[uemcp] Registered project codename ${c} to known-test-targets\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`[uemcp] WARN: known-test-targets write failed: ${e.message}\n`);
+  }
+}
 
 // ── Server instructions ────────────────────────────────────────────
 // Sent to Claude during initialization. Describes the dynamic toolset workflow.
@@ -949,6 +1028,11 @@ toolsetManager.onListChanged(() => {
 // ── Startup ────────────────────────────────────────────────────────
 
 async function main() {
+  // Capture project codenames into .git/info/known-test-targets.txt before
+  // any other initialization so a startup failure later still records the
+  // codename for the next pre-commit auto-merge.
+  registerProjectCodenames();
+
   // Load tools.yaml and build the search index
   await toolsetManager.load();
   // Initialize TCP wire_type maps from parsed YAML

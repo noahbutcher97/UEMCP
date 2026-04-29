@@ -6,6 +6,17 @@
 # doesn't have to grep manually before each commit. Pre-push remains
 # the public-boundary gate (covers commit messages + remote sync).
 #
+# D3 Phase 2 + 3 (auto-codename worker, 2026-04-29):
+#   - auto-merges .git/info/known-test-targets.txt entries (written by
+#     server.mjs at startup) into forbidden-tokens before grep, so any
+#     project Claude attaches to via .mcp.json gets covered structurally
+#     rather than relying on procedural orchestrator memory.
+#   - emits a non-blocking pattern-warning when the staged diff contains
+#     PascalCase tokens that look like project codenames (path-segment
+#     after UnrealProjects/<version>/ or <name>.uproject) but aren't on
+#     the block-list. Catches novel codenames that bypassed both
+#     setup-uemcp.bat and the server-side capture.
+#
 # Bypass: git commit --no-verify
 set -u
 
@@ -16,6 +27,8 @@ set -u
 export LC_ALL=C.UTF-8
 
 tokens=".git/info/forbidden-tokens"
+known_targets=".git/info/known-test-targets.txt"
+
 if [[ ! -f "$tokens" ]]; then
   echo "" >&2
   echo "⚠ UEMCP NDA-codename hook: .git/info/forbidden-tokens is ABSENT in this checkout." >&2
@@ -25,6 +38,23 @@ if [[ ! -f "$tokens" ]]; then
   echo "  Continuing without gate (this hook will exit 0)." >&2
   echo "" >&2
   exit 0
+fi
+
+# ── D3 Phase 2: auto-merge known-test-targets.txt → forbidden-tokens ──
+# server.mjs writes captured codenames to known-test-targets at startup;
+# we lift them into forbidden-tokens here so the same commit's grep picks
+# them up. Idempotent: skips entries already present (whole-line, case-
+# insensitive). Append-only — sort+dedup canonicalization is owned by
+# setup-uemcp.bat / sync-plugin.bat (those rewrite the file end-to-end).
+if [[ -f "$known_targets" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -z "$trimmed" || "${trimmed:0:1}" == "#" ]] && continue
+    if ! grep -F -i -x -q -- "$trimmed" "$tokens" 2>/dev/null; then
+      printf '%s\n' "$trimmed" >> "$tokens"
+    fi
+  done < "$known_targets"
 fi
 
 literals="$(mktemp)"
@@ -69,6 +99,58 @@ if [[ -n "$hits" ]]; then
     echo ""
   } >&2
   exit 1
+fi
+
+# ── D3 Phase 3: pattern-warning (NON-BLOCKING) ──
+# Catches PascalCase tokens that appear structurally as project codenames
+# (path segments under UnrealProjects/<version>/ OR .uproject filenames)
+# but aren't on the block-list and aren't generic UE / build-system names.
+# Empirical sizing on prior 30-commit history yielded zero false positives;
+# the structural shape rarely co-occurs with prose.
+#
+# Allow-list is conservative — operator can extend by adding to forbidden-
+# tokens (which short-circuits this warning anyway).
+phase3_allow_pattern='^(Engine|Plugins|Source|Saved|Content|Config|Game|UnrealEditor|UnrealEngine|UnrealProjects|Intermediate|Binaries|DerivedDataCache|Default|Local|Public|Private|Build|Editor|Server|Client|Win64|Linux|Mac|Win32|Development|Shipping|Debug|DebugGame|Test|StagedBuilds|Cooked|Modules|Programs|Restricted|Platforms|Tools|BatchFiles|UEMCP|YourProject|MyProject|RemoteControl|PythonScriptPlugin|GeometryScripting|Blutility|Wwise|Steam|EOS|RiderLink|UnrealMCP|NodeToCode)$'
+
+# Path-segment captures: after UnrealProjects/<version>/, capture next 1-2
+# segments. tr normalizes \\ → / for awk's slash-splitting.
+phase3_path_caps="$(printf '%s\n' "$content" \
+  | grep -ohE 'UnrealProjects[\\/][^\\/[:space:]"<>`]+[\\/][^\\/[:space:]"<>`]+([\\/][^\\/[:space:]"<>`]+)?' 2>/dev/null \
+  | tr '\\' '/' \
+  | awk -F/ '{ for (i=3; i<=NF; i++) { sub(/\.uproject$/, "", $i); print $i } }' || true)"
+
+# .uproject filename captures (basename, no extension)
+phase3_uproject_caps="$(printf '%s\n' "$content" \
+  | grep -ohE '[A-Za-z][a-zA-Z0-9_-]+\.uproject' 2>/dev/null \
+  | sed 's|\.uproject$||' || true)"
+
+phase3_all_caps="$(printf '%s\n%s\n' "$phase3_path_caps" "$phase3_uproject_caps" | sort -u | grep -v '^$' || true)"
+
+if [[ -n "$phase3_all_caps" ]]; then
+  phase3_warn=""
+  while IFS= read -r tok; do
+    [[ -z "$tok" ]] && continue
+    if [[ "$tok" =~ $phase3_allow_pattern ]]; then continue; fi
+    if [[ "$tok" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then continue; fi
+    if grep -F -i -x -q -- "$tok" "$tokens" 2>/dev/null; then continue; fi
+    phase3_warn+="$tok"$'\n'
+  done <<< "$phase3_all_caps"
+
+  if [[ -n "$phase3_warn" ]]; then
+    {
+      echo ""
+      echo "⚠ Pattern-warning: looks-like-codename tokens near UnrealProjects path / .uproject:"
+      while IFS= read -r tok; do
+        [[ -z "$tok" ]] && continue
+        echo "    $tok"
+      done <<< "$phase3_warn"
+      echo ""
+      echo "  These appear structurally as project codenames but are NOT on"
+      echo "  .git/info/forbidden-tokens. If they are codenames, add them to"
+      echo "  the block-list. Non-blocking — commit will proceed."
+      echo ""
+    } >&2
+  fi
 fi
 
 exit 0

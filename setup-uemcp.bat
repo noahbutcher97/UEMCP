@@ -251,6 +251,43 @@ echo Project dir     : !UPROJECT_DIR!   (UNREAL_PROJECT_ROOT)
 echo Workspace root  : !WORKSPACE_ROOT!  (layout: !LAYOUT!)
 echo.
 
+REM --- Auto-register project codenames into NDA forbidden-tokens block-list ---
+REM Per CLAUDE.md §Public-Repo Hygiene, .git/info/forbidden-tokens is the
+REM repo-write gate enforced by .githooks/pre-commit + .githooks/pre-push.
+REM Auto-registering the .uproject stem + the wrapper-dir name closes the
+REM D109/D118 codename-leak class structurally — operators can't forget to
+REM scrub a codename if a brand-new project's name lands on the block-list
+REM the first time setup-uemcp.bat runs against it.
+REM
+REM Idempotent: skips already-registered, sorts + dedups after write.
+REM Generic UE / version-folder names (Engine, Plugins, 5.6, etc.) skipped
+REM via deny-list + regex; codename ownership is "register, then maintainer
+REM removes if confirmed-safe", not the other way around.
+REM
+REM Standing policy (per D122 / feedback_nda_gate_scope.md): the NDA gate
+REM is REPO-WRITE-ONLY. UEMCP tools may execute at full capability against
+REM the user's own UE projects. The block-list governs ONLY what flows OUT
+REM to github.com via committed content.
+echo Registering project codenames in NDA forbidden-tokens block-list...
+for %%I in ("!PARENT_DIR!") do set "PARENT_DIR_NAME=%%~nxI"
+REM CMD-quoting: the JS body contains `!` (logical-not) and `^` (regex anchor).
+REM Both are eaten by CMD's EnableDelayedExpansion second-pass scan EVEN inside
+REM "..." quotes. Wrapping the node -e call in `setlocal DisableDelayedExpansion`
+REM (a nested scope) makes `!` and `^` literal during the scan; the outer scope's
+REM delayed expansion is untouched. The trailing `endlocal & set "REG_EXIT=..."`
+REM is the standard idiom for propagating one var across the endlocal boundary
+REM (the `%REG_EXIT%` is substituted at line-parse time, before endlocal runs).
+setlocal DisableDelayedExpansion
+set "TOKENS_PATH=%UEMCP_PATH%\.git\info\forbidden-tokens"
+set "CANDIDATES=%PROJECT_NAME%|%PARENT_DIR_NAME%"
+node -e "const f=require('fs'),p=require('path');const tp=process.env.TOKENS_PATH;const cs=(process.env.CANDIDATES||'').split('|').filter(Boolean);const sl=new Set(['engine','ue5','unrealprojects','unrealengine','plugins','source','content','config','saved','game','unrealeditor','intermediate','binaries','deriveddatacache','programs','restricted','platforms','editor','build','target','public','private','default','local','staged','cooked','tools','batchfiles']);const sr=/^\d+(\.\d+)*$/;const hd=['# .git/info/forbidden-tokens - NDA codenames for this checkout.','# Per-checkout (under .git/), never tracked or pushed. Edit freely.','#','# Format: literal substrings (case-insensitive) by default; lines starting','# with regex: prefix use extended regex.','','# Target-project codenames (NDA-protected)'];let ph=null,ex=[],er=[];try{f.mkdirSync(p.dirname(tp),{recursive:true});}catch(e){}if(f.existsSync(tp)){const ls=f.readFileSync(tp,'utf8').split(/\r?\n/);if(ls.length&&ls[ls.length-1]==='')ls.pop();let bs=false;const hb=[];for(const l of ls){const t=l.trim();if(!bs){if(t===''||t.startsWith('#')){hb.push(l);continue;}bs=true;}if(t===''||t.startsWith('#'))continue;if(t.startsWith('regex:')){er.push(t);continue;}ex.push(t);}if(hb.length>0)ph=hb;}if(!ph)ph=hd;const seen=new Set(ex.map(l=>l.toLowerCase()));const add=[];for(const cR of cs){const c=(cR||'').trim();if(!c)continue;if(sr.test(c)){console.log('SKIP-VERSION: '+c);continue;}if(sl.has(c.toLowerCase())){console.log('SKIP-GENERIC: '+c);continue;}if(seen.has(c.toLowerCase())){console.log('Already registered: '+c);continue;}seen.add(c.toLowerCase());add.push(c);console.log('Added '+c+' to forbidden-tokens');}if(add.length>0){const all=[...ex,...add];const ds=new Set();const ded=[];for(const l of all){const k=l.toLowerCase();if(!ds.has(k)){ds.add(k);ded.push(l);}}ded.sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));const out=[...ph,...ded];if(er.length>0){out.push('');out.push(...er);}const tmp=tp+'.uemcp-tmp';f.writeFileSync(tmp,out.join('\n')+'\n','utf8');f.renameSync(tmp,tp);}"
+set "REG_EXIT=%errorlevel%"
+endlocal & set "REG_EXIT=%REG_EXIT%"
+if not "!REG_EXIT!"=="0" (
+  echo [WARN] Codename registration returned exit !REG_EXIT!; continuing.
+)
+echo.
+
 REM --- Overwrite-prompt for existing .mcp.json (default N) ---
 set "TARGET_MCP=!WORKSPACE_ROOT!\.mcp.json"
 if exist "!TARGET_MCP!" (
