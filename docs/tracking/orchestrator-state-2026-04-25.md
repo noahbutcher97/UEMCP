@@ -27,6 +27,13 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 All 5 dispatched 2026-04-28 via conversation openers per the §Multi-agent orchestration handoff convention:
 
 - ~~**Post-M5 deployment smoke (re-dispatch)**~~ — Ran successfully through §2 then DEFERRED §3-§6 due to engine crash (NEW-2 WebRemoteControl). Per D118: §1.0 D112 5/5 PASS + §1 CLEANUP-M3-FIXES 6/6 PASS + §2 5/6 PASS + NEW-1 montage bug. **CRITICAL ORCHESTRATION ERROR captured + memorized**: prior openers cited wrong project path; D118 worker corrected to wrapper-codename-prefixed sibling. Future openers MUST use corrected path per `project_corrected_deploy_target_path.md` memory.
+
+### In flight (2 parallel workers — NEW-1 + NEW-2 dispatched 2026-04-28)
+
+- **NEW-1 fix** — `docs/handoffs/new-1-create-montage-defaultslot-fix.md`. Bug-fix worker for D118-surfaced `create_montage` duplicate DefaultSlot. Touches `AnimationHandlers.cpp` HandleCreateMontage + maybe `m5-animation-tools.mjs` schema + `test-m5-animation.mjs` regression + maybe `tools.yaml` description + `post-m5-deployment-smoke.md` §2 step 1 update. ~0.5-1 session.
+- **NEW-2 investigation** — `docs/handoffs/new-2-webremotecontrol-crash-investigation.md`. Investigation + decision worker for D118-surfaced engine-code crash (UE 5.6 `WebRemoteControl.dll!HTTPServer` after ~40 calls / 26 min sustained MCP traffic + PIE cycles). Audit deliverable to `docs/audits/`; possible structural fix (Option B connection-recycle / traffic-throttle / per-PIE-cycle backoff) OR documented operational ceiling (Option A) OR hybrid (Option C — recommended baseline). May touch `connection-manager.mjs` + smoke handoffs. ~1-2 sessions.
+
+**SHARPENINGS held back** per coordination — `connection-manager.mjs` collision risk with NEW-2's possible Option B. Dispatch SHARPENINGS after one of NEW-1/NEW-2 lands (post-D115 supersede-round-trip pattern avoidance).
 - ~~**WIDGETS-PERF investigation**~~ — ✅ Shipped per D114 (commit `654bf2a`). Targeted fix: pure-mutation handlers replace CompileBlueprint+SaveAsset with MarkBlueprintAsModified; binding handlers keep self-compile.
 - ~~**FA-ε write-side audit**~~ — ✅ Shipped per D115 (commit `47952f3`). D99 #6 Option A structural fix (PostEditChangeProperty after CDO writes); D100 Option B documented contract (compile_blueprint-then-retry workaround). Bundled WIDGETS-PERF's WIP yaml content (collision noted; resolved cleanly via WIDGETS-PERF supersede).
 - ~~**ROTATION-RUNNER-FAIL-LOUD**~~ — ✅ Shipped per D116 (commit `8eebb61`). server/run-rotation.mjs script with FAIL-LOUD on import errors; D104 silent-zero gap structurally closed.
@@ -241,9 +248,9 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **ROTATION-RUNNER-FAIL-LOUD** | ✅ Shipped 2026-04-28 (commit `8eebb61`, see D116 — server/run-rotation.mjs FAIL-LOUD on import errors; D104 gap structurally closed) | — |
 | **CLAUDE.md/README/yaml grooming** | ✅ Shipped 2026-04-28 (commit `c7dcd24`, see D117 — D94→D112 drift closed; §4 yaml correctly skipped per coordination) | — |
 | **Post-M5 deployment smoke (re-dispatch)** | ⏸ PARTIAL per D118 — §1.0 + §1 + 5/6 §2 PASS; §3-§6 DEFERRED due to engine WebRemoteControl crash (NEW-2). 2 new bugs surfaced (NEW-1 montage + NEW-2 RC crash); 3 sharpenings flagged. Re-dispatch preconditions: NEW-1 fix + NEW-2 investigation + sharpening #2 (animation TOOLSET_TIPS post-D105 update). | post-precondition redispatch |
-| **NEW-1 fix** (create_montage duplicate DefaultSlot) | ⏸ Drafting recommended — D118-surfaced bug; M5-anim+mat handler producing unusable montage; spams hundreds of warnings/sec | 0.5-1 session |
-| **NEW-2 investigation** (WebRemoteControl crash) | ⏸ Drafting recommended — D118-surfaced engine crash after 26 min sustained MCP traffic + PIE cycles; possibly UE 5.6 RC bug. Investigate root cause OR document per-section editor-relaunch mitigation | 1-2 sessions (investigation-style) |
-| **3 SHARPENINGS bundle** (bind_widget_event timeout + animation TOOLSET_TIPS post-D105 + set_material_parameter smoke fixture) | ⏸ Drafting recommended — small bundle of D118-surfaced operational improvements | 0.25-0.5 session |
+| **NEW-1 fix** (create_montage duplicate DefaultSlot) | 🚀 In flight (dispatched 2026-04-28) — D118-surfaced bug; M5-anim+mat handler | 0.5-1 session |
+| **NEW-2 investigation** (WebRemoteControl crash) | 🚀 In flight (dispatched 2026-04-28) — D118-surfaced engine crash; investigation + Option A/B/C decision | 1-2 sessions |
+| **3 SHARPENINGS bundle** (bind_widget_event timeout + animation TOOLSET_TIPS post-D105 + set_material_parameter smoke fixture) | ⏸ HELD BACK per coordination — `connection-manager.mjs` collision risk with NEW-2's possible Option B; dispatch after NEW-1/NEW-2 lands | 0.25-0.5 session |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
