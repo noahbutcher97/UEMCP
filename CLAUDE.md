@@ -449,6 +449,23 @@ Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
 
 See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D112, growing). D-log entries D78-D112 collectively catalog 30+ UE 5.6 plugin-development institutional-memory items (module-vs-plugin distinctions per D110, deprecation paths per D93/D102, link-time module deps per D111, parameter-association struct gotchas per D105, Python plugin runtime gates per D107, and more) — search `(extends D78/...)` in the D-log to follow the chain.
 
+## Operational Limits
+
+### WebRemoteControl sustained-traffic ceiling (D119 / NEW-2)
+
+UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread under sustained MCP traffic combined with PIE start/stop cycles or broken-asset editor-thrash. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
+
+**Soft ceiling** (single observation, D118 smoke 2026-04-28): ~30 RC HTTP calls and/or ~25 min editor wall-clock under PIE-heavy or broken-asset workflows. The trigger is empirically `sustained traffic + GameThread stall` rather than pure call rate, so the limit is workflow-dependent — pure read-heavy traffic without PIE cycles likely tolerates more.
+
+**Mitigation**: relaunch the editor between major workflow sections. The relaunch cycle (close → relaunch → restart MCP server, no full sync needed) costs ~2 min; the unplanned crash + recovery costs ~30 min and may invalidate in-flight work. Smoke and gauntlet handoffs in `docs/handoffs/` document per-section relaunch conventions for live-editor workflows.
+
+**Remediation paths considered**:
+
+- UEMCP-side connection-recycle, traffic-throttle, or per-PIE-cycle backoff: deferred. Single observation, no reliable repro; coding workarounds blind risks regression on the D66 HYBRID transport surface (~24 RC-routed tools).
+- Epic UDN bug report: recommended; filing is the user's call. Audit doc `docs/audits/new-2-webremotecontrol-crash-investigation-2026-04-28.md` contains the suggested report body + crash artifact paths.
+
+This ceiling estimate will be revised when (a) NEW-1 montage-fix lands and a follow-on smoke session can test whether removing the broken-asset trigger extends the ceiling, OR (b) a deterministic repro is captured.
+
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
