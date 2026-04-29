@@ -21,7 +21,7 @@ export class FakeTcpResponder {
     /** @type {Map<string, object|Function>} command type → response or response factory */
     this._responses = new Map();
 
-    /** @type {{port: number, type: string, params: object, ts: number}[]} */
+    /** @type {{port: number, type: string, params: object, timeoutMs: number, ts: number}[]} */
     this.calls = [];
 
     /** Default response for unregistered commands */
@@ -50,7 +50,7 @@ export class FakeTcpResponder {
   /**
    * Get the last call for a specific command type.
    * @param {string} type
-   * @returns {{port: number, type: string, params: object, ts: number}|undefined}
+   * @returns {{port: number, type: string, params: object, timeoutMs: number, ts: number}|undefined}
    */
   lastCall(type) {
     for (let i = this.calls.length - 1; i >= 0; i--) {
@@ -62,7 +62,7 @@ export class FakeTcpResponder {
   /**
    * Get all calls for a specific command type.
    * @param {string} type
-   * @returns {{port: number, type: string, params: object, ts: number}[]}
+   * @returns {{port: number, type: string, params: object, timeoutMs: number, ts: number}[]}
    */
   callsFor(type) {
     return this.calls.filter(c => c.type === type);
@@ -86,7 +86,7 @@ export class FakeTcpResponder {
    */
   handler() {
     return async (port, type, params, timeoutMs) => {
-      this.calls.push({ port, type, params, ts: Date.now() });
+      this.calls.push({ port, type, params, timeoutMs, ts: Date.now() });
 
       const response = this._responses.get(type) ?? this._defaultResponse;
       if (response === null || response === undefined) {

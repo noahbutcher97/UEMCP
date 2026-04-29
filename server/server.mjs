@@ -216,7 +216,7 @@ const TOOLSET_TIPS = {
       'Plugin-backed (tcp-55558) — full flag surface including Category/Replicated/EditAnywhere that RC\'s SanitizeMetadata allowlist strips out. Prefer these over rc_describe_object when you need reflection fidelity.',
       'get_blueprint_info returns summary {super_class, interfaces, property_count, function_count}. Follow up with get_blueprint_variables or get_blueprint_functions for the full lists.',
       'get_blueprint_components filters get_blueprint_variables down to component-class properties (heuristic: property_class contains "Component" OR name ends _GEN_VARIABLE SCS suffix). Conservative — may miss exotic cases.',
-      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog. Unlike the blueprints-write.compile_blueprint on tcp-55557 (old UnrealMCP), this returns errors + warnings + node_guid attribution.',
+      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog. Unlike blueprints-write.compile_blueprint (which returns no error output), this returns errors + warnings + node_guid attribution.',
       'get_widget_blueprint walks UWidgetTree root recursively. Empty widget trees return root_widget:null (valid, not an error).',
     ].join(' '),
     workflows: [
@@ -249,8 +249,7 @@ const TOOLSET_TIPS = {
   'animation': {
     core: [
       'Read-tools (get_montage_full, get_anim_sequence_info, get_blend_space, get_anim_curve_data) are PARTIAL-RC — they dispatch to plugin reflection_walk and return the UPROPERTY schema. For runtime-evaluated values (baked curve points, compiled blend output), pair with read_asset_properties (offline).',
-      'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55557 (old UnrealMCP) — they take BP-style name-only lookup (NOT full /Game/ paths). Deprecated post-Phase-3; UEMCP rewrite forthcoming.',
-      'section_name + time for add_montage_section must not collide with existing sections — API silently overwrites (known quirk of the UnrealMCP handler).',
+      'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55558 (UEMCP plugin, M5-anim+mat per D105). create_montage emits a single DefaultSlot (D119 NEW-1 fix); section_name in add_montage_section must not collide with existing sections — API silently overwrites.',
     ].join(' '),
     workflows: [
       {
@@ -265,7 +264,7 @@ const TOOLSET_TIPS = {
       'get_struct_definition / get_datatable_contents / get_string_table / list_data_asset_types all PARTIAL-RC — plugin reflection walk for schema + engine APIs for row data (UDataTable::GetTableAsCSV, UStringTable::EnumerateSourceStrings).',
       'get_datatable_contents returns {csv, row_names, row_struct_properties}. For per-row structured values, parse the CSV OR use offline read_asset_properties — both give the same data, the latter is editor-optional.',
       'list_data_asset_types walks TObjectIterator<UClass> in-memory — only modules currently loaded appear. If you expect a class to show but it\'s missing, the owning module hasn\'t been loaded yet.',
-      'set_data_asset_property uses the old TCP:55557 handler — name-only lookup, type coercion quirks on struct-typed fields.',
+      'set_data_asset_property accepts a fully-qualified `/Game/...` path or a bare asset name (resolved via AssetRegistry). Type coercion on struct-typed fields can be quirky — verify with read_asset_properties (offline) after a write.',
     ].join(' '),
     workflows: [
       {

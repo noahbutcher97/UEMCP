@@ -394,6 +394,7 @@ export class ConnectionManager {
    * @param {object} params    — command parameters
    * @param {object} [opts]
    * @param {boolean} [opts.skipCache=false]
+   * @param {number} [opts.timeoutMs] — per-call wire timeout override; defaults to config.tcpTimeoutMs
    * @returns {Promise<object>}
    */
   async send(layerKey, type, params = {}, opts = {}) {
@@ -402,6 +403,12 @@ export class ConnectionManager {
       const cached = this._cache.get(type, params);
       if (cached) return cached;
     }
+
+    // Per-call timeout override (D118 sharpening #1 — bind_widget_event /
+    // set_text_block_binding need 10s under PIE because their self-compile
+    // path runs ~5.6s wall-clock; the default 5s wire timeout fires before
+    // the handler returns).
+    const timeoutMs = opts.timeoutMs ?? this.config.tcpTimeoutMs;
 
     return this._queue.enqueue(layerKey, async () => {
       let result;
@@ -413,14 +420,14 @@ export class ConnectionManager {
           this.config.tcpPortExisting,
           type,
           params,
-          this.config.tcpTimeoutMs
+          timeoutMs
         );
       } else if (layerKey === 'tcp-55558') {
         result = await tcpFn(
           this.config.tcpPortCustom,
           type,
           params,
-          this.config.tcpTimeoutMs
+          timeoutMs
         );
       } else if (layerKey === 'http-30010') {
         // D66 HYBRID: HTTP dispatch via `type` encoding {method, path} and params as body.

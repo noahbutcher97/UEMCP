@@ -861,6 +861,75 @@ console.log('\n── Group 15: WIDGETS-PERF — caller-pattern contract ──'
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 16: D118 sharpening #1 — per-tool wire timeout override
+// ═══════════════════════════════════════════════════════════════
+//
+// Property-resolving widget handlers (bind_widget_event +
+// set_text_block_binding) self-compile (D114 — load-bearing for
+// FObjectProperty / function-graph materialization). Live-fire smoke
+// 2026-04-28 measured 5633ms for bind_widget_event under PIE,
+// exceeding the default 5s wire timeout. The widgets toolset now
+// applies a 10s override on these two handlers; pure-mutation widget
+// tools and the rest of the surface keep the default.
+
+console.log('\n── Group 16: D118 — Per-tool Wire Timeout Override ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_umg_widget_blueprint', { status: 'success', result: { name: 'W', path: '/Game/Widgets/W' } });
+  fake.on('add_text_block_to_widget',    { status: 'success', result: { widget_name: 'T', text: 'hi' } });
+  fake.on('add_button_to_widget',        { status: 'success', result: { success: true, widget_name: 'B' } });
+  fake.on('bind_widget_event',           { status: 'success', result: { success: true, event_name: 'OnClicked' } });
+  fake.on('set_text_block_binding',      { status: 'success', result: { success: true, binding_name: 'V', function_name: 'GetV' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Default 5s applies to non-binding handlers.
+  await executeWidgetsTool('create_widget', { name: 'W' }, cm);
+  t.assert(fake.lastCall('create_umg_widget_blueprint').timeoutMs === 5000,
+    'create_widget uses default 5s wire timeout (config.tcpTimeoutMs)');
+
+  await executeWidgetsTool('add_text_block', { blueprint_name: 'W', widget_name: 'T', text: 'hi' }, cm);
+  t.assert(fake.lastCall('add_text_block_to_widget').timeoutMs === 5000,
+    'add_text_block uses default 5s wire timeout (pure-mutation, no override)');
+
+  await executeWidgetsTool('add_button', { blueprint_name: 'W', widget_name: 'B', text: 'C' }, cm);
+  t.assert(fake.lastCall('add_button_to_widget').timeoutMs === 5000,
+    'add_button uses default 5s wire timeout (pure-mutation, no override)');
+
+  // Property-resolving binding handlers get the 10s override.
+  await executeWidgetsTool('bind_widget_event',
+    { blueprint_name: 'W', widget_name: 'B', event_name: 'OnClicked' }, cm);
+  t.assert(fake.lastCall('bind_widget_event').timeoutMs === 10000,
+    'bind_widget_event applies 10s wire timeout override (D118 sharpening #1 — handles ~5.6s under PIE)');
+
+  await executeWidgetsTool('set_text_block_binding',
+    { blueprint_name: 'W', widget_name: 'T', binding_name: 'V' }, cm);
+  t.assert(fake.lastCall('set_text_block_binding').timeoutMs === 10000,
+    'set_text_block_binding applies 10s wire timeout override (D118 sharpening #1 — self-compile under PIE)');
+}
+
+// ConnectionManager-level: opts.timeoutMs threads through send() to wire fn.
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('any_tool', { status: 'success', result: {} });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await cm.send('tcp-55558', 'any_tool', {}, { skipCache: true, timeoutMs: 12345 });
+  t.assert(fake.lastCall('any_tool').timeoutMs === 12345,
+    'ConnectionManager.send forwards opts.timeoutMs to wire fn (per-call override mechanism)');
+
+  await cm.send('tcp-55558', 'any_tool', { x: 1 }, { skipCache: true });
+  t.assert(fake.lastCall('any_tool').timeoutMs === 5000,
+    'ConnectionManager.send falls back to config.tcpTimeoutMs when opts.timeoutMs is omitted');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

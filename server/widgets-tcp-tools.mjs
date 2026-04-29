@@ -26,6 +26,19 @@ const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] p
 
 let WIDGETS_WIRE_MAP = {};
 
+// ── Per-tool wire timeout overrides (D118 sharpening #1) ──────────
+//
+// Property-resolving widget handlers retain self-compile (per D114
+// design — compile materializes FObjectProperty on GeneratedClass before
+// wiring); under PIE the compile + binding round-trip exceeds the 5s
+// default wire timeout. Live-fire smoke 2026-04-28 measured 5633ms for
+// bind_widget_event under PIE (1725ms outside PIE). 10s ceiling keeps
+// PIE-state callers safe without slowing down the post-stop_pie path.
+const WIDGETS_TIMEOUT_OVERRIDES = {
+  bind_widget_event:      10_000,
+  set_text_block_binding: 10_000,
+};
+
 /**
  * Initialize wire_type map from parsed tools.yaml.
  * Call once from server.mjs after toolsetManager.load().
@@ -170,7 +183,12 @@ export async function executeWidgetsTool(toolName, args, connectionManager) {
     wireParams.name = stripDoubledAssetSuffix(wireParams.name);
   }
 
-  return connectionManager.send('tcp-55558', typeString, wireParams, { skipCache: !def.isReadOp });
+  const sendOpts = { skipCache: !def.isReadOp };
+  const timeoutOverride = WIDGETS_TIMEOUT_OVERRIDES[toolName];
+  if (timeoutOverride !== undefined) {
+    sendOpts.timeoutMs = timeoutOverride;
+  }
+  return connectionManager.send('tcp-55558', typeString, wireParams, sendOpts);
 }
 
 /** Export tool-def shape for server.mjs registration. */
