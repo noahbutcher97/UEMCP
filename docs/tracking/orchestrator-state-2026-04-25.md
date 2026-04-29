@@ -26,7 +26,7 @@ Phase 3 is **~85% complete**. Wave 1 + 2 + 3 shipped (M1, M-spatial, Oracle-A/v2
 
 All 5 dispatched 2026-04-28 via conversation openers per the §Multi-agent orchestration handoff convention:
 
-- ~~**Post-M5 deployment smoke**~~ — BLOCKED at §0 (D113); deployed plugin tree 9-11 commits behind HEAD. Re-dispatch contract: Noah completes 4-step sequence (setup-uemcp.bat + sync-plugin.bat + Build.bat + relaunch + Claude restart) + re-dispatches same opener (zero handoff edits needed). Same handoff is structurally re-runnable once deploy state catches up.
+- ~~**Post-M5 deployment smoke (re-dispatch)**~~ — Ran successfully through §2 then DEFERRED §3-§6 due to engine crash (NEW-2 WebRemoteControl). Per D118: §1.0 D112 5/5 PASS + §1 CLEANUP-M3-FIXES 6/6 PASS + §2 5/6 PASS + NEW-1 montage bug. **CRITICAL ORCHESTRATION ERROR captured + memorized**: prior openers cited wrong project path; D118 worker corrected to wrapper-codename-prefixed sibling. Future openers MUST use corrected path per `project_corrected_deploy_target_path.md` memory.
 - ~~**WIDGETS-PERF investigation**~~ — ✅ Shipped per D114 (commit `654bf2a`). Targeted fix: pure-mutation handlers replace CompileBlueprint+SaveAsset with MarkBlueprintAsModified; binding handlers keep self-compile.
 - ~~**FA-ε write-side audit**~~ — ✅ Shipped per D115 (commit `47952f3`). D99 #6 Option A structural fix (PostEditChangeProperty after CDO writes); D100 Option B documented contract (compile_blueprint-then-retry workaround). Bundled WIDGETS-PERF's WIP yaml content (collision noted; resolved cleanly via WIDGETS-PERF supersede).
 - ~~**ROTATION-RUNNER-FAIL-LOUD**~~ — ✅ Shipped per D116 (commit `8eebb61`). server/run-rotation.mjs script with FAIL-LOUD on import errors; D104 silent-zero gap structurally closed.
@@ -85,7 +85,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D117)
+## Recent D-log highlights (D77 → D118)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -130,6 +130,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D115** FA-ε WRITE-SIDE AUDIT shipped (commit `47952f3`). D99 #6 Option A structural fix: PostEditChangeProperty fired after CDO SetUProperty in HandleSetBlueprintProperty + HandleSetPawnProperties (2 hunks, 17 lines); subobject-template callsites EXCLUDED to avoid mid-edit archetype propagation. D100 Option B documented contract: compile_blueprint-then-retry workaround in tools.yaml + server.mjs TOOLSET_TIPS (no new tool added — Option-A-don't-add-features-when-documentation-suffices). **CRITICAL collision with WIDGETS-PERF**: 47952f3 accidentally bundled WIDGETS-PERF's WIP yaml widgets-section content; WIDGETS-PERF's later 654bf2a superseded with their own better descriptions. Resolved cleanly via supersede. **5-parallel-worker shared-config pattern** is real even with M5-PREP scaffold lessons — tools.yaml as a config file across unrelated workers is a related-but-distinct collision class from MCPCommandRegistry.cpp / server.mjs.
 - **D116** ROTATION-RUNNER-FAIL-LOUD shipped (commit `8eebb61`). server/run-rotation.mjs (4 files, +356/-1) with FAIL-LOUD on import errors; D104 silent-zero gap structurally closed. Aggregate: 1280/8/1288 + 3 env-skipped (no UNREAL_PROJECT_ROOT); ~1900 with full fixtures. CLAUDE.md §Testing updated with new subsection. Test-of-the-test verified.
 - **D117** CLAUDE.md/README/yaml grooming shipped (commit `c7dcd24`, +4/-4). D-log header D1-D92 → D1-D112; assertion count 1376 → 1929 / 11 → 19 files; institutional-memory pointer updated. §4 tools.yaml correctly SKIPPED per coordination with in-flight workers — vindicates the "skip when in-flight" coordination pattern as a complement to shard-upfront / sequence-landings. §6: forbidden-tokens recommendation surfaced for Noah re: third-test-target codename (NOT auto-added per memory's guidance).
+- **D118** Post-M5 smoke RE-DISPATCH ran §0/§1.0/§1/§2 successfully then DEFERRED §3-§6 due to engine WebRemoteControl crash. **D102 (CLEANUP-M3-FIXES 6/6) + D109/D112 (BP-path resolution 5/5) VERIFIED LIVE — Phase 3's correctness gates largely closed**. D105 M5-anim+mat 5/6 PASS + NEW-1 (create_montage duplicate DefaultSlot). NEW-2: engine-code WebRemoteControl crash after 26 min sustained MCP traffic + PIE cycles (UE 5.6 RC bug aggravated by traffic). 3 sharpenings flagged. **CRITICAL ORCHESTRATION ERROR**: orchestrator's prior openers cited wrong project path; D118 worker corrected to wrapper-codename-prefixed sibling — codified in `project_corrected_deploy_target_path.md` memory. **Recommend Noah refresh `.git/info/forbidden-tokens` block-list** to cover 3rd test target codename (per D109) + Project A's wrapper codename (per D118) + any other active codenames in chat ephemera. TCP:55557 retirement gate still NOT CLEAR (M5-editor-utility 4-layer security + M5-input+geo + FA-ε §Open 3 unverified-live; deferred to NEW-2-investigation post-fix smoke).
 
 ---
 
@@ -239,7 +240,10 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **TEST-IMPORTS-FIX** | ✅ Shipped 2026-04-26 (commit `5028c47`, see D104) — 197 assertions restored to rotation; bonus fixes for Group 16 stale port + lying header comment |
 | **ROTATION-RUNNER-FAIL-LOUD** | ✅ Shipped 2026-04-28 (commit `8eebb61`, see D116 — server/run-rotation.mjs FAIL-LOUD on import errors; D104 gap structurally closed) | — |
 | **CLAUDE.md/README/yaml grooming** | ✅ Shipped 2026-04-28 (commit `c7dcd24`, see D117 — D94→D112 drift closed; §4 yaml correctly skipped per coordination) | — |
-| **Post-M5 deployment smoke** | ⏸ BLOCKED-at-§0 (D113) — deployed plugin 9-11 commits behind HEAD; awaiting Noah's deploy cycle (setup-uemcp.bat + sync-plugin.bat + Build.bat + relaunch + Claude restart). Re-dispatchable with same opener (zero handoff edits). | 60-90 min post-redeploy |
+| **Post-M5 deployment smoke (re-dispatch)** | ⏸ PARTIAL per D118 — §1.0 + §1 + 5/6 §2 PASS; §3-§6 DEFERRED due to engine WebRemoteControl crash (NEW-2). 2 new bugs surfaced (NEW-1 montage + NEW-2 RC crash); 3 sharpenings flagged. Re-dispatch preconditions: NEW-1 fix + NEW-2 investigation + sharpening #2 (animation TOOLSET_TIPS post-D105 update). | post-precondition redispatch |
+| **NEW-1 fix** (create_montage duplicate DefaultSlot) | ⏸ Drafting recommended — D118-surfaced bug; M5-anim+mat handler producing unusable montage; spams hundreds of warnings/sec | 0.5-1 session |
+| **NEW-2 investigation** (WebRemoteControl crash) | ⏸ Drafting recommended — D118-surfaced engine crash after 26 min sustained MCP traffic + PIE cycles; possibly UE 5.6 RC bug. Investigate root cause OR document per-section editor-relaunch mitigation | 1-2 sessions (investigation-style) |
+| **3 SHARPENINGS bundle** (bind_widget_event timeout + animation TOOLSET_TIPS post-D105 + set_material_parameter smoke fixture) | ⏸ Drafting recommended — small bundle of D118-surfaced operational improvements | 0.25-0.5 session |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
