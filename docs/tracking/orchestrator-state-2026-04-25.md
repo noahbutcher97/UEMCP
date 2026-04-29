@@ -28,13 +28,11 @@ All 5 dispatched 2026-04-28 via conversation openers per the §Multi-agent orche
 
 - ~~**Post-M5 deployment smoke (re-dispatch)**~~ — Ran successfully through §2 then DEFERRED §3-§6 due to engine crash (NEW-2 WebRemoteControl). Per D118: §1.0 D112 5/5 PASS + §1 CLEANUP-M3-FIXES 6/6 PASS + §2 5/6 PASS + NEW-1 montage bug. **CRITICAL ORCHESTRATION ERROR captured + memorized**: prior openers cited wrong project path; D118 worker corrected to wrapper-codename-prefixed sibling. Future openers MUST use corrected path per `project_corrected_deploy_target_path.md` memory.
 
-### In flight (1 worker remaining — NEW-2 only; NEW-1 shipped per D119)
+### In flight
 
-- **NEW-2 investigation** — `docs/handoffs/new-2-webremotecontrol-crash-investigation.md`. Investigation + decision worker for D118-surfaced engine-code crash (UE 5.6 `WebRemoteControl.dll!HTTPServer` after ~40 calls / 26 min sustained MCP traffic + PIE cycles). Audit deliverable to `docs/audits/`; possible structural fix (Option B connection-recycle / traffic-throttle / per-PIE-cycle backoff) OR documented operational ceiling (Option A) OR hybrid (Option C — recommended baseline). May touch `connection-manager.mjs` + smoke handoffs. ~1-2 sessions.
+- **D118 SHARPENINGS BUNDLE** — dispatched 2026-04-28 via conversation opener. Worker scope: §1 bind_widget_event 5s wire timeout (bump to 10s OR document stop-PIE-first); §2 animation TOOLSET_TIPS post-D105 update (legacy tcp-55557 references); §3 set_material_parameter smoke fixture (empty-parent-material case). Now safe to dispatch — NEW-2 chose Option A so connection-manager.mjs collision risk is moot. Awaiting final report.
 
-**SHARPENINGS still held back** per coordination — connection-manager.mjs collision risk with NEW-2's possible Option B. Dispatch SHARPENINGS after NEW-2 lands (then can determine: if Option A docs-only → SHARPENINGS dispatches immediately; if Option B/C touches connection-manager.mjs → SHARPENINGS still safe since the file is now stable post-NEW-2-commit).
-
-NEW-1 shipped per D119 (commit `633a862`); already updated `post-m5-deployment-smoke.md` §2.1 with single-DefaultSlot live-fire assertion (per NEW-1 worker's smoke-plan-update obligation).
+Recently shipped this session: NEW-1 fix per D119 (commit `633a862`); NEW-2 audit per D120 (commit `a70830d` — Option A documented operational ceiling + smoke handoff §0.4/§0.5 updates + UE bug-report drafted).
 - ~~**WIDGETS-PERF investigation**~~ — ✅ Shipped per D114 (commit `654bf2a`). Targeted fix: pure-mutation handlers replace CompileBlueprint+SaveAsset with MarkBlueprintAsModified; binding handlers keep self-compile.
 - ~~**FA-ε write-side audit**~~ — ✅ Shipped per D115 (commit `47952f3`). D99 #6 Option A structural fix (PostEditChangeProperty after CDO writes); D100 Option B documented contract (compile_blueprint-then-retry workaround). Bundled WIDGETS-PERF's WIP yaml content (collision noted; resolved cleanly via WIDGETS-PERF supersede).
 - ~~**ROTATION-RUNNER-FAIL-LOUD**~~ — ✅ Shipped per D116 (commit `8eebb61`). server/run-rotation.mjs script with FAIL-LOUD on import errors; D104 silent-zero gap structurally closed.
@@ -93,7 +91,7 @@ Four worker handoffs drafted (session-local; gitignored per D81). Recommended di
 
 ---
 
-## Recent D-log highlights (D77 → D119)
+## Recent D-log highlights (D77 → D120)
 
 Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries:
 
@@ -140,6 +138,7 @@ Read full entries at `docs/tracking/risks-and-decisions.md`. Skimmable summaries
 - **D117** CLAUDE.md/README/yaml grooming shipped (commit `c7dcd24`, +4/-4). D-log header D1-D92 → D1-D112; assertion count 1376 → 1929 / 11 → 19 files; institutional-memory pointer updated. §4 tools.yaml correctly SKIPPED per coordination with in-flight workers — vindicates the "skip when in-flight" coordination pattern as a complement to shard-upfront / sequence-landings. §6: forbidden-tokens recommendation surfaced for Noah re: third-test-target codename (NOT auto-added per memory's guidance).
 - **D118** Post-M5 smoke RE-DISPATCH ran §0/§1.0/§1/§2 successfully then DEFERRED §3-§6 due to engine WebRemoteControl crash. **D102 (CLEANUP-M3-FIXES 6/6) + D109/D112 (BP-path resolution 5/5) VERIFIED LIVE — Phase 3's correctness gates largely closed**. D105 M5-anim+mat 5/6 PASS + NEW-1 (create_montage duplicate DefaultSlot). NEW-2: engine-code WebRemoteControl crash after 26 min sustained MCP traffic + PIE cycles (UE 5.6 RC bug aggravated by traffic). 3 sharpenings flagged. **CRITICAL ORCHESTRATION ERROR**: orchestrator's prior openers cited wrong project path; D118 worker corrected to wrapper-codename-prefixed sibling — codified in `project_corrected_deploy_target_path.md` memory. **Recommend Noah refresh `.git/info/forbidden-tokens` block-list** to cover 3rd test target codename (per D109) + Project A's wrapper codename (per D118) + any other active codenames in chat ephemera. TCP:55557 retirement gate still NOT CLEAR (M5-editor-utility 4-layer security + M5-input+geo + FA-ε §Open 3 unverified-live; deferred to NEW-2-investigation post-fix smoke).
 - **D119** NEW-1 fix shipped (commit `633a862`). Root cause: UAnimMontage constructor pre-inserts DefaultSlot per UE 5.6 AnimMontage.cpp:75; HandleCreateMontage was appending a duplicate. Fix (b) conditional slot reuse + defensive fallback. +3 test assertions; smoke handoff §2.1 updated by worker with single-slot + zero-warning live-fire assertion. New UE 5.6 institutional memory: when constructing UE asset types via NewObject, check the asset's constructor for default-content insertions BEFORE adding your own initial state. NEW-2 still in flight; SHARPENINGS still held back per coordination.
+- **D120** NEW-2 audit shipped (commit `a70830d`) — **Option A: documented operational ceiling, no UEMCP code change**. Root cause hypothesis (medium confidence): UE 5.6 WebRemoteControl thread-safety/lifecycle issue in per-request FRC*Request::StructParameters TMap. **CRITICAL CONNECTED INSIGHT**: 12-second silent log gap before crash aligns with NEW-1's broken-AM_Smoke warning spam — NEW-1 fix MAY incidentally extend the NEW-2 ceiling (natural retest in next post-deploy smoke). Option A rationale: testing-blind for Option B (no reliable repro); per-PIE-cycle backoff guesses wrong axis (trigger is GameThread-stall not PIE-cycle freq); D66 HYBRID surface makes hot-path workarounds risky. **Operational ceiling captured in CLAUDE.md §Operational Limits**: ~30 RC HTTP calls / ~25 min editor wall-clock under PIE-heavy or broken-asset workflows. Smoke handoffs gained per-section editor-relaunch convention (§0.4 + §0.5). UE bug-report drafted in audit §5 for Noah to file (recommend doing so — Epic likely has internal repro tools). **SHARPENINGS bundle UNBLOCKED + dispatched** post-D120 (no connection-manager.mjs collision risk).
 
 ---
 
@@ -251,8 +250,8 @@ Each layer surfaces a different bug class. Together they close the "automated-te
 | **CLAUDE.md/README/yaml grooming** | ✅ Shipped 2026-04-28 (commit `c7dcd24`, see D117 — D94→D112 drift closed; §4 yaml correctly skipped per coordination) | — |
 | **Post-M5 deployment smoke (re-dispatch)** | ⏸ PARTIAL per D118 — §1.0 + §1 + 5/6 §2 PASS; §3-§6 DEFERRED due to engine WebRemoteControl crash (NEW-2). 2 new bugs surfaced (NEW-1 montage + NEW-2 RC crash); 3 sharpenings flagged. Re-dispatch preconditions: NEW-1 fix + NEW-2 investigation + sharpening #2 (animation TOOLSET_TIPS post-D105 update). | post-precondition redispatch |
 | **NEW-1 fix** (create_montage duplicate DefaultSlot) | ✅ Shipped 2026-04-28 (commit `633a862`, see D119 — conditional slot reuse + defensive fallback per UE 5.6 AnimMontage.cpp:75 constructor) | — |
-| **NEW-2 investigation** (WebRemoteControl crash) | 🚀 In flight (dispatched 2026-04-28) — D118-surfaced engine crash; investigation + Option A/B/C decision | 1-2 sessions |
-| **3 SHARPENINGS bundle** (bind_widget_event timeout + animation TOOLSET_TIPS post-D105 + set_material_parameter smoke fixture) | ⏸ HELD BACK per coordination — `connection-manager.mjs` collision risk with NEW-2's possible Option B; dispatch after NEW-1/NEW-2 lands | 0.25-0.5 session |
+| **NEW-2 investigation** (WebRemoteControl crash) | ✅ Shipped 2026-04-28 (commit `a70830d`, see D120 — Option A documented operational ceiling; smoke handoff §0.4/§0.5 per-section editor-relaunch convention; UE bug-report drafted for Noah to file) | — |
+| **3 SHARPENINGS bundle** (bind_widget_event timeout + animation TOOLSET_TIPS post-D105 + set_material_parameter smoke fixture) | 🚀 In flight (dispatched 2026-04-28) — UNBLOCKED post-D120 (NEW-2 Option A means no connection-manager.mjs touch) | 0.25-0.5 session |
 | **CLAUDE.md/README grooming pass** | ✅ Shipped 2026-04-26 (commit `1a65d0f`, see D94) — keeping for visibility | — |
 | Wave 4 — M3 + M4 + M5 | ⏸ Dispatchable (M5 gated on CLEANUP-MICRO) | ~15-25 sessions |
 | Phase 5 + Phase 6 | Long-term | Out of current planning window |
