@@ -112,16 +112,33 @@ namespace UEMCP
 
 			// Build a default slot containing the source AnimSequence as the only segment.
 			const float PlayLength = AnimSeq->GetPlayLength();
-			FSlotAnimationTrack SlotTrack;
-			SlotTrack.SlotName = FAnimSlotGroup::DefaultSlotName;
 			FAnimSegment Segment;
 			Segment.SetAnimReference(AnimSeq);
 			Segment.AnimStartTime = 0.0f;
 			Segment.AnimEndTime = PlayLength;
 			Segment.AnimPlayRate = 1.0f;
 			Segment.StartPos = 0.0f;
-			SlotTrack.AnimTrack.AnimSegments.Add(Segment);
-			Montage->SlotAnimTracks.Add(SlotTrack);
+
+			// UAnimMontage's constructor already inserts an empty DefaultSlot via
+			// AddSlot(FAnimSlotGroup::DefaultSlotName) — see UE 5.6
+			// Engine/Source/Runtime/Engine/Private/Animation/AnimMontage.cpp:75.
+			// Inject our segment into that existing slot rather than appending a
+			// second one (the duplicate produced "Slot 'DefaultSlot' already used"
+			// log spam at hundreds of warnings/sec when the asset was opened).
+			FSlotAnimationTrack* DefaultSlot = nullptr;
+			for (FSlotAnimationTrack& Slot : Montage->SlotAnimTracks)
+			{
+				if (Slot.SlotName == FAnimSlotGroup::DefaultSlotName)
+				{
+					DefaultSlot = &Slot;
+					break;
+				}
+			}
+			if (!DefaultSlot)
+			{
+				DefaultSlot = &Montage->AddSlot(FAnimSlotGroup::DefaultSlotName);
+			}
+			DefaultSlot->AnimTrack.AnimSegments.Add(Segment);
 
 			// Default section at time 0 (no auto-advance).
 			FCompositeSection DefaultSection;
@@ -142,6 +159,7 @@ namespace UEMCP
 			Result->SetStringField(TEXT("anim_sequence"), AnimObjectPath);
 			Result->SetStringField(TEXT("skeleton"), Skeleton->GetPathName());
 			Result->SetNumberField(TEXT("length"), PlayLength);
+			Result->SetNumberField(TEXT("slot_count"), Montage->SlotAnimTracks.Num());
 			BuildSuccessResponse(OutResponse, Result);
 		}
 

@@ -262,5 +262,43 @@ console.log('\n── Group 7: Empty Wire Map → Identity Fallback ──');
   initM5AnimationTools(fakeToolsYaml);  // restore for any further tests
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Group 8: NEW-1 regression — create_montage response carries
+// slot_count and the JS layer round-trips it. Wire-mock validates
+// the contract at the JS boundary; the actual assertion that the
+// editor-built UAnimMontage has SlotAnimTracks.Num() == 1 is
+// covered LIVE-FIRE-only in docs/handoffs/post-m5-deployment-smoke.md
+// §2.1 (single-DefaultSlot smoke step). Cf. D118 NEW-1.
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 8: NEW-1 Slot-Count Contract ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_montage', {
+    status: 'success',
+    result: {
+      name: 'AM_Slot1', path: '/Game/Animations/AM_Slot1',
+      anim_sequence: '/Game/Anims/A.A',
+      skeleton: '/Game/Skel/SK.SK', length: 1.0,
+      slot_count: 1,
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const res = await executeM5AnimationTool('create_montage', {
+    name: 'AM_Slot1', anim_sequence: '/Game/Anims/A.A',
+  }, cm);
+
+  t.assert(res.status === 'success', 'create_montage success envelope round-trips');
+  t.assert(res.result?.slot_count === 1,
+    `create_montage response carries slot_count=1 (NEW-1 regression contract); got ${res.result?.slot_count}`);
+  t.assert(!('duplicate_slots' in (res.result || {})),
+    'create_montage response shape excludes any duplicate-slot indicator');
+}
+
 // ── Done ───────────────────────────────────────────────────────
 process.exit(t.summary());
