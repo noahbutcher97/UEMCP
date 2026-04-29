@@ -165,6 +165,21 @@ This is a public repository. The target projects are private under NDA.
 labels: `Project A` / `Project B` / `the primary target` /
 `path/to/YourProject` / `${UNREAL_PROJECT_ROOT}`.
 
+**NDA-gate scope is repo-write-only.** The forbidden-tokens block-list,
+codename scrubbing, placeholder vocabulary, pre-commit grep, and
+pre-push hook all govern what flows OUT of this repo to github.com in
+committed content. They do **NOT** restrict tool execution at runtime.
+UEMCP tools may operate at full capability against the user's own UE
+projects — spawn actors, create assets, mutate Blueprints, run editor
+utilities, etc. If a worker declines a tool call citing "shared
+project," "NDA," or "proprietary" reasons WITHOUT a server-side gate
+(e.g., `--enable-python-exec` per D101 (iv), or a similar future
+`UEMCP_*` env flag), treat that as an opener-template defect, not a
+worker error — the opener didn't communicate scope clearly enough.
+Test artifacts created during smoke / live-fire should be cleaned up
+via the `§Test artifacts pending manual delete` discipline; that's the
+safety contract for scratch work, not an NDA constraint.
+
 **Placeholder vocabulary by file type** (pick one, stay consistent):
 - **Config templates** that get programmatically substituted (e.g.,
   `.mcp.json.example`): angle-bracket placeholders — `<UEMCP_REPO_PATH>`,
@@ -451,20 +466,22 @@ See `docs/tracking/risks-and-decisions.md` for full risk table and decision log 
 
 ## Operational Limits
 
-### WebRemoteControl sustained-traffic ceiling (D119 / NEW-2)
+### WebRemoteControl sustained-traffic ceiling (D120 / D122 / NEW-2)
 
-UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread under sustained MCP traffic combined with PIE start/stop cycles or broken-asset editor-thrash. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
+UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread under sustained HTTP traffic. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
 
-**Soft ceiling** (single observation, D118 smoke 2026-04-28): ~30 RC HTTP calls and/or ~25 min editor wall-clock under PIE-heavy or broken-asset workflows. The trigger is empirically `sustained traffic + GameThread stall` rather than pure call rate, so the limit is workflow-dependent — pure read-heavy traffic without PIE cycles likely tolerates more.
+**Soft ceiling** (n=2 observations after D122 falsification): ~25 RC HTTP calls and/or ~17-25 min editor wall-clock. **D120's hypothesis that the broken-asset GameThread-stall was the trigger is empirically falsified by D122** — NEW-2 reproduced at a LOWER call count (~25 vs D118's ~40) WITHOUT the broken-asset trigger present (no NEW-1 warning spam during the run). The trigger is **independent** of NEW-1 and NOT confined to PIE-heavy or broken-asset workflows. Likely root cause is a thread-safety / lifecycle issue in WebRemoteControl proper.
 
-**Mitigation**: relaunch the editor between major workflow sections. The relaunch cycle (close → relaunch → restart MCP server, no full sync needed) costs ~2 min; the unplanned crash + recovery costs ~30 min and may invalidate in-flight work. Smoke and gauntlet handoffs in `docs/handoffs/` document per-section relaunch conventions for live-editor workflows.
+**Mitigation**: relaunch the editor between major workflow sections — current convention tightened to **every ~15 RC HTTP calls OR every ~15 min editor wall-clock, whichever comes first**. Relaunch cycle (close → relaunch → restart MCP server, no full sync needed) costs ~2 min; an unplanned crash + recovery costs ~30 min and may invalidate in-flight work. Smoke and gauntlet handoffs in `docs/handoffs/` document per-section relaunch conventions.
 
-**Remediation paths considered**:
+**Remediation paths**:
 
-- UEMCP-side connection-recycle, traffic-throttle, or per-PIE-cycle backoff: deferred. Single observation, no reliable repro; coding workarounds blind risks regression on the D66 HYBRID transport surface (~24 RC-routed tools).
-- Epic UDN bug report: recommended; filing is the user's call. Audit doc `docs/audits/new-2-webremotecontrol-crash-investigation-2026-04-28.md` contains the suggested report body + crash artifact paths.
+- **Epic UDN bug report**: **promoted to recommended NOW** post-D122. Audit + ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` (gitignored). Filing requires a UDN account (Noah's call).
+- **UEMCP-side defense-in-depth** (connection recycle + RC-call-rate cap + per-section auto-relaunch): worker handoff queued post-D122. n=2 evidence + falsified D120 hypothesis justifies dispatch despite HYBRID-transport regression risk; worker scoped to additive opt-in mitigation that doesn't break the 80% of cases that work.
+- **Independent-corpus retest**: bake into next smoke (§3.5 third-target NEW-2 stress) — n=3 observation strengthens / falsifies the universal-engine-bug hypothesis.
+- **WinDbg + symbols-resolved minidump walk**: optional Noah-time follow-up; would distinguish `GetAccessValue` vs `DeserializeCall` FindChecked path for the UDN bug body.
 
-This ceiling estimate will be revised when (a) NEW-1 montage-fix lands and a follow-on smoke session can test whether removing the broken-asset trigger extends the ceiling, OR (b) a deterministic repro is captured.
+The soft ceiling will be refined once n=3+ data lands (next smoke + third-target stress) or Epic responds with engine-side guidance.
 
 ## Testing
 

@@ -11,11 +11,11 @@
 
 ## TL;DR
 
-**Phase 3 is one deployment cycle away from FULLY closed.** All primary-dispatch milestones complete (Wave 1 + Wave 2 + Wave 3 + M3 + M5; M4 superseded under M-enhance per D95). All D118 follow-on triage closed (D119 NEW-1 + D120 NEW-2 + D121 SHARPENINGS).
+**Phase 3 close-out is now 2-3 worker dispatches + 2 deploy cycles away** (not one-deploy-away as stated pre-D122). All primary-dispatch milestones complete (Wave 1 + Wave 2 + Wave 3 + M3 + M5; M4 superseded under M-enhance per D95). D118 follow-on triage closed (D119 + D120 + D121). **D122 smoke RE-REDISPATCH partial-cleared**: §0 + §1.0 + §1 PASS (D109/D112 + D102 close empirically; D121 SHARPENING #1 verified live; D114 WIDGETS-PERF measurement confirmed). §2 BLOCKED (`create_montage` denial — opener-template defect, structurally fixed). §3-§6 deferred (NEW-2 crash). **D120 hypothesis EMPIRICALLY FALSIFIED** — NEW-2 reproduced at LOWER call count without broken-asset trigger; race is independent of NEW-1.
 
-**Test rotation baseline**: ~1900 with full fixtures (per D116 ROTATION-RUNNER + D117 grooming refresh; varies ±N per fixture availability — see D104 silent-zero memory + D121 flake observation).
+**Test rotation baseline**: ~1900 with full fixtures (per D116 ROTATION-RUNNER + D117 grooming refresh; varies ±N per fixture availability).
 
-**One re-dispatch remaining for Phase 3 close-out**: Post-M5 deployment smoke (re-redispatch). Awaiting Noah's deploy cycle. Once smoke clears §3-§6 + NEW-2 ceiling extended (per D120 connected insight) OR doesn't reproduce, TCP:55557 retirement gate CLEARS and Phase 3 primary dispatch surface is FULLY closed.
+**Remaining Phase 3 close-out path**: (1) auto-codename worker ships (D3 Phase 1+2+3) → (2) UEMCP-side NEW-2 mitigation worker ships (D2 (b) Option B revival, n=2-justified) → (3) Noah deploys both + files UDN bug-report → (4) re-redispatch smoke with ~15-call/~15-min relaunch + §0.5 instrumentation + §3.5 third-target stress → (5) if §3-§6 clears + NEW-2 doesn't reproduce/extends ceiling → TCP:55557 retirement gate CLEARS.
 
 ---
 
@@ -23,24 +23,35 @@
 
 ### In flight
 
-- **None currently dispatched.** D119 NEW-1 + D120 NEW-2 + D121 SHARPENINGS all shipped; D118 follow-on triage 3-of-3 closed.
+- **None currently dispatched.** D119/D120/D121 deployed + verified-live-at-code-marker (per D122 §0). D122 smoke RE-REDISPATCH closed; comprehensive D2 + D3 plan kicked off this commit.
 
-### Phase 3 close-out path — one deploy cycle away
+### Phase 3 close-out path — comprehensive sequence post-D122
 
-1. **Noah action**: deploy cycle. Per the D118 path-correction (codified in `project_corrected_deploy_target_path.md` memory), use the wrapper-codename-prefixed sibling target — NOT the project-A-only sibling at `D:/UnrealProjects/5.6/<project-A>/<project-A>/`.
-2. **Orchestrator pre-dispatch**: deploy-state verification per `feedback_predispatch_deploy_state_check.md` memory — grep deployed plugin source for fresh-source markers from D119/D120/D121 (e.g., `WIDGETS_TIMEOUT_OVERRIDES`, `BlueprintLookupHelper`, conditional-DefaultSlot guard).
-3. **Re-dispatch Post-M5 smoke** with the existing opener (zero handoff edits — same opener works; bundles NEW-1 verification via §2.1 + NEW-2 §0.4/§0.5 per-section relaunch + SHARPENINGS §3 fixture-seeding + post-D105 TOOLSET_TIPS).
-4. **If smoke clears §3-§6 + NEW-2 doesn't reproduce** (or reproduces only past the new operational ceiling): **Phase 3 primary dispatch surface FULLY closed + TCP:55557 retirement gate CLEARS**.
+1. **Noah dispatches auto-codename worker** (D3 Phase 1+2+3 — see opener in chat). Deliverable: setup-uemcp.bat + sync-plugin.bat auto-extract project + parent-dir codenames; MCP server runtime project-path capture; pre-commit pattern-warning. ~0.5-1 session.
+2. **Noah dispatches UEMCP-side NEW-2 mitigation worker** (D2 (b) — see opener in chat). Deliverable: connection recycle + RC-call-rate cap + per-section auto-relaunch hint; additive opt-in via `UEMCP_RC_*` env flags; doesn't break the 80% of cases that work. ~1-2 sessions.
+3. **Noah files UDN bug-report** (D2 (a)) when convenient — ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md`. ~30-60 min Noah-time.
+4. **Noah deploys** both worker outputs (D87 + D110 4-step sequence). The auto-codename worker may auto-register codenames; the NEW-2 mitigation worker introduces opt-in env flags for callers.
+5. **Orchestrator pre-dispatch verify** per `feedback_predispatch_deploy_state_check.md` memory + grep for new-source markers from both workers.
+6. **Re-dispatch Post-M5 smoke** with: tightened ~15-call/~15-min relaunch (D2 (c)) + NEW-2 instrumentation §0.5 (D2 (d)) + §3.5 third-target NEW-2 stress (D2 (e)) + standing-policy NDA-scope line (closes NEW-3 dissolution structurally) + UEMCP-side mitigation flags enabled.
+7. **If smoke clears §3-§6 + NEW-2 doesn't reproduce / extends ceiling** (or reproduces only past the new operational ceiling): **Phase 3 primary dispatch surface FULLY closed + TCP:55557 retirement gate CLEARS**.
 
 ### Live deployment status
 
-User-pending: deploy cycle for D110/D111/D112/D119/D120/D121 (5+ commits since last deploy). Deploy commands per CLAUDE.md §Onboarding + D87/D110 4-step sequence.
+D119/D120/D121 deployed + verified-live (per D122 §0 source markers). User-pending: 2-3 worker dispatches + 2 deploy cycles per the comprehensive sequence above. Deploy commands per CLAUDE.md §Onboarding + D87/D110 4-step sequence.
 
 ---
 
 ## Dispatch-ready queue (post-Phase-3-close-out follow-ons)
 
-All optional. None blocking Phase 3 close-out.
+**Critical-path items** (top of queue — required for Phase 3 close-out):
+
+| # | Item | Notes |
+|---|---|---|
+| **A** | **Auto-codename-registration worker (D3 Phase 1+2+3)** | Comprehensive D3 implementation. Phase 1: setup-uemcp.bat + sync-plugin.bat auto-add project + parent-dir codenames. Phase 2: MCP server runtime project-path → state file → pre-commit auto-merge. Phase 3: pre-commit pattern-warning for capitalized words near `D:/UnrealProjects/` paths. Closes D109/D118 leak class structurally. Opener drafted in chat. ~0.5-1 session. |
+| **B** | **UEMCP-side NEW-2 mitigation worker (D2 (b))** | Connection recycle (force-fresh socket every N calls) + RC-call-rate cap (token-bucket) + per-section auto-relaunch hint (warn at ~15-call ceiling). Opt-in via `UEMCP_RC_*` env flags; additive; preserves HYBRID-transport reliability for the 80% of cases that work. n=2 + falsified D120 hypothesis justifies dispatch. Opener drafted in chat. ~1-2 sessions. |
+| **C** | **UDN bug-report filing (D2 (a))** | Noah-action (UDN account-gated). Ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` — D120 §5 outline + D122 second-observation falsification. ~30-60 min. |
+
+**Post-Phase-3 follow-ons** (optional; queued behind close-out):
 
 | # | Item | Notes |
 |---|---|---|
@@ -51,8 +62,8 @@ All optional. None blocking Phase 3 close-out.
 | 5 | **set_static_mesh_properties / set_physics_properties PostEditChange verification** | D115 audit §5: typed setters likely fire internal broadcasts; verify via §FA-ε.3 latent staleness sweep in next smoke. |
 | 6 | **save_widget_blueprint tool** | D114 worker open item: caller batches that don't end with a binding op rely on editor's interactive Save All. Future enhancement; not blocking. |
 | 7 | **Rotation-runner determinism review** | D121 worker observed 1-run flake in baseline (1312/1320 vs 1299/1307); not reproducible after stash-pop. Investigate if recurs. |
-| 8 | **Forbidden-tokens block-list refresh** | Recommend Noah add: third-test-target codename (per D109) + Project A's wrapper codename (per D118) + any other active codenames. ~30s. |
-| 9 | **UE bug-report filing for NEW-2** | D120 audit §5 drafted UDN bug-report; Noah's call to file. Recommend doing so — Epic likely has internal repro tools. |
+| 8 | **`Visibility` + `take_screenshot` smoke handoff drift fixes** | D122 smoke surfaced 2 minor handoff sharpenings: `Visibility` is not a UProperty on PointLight (test-design); `take_screenshot` returns `filepath` not `absolute_path`. Bundle into next standalone cleanup worker OR include in NEW-2 mitigation worker scope. ~5 min total. |
+| 9 | **WinDbg + symbols-resolved minidump walk for NEW-2** | D2 (f) — distinguish `GetAccessValue` vs `DeserializeCall` FindChecked path; enriches UDN body. Optional Noah-time. |
 | 10 | **S-B-overrides scope amendment** | D91 surfaced Project B on UE 5.7 + parser breaks at header walk. Orchestrator-default = (c) defer; awaiting Noah call if cross-version pressure surfaces. |
 | 11 | **Phase 5 distribution + Phase 6 per-project tuning** | Long-term scope; out of current planning window. |
 
@@ -120,10 +131,11 @@ For full list: grep risks-and-decisions.md for "**UE 5.6 institutional memory**"
 - **D108** M5 milestone complete — 19/19 not-shipped tools shipped across 3 parallel sub-workers; D101 verifier verdict empirically closed.
 - **D118** Post-M5 smoke RE-DISPATCH partial — D102 (CLEANUP-M3-FIXES 6/6) + D109/D112 (BP-path resolution 5/5) VERIFIED LIVE; §3-§6 DEFERRED due to engine WebRemoteControl crash (NEW-2). 2 new bugs surfaced + 3 sharpenings flagged. **CRITICAL ORCHESTRATION ERROR**: prior openers cited wrong project path (codified in memory).
 - **D119** NEW-1 fix shipped (commit `633a862`) — conditional slot reuse + defensive fallback per UE 5.6 AnimMontage.cpp:75 constructor pre-insert.
-- **D120** NEW-2 audit shipped (commit `a70830d`) — Option A documented operational ceiling; smoke handoff §0.4/§0.5 per-section editor-relaunch convention; UE bug-report drafted. **Connected insight**: 12-second silent log gap before crash aligns with NEW-1's broken-AM_Smoke warning spam — NEW-1 fix MAY incidentally extend NEW-2 ceiling (free retest in next smoke).
-- **D121** D118 SHARPENINGS BUNDLE shipped (commit `c860abc`) — per-tool timeout override + 3 stale tcp-55557 refs cleaned (with opportunistic D119 single-DefaultSlot guarantee in animation tip) + smoke handoff §3 fixture-seeding. **3-of-3 D118 follow-on triage closed**.
+- **D120** NEW-2 audit shipped (commit `a70830d`) — Option A documented operational ceiling; smoke handoff §0.4/§0.5 per-section editor-relaunch convention; UE bug-report drafted. **Connected insight**: 12-second silent log gap before crash aligns with NEW-1's broken-AM_Smoke warning spam — hypothesis: NEW-1 fix MAY incidentally extend NEW-2 ceiling (free retest in next smoke).
+- **D121** D118 SHARPENINGS BUNDLE shipped (commit `c860abc`) — per-tool timeout override + 3 stale tcp-55557 refs cleaned + smoke handoff §3 fixture-seeding. **3-of-3 D118 follow-on triage closed**.
+- **D122** Post-M5 smoke RE-REDISPATCH partial — §0 + §1.0 + §1 PASS (D109/D112 + D102 close empirically; D121 SHARPENING #1 + D114 WIDGETS-PERF + D88 JPEG mime verified live); §2 PARTIAL (`create_montage` permission denial — opener-template defect, structurally fixed via NDA-gate scope clarification + new `feedback_nda_gate_scope.md` memory); §3-§6 deferred (NEW-2 crash). **D120 hypothesis EMPIRICALLY FALSIFIED** — NEW-2 reproduced at lower call count (~25 vs ~40) WITHOUT broken-asset trigger. Comprehensive D2 + D3 plan kicked off: UEMCP-side NEW-2 mitigation worker queued; auto-codename worker queued; UDN bug-report doc landed for filing; CLAUDE.md §Public-Repo Hygiene + §Operational Limits revised; forbidden-tokens block-list refreshed (added third-target + Project-A wrapper codenames).
 
-For full D77→D121 narrative: read `docs/tracking/risks-and-decisions.md` directly.
+For full D77→D122 narrative: read `docs/tracking/risks-and-decisions.md` directly.
 
 ---
 
@@ -152,10 +164,10 @@ For full D77→D121 narrative: read `docs/tracking/risks-and-decisions.md` direc
 | M3 milestone (3 sub-workers — actors + BP-write + widgets) | ✅ COMPLETE (D98) |
 | M4 reduced reads | ❌ SUPERSEDED (D95) — absorbed under M-enhance |
 | M5 milestone (3 sub-workers — animation+materials + input+geometry + editor-utility) | ✅ COMPLETE (D108) |
-| Post-M5 smoke (re-dispatch + re-redispatch) | ⏸ PARTIAL per D118 (§1.0 + §1 + 5/6 §2 PASS); §3-§6 awaiting deploy-cycle re-redispatch |
-| TCP:55557 formal retirement | ⏸ Gated on Post-M5 smoke clearing §3-§6 |
+| Post-M5 smoke (re-dispatch + re-redispatch + re-re-redispatch) | ⏸ PARTIAL per D118 + D122 (§1.0 + §1 PASS empirically; §2 BLOCKED on opener-defect + NEW-2 crash; §3-§6 awaiting next-cycle re-dispatch) |
+| TCP:55557 formal retirement | ⏸ Gated on Post-M5 smoke clearing §3-§6 + NEW-2 doesn't reproduce/extends ceiling |
 
-**Phase 3 primary dispatch surface**: ALL milestones complete except final smoke verification. **One deploy cycle away.**
+**Phase 3 primary dispatch surface**: ALL milestones complete except final smoke verification + NEW-2 mitigation. **2-3 worker dispatches + 2 deploy cycles away** (was "one deploy cycle" pre-D122).
 
 ---
 
@@ -168,7 +180,7 @@ For full D77→D121 narrative: read `docs/tracking/risks-and-decisions.md` direc
 5. Read MEMORY.md index + the 13 feedback/project memory files (especially `project_corrected_deploy_target_path.md` for the path-correction + `feedback_predispatch_deploy_state_check.md` for the verification rule + `feedback_pre_commit_codename_scrub.md` for the grep discipline).
 6. List session-local handoffs: `ls docs/handoffs/*.md | head -30` (gitignored — primary source-of-truth is what each handoff path documents in this doc above).
 7. **Default first action**: confirm test baseline via `cd server && node run-rotation.mjs --include-live-gated` (per D116 runner). Should land ~1900 with full fixtures or ~1280-1320 without UNREAL_PROJECT_ROOT. If different from expected: investigate before dispatching.
-8. **Default first dispatch**: orchestrator's job right now is largely WAITING — Noah's deploy cycle is upstream of the next dispatch (Post-M5 smoke re-redispatch). After deploy: pre-dispatch deploy-state verify, then re-dispatch smoke. After smoke clears: dispatch TCP:55557 client-deletion cleanup worker.
+8. **Default first dispatch (post-D122)**: drafts of TWO worker openers exist in chat history at the D122 close-out turn — auto-codename-registration (D3) + UEMCP-side NEW-2 mitigation (D2 (b)). Either can dispatch first; auto-codename has lower regression risk (.bat-only). After both ship + Noah deploys + UDN filed: re-dispatch Post-M5 smoke with tightened relaunch + §0.5 instrumentation + §3.5 third-target stress + standing-policy NDA-scope line. After smoke clears: dispatch TCP:55557 client-deletion cleanup worker.
 
 ---
 
@@ -248,4 +260,4 @@ D:\DevTools\UEMCP\
 
 ## Sign-off
 
-This doc is current as of commit `593d38a` (D121: D118 SHARPENINGS shipped — 3-of-3 D118 follow-on triage closed). When you supersede it, drop a successor doc + delete this one in the same commit (preserves single-source-of-truth for orchestrator state).
+This doc is current as of the D122 commit (Post-M5 smoke RE-REDISPATCH closed; D120 hypothesis falsified; comprehensive D2 + D3 plan kicked off). When you supersede it, drop a successor doc + delete this one in the same commit (preserves single-source-of-truth for orchestrator state).
