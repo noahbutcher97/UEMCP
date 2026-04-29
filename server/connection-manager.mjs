@@ -108,14 +108,19 @@ function tcpCommand(port, type, params, timeoutMs) {
  * for read-only inventory (/remote/presets). We accept an explicit method
  * to let the URL translator (rc-url-translator.mjs) drive shape.
  *
+ * Optional `agent` is used by the NEW-2 mitigation flag UEMCP_RC_RECYCLE_AFTER_N
+ * (see ConnectionManager). When `undefined` the call goes through Node's default
+ * globalAgent (keepAlive:false) — this is the historic / default-OFF behavior.
+ *
  * @param {number} port
  * @param {string} method  - "GET" | "POST" | "PUT" | "DELETE"
  * @param {string} path    - e.g. "/remote/object/property"
  * @param {object|null} body
  * @param {number} timeoutMs
+ * @param {http.Agent} [agent] - optional explicit http.Agent (NEW-2 recycle path)
  * @returns {Promise<object>} parsed JSON response
  */
-function httpCommand(port, method, path, body, timeoutMs) {
+function httpCommand(port, method, path, body, timeoutMs, agent) {
   return new Promise((resolve, reject) => {
     const payload = body == null ? null : Buffer.from(JSON.stringify(body), 'utf-8');
     const req = http.request({
@@ -129,6 +134,7 @@ function httpCommand(port, method, path, body, timeoutMs) {
         ...(payload ? { 'Content-Length': payload.length } : {}),
       },
       timeout: timeoutMs,
+      ...(agent ? { agent } : {}),
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -334,6 +340,48 @@ export class ConnectionManager {
     this._queue = new CommandQueue();
     this._healthTtlMs = 30_000;
 
+    // ── NEW-2 RC HTTP mitigation flags (D118 / D122) ──────────
+    // All three mitigations are additive and OFF-by-default. With every flag
+    // unset the sendHttp path is observationally identical to pre-NEW-2-mitigation
+    // behavior (no agent, no rate-cap wait, no warning). Flags are honored only
+    // for un-cached, actually-dispatched HTTP calls — cached reads do not count
+    // toward the NEW-2 ceiling because they never hit the editor.
+    //
+    // Mitigation #1 — UEMCP_RC_RECYCLE_AFTER_N: force-fresh socket every N RC
+    // calls. Implemented by attaching an explicit http.Agent({keepAlive:true})
+    // and destroying / re-creating it every N calls. NOTE: enabling this flag
+    // ALSO flips on keep-alive socket pooling for RC HTTP — historic default
+    // (no agent, no keep-alive) only applies when the flag is unset.
+    /** @type {number} 0 = disabled */
+    this._rcRecycleAfterN = config.rcRecycleAfterN || 0;
+    /** @type {http.Agent | null} */
+    this._rcAgent = null;
+    /** @type {number} resets to 0 on each recycle */
+    this._rcCallsSinceRecycle = 0;
+    /** @type {number} cumulative count of recycle events; getter is the test observable */
+    this._rcRecycleCount = 0;
+
+    // Mitigation #2 — UEMCP_RC_RATE_CAP: token-bucket rate-cap (calls/sec).
+    // Bucket capacity = rate (1 second of headroom). sendHttp blocks via
+    // setTimeout when the bucket is empty until enough tokens have refilled.
+    /** @type {number} calls per second; 0 = disabled */
+    this._rcRateCap = config.rcRateCap || 0;
+    /** @type {number} */
+    this._rcTokens = this._rcRateCap;
+    /** @type {number} */
+    this._rcLastRefillTs = Date.now();
+
+    // Mitigation #3 — UEMCP_RC_RELAUNCH_HINT_AFTER_N: stderr warning at N RC
+    // calls. Once-per-session (idempotent within the server process). The
+    // counter is cumulative and never resets — server restart correlates with
+    // editor relaunch and is the natural reset boundary.
+    /** @type {number} 0 = disabled */
+    this._rcRelaunchHintAfterN = config.rcRelaunchHintAfterN || 0;
+    /** @type {boolean} */
+    this._rcRelaunchHintFired = false;
+    /** @type {number} cumulative dispatched (un-cached) RC HTTP call count */
+    this._rcCallCount = 0;
+
     this._detectedProject = null;
 
     /**
@@ -498,7 +546,37 @@ export class ConnectionManager {
       const httpFn = this._httpCommandFn || httpCommand;
       const port = this.config.rcPort || 30010;
       const timeoutMs = this.config.httpTimeoutMs || 5000;
-      const result = await httpFn(port, method, path, body, timeoutMs);
+
+      // NEW-2 mitigation #2 — rate-cap (wait for a token before dispatch).
+      if (this._rcRateCap > 0) {
+        await this._rcConsumeToken();
+      }
+
+      // NEW-2 mitigation #1 — recycle agent every N un-cached calls.
+      // First call lazily creates the agent; subsequent recycles destroy + recreate.
+      if (this._rcRecycleAfterN > 0) {
+        if (this._rcAgent === null || this._rcCallsSinceRecycle >= this._rcRecycleAfterN) {
+          this._recycleRcAgent();
+        }
+        this._rcCallsSinceRecycle++;
+      }
+
+      // NEW-2 mitigation #3 — fire relaunch hint once when cumulative count crosses N.
+      this._rcCallCount++;
+      if (
+        !this._rcRelaunchHintFired &&
+        this._rcRelaunchHintAfterN > 0 &&
+        this._rcCallCount >= this._rcRelaunchHintAfterN
+      ) {
+        process.stderr.write(
+          `[uemcp] WARNING: ${this._rcCallCount} RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Consider relaunching editor + restarting MCP server. Per CLAUDE.md §Operational Limits.\n`
+        );
+        this._rcRelaunchHintFired = true;
+      }
+
+      // Pass the agent only when the recycle flag is on. When the mock seam
+      // (config.httpCommandFn) is in use, the agent argument is ignored.
+      const result = await httpFn(port, method, path, body, timeoutMs, this._rcAgent || undefined);
 
       const errMessage = extractWireError(result);
       if (errMessage !== null) {
@@ -513,6 +591,66 @@ export class ConnectionManager {
       this.layers['http-30010'].error = undefined;
       return result;
     });
+  }
+
+  // ── NEW-2 mitigation helpers ────────────────────────────
+
+  /**
+   * Destroy the current keep-alive agent (if any) and create a fresh one.
+   * Resets the per-recycle call counter. The fresh agent has keepAlive:true
+   * so socket reuse within a recycle window is fast.
+   */
+  _recycleRcAgent() {
+    if (this._rcAgent) {
+      try { this._rcAgent.destroy(); } catch { /* defensive — Agent.destroy never throws but be safe */ }
+    }
+    this._rcAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    this._rcCallsSinceRecycle = 0;
+    this._rcRecycleCount++;
+  }
+
+  /**
+   * Token-bucket consumer for mitigation #2. Refills at config.rcRateCap
+   * tokens/sec, capacity = rcRateCap (1 second of headroom). When the bucket
+   * is empty, waits via setTimeout for the time required to refill 1 token.
+   * Bucket math is run inside the per-layer command queue so concurrent
+   * sendHttp callers do not race; this method is only called when rcRateCap > 0.
+   */
+  async _rcConsumeToken() {
+    const rate = this._rcRateCap;
+    const now = Date.now();
+    const elapsedSec = (now - this._rcLastRefillTs) / 1000;
+    this._rcTokens = Math.min(rate, this._rcTokens + elapsedSec * rate);
+    this._rcLastRefillTs = now;
+
+    if (this._rcTokens < 1) {
+      const waitMs = Math.ceil(((1 - this._rcTokens) / rate) * 1000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      const now2 = Date.now();
+      const elapsed2 = (now2 - this._rcLastRefillTs) / 1000;
+      this._rcTokens = Math.min(rate, this._rcTokens + elapsed2 * rate);
+      this._rcLastRefillTs = now2;
+    }
+    this._rcTokens -= 1;
+  }
+
+  /**
+   * NEW-2 observability — number of RC agent recycle events since process start.
+   * 0 means either the flag is disabled or no calls have been dispatched yet.
+   * Used by tests; production code may consume for diagnostics.
+   * @returns {number}
+   */
+  getRcRecycleCount() {
+    return this._rcRecycleCount;
+  }
+
+  /**
+   * NEW-2 observability — cumulative un-cached RC HTTP call count since process start.
+   * Cached reads do not increment. Reset only by server restart.
+   * @returns {number}
+   */
+  getRcCallCount() {
+    return this._rcCallCount;
   }
 
   // ── Auto-detection ──────────────────────────────────────

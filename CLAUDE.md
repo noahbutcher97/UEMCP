@@ -483,6 +483,59 @@ UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on
 
 The soft ceiling will be refined once n=3+ data lands (next smoke + third-target stress) or Epic responds with engine-side guidance.
 
+### Mitigation flags (UEMCP-side defense-in-depth)
+
+Three additive opt-in env flags reduce sustained-traffic exposure on the
+RC HTTP transport. All three default OFF — with no flags set, sendHttp
+behaves identically to the pre-mitigation baseline (no agent change, no
+rate-cap wait, no warning). Operator can enable any subset; flags are
+independent.
+
+- `UEMCP_RC_RECYCLE_AFTER_N=N` — every N un-cached RC HTTP calls,
+  destroy and recreate an explicit `http.Agent`, severing the connection
+  boundary. **Side effect:** enabling this flag also flips ON keep-alive
+  socket pooling for RC HTTP within each recycle window (the default-OFF
+  path uses Node's globalAgent with `keepAlive:false`). The recycle
+  resets the connection-level state Unreal sees; whether that clears
+  the editor-side `StructParameters` TMap corruption hypothesized in
+  D118 is empirically uncertain — this is defense-in-depth, not a
+  proven fix.
+- `UEMCP_RC_RATE_CAP=R` — token-bucket rate-cap of R RC HTTP calls/sec
+  (e.g. `0.5/sec` or `2`). Bucket capacity = R (1 second of headroom),
+  refills at R tokens/sec. When empty, sendHttp blocks via setTimeout
+  until enough tokens have accumulated for the next call. Caller-side
+  throttling reduces the sustained-traffic intensity that may trigger
+  the race; doesn't bound the total call count, only the rate.
+- `UEMCP_RC_RELAUNCH_HINT_AFTER_N=N` — after N un-cached RC HTTP calls
+  in a single server process, emit one stderr warning telling the
+  operator to relaunch the editor + restart the MCP server before the
+  NEW-2 ceiling hits. Idempotent within a session (fires exactly once).
+  Counter resets on server restart, which correlates with editor
+  relaunch.
+
+**Counters track un-cached calls only.** Cached reads do not hit the
+editor and do not increment any of the three counters; only calls that
+actually round-trip to RC count toward the ceiling.
+
+**Recommended layering**:
+
+1. Start with `UEMCP_RC_RELAUNCH_HINT_AFTER_N=15` (matches the soft
+   ceiling). Cheap, observable, no behavior change beyond a single
+   stderr line — a tighter version of the per-section relaunch
+   convention already in CLAUDE.md.
+2. If NEW-2 still reproduces despite the per-section relaunch
+   discipline, escalate to `UEMCP_RC_RECYCLE_AFTER_N=10` (force-fresh
+   socket every 10 calls, well under the soft ceiling).
+3. Add `UEMCP_RC_RATE_CAP=2` only if traffic-intensity (not just call
+   count) is suspected — useful for tight inner loops that fire many
+   `rc_set_property` calls back-to-back.
+
+In `.mcp.json`, add the desired flags to the `env` block (e.g.
+`"UEMCP_RC_RELAUNCH_HINT_AFTER_N": "15"`). The startup banner on
+stderr confirms which mitigations are active. Tests in
+`server/test-new-2-mitigation.mjs` verify each flag's wire-mock
+behavior plus the no-flags baseline.
+
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).

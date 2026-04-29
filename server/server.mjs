@@ -91,6 +91,14 @@ const config = Object.freeze({
   tcpTimeoutMs:    parseInt(process.env.UNREAL_TCP_TIMEOUT_MS    || '5000',  10),
   rcPort:          parseInt(process.env.UNREAL_RC_PORT           || '30010', 10),
   autoDetect:      process.env.UNREAL_AUTO_DETECT !== 'false',
+  // NEW-2 mitigation flags (D118 / D122). All default OFF — sendHttp behavior
+  // is identical to pre-mitigation when these are unset. See CLAUDE.md
+  // §Operational Limits → Mitigation flags.
+  // parseInt('', 10) → NaN; coerced to 0 below so a missing var = disabled.
+  rcRecycleAfterN:        parseInt(process.env.UEMCP_RC_RECYCLE_AFTER_N        || '0', 10) || 0,
+  // parseFloat tolerates a trailing "/sec" suffix (e.g. "0.5/sec" → 0.5).
+  rcRateCap:              parseFloat(process.env.UEMCP_RC_RATE_CAP             || '0') || 0,
+  rcRelaunchHintAfterN:   parseInt(process.env.UEMCP_RC_RELAUNCH_HINT_AFTER_N  || '0', 10) || 0,
 });
 
 // ── Server instructions ────────────────────────────────────────────
@@ -964,6 +972,25 @@ async function main() {
   initM5EditorUtilityTools(toolsetManager.getToolsData(), { pythonExecEnabled });
   if (pythonExecEnabled) {
     process.stderr.write('[uemcp] Python execution enabled — run_python_command will accept calls (deny-list still applies)\n');
+  }
+
+  // NEW-2 mitigation flags (D118 / D122) — log only when enabled so the
+  // baseline default-OFF startup output stays identical.
+  if (config.rcRecycleAfterN > 0) {
+    process.stderr.write(
+      `[uemcp] NEW-2 mitigation: RC HTTP socket recycle enabled (every ${config.rcRecycleAfterN} un-cached calls). ` +
+      `Note: this also enables keep-alive socket pooling for RC HTTP within each recycle window.\n`
+    );
+  }
+  if (config.rcRateCap > 0) {
+    process.stderr.write(
+      `[uemcp] NEW-2 mitigation: RC HTTP rate cap enabled (${config.rcRateCap} calls/sec, token-bucket capacity = rate)\n`
+    );
+  }
+  if (config.rcRelaunchHintAfterN > 0) {
+    process.stderr.write(
+      `[uemcp] NEW-2 mitigation: RC HTTP relaunch hint enabled (warn once at ${config.rcRelaunchHintAfterN} un-cached calls)\n`
+    );
   }
 
   // Check offline layer availability
