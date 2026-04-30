@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1929 unit-runnable assertions** (post-D112 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 19 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1993 unit-runnable assertions** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 20 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -392,6 +392,14 @@ The script:
 - Pauses before exit on interactive launch so errors stay visible
   (fixed 2026-04-21 per friend-machine repro where double-click
   launches closed the window on the Node-missing check).
+- **Auto-registers project codenames into `.git/info/forbidden-tokens`**
+  (D124): extracts the `.uproject` filename stem + parent-dir name,
+  appends idempotently with sort+dedup, deny-list, and version-folder
+  filters (skip `\d+\.\d+`, Engine, Plugins, Source, etc.). Closes the
+  D109/D118 codename-leak class structurally — registration is now
+  bound to the universal entry points where new projects enter the
+  test-target set, not orchestrator memory. Inline `node -e` helper
+  shared with `sync-plugin.bat`.
 
 Exit codes: 0 success, 1 bad args / cancelled / missing deps,
 2 npm install failure, 3 .mcp.json write failure, 4 plugin copy failure,
@@ -403,6 +411,8 @@ For propagating plugin source-of-truth changes to a target project
 without re-running full onboarding, use `sync-plugin.bat <uproject>`
 (D64). This xcopies `D:\DevTools\UEMCP\plugin\UEMCP\` → target,
 excluding `Binaries\` + `Intermediate\` so UBT cache stays intact.
+Also auto-registers project codenames into `.git/info/forbidden-tokens`
+per D124 (same shared helper as setup-uemcp.bat).
 
 Manual setup (skip the script): copy `.mcp.json.example` to your Claude
 workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
@@ -539,7 +549,7 @@ behavior plus the no-flags baseline.
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~1929 unit-runnable assertions across 19 test files** (post-D112 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112). test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~1993 unit-runnable assertions across 20 test files** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
 
