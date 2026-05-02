@@ -785,7 +785,7 @@ toolsets:
       # reduced_scope: compiled shader uniforms (compile-time constants baked by the editor material compiler); static parameter defaults shipped offline
       # displaced_by: read_asset_properties (D50 tagged-fallback for FMaterialParameterInfo)
       list_material_parameters:
-        description: Get scalar, vector, and texture parameter info (names + IDs) from a UMaterialInterface via batched RC calls. Values require a separate rc_call_function with GetScalar/Vector/TextureParameterValue per parameter.
+        description: "**CRASH-TRIGGER (D125 / NEW-2) — DO NOT CALL.** Issues 3 `/remote/batch` sub-requests (GetAllScalarParameterInfo + GetAllVectorParameterInfo + GetAllTextureParameterInfo) which deterministically crash the editor at `Map.h:716 Pair != nullptr` on call #1. See CLAUDE.md §Operational Limits. Original purpose (post-fix): get scalar/vector/texture parameter info (names + IDs) from a UMaterialInterface; values require a separate rc_call_function with GetScalar/Vector/TextureParameterValue per parameter."
         params:
           asset_path: { type: string, required: true }
       get_material_graph:
@@ -898,7 +898,7 @@ toolsets:
       # reduced_scope: compiled vertex buffer evaluation + runtime bounds
       # displaced_by: (deferred — offline static-mesh header parse could cover vertex/triangle counts in a future enhancement per §Q1.8)
       get_mesh_info:
-        description: Get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials). One of asset_path or target is required.
+        description: "**CRASH-TRIGGER (D125 / NEW-2) — DO NOT CALL.** Issues 5 `/remote/batch` sub-requests across the dynamic-mesh surface; same `Map.h:716 Pair != nullptr` crash as `list_material_parameters`. See CLAUDE.md §Operational Limits. Original purpose (post-fix): get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials). One of asset_path or target is required."
         params:
           asset_path: { type: string, required: false }
           target:     { type: string, required: false }

@@ -476,30 +476,49 @@ See `docs/tracking/risks-and-decisions.md` for full risk table and decision log 
 
 ## Operational Limits
 
-### WebRemoteControl sustained-traffic ceiling (D120 / D122 / NEW-2)
+### WebRemoteControl `/remote/batch` crash trigger (D120 / D122 / D125 / NEW-2)
 
-UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread under sustained HTTP traffic. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
+UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread when the `/remote/batch` HTTP endpoint is invoked with `GetAll*ParameterInfo` enumerator function calls. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
 
-**Soft ceiling** (n=2 observations after D122 falsification): ~25 RC HTTP calls and/or ~17-25 min editor wall-clock. **D120's hypothesis that the broken-asset GameThread-stall was the trigger is empirically falsified by D122** — NEW-2 reproduced at a LOWER call count (~25 vs D118's ~40) WITHOUT the broken-asset trigger present (no NEW-1 warning spam during the run). The trigger is **independent** of NEW-1 and NOT confined to PIE-heavy or broken-asset workflows. Likely root cause is a thread-safety / lifecycle issue in WebRemoteControl proper.
+**Refined trigger** (D125, n=3 empirical evidence): the crash is **endpoint-and-function-specific**, NOT sustained-traffic-volume-driven. Two UEMCP tools currently route through `/remote/batch` and trigger the crash on call #1:
 
-**Mitigation**: relaunch the editor between major workflow sections — current convention tightened to **every ~15 RC HTTP calls OR every ~15 min editor wall-clock, whichever comes first**. Relaunch cycle (close → relaunch → restart MCP server, no full sync needed) costs ~2 min; an unplanned crash + recovery costs ~30 min and may invalidate in-flight work. Smoke and gauntlet handoffs in `docs/handoffs/` document per-section relaunch conventions.
+- **`list_material_parameters`** — issues 3 batch sub-requests (`GetAllScalarParameterInfo` + `GetAllVectorParameterInfo` + `GetAllTextureParameterInfo`)
+- **`get_mesh_info`** — issues 5 batch sub-requests across the dynamic-mesh surface
+
+All other tested RC tools (`rc_get_property`, `rc_set_property`, `set_material_parameter`, `rc_describe_object` — all single `/remote/object/*` calls) executed 9+ times per session across D118+D122+D125 with **NO** crash. The "~25-call ceiling" from D118+D122 was a red herring: those sessions happened to call `list_material_parameters` early, and call-volume correlation was incidental. **D120 hypothesis (broken-asset GameThread stall) confirmed-falsified by D122; D122 hypothesis (sustained-traffic universal-engine race) ALSO falsified by D125** — the trigger is a thread-safety / lifecycle bug in the `/remote/batch` handler's `FRC*Request::StructParameters` TMap, surfaced when batch sub-requests fan out to enumerator function calls.
+
+**Operational guidance**:
+
+1. **Avoid the two trigger tools entirely until NEW-2 fix ships.** `list_material_parameters` and `get_mesh_info` are annotated CRASH-TRIGGER in tools.yaml. Workers should not call them.
+2. **Other RC tools are empirically safe at any volume the smoke exercised** — `rc_get_property` / `rc_set_property` / `set_material_parameter` (write-path NEW-4 issue notwithstanding) / `rc_describe_object` do not touch `/remote/batch` and do not trigger the crash.
+3. **Per-section editor relaunch convention** (~15 RC HTTP calls OR ~15 min editor wall-clock per section, with relaunches between sections in smoke / gauntlet handoffs) is now **operational hygiene**, NOT crash-prevention. The crash-prevention value of the convention is empirically zero post-D125 since the trigger fires on call #1 of either trigger tool. The hygiene value remains: editor state stays fresh, asset-registry cache stays warm, hitch profile stays predictable. Smoke and gauntlet handoffs may relax the relaunch frequency for workflows that don't touch the trigger tools.
 
 **Remediation paths**:
 
-- **Epic UDN bug report**: **promoted to recommended NOW** post-D122. Audit + ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` (gitignored). Filing requires a UDN account (Noah's call).
-- **UEMCP-side defense-in-depth** (connection recycle + RC-call-rate cap + per-section auto-relaunch): worker handoff queued post-D122. n=2 evidence + falsified D120 hypothesis justifies dispatch despite HYBRID-transport regression risk; worker scoped to additive opt-in mitigation that doesn't break the 80% of cases that work.
-- **Independent-corpus retest**: bake into next smoke (§3.5 third-target NEW-2 stress) — n=3 observation strengthens / falsifies the universal-engine-bug hypothesis.
-- **WinDbg + symbols-resolved minidump walk**: optional Noah-time follow-up; would distinguish `GetAccessValue` vs `DeserializeCall` FindChecked path for the UDN bug body.
+- **NEW-2 batch-endpoint fix worker** (highest priority post-D125): two design options under evaluation — (i) reroute `list_material_parameters` + `get_mesh_info` from `/remote/batch` to per-call `/remote/object/call` with synthetic aggregation in JS (UEMCP-side fix; we control the wrapper), vs (ii) investigate the `FRC*Request::StructParameters` TMap race in `WebRemoteControl/Private/` for an editor-side patch we can vendor as a UE plugin. Option (i) is faster + UEMCP-self-contained; option (ii) fixes the underlying bug + benefits all `/remote/batch` users. Worker picks after evidence; see `docs/handoffs/new-2-batch-endpoint-fix.md`.
+- **Epic UDN bug report**: ready-to-submit body needs a major rewrite from "sustained HTTP traffic" framing to "/remote/batch GetAll*ParameterInfo enumerator" framing — much sharper repro, much faster Epic-side triage. Filing requires a UDN account (Noah's call).
+- **WinDbg + symbols-resolved minidump walk**: still useful for distinguishing `GetAccessValue` vs `DeserializeCall` FindChecked path inside the batch handler. Optional Noah-time follow-up; would refine the UDN body.
 
-The soft ceiling will be refined once n=3+ data lands (next smoke + third-target stress) or Epic responds with engine-side guidance.
+### Editor-readiness probe (D125 / NEW-9)
+
+The TCP plugin (port 55558) accepts connections **~5-10 minutes before the editor world fully initializes** after a fresh launch. During this pre-init window, spawn / create calls return success responses, but actors land in a discarded partial-world context — they are visible in the outliner but invisible to subsequent `find_actors` / `mesh_boolean` / `set_actor_property` / `get_actor_properties` calls (which use the fully-initialized `GetEditorWorld()` context).
+
+**Detection**: `get_editor_state` returns a non-null `world_path` only after full initialization completes. Smoke / gauntlet / live-fire workflows should poll `get_editor_state.world_path` before issuing any spawn or asset-creation calls after a fresh editor launch (or post-relaunch). Workers that skip the readiness check and operate during the pre-init window will see "calls succeed but actors invisible" symptoms across an entire section.
+
+Related sub-issue (NEW-9b): `create_procedural_mesh` sets `SpawnParams.Name` (the internal UObject FName) but never calls `SetActorLabel()`, so DynamicMeshActors appear in the outliner with the class name `"DynamicMeshActor"` instead of the specified actor name. The internal FName IS set correctly (handler returns `MeshActor->GetName()`), but the outliner display name is wrong. Fix is queued in the CLEANUP-M5-RESIDUE bundle worker.
 
 ### Mitigation flags (UEMCP-side defense-in-depth)
 
-Three additive opt-in env flags reduce sustained-traffic exposure on the
-RC HTTP transport. All three default OFF — with no flags set, sendHttp
-behaves identically to the pre-mitigation baseline (no agent change, no
-rate-cap wait, no warning). Operator can enable any subset; flags are
-independent.
+Three additive opt-in env flags shipped with D123 as defense against the
+then-presumed sustained-traffic NEW-2 hypothesis. **D125 narrowed the
+trigger to two specific batch-using tools, so these flags' empirical
+crash-prevention value is now near-zero** (the crash fires at batch
+call #1, before any of the three flags' counters / rate-caps / hint
+thresholds engage). Their remaining value is operational hygiene —
+keeping editor state fresh and providing a stderr signal for sustained
+sessions. All three default OFF; with no flags set, sendHttp behaves
+identically to the pre-mitigation baseline. Operator can enable any
+subset; flags are independent.
 
 - `UEMCP_RC_RECYCLE_AFTER_N=N` — every N un-cached RC HTTP calls,
   destroy and recreate an explicit `http.Agent`, severing the connection
@@ -527,18 +546,24 @@ independent.
 editor and do not increment any of the three counters; only calls that
 actually round-trip to RC count toward the ceiling.
 
-**Recommended layering**:
+**Recommended layering** (post-D125, scaled back from D123 framing):
 
-1. Start with `UEMCP_RC_RELAUNCH_HINT_AFTER_N=15` (matches the soft
-   ceiling). Cheap, observable, no behavior change beyond a single
-   stderr line — a tighter version of the per-section relaunch
-   convention already in CLAUDE.md.
-2. If NEW-2 still reproduces despite the per-section relaunch
-   discipline, escalate to `UEMCP_RC_RECYCLE_AFTER_N=10` (force-fresh
-   socket every 10 calls, well under the soft ceiling).
-3. Add `UEMCP_RC_RATE_CAP=2` only if traffic-intensity (not just call
-   count) is suspected — useful for tight inner loops that fire many
-   `rc_set_property` calls back-to-back.
+1. **`UEMCP_RC_RELAUNCH_HINT_AFTER_N=15`** is still cheap to enable and
+   gives a single stderr line at the threshold — useful as a session-
+   length signal even though it doesn't prevent the crash. Operator
+   discretion; orchestrator no longer recommends it as a default.
+2. **`UEMCP_RC_RECYCLE_AFTER_N` and `UEMCP_RC_RATE_CAP` are now
+   explicitly NOT recommended** for general use. They were designed
+   against the falsified sustained-traffic hypothesis. Flipping
+   `RECYCLE_AFTER_N` also turns ON keep-alive socket pooling within
+   each recycle window, which changes the connection-level shape of
+   every RC call — measurable HYBRID-transport regression risk for
+   zero crash-prevention benefit. Only enable if a future n=4+
+   reproduction shape suggests connection-state corruption is involved.
+
+The actual mitigation post-D125 is **don't call `list_material_parameters`
+or `get_mesh_info`** until the NEW-2 batch-endpoint fix worker ships.
+See `docs/handoffs/new-2-batch-endpoint-fix.md`.
 
 In `.mcp.json`, add the desired flags to the `env` block (e.g.
 `"UEMCP_RC_RELAUNCH_HINT_AFTER_N": "15"`). The startup banner on
