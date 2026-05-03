@@ -1008,7 +1008,7 @@ toolsets:
           property_name: { type: string, required: true }
           value:         { type: any, required: true }
       rc_call_function:
-        description: "Call any UFUNCTION on any UObject. **FOOT-GUN (D127)**: passing struct-typed args (e.g., FMaterialParameterInfo) is fragile — RC's parameter-coercion layer has gaps in UE 5.6 (NEW-4 class). For productized struct-arg writes, prefer the dedicated TCP:55558 tool (e.g., `set_material_parameter` for material params). This primitive is an escape hatch for ad-hoc workflows; bug responsibility shifts to the caller."
+        description: "Call any UFUNCTION on any UObject. **CALLER RESPONSIBILITY (D129)**: target name MUST be UFUNCTION-decorated. RC correctly returns 'Function does not exist on object' when targeted at non-UFUNCTION C++ methods (per UE reflection contract). Look for `UFUNCTION(...)` macro in the engine source before calling. If only `ENGINE_API` (non-UFUNCTION) C++ methods exist for your need, look for UFUNCTION-decorated wrappers (e.g., `UMaterialEditingLibrary::SetMaterialInstance*ParameterValue` wraps the editor-only methods). Earlier 'foot-gun struct args' framing (per D127, walked back D129): RC handles struct args correctly when target is a real UFUNCTION; the historical NEW-4 was UEMCP-induced, not RC-bugged."
         params:
           object_path:   { type: string, required: true }
           function_name: { type: string, required: true }
@@ -1024,7 +1024,7 @@ toolsets:
         params:
           object_path: { type: string, required: true }
       rc_batch:
-        description: "Execute multiple RC operations atomically via /remote/batch. **FOOT-GUN (D125 / D127)**: do NOT include sub-requests with `GetAllScalarParameterInfo` / `GetAllVectorParameterInfo` / `GetAllTextureParameterInfo` (or other GetAll*-class enumerator UFUNCTIONs) — these crash the editor via Map.h:716 race in WebRemoteControl's batch handler (n=3 confirmed). Other batch sub-requests (single property reads/writes, single function calls without struct args) are empirically safe. See CLAUDE.md §Operational Limits."
+        description: "Execute multiple RC operations atomically via /remote/batch. **CALLER RESPONSIBILITY (D129)**: every sub-request's target function MUST be UFUNCTION-decorated. The historical NEW-2 crash (Map.h:716 race in WebRemoteControl error-handler, n=3) was empirically isolated to /remote/batch + non-UFUNCTION targeting — Audit 7 curl Test 6 confirmed single-call non-UFUNCTION targeting returns 400 cleanly without crash; only the batch-dispatch error path triggers the latent V1 race. Targeting real UFUNCTIONs in batch sub-requests is empirically safe (curl Test 4 confirmed). See CLAUDE.md §Operational Limits + D129."
         params:
           operations: { type: array, required: true }
       rc_get_presets:
