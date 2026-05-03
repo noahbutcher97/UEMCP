@@ -493,11 +493,14 @@ All other tested RC tools (`rc_get_property`, `rc_set_property`, `set_material_p
 2. **Other RC tools are empirically safe at any volume the smoke exercised** — `rc_get_property` / `rc_set_property` / `set_material_parameter` (write-path NEW-4 issue notwithstanding) / `rc_describe_object` do not touch `/remote/batch` and do not trigger the crash.
 3. **Per-section editor relaunch convention** (~15 RC HTTP calls OR ~15 min editor wall-clock per section, with relaunches between sections in smoke / gauntlet handoffs) is now **operational hygiene**, NOT crash-prevention. The crash-prevention value of the convention is empirically zero post-D125 since the trigger fires on call #1 of either trigger tool. The hygiene value remains: editor state stays fresh, asset-registry cache stays warm, hitch profile stays predictable. Smoke and gauntlet handoffs may relax the relaunch frequency for workflows that don't touch the trigger tools.
 
-**Remediation paths**:
+**Remediation paths** (UEMCP-self-contained — see `feedback_self_contained_scope.md`):
 
-- **NEW-2 batch-endpoint fix worker** (highest priority post-D125): two design options under evaluation — (i) reroute `list_material_parameters` + `get_mesh_info` from `/remote/batch` to per-call `/remote/object/call` with synthetic aggregation in JS (UEMCP-side fix; we control the wrapper), vs (ii) investigate the `FRC*Request::StructParameters` TMap race in `WebRemoteControl/Private/` for an editor-side patch we can vendor as a UE plugin. Option (i) is faster + UEMCP-self-contained; option (ii) fixes the underlying bug + benefits all `/remote/batch` users. Worker picks after evidence; see `docs/handoffs/new-2-batch-endpoint-fix.md`.
-- **Epic UDN bug report**: ready-to-submit body needs a major rewrite from "sustained HTTP traffic" framing to "/remote/batch GetAll*ParameterInfo enumerator" framing — much sharper repro, much faster Epic-side triage. Filing requires a UDN account (Noah's call).
-- **WinDbg + symbols-resolved minidump walk**: still useful for distinguishing `GetAccessValue` vs `DeserializeCall` FindChecked path inside the batch handler. Optional Noah-time follow-up; would refine the UDN body.
+- **NEW-2 batch-endpoint fix worker** (highest priority post-D125): two design options under evaluation, both UEMCP-self-contained — (i) reroute `list_material_parameters` + `get_mesh_info` from `/remote/batch` to per-call `/remote/object/call` with synthetic aggregation in JS (we control the wrapper end-to-end), vs (ii) vendor a patched copy of the `FRC*Request::StructParameters` handler as a UEMCP plugin override (we control the vendoring; no external approval needed). Option (i) is faster + lower maintenance burden. Worker picks after evidence; see `docs/handoffs/new-2-batch-endpoint-fix.md`.
+
+**Parked / not-recommended paths** (require waiting on external parties; not load-bearing):
+
+- Epic UDN bug-report filing — ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` (gitignored, stale framing pre-D125-narrowing). Parked per user preference 2026-05-02 — UEMCP-side fixes are the path forward, not upstream-Epic engagement.
+- WinDbg + symbols-resolved minidump walk — would only be useful as input to a UDN body; parked alongside.
 
 ### Editor-readiness probe (D125 / D126 / NEW-9)
 
