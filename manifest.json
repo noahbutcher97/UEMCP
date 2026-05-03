@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "name": "uemcp",
+  "displayName": "Unreal Engine MCP (UEMCP)",
+  "description": "Unreal editor automation. Requires UE editor running.",
+  "version": "1.0.0",
+  "main": "server/server.mjs",
+  "fields": [
+    {
+      "name": "UNREAL_PROJECT_ROOT",
+      "label": "Unreal project root (folder containing .uproject)",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "examplePlaceholder": "D:/UnrealProjects/5.6/MyProject"
+    },
+    {
+      "name": "UNREAL_PROJECT_NAME",
+      "label": "Unreal project name (no .uproject extension)",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "examplePlaceholder": "MyProject"
+    },
+    {
+      "name": "UNREAL_TCP_PORT_EXISTING",
+      "label": "TCP port for the existing UEMCP plugin",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "55557"
+    },
+    {
+      "name": "UNREAL_TCP_PORT_CUSTOM",
+      "label": "TCP port for the custom UEMCP plugin",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "55558"
+    },
+    {
+      "name": "UNREAL_TCP_TIMEOUT_MS",
+      "label": "TCP timeout (ms)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "5000"
+    },
+    {
+      "name": "UNREAL_RC_PORT",
+      "label": "Remote Control port",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "30010"
+    },
+    {
+      "name": "UNREAL_AUTO_DETECT",
+      "label": "Auto-detect UE plugin presence (true/false)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "true"
+    },
+    {
+      "name": "UEMCP_ENABLE_PYTHON_EXEC",
+      "label": "Enable Python exec via UEMCP (1 to enable, 0 to disable)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "1"
+    },
+    {
+      "name": "UEMCP_RC_RELAUNCH_HINT_AFTER_N",
+      "label": "Show relaunch hint after N failed RC calls",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "15"
+    }
+  ],
+  "autoDetect": {
+    "type": "uproject"
+  }
+}
