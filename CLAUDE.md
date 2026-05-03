@@ -532,18 +532,24 @@ All other tested RC tools (`rc_get_property`, `rc_set_property`, `set_material_p
 - Epic UDN bug-report filing — ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` (gitignored, stale framing pre-D125-narrowing). Parked per user preference 2026-05-02 — UEMCP-side fixes are the path forward, not upstream-Epic engagement.
 - WinDbg + symbols-resolved minidump walk — would only be useful as input to a UDN body; parked alongside.
 
-### Editor-readiness probe (D125 / D126 / NEW-9)
+### Editor-readiness probe (D125 / D126 / D131 / NEW-9 — FIXED-AT-SOURCE)
 
-The TCP plugin (port 55558) accepts connections **~5-10 minutes before the editor world fully initializes** after a fresh launch. During this pre-init window, spawn / create calls return success responses, but actors land in a discarded partial-world context — they are visible in the outliner but invisible to subsequent `find_actors` / `mesh_boolean` / `set_actor_property` / `get_actor_properties` calls (which use the fully-initialized `GetEditorWorld()` context).
+> **Status post-W1 (D131, 2026-05-03)**: NEW-9 is **fixed at source**. The TCP plugin's `Listen()` call is now gated behind `FCoreDelegates::OnFEngineLoopInitComplete` in `FUEMCPModule::StartupModule` (UEMCPModule.cpp:139). Pre-init connections from the MCP server receive `ECONNREFUSED` from the OS (not from a UEMCP-side handler) until the editor's `FEngineLoop::Init` pass finishes (asset registry initial scan, world creation/load, subsystem init). The connect-per-command pattern in `connection-manager.mjs` makes ECONNREFUSED naturally transient — `send()` does not mutate `LayerStatus` on the rejection path, so the next command opens a fresh socket and succeeds once the editor finishes init. The single-line gate collapses 5 audit classes structurally (A amplification, C amplification, H, I.6, I.7).
 
-**D126 audit cross-class implications**: NEW-9 is the **load-bearing root cause for 5 of 9 audit classes** (A spawn-label gap is amplified, C TCP-timeout is amplified, H is the bug itself, I.6 `delete_asset_safe` AR-pre-init silent corruption, I.7 spawn `NAME_COLLISION` false-positive against discarded partial-world actors). A single fix — gate TCP `Listen()` behind `FCoreDelegates::OnFEngineLoopInitComplete` — collapses readiness-window bugs structurally. Worker handoff at `docs/handoffs/new-9-readiness-probe.md`; **dispatched FIRST in the post-D126 worker order**.
+**Behavior under fresh editor launch (post-W1)**:
 
-**Until W1 ships — operational guidance**:
+- During pre-init (~5-30s window depending on project size + AR scan duration), MCP commands targeting TCP:55558 return wrapped Node socket errors of the form `TCP:55558 — connect ECONNREFUSED 127.0.0.1:55558`. The MCP client should retry on the next user prompt; subsequent attempts will succeed once `OnFEngineLoopInitComplete` fires and the listener binds.
+- `isLayerAvailable('tcp-55558')` may cache `UNAVAILABLE` for 30s after a probe in the pre-init window (per the health-check TTL in connection-manager). Force a re-probe with `isLayerAvailable(..., true)` if needed.
+- The `connection_info` MCP command continues to function (operates on configuration metadata, not live wire state).
 
-- `get_editor_state` returns a non-null `world_path` only after full initialization completes. Smoke / gauntlet / live-fire workflows should poll `get_editor_state.world_path` before issuing any spawn or asset-creation calls after a fresh editor launch (or post-relaunch). Workers that skip the readiness check and operate during the pre-init window will see "calls succeed but actors invisible" symptoms across an entire section.
-- **`delete_asset_safe` is unsafe during pre-init** (audit I.6 HIGH): AR-referencer-block check returns 0 referencers because AR isn't scanned → silent unsafe delete. Only call after `world_path` is non-null.
+**Behavior under commandlet processes (D57)**: commandlet runs (e.g., M-new Oracle-A `DumpBPGraphCommandlet`) early-return from `StartupModule` BEFORE registering the `OnFEngineLoopInitComplete` lambda. Commandlets do not drive the editor engine loop, so the delegate may never broadcast — the pre-W1 commandlet behavior (no TCP server) is preserved.
 
-**Post-W1**: connections during pre-init get `ECONNREFUSED`; clients retry per-command. The readiness-probe convention becomes redundant for the trigger tools (because the wire itself is now late-init), but `get_editor_state` polling remains useful as an explicit signal for sustained sessions.
+**Operational guidance for sustained sessions**:
+
+- `get_editor_state` (EdgeCaseHandlers.cpp:32) remains the canonical readiness signal. Post-W1 it is only reachable AFTER init completes (because the listener doesn't bind until then), so a successful `get_editor_state` round-trip implicitly confirms editor readiness; explicit polling becomes a no-op for first-call confirmation but remains useful for long sessions to detect mid-session world-context shifts (PIE start/stop, level reload).
+- `delete_asset_safe` AR-referencer-block check is now safe under fresh launches — the AR is guaranteed to have completed its initial scan by the time any handler runs. Audit I.6 silent-corruption case is closed.
+- `spawn_actor` `NAME_COLLISION` false-positives against discarded partial-world actors (audit I.7) are no longer reachable.
+- NEW-9b SetActorLabel issue (audit Class A) is **not** addressed by W1 — it's an outliner-display-name correctness bug independent of timing. Tracked separately in W2 (`docs/handoffs/cleanup-m5-residue.md` §3).
 
 Related sub-issue (NEW-9b): `create_procedural_mesh` sets `SpawnParams.Name` (the internal UObject FName) but never calls `SetActorLabel()`, so DynamicMeshActors appear in the outliner with the class name `"DynamicMeshActor"` instead of the specified actor name. The internal FName IS set correctly (handler returns `MeshActor->GetName()`), but the outliner display name is wrong. **D126 audit confirmed this is universal: ALL 7 SpawnActor sites in the plugin lack `SetActorLabel`** (5 in `ActorHandlers.cpp` for `spawn_actor` variants, 1 for `spawn_blueprint_actor`, 1 in `GeometryHandlers.cpp`). Fix queued in W2 (CLEANUP-M5-RESIDUE §3 expanded to all 7 sites).
 

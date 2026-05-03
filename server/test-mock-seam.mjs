@@ -471,6 +471,77 @@ console.log('\n── Test 15: onDefault fallback ──');
   t.assert(r2.specific === true, 'explicit registration overrides default');
 }
 
+// ── Test 16: ECONNREFUSED retry-on-next-command (D131 / NEW-9 W1) ─
+// Post-W1 the TCP plugin defers Listen() until OnFEngineLoopInitComplete.
+// Pre-init MCP commands receive ECONNREFUSED at the OS layer; the
+// connect-per-command pattern means send() must NOT poison the layer
+// state on the rejection path — the next command opens a fresh socket
+// and succeeds once the editor finishes init.
+console.log('\n── Test 16: ECONNREFUSED retry-on-next-command (D131) ──');
+
+{
+  // Hot-swappable handler — flips from connection_refused to healthy mid-flight,
+  // simulating editor finishing OnFEngineLoopInitComplete between commands.
+  const errResp = new ErrorTcpResponder('connection_refused');
+  const goodResp = new FakeTcpResponder();
+  goodResp.on('ping', { status: 'success' });
+  goodResp.on('get_editor_state', {
+    status: 'success',
+    result: { world_path: '/Game/Maps/Default', world_name: 'Default' },
+  });
+
+  let usePreInit = true;
+  const flippableHandler = async (port, type, params, timeoutMs) => {
+    if (usePreInit) {
+      return errResp.handler()(port, type, params, timeoutMs);
+    }
+    return goodResp.handler()(port, type, params, timeoutMs);
+  };
+
+  const config = {
+    projectRoot: '/fake/project',
+    tcpPortExisting: 55557,
+    tcpPortCustom: 55558,
+    httpPort: 30010,
+    tcpTimeoutMs: 5000,
+    tcpCommandFn: flippableHandler,
+  };
+  const conn = new ConnectionManager(config);
+
+  // Pre-init: ECONNREFUSED expected
+  await t.assertRejects(
+    () => conn.send('tcp-55558', 'get_editor_state', {}, { skipCache: true }),
+    /ECONNREFUSED/i,
+    'pre-init send rejects with ECONNREFUSED'
+  );
+
+  // Layer status must NOT be poisoned to UNAVAILABLE — send() does not
+  // mutate LayerStatus on the rejection path, so the next command can succeed.
+  const statusPostFail = conn.getStatus()['tcp-55558'].status;
+  t.assert(
+    statusPostFail !== 'unavailable',
+    `tcp-55558 status not poisoned after ECONNREFUSED (got "${statusPostFail}")`
+  );
+
+  // Editor init completes — flip to healthy responder
+  usePreInit = false;
+
+  // Next command should succeed without manual intervention (no reconnect call,
+  // no isLayerAvailable force-probe — just a fresh send())
+  const result = await conn.send('tcp-55558', 'get_editor_state', {}, { skipCache: true });
+  t.assert(
+    result?.result?.world_path === '/Game/Maps/Default',
+    'post-init send succeeds on next command without retry orchestration'
+  );
+
+  // Layer status should be AVAILABLE after successful command
+  const statusPostSuccess = conn.getStatus()['tcp-55558'].status;
+  t.assert(
+    statusPostSuccess === 'available',
+    `tcp-55558 status flipped to AVAILABLE after success (got "${statusPostSuccess}")`
+  );
+}
+
 // ── Summary ─────────────────────────────────────────────────
 const failures = t.summary();
 process.exit(failures > 0 ? 1 : 0);

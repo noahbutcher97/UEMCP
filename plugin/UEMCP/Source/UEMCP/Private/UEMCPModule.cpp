@@ -6,6 +6,7 @@
 #include "SidecarSaveHook.h"
 
 #include "Misc/App.h"
+#include "Misc/CoreDelegates.h"
 #include "Modules/ModuleManager.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
@@ -115,16 +116,33 @@ void FUEMCPModule::StartupModule()
 	// concurrent interactive-editor + commandlet runs contend for the port.
 	// IsRunningCommandlet is a global free function in CoreGlobals.h (transitively
 	// available via CoreMinimal.h); it's NOT a member of FApp on UE 5.6.
+	// Stay in StartupModule (not inside the post-init lambda) — commandlets do
+	// not drive the editor engine loop, so OnFEngineLoopInitComplete may never
+	// broadcast; an early return here avoids registering a never-firing delegate.
 	if (IsRunningCommandlet())
 	{
 		UE_LOG(LogUEMCP, Warning, TEXT("UEMCP: commandlet detected — TCP server suppressed (D57 gate)"));
 		return;
 	}
 
-	if (!StartTcpServer())
+	// D131 / NEW-9 readiness gate: defer Listen() until the editor finishes its
+	// FEngineLoop::Init pass (asset registry initial scan, world creation/load,
+	// subsystem init). The TCP listener used to bind in StartupModule, which fires
+	// 5-10 minutes before world init completes — connections during that pre-init
+	// window dispatched against partial state (GEditor non-null, world/AR not
+	// ready), causing five distinct failure modes (audit Classes A/C/H/I.6/I.7).
+	// Hooking OnFEngineLoopInitComplete delays Listen() to post-init; pre-init
+	// connections get ECONNREFUSED and the MCP server retries on the next command.
+	// .uplugin LoadingPhase=Default loads this module before the delegate broadcasts,
+	// so the lambda is guaranteed to be registered in time — no immediate-call
+	// fallback needed.
+	FCoreDelegates::OnFEngineLoopInitComplete.AddLambda([]()
 	{
-		UE_LOG(LogUEMCP, Warning, TEXT("UEMCP: TCP server failed to start; module loaded but inactive"));
-	}
+		if (!StartTcpServer())
+		{
+			UE_LOG(LogUEMCP, Warning, TEXT("UEMCP: TCP server failed to start; module loaded but inactive"));
+		}
+	});
 
 	// CP5: narrow-sidecar save-hook. Plugin-only fields (compile status +
 	// full reflection surface) emitted to <Project>/Saved/UEMCP/... on BP save.
