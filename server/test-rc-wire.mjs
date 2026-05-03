@@ -9,7 +9,7 @@
 //   cd D:\DevTools\UEMCP\server
 //   node test-rc-wire.mjs
 
-import { ConnectionManager } from './connection-manager.mjs';
+import { ConnectionManager, _buildRcHeaders } from './connection-manager.mjs';
 import {
   FakeHttpResponder,
   TestRunner,
@@ -830,6 +830,29 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
     t.assert(rcMock.calls.length === 2,
       'set_material_parameter is a write — both identical calls hit wire (skipCache)');
   }
+}
+
+// ── Test 13: Passphrase header (D131 — WebRemoteControl.cpp:930 workaround) ─
+console.log('\n── Test 13: _buildRcHeaders includes Passphrase to dodge UE 5.6.1 engine bug ──');
+{
+  // D131: missing Passphrase header on /remote/batch triggers TMap::operator[]
+  // auto-insertion → downstream FindChecked assertion → editor crash. The header
+  // value is irrelevant (RC permissive auth in editor accepts any non-empty
+  // string); presence of the key is the contract. _buildRcHeaders is the single
+  // chokepoint inside httpCommand, so all /remote/* paths benefit uniformly.
+  const withBody = _buildRcHeaders(123);
+  t.assert(withBody.Passphrase === 'uemcp',
+    'Passphrase header present on body-bearing requests');
+  t.assert(withBody['Content-Type'] === 'application/json',
+    'Content-Type preserved alongside Passphrase');
+  t.assert(withBody['Content-Length'] === 123,
+    'Content-Length set when payload provided');
+
+  const withoutBody = _buildRcHeaders();
+  t.assert(withoutBody.Passphrase === 'uemcp',
+    'Passphrase header present on bodyless GET requests too (defense-in-depth)');
+  t.assert(!('Content-Length' in withoutBody),
+    'Content-Length omitted when no payload');
 }
 
 // ── Done ───────────────────────────────────────────────────────

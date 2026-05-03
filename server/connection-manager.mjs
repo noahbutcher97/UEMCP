@@ -101,6 +101,35 @@ function tcpCommand(port, type, params, timeoutMs) {
 // ── HTTP Client (Remote Control, connect-per-request) ──────
 
 /**
+ * Build the headers object for a Remote Control HTTP request.
+ *
+ * The `Passphrase` header is mandatory under D130: UE 5.6.1's WebRemoteControl
+ * plugin has a single-line bug at WebRemoteControl.cpp:930 that uses
+ * `TMap::operator[]` on the request-headers map without a prior `.Find()`. When
+ * the Passphrase key is absent, operator[] auto-inserts it; a downstream
+ * `FindChecked()` at Map.h:716 then asserts and crashes the editor on
+ * /remote/batch. RC's permissive-auth mode in editor accepts any non-empty
+ * string, so the value is irrelevant — we just need the key present. Applied
+ * uniformly to all /remote/* paths as defense-in-depth (audit memory:
+ * feedback_passphrase_header_gotcha.md).
+ *
+ * Exported for unit tests so the contract can be asserted without intercepting
+ * node:http. Not used elsewhere; httpCommand is the only production caller.
+ *
+ * @param {number} [contentLength] - byte length of the JSON payload, if any
+ * @returns {Record<string, string|number>}
+ */
+export function _buildRcHeaders(contentLength) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'Passphrase': 'uemcp',
+  };
+  if (contentLength != null) headers['Content-Length'] = contentLength;
+  return headers;
+}
+
+/**
  * Send a single HTTP request to Unreal's Remote Control endpoint.
  * Mirrors tcpCommand's contract — connect → send → read JSON → close.
  *
@@ -128,11 +157,7 @@ function httpCommand(port, method, path, body, timeoutMs, agent) {
       port,
       path,
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...(payload ? { 'Content-Length': payload.length } : {}),
-      },
+      headers: _buildRcHeaders(payload ? payload.length : undefined),
       timeout: timeoutMs,
       ...(agent ? { agent } : {}),
     }, (res) => {
