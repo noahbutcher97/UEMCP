@@ -500,9 +500,11 @@ See `docs/tracking/risks-and-decisions.md` for full risk table and decision log 
 
 ## Operational Limits
 
-### WebRemoteControl operational limits (D120 / D122 / D125 / D128 / D129 / NEW-2 / NEW-4)
+### WebRemoteControl operational limits (D120 / D122 / D125 / D128 / D129 / D130 / NEW-2 / NEW-4)
 
-> **Status (D129, 2026-05-03)**: Audit 7 V4-PRIME finding walked back D128's retirement strategy. Root cause of NEW-4 + NEW-2 trigger is **UEMCP-induced** (calling non-UFUNCTION C++ methods via UFUNCTION-dispatch path); RC plugin works correctly when targeted at real UFUNCTIONs. Pivot workstream (Pivot-W1/W2/W3) ships UEMCP-side fixes preserving RC delegates. The "RC is bugged" framing below is preserved for historical context but is **empirically incorrect**; the operational constraints are limited to the transitional period before pivot-fixes ship.
+> **FINAL ROOT CAUSE (D130, 2026-05-03)**: `WebRemoteControl.cpp:930` single-line UE 5.6.1 engine bug — missing `Passphrase` HTTP header triggers `TMap::operator[]` auto-insertion → downstream `FindChecked` assertion → editor crash. **One-line workaround in `server/connection-manager.mjs`**: send `Passphrase: <any-value>` header on `/remote/batch` (or all `/remote/*` for defense-in-depth). RC permissive auth in editor accepts any non-empty string. Empirically validated n=4 vs n=4 controlled experiment (Audit 7 Iteration 3); editor stayed alive 620+ sec after the experiment. **Pivot-W0' ships the fix in 0.25 sessions; saves ~4.75 worker sessions vs D128 retirement.** V4-PRIME (UEMCP calling non-UFUNCTION methods like `Set*ParameterValueEditorOnly`) remains a separate quality issue addressable by Pivot-W1/W2/W3 as routine cleanup; no longer urgent post-W0'. See `feedback_passphrase_header_gotcha.md` for full mechanism + workaround details.
+
+> **Historical framings (D129 / D128 / D125 / etc.)**: preserved below for context but superseded by D130. Audit 7's three-iteration verdict arc (V4 PIVOT → V1 RETIRE → V1 + ONE-LINE WORKAROUND) is the canonical worked example for `feedback_validate_claims_before_commitment.md` — even validation audits can produce premature verdicts when scope-of-verdict outruns scope-of-evidence; continued iteration until the two match is part of the discipline.
 
 #### Transitional pre-pivot constraints (only relevant until Pivot-W1/W2/W3 ship)
 
