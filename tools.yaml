@@ -1008,7 +1008,7 @@ toolsets:
           property_name: { type: string, required: true }
           value:         { type: any, required: true }
       rc_call_function:
-        description: Call any UFUNCTION on any UObject
+        description: "Call any UFUNCTION on any UObject. **FOOT-GUN (D127)**: passing struct-typed args (e.g., FMaterialParameterInfo) is fragile — RC's parameter-coercion layer has gaps in UE 5.6 (NEW-4 class). For productized struct-arg writes, prefer the dedicated TCP:55558 tool (e.g., `set_material_parameter` for material params). This primitive is an escape hatch for ad-hoc workflows; bug responsibility shifts to the caller."
         params:
           object_path:   { type: string, required: true }
           function_name: { type: string, required: true }
@@ -1024,7 +1024,7 @@ toolsets:
         params:
           object_path: { type: string, required: true }
       rc_batch:
-        description: Execute multiple RC operations atomically
+        description: "Execute multiple RC operations atomically via /remote/batch. **FOOT-GUN (D125 / D127)**: do NOT include sub-requests with `GetAllScalarParameterInfo` / `GetAllVectorParameterInfo` / `GetAllTextureParameterInfo` (or other GetAll*-class enumerator UFUNCTIONs) — these crash the editor via Map.h:716 race in WebRemoteControl's batch handler (n=3 confirmed). Other batch sub-requests (single property reads/writes, single function calls without struct args) are empirically safe. See CLAUDE.md §Operational Limits."
         params:
           operations: { type: array, required: true }
       rc_get_presets:

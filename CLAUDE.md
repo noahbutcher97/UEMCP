@@ -343,6 +343,8 @@ endlocal & exit /b %EXIT_CODE%
 
 6. **Auto-enable capped at 3** — `find_tools` enables top 3 toolsets by highest-scoring tool per query. Prevents accidentally loading too many toolsets.
 
+7. **Transport choice — bright-line rule (D127)** — productized delegate-style tools (single-purpose, single-asset-type, fixed schema, agent-facing semantic surface) ship on **TCP:55558** (UEMCP plugin C++ handler). RC HTTP (`http-30010`) is reserved for the 8 reflection-primitive escape hatches (`rc_get_property`, `rc_set_property`, `rc_call_function`, `rc_describe_object`, `rc_list_objects`, `rc_batch`, `rc_get_presets`, `rc_passthrough`). The line: if a tool has a fixed schema and a specific purpose, it's TCP. If it accepts free-form `(object_path, property_name, ...)` for reflection-by-name, it's RC. **Rationale**: RC has produced 100% of the reliability bugs we've seen on shipped tools (NEW-2 batch race, NEW-4 struct-param coercion, get_mesh_info uncertainty); migrating delegates to TCP eliminates that bug class structurally. The 8 primitives stay because RC's runtime reflection layer is what RC is good at — reimplementing it would be ~1000+ lines of low-value plumbing. **D101 (ii) supersedes**: the historical decision to ship `set_material_parameter` as an RC delegate is reversed by D127's policy + the migration handoffs at `docs/handoffs/rc-to-tcp-poc-set-material-parameter.md` + `docs/handoffs/rc-to-tcp-bundle-material-mesh.md`. **Foot-gun caveat**: `rc_call_function` with struct args + `rc_batch` with `GetAll*ParameterInfo` enumerator sub-requests CAN reproduce the same RC bugs at runtime — they're agent-driven escape hatches, not bug-free primitives. Tools.yaml descriptions warn explicitly.
+
 ## Common Tasks
 
 ### Onboarding a new machine
