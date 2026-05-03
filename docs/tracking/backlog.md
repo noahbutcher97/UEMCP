@@ -204,6 +204,25 @@ Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-
 - ~~**FA-ε**~~ — RESOLVED by D66 HYBRID verdict 2026-04-21 (commit `56ff6f6`).
 - **Scaffold commit timing**: fold into M1 vs separate 0.25-session dispatch — decide when M1 amendment lands.
 
+### EN-23 — Baseline measurement instrumentation
+
+- **Source**: 2026-05-03 conversation post-D127. User flagged: "we don't have any measurements for latency or other benchmarks related to our work because we haven't been collecting any."
+- **Problem**: orchestrator decisions invoking "no measured bottleneck" arguments are absence-of-evidence, not evidence-of-absence. We've been making transport, caching, and architectural decisions without baseline data.
+- **What to instrument** (initial set):
+  - Per-tool wire latency: TCP request-send → response-received (split: connect, send, server-process, response-read)
+  - Editor-side handler duration: dispatch-received → response-built (compares to wire latency to surface "wire" vs "handler" splits)
+  - Cache layer: hit rate by tool, by-key collision rate, eviction rate, TTL-vs-actual-stale-time gap
+  - Connection lifecycle: connect-per-command frequency, ECONNREFUSED rate (NEW-9 telemetry), retry-success rate
+  - MCP server process: memory footprint over session, cumulative tool-call count, tool-toolset-rotation cost
+- **Where to surface**:
+  - Per-call: optional `?debug=1` param returns a `_metrics` block alongside response (no schema change for non-debug callers)
+  - Aggregate: stderr-emit summary every N calls (gated by env flag like `UEMCP_METRICS_EMIT_EVERY_N=100`); writes to optional log file if `UEMCP_METRICS_LOG=path`
+  - On exit: emit final aggregate stats to stderr; if metrics-log file configured, also flushed there
+- **Cost**: small worker. ~150-300 lines of instrumentation in connection-manager.mjs + a metrics aggregator module + minimal C++-side timing in dispatch table. Mostly JS; minor C++ for handler-duration capture
+- **Trigger to dispatch**: (a) before any future "should we change transport / cache strategy / etc." decision, OR (b) when a perf complaint surfaces from agent workflows, OR (c) bundled with the next worker that touches connection-manager.mjs (e.g., post-RC-retirement, when connection-manager is being reworked anyway)
+- **Why deferred**: not blocking RC retirement workstream; can ship after delegate migrations + primitives reimplementation when connection-manager is being touched anyway. But should NOT be skipped indefinitely — the measurement gap is a real diagnostic blindness
+- **Reference**: `feedback_ai_worker_time_estimates.md` notes that orchestrator estimates have been miscalibrated partly because we lack measurement data to ground them
+
 ### EN-22 — Transport architecture revisit (TCP→WebSocket supplement evaluation)
 
 - **Source**: D127-era strategic question on RC plugin retirement (2026-05-02 / 2026-05-03 conversations)
