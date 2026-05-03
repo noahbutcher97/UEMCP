@@ -204,4 +204,20 @@ Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-
 - ~~**FA-ε**~~ — RESOLVED by D66 HYBRID verdict 2026-04-21 (commit `56ff6f6`).
 - **Scaffold commit timing**: fold into M1 vs separate 0.25-session dispatch — decide when M1 amendment lands.
 
+### EN-22 — Transport architecture revisit (TCP→WebSocket supplement evaluation)
+
+- **Source**: D127-era strategic question on RC plugin retirement (2026-05-02 / 2026-05-03 conversations)
+- **Pre-evaluated answer**: hybrid model (option 5) — keep TCP:55558 for synchronous request-response (current model, all 50+ tools unchanged), ADD WebSocket as supplemental layer for editor-initiated event push
+- **What event push would buy**:
+  - Cache invalidation: editor pushes `BP_X mutated` → connection-manager invalidates cache reactively → W6 worker becomes structurally unnecessary
+  - PIE state: editor pushes `pie:running` / `pie:stopped` → no polling between operations
+  - Asset registry: editor pushes `asset:created/deleted/renamed` → `query_asset_registry` cache stays coherent
+  - Editor readiness: editor pushes `editor:ready` → NEW-9 readiness becomes subscribe-once
+  - Long-running ops: editor pushes `op:rename_asset:progress` → NEW-7 silent-success-on-timeout becomes "client knows the call is still running"
+- **Cost**: ~600-1200 lines (Node WS client + UE WS server + supplementary mock-seam test infra). Replacement migration would be larger; supplement-only is bounded
+- **Why deferred**: don't compound architectural rewrites. RC retirement workstream is active; stacking transport rewrites on top dilutes both efforts. No transport bug currently blocking
+- **Triggers for revisit**: (a) cache invalidation worker W6 hits unexpected complexity that push events would dissolve; (b) W1 NEW-9 fix is messier than expected and event-driven readiness would be cleaner; (c) Noah wants real-time push-based agent coordination patterns we can't currently support; (d) UE version upgrade introduces a transport-layer bug that motivates the rewrite anyway
+- **Pre-rejected alternatives**: gRPC (competes with `tools.yaml` per D44; UE support limited; solves problems we don't have); named pipes (Windows-only; no measured TCP-latency bottleneck; no forcing function); in-process plugin module (collapses back to "what wire goes between Node MCP-server and editor"; not a real third option)
+- **Reference**: 2026-05-03 conversation thread on transport architecture (search `EN-22` in `risks-and-decisions.md` if/when triggered for full design context)
+
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
