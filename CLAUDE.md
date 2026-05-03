@@ -499,13 +499,34 @@ All other tested RC tools (`rc_get_property`, `rc_set_property`, `set_material_p
 - **Epic UDN bug report**: ready-to-submit body needs a major rewrite from "sustained HTTP traffic" framing to "/remote/batch GetAll*ParameterInfo enumerator" framing — much sharper repro, much faster Epic-side triage. Filing requires a UDN account (Noah's call).
 - **WinDbg + symbols-resolved minidump walk**: still useful for distinguishing `GetAccessValue` vs `DeserializeCall` FindChecked path inside the batch handler. Optional Noah-time follow-up; would refine the UDN body.
 
-### Editor-readiness probe (D125 / NEW-9)
+### Editor-readiness probe (D125 / D126 / NEW-9)
 
 The TCP plugin (port 55558) accepts connections **~5-10 minutes before the editor world fully initializes** after a fresh launch. During this pre-init window, spawn / create calls return success responses, but actors land in a discarded partial-world context — they are visible in the outliner but invisible to subsequent `find_actors` / `mesh_boolean` / `set_actor_property` / `get_actor_properties` calls (which use the fully-initialized `GetEditorWorld()` context).
 
-**Detection**: `get_editor_state` returns a non-null `world_path` only after full initialization completes. Smoke / gauntlet / live-fire workflows should poll `get_editor_state.world_path` before issuing any spawn or asset-creation calls after a fresh editor launch (or post-relaunch). Workers that skip the readiness check and operate during the pre-init window will see "calls succeed but actors invisible" symptoms across an entire section.
+**D126 audit cross-class implications**: NEW-9 is the **load-bearing root cause for 5 of 9 audit classes** (A spawn-label gap is amplified, C TCP-timeout is amplified, H is the bug itself, I.6 `delete_asset_safe` AR-pre-init silent corruption, I.7 spawn `NAME_COLLISION` false-positive against discarded partial-world actors). A single fix — gate TCP `Listen()` behind `FCoreDelegates::OnFEngineLoopInitComplete` — collapses readiness-window bugs structurally. Worker handoff at `docs/handoffs/new-9-readiness-probe.md`; **dispatched FIRST in the post-D126 worker order**.
 
-Related sub-issue (NEW-9b): `create_procedural_mesh` sets `SpawnParams.Name` (the internal UObject FName) but never calls `SetActorLabel()`, so DynamicMeshActors appear in the outliner with the class name `"DynamicMeshActor"` instead of the specified actor name. The internal FName IS set correctly (handler returns `MeshActor->GetName()`), but the outliner display name is wrong. Fix is queued in the CLEANUP-M5-RESIDUE bundle worker.
+**Until W1 ships — operational guidance**:
+
+- `get_editor_state` returns a non-null `world_path` only after full initialization completes. Smoke / gauntlet / live-fire workflows should poll `get_editor_state.world_path` before issuing any spawn or asset-creation calls after a fresh editor launch (or post-relaunch). Workers that skip the readiness check and operate during the pre-init window will see "calls succeed but actors invisible" symptoms across an entire section.
+- **`delete_asset_safe` is unsafe during pre-init** (audit I.6 HIGH): AR-referencer-block check returns 0 referencers because AR isn't scanned → silent unsafe delete. Only call after `world_path` is non-null.
+
+**Post-W1**: connections during pre-init get `ECONNREFUSED`; clients retry per-command. The readiness-probe convention becomes redundant for the trigger tools (because the wire itself is now late-init), but `get_editor_state` polling remains useful as an explicit signal for sustained sessions.
+
+Related sub-issue (NEW-9b): `create_procedural_mesh` sets `SpawnParams.Name` (the internal UObject FName) but never calls `SetActorLabel()`, so DynamicMeshActors appear in the outliner with the class name `"DynamicMeshActor"` instead of the specified actor name. The internal FName IS set correctly (handler returns `MeshActor->GetName()`), but the outliner display name is wrong. **D126 audit confirmed this is universal: ALL 7 SpawnActor sites in the plugin lack `SetActorLabel`** (5 in `ActorHandlers.cpp` for `spawn_actor` variants, 1 for `spawn_blueprint_actor`, 1 in `GeometryHandlers.cpp`). Fix queued in W2 (CLEANUP-M5-RESIDUE §3 expanded to all 7 sites).
+
+### Cache-invalidation gap pre-W6 (D126 / audit I.2)
+
+`ResultCache` (in `server/connection-manager.mjs`) keys cache entries by SHA-256 of `(type, params)` with 5-minute TTL. Read-ops cache; write-ops set `skipCache: true` so they don't pollute the cache. **But write-ops do NOT invalidate related read-op cache entries.** Agents that read-modify-read see stale data for up to 5 minutes after any mutation.
+
+Failure pattern: `inspect_blueprint(BP_X)` cached, `add_event_node(BP_X)` mutates, subsequent `inspect_blueprint(BP_X)` returns stale cached state without the new node.
+
+**Operational guidance until W6 ships**: agents that need post-write read-coherence should call write-ops with `skipCache: true` AND wait at least 5 minutes before re-reading the same asset — OR restart the MCP server (cache empties on process restart). For interactive workflows where this matters, prefer routing reads through TCP wire calls that don't go through the cache layer (e.g., `get_actor_properties` which is per-call). W6 worker handoff at `docs/handoffs/w6-cache-invalidation.md` ships the structural fix (`tools.yaml invalidates:` field + connection-manager bust logic).
+
+### `get_mesh_info` live-fire status (D126 audit Class D — pending resolution)
+
+D125 narrowed the NEW-2 trigger to `/remote/batch` calls with `GetAll*ParameterInfo` enumerator UFUNCTIONs specifically. The D126 audit observed that **`get_mesh_info` uses 5 SCALAR UFUNCTIONs** (`GetNumVertices` / `GetNumTriangles` / `GetNumLODs` / `GetBounds` / `GetStaticMaterials`) — NOT GetAll*-class enumerators. Smoke deferred it defensively without empirical reproduction.
+
+**Status: live-fire pending.** Tools.yaml description softened from "DO NOT CALL" to "LIVE-FIRE PENDING." A single-call live-fire test would resolve. The W2 / W5 smoke verification will exercise this as a side-effect; orchestrator updates the annotation post-resolution. Until then: treat get_mesh_info as cautiously available — prefer alternatives where possible; if calling, do so as the first RC call of a fresh editor session and watch for crash.
 
 ### Mitigation flags (UEMCP-side defense-in-depth)
 

@@ -898,7 +898,7 @@ toolsets:
       # reduced_scope: compiled vertex buffer evaluation + runtime bounds
       # displaced_by: (deferred — offline static-mesh header parse could cover vertex/triangle counts in a future enhancement per §Q1.8)
       get_mesh_info:
-        description: "**CRASH-TRIGGER (D125 / NEW-2) — DO NOT CALL.** Issues 5 `/remote/batch` sub-requests across the dynamic-mesh surface; same `Map.h:716 Pair != nullptr` crash as `list_material_parameters`. See CLAUDE.md §Operational Limits. Original purpose (post-fix): get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials). One of asset_path or target is required."
+        description: "**LIVE-FIRE PENDING (D126 audit Class D)** — D125 deferred this tool defensively under same-class crash-risk as `list_material_parameters`, but the D126 audit observed that get_mesh_info uses 5 SCALAR UFUNCTIONs (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials) — NOT GetAll*-class enumerators. D125's NEW-2 trigger was narrowed to enumerator UFUNCTIONs specifically, so get_mesh_info's crash status is empirically uncertain. **Single-call live-fire test would resolve.** Until then, treat as cautiously available: prefer alternatives where possible; if calling, do so as the first RC call of a fresh editor session and watch for crash. Original purpose: get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via batched UFUNCTION calls. One of asset_path or target is required."
         params:
           asset_path: { type: string, required: false }
           target:     { type: string, required: false }
