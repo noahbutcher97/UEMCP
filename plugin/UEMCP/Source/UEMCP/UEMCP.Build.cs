@@ -8,16 +8,16 @@ public class UEMCP : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Per-handler files use anonymous-namespace file-local helpers
-		// (TryReadVector3, GetEditorWorld, ToObjectPath, GetStringOr, etc.)
-		// that overlap across files. Unity builds flatten all .cpp files into
-		// one translation unit, collapsing anonymous namespaces into one and
-		// causing duplicate-definition errors. Disabling unity preserves the
-		// per-file isolation each handler-file's design relies on. Slower
-		// clean builds for this single module; zero refactoring across 9
-		// handler files. Re-enable later if helpers are deduplicated into a
-		// shared header.
-		bUseUnity = false;
+		// Unity builds re-enabled per W-E (2026-05-03): the duplicated input-parsing
+		// helpers (TryReadVector3 / TryReadRotator across ActorHandlers + BlueprintHandlers
+		// + GeometryHandlers) and the property-setter switch (SetActorPropertyValue /
+		// SetUProperty across ActorHandlers + BlueprintHandlers) all consolidated onto
+		// existing shared infrastructure: TransformParser (Public/TransformParser.h) for
+		// vector/rotator input, PropertyHandlerRegistry (Public/PropertyHandlerRegistry.h)
+		// for FProperty dispatch. Future workers must add new shared helpers to the
+		// matching Public/ header rather than reintroducing per-file anonymous-namespace
+		// copies — Unity will surface collisions immediately.
+		bUseUnity = true;
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{

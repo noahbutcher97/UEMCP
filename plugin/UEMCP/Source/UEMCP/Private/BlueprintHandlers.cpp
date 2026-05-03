@@ -4,6 +4,8 @@
 #include "BlueprintLookupHelper.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
+#include "PropertyHandlerRegistry.h"
+#include "TransformParser.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/PrimitiveComponent.h"
@@ -98,27 +100,9 @@ namespace UEMCP
 			return nullptr;
 		}
 
-		/** Read [x, y, z] array from params; false if missing/short. */
-		bool TryReadVector3(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, FVector& Out)
-		{
-			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-			if (!Params->TryGetArrayField(Field, Arr) || Arr == nullptr || Arr->Num() < 3) return false;
-			Out.X = (*Arr)[0]->AsNumber();
-			Out.Y = (*Arr)[1]->AsNumber();
-			Out.Z = (*Arr)[2]->AsNumber();
-			return true;
-		}
-
-		/** Read [pitch, yaw, roll] array from params; false if missing/short. */
-		bool TryReadRotator(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, FRotator& Out)
-		{
-			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-			if (!Params->TryGetArrayField(Field, Arr) || Arr == nullptr || Arr->Num() < 3) return false;
-			Out.Pitch = (*Arr)[0]->AsNumber();
-			Out.Yaw   = (*Arr)[1]->AsNumber();
-			Out.Roll  = (*Arr)[2]->AsNumber();
-			return true;
-		}
+		// TryReadVector3 / TryReadRotator removed (W-E adoption — use UEMCP::ParseVector3 /
+		// ParseRotator from TransformParser.h instead). Output formatters and 2D readers stay
+		// local since TransformParser does input parsing only.
 
 		/** Read [x, y] array from params; falls back to (0,0) if absent. */
 		FVector2D ReadVector2DOrZero(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field)
@@ -131,15 +115,12 @@ namespace UEMCP
 			return FVector2D((*Arr)[0]->AsNumber(), (*Arr)[1]->AsNumber());
 		}
 
-		// ── Generic UProperty setter (oracle parity) ─────────────────────────────
+		// ── Generic UProperty setter (delegates to PropertyHandlerRegistry — W-E adoption) ─
 		//
-		// Mirrors UnrealMCPCommonUtils::SetObjectProperty, plus the M3-actors
-		// numeric-string enum fast path (oracle's CommonUtils handles this; we
-		// already shipped it in ActorHandlers per c161aec). Handles bool, int,
-		// float, double, string, byte/enum, FEnumProperty. Vector / Rotator
-		// struct support is up to the caller (set_component_property has its
-		// own struct branch; set_blueprint_property delegates here only — same
-		// limitation as the oracle).
+		// Resolves the property by name, then dispatches by FProperty class via
+		// FPropertyHandlerRegistry::Handle. Registry covers Int/Float/Double/Bool/Str/Name
+		// scalars + Byte/Enum (oracle-parity name resolution). Same shape used by
+		// SetActorPropertyValue; both call sites converged on the registry.
 
 		bool SetUProperty(UObject* Object, const FString& PropertyName,
 			const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
@@ -155,106 +136,15 @@ namespace UEMCP
 				OutErrorMessage = FString::Printf(TEXT("Property not found: %s"), *PropertyName);
 				return false;
 			}
-			void* Addr = Property->ContainerPtrToValuePtr<void>(Object);
-
-			if (Property->IsA<FBoolProperty>())
+			if (!UEMCP::FPropertyHandlerRegistry::Get().Handle(Object, Property, Value, OutErrorMessage))
 			{
-				static_cast<FBoolProperty*>(Property)->SetPropertyValue(Addr, Value->AsBool());
-				return true;
-			}
-			if (Property->IsA<FIntProperty>())
-			{
-				static_cast<FIntProperty*>(Property)->SetPropertyValue(Addr, static_cast<int32>(Value->AsNumber()));
-				return true;
-			}
-			if (Property->IsA<FFloatProperty>())
-			{
-				static_cast<FFloatProperty*>(Property)->SetPropertyValue(Addr, static_cast<float>(Value->AsNumber()));
-				return true;
-			}
-			if (Property->IsA<FDoubleProperty>())
-			{
-				static_cast<FDoubleProperty*>(Property)->SetPropertyValue(Addr, Value->AsNumber());
-				return true;
-			}
-			if (Property->IsA<FStrProperty>())
-			{
-				static_cast<FStrProperty*>(Property)->SetPropertyValue(Addr, Value->AsString());
-				return true;
-			}
-			if (Property->IsA<FByteProperty>())
-			{
-				FByteProperty* ByteProp = CastField<FByteProperty>(Property);
-				UEnum* EnumDef = ByteProp ? ByteProp->GetIntPropertyEnum() : nullptr;
-				if (EnumDef && Value->Type == EJson::String)
+				if (OutErrorMessage.IsEmpty())
 				{
-					FString EnumName = Value->AsString();
-					if (EnumName.IsNumeric())
-					{
-						ByteProp->SetPropertyValue(Addr, static_cast<uint8>(FCString::Atoi(*EnumName)));
-						return true;
-					}
-					if (EnumName.Contains(TEXT("::")))
-					{
-						EnumName.Split(TEXT("::"), nullptr, &EnumName);
-					}
-					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
-					if (EnumValue == INDEX_NONE)
-					{
-						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
-					}
-					if (EnumValue == INDEX_NONE)
-					{
-						OutErrorMessage = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
-						return false;
-					}
-					ByteProp->SetPropertyValue(Addr, static_cast<uint8>(EnumValue));
-					return true;
+					OutErrorMessage = FString::Printf(TEXT("Unsupported property type for '%s'"), *PropertyName);
 				}
-				ByteProp->SetPropertyValue(Addr, static_cast<uint8>(Value->AsNumber()));
-				return true;
+				return false;
 			}
-			if (Property->IsA<FEnumProperty>())
-			{
-				FEnumProperty* EnumProp = CastField<FEnumProperty>(Property);
-				UEnum* EnumDef = EnumProp ? EnumProp->GetEnum() : nullptr;
-				FNumericProperty* Underlying = EnumProp ? EnumProp->GetUnderlyingProperty() : nullptr;
-				if (!EnumDef || !Underlying)
-				{
-					OutErrorMessage = TEXT("FEnumProperty missing enum definition");
-					return false;
-				}
-				if (Value->Type == EJson::String)
-				{
-					FString EnumName = Value->AsString();
-					if (EnumName.IsNumeric())
-					{
-						Underlying->SetIntPropertyValue(Addr, static_cast<int64>(FCString::Atoi(*EnumName)));
-						return true;
-					}
-					if (EnumName.Contains(TEXT("::")))
-					{
-						EnumName.Split(TEXT("::"), nullptr, &EnumName);
-					}
-					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
-					if (EnumValue == INDEX_NONE)
-					{
-						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
-					}
-					if (EnumValue == INDEX_NONE)
-					{
-						OutErrorMessage = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
-						return false;
-					}
-					Underlying->SetIntPropertyValue(Addr, EnumValue);
-					return true;
-				}
-				Underlying->SetIntPropertyValue(Addr, static_cast<int64>(Value->AsNumber()));
-				return true;
-			}
-
-			OutErrorMessage = FString::Printf(TEXT("Unsupported property type for '%s'"), *PropertyName);
-			return false;
+			return true;
 		}
 
 		// ── Graph helpers ────────────────────────────────────────────────────────
@@ -551,11 +441,12 @@ namespace UEMCP
 			{
 				FVector Loc(0.0f), Scale(1.0f);
 				FRotator Rot(0.0f);
-				if (Params->HasField(TEXT("location")) && TryReadVector3(Params, TEXT("location"), Loc))
+				FString TransformErr;
+				if (Params->HasField(TEXT("location")) && UEMCP::ParseVector3(Params, TEXT("location"), Loc, TransformErr))
 					SceneComp->SetRelativeLocation(Loc);
-				if (Params->HasField(TEXT("rotation")) && TryReadRotator(Params, TEXT("rotation"), Rot))
+				if (Params->HasField(TEXT("rotation")) && UEMCP::ParseRotator(Params, TEXT("rotation"), Rot, TransformErr))
 					SceneComp->SetRelativeRotation(Rot);
-				if (Params->HasField(TEXT("scale")) && TryReadVector3(Params, TEXT("scale"), Scale))
+				if (Params->HasField(TEXT("scale")) && UEMCP::ParseVector3(Params, TEXT("scale"), Scale, TransformErr))
 					SceneComp->SetRelativeScale3D(Scale);
 			}
 

@@ -3,6 +3,7 @@
 
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
+#include "TransformParser.h"
 
 #include "Components/DynamicMeshComponent.h"
 #include "DynamicMeshActor.h"
@@ -51,20 +52,8 @@ namespace UEMCP
 			return true;
 		}
 
-		// ── Vec3 helper (mirrors ActorHandlers) ────────────────────────────
-
-		bool TryReadVector3(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, FVector& Out)
-		{
-			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-			if (!Params->TryGetArrayField(Field, Arr) || Arr == nullptr || Arr->Num() < 3)
-			{
-				return false;
-			}
-			Out.X = (*Arr)[0]->AsNumber();
-			Out.Y = (*Arr)[1]->AsNumber();
-			Out.Z = (*Arr)[2]->AsNumber();
-			return true;
-		}
+		// Vec3 input parsing delegates to UEMCP::ParseVector3 (W-E adoption — see
+		// TransformParser.h). Local helper removed.
 
 		// ── Actor lookup (light wrapper — Geometry tools always work on
 		//    ADynamicMeshActor, narrower than ActorHandlers' general lookup). ─
@@ -150,7 +139,8 @@ namespace UEMCP
 			FVector Location(0.0);
 			if (Params->HasField(TEXT("location")))
 			{
-				TryReadVector3(Params, TEXT("location"), Location);
+				FString TransformErr;
+				UEMCP::ParseVector3(Params, TEXT("location"), Location, TransformErr);
 			}
 
 			double Size = 100.0;

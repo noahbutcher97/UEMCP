@@ -14,7 +14,19 @@
  *   "scale":    [x, y, z]                (FVector)
  *
  * Malformed fields (wrong type, wrong length, non-numeric elements) fail the
- * whole parse — no silent coercion. See docs/specs/phase3-plugin-design-inputs.md P0-10.
+ * whole parse — no silent coercion. ParseVector3 / ParseRotator are exact-3-element
+ * (>= 3 was the old TryReadVector3 contract; ParseVector3 is stricter — invalid
+ * input now produces a typed error instead of partial-read).
+ *
+ * Production callers (post W-E adoption, 2026-05-03):
+ *   - ActorHandlers.cpp (HandleSpawnActor / HandleSetActorTransform / HandleSpawnBlueprintActor /
+ *     HandleFocusViewport) — replaced 8 in-place TryReadVector3/TryReadRotator call sites
+ *   - BlueprintHandlers.cpp (HandleAddComponentToBlueprint) — replaced 3 call sites
+ *   - GeometryHandlers.cpp (HandleCreateProceduralMesh) — replaced 1 call site
+ * Adopting the parser eliminated 5 anonymous-namespace duplicate definitions across
+ * ActorHandlers + BlueprintHandlers + GeometryHandlers, unblocking bUseUnity = true.
+ *
+ * See docs/specs/phase3-plugin-design-inputs.md P0-10.
  */
 namespace UEMCP
 {

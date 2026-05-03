@@ -6,13 +6,23 @@
 #include "Dom/JsonValue.h"
 
 /**
- * P0-4: Property-type handler registry for set_actor_property / set_component_property.
+ * P0-4: Property-type handler registry for FProperty dispatch.
  *
- * M1 ships the registry infrastructure + scalar handlers (int, float, double, bool, string, name).
- * Struct / vector / object / array handlers are M3+ per-command scope.
+ * Default handlers (registered at construction): IntProperty, FloatProperty, DoubleProperty,
+ * BoolProperty, StrProperty, NameProperty (scalars) plus ByteProperty + EnumProperty with
+ * oracle-parity enum-name resolution (numeric-string fast path, "Namespace::Value" splitting,
+ * UEnum::GetValueByNameString lookup with raw-string fallback).
+ *
+ * Production callers (post W-E adoption, 2026-05-03):
+ *   - ActorHandlers.cpp::SetActorPropertyValue  → set_actor_property / set_component_property
+ *   - BlueprintHandlers.cpp::SetUProperty       → set_blueprint_property / set_default_value
+ * Both wrappers resolve the property by name and delegate type dispatch to Registry.Handle.
+ * Adopting the registry eliminated ~200 lines of duplicated switch-on-FProperty-class logic
+ * and unblocked bUseUnity = true (UEMCP.Build.cs).
  *
  * Registration uses the REGISTER_PROPERTY_HANDLER macro; call it from RegisterDefaultHandlers()
- * (invoked once at module startup) for built-ins and from M3+ command registration for extensions.
+ * (invoked once at module startup) for built-ins and from per-command code for extensions
+ * (e.g., struct/vector/object handlers that future workers add).
  *
  * See docs/specs/phase3-plugin-design-inputs.md P0-4.
  */

@@ -171,6 +171,112 @@ namespace UEMCP
 				return true;
 			});
 
-		// Struct / vector / object / array handlers intentionally omitted — M3+ adds per-command.
+		// --- Enum-bearing handlers (W-E adoption, ported from SetActorPropertyValue / SetUProperty) ---
+		//
+		// Both ByteProperty (legacy TEnumAsByte<E>) and EnumProperty (modern enum class)
+		// accept either an integer JSON value or a string name. String-name resolution is
+		// oracle-parity: numeric-string fast path ("2" → 2), "Namespace::Value" splitting,
+		// then UEnum::GetValueByNameString on the post-split tail, with a final fallback
+		// to the raw original string. INDEX_NONE on miss → typed error.
+
+		Handlers.Add(FName(TEXT("ByteProperty")),
+			[](void* Container, FProperty* Prop, const TSharedPtr<FJsonValue>& Value, FString& OutError) -> bool
+			{
+				FByteProperty* ByteProp = CastField<FByteProperty>(Prop);
+				if (!ByteProp)
+				{
+					OutError = TEXT("property class mismatch (expected FByteProperty)");
+					return false;
+				}
+				void* Addr = Prop->ContainerPtrToValuePtr<void>(Container);
+				UEnum* EnumDef = ByteProp->GetIntPropertyEnum();
+				if (EnumDef && Value.IsValid() && Value->Type == EJson::String)
+				{
+					FString EnumName = Value->AsString();
+					if (EnumName.IsNumeric())
+					{
+						ByteProp->SetPropertyValue(Addr, static_cast<uint8>(FCString::Atoi(*EnumName)));
+						return true;
+					}
+					if (EnumName.Contains(TEXT("::")))
+					{
+						EnumName.Split(TEXT("::"), nullptr, &EnumName);
+					}
+					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
+					if (EnumValue == INDEX_NONE)
+					{
+						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
+					}
+					if (EnumValue == INDEX_NONE)
+					{
+						OutError = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
+						return false;
+					}
+					ByteProp->SetPropertyValue(Addr, static_cast<uint8>(EnumValue));
+					return true;
+				}
+				double Num = 0.0;
+				if (!Value->TryGetNumber(Num))
+				{
+					OutError = TEXT("expected number or enum string for ByteProperty");
+					return false;
+				}
+				ByteProp->SetPropertyValue(Addr, static_cast<uint8>(Num));
+				return true;
+			});
+
+		Handlers.Add(FName(TEXT("EnumProperty")),
+			[](void* Container, FProperty* Prop, const TSharedPtr<FJsonValue>& Value, FString& OutError) -> bool
+			{
+				FEnumProperty* EnumProp = CastField<FEnumProperty>(Prop);
+				if (!EnumProp)
+				{
+					OutError = TEXT("property class mismatch (expected FEnumProperty)");
+					return false;
+				}
+				UEnum* EnumDef = EnumProp->GetEnum();
+				FNumericProperty* Underlying = EnumProp->GetUnderlyingProperty();
+				if (!EnumDef || !Underlying)
+				{
+					OutError = TEXT("FEnumProperty missing enum definition");
+					return false;
+				}
+				void* Addr = Prop->ContainerPtrToValuePtr<void>(Container);
+				if (Value.IsValid() && Value->Type == EJson::String)
+				{
+					FString EnumName = Value->AsString();
+					if (EnumName.IsNumeric())
+					{
+						Underlying->SetIntPropertyValue(Addr, static_cast<int64>(FCString::Atoi(*EnumName)));
+						return true;
+					}
+					if (EnumName.Contains(TEXT("::")))
+					{
+						EnumName.Split(TEXT("::"), nullptr, &EnumName);
+					}
+					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
+					if (EnumValue == INDEX_NONE)
+					{
+						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
+					}
+					if (EnumValue == INDEX_NONE)
+					{
+						OutError = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
+						return false;
+					}
+					Underlying->SetIntPropertyValue(Addr, EnumValue);
+					return true;
+				}
+				double Num = 0.0;
+				if (!Value->TryGetNumber(Num))
+				{
+					OutError = TEXT("expected number or enum string for EnumProperty");
+					return false;
+				}
+				Underlying->SetIntPropertyValue(Addr, static_cast<int64>(Num));
+				return true;
+			});
+
+		// Struct / vector / object / array handlers intentionally omitted — per-command scope.
 	}
 }

@@ -5,6 +5,8 @@
 #include "BlueprintLookupHelper.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
+#include "PropertyHandlerRegistry.h"
+#include "TransformParser.h"
 
 #include "Camera/CameraActor.h"
 #include "Editor.h"
@@ -35,37 +37,10 @@ namespace UEMCP
 	{
 		// ── JSON helpers (oracle-parity vector/rotator shapes) ───────────────────
 		//
-		// Oracle convention: vectors/scales as [x, y, z]; rotators as [pitch, yaw, roll].
-		// Our handlers preserve the exact array layout so migrated callers see no
-		// numeric reshape. Returning false on bad shape lets handlers emit a typed
-		// MISSING_PARAMS / BAD_VECTOR error rather than silently zeroing like the
-		// oracle's GetVectorFromJson did.
-
-		bool TryReadVector3(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, FVector& Out)
-		{
-			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-			if (!Params->TryGetArrayField(Field, Arr) || Arr == nullptr || Arr->Num() < 3)
-			{
-				return false;
-			}
-			Out.X = (*Arr)[0]->AsNumber();
-			Out.Y = (*Arr)[1]->AsNumber();
-			Out.Z = (*Arr)[2]->AsNumber();
-			return true;
-		}
-
-		bool TryReadRotator(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, FRotator& Out)
-		{
-			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-			if (!Params->TryGetArrayField(Field, Arr) || Arr == nullptr || Arr->Num() < 3)
-			{
-				return false;
-			}
-			Out.Pitch = (*Arr)[0]->AsNumber();
-			Out.Yaw   = (*Arr)[1]->AsNumber();
-			Out.Roll  = (*Arr)[2]->AsNumber();
-			return true;
-		}
+		// Vector/rotator INPUT parsing is delegated to UEMCP::ParseVector3 / ParseRotator
+		// (W-E adoption — see TransformParser.h). Output formatters stay local because
+		// they're oracle-parity wire shapes ([x,y,z] vector, [pitch,yaw,roll] rotator)
+		// and have no equivalent in TransformParser.
 
 		TArray<TSharedPtr<FJsonValue>> Vec3ToJson(const FVector& V)
 		{
@@ -154,7 +129,13 @@ namespace UEMCP
 			return nullptr;
 		}
 
-		// ── Property setter (oracle-parity coercion: bool/int/float/string/enum) ─
+		// ── Property setter (delegates to PropertyHandlerRegistry — W-E adoption) ─
+		//
+		// Resolves the property by name, then dispatches by FProperty class via
+		// FPropertyHandlerRegistry::Handle. Registry covers Int/Float/Double/Bool/Str/Name
+		// scalars + Byte/Enum (oracle-parity name resolution). Type-mismatch JSON now
+		// fails with a typed error instead of silent coercion to zero — registry
+		// contract per UEMCPTests.cpp PropertyHandlerRegistry.Invalid.
 
 		bool SetActorPropertyValue(UObject* Object, const FString& PropertyName,
 			const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
@@ -170,108 +151,15 @@ namespace UEMCP
 				OutErrorMessage = FString::Printf(TEXT("Property not found: %s"), *PropertyName);
 				return false;
 			}
-			void* Addr = Property->ContainerPtrToValuePtr<void>(Object);
-
-			if (Property->IsA<FBoolProperty>())
+			if (!UEMCP::FPropertyHandlerRegistry::Get().Handle(Object, Property, Value, OutErrorMessage))
 			{
-				static_cast<FBoolProperty*>(Property)->SetPropertyValue(Addr, Value->AsBool());
-				return true;
-			}
-			if (Property->IsA<FIntProperty>())
-			{
-				static_cast<FIntProperty*>(Property)->SetPropertyValue(Addr, static_cast<int32>(Value->AsNumber()));
-				return true;
-			}
-			if (Property->IsA<FFloatProperty>())
-			{
-				static_cast<FFloatProperty*>(Property)->SetPropertyValue(Addr, static_cast<float>(Value->AsNumber()));
-				return true;
-			}
-			if (Property->IsA<FDoubleProperty>())
-			{
-				static_cast<FDoubleProperty*>(Property)->SetPropertyValue(Addr, Value->AsNumber());
-				return true;
-			}
-			if (Property->IsA<FStrProperty>())
-			{
-				static_cast<FStrProperty*>(Property)->SetPropertyValue(Addr, Value->AsString());
-				return true;
-			}
-			if (Property->IsA<FByteProperty>())
-			{
-				FByteProperty* ByteProp = CastField<FByteProperty>(Property);
-				UEnum* EnumDef = ByteProp ? ByteProp->GetIntPropertyEnum() : nullptr;
-				if (EnumDef && Value->Type == EJson::String)
+				if (OutErrorMessage.IsEmpty())
 				{
-					FString EnumName = Value->AsString();
-					// Numeric-string fast path (oracle parity): "2" → 2.
-					if (EnumName.IsNumeric())
-					{
-						ByteProp->SetPropertyValue(Addr, static_cast<uint8>(FCString::Atoi(*EnumName)));
-						return true;
-					}
-					if (EnumName.Contains(TEXT("::")))
-					{
-						EnumName.Split(TEXT("::"), nullptr, &EnumName);
-					}
-					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
-					if (EnumValue == INDEX_NONE)
-					{
-						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
-					}
-					if (EnumValue == INDEX_NONE)
-					{
-						OutErrorMessage = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
-						return false;
-					}
-					ByteProp->SetPropertyValue(Addr, static_cast<uint8>(EnumValue));
-					return true;
+					OutErrorMessage = FString::Printf(TEXT("Unsupported property type for '%s'"), *PropertyName);
 				}
-				ByteProp->SetPropertyValue(Addr, static_cast<uint8>(Value->AsNumber()));
-				return true;
+				return false;
 			}
-			if (Property->IsA<FEnumProperty>())
-			{
-				FEnumProperty* EnumProp = CastField<FEnumProperty>(Property);
-				UEnum* EnumDef = EnumProp ? EnumProp->GetEnum() : nullptr;
-				FNumericProperty* Underlying = EnumProp ? EnumProp->GetUnderlyingProperty() : nullptr;
-				if (!EnumDef || !Underlying)
-				{
-					OutErrorMessage = TEXT("FEnumProperty missing enum definition");
-					return false;
-				}
-				if (Value->Type == EJson::String)
-				{
-					FString EnumName = Value->AsString();
-					// Numeric-string fast path (oracle parity).
-					if (EnumName.IsNumeric())
-					{
-						Underlying->SetIntPropertyValue(Addr, static_cast<int64>(FCString::Atoi(*EnumName)));
-						return true;
-					}
-					if (EnumName.Contains(TEXT("::")))
-					{
-						EnumName.Split(TEXT("::"), nullptr, &EnumName);
-					}
-					int64 EnumValue = EnumDef->GetValueByNameString(EnumName);
-					if (EnumValue == INDEX_NONE)
-					{
-						EnumValue = EnumDef->GetValueByNameString(Value->AsString());
-					}
-					if (EnumValue == INDEX_NONE)
-					{
-						OutErrorMessage = FString::Printf(TEXT("Could not find enum value for '%s'"), *Value->AsString());
-						return false;
-					}
-					Underlying->SetIntPropertyValue(Addr, EnumValue);
-					return true;
-				}
-				Underlying->SetIntPropertyValue(Addr, static_cast<int64>(Value->AsNumber()));
-				return true;
-			}
-
-			OutErrorMessage = FString::Printf(TEXT("Unsupported property type for '%s'"), *PropertyName);
-			return false;
+			return true;
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
@@ -365,9 +253,10 @@ namespace UEMCP
 			FVector Location(0.0f);
 			FRotator Rotation(0.0f);
 			FVector Scale(1.0f);
-			if (Params->HasField(TEXT("location"))) TryReadVector3(Params, TEXT("location"), Location);
-			if (Params->HasField(TEXT("rotation"))) TryReadRotator(Params, TEXT("rotation"), Rotation);
-			if (Params->HasField(TEXT("scale")))    TryReadVector3(Params, TEXT("scale"),    Scale);
+			FString TransformErr;
+			if (Params->HasField(TEXT("location"))) UEMCP::ParseVector3(Params, TEXT("location"), Location, TransformErr);
+			if (Params->HasField(TEXT("rotation"))) UEMCP::ParseRotator(Params, TEXT("rotation"), Rotation, TransformErr);
+			if (Params->HasField(TEXT("scale")))    UEMCP::ParseVector3(Params, TEXT("scale"),    Scale,    TransformErr);
 
 			UWorld* World = GetEditorWorld();
 			if (!World)
@@ -480,20 +369,21 @@ namespace UEMCP
 
 			// Partial-update: read current, overlay any specified fields.
 			FTransform Xform = Actor->GetTransform();
+			FString TransformErr;
 			if (Params->HasField(TEXT("location")))
 			{
 				FVector Loc = Xform.GetLocation();
-				if (TryReadVector3(Params, TEXT("location"), Loc)) Xform.SetLocation(Loc);
+				if (UEMCP::ParseVector3(Params, TEXT("location"), Loc, TransformErr)) Xform.SetLocation(Loc);
 			}
 			if (Params->HasField(TEXT("rotation")))
 			{
 				FRotator Rot = Xform.GetRotation().Rotator();
-				if (TryReadRotator(Params, TEXT("rotation"), Rot)) Xform.SetRotation(FQuat(Rot));
+				if (UEMCP::ParseRotator(Params, TEXT("rotation"), Rot, TransformErr)) Xform.SetRotation(FQuat(Rot));
 			}
 			if (Params->HasField(TEXT("scale")))
 			{
 				FVector S = Xform.GetScale3D();
-				if (TryReadVector3(Params, TEXT("scale"), S)) Xform.SetScale3D(S);
+				if (UEMCP::ParseVector3(Params, TEXT("scale"), S, TransformErr)) Xform.SetScale3D(S);
 			}
 			Actor->SetActorTransform(Xform);
 
@@ -650,9 +540,10 @@ namespace UEMCP
 			FVector Location(0.0f);
 			FRotator Rotation(0.0f);
 			FVector Scale(1.0f);
-			if (Params->HasField(TEXT("location"))) TryReadVector3(Params, TEXT("location"), Location);
-			if (Params->HasField(TEXT("rotation"))) TryReadRotator(Params, TEXT("rotation"), Rotation);
-			if (Params->HasField(TEXT("scale")))    TryReadVector3(Params, TEXT("scale"),    Scale);
+			FString TransformErr;
+			if (Params->HasField(TEXT("location"))) UEMCP::ParseVector3(Params, TEXT("location"), Location, TransformErr);
+			if (Params->HasField(TEXT("rotation"))) UEMCP::ParseRotator(Params, TEXT("rotation"), Rotation, TransformErr);
+			if (Params->HasField(TEXT("scale")))    UEMCP::ParseVector3(Params, TEXT("scale"),    Scale,    TransformErr);
 
 			UWorld* World = GetEditorWorld();
 			if (!World)
@@ -689,8 +580,9 @@ namespace UEMCP
 			const bool bHasTarget = Params->TryGetStringField(TEXT("target"), TargetName);
 
 			FVector Location(0.0f);
+			FString TransformErr;
 			const bool bHasLocation = Params->HasField(TEXT("location"))
-				&& TryReadVector3(Params, TEXT("location"), Location);
+				&& UEMCP::ParseVector3(Params, TEXT("location"), Location, TransformErr);
 
 			if (!bHasTarget && !bHasLocation)
 			{
@@ -708,7 +600,7 @@ namespace UEMCP
 
 			FRotator Orientation(0.0f);
 			const bool bHasOrientation = Params->HasField(TEXT("orientation"))
-				&& TryReadRotator(Params, TEXT("orientation"), Orientation);
+				&& UEMCP::ParseRotator(Params, TEXT("orientation"), Orientation, TransformErr);
 
 			if (!GEditor || !GEditor->GetActiveViewport() || !GEditor->GetActiveViewport()->GetClient())
 			{
