@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin (Phase 3, not yet implemented)
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for all 120 tools
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for all 127 tools (6 mgmt + 121 across 16 toolsets; per Gauntlet V40)
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -26,7 +26,7 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 ## Dynamic Toolset System
 
-120 tools across 15 toolsets + 6 always-loaded management tools. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
+127 tools across 16 toolsets + 6 always-loaded management tools. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control

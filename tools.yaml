@@ -47,7 +47,7 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (15 toolsets, 114 tools) — plus 6 management tools above = 120 total
+# Toolsets (16 toolsets, 121 tools) — plus 6 management tools above = 127 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
