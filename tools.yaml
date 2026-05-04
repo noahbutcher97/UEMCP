@@ -379,10 +379,11 @@ toolsets:
           property_name:  { type: string, required: true, description: "UProperty name on the actor" }
           property_value: { type: any, required: true, description: "Value — type coerced to match UProperty" }
       spawn_blueprint_actor:
-        description: Spawn instance of a Blueprint class
+        description: Spawn instance of a Blueprint class. Pass `name` (canonical, matches spawn_actor); `actor_name` is a deprecated back-compat alias and one of the two is required.
         params:
           blueprint_name: { type: string, required: true, description: "Bare asset name (resolved via /Game/Blueprints/ then AssetRegistry) OR fully-qualified /Game/... path" }
-          actor_name:     { type: string, required: true, description: "Name for the spawned actor" }
+          name:           { type: string, required: false, description: "Name for the spawned actor (canonical — matches spawn_actor + create_procedural_mesh)" }
+          actor_name:     { type: string, required: false, description: "Deprecated alias for `name`. Server prefers `name` if both are provided." }
           location:       { type: array, required: false, description: "[x, y, z] default [0,0,0]" }
           rotation:       { type: array, required: false, description: "[pitch, yaw, roll] default [0,0,0]" }
           scale:          { type: array, required: false, description: "[x, y, z] default [1,1,1]" }
@@ -412,10 +413,11 @@ toolsets:
       add_input_action_node stays under widgets (already listed there).
     tools:
       create_blueprint:
-        description: Create new Blueprint class under /Game/Blueprints/<name>. Other tools in this toolset accept either a bare asset name or a fully-qualified /Game/... path for blueprint_name (resolved via AssetRegistry).
+        description: Create new Blueprint class. Default content path /Game/Blueprints/<name>; pass `path` to override. Other tools in this toolset accept either a bare asset name or a fully-qualified /Game/... path for blueprint_name (resolved via AssetRegistry).
         params:
-          name:         { type: string, required: true, description: "Blueprint asset name (created at /Game/Blueprints/<name>)" }
+          name:         { type: string, required: true, description: "Blueprint asset name" }
           parent_class: { type: string, required: false, description: "Parent class name, default AActor. Supports Pawn/Actor shorthand." }
+          path:         { type: string, required: false, description: "Content package path (e.g. /Game/Custom/Logic). Default /Game/Blueprints/." }
       add_component:
         wire_type: add_component_to_blueprint
         description: Add component to Blueprint (auto-compiles after adding)
@@ -541,9 +543,10 @@ toolsets:
     tools:
       create_widget:
         wire_type: create_umg_widget_blueprint
-        description: Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel (compiles on creation to establish GeneratedClass)
+        description: Create UMG Widget Blueprint with root CanvasPanel (compiles on creation to establish GeneratedClass). Default content path /Game/Widgets/<name>; pass `path` to override.
         params:
           name: { type: string, required: true, description: "Widget blueprint name" }
+          path: { type: string, required: false, description: "Content package path (e.g. /Game/Custom/UI). Default /Game/Widgets/." }
       add_text_block:
         wire_type: add_text_block_to_widget
         description: Add text block to widget (requires root CanvasPanel). Does NOT auto-compile — call compile_blueprint after batch mutations to materialize generated-class properties.

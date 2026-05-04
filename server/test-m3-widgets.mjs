@@ -930,6 +930,95 @@ console.log('\n── Group 16: D118 — Per-tool Wire Timeout Override ──')
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 16.5: §4.5 — LoadAsset PIE-safe cascade refactor
+// ═══════════════════════════════════════════════════════════════
+//
+// D126 audit Class F + I.5: the LoadObject + UEditorAssetLibrary::LoadAsset
+// cascade originally inlined in WidgetHandlers::LoadWidgetBlueprintByName
+// (D99 #3 — survives PIE state) is now a templated helper at
+// Public/LoadAssetPIESafe.h, applied to 5 previously-unsafe LoadAsset
+// callsites. Wire-mock can't exercise PIE behavior (live-fire only),
+// but file-content regression catches accidental reintroduction of
+// raw UEditorAssetLibrary::LoadAsset calls in the affected handlers.
+
+console.log('\n── Group 16.5: §4.5 LoadAsset PIE-safe cascade ──');
+
+{
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const url = await import('node:url');
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const repoRoot = path.join(here, '..');
+
+  // Helper exists at the canonical path
+  const helperPath = path.join(repoRoot, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Public', 'LoadAssetPIESafe.h');
+  const helperText = await fs.readFile(helperPath, 'utf8').catch(() => '');
+  t.assert(helperText.length > 0,
+    '§4.5: Public/LoadAssetPIESafe.h header exists');
+  t.assert(/template<typename T>\s*\n\s*T\* LoadAssetPIESafe/.test(helperText),
+    '§4.5: helper is template-parameterized on T');
+  t.assert(/UEditorAssetLibrary::LoadAsset/.test(helperText),
+    '§4.5: helper retains UEditorAssetLibrary::LoadAsset as final fallback (Step 3)');
+
+  // Affected files include the helper
+  for (const f of ['WidgetHandlers.cpp', 'BlueprintHandlers.cpp', 'EditorUtilityHandlers.cpp']) {
+    const cppPath = path.join(repoRoot, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', f);
+    const cppText = await fs.readFile(cppPath, 'utf8');
+    t.assert(/#include "LoadAssetPIESafe\.h"/.test(cppText),
+      `§4.5: ${f} includes LoadAssetPIESafe.h`);
+    t.assert(/UEMCP::LoadAssetPIESafe</.test(cppText),
+      `§4.5: ${f} calls UEMCP::LoadAssetPIESafe<T>`);
+    // After refactor: NO direct UEditorAssetLibrary::LoadAsset calls remain
+    // in these files. (UEditorAssetLibrary::DoesAssetExist is a different
+    // method — used for create-time existence checks — and is permitted.)
+    t.assert(!/UEditorAssetLibrary::LoadAsset\(/.test(cppText),
+      `§4.5: ${f} no longer calls UEditorAssetLibrary::LoadAsset directly (cascade goes through helper)`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 17: §4 — create_widget optional `path` override
+// ═══════════════════════════════════════════════════════════════
+//
+// Pre-§4: create_widget always landed at /Game/Widgets/<name>. Post-§4 it
+// accepts an optional `path` param mirroring create_montage / create_material.
+// Backwards-compat: omitting `path` → wire param `path` absent → C++ defaults
+// to /Game/Widgets/.
+
+console.log('\n── Group 17: §4 create_widget optional path override ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_umg_widget_blueprint',
+    { status: 'success', result: { name: 'W', path: '/Game/Widgets/W' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // No `path` → wire-param `path` absent (C++ falls back to /Game/Widgets/)
+  await executeWidgetsTool('create_widget', { name: 'W' }, cm);
+  let call = fake.lastCall('create_umg_widget_blueprint');
+  t.assert(call.params.path === undefined,
+    '§4: create_widget without `path` does not send `path` to wire (C++ default kicks in)');
+
+  // With `path` → wire-param propagates
+  fake.resetCalls();
+  await executeWidgetsTool('create_widget',
+    { name: 'W', path: '/Game/Custom/UI' }, cm);
+  call = fake.lastCall('create_umg_widget_blueprint');
+  t.assert(call.params.path === '/Game/Custom/UI',
+    '§4: create_widget `path` override propagates to wire unmodified');
+
+  // Schema rejects non-string path
+  await t.assertRejects(
+    () => executeWidgetsTool('create_widget', { name: 'W', path: 42 }, cm),
+    /Expected string|invalid_type/i,
+    '§4: create_widget rejects non-string `path` at Zod layer',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

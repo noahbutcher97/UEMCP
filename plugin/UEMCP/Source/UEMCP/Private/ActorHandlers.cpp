@@ -318,6 +318,14 @@ namespace UEMCP
 				return;
 			}
 
+			// D131 NEW-9b: outliner display label. SpawnParams.Name only sets the
+			// internal FName; without SetActorLabel the outliner shows the class
+			// name (e.g. "PointLight") instead of ActorName.
+			if (!ActorName.IsEmpty())
+			{
+				NewActor->SetActorLabel(*ActorName);
+			}
+
 			// Apply scale post-spawn (SpawnActor takes only Location/Rotation).
 			FTransform Xform = NewActor->GetTransform();
 			Xform.SetScale3D(Scale);
@@ -564,6 +572,11 @@ namespace UEMCP
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to spawn blueprint actor"), TEXT("SPAWN_FAILED"));
 				return;
+			}
+			// D131 NEW-9b: outliner display label (see HandleSpawnActor for rationale).
+			if (!ActorName.IsEmpty())
+			{
+				NewActor->SetActorLabel(*ActorName);
 			}
 			BuildSuccessResponse(OutResponse, ActorToJsonObject(NewActor));
 		}

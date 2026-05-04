@@ -65,9 +65,10 @@ export function initWidgetsTools(toolsData) {
 export const WIDGETS_SCHEMAS = {
 
   create_widget: {
-    description: 'Create UMG Widget Blueprint at /Game/Widgets/<name> with root CanvasPanel',
+    description: 'Create UMG Widget Blueprint with root CanvasPanel. Default content path /Game/Widgets/<name>; pass `path` to override.',
     schema: {
       name: z.string().describe('Widget blueprint name'),
+      path: z.string().optional().describe('Content package path (e.g. /Game/Custom/UI). Default /Game/Widgets/.'),
     },
     isReadOp: false,
   },

@@ -30,6 +30,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "BlueprintLookupHelper.h"
+#include "LoadAssetPIESafe.h"
 #include "UObject/Package.h"
 #include "WidgetBlueprint.h"
 
@@ -39,13 +40,11 @@ namespace UEMCP
 	{
 		// ── Path + lookup helpers ────────────────────────────────────────────────
 		//
-		// Widget blueprints live at /Game/Widgets/<name>. UEditorAssetLibrary::LoadAsset
-		// resolves the package-path form reliably in editor mode but fails when PIE is
-		// active (D99 finding #3 — empirically observed: "Widget Blueprint 'X' not
-		// found" in PIE; same path resolves clean PIE-off). Use LoadObject directly
-		// with the canonical doubled object-path form, which works regardless of PIE
-		// world state. Falls back to the package-path form via LoadObject for any
-		// edge case where the doubled form doesn't resolve.
+		// Widget blueprints live at /Game/Widgets/<name>. The PIE-safe load cascade
+		// (D99 #3) lives in UEMCP::LoadAssetPIESafe (Public/LoadAssetPIESafe.h) —
+		// it tries LoadObject first (which survives PIE state) and falls back to
+		// UEditorAssetLibrary::LoadAsset only for edge cases that resolve solely
+		// through the editor-asset library.
 
 		FString WidgetAssetPath(const FString& BlueprintName)
 		{
@@ -55,19 +54,8 @@ namespace UEMCP
 		UWidgetBlueprint* LoadWidgetBlueprintByName(const FString& BlueprintName, FString& OutError)
 		{
 			const FString PackagePath = WidgetAssetPath(BlueprintName);
-			const FString ObjectPath = FString::Printf(TEXT("/Game/Widgets/%s.%s"), *BlueprintName, *BlueprintName);
-
-			// Canonical doubled form via LoadObject — survives PIE state where
-			// UEditorAssetLibrary::LoadAsset can fail to resolve.
-			UWidgetBlueprint* WB = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPath);
-			if (!WB)
-			{
-				WB = LoadObject<UWidgetBlueprint>(nullptr, *PackagePath);
-			}
-			if (!WB)
-			{
-				WB = Cast<UWidgetBlueprint>(UEditorAssetLibrary::LoadAsset(PackagePath));
-			}
+			// §4.5: cascade now lives in UEMCP::LoadAssetPIESafe (Public/LoadAssetPIESafe.h).
+			UWidgetBlueprint* WB = UEMCP::LoadAssetPIESafe<UWidgetBlueprint>(PackagePath);
 			if (!WB)
 			{
 				OutError = FString::Printf(TEXT("Widget Blueprint '%s' not found at %s"), *BlueprintName, *PackagePath);
@@ -106,7 +94,19 @@ namespace UEMCP
 				return;
 			}
 
-			const FString FullPath = WidgetAssetPath(BlueprintName);
+			// §4: optional `path` override (mirrors create_montage / create_material).
+			// Default `/Game/Widgets/` preserves pre-§4 callers; trailing slash
+			// normalized so callers passing either form land at the same location.
+			FString PackagePath;
+			if (!Params->TryGetStringField(TEXT("path"), PackagePath) || PackagePath.IsEmpty())
+			{
+				PackagePath = TEXT("/Game/Widgets/");
+			}
+			if (!PackagePath.EndsWith(TEXT("/")))
+			{
+				PackagePath += TEXT("/");
+			}
+			const FString FullPath = PackagePath + BlueprintName;
 			if (UEditorAssetLibrary::DoesAssetExist(FullPath))
 			{
 				BuildErrorResponse(OutResponse,
@@ -761,7 +761,9 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, ResolveError, ResolveErrorCode);
 				return;
 			}
-			UBlueprint* Blueprint = Cast<UBlueprint>(UEditorAssetLibrary::LoadAsset(BlueprintPath));
+			// §4.5: PIE-safe load (D99 #3 generalization — Blueprint resolution
+			// can also fail under PIE for the same reason WidgetBlueprint did).
+			UBlueprint* Blueprint = UEMCP::LoadAssetPIESafe<UBlueprint>(BlueprintPath);
 			if (!Blueprint)
 			{
 				BuildErrorResponse(OutResponse,

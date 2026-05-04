@@ -719,6 +719,62 @@ console.log('\n── Group 13: D109 — spawn_blueprint_actor resolution surfac
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 14: §3.5 Class G — spawn_blueprint_actor wire-param drift fix
+// ═══════════════════════════════════════════════════════════════
+//
+// Pre-fix: spawn_blueprint_actor required `actor_name`, while spawn_actor /
+// create_procedural_mesh used `name` — script authors had to remember the
+// exception. Fix accepts both at the JS layer; canonical `name` wins when
+// both are provided; `actor_name` (legacy) still works unchanged. Wire
+// param to C++ remains `actor_name` so the plugin handler is back-compat.
+
+console.log('\n── Group 14: §3.5 spawn-family wire-param drift ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('spawn_blueprint_actor', {
+    status: 'success',
+    result: { name: 'BP_X_1', class: 'BP_X_C', location: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Canonical `name` translates to wire `actor_name`
+  await executeActorsTool('spawn_blueprint_actor',
+    { blueprint_name: 'BP_X', name: 'BP_X_1' }, cm);
+  let call = fake.lastCall('spawn_blueprint_actor');
+  t.assert(call.params.actor_name === 'BP_X_1',
+    '§3.5: canonical `name` translates to wire `actor_name` for C++ back-compat');
+  t.assert(call.params.name === undefined,
+    '§3.5: caller-side `name` is stripped before wire dispatch (no double-key)');
+
+  // Legacy `actor_name` continues to work
+  fake.resetCalls();
+  await executeActorsTool('spawn_blueprint_actor',
+    { blueprint_name: 'BP_X', actor_name: 'BP_X_2' }, cm);
+  call = fake.lastCall('spawn_blueprint_actor');
+  t.assert(call.params.actor_name === 'BP_X_2',
+    '§3.5: legacy `actor_name` passes through unchanged');
+
+  // Both provided → `name` wins
+  fake.resetCalls();
+  await executeActorsTool('spawn_blueprint_actor',
+    { blueprint_name: 'BP_X', name: 'NewName', actor_name: 'OldName' }, cm);
+  call = fake.lastCall('spawn_blueprint_actor');
+  t.assert(call.params.actor_name === 'NewName',
+    '§3.5: when both provided, canonical `name` wins over `actor_name`');
+
+  // Neither provided → throws before wire
+  await t.assertRejects(
+    () => executeActorsTool('spawn_blueprint_actor', { blueprint_name: 'BP_X' }, cm),
+    /name.*actor_name.*required/i,
+    '§3.5: missing both `name` and `actor_name` rejects before wire dispatch',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

@@ -176,6 +176,11 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Failed to spawn ADynamicMeshActor"), TEXT("SPAWN_FAILED"));
 				return;
 			}
+			// D131 NEW-9b: outliner display label (see ActorHandlers.cpp HandleSpawnActor).
+			if (!ActorName.IsEmpty())
+			{
+				MeshActor->SetActorLabel(*ActorName);
+			}
 
 			UDynamicMeshComponent* MeshComp = MeshActor->GetDynamicMeshComponent();
 			UDynamicMesh* TargetMesh = MeshComp ? MeshComp->GetDynamicMesh() : nullptr;

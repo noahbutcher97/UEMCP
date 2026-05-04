@@ -729,6 +729,48 @@ console.log('\n── Group 12: D109 — blueprints-write resolution surface ─
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group N: §4 — create_blueprint optional `path` override
+// ═══════════════════════════════════════════════════════════════
+//
+// Pre-§4: create_blueprint always landed at /Game/Blueprints/<name>. Post-§4
+// it accepts an optional `path` param mirroring create_montage / create_material.
+// Backwards-compat: omitting `path` → wire param `path` absent → C++ defaults
+// to /Game/Blueprints/.
+
+console.log('\n── Group N: §4 create_blueprint optional path override ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_blueprint',
+    { status: 'success', result: { name: 'BP_X', path: '/Game/Blueprints/BP_X' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // No `path` → wire-param `path` absent (C++ falls back to /Game/Blueprints/)
+  await executeBlueprintsWriteTool('create_blueprint', { name: 'BP_X' }, cm);
+  let call = fake.lastCall('create_blueprint');
+  t.assert(call.params.path === undefined,
+    '§4: create_blueprint without `path` does not send `path` to wire (C++ default kicks in)');
+
+  // With `path` → wire-param propagates
+  fake.resetCalls();
+  await executeBlueprintsWriteTool('create_blueprint',
+    { name: 'BP_X', path: '/Game/Custom/Logic' }, cm);
+  call = fake.lastCall('create_blueprint');
+  t.assert(call.params.path === '/Game/Custom/Logic',
+    '§4: create_blueprint `path` override propagates to wire unmodified');
+
+  // Schema rejects non-string path
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('create_blueprint', { name: 'BP_X', path: 42 }, cm),
+    /Expected string|invalid_type/i,
+    '§4: create_blueprint rejects non-string `path` at Zod layer',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

@@ -121,7 +121,11 @@ export const ACTORS_SCHEMAS = {
     description: 'Spawn instance of a Blueprint class in the level',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name (bare — resolved via /Game/Blueprints/ then AssetRegistry) OR fully-qualified /Game/... path'),
-      actor_name: z.string().describe('Name for the spawned actor'),
+      // §3.5 spawn-family wire-param drift fix: accept canonical `name` (matches
+      // spawn_actor + create_procedural_mesh) AND legacy `actor_name`. Both
+      // optional in the schema; one-of is enforced at executeActorsTool runtime.
+      name: z.string().optional().describe('Name for the spawned actor (canonical, matches spawn_actor)'),
+      actor_name: z.string().optional().describe('Deprecated alias for `name` — kept for back-compat'),
       location: Vec3Optional,
       rotation: Vec3Optional,
       scale: Vec3Optional,
@@ -176,6 +180,18 @@ export async function executeActorsTool(toolName, args, connectionManager) {
   let wireParams = { ...validated };
   if (toolName === 'get_actors') {
     delete wireParams.class_filter;
+  }
+
+  // §3.5 spawn_blueprint_actor wire-param drift: prefer `name`, fall back to
+  // legacy `actor_name`; translate to wire `actor_name` so the C++ handler
+  // (ActorHandlers.cpp HandleSpawnBlueprintActor) is unchanged.
+  if (toolName === 'spawn_blueprint_actor') {
+    const resolvedName = wireParams.name ?? wireParams.actor_name;
+    if (typeof resolvedName !== 'string' || resolvedName.length === 0) {
+      throw new Error("spawn_blueprint_actor: 'name' (or legacy 'actor_name') is required");
+    }
+    wireParams.actor_name = resolvedName;
+    delete wireParams.name;
   }
 
   return connectionManager.send('tcp-55558', typeString, wireParams, { skipCache: !def.isReadOp });

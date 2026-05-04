@@ -2,6 +2,7 @@
 #include "BlueprintHandlers.h"
 
 #include "BlueprintLookupHelper.h"
+#include "LoadAssetPIESafe.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "PropertyHandlerRegistry.h"
@@ -317,7 +318,18 @@ namespace UEMCP
 				return;
 			}
 
-			const FString PackagePath = TEXT("/Game/Blueprints/");
+			// §4: optional `path` override (mirrors create_montage / create_material).
+			// Default `/Game/Blueprints/` preserves pre-§4 callers; trailing slash
+			// normalized so callers passing either form land at the same location.
+			FString PackagePath;
+			if (!Params->TryGetStringField(TEXT("path"), PackagePath) || PackagePath.IsEmpty())
+			{
+				PackagePath = TEXT("/Game/Blueprints/");
+			}
+			if (!PackagePath.EndsWith(TEXT("/")))
+			{
+				PackagePath += TEXT("/");
+			}
 			if (UEditorAssetLibrary::DoesAssetExist(PackagePath + Name))
 			{
 				BuildErrorResponse(OutResponse,
@@ -673,14 +685,16 @@ namespace UEMCP
 			FString MeshPath, MaterialPath;
 			if (Params->TryGetStringField(TEXT("static_mesh"), MeshPath) && !MeshPath.IsEmpty())
 			{
-				if (UStaticMesh* Mesh = Cast<UStaticMesh>(UEditorAssetLibrary::LoadAsset(MeshPath)))
+				// §4.5: PIE-safe asset load (D99 #3 generalization).
+				if (UStaticMesh* Mesh = UEMCP::LoadAssetPIESafe<UStaticMesh>(MeshPath))
 				{
 					MeshComp->SetStaticMesh(Mesh);
 				}
 			}
 			if (Params->TryGetStringField(TEXT("material"), MaterialPath) && !MaterialPath.IsEmpty())
 			{
-				if (UMaterialInterface* Mat = Cast<UMaterialInterface>(UEditorAssetLibrary::LoadAsset(MaterialPath)))
+				// §4.5: PIE-safe asset load (D99 #3 generalization).
+				if (UMaterialInterface* Mat = UEMCP::LoadAssetPIESafe<UMaterialInterface>(MaterialPath))
 				{
 					MeshComp->SetMaterial(0, Mat);
 				}

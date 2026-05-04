@@ -13,6 +13,7 @@
 #include "EditorUtilityBlueprint.h"
 #include "EditorUtilityWidgetBlueprint.h"
 #include "IPythonScriptPlugin.h"
+#include "LoadAssetPIESafe.h"
 #include "Logging/LogMacros.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
@@ -253,7 +254,8 @@ namespace UEMCP
 				return;
 			}
 
-			UObject* Loaded = UEditorAssetLibrary::LoadAsset(AssetPath);
+			// §4.5: PIE-safe load (D99 #3 generalization).
+			UObject* Loaded = UEMCP::LoadAssetPIESafe<UObject>(AssetPath);
 			if (!Loaded)
 			{
 				BuildErrorResponse(OutResponse,
@@ -380,7 +382,8 @@ namespace UEMCP
 				return;
 			}
 
-			UObject* Loaded = UEditorAssetLibrary::LoadAsset(AssetPath);
+			// §4.5: PIE-safe load (D99 #3 generalization).
+			UObject* Loaded = UEMCP::LoadAssetPIESafe<UObject>(AssetPath);
 			if (!Loaded)
 			{
 				BuildErrorResponse(OutResponse,

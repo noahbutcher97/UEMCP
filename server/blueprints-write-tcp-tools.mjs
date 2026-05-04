@@ -60,10 +60,11 @@ export function initBlueprintsWriteTools(toolsData) {
 export const BLUEPRINTS_WRITE_SCHEMAS = {
 
   create_blueprint: {
-    description: 'Create new Blueprint class under /Game/Blueprints/<name>. Other handlers in this toolset accept either a bare asset name or a fully-qualified /Game/... path.',
+    description: 'Create new Blueprint class. Default content path /Game/Blueprints/<name>; pass `path` to override. Other handlers in this toolset accept either a bare asset name or a fully-qualified /Game/... path.',
     schema: {
       name: z.string().describe('Blueprint asset name'),
       parent_class: z.string().optional().describe('Parent class name, default AActor. Supports Pawn/Actor shorthand.'),
+      path: z.string().optional().describe('Content package path (e.g. /Game/Custom/Logic). Default /Game/Blueprints/.'),
     },
     isReadOp: false,
   },
