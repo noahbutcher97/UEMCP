@@ -81,5 +81,11 @@
   ],
   "autoDetect": {
     "type": "uproject"
+  },
+  "postSetup": {
+    "command": "sync-plugin.bat",
+    "args": ["{UNREAL_PROJECT_ROOT}/{UNREAL_PROJECT_NAME}.uproject", "--yes"],
+    "platform": "win32",
+    "description": "Copying UEMCP plugin into project's Plugins/ folder..."
   }
 }
