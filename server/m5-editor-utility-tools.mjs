@@ -130,6 +130,24 @@ export const M5_EDITOR_UTILITY_SCHEMAS = {
   },
 };
 
+// ── Per-tool wire timeout overrides (D125 / NEW-7) ────────────────
+//
+// Asset-management ops (rename / delete / duplicate) run on the GameThread
+// and exceed the default 5s TCP timeout. D125 smoke measured rename
+// 5238-6474ms, delete 2654-5489ms, duplicate 3641-3814ms — all over the
+// 5s default. The default-timeout error is a silent-success-on-disk trap:
+// the operation completes server-side, but the JS caller sees a timeout
+// and may retry, causing double-rename / double-delete data corruption.
+// 15s ceiling = ~2.3× empirical worst case; preserves the timeout's
+// diagnostic value (a TRUE wedge will still trip) while accommodating the
+// empirical norm. Mirrors WIDGETS_TIMEOUT_OVERRIDES (D118/D121) in
+// widgets-tcp-tools.mjs.
+const M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES = {
+  duplicate_asset:   15_000,
+  rename_asset:      15_000,
+  delete_asset_safe: 15_000,
+};
+
 /**
  * Layer 1 gate response — Python execution is server-policy disabled.
  * Returned client-side without ever talking to the plugin so flag denials
@@ -173,10 +191,14 @@ export async function executeM5EditorUtilityTool(toolName, args, connectionManag
   // Defense-in-depth Zod validation — same pattern as actors-tcp-tools.mjs.
   const validated = z.object(def.schema).parse(args);
 
+  const sendOpts = { skipCache: !def.isReadOp };
+  const timeoutOverride = M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES[toolName];
+  if (timeoutOverride !== undefined) {
+    sendOpts.timeoutMs = timeoutOverride;
+  }
+
   const wireType = M5_EDITOR_UTILITY_WIRE_MAP[toolName] || toolName;
-  return connectionManager.send(
-    'tcp-55558', wireType, validated, { skipCache: !def.isReadOp },
-  );
+  return connectionManager.send('tcp-55558', wireType, validated, sendOpts);
 }
 
 export function getM5EditorUtilityToolDefs() {

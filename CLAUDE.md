@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1993 unit-runnable assertions** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 20 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~1993 unit-runnable assertions** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 20 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (DXXX, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -631,10 +631,55 @@ stderr confirms which mitigations are active. Tests in
 `server/test-new-2-mitigation.mjs` verify each flag's wire-mock
 behavior plus the no-flags baseline.
 
+### Per-tool TCP timeout overrides — asset-mgmt + widgets (D118 / D121 / D125 / NEW-7)
+
+Three asset-mgmt handlers (`duplicate_asset` / `rename_asset` /
+`delete_asset_safe`) and two widget-property handlers
+(`bind_widget_event` / `set_text_block_binding`) run on the GameThread
+and exceed the default 5s TCP timeout under live editor conditions.
+D125 measured asset-mgmt durations of rename 5238-6474ms,
+delete 2654-5489ms, duplicate 3641-3814ms — all over the 5s default.
+The default-timeout error is a **silent-success-on-disk trap**: the
+operation completes server-side, but the JS caller sees a timeout and
+may retry, causing double-rename / double-delete data corruption.
+D125 verified via direct disk inspection that the rename / soft-delete
+DID succeed despite the timeout error returned to the caller.
+
+**Fix (NEW-7)**: per-toolset `*_TIMEOUT_OVERRIDES` tables apply a 15s
+ceiling for the 3 asset-mgmt tools (≈2.3× empirical worst case) and a
+10s ceiling for the 2 widget-property tools (D118 measured 5633ms
+under PIE for `bind_widget_event`). Tables live next to the schemas
+in their respective handler files:
+`server/m5-editor-utility-tools.mjs M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES`
+(rename / delete / duplicate, D125/NEW-7) and
+`server/widgets-tcp-tools.mjs WIDGETS_TIMEOUT_OVERRIDES`
+(bind_widget_event / set_text_block_binding, D118/D121).
+Override flows through `connectionManager.send(layer, type, params,
+{ timeoutMs })`; default per-call ceiling falls back to
+`config.tcpTimeoutMs` (5s).
+
+**Deferred — widget compile-on-write candidates (D126 audit Class C)**:
+five additional widget handlers (`create_widget`, `add_text_block`,
+`add_button`, `add_widget_to_viewport`, `add_input_action_node`) plus
+`compile_blueprint` call `CompileBlueprint` inline and may exceed 5s
+under PIE. Override extension is **DEFERRED** until the next smoke
+records their durations under PIE — premature override at 10s could
+mask real plugin-side regressions. If next-smoke shows any of them >3s
+under PIE, a follow-up worker extends overrides at that point.
+
+**Deferred — `tools.yaml timeout_ms:` centralization (INFO-level)**:
+the per-toolset-file table approach is sufficient for now; a unified
+`tools.yaml timeout_ms:` field would consolidate the convention when
+the pattern crosses 3+ files. Tracked for a future cleanup worker.
+
+**Async-job model (Option ii, deferred)**: future enhancement for
+batch UX where callers don't want to block synchronously for up to 15s
+per asset-mgmt op. Out of scope for the immediate silent-corruption fix.
+
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~1993 unit-runnable assertions across 20 test files** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123). test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~1993 unit-runnable assertions across 20 test files** (post-D123 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
 

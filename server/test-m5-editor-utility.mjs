@@ -493,6 +493,69 @@ console.log('\n── Group 8: Cache Semantics ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group 9: Per-tool TCP timeout overrides (D125 / NEW-7)
+// ═══════════════════════════════════════════════════════════════
+//
+// Asset-management ops (rename / delete / duplicate) exceed the 5s default
+// (D125: rename 5238-6474ms, delete 2654-5489ms, duplicate 3641-3814ms).
+// They get a 15s override applied via sendOpts.timeoutMs. FakeTcpResponder
+// records the per-call timeoutMs in `calls[i].timeoutMs`, so we can assert
+// the override propagated to the wire. Other tools must NOT carry the
+// override — verifies the table is keyed and that the override doesn't
+// leak across calls within the same ConnectionManager.
+
+console.log('\n── Group 9: Per-tool TCP timeout overrides (NEW-7) ──');
+
+{
+  initM5EditorUtilityTools(fakeToolsYaml, { pythonExecEnabled: true });
+  const fake = new FakeTcpResponder().on('ping', { status: 'success' });
+  fake.on('duplicate_asset',
+    { status: 'success', result: { new_path: '/Game/B', class: 'StaticMesh' } });
+  fake.on('rename_asset',
+    { status: 'success', result: { renamed: true, dest_path: '/Game/Renamed' } });
+  fake.on('delete_asset_safe',
+    { status: 'success', result: { mode: 'soft', deleted: true, num_referencers: 0, warnings: [] } });
+  fake.on('get_editor_utility_blueprint',
+    { status: 'success', result: { asset_path: '/Game/EUW', bp_type: 'EditorUtilityWidget' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Each asset-mgmt tool carries the 15s override.
+  await executeM5EditorUtilityTool('duplicate_asset',
+    { source_path: '/Game/A', dest_path: '/Game/B' }, cm);
+  t.assert(fake.lastCall('duplicate_asset').timeoutMs === 15_000,
+    'duplicate_asset wire call carries timeoutMs=15000 override');
+
+  await executeM5EditorUtilityTool('rename_asset',
+    { asset_path: '/Game/A', new_name: 'B' }, cm);
+  t.assert(fake.lastCall('rename_asset').timeoutMs === 15_000,
+    'rename_asset wire call carries timeoutMs=15000 override');
+
+  await executeM5EditorUtilityTool('delete_asset_safe',
+    { asset_path: '/Game/A' }, cm);
+  t.assert(fake.lastCall('delete_asset_safe').timeoutMs === 15_000,
+    'delete_asset_safe wire call carries timeoutMs=15000 override');
+
+  // Non-asset-mgmt tool → falls back to config.tcpTimeoutMs (5000ms default).
+  await executeM5EditorUtilityTool('get_editor_utility_blueprint',
+    { asset_path: '/Game/EUW' }, cm);
+  t.assert(fake.lastCall('get_editor_utility_blueprint').timeoutMs === 5000,
+    'get_editor_utility_blueprint uses default 5s timeout (no override)');
+
+  // Regression: override does not leak across calls. Run an asset-mgmt op,
+  // then a non-overridden op — the second call must see the default again.
+  await executeM5EditorUtilityTool('rename_asset',
+    { asset_path: '/Game/C', new_name: 'D' }, cm);
+  await executeM5EditorUtilityTool('get_editor_utility_blueprint',
+    { asset_path: '/Game/EUW2' }, cm);
+  t.assert(fake.lastCall('rename_asset').timeoutMs === 15_000,
+    'Regression: rename_asset retained 15s override on second call');
+  t.assert(fake.lastCall('get_editor_utility_blueprint').timeoutMs === 5000,
+    'Regression: subsequent get_editor_utility_blueprint reverts to 5s default — override does not leak');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 
