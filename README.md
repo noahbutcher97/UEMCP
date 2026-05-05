@@ -38,6 +38,17 @@ Source of truth is `D:\DevTools\UEMCP\plugin\UEMCP\`; the script xcopies it into
 
 Pass `-y` / `--yes` to suppress the overwrite prompt for scripted use.
 
+### Dev-workflow: auto-deploy + verify (D136)
+
+For active plugin development (when you're frequently editing `plugin/UEMCP/Source/`):
+
+```cmd
+verify-deploy.bat              :: per-target SYNC/STALE report incl. editor-lock detection
+setup-watcher.bat              :: long-running file-watcher; auto-syncs on every source change
+```
+
+Both read `.uemcp-targets.txt` (one `.uproject` path per line, gitignored). `verify-deploy` is a fast pre-flight that catches the "DLL stale because editor was running during Build.bat" silent no-op. `setup-watcher` is the optional always-on counterpart that prevents drift from accumulating.
+
 ### Verifying the install
 
 After re-opening cmd in the workspace root:
@@ -97,6 +108,8 @@ UEMCP/
 ├── .mcp.json.example        ← template Claude Desktop / Code config
 ├── setup-uemcp.bat          ← new-machine onboarding (GUI or arg)
 ├── sync-plugin.bat          ← propagate plugin source changes to target projects
+├── verify-deploy.bat        ← Q3-A pre-dispatch SYNC/STALE/editor-lock report (D136)
+├── setup-watcher.bat        ← Q3-C auto-deploy file-watcher (D136)
 ├── test-uemcp-gate.bat      ← verify D57 commandlet gate (smoke test)
 ├── server/                  ← Node.js MCP server (ES modules .mjs)
 ├── plugin/UEMCP/            ← C++ UE5 editor plugin

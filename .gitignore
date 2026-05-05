@@ -34,6 +34,10 @@ server/.test-rotation-snapshot.json
 .mcp.json
 .claude/settings.local.json
 
+# Q3 dev-workflow targets list (per-machine, contains real codename paths;
+# read by verify-deploy.bat + setup-watcher.bat via server/verify-deploy.mjs).
+.uemcp-targets.txt
+
 # Session-local documentation (handoffs, audits, testing logs, research)
 # These are artifacts of individual agent dispatches, not product docs.
 # Kept on disk for local reference; not tracked in the public repo.

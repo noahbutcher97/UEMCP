@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2031 unit-runnable assertions** (post-D135 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 20 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (D134, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table); CLEANUP-M5-RESIDUE +23 (D135, §3.5 +5 + §4 +6 + §4.5 +12; D134's +6 already counted above).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2059 unit-runnable assertions** (post-D136 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 21 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (D134, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table); CLEANUP-M5-RESIDUE +23 (D135, §3.5 +5 + §4 +6 + §4.5 +12; D134's +6 already counted above); Q3-DEV-WORKFLOW +28 (D136, new test-verify-deploy.mjs).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -126,6 +126,11 @@ UEMCP/
 ├── CLAUDE.md              ← you are here
 ├── tools.yaml             ← SINGLE SOURCE OF TRUTH for all 122 tools
 ├── .mcp.json.example      ← template Claude Desktop config
+├── setup-uemcp.bat        ← one-line onboarding (Node install + .mcp.json + plugin copy + .uproject deps)
+├── sync-plugin.bat        ← propagate plugin source from this repo to a target UE project
+├── verify-deploy.bat      ← Q3-A pre-dispatch verification (D136); reports per-target SYNC/STALE + editor-lock
+├── setup-watcher.bat      ← Q3-C auto-deploy file-watcher (D136); runs sync on plugin source change
+├── .uemcp-targets.txt     ← per-machine .uproject targets (gitignored; codename-safe)
 ├── server/
 │   ├── package.json       ← deps: @modelcontextprotocol/sdk, js-yaml, zod
 │   ├── server.mjs         ← MCP server entry, management tools, tool registration
@@ -145,6 +150,8 @@ UEMCP/
 │   ├── test-s-b-base-differential.mjs ← S-B-base pin-block parser differential vs Oracle-A-v2 (68 assertions, D70)
 │   ├── test-verb-surface.mjs ← M-new Verb-surface 5 verbs (bp_trace_exec/data/neighbors/show_node/list_entry_points) + oracle cross-check (83 assertions, D72)
 │   ├── test-rc-wire.mjs   ← M-enhance RC HTTP wire-mock + 11 FULL-RC tools + cross-transport consistency (72 assertions, D74+D76)
+│   ├── verify-deploy.mjs  ← Q3-A/Q3-C dev-workflow CLI (D136): per-target SYNC/STALE classifier + editor-lock detector via Get-CimInstance + --watch mode (debounced auto-sync); backed by verify-deploy.bat + setup-watcher.bat thin wrappers
+│   ├── test-verify-deploy.mjs ← Q3 pure-helper unit tests — parseTargetsFile, classifyDeployState 9-case matrix incl. D135 failure mode, formatAge, normalizePath, extractUprojectFromCommandLine (28 assertions)
 │   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
 ├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
 ├── docs/
@@ -443,6 +450,50 @@ workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
 `<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>` with real paths (use
 forward slashes), run `npm install` in `server/`, then restart Claude Code.
 
+### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
+
+Two scripts close the D113 wasted-worker-session class structurally:
+
+- **`verify-deploy.bat`** — pre-dispatch verification CLI. Reads
+  `.uemcp-targets.txt` (gitignored, one `.uproject` path per line), reports
+  per-target verdict (`SYNC` / `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY`
+  / `MISSING`), surfaces UnrealEditor.exe processes locking each DLL via
+  `Get-CimInstance Win32_Process` CommandLine introspection, and flags
+  workspace-resolution drift between the active editor and `.mcp.json`'s
+  `UNREAL_PROJECT_ROOT`. Run before dispatching any post-deployment
+  smoke worker; subsumes the manual `Get-Process *Unreal*` + mtime-grep
+  pre-flight from `feedback_smoke_handoff_preflight.md` into one
+  invocation. Flags: `--auto-sync`, `--regenerate-mcp-json N`, `--quiet`,
+  `--targets <path>`, `--no-color`. Exit 0 all SYNC, 1 any non-SYNC,
+  2 config error.
+
+- **`setup-watcher.bat`** — long-running file-watcher (Q3-C). Watches
+  `plugin/UEMCP/Source/` recursively; on change (excluding `Binaries/`,
+  `Intermediate/`, `*.tmp`), debounces 500ms then runs
+  `sync-plugin.bat <target> -y` for each target in `.uemcp-targets.txt`.
+  Pairs with verify-deploy: watcher prevents NEW staleness, verify-deploy
+  catches existing staleness from manual git pulls or cross-machine work.
+  Ctrl+C stops cleanly. Backed by the same `server/verify-deploy.mjs`
+  helper via `--watch` mode.
+
+Both scripts are thin .bat wrappers around `server/verify-deploy.mjs`;
+core logic + 28 unit-runnable assertions live in that helper.
+
+`.uemcp-targets.txt` lives at repo root, is **gitignored**, and may
+contain real codename paths — it never enters the index. To onboard a
+new target: paste its `.uproject` path on its own line. Two workspaces
+sharing the same `.uproject` filename in different parent dirs (e.g.,
+the same Project A pulled into two different sibling-stream workspaces)
+are tracked independently — the CLI distinguishes by full path, not stem.
+
+The §2.6 D135 failure mode (editor running during Build.bat → DLL locked
+→ silent no-op) is the load-bearing piece: verify-deploy reports
+`[EDITOR-LOCKED]` against any target whose `.uproject` matches a running
+`UnrealEditor*.exe` CommandLine, with a clear "close before Build.bat"
+recommendation. The §2.5 multi-workspace drift (MCP server pointing at
+workspace A while editor runs in B) surfaces as `[MCP]` on the wrong
+target. Both are orthogonal to the SYNC/STALE verdict.
+
 ### Running the server locally
 ```bash
 cd D:\DevTools\UEMCP\server
@@ -679,7 +730,7 @@ per asset-mgmt op. Out of scope for the immediate silent-corruption fix.
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~2031 unit-runnable assertions across 20 test files** (post-D135 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12). test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~2059 unit-runnable assertions across 21 test files** (post-D136 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
 
@@ -725,6 +776,7 @@ commands still work and are documented in the tables below for that purpose.
 | `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: blueprints-write only (15 tools) — name translation, param pass-through, caching, port routing (tcp-55558 post M3-bpw D97), wire map building. Actors moved to test-m3-actors.mjs (D93), widgets to test-m3-widgets.mjs (D96). (197 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs` |
+| `server/test-verify-deploy.mjs` | Q3-A verify-deploy pure-helper unit tests (D136) — `parseTargetsFile` (CRLF + comment stripping), `classifyDeployState` 9-case verdict matrix incl. `MISSING-PARTIAL` + slop tolerance + D135 "both stale" failure mode + sync-without-build trap, `formatAge` time deltas, `normalizePath` Windows path equality, `extractUprojectFromCommandLine` editor-process introspection (28 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-verify-deploy.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 ### Test Files — Supplementary Rotation
