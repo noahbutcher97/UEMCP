@@ -159,7 +159,7 @@ function getHeadPluginCommitInfo() {
 }
 
 /** Enumerate UnrealEditor* processes via PowerShell; return [{ pid, uprojectPath }]. */
-function listEditorProcesses() {
+export function listEditorProcesses() {
   const ps = spawnSync('powershell', [
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',

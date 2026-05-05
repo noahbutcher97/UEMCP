@@ -152,6 +152,8 @@ UEMCP/
 │   ├── test-rc-wire.mjs   ← M-enhance RC HTTP wire-mock + 11 FULL-RC tools + cross-transport consistency (72 assertions, D74+D76)
 │   ├── verify-deploy.mjs  ← Q3-A/Q3-C dev-workflow CLI (D136): per-target SYNC/STALE classifier + editor-lock detector via Get-CimInstance + --watch mode (debounced auto-sync); backed by verify-deploy.bat + setup-watcher.bat thin wrappers
 │   ├── test-verify-deploy.mjs ← Q3 pure-helper unit tests — parseTargetsFile, classifyDeployState 9-case matrix incl. D135 failure mode, formatAge, normalizePath, extractUprojectFromCommandLine (28 assertions)
+│   ├── sync-plugin-helper.mjs ← W-L (D138) deploy-marker + per-workspace lock-check helper for sync-plugin.bat: readDeployMarker / writeDeployMarker / compareDeployMarker / computeIncomingState / checkPerWorkspaceLock + CLI subcommands check/write/lock-check
+│   ├── test-sync-plugin-helper.mjs ← W-L pure-helper unit tests — marker comparison branches incl. schema-version-changed, atomic round-trip, computeIncomingState repo-state extraction (33 assertions)
 │   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
 ├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
 ├── docs/
@@ -445,6 +447,43 @@ excluding `Binaries\` + `Intermediate\` so UBT cache stays intact.
 Also auto-registers project codenames into `.git/info/forbidden-tokens`
 per D124 (same shared helper as setup-uemcp.bat).
 
+**W-L (D138) hardening** — `sync-plugin.bat` now auto-busts the deploy
+cache on version-change upgrades. After each successful sync, it writes
+`<dest>/Plugins/UEMCP/.uemcp-deploy-marker.json` capturing manifest
+version + uplugin Version + commit SHAs. On the next sync, if either
+`manifest.json` version OR `UEMCP.uplugin Version` differs from the
+prior marker, it nukes `<dest>/Binaries/` + `<dest>/Intermediate/`
+before xcopy so UBT does a clean rebuild against the structural change.
+First sync after W-L lands has no prior marker → no nuke (preserves any
+hand-built incremental cache the user may have). Two new flags:
+
+- `--force-clean` — nuke `<dest>/Binaries` + `<dest>/Intermediate`
+  regardless of marker comparison (useful for debugging stale-cache
+  states or after a UBT cache corruption from a prior failed build)
+- `--no-marker` — skip marker read/write entirely (escape hatch if
+  marker logic itself ever proves buggy)
+
+Editor-lock detection is now **per-workspace** (D138 §2): only the
+specific workspace whose `.uproject` matches a running editor's
+CommandLine is blocked. Sync against workspace B is no longer blocked
+by an editor running against workspace A. Implementation reuses
+`verify-deploy.mjs`'s `listEditorProcesses` + `extractUprojectFromCommandLine`
++ `normalizePath` (full-path comparison, NOT stem — two checkouts
+sharing the same `.uproject` filename in different parent dirs are
+tracked independently). Falls back to the old coarse check if Node.js
+is unavailable on PATH.
+
+**Plugin Versioning Convention** — when `manifest.json` `version`
+bumps for any reason that touches `plugin/UEMCP/` source, also bump
+`plugin/UEMCP/UEMCP.uplugin` `Version` (integer; UE-internal
+module-rebuild signal) and `VersionName` (string; align with
+manifest version) in lockstep. The W-L deploy-marker compares both
+`manifestVersion` and `upluginVersion` → either can trigger
+auto-bust. The two values stay coupled to keep the deploy-cycle
+cache-busting deterministic. D137 + D138 established the
+post-bump convention; pre-D137 the uplugin had been stuck at
+`Version: 1` / `VersionName: "0.1.0"` since project start.
+
 Manual setup (skip the script): copy `.mcp.json.example` to your Claude
 workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
 `<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>` with real paths (use
@@ -730,7 +769,7 @@ per asset-mgmt op. Out of scope for the immediate silent-corruption fix.
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~2059 unit-runnable assertions across 21 test files** (post-D136 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs). test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~2092 unit-runnable assertions across 22 test files** (post-D138 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs); +33 W-L-SYNC-PLUGIN-HARDENING (D138, new test-sync-plugin-helper.mjs). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
 
@@ -777,6 +816,7 @@ commands still work and are documented in the tables below for that purpose.
 | `server/test-tcp-tools.mjs` | Phase 2 TCP tools: blueprints-write only (15 tools) — name translation, param pass-through, caching, port routing (tcp-55558 post M3-bpw D97), wire map building. Actors moved to test-m3-actors.mjs (D93), widgets to test-m3-widgets.mjs (D96). (197 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
 | `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs` |
 | `server/test-verify-deploy.mjs` | Q3-A verify-deploy pure-helper unit tests (D136) — `parseTargetsFile` (CRLF + comment stripping), `classifyDeployState` 9-case verdict matrix incl. `MISSING-PARTIAL` + slop tolerance + D135 "both stale" failure mode + sync-without-build trap, `formatAge` time deltas, `normalizePath` Windows path equality, `extractUprojectFromCommandLine` editor-process introspection (28 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-verify-deploy.mjs` |
+| `server/test-sync-plugin-helper.mjs` | W-L sync-plugin-helper pure-helper unit tests (D138) — `compareDeployMarker` 7 branches incl. null/undefined prior, version-match, manifest-changed, uplugin-changed, both-changed, schema-version-changed escape hatch, detail-presence; `readDeployMarker` / `writeDeployMarker` round-trip (atomic .uemcp-tmp + rename, parent-dir creation, malformed-JSON tolerance); `computeIncomingState` repo-state extraction (manifest.json + UEMCP.uplugin + git short SHAs) + missing-manifest throw (33 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-sync-plugin-helper.mjs` |
 | `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
 
 ### Test Files — Supplementary Rotation
