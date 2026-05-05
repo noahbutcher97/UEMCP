@@ -34,6 +34,18 @@ import { readFileSync, statSync, readdirSync, existsSync, writeFileSync, watch a
 import { join, dirname, resolve, sep, basename } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// W-L marker integration (D138-FIX3): consult <dest>/.uemcp-deploy-marker.json
+// to detect uplugin/manifest version-mismatch — closes the gap where
+// verify-deploy could report SYNC for a target whose Source/ matches but
+// whose UEMCP.uplugin Version is stale (e.g., post-W-L Version 1 vs repo
+// Version 2). Reuses sync-plugin-helper's pure-function helpers so the
+// comparison contract stays identical between sync-plugin.bat (which
+// triggers nuke) and verify-deploy.bat (which triggers NEEDS-SYNC).
+import {
+  readDeployMarker,
+  compareDeployMarker,
+  computeIncomingState,
+} from './sync-plugin-helper.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(__filename), '..');
@@ -126,6 +138,61 @@ export function formatTime(unixSec) {
   const d = new Date(unixSec * 1000);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** Format an ISO-8601 marker timestamp string as YYYY-MM-DD HH:MM:SS local. Falls back to the raw string on parse error. */
+export function formatMarkerSyncTime(isoString) {
+  if (!isoString || typeof isoString !== 'string') return '(unknown)';
+  const ms = Date.parse(isoString);
+  if (Number.isNaN(ms)) return isoString;
+  return formatTime(Math.floor(ms / 1000));
+}
+
+/**
+ * Apply marker-based verdict overlay (W-L / D138-FIX3). Pure function.
+ *
+ * Takes the source/DLL-mtime verdict from classifyDeployState and the
+ * marker comparison result; returns the final verdict. Marker-side
+ * staleness OVERRIDES source/DLL-side SYNC verdicts because a stale
+ * marker means UEMCP.uplugin metadata is out-of-date even when the
+ * source files happen to match.
+ *
+ * Skips overlay for MISSING/MISSING-PARTIAL (those are more fundamental
+ * issues — caller hasn't deployed at all). Also a no-op when
+ * incomingState is null (helper unavailable / repo state unreadable).
+ */
+export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, incomingState, pluginDirExists, deployedSrcFileCount) {
+  if (!incomingState) return baseVerdict;
+  if (!pluginDirExists) return baseVerdict;
+  if (deployedSrcFileCount === 0) return baseVerdict;
+  if (!markerVerdict) return baseVerdict;
+
+  if (markerVerdict.reason === 'no-prior-marker') {
+    // Plugin dir has content but no marker — pre-W-L deploy OR
+    // setup-uemcp.bat first-install (which doesn't write a marker).
+    // Either way, prompt the user to run sync-plugin.bat once to seed
+    // the marker so future version-bump cache-busting can fire.
+    return {
+      verdict: 'NEEDS-SYNC',
+      reason: 'No deploy marker — run sync-plugin.bat once to seed',
+    };
+  }
+  if (markerVerdict.nukeRecommended) {
+    // Marker present but version-mismatch (manifest, uplugin, or
+    // schema). Source/DLL might be SYNC by mtime but uplugin metadata
+    // is stale. Override.
+    const detail = markerVerdict.detail || {};
+    const p = detail.prior || marker || {};
+    const i = detail.incoming || incomingState || {};
+    return {
+      verdict: 'NEEDS-SYNC',
+      reason: `Marker shows manifest=${p.manifestVersion ?? '?'} uplugin=${p.upluginVersion ?? '?'}, repo has manifest=${i.manifestVersion ?? '?'} uplugin=${i.upluginVersion ?? '?'}`,
+    };
+  }
+  // version-match → marker says deploy is up-to-date metadata-wise;
+  // base verdict (SYNC / NEEDS-BUILD / NEEDS-SYNC from mtime check)
+  // prevails.
+  return baseVerdict;
 }
 
 /** Normalize a Windows path for comparison: lowercase + forward slashes + no trailing slash. */
@@ -255,7 +322,7 @@ function regenerateMcpJson(uprojectPath) {
 
 // ─── Per-target metrics gathering ───────────────────────────────────
 
-function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpRoot) {
+function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpRoot, incomingState) {
   const targetDir = dirname(uprojectPath);
   const pluginDir = join(targetDir, 'Plugins', 'UEMCP');
   const deployedSrcDir = join(pluginDir, 'Source');
@@ -266,7 +333,7 @@ function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpR
   const dllExists = existsSync(dllPath);
   const dllMtime = dllExists ? Math.floor(statSync(dllPath).mtimeMs / 1000) : 0;
 
-  const verdict = classifyDeployState({
+  const baseVerdict = classifyDeployState({
     pluginDirExists,
     deployedSrcMtime: deployedSrcInfo.mtimeSec,
     deployedSrcFileCount: deployedSrcInfo.fileCount,
@@ -274,6 +341,18 @@ function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpR
     dllMtime,
     repoSrcMtime,
   });
+
+  // W-L marker overlay: read the deploy marker (if any), compare against repo
+  // state, and downgrade SYNC verdicts to NEEDS-SYNC when the marker shows
+  // version-mismatch OR is absent on a populated plugin dir. Catches the
+  // class of deploys whose Source/ matches by mtime but whose UEMCP.uplugin
+  // metadata is stale (or whose marker was never seeded).
+  const marker = pluginDirExists ? readDeployMarker(pluginDir) : null;
+  const markerVerdict = incomingState ? compareDeployMarker(marker, incomingState) : null;
+  const verdict = applyMarkerVerdictOverlay(
+    baseVerdict, marker, markerVerdict, incomingState,
+    pluginDirExists, deployedSrcInfo.fileCount,
+  );
 
   // Match running editors against this target by .uproject path (case-insensitive).
   const targetUprojNorm = normalizePath(uprojectPath);
@@ -294,6 +373,9 @@ function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpR
     dllExists,
     dllMtime,
     verdict,
+    baseVerdict,
+    marker,
+    markerVerdict,
     matchedEditors,
     mcpPointsHere,
     repoSrcMtime,
@@ -343,10 +425,18 @@ function printTargetDetail(idx, t, repoSrcMtime, repoSrcLabel) {
     console.log(`      Editor active : NO`);
   }
   console.log(`      MCP points to : ${t.mcpPointsHere ? cyan('YES (this is the active workspace)') : 'NO'}`);
+  // W-L marker line (D138-FIX3): show what manifest+uplugin version was last
+  // synced and when. (absent) means a pre-W-L deploy or a fresh setup-uemcp.bat
+  // install — either way the user should run sync-plugin.bat once to seed it.
+  if (t.marker) {
+    console.log(`      Deploy marker : manifest=${t.marker.manifestVersion} uplugin=${t.marker.upluginVersion} ${dim('(synced ' + formatMarkerSyncTime(t.marker.syncTime) + ')')}`);
+  } else if (t.pluginDir && existsSync(t.pluginDir)) {
+    console.log(`      Deploy marker : ${dim('(absent — sync-plugin.bat will seed on next run)')}`);
+  }
   if (t.verdict.verdict !== 'SYNC') {
     let action;
     switch (t.verdict.verdict) {
-      case 'NEEDS-SYNC': action = `sync-plugin.bat "${t.uprojectPath}" -y`; break;
+      case 'NEEDS-SYNC': action = `sync-plugin.bat "${t.uprojectPath}" -y${needsBuildAfterSync(t) ? '  THEN  Build.bat (close editor first)' : ''}`; break;
       case 'NEEDS-BUILD': action = `Build.bat (close editor first if running)`; break;
       case 'NEEDS-DEPLOY': action = `sync-plugin.bat "${t.uprojectPath}" -y  THEN  Build.bat (close editor first)`; break;
       case 'MISSING':
@@ -355,6 +445,17 @@ function printTargetDetail(idx, t, repoSrcMtime, repoSrcLabel) {
     }
     console.log(`      ${bold('Action')}        : ${action}`);
   }
+}
+
+/** True when a NEEDS-SYNC target also has a stale DLL that will need Build.bat after the sync. */
+function needsBuildAfterSync(t) {
+  if (!t.dllExists) return true;
+  if (!t.markerVerdict) return false;
+  // Marker mismatch implies sync will nuke + re-xcopy → DLL must be rebuilt.
+  if (t.markerVerdict.nukeRecommended) return true;
+  // Plain "no marker" case: DLL freshness is governed by base verdict.
+  if (t.baseVerdict && (t.baseVerdict.verdict === 'NEEDS-BUILD' || t.baseVerdict.verdict === 'NEEDS-DEPLOY')) return true;
+  return false;
 }
 
 // ─── Argument parsing ───────────────────────────────────────────────
@@ -568,8 +669,18 @@ function main() {
   const editorProcs = listEditorProcesses();
   const activeMcpRoot = readActiveMcpProjectRoot();
 
+  // Compute incoming repo state once for marker comparison (W-L / D138-FIX3).
+  // If the helper throws (e.g., manifest.json missing), skip marker checks
+  // entirely with a warning — verify-deploy still produces source/DLL verdicts.
+  let incomingState = null;
+  try {
+    incomingState = computeIncomingState(REPO_ROOT);
+  } catch (e) {
+    console.error(yellow('[WARN]') + ` Marker comparison disabled: ${e.message}`);
+  }
+
   // Gather per-target
-  const results = targets.map((t) => gatherTargetMetrics(t, repoSrcMtime, editorProcs, activeMcpRoot));
+  const results = targets.map((t) => gatherTargetMetrics(t, repoSrcMtime, editorProcs, activeMcpRoot, incomingState));
 
   // Header
   console.log(bold('=== UEMCP verify-deploy ==='));
