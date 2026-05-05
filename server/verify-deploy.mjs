@@ -143,14 +143,42 @@ export function extractUprojectFromCommandLine(cmdLine) {
 
 // ─── Side-effecting helpers ─────────────────────────────────────────
 
-/** Run `git log -1 --format=%ct -- plugin/UEMCP/` to get HEAD plugin commit time. */
+/**
+ * Run `git log -1 --format=%ct -- plugin/UEMCP/Source` to get HEAD plugin
+ * **source** commit time.
+ *
+ * Why scoped to Source/ specifically (not the whole plugin/UEMCP/): the commit
+ * time is used as a "freshness fallback" when filesystem mtimes lag behind
+ * (e.g., after a checkout that didn't reset file mtimes). But it must only
+ * advance when files relevant to the deploy comparison actually change.
+ *
+ * Pre-D138 the path was `plugin/UEMCP/` (whole tree). D138's W-L commit
+ * (0c50eab) bumped UEMCP.uplugin Version: 1 → 2 without touching any C++
+ * source — that advanced the whole-tree commit time past the Source/ file
+ * mtimes, falsely flagging just-synced targets as NEEDS-DEPLOY (because
+ * xcopy preserves source mtimes; deployed Source/ matches repo Source/, but
+ * the comparison reference had jumped ahead to the uplugin-bump commit).
+ *
+ * Source/-scoped means: the commit time advances when any C++ source under
+ * plugin/UEMCP/Source/ changes (which IS what drives DLL rebuilds and
+ * source-stale verdicts). UEMCP.uplugin metadata changes still propagate
+ * via xcopy — they just don't pollute the source-stale comparison.
+ *
+ * Trade-off: a hypothetical future commit that ONLY edits UEMCP.uplugin
+ * Plugins[] without bumping Version + without touching Source/ would not
+ * advance this commit time → verify-deploy would not flag the stale uplugin.
+ * That's an accepted regression vs. the false-positive class W-L exposed;
+ * Plugins[] changes typically come with Version bumps anyway (per the W-L
+ * lockstep convention codified in CLAUDE.md), and the W-L deploy-marker
+ * (which compares uplugin Version) catches Version-bump cases independently.
+ */
 function getHeadPluginCommitInfo() {
   try {
-    const ct = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%ct', '--', 'plugin/UEMCP'],
+    const ct = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%ct', '--', 'plugin/UEMCP/Source'],
       { encoding: 'utf8' }).trim();
-    const sha = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%h', '--', 'plugin/UEMCP'],
+    const sha = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%h', '--', 'plugin/UEMCP/Source'],
       { encoding: 'utf8' }).trim();
-    const subj = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%s', '--', 'plugin/UEMCP'],
+    const subj = execFileSync('git', ['-C', REPO_ROOT, 'log', '-1', '--format=%s', '--', 'plugin/UEMCP/Source'],
       { encoding: 'utf8' }).trim();
     return { commitTime: parseInt(ct, 10) || 0, sha, subject: subj };
   } catch (e) {
@@ -296,14 +324,17 @@ function printSummaryLine(idx, t, repoSrcMtime) {
 }
 
 function printTargetDetail(idx, t, repoSrcMtime, repoSrcLabel) {
+  // Format age-vs-repo with direction-neutral phrasing. formatAge returns
+  // "(Ns ahead)" for negative deltas; suffix "vs repo source" works for both
+  // ahead and behind. "behind repo source" was misleading when DLL was newer.
   const dllAgeStr = t.dllExists ? formatAge(repoSrcMtime - t.dllMtime) : '(missing)';
   const srcAgeStr = t.deployedSrcMtime > 0 ? formatAge(repoSrcMtime - t.deployedSrcMtime) : '(missing)';
   console.log('');
   console.log(`  [${idx + 1}] ${bold(t.uprojectPath)}`);
   console.log(`      Verdict       : ${colorVerdict(t.verdict.verdict)} — ${t.verdict.reason}`);
   console.log(`      Repo src      : ${formatTime(repoSrcMtime)} ${dim('(' + repoSrcLabel + ')')}`);
-  console.log(`      Deployed src  : ${formatTime(t.deployedSrcMtime)}  ${dim(srcAgeStr + ' behind repo source')}  ${dim('(' + t.deployedSrcFileCount + ' files)')}`);
-  console.log(`      Deployed DLL  : ${formatTime(t.dllMtime)}  ${dim(dllAgeStr + ' behind repo source')}`);
+  console.log(`      Deployed src  : ${formatTime(t.deployedSrcMtime)}  ${dim(srcAgeStr + ' vs repo source')}  ${dim('(' + t.deployedSrcFileCount + ' files)')}`);
+  console.log(`      Deployed DLL  : ${formatTime(t.dllMtime)}  ${dim(dllAgeStr + ' vs repo source')}`);
   if (t.matchedEditors.length > 0) {
     for (const e of t.matchedEditors) {
       console.log(`      Editor active : ${cyan('YES')} — pid ${e.pid} ${dim('(DLL is locked; close before Build.bat)')}`);
@@ -514,14 +545,24 @@ function main() {
   // Repo-side metrics
   const repoSrcInfo = newestMtimeSec(PLUGIN_SRC_DIR);
   const headInfo = getHeadPluginCommitInfo();
-  // Use whichever is newer: filesystem newest mtime (catches uncommitted local
-  // changes) or HEAD commit time (catches recently-pulled commits where mtimes
-  // got reset to checkout time). The verdict reflects "what does deployed need
-  // to match," and the answer is "the freshest of these two."
-  const repoSrcMtime = Math.max(repoSrcInfo.mtimeSec, headInfo.commitTime);
-  const repoSrcLabel = repoSrcInfo.mtimeSec > headInfo.commitTime
-    ? `local mtime; HEAD plugin commit ${headInfo.sha}`
-    : `HEAD plugin commit ${headInfo.sha}`;
+  // Use filesystem newest mtime as the comparison reference. xcopy preserves
+  // source mtimes (sync produces deployed files with mtime = repo file mtime),
+  // so the right "is deployed up-to-date" reference is the actual file mtime.
+  //
+  // Pre-D138-FIX2 this was Math.max(repoSrcInfo.mtimeSec, headInfo.commitTime)
+  // with the rationale "catches recently-pulled commits where mtimes got reset
+  // to checkout time." But git pull sets file mtimes to checkout time (fresher
+  // than the original commit time), so repoSrcInfo.mtimeSec >= headInfo.commitTime
+  // for pulled commits — the max never helped that case. The max ONLY fired for
+  // local-author commits (where commit time > file mtime because `git commit`
+  // doesn't update file mtimes), and there it produced false-positive STALE
+  // verdicts on just-synced targets. Empirically observed against a
+  // just-synced target post-W-L: deployed src 14:26:47 == repo src 14:26:47
+  // (xcopy preserved), but headInfo.commitTime 14:36:33 (D137 commit) made
+  // repoSrcMtime jump forward by 9m 46s, falsely marking deployed as stale.
+  // Dropping the max makes verify-deploy reflect what xcopy actually produces.
+  const repoSrcMtime = repoSrcInfo.mtimeSec;
+  const repoSrcLabel = `${repoSrcInfo.fileCount} files; HEAD plugin/Source commit ${headInfo.sha}`;
 
   // Process scan + active MCP root
   const editorProcs = listEditorProcesses();
@@ -534,7 +575,7 @@ function main() {
   console.log(bold('=== UEMCP verify-deploy ==='));
   console.log(`Repo                : ${REPO_ROOT}`);
   console.log(`Repo plugin source  : ${formatTime(repoSrcMtime)} ${dim('(' + repoSrcLabel + ')')}`);
-  console.log(`HEAD plugin commit  : ${headInfo.sha} ${dim(headInfo.subject)}`);
+  console.log(`HEAD plugin/Source  : ${headInfo.sha} ${dim(headInfo.subject)}`);
   console.log(`Active .mcp.json    : ${activeMcpRoot ? activeMcpRoot : '(none / not found)'}`);
   console.log(`Editor processes    : ${editorProcs.length}${editorProcs.length > 0 ? dim(' — ' + editorProcs.map((e) => `pid ${e.pid}`).join(', ')) : ''}`);
   // List unmatched-but-active editors (running editors whose .uproject is not in targets list).
