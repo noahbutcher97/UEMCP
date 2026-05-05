@@ -3,6 +3,7 @@
 
 #include "ActorLookupHelper.h"
 #include "BlueprintLookupHelper.h"
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "PropertyHandlerRegistry.h"
@@ -81,19 +82,8 @@ namespace UEMCP
 			return Out;
 		}
 
-		// ── World resolution ─────────────────────────────────────────────────────
-
-		UWorld* GetEditorWorld()
-		{
-			if (GEditor)
-			{
-				if (FWorldContext* Ctx = &GEditor->GetEditorWorldContext())
-				{
-					return Ctx->World();
-				}
-			}
-			return GWorld;
-		}
+		// World resolution delegates to UEMCP::GetEditorWorld (W-F extraction —
+		// see Public/HandlerCommon.h). Local helper removed to allow Unity bundling.
 
 		/**
 		 * Lookup an actor by exact name (FName or label) using ActorLookupHelper —
@@ -105,7 +95,7 @@ namespace UEMCP
 		 */
 		AActor* ResolveActorByName(const FString& Name, TSharedPtr<FJsonObject>& OutResponse)
 		{
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -168,7 +158,7 @@ namespace UEMCP
 
 		void HandleGetActorsInLevel(const TSharedPtr<FJsonObject>& /*Params*/, TSharedPtr<FJsonObject>& OutResponse)
 		{
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -205,7 +195,7 @@ namespace UEMCP
 				return;
 			}
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -258,7 +248,7 @@ namespace UEMCP
 			if (Params->HasField(TEXT("rotation"))) UEMCP::ParseRotator(Params, TEXT("rotation"), Rotation, TransformErr);
 			if (Params->HasField(TEXT("scale")))    UEMCP::ParseVector3(Params, TEXT("scale"),    Scale,    TransformErr);
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -553,7 +543,7 @@ namespace UEMCP
 			if (Params->HasField(TEXT("rotation"))) UEMCP::ParseRotator(Params, TEXT("rotation"), Rotation, TransformErr);
 			if (Params->HasField(TEXT("scale")))    UEMCP::ParseVector3(Params, TEXT("scale"),    Scale,    TransformErr);
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));

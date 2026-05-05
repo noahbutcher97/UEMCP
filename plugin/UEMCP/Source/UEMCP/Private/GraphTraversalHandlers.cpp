@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "GraphTraversalHandlers.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "ReflectionWalker.h"
@@ -147,20 +148,8 @@ namespace UEMCP
 		}
 
 		// ── Event dispatcher walker ────────────────────────────
-
-		UBlueprint* ResolveBlueprint(const FString& Path)
-		{
-			if (UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *Path))
-			{
-				return BP;
-			}
-			const FSoftObjectPath Soft(Path);
-			if (UObject* Obj = Soft.TryLoad())
-			{
-				return Cast<UBlueprint>(Obj);
-			}
-			return nullptr;
-		}
+		// Blueprint resolution delegates to UEMCP::ResolveBlueprint (W-F extraction —
+		// see Public/HandlerCommon.h). Local helper removed to allow Unity bundling.
 
 		void HandleGetEventDispatchers(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
@@ -176,7 +165,7 @@ namespace UEMCP
 				return;
 			}
 
-			UBlueprint* BP = ResolveBlueprint(AssetPath);
+			UBlueprint* BP = UEMCP::ResolveBlueprint(AssetPath);
 			if (!BP)
 			{
 				BuildErrorResponse(OutResponse,

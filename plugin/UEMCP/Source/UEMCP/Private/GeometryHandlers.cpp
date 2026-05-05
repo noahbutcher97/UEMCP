@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "GeometryHandlers.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "TransformParser.h"
@@ -19,19 +20,8 @@ namespace UEMCP
 {
 	namespace
 	{
-		// ── World resolution (mirrors ActorHandlers convention) ─────────────
-
-		UWorld* GetEditorWorld()
-		{
-			if (GEditor)
-			{
-				if (FWorldContext* Ctx = &GEditor->GetEditorWorldContext())
-				{
-					return Ctx->World();
-				}
-			}
-			return GWorld;
-		}
+		// World resolution delegates to UEMCP::GetEditorWorld (W-F extraction —
+		// see Public/HandlerCommon.h). Local helper removed to allow Unity bundling.
 
 		// ── Plugin-availability gate ───────────────────────────────────────
 		//
@@ -157,7 +147,7 @@ namespace UEMCP
 			FString ActorName;
 			Params->TryGetStringField(TEXT("name"), ActorName);
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -296,7 +286,7 @@ namespace UEMCP
 				return;
 			}
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));
@@ -386,7 +376,7 @@ namespace UEMCP
 				}
 			}
 
-			UWorld* World = GetEditorWorld();
+			UWorld* World = UEMCP::GetEditorWorld();
 			if (!World)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get editor world"), TEXT("NO_WORLD"));

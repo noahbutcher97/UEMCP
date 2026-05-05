@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "MaterialsHandlers.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -17,23 +18,9 @@ namespace UEMCP
 {
 	namespace
 	{
-		// "/Game/Materials/Foo" → "/Game/Materials/Foo.Foo" (doubled object-path).
-		// Pass-through if already doubled. Mirrors the AnimationHandlers helper +
-		// WidgetHandlers PIE-safe lookup pattern (D102).
-		FString ToObjectPath(const FString& AssetPath)
-		{
-			if (AssetPath.Contains(TEXT("."))) return AssetPath;
-			const int32 SlashIdx = AssetPath.Find(TEXT("/"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
-			if (SlashIdx < 0) return AssetPath;
-			const FString AssetName = AssetPath.Mid(SlashIdx + 1);
-			return FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
-		}
-
-		FString GetStringOr(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, const FString& Default)
-		{
-			FString Out;
-			return Params->TryGetStringField(Field, Out) ? Out : Default;
-		}
+		// Path helpers (ToObjectPath / GetStringOr) extracted to UEMCP::ToObjectPath /
+		// UEMCP::GetStringOr — see Public/HandlerCommon.h. Local copies removed to
+		// allow Unity bundling (W-F D137).
 
 		// String → EBlendMode coercion; defaults to BLEND_Opaque on unknown input.
 		// Covers the BlendMode enum values exposed in the editor UI in UE 5.6.
@@ -84,9 +71,9 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Missing or empty 'name' parameter"), TEXT("MISSING_PARAMS"));
 				return;
 			}
-			const FString PackagePath  = GetStringOr(Params, TEXT("path"),       TEXT("/Game/Materials"));
-			const FString DomainStr    = GetStringOr(Params, TEXT("domain"),     TEXT("Surface"));
-			const FString BlendModeStr = GetStringOr(Params, TEXT("blend_mode"), TEXT("Opaque"));
+			const FString PackagePath  = UEMCP::GetStringOr(Params, TEXT("path"),       TEXT("/Game/Materials"));
+			const FString DomainStr    = UEMCP::GetStringOr(Params, TEXT("domain"),     TEXT("Surface"));
+			const FString BlendModeStr = UEMCP::GetStringOr(Params, TEXT("blend_mode"), TEXT("Opaque"));
 
 			bool bDomainOk = true, bBlendOk = true;
 			const EMaterialDomain Domain = ParseMaterialDomain(DomainStr, bDomainOk);
@@ -175,9 +162,9 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Missing or empty 'parent_path' parameter"), TEXT("MISSING_PARAMS"));
 				return;
 			}
-			const FString PackagePath = GetStringOr(Params, TEXT("path"), TEXT("/Game/Materials"));
+			const FString PackagePath = UEMCP::GetStringOr(Params, TEXT("path"), TEXT("/Game/Materials"));
 
-			const FString ParentObjectPath = ToObjectPath(ParentPath);
+			const FString ParentObjectPath = UEMCP::ToObjectPath(ParentPath);
 			UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, *ParentObjectPath);
 			if (!Parent)
 			{

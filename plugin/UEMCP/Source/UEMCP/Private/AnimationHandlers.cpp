@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "AnimationHandlers.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -19,26 +20,9 @@ namespace UEMCP
 {
 	namespace
 	{
-		// ── Path helpers ─────────────────────────────────────────────────────────
-
-		// Convert "/Game/Animations/Foo" → "/Game/Animations/Foo.Foo" (doubled
-		// object-path form). Pass-through if already doubled. Mirrors the
-		// canonical lookup form used in WidgetHandlers (D102 institutional memory:
-		// LoadObject<T> with doubled object-path survives PIE state).
-		FString ToObjectPath(const FString& AssetPath)
-		{
-			if (AssetPath.Contains(TEXT("."))) return AssetPath;
-			const int32 SlashIdx = AssetPath.Find(TEXT("/"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
-			if (SlashIdx < 0) return AssetPath;
-			const FString AssetName = AssetPath.Mid(SlashIdx + 1);
-			return FString::Printf(TEXT("%s.%s"), *AssetPath, *AssetName);
-		}
-
-		FString GetStringOr(const TSharedPtr<FJsonObject>& Params, const TCHAR* Field, const FString& Default)
-		{
-			FString Out;
-			return Params->TryGetStringField(Field, Out) ? Out : Default;
-		}
+		// Path helpers (ToObjectPath / GetStringOr) extracted to UEMCP::ToObjectPath /
+		// UEMCP::GetStringOr — see Public/HandlerCommon.h. Local copies removed to
+		// allow Unity bundling (W-F D137).
 
 		// ═══════════════════════════════════════════════════════════════════════
 		// 1. create_montage — build UAnimMontage from a source UAnimSequence
@@ -66,9 +50,9 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Missing or empty 'anim_sequence' parameter"), TEXT("MISSING_PARAMS"));
 				return;
 			}
-			const FString PackagePath = GetStringOr(Params, TEXT("path"), TEXT("/Game/Animations"));
+			const FString PackagePath = UEMCP::GetStringOr(Params, TEXT("path"), TEXT("/Game/Animations"));
 
-			const FString AnimObjectPath = ToObjectPath(AnimSequencePath);
+			const FString AnimObjectPath = UEMCP::ToObjectPath(AnimSequencePath);
 			UAnimSequence* AnimSeq = LoadObject<UAnimSequence>(nullptr, *AnimObjectPath);
 			if (!AnimSeq)
 			{
@@ -196,7 +180,7 @@ namespace UEMCP
 				return;
 			}
 
-			const FString ObjectPath = ToObjectPath(AssetPath);
+			const FString ObjectPath = UEMCP::ToObjectPath(AssetPath);
 			UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, *ObjectPath);
 			if (!Montage)
 			{
@@ -295,7 +279,7 @@ namespace UEMCP
 				return;
 			}
 
-			const FString ObjectPath = ToObjectPath(AssetPath);
+			const FString ObjectPath = UEMCP::ToObjectPath(AssetPath);
 			UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, *ObjectPath);
 			if (!Montage)
 			{

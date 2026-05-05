@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "CompileDiagnosticHandler.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -10,7 +11,6 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Logging/TokenizedMessage.h"
 #include "Misc/UObjectToken.h"
-#include "UObject/SoftObjectPath.h"
 
 namespace UEMCP
 {
@@ -73,22 +73,8 @@ namespace UEMCP
 			}
 		}
 
-		/** Resolve /Game/... or short asset name to the loaded UBlueprint. Returns nullptr if unresolved. */
-		UBlueprint* ResolveBlueprint(const FString& AssetPath)
-		{
-			// Full object path first
-			if (UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *AssetPath))
-			{
-				return BP;
-			}
-			// StaticLoadObject fallback — tolerates `/Game/Path/BP_Name` (missing outer.object suffix)
-			const FSoftObjectPath SoftPath(AssetPath);
-			if (UObject* Obj = SoftPath.TryLoad())
-			{
-				return Cast<UBlueprint>(Obj);
-			}
-			return nullptr;
-		}
+		// Blueprint resolution delegates to UEMCP::ResolveBlueprint (W-F extraction —
+		// see Public/HandlerCommon.h). Local helper removed to allow Unity bundling.
 
 		void HandleCompileAndReport(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
@@ -105,7 +91,7 @@ namespace UEMCP
 				return;
 			}
 
-			UBlueprint* BP = ResolveBlueprint(AssetPath);
+			UBlueprint* BP = UEMCP::ResolveBlueprint(AssetPath);
 			if (!BP)
 			{
 				BuildErrorResponse(OutResponse,
