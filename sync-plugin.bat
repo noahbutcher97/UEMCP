@@ -170,45 +170,51 @@ echo Target        : !PLUGIN_DEST!
 echo.
 
 REM --- Per-workspace editor-lock detection (W-L / D138) ---
-REM Replaces the prior coarse "any UnrealEditor.exe → abort" check with a
+REM Replaces the prior coarse "any UnrealEditor.exe abort" check with a
 REM per-workspace match: only abort if an editor is running with THIS sync's
 REM .uproject in its CommandLine. A sync against workspace B should not be
 REM blocked by an editor running against workspace A. Mirrors verify-deploy
-REM .mjs's [EDITOR-LOCKED] discrimination logic via shared listEditorProcesses
+REM .mjs's EDITOR-LOCKED discrimination logic via shared listEditorProcesses
 REM + extractUprojectFromCommandLine + normalizePath helpers.
 REM
-REM Exit codes from helper: 0 = clear, 1 = locked (DLL exists + matched editor),
-REM 2 = warn (matched editor but no DLL — sync source still safe).
+REM Exit codes from helper: 0 = clear, 1 = locked, 2 = warn (matched editor
+REM but no DLL — sync source still safe).
+REM
+REM Flat goto-label control flow avoids CMD's deep-paren-nesting parser
+REM fragility. Each if-block is single-level inside this section.
 set "DLL_PATH=!PLUGIN_DEST!\Binaries\Win64\UnrealEditor-UEMCP.dll"
 node --version >nul 2>&1
-if errorlevel 1 (
-  echo [WARN] Node.js not on PATH; falling back to coarse editor-lock check.
-  tasklist /FI "IMAGENAME eq UnrealEditor.exe" 2>nul | findstr /I "UnrealEditor.exe" >nul
-  if not errorlevel 1 (
-    if exist "!DLL_PATH!" (
-      echo [ERROR] UnrealEditor.exe is running and plugin DLL exists at target.
-      echo         Close Unreal Editor and re-run this script.
-      set "EXIT_CODE=1" & goto :end
-    )
-    echo [WARN] UnrealEditor.exe is running but no plugin DLL at target yet.
-    echo        Sync will proceed; restart the editor after to load the plugin.
-    echo.
-  )
-) else (
-  node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" lock-check "!UPROJECT_FULL!"
-  set "LOCK_EXIT=!errorlevel!"
-  if "!LOCK_EXIT!"=="1" (
-    echo [ERROR] UnrealEditor.exe is running AGAINST THIS WORKSPACE; DLL is locked.
-    echo         Close that editor and re-run this script.
-    set "EXIT_CODE=1" & goto :end
-  )
-  if "!LOCK_EXIT!"=="2" (
-    echo [WARN] Editor running against this workspace but no DLL at target yet.
-    echo        Sync will proceed; restart the editor after to load the plugin.
-    echo.
-  )
-  REM LOCK_EXIT 0 = clear; either no editor at all OR editor against a different workspace.
+if errorlevel 1 goto :lock_check_fallback
+
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" lock-check "!UPROJECT_FULL!"
+set "LOCK_EXIT=!errorlevel!"
+if "!LOCK_EXIT!"=="1" (
+  echo [ERROR] UnrealEditor.exe is running AGAINST THIS WORKSPACE; DLL is locked.
+  echo         Close that editor and re-run this script.
+  set "EXIT_CODE=1" & goto :end
 )
+if "!LOCK_EXIT!"=="2" (
+  echo [WARN] Editor running against this workspace but no DLL at target yet.
+  echo        Sync will proceed; restart the editor after to load the plugin.
+  echo.
+)
+REM LOCK_EXIT 0 = clear; either no editor at all OR editor against a different workspace.
+goto :lock_check_done
+
+:lock_check_fallback
+echo [WARN] Node.js not on PATH; falling back to coarse editor-lock check.
+tasklist /FI "IMAGENAME eq UnrealEditor.exe" 2>nul | findstr /I "UnrealEditor.exe" >nul
+if errorlevel 1 goto :lock_check_done
+if exist "!DLL_PATH!" (
+  echo [ERROR] UnrealEditor.exe is running and plugin DLL exists at target.
+  echo         Close Unreal Editor and re-run this script.
+  set "EXIT_CODE=1" & goto :end
+)
+echo [WARN] UnrealEditor.exe is running but no plugin DLL at target yet.
+echo        Sync will proceed; restart the editor after to load the plugin.
+echo.
+
+:lock_check_done
 
 REM --- Prompt before overwriting existing plugin dir ---
 if exist "!PLUGIN_DEST!" (
@@ -233,34 +239,45 @@ if exist "!PLUGIN_DEST!" (
 REM --- Upgrade-cache auto-bust via deploy marker (W-L / D138) ---
 REM Read the prior deploy marker (if any) and compare manifest + uplugin
 REM versions against the incoming repo state. On mismatch (or --force-clean),
-REM nuke <dest>/Binaries + <dest>/Intermediate before xcopy so UBT does a
+REM nuke dest Binaries + dest Intermediate before xcopy so UBT does a
 REM clean rebuild against the structural change. First sync after W-L
-REM lands has no prior marker → no nuke (preserves any hand-built cache).
+REM lands has no prior marker -> no nuke (preserves any hand-built cache).
 REM
 REM Helper exit codes: 0 = no nuke needed, 10 = NUKE recommended, 1 = error.
+REM
+REM Flat goto-label control flow avoids CMD's deep-paren-nesting parser
+REM fragility (an earlier nested-cascade form crashed CMD on parse — the
+REM "(exit !MARKER_EXIT!)" literal inside an else-if-else block confused
+REM CMD's paren-balance logic, killing the script before :end).
 set "NUKE_REASON="
 if "!NO_MARKER!"=="1" (
   echo [INFO] --no-marker: skipping deploy-marker check.
-) else if "!FORCE_CLEAN!"=="1" (
-  set "NUKE_REASON=--force-clean flag"
-) else (
-  node --version >nul 2>&1
-  if errorlevel 1 (
-    echo [WARN] Node.js not on PATH; skipping deploy-marker check.
-  ) else (
-    node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" check "!PLUGIN_DEST!" "!UEMCP_PATH!"
-    set "MARKER_EXIT=!errorlevel!"
-    if "!MARKER_EXIT!"=="10" (
-      set "NUKE_REASON=manifest/uplugin version changed"
-    ) else if not "!MARKER_EXIT!"=="0" (
-      echo [WARN] Marker check failed (exit !MARKER_EXIT!); continuing without nuke.
-    )
-  )
+  goto :marker_check_done
 )
+if "!FORCE_CLEAN!"=="1" (
+  set "NUKE_REASON=--force-clean flag"
+  goto :marker_check_done
+)
+node --version >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] Node.js not on PATH; skipping deploy-marker check.
+  goto :marker_check_done
+)
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" check "!PLUGIN_DEST!" "!UEMCP_PATH!"
+set "MARKER_EXIT=!errorlevel!"
+if "!MARKER_EXIT!"=="10" (
+  set "NUKE_REASON=manifest/uplugin version changed"
+  goto :marker_check_done
+)
+if not "!MARKER_EXIT!"=="0" (
+  echo [WARN] Marker check failed exit !MARKER_EXIT!; continuing without nuke.
+)
+
+:marker_check_done
 
 if defined NUKE_REASON (
   echo.
-  echo [INFO] Clearing cached Binaries + Intermediate before sync ^(reason: !NUKE_REASON!^).
+  echo [INFO] Clearing cached Binaries + Intermediate before sync. Reason: !NUKE_REASON!
   if exist "!PLUGIN_DEST!\Binaries\" rmdir /s /q "!PLUGIN_DEST!\Binaries"
   if exist "!PLUGIN_DEST!\Intermediate\" rmdir /s /q "!PLUGIN_DEST!\Intermediate"
   echo.
@@ -284,23 +301,27 @@ if not "!XCOPY_EXIT!"=="0" (
 )
 
 REM --- Write deploy marker post-sync (W-L / D138) ---
-REM Records manifest version + uplugin Version + commit SHAs at <dest>/
-REM .uemcp-deploy-marker.json. Subsequent syncs read this back and compare
-REM against the new incoming repo state. Atomic write (.uemcp-tmp + rename)
-REM so a partial-write failure can't corrupt the marker.
+REM Records manifest version + uplugin Version + commit SHAs at
+REM dest/.uemcp-deploy-marker.json. Subsequent syncs read this back and
+REM compare against the new incoming repo state. Atomic write (.uemcp-tmp
+REM + rename) so a partial-write failure can't corrupt the marker.
+REM Flat goto-label control flow (matches the pattern used in the
+REM marker-check block above to avoid CMD paren-nesting parser issues).
 if "!NO_MARKER!"=="1" (
   echo [INFO] --no-marker: skipping marker write.
-) else (
-  node --version >nul 2>&1
-  if errorlevel 1 (
-    echo [WARN] Node.js not on PATH; skipping marker write.
-  ) else (
-    node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!"
-    if errorlevel 1 (
-      echo [WARN] Marker write failed; sync still succeeded.
-    )
-  )
+  goto :marker_write_done
 )
+node --version >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] Node.js not on PATH; skipping marker write.
+  goto :marker_write_done
+)
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!"
+if errorlevel 1 (
+  echo [WARN] Marker write failed; sync still succeeded.
+)
+
+:marker_write_done
 
 echo [SUCCESS] Plugin synced to !PLUGIN_DEST!.
 echo.
