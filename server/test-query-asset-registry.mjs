@@ -124,6 +124,26 @@ async function run() {
   }
   check('non-/Game/ path_prefix rejected', threw);
 
+  // 7b. W-H (D144) — path-traversal in path_prefix rejected via resolveSafePath.
+  // Pre-W-H: '/Game/../../etc/passwd' → '../../etc/passwd' → join(Content,..)
+  // would resolve outside Content/. resolveSafePath now catches this.
+  reset();
+  threw = false;
+  let traversalErr = '';
+  try {
+    await executeOfflineTool(
+      'query_asset_registry',
+      { path_prefix: '/Game/../../etc/passwd' },
+      projectRoot
+    );
+  } catch (err) {
+    threw = true;
+    traversalErr = err.message;
+  }
+  check('W-H: /Game/../.. path_prefix rejected by resolveSafePath',
+    threw && /traversal/i.test(traversalErr),
+    `threw=${threw} msg="${traversalErr}"`);
+
   // 8. Cache reuse: second call populates cache
   reset();
   await executeOfflineTool(

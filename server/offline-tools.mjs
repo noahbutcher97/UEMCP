@@ -588,7 +588,14 @@ async function queryAssetRegistry(projectRoot, params = {}) {
     if (!pathPrefix.startsWith('/Game/')) {
       throw new Error(`path_prefix must start with /Game/ (got: ${pathPrefix})`);
     }
-    scanRoot = join(projectRoot, 'Content', pathPrefix.replace('/Game/', ''));
+    // W-H (D144 — Gauntlet finding 9.4): single-occurrence replace below
+    // would accept `/Game/../../etc/passwd` → `../../etc/passwd`, which
+    // join() resolves outside Content/. resolveSafePath enforces the
+    // post-resolve full path stays inside contentRoot. Throws on
+    // traversal; bounded today by walkAssetFiles file-type filter, but
+    // the defense-in-depth fold-in costs ~3 lines.
+    const contentRoot = join(projectRoot, 'Content');
+    scanRoot = resolveSafePath(contentRoot, pathPrefix.replace('/Game/', ''));
   }
 
   const files = [];
