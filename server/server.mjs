@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
-import { ToolsetManager } from './toolset-manager.mjs';
+import { ToolsetManager, summarizeAutoEnable } from './toolset-manager.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import {
@@ -584,30 +584,46 @@ server.tool(
       .map(([name]) => name);
 
     const previouslyEnabled = new Set(toolsetManager.getEnabledNames());
+    let enableResult = { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
     if (toolsetNames.length > 0) {
-      await toolsetManager.autoEnable(toolsetNames);
-      log('info', `Auto-enabled toolsets: ${toolsetNames.join(', ')}`);
+      enableResult = await toolsetManager.autoEnable(toolsetNames);
+      const labelEnabled = enableResult.enabled.length > 0 ? enableResult.enabled.join(', ') : '(none)';
+      const labelUnavail = enableResult.unavailable.length > 0 ? ` (unavailable: ${enableResult.unavailable.join(', ')})` : '';
+      log('info', `Auto-enabled toolsets: ${labelEnabled}${labelUnavail}`);
     }
 
-    // Collect tips for newly enabled toolsets (not already enabled before this call)
-    const newlyEnabled = toolsetNames.filter(n => !previouslyEnabled.has(n));
+    // W-O (D142): summarizeAutoEnable splits attempted toolsets into
+    // actually-newly-enabled / unavailable / already-enabled. Pre-W-O the
+    // response reported `autoEnabled: toolsetNames` (the attempted list),
+    // which silently masked layer-down failures as successes — caught by
+    // Pivot-W3's audit (D141). Option C: keep the field name but fix
+    // semantics so it reflects the post-call delta only.
+    const summary = summarizeAutoEnable(toolsetNames, enableResult, previouslyEnabled);
+
+    // Collect tips for newly enabled toolsets (those that actually transitioned)
     const allEnabled = new Set(toolsetManager.getEnabledNames());
-    const tips = collectTips(newlyEnabled, allEnabled);
+    const tips = collectTips(summary.autoEnabled, allEnabled);
+
+    const responseObj = {
+      query,
+      resultCount: results.length,
+      results: results.map(r => ({
+        tool: r.toolName,
+        toolset: r.toolsetName,
+        description: r.description,
+        layer: r.layer,
+        score: r.score,
+      })),
+      autoEnabled: summary.autoEnabled,
+    };
+    // Parallel diagnostic fields — present only when non-empty so the common
+    // success path stays unchanged from a client's perspective.
+    if (summary.unavailable.length > 0) responseObj.unavailable = summary.unavailable;
+    if (summary.alreadyEnabled.length > 0) responseObj.alreadyEnabled = summary.alreadyEnabled;
 
     const content = [{
       type: 'text',
-      text: JSON.stringify({
-        query,
-        resultCount: results.length,
-        results: results.map(r => ({
-          tool: r.toolName,
-          toolset: r.toolsetName,
-          description: r.description,
-          layer: r.layer,
-          score: r.score,
-        })),
-        autoEnabled: toolsetNames,
-      }, null, 2),
+      text: JSON.stringify(responseObj, null, 2),
     }];
     if (tips.length > 0) {
       content.push({ type: 'text', text: `Tips:\n${tips.join('\n')}` });
@@ -702,315 +718,46 @@ server.tool(
 // The ToolsetManager tracks enabled state; when tools/list is called,
 // we filter to only return tools from enabled toolsets.
 //
-// For Phase 1, we register all offline tools. TCP tools are registered
-// in Phase 2/3 when those layers are implemented.
+// Per-toolset registration is funnelled through the registerToolGroup
+// helper below — pre-W-A this section had 7 near-identical 30-line
+// loops that drifted only by label/executor; consolidation collapses
+// ~250 lines and locks the error-shape so future changes propagate
+// to all toolsets in one place. See docs/handoffs/gauntlet-refactor-batch.md
+// §1 (W-A) for context.
 
-// Register offline tools — descriptions and params sourced from tools.yaml (D44).
-// Previously this was a duplicated const that drifted from yaml over time.
-const offlineToolDefs = TOOLS_YAML.toolsets.offline.tools;
-
-for (const [name, def] of Object.entries(offlineToolDefs)) {
-  const schema = buildZodSchema(def.params);
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing offline tool: ${name}`);
-        const result = await executeOfflineTool(name, args, connectionManager.resolvedProjectRoot);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  // Register the SDK handle so ToolsetManager can toggle visibility.
-  // Tools start disabled; ToolsetManager.load() enables the offline
-  // toolset if its layer is available.
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register actors tools (TCP:55558) ─────────────────────────────
-// M3 (D23 oracle retirement): actors toolset — 10 tools that talk to the
-// UEMCP custom plugin on TCP:55558. Handlers live in server/actors-tcp-tools.mjs.
-// Same pattern as offline tools: capture handle, start disabled, register with ToolsetManager.
-
-const actorsToolDefs = getActorsToolDefs();
-
-for (const [name, def] of Object.entries(actorsToolDefs)) {
-  const schema = {};
-  for (const [paramName, zodField] of Object.entries(def.schema)) {
-    schema[paramName] = zodField;
-  }
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing actors tool: ${name}`);
-        const result = await executeActorsTool(name, args, connectionManager);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register blueprints-write tools (TCP:55558) ─────────────────────
-// M3 (D23 oracle retirement): blueprints-write toolset — 15 tools for BP
-// creation, components, and graph nodes. Handlers live in
-// server/blueprints-write-tcp-tools.mjs and dispatch to the UEMCP custom
-// plugin on TCP:55558 (replaced the conformance-oracle path post-M3).
-
-const bpWriteToolDefs = getBlueprintsWriteToolDefs();
-
-for (const [name, def] of Object.entries(bpWriteToolDefs)) {
-  const schema = {};
-  for (const [paramName, zodField] of Object.entries(def.schema)) {
-    schema[paramName] = zodField;
-  }
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing blueprints-write tool: ${name}`);
-        const result = await executeBlueprintsWriteTool(name, args, connectionManager);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register widgets tools (TCP:55558) ──────────────────────────────
-// M3 (D23 oracle retirement): widgets toolset — 7 tools for UMG widget
-// creation and binding. Handlers live in server/widgets-tcp-tools.mjs and
-// dispatch to the UEMCP custom plugin on TCP:55558. The 2 previously-broken
-// handlers (set_text_block_binding, add_widget_to_viewport) ship CORRECTED
-// behavior here — see plugin/.../WidgetHandlers.cpp for bug-fix details.
-
-const widgetsToolDefs = getWidgetsToolDefs();
-
-for (const [name, def] of Object.entries(widgetsToolDefs)) {
-  const schema = {};
-  for (const [paramName, zodField] of Object.entries(def.schema)) {
-    schema[paramName] = zodField;
-  }
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing widgets tool: ${name}`);
-        const result = await executeWidgetsTool(name, args, connectionManager);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register RC tools (HTTP:30010) ────────────────────────────────
-// M-enhance CP2 (D66 HYBRID): 11 FULL-RC tools — 8 rc_* primitives from the
-// remote-control toolset, plus 3 RC-internal-substrate semantic delegates
-// (list_material_parameters, get_curve_asset, get_mesh_info) whose agent-facing
-// toolsets are materials/data-assets/geometry. All dispatch via sendHttp.
-
-const rcToolDefs = getRcToolDefs();
-
-for (const [name, def] of Object.entries(rcToolDefs)) {
-  const schema = {};
-  for (const [paramName, zodField] of Object.entries(def.schema)) {
-    schema[paramName] = zodField;
-  }
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing rc tool: ${name}`);
-        const result = await executeRcTool(name, args, connectionManager);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register M-enhance TCP tools (TCP:55558) ──────────────────────
-// M-enhance CP4 (D66 HYBRID): 10 FULL-TCP tools backed by CP3 plugin handlers.
-// bp_compile_and_report, get_blueprint_event_dispatchers, get_widget_blueprint,
-// get_material_graph, get_editor_state, start_pie/stop_pie/is_pie_running,
-// execute_console_command, get_asset_references. Wire-type mapping via
-// tools.yaml `wire_type:` field (e.g. get_blueprint_event_dispatchers →
-// get_event_dispatchers to match CP3's plugin registration).
-
-const menhanceToolDefs = getMenhanceToolDefs();
-
-for (const [name, def] of Object.entries(menhanceToolDefs)) {
-  const schema = {};
-  for (const [paramName, zodField] of Object.entries(def.schema)) {
-    schema[paramName] = zodField;
-  }
-
-  const handle = server.tool(
-    name,
-    def.description,
-    schema,
-    async (args, ctx) => {
-      try {
-        log('info', `Executing m-enhance tool: ${name}`);
-        const result = await executeMenhanceTool(name, args, connectionManager);
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{
-            type: 'text',
-            text: `Error in ${name}: ${err.message}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  handle.disable();
-  toolsetManager.registerToolHandle(name, handle);
-}
-
-// ── Register M5-PREP scaffold tools (TCP:55558) ────────────────────
-// M5-PREP (D101): 5 stub toolsets reserving registration insertion points so
-// the 3 M5 sub-workers can each fill in their own m5-*-tools.mjs without
-// touching server.mjs. Each loop iterates the (currently empty) SCHEMAS
-// object — zero MCP tools register until sub-workers populate them. When a
-// sub-worker adds entries, this loop registers them at next startup with
-// the same handle.disable() + toolsetManager.registerToolHandle convention
-// the other TCP toolsets use.
-
-const m5ToolsetGroups = [
-  { name: 'animation',      defs: getM5AnimationToolDefs(),      execute: executeM5AnimationTool      },
-  { name: 'materials',      defs: getM5MaterialsToolDefs(),      execute: executeM5MaterialsTool      },
-  { name: 'input-and-pie',  defs: getM5InputPieToolDefs(),       execute: executeM5InputPieTool       },
-  { name: 'geometry',       defs: getM5GeometryToolDefs(),       execute: executeM5GeometryTool       },
-  { name: 'editor-utility', defs: getM5EditorUtilityToolDefs(),  execute: executeM5EditorUtilityTool  },
-];
-
-for (const group of m5ToolsetGroups) {
-  for (const [name, def] of Object.entries(group.defs)) {
-    const schema = {};
-    for (const [paramName, zodField] of Object.entries(def.schema)) {
-      schema[paramName] = zodField;
-    }
+/**
+ * Register every tool in a toolset group: builds the SDK handle, wires up
+ * the standard try/catch envelope, captures the handle for ToolsetManager
+ * visibility-toggling, and starts each tool disabled.
+ *
+ * Tools begin disabled; ToolsetManager.load() flips visibility for
+ * toolsets whose layer is available.
+ *
+ * @param {object} server                 MCP server instance.
+ * @param {object} toolsetManager         ToolsetManager (visibility-toggling).
+ * @param {string} label                  Identifier used in `Executing <label> tool: <name>` log line.
+ * @param {Record<string,object>} defs    Map of tool name → tool definition (description + schema/params).
+ * @param {(def: object) => object} schemaBuilder  Builds the Zod schema shape from a toolDef.
+ * @param {(name: string, args: object) => Promise<object>} executor  Invokes the underlying handler with validated args.
+ */
+function registerToolGroup(server, toolsetManager, label, defs, schemaBuilder, executor) {
+  for (const [name, def] of Object.entries(defs)) {
+    const schema = schemaBuilder(def);
 
     const handle = server.tool(
       name,
       def.description,
       schema,
-      async (args, ctx) => {
+      async (args) => {
         try {
-          log('info', `Executing m5 ${group.name} tool: ${name}`);
-          const result = await group.execute(name, args, connectionManager);
+          log('info', `Executing ${label} tool: ${name}`);
+          const result = await executor(name, args);
           return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            }],
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };
         } catch (err) {
           return {
-            content: [{
-              type: 'text',
-              text: `Error in ${name}: ${err.message}`,
-            }],
+            content: [{ type: 'text', text: `Error in ${name}: ${err.message}` }],
             isError: true,
           };
         }
@@ -1020,6 +767,110 @@ for (const group of m5ToolsetGroups) {
     handle.disable();
     toolsetManager.registerToolHandle(name, handle);
   }
+}
+
+// Offline tools build their Zod schema from yaml `params:` via buildZodSchema.
+const buildOfflineSchemaShape = (def) => buildZodSchema(def.params);
+
+// TCP/HTTP tool defs ship a pre-built Zod field map under `def.schema`. The
+// SDK call expects a plain object; we materialize a fresh shallow copy so
+// any future SDK-side mutation cannot leak back into the source map.
+const buildTcpSchemaShape = (def) => {
+  const shape = {};
+  for (const [paramName, zodField] of Object.entries(def.schema)) {
+    shape[paramName] = zodField;
+  }
+  return shape;
+};
+
+// ── Register offline tools ────────────────────────────────────────
+// Descriptions and params sourced from tools.yaml (D44, single source of truth).
+registerToolGroup(
+  server, toolsetManager, 'offline',
+  TOOLS_YAML.toolsets.offline.tools,
+  buildOfflineSchemaShape,
+  (name, args) => executeOfflineTool(name, args, connectionManager.resolvedProjectRoot),
+);
+
+// ── Register actors tools (TCP:55558) ─────────────────────────────
+// M3 (D23 oracle retirement): actors toolset — 10 tools that talk to the
+// UEMCP custom plugin on TCP:55558. Handlers live in server/actors-tcp-tools.mjs.
+registerToolGroup(
+  server, toolsetManager, 'actors',
+  getActorsToolDefs(),
+  buildTcpSchemaShape,
+  (name, args) => executeActorsTool(name, args, connectionManager),
+);
+
+// ── Register blueprints-write tools (TCP:55558) ─────────────────────
+// M3 (D23 oracle retirement): blueprints-write toolset — 15 tools for BP
+// creation, components, and graph nodes. Handlers live in
+// server/blueprints-write-tcp-tools.mjs.
+registerToolGroup(
+  server, toolsetManager, 'blueprints-write',
+  getBlueprintsWriteToolDefs(),
+  buildTcpSchemaShape,
+  (name, args) => executeBlueprintsWriteTool(name, args, connectionManager),
+);
+
+// ── Register widgets tools (TCP:55558) ──────────────────────────────
+// M3 (D23 oracle retirement): widgets toolset — 7 tools for UMG widget
+// creation and binding. Handlers live in server/widgets-tcp-tools.mjs.
+// The 2 previously-broken handlers (set_text_block_binding,
+// add_widget_to_viewport) ship CORRECTED behavior — see plugin/.../WidgetHandlers.cpp.
+registerToolGroup(
+  server, toolsetManager, 'widgets',
+  getWidgetsToolDefs(),
+  buildTcpSchemaShape,
+  (name, args) => executeWidgetsTool(name, args, connectionManager),
+);
+
+// ── Register RC tools (HTTP:30010) ────────────────────────────────
+// M-enhance CP2 (D66 HYBRID): 11 FULL-RC tools — 8 rc_* primitives from the
+// remote-control toolset, plus 3 RC-internal-substrate semantic delegates
+// (list_material_parameters, get_curve_asset, get_mesh_info) whose agent-facing
+// toolsets are materials/data-assets/geometry. All dispatch via sendHttp.
+registerToolGroup(
+  server, toolsetManager, 'rc',
+  getRcToolDefs(),
+  buildTcpSchemaShape,
+  (name, args) => executeRcTool(name, args, connectionManager),
+);
+
+// ── Register M-enhance TCP tools (TCP:55558) ──────────────────────
+// M-enhance CP4 (D66 HYBRID): 10 FULL-TCP tools backed by CP3 plugin handlers.
+// bp_compile_and_report, get_blueprint_event_dispatchers, get_widget_blueprint,
+// get_material_graph, get_editor_state, start_pie/stop_pie/is_pie_running,
+// execute_console_command, get_asset_references. Wire-type mapping via
+// tools.yaml `wire_type:` field (e.g. get_blueprint_event_dispatchers →
+// get_event_dispatchers to match CP3's plugin registration).
+registerToolGroup(
+  server, toolsetManager, 'm-enhance',
+  getMenhanceToolDefs(),
+  buildTcpSchemaShape,
+  (name, args) => executeMenhanceTool(name, args, connectionManager),
+);
+
+// ── Register M5-PREP scaffold tools (TCP:55558) ────────────────────
+// M5-PREP (D101): 5 toolsets covering 30 tools across animation/materials/
+// input-and-pie/geometry/editor-utility. Each ships its own m5-*-tools.mjs
+// dispatcher; an empty SCHEMAS map for any group is a no-op until that
+// sub-worker populates wire entries.
+const m5ToolsetGroups = [
+  { name: 'animation',      defs: getM5AnimationToolDefs(),      execute: executeM5AnimationTool      },
+  { name: 'materials',      defs: getM5MaterialsToolDefs(),      execute: executeM5MaterialsTool      },
+  { name: 'input-and-pie',  defs: getM5InputPieToolDefs(),       execute: executeM5InputPieTool       },
+  { name: 'geometry',       defs: getM5GeometryToolDefs(),       execute: executeM5GeometryTool       },
+  { name: 'editor-utility', defs: getM5EditorUtilityToolDefs(),  execute: executeM5EditorUtilityTool  },
+];
+
+for (const group of m5ToolsetGroups) {
+  registerToolGroup(
+    server, toolsetManager, `m5 ${group.name}`,
+    group.defs,
+    buildTcpSchemaShape,
+    (name, args) => group.execute(name, args, connectionManager),
+  );
 }
 
 // ── Wire tools/list_changed notification ───────────────────────────
