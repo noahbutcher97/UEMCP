@@ -88,7 +88,13 @@ const config = Object.freeze({
   projectName:     process.env.UNREAL_PROJECT_NAME || '',
   tcpPortExisting: parseInt(process.env.UNREAL_TCP_PORT_EXISTING || '55557', 10),
   tcpPortCustom:   parseInt(process.env.UNREAL_TCP_PORT_CUSTOM   || '55558', 10),
-  tcpTimeoutMs:    parseInt(process.env.UNREAL_TCP_TIMEOUT_MS    || '5000',  10),
+  // E-1 §5: baseline TCP timeout raised 5000 → 10000 to match the server-side
+  // PerConnectionTimeoutSec. D121 widget overrides + D125/NEW-7 asset-mgmt
+  // overrides recorded empirical durations >5s on the standing handler set;
+  // 5s baseline produced silent-success-on-disk traps that confused callers.
+  // Per-tool overrides (WIDGETS_TIMEOUT_OVERRIDES, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES)
+  // remain in place as empirical-evidence anchors for >10s outliers.
+  tcpTimeoutMs:    parseInt(process.env.UNREAL_TCP_TIMEOUT_MS    || '10000', 10),
   rcPort:          parseInt(process.env.UNREAL_RC_PORT           || '30010', 10),
   autoDetect:      process.env.UNREAL_AUTO_DETECT !== 'false',
   // NEW-2 mitigation flags (D118 / D122). All default OFF — sendHttp behavior
@@ -99,6 +105,13 @@ const config = Object.freeze({
   // parseFloat tolerates a trailing "/sec" suffix (e.g. "0.5/sec" → 0.5).
   rcRateCap:              parseFloat(process.env.UEMCP_RC_RATE_CAP             || '0') || 0,
   rcRelaunchHintAfterN:   parseInt(process.env.UEMCP_RC_RELAUNCH_HINT_AFTER_N  || '0', 10) || 0,
+  // E-1 §6 (EN-23) instrumentation flags. All default OFF — no overhead when
+  // unset. Operator opts in via .mcp.json env block. See CLAUDE.md §Operational
+  // Limits → EN-23 metrics.
+  // metricsEmitEveryN: emit a stderr aggregate summary every N un-cached calls.
+  metricsEmitEveryN:      parseInt(process.env.UEMCP_METRICS_EMIT_EVERY_N      || '0', 10) || 0,
+  // metricsLogPath: optional file path; if set, append per-call metrics rows as JSONL.
+  metricsLogPath:         process.env.UEMCP_METRICS_LOG || '',
 });
 
 // ── Auto-codename registration (D122 / D3 worker) ──────────────────

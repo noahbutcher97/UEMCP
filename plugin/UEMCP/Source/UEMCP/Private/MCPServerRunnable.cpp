@@ -15,7 +15,20 @@ namespace
 {
 	constexpr int32 RecvBufferSize = 8192;
 	constexpr int32 SocketBufferSize = 65536;
-	constexpr double PerConnectionTimeoutSec = 5.0;
+	// E-1 §5 hygiene fix: align server-side per-connection timeout with the client-side
+	// 10s baseline (D121 widget overrides + D125/NEW-7 asset-mgmt overrides recorded
+	// empirical durations >5s). Per-handler overrides on the JS side
+	// (WIDGETS_TIMEOUT_OVERRIDES, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES) still extend
+	// further for outliers; raising the server baseline matches the JS default and
+	// removes the silent-success-on-disk trap class for handlers that exceed 5s.
+	constexpr double PerConnectionTimeoutSec = 10.0;
+
+	// E-1 §1 hygiene fix: wire framing constants. Incoming framed requests start with
+	// "Content-Length: <bytes>\r\n\r\n<body>" per LSP/DAP convention. The legacy
+	// parse-loop format (no framing) remains supported for backwards-compat during
+	// the deploy transition; framing is detected by sniffing the first bytes.
+	const FString ContentLengthHeader = TEXT("Content-Length:");
+	constexpr int32 MaxHeaderBytes = 512;  // Sanity cap for header search
 
 	/** Parse an accumulated UTF-8 byte buffer into a JSON object; returns true when complete. */
 	bool TryParseAccumulated(const TArray<uint8>& Bytes, TSharedPtr<FJsonObject>& OutJson)
@@ -28,6 +41,62 @@ namespace
 		const FString Text(Converter.Length(), Converter.Get());
 		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
 		return FJsonSerializer::Deserialize(Reader, OutJson) && OutJson.IsValid();
+	}
+
+	/**
+	 * Detect length-framing on the accumulated buffer. Returns:
+	 *   - Framed=true, BodyOffset=N, BodyLen=M when a complete `Content-Length: M\r\n\r\n` header is present
+	 *   - Framed=true, BodyOffset=0, BodyLen=-1 when header is incomplete (need more bytes)
+	 *   - Framed=false when the buffer does NOT begin with "Content-Length:" (legacy/parse-loop path)
+	 * The framing sniff inspects only the first `MaxHeaderBytes` so a large legacy
+	 * JSON payload that happens to contain "Content-Length:" mid-body cannot trigger
+	 * a false positive — the prefix must be at byte 0.
+	 */
+	void DetectFraming(const TArray<uint8>& Bytes, bool& bOutFramed, int32& OutBodyOffset, int32& OutBodyLen)
+	{
+		bOutFramed = false;
+		OutBodyOffset = 0;
+		OutBodyLen = -1;
+
+		if (Bytes.Num() < ContentLengthHeader.Len())
+		{
+			// Too few bytes to decide either way — caller should keep reading.
+			// Default-decision: assume framing only when we have enough bytes to confirm.
+			return;
+		}
+
+		// Sniff just the first ContentLengthHeader.Len() bytes (case-insensitive).
+		const FUTF8ToTCHAR Sniff(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()), ContentLengthHeader.Len());
+		const FString Prefix(Sniff.Length(), Sniff.Get());
+		if (!Prefix.StartsWith(ContentLengthHeader, ESearchCase::IgnoreCase))
+		{
+			return;  // legacy path (no framing)
+		}
+
+		bOutFramed = true;
+
+		// Search for the "\r\n\r\n" header terminator within MaxHeaderBytes.
+		const int32 HeaderSearchLen = FMath::Min(Bytes.Num(), MaxHeaderBytes);
+		const FUTF8ToTCHAR Conv(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()), HeaderSearchLen);
+		const FString HeaderText(Conv.Length(), Conv.Get());
+
+		int32 TerminatorIdx = HeaderText.Find(TEXT("\r\n\r\n"), ESearchCase::CaseSensitive, ESearchDir::FromStart);
+		if (TerminatorIdx == INDEX_NONE)
+		{
+			// Header not yet complete — keep reading.
+			return;
+		}
+
+		// Parse the integer body length from the header span.
+		const FString HeaderBlock = HeaderText.Left(TerminatorIdx);
+		const int32 ColonIdx = HeaderBlock.Find(TEXT(":"));
+		if (ColonIdx == INDEX_NONE)
+		{
+			return;
+		}
+		FString LenStr = HeaderBlock.RightChop(ColonIdx + 1).TrimStartAndEnd();
+		OutBodyLen = FCString::Atoi(*LenStr);
+		OutBodyOffset = TerminatorIdx + 4;  // past the "\r\n\r\n" terminator (4 bytes)
 	}
 }
 
@@ -59,8 +128,15 @@ uint32 FMCPServerRunnable::Run()
 			return 1;
 		}
 
+		// E-1 §2 hygiene fix: replace the 50ms `Sleep(0.05f)` poll with a kernel-level
+		// blocking wait. `WaitForPendingConnection(bPending, FTimespan::FromMilliseconds(500))`
+		// delegates to `select()` (or `WSAEventSelect` on Windows) per UE 5.6
+		// SocketsBSD.cpp:88-105 — it returns immediately when a connection arrives and
+		// after the timeout otherwise. The 500ms ceiling preserves bRunning-flag
+		// responsiveness for clean shutdown without burning CPU on poll cycles.
+		// Eliminates the 51ms accept-poll floor measured in Audit 6 §1 (n=210 calls).
 		bool bPending = false;
-		if (ListenerSocket->HasPendingConnection(bPending) && bPending)
+		if (ListenerSocket->WaitForPendingConnection(bPending, FTimespan::FromMilliseconds(500)) && bPending)
 		{
 			FSocket* ClientSocket = ListenerSocket->Accept(TEXT("UEMCPClient"));
 			if (ClientSocket)
@@ -77,11 +153,7 @@ uint32 FMCPServerRunnable::Run()
 				UEMCP_WARN("Accept returned null");
 			}
 		}
-		else
-		{
-			// No pending connection — short sleep to avoid busy-spin.
-			FPlatformProcess::Sleep(0.05f);
-		}
+		// else: WaitForPendingConnection returned false (timeout or error) — loop and re-check bRunning.
 	}
 
 	UEMCP_LOG("server thread stopping");
@@ -122,7 +194,17 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 
 	uint8 Buffer[RecvBufferSize];
 
-	// Read until a complete JSON object parses, client disconnects, or timeout.
+	// E-1 §1 hygiene fix: detect framing on the first bytes received, then read
+	// the appropriate amount. Framed path reads exactly Content-Length bytes;
+	// unframed path falls back to TryParseAccumulated (legacy behavior, kept for
+	// backwards-compat with any unframed client during the deploy transition).
+	bool bFramed = false;
+	int32 FramingBodyOffset = 0;
+	int32 FramingBodyLen = -1;
+	bool bFramingDecided = false;
+	bool bRequestComplete = false;
+
+	// Read until a complete JSON object parses (framed or legacy), client disconnects, or timeout.
 	while (bRunning && (FPlatformTime::Seconds() - StartTime) < PerConnectionTimeoutSec)
 	{
 		int32 BytesRead = 0;
@@ -130,9 +212,49 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 		if (bRecv && BytesRead > 0)
 		{
 			Accumulated.Append(Buffer, BytesRead);
-			if (TryParseAccumulated(Accumulated, RequestJson))
+
+			// First, decide framing once we have enough bytes (or unambiguous prefix).
+			if (!bFramingDecided)
 			{
-				break;
+				DetectFraming(Accumulated, bFramed, FramingBodyOffset, FramingBodyLen);
+				if (bFramed && FramingBodyLen >= 0)
+				{
+					bFramingDecided = true;
+				}
+				else if (!bFramed && Accumulated.Num() >= ContentLengthHeader.Len())
+				{
+					// Have enough bytes to confirm legacy (no Content-Length: prefix at byte 0).
+					bFramingDecided = true;
+				}
+			}
+
+			// Framed path: wait until we have header + full body.
+			if (bFramingDecided && bFramed)
+			{
+				if (FramingBodyLen >= 0 && Accumulated.Num() >= FramingBodyOffset + FramingBodyLen)
+				{
+					TArray<uint8> Body;
+					Body.Append(Accumulated.GetData() + FramingBodyOffset, FramingBodyLen);
+					if (TryParseAccumulated(Body, RequestJson))
+					{
+						bRequestComplete = true;
+						break;
+					}
+					UEMCP_WARN("framed body failed to parse as JSON (Content-Length=%d)", FramingBodyLen);
+					break;
+				}
+				// else: header decoded, body not yet complete — continue receiving.
+				continue;
+			}
+
+			// Legacy path: keep trying to parse the accumulated buffer.
+			if (bFramingDecided && !bFramed)
+			{
+				if (TryParseAccumulated(Accumulated, RequestJson))
+				{
+					bRequestComplete = true;
+					break;
+				}
 			}
 			// More data might be pending — continue loop.
 			continue;
@@ -148,7 +270,13 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 		const ESocketErrors Err = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->GetLastErrorCode();
 		if (Err == SE_EWOULDBLOCK || Err == SE_EINTR)
 		{
-			FPlatformProcess::Sleep(0.01f);
+			// E-1 §3 hygiene fix: replace the 10ms `Sleep(0.01f)` poll with a kernel-event
+			// readiness wait. `Wait(WaitForRead, ...)` returns immediately when bytes
+			// arrive at the socket, eliminating the 10ms quantization on multi-chunk
+			// receives. Same fix class as the §2 accept-loop: kernel-level select()
+			// instead of fixed-interval sleep. Audit 6 advisor flagged this as the
+			// second polling site.
+			ClientSocket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(50));
 			continue;
 		}
 		UEMCP_WARN("recv failed: socket error %d", static_cast<int32>(Err));
@@ -158,7 +286,10 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 	// --- Build response envelope ---
 	if (!RequestJson.IsValid())
 	{
-		UEMCP::BuildErrorResponse(ResponseJson, TEXT("failed to parse request JSON"), TEXT("MALFORMED_REQUEST"));
+		const TCHAR* Reason = bRequestComplete
+			? TEXT("failed to parse request JSON")
+			: TEXT("incomplete request (no JSON parsed before close/timeout)");
+		UEMCP::BuildErrorResponse(ResponseJson, Reason, TEXT("MALFORMED_REQUEST"));
 	}
 	else
 	{
@@ -181,16 +312,33 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 		}
 	}
 
-	// --- Serialize + send (UTF-8, no newline terminator per wire protocol) ---
+	// --- Serialize + send (UTF-8) ---
+	// E-1 §1 hygiene fix: always emit length-framed responses. The JS receiver
+	// auto-detects framing on incoming bytes and falls back to the legacy
+	// parse-loop if no `Content-Length:` header is present, so this is
+	// forwards-compatible for any old client still in flight during transition.
+	// Framing eliminates the JSON-parse-completion ambiguity (legacy clients
+	// could complete-parse a top-level string response prematurely).
 	const FString ResponseText = UEMCP::SerializeResponse(ResponseJson);
-	FTCHARToUTF8 Utf8(*ResponseText);
+	FTCHARToUTF8 BodyUtf8(*ResponseText);
+	const int32 BodyLen = BodyUtf8.Length();
+
+	const FString Header = FString::Printf(TEXT("Content-Length: %d\r\n\r\n"), BodyLen);
+	FTCHARToUTF8 HeaderUtf8(*Header);
+	const int32 HeaderLen = HeaderUtf8.Length();
+
+	TArray<uint8> Framed;
+	Framed.Reserve(HeaderLen + BodyLen);
+	Framed.Append(reinterpret_cast<const uint8*>(HeaderUtf8.Get()), HeaderLen);
+	Framed.Append(reinterpret_cast<const uint8*>(BodyUtf8.Get()), BodyLen);
+
 	int32 BytesSent = 0;
-	if (!ClientSocket->Send(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), BytesSent))
+	if (!ClientSocket->Send(Framed.GetData(), Framed.Num(), BytesSent))
 	{
 		UEMCP_WARN("failed to send response");
 	}
 	else
 	{
-		UEMCP_VERBOSE("sent %d bytes", BytesSent);
+		UEMCP_VERBOSE("sent %d bytes (framed: %d header + %d body)", BytesSent, HeaderLen, BodyLen);
 	}
 }

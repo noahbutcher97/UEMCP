@@ -91,7 +91,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
 - Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
 - Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2126 unit-runnable assertions** (post-W-K baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 23 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (D134, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table); CLEANUP-M5-RESIDUE +23 (D135, §3.5 +5 + §4 +6 + §4.5 +12; D134's +6 already counted above); Q3-DEV-WORKFLOW +28 (D136, new test-verify-deploy.mjs); W-L-SYNC-PLUGIN-HARDENING +33 (D138, new test-sync-plugin-helper.mjs); D138-FIX3 +14 (verify-deploy marker-overlay); W-K +20 (D139, new test-anon-namespace-audit.mjs).
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2167 unit-runnable assertions** (post-D139 E-1 connection-layer rewrite + EN-23 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 23 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (D134, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table); CLEANUP-M5-RESIDUE +23 (D135, §3.5 +5 + §4 +6 + §4.5 +12; D134's +6 already counted above); Q3-DEV-WORKFLOW +28 (D136, new test-verify-deploy.mjs); W-L-SYNC-PLUGIN-HARDENING +33 (D138, new test-sync-plugin-helper.mjs); D138-FIX3 +14 (verify-deploy marker-overlay); W-K +20 (D139, new test-anon-namespace-audit.mjs).
 - Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
@@ -756,7 +756,7 @@ in their respective handler files:
 (bind_widget_event / set_text_block_binding, D118/D121).
 Override flows through `connectionManager.send(layer, type, params,
 { timeoutMs })`; default per-call ceiling falls back to
-`config.tcpTimeoutMs` (5s).
+`config.tcpTimeoutMs` (raised to 10s in E-1 §5; was 5s pre-D139).
 
 **Deferred — widget compile-on-write candidates (D126 audit Class C)**:
 five additional widget handlers (`create_widget`, `add_text_block`,
@@ -776,10 +776,81 @@ the pattern crosses 3+ files. Tracked for a future cleanup worker.
 batch UX where callers don't want to block synchronously for up to 15s
 per asset-mgmt op. Out of scope for the immediate silent-corruption fix.
 
+### E-1 connection-layer hygiene + EN-23 metrics (D139)
+
+Five connection-layer hygiene fixes shipped together with EN-23 baseline
+measurement instrumentation in a single deploy cycle:
+
+- **§1 Length-framed wire** — `Content-Length: <bytes>\r\n\r\n<body>` per
+  LSP/DAP convention. **Per-port routing**: outgoing framing applies only
+  to `tcp-55558` (UEMCP custom plugin) via the `_FRAMED_PORTS` set in
+  `connection-manager.mjs`. The frozen UnrealMCP oracle on `tcp-55557`
+  (D23) stays unframed — a Content-Length prefix would choke its
+  parse-loop. Incoming responses are auto-detected on EITHER port:
+  framed responses parse via the framed path; legacy unframed responses
+  fall through to JSON-parse-completion. Backwards-compat shim is
+  load-bearing during transitional deploys (old plugin sending unframed
+  + new server expecting framed, or vice versa).
+- **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() replaces
+  `Sleep(0.05f)` polling with `WaitForPendingConnection(bPending,
+  FTimespan::FromMilliseconds(500))`. Eliminates the 50ms accept-poll
+  floor measured in Audit 6 §1 (n=210 calls, firstByte median 51-52ms
+  across all workload classes). Projected post-A+ firstByte ~1.5-8ms
+  (5-25× speedup on property-read class).
+- **§3 Event-driven recv** — `ServeOneConnection` recv-EWOULDBLOCK loop
+  replaces `Sleep(0.01f)` with `Wait(ESocketWaitConditions::WaitForRead,
+  FTimespan::FromMilliseconds(50))`. Eliminates the secondary 10ms
+  quantization on multi-chunk receives (Audit 6 advisor-flagged second
+  polling site). Same fix class as §2.
+- **§4 Loopback-only bind** — `UEMCPModule.cpp` flips listener bind from
+  `FIPv4Address::Any` (0.0.0.0) to `FIPv4Address::InternalLoopback`
+  (127.0.0.1). Security hardening: prevents the TCP listener from
+  accepting connections from other machines on the LAN. UEMCP is
+  single-machine-only by design.
+- **§5 Handler-timeout reconciliation** — `tcpTimeoutMs` default raised
+  5000 → 10000ms (server.mjs `UNREAL_TCP_TIMEOUT_MS` default + manifest
+  field default); plugin-side `PerConnectionTimeoutSec` raised 5.0 → 10.0.
+  D121 widget overrides + D125/NEW-7 asset-mgmt overrides recorded
+  empirical durations >5s; raising the baseline removes the
+  silent-success-on-disk trap class. Per-tool overrides
+  (`WIDGETS_TIMEOUT_OVERRIDES`, `M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES`)
+  remain in place as empirical-evidence anchors for >10s outliers.
+
+**EN-23 metrics aggregator** — `MetricsAggregator` class in
+`connection-manager.mjs` collects per-call wire-phase timings (connect,
+send, first_byte, response, total), cache hit/miss counts, framed-vs-
+unframed counts, and per-type aggregates. **Default-OFF**: when
+`UEMCP_METRICS_EMIT_EVERY_N` is 0 AND `UEMCP_METRICS_LOG` is empty,
+`record()` is a cheap no-op and `tcpCommand` skips its hrtime captures.
+Operator opts in via `.mcp.json` env block:
+
+- `"UEMCP_METRICS_EMIT_EVERY_N": "100"` — emit aggregate stderr summary
+  every 100 un-cached calls. Summary shape: `{ window_n, total_n,
+  cache_hits, cache_misses, avg_total_ms, p50_total_ms, p95_total_ms,
+  max_total_ms, framed_count, error_count, by_type }`.
+- `"UEMCP_METRICS_LOG": "<path>"` — append per-call records as JSONL
+  to the named file. Best-effort: write errors are swallowed so
+  telemetry never crashes the server.
+
+Connection-manager exposes `getMetrics()` so tools / tests can introspect.
+
+**Bench script** — `server/_bench-transport-spike.mjs` (underscore prefix
+= test-only, not loaded by main server). Direct-TCP probe at 127.0.0.1
+with per-phase `process.hrtime.bigint()` timing; bypasses MCP-SDK +
+ConnectionManager so numbers reflect the wire floor. Run on demand for
+pre/post-A+ comparison and for EN-23 baseline reproducibility:
+`node server/_bench-transport-spike.mjs --workload=ping --n=50`.
+
+**Plugin version coupling** — D139 ships with `manifest.json` 1.0.1 →
+1.0.2 + `UEMCP.uplugin Version` 2 → 3 + `VersionName` 1.0.1 → 1.0.2.
+W-L deploy-marker (D138) compares both → either change triggers
+auto-bust of `Binaries/` + `Intermediate/` so the next sync rebuilds
+against the new wire shape.
+
 ## Testing
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~2126 unit-runnable assertions across 23 test files** (post-W-K baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs); +33 W-L-SYNC-PLUGIN-HARDENING (D138, new test-sync-plugin-helper.mjs); +14 D138-FIX3 (verify-deploy marker-overlay coverage in test-verify-deploy.mjs: applyMarkerVerdictOverlay 8 branches + formatMarkerSyncTime 4 cases); +20 W-K (D139, new test-anon-namespace-audit.mjs — Layer 3 structural enforcement of anon-namespace duplicate-symbol class). test-m1-ping live-editor-gated and excluded from rotation count.
+**Total: ~2167 unit-runnable assertions across 23 test files** (post-D139 E-1 baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs); +33 W-L-SYNC-PLUGIN-HARDENING (D138, new test-sync-plugin-helper.mjs); +14 D138-FIX3 (verify-deploy marker-overlay coverage in test-verify-deploy.mjs: applyMarkerVerdictOverlay 8 branches + formatMarkerSyncTime 4 cases); +20 W-K (D139, new test-anon-namespace-audit.mjs — Layer 3 structural enforcement of anon-namespace duplicate-symbol class); +41 E-1 connection-layer rewrite + EN-23 baseline (D139, test-mock-seam.mjs gains length-framing detection + per-port routing + real-socket framed roundtrip + timeout reconciliation + MetricsAggregator shape + ConnectionManager getMetrics getter). test-m1-ping live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
 

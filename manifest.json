@@ -3,7 +3,7 @@
   "name": "uemcp",
   "displayName": "Unreal Engine MCP (UEMCP)",
   "description": "Unreal editor automation. Requires UE editor running.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "main": "server/server.mjs",
   "fields": [
     {
@@ -44,7 +44,23 @@
       "type": "string",
       "secret": false,
       "required": false,
-      "default": "5000"
+      "default": "10000"
+    },
+    {
+      "name": "UEMCP_METRICS_EMIT_EVERY_N",
+      "label": "EN-23 metrics: emit aggregate stderr summary every N calls (0 = disabled)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "0"
+    },
+    {
+      "name": "UEMCP_METRICS_LOG",
+      "label": "EN-23 metrics: optional JSONL log path (empty = disabled)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": ""
     },
     {
       "name": "UNREAL_RC_PORT",

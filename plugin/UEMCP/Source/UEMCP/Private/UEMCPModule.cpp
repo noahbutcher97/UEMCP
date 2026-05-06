@@ -42,7 +42,12 @@ namespace
 		RawSocket->SetReuseAddr(true);
 		RawSocket->SetNonBlocking(true);
 
-		const FIPv4Endpoint Endpoint(FIPv4Address::Any, UEMCPPort);
+		// E-1 §4 hygiene fix: bind loopback-only (127.0.0.1) instead of FIPv4Address::Any.
+		// UEMCP is single-machine-only by design; binding 0.0.0.0 exposes the listener
+		// to any host on the LAN that can route to this machine. InternalLoopback prevents
+		// external connections from reaching the dispatch table — security hardening with
+		// no functional impact for the intended single-machine workflow.
+		const FIPv4Endpoint Endpoint(FIPv4Address::InternalLoopback, UEMCPPort);
 		if (!RawSocket->Bind(*Endpoint.ToInternetAddr()))
 		{
 			UE_LOG(LogUEMCP, Error, TEXT("UEMCP: failed to bind port %d (another process may be listening)"), UEMCPPort);

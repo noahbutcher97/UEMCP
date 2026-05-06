@@ -30,25 +30,119 @@ const LayerStatus = {
 // ── TCP Client (connect-per-command) ────────────────────────
 
 /**
+ * The custom UEMCP plugin port. Length-framing is OUTGOING only on this port —
+ * the frozen UnrealMCP oracle on tcp-55557 (D23) cannot accept Content-Length
+ * headers because its parse-loop will choke on the leading 'C'. Per-port routing
+ * preserves oracle compatibility while letting the new plugin benefit from
+ * unambiguous framing. Incoming response framing is auto-detected on either port
+ * (so the new plugin's framed responses work transparently from 55558).
+ *
+ * This constant is hardcoded rather than threaded from config because tcpCommand
+ * is module-scoped (test seams replace it wholesale via _tcpCommandFn) and the
+ * port mapping is not user-configurable in a meaningful way — 55557 is the
+ * oracle's fixed port and 55558 is UEMCP's. If a future deployment needs a
+ * different layout, the per-port routing can be threaded as an explicit
+ * parameter; YAGNI for now.
+ */
+const FRAMED_PORTS = new Set([55558]);
+
+/**
+ * Detect length-framed response. Sniffs first bytes for "Content-Length:" prefix
+ * (case-insensitive). When framed, returns { framed: true, headerLen, bodyLen }.
+ * When unframed (legacy parse-loop path), returns { framed: false }.
+ * Used for backwards-compat: an old plugin still emitting unframed JSON parses
+ * via the legacy path; a new plugin with framing parses via the framed path.
+ *
+ * @param {Buffer} buf - accumulated bytes
+ * @returns {{framed: true, headerLen: number, bodyLen: number} | {framed: false} | {framed: 'pending'}}
+ */
+function _detectResponseFraming(buf) {
+  if (buf.length < 'Content-Length:'.length) {
+    return { framed: 'pending' };  // not enough bytes to decide
+  }
+  const prefix = buf.slice(0, 'Content-Length:'.length).toString('utf-8').toLowerCase();
+  if (!prefix.startsWith('content-length:')) {
+    return { framed: false };
+  }
+  // Search for "\r\n\r\n" terminator within first 512 bytes.
+  const headerSearch = buf.slice(0, Math.min(buf.length, 512)).toString('utf-8');
+  const terminatorIdx = headerSearch.indexOf('\r\n\r\n');
+  if (terminatorIdx === -1) {
+    return { framed: 'pending' };  // header not yet complete
+  }
+  const headerBlock = headerSearch.slice(0, terminatorIdx);
+  const colonIdx = headerBlock.indexOf(':');
+  if (colonIdx === -1) {
+    return { framed: false };  // malformed; fall back to legacy parse
+  }
+  const lenStr = headerBlock.slice(colonIdx + 1).trim();
+  const bodyLen = parseInt(lenStr, 10);
+  if (!Number.isFinite(bodyLen) || bodyLen < 0) {
+    return { framed: false };
+  }
+  return { framed: true, headerLen: terminatorIdx + 4, bodyLen };
+}
+
+/**
  * Send a single command over TCP, following the existing plugin's protocol.
  * Opens socket → sends JSON → reads until valid JSON → closes socket.
+ *
+ * E-1 §1: outgoing length-framing applies only on FRAMED_PORTS (55558 — UEMCP
+ * custom plugin). The frozen UnrealMCP oracle on 55557 (D23) stays unframed.
+ * Incoming response framing is auto-detected on EITHER port — the new plugin's
+ * framed responses parse via the framed path; legacy unframed responses parse
+ * via the JSON-parse-completion path.
+ *
+ * E-1 §6 (EN-23): if `metrics` is provided, per-phase timings are recorded.
  *
  * @param {number} port
  * @param {string} type    - command name (the "type" field, NOT "command")
  * @param {object} params
  * @param {number} timeoutMs
+ * @param {{record: (entry: object) => void} | null} [metrics] - optional metrics sink
  * @returns {Promise<object>} parsed JSON response
  */
-function tcpCommand(port, type, params, timeoutMs) {
+function tcpCommand(port, type, params, timeoutMs, metrics = null) {
   return new Promise((resolve, reject) => {
+    const t0 = process.hrtime.bigint();
+    let tConnected = 0n;
+    let tSent = 0n;
+    let tFirstByte = 0n;
+    let tParsed = 0n;
+
     const socket = net.createConnection({ port, host: '127.0.0.1' });
+    /** @type {Buffer[]} */
     const chunks = [];
+    let totalBytes = 0;
     let settled = false;
+    /** @type {{framed: boolean | 'pending', headerLen?: number, bodyLen?: number}} */
+    let framing = { framed: 'pending' };
 
     const finish = (err, result) => {
       if (settled) return;
       settled = true;
       socket.destroy();
+
+      // E-1 §6 (EN-23): emit metrics if a sink was provided. Done at finish time
+      // so timeouts / errors get recorded too (with whichever phase timings are valid).
+      if (metrics && typeof metrics.record === 'function') {
+        const tEnd = process.hrtime.bigint();
+        const ns = (a, b) => (a && b ? Number(b - a) / 1e6 : null);  // ns→ms
+        metrics.record({
+          port,
+          type,
+          ok: !err,
+          err: err ? err.message : null,
+          framed: framing.framed === true,
+          bytes: totalBytes,
+          connect_ms: ns(t0, tConnected),
+          send_ms: ns(tConnected, tSent),
+          first_byte_ms: ns(tSent, tFirstByte),
+          response_ms: ns(tFirstByte, tParsed),
+          total_ms: ns(t0, tEnd),
+        });
+      }
+
       if (err) reject(err);
       else resolve(result);
     };
@@ -56,31 +150,79 @@ function tcpCommand(port, type, params, timeoutMs) {
     socket.setTimeout(timeoutMs);
 
     socket.on('connect', () => {
-      // Send request — no newline terminator (matches Python server behavior)
-      const payload = JSON.stringify({ type, params: params || {} });
-      socket.write(payload);
+      tConnected = process.hrtime.bigint();
+      const body = JSON.stringify({ type, params: params || {} });
+      if (FRAMED_PORTS.has(port)) {
+        // E-1 §1: emit Content-Length-framed request to the UEMCP custom plugin.
+        const bodyBuf = Buffer.from(body, 'utf-8');
+        const header = `Content-Length: ${bodyBuf.length}\r\n\r\n`;
+        socket.write(header);
+        socket.write(bodyBuf);
+      } else {
+        // Legacy oracle path (tcp-55557): no framing, no newline terminator.
+        socket.write(body);
+      }
+      tSent = process.hrtime.bigint();
     });
 
     socket.on('data', (chunk) => {
+      if (tFirstByte === 0n) tFirstByte = process.hrtime.bigint();
       chunks.push(chunk);
-      // Try to parse accumulated data as JSON (no framing — just attempt parse)
-      const raw = Buffer.concat(chunks).toString('utf-8');
-      try {
-        const parsed = JSON.parse(raw);
-        finish(null, parsed);
-      } catch {
-        // Incomplete JSON, keep reading
+      totalBytes += chunk.length;
+      const buf = Buffer.concat(chunks);
+
+      if (framing.framed === 'pending') {
+        framing = _detectResponseFraming(buf);
       }
+
+      if (framing.framed === true) {
+        // Framed path: wait until we have header + full body, then parse body only.
+        if (buf.length >= framing.headerLen + framing.bodyLen) {
+          const body = buf.slice(framing.headerLen, framing.headerLen + framing.bodyLen).toString('utf-8');
+          try {
+            const parsed = JSON.parse(body);
+            tParsed = process.hrtime.bigint();
+            finish(null, parsed);
+          } catch (e) {
+            finish(new Error(`TCP:${port} — invalid JSON in framed body (Content-Length=${framing.bodyLen}): ${body.slice(0, 200)}`));
+          }
+        }
+        // else: keep reading.
+        return;
+      }
+
+      if (framing.framed === false) {
+        // Legacy path: try to parse whatever's accumulated.
+        const raw = buf.toString('utf-8');
+        try {
+          const parsed = JSON.parse(raw);
+          tParsed = process.hrtime.bigint();
+          finish(null, parsed);
+        } catch {
+          // Incomplete JSON, keep reading
+        }
+      }
+      // framing === 'pending' — keep reading until we can decide.
     });
 
     socket.on('end', () => {
       if (!settled) {
-        const raw = Buffer.concat(chunks).toString('utf-8');
-        if (raw.length === 0) {
+        const buf = Buffer.concat(chunks);
+        if (buf.length === 0) {
           finish(new Error(`TCP:${port} — connection closed with no response`));
           return;
         }
+        // If still pending or framed but incomplete, treat as malformed.
+        if (framing.framed === true && buf.length < framing.headerLen + framing.bodyLen) {
+          finish(new Error(`TCP:${port} — connection closed with incomplete framed body (got ${buf.length}, expected ${framing.headerLen + framing.bodyLen})`));
+          return;
+        }
+        // Last-resort parse for legacy/unknown shape.
+        const raw = framing.framed === true
+          ? buf.slice(framing.headerLen, framing.headerLen + framing.bodyLen).toString('utf-8')
+          : buf.toString('utf-8');
         try {
+          tParsed = process.hrtime.bigint();
           finish(null, JSON.parse(raw));
         } catch {
           finish(new Error(`TCP:${port} — invalid JSON response: ${raw.slice(0, 200)}`));
@@ -97,6 +239,10 @@ function tcpCommand(port, type, params, timeoutMs) {
     });
   });
 }
+
+// E-1 §1: export framing helpers so unit tests can validate framing detection
+// without intercepting node:net. Underscore prefix marks test-only contract.
+export { FRAMED_PORTS as _FRAMED_PORTS, _detectResponseFraming };
 
 // ── HTTP Client (Remote Control, connect-per-request) ──────
 
@@ -199,6 +345,124 @@ function httpCommand(port, method, path, body, timeoutMs, agent) {
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+// ── Metrics aggregator (EN-23) ──────────────────────────────
+
+/**
+ * MetricsAggregator — EN-23 instrumentation collector.
+ *
+ * Records per-call wire-phase timings + cache layer + error rates. Default-OFF:
+ * if `emitEveryN` is 0 AND `logPath` is empty, every record() call is a no-op
+ * cheap-counter bump (no allocation, no formatting). Operator enables via env
+ * vars `UEMCP_METRICS_EMIT_EVERY_N` (stderr) and `UEMCP_METRICS_LOG` (JSONL file).
+ *
+ * Schema per record(): { port, type, ok, err, framed, bytes, connect_ms, send_ms,
+ *   first_byte_ms, response_ms, total_ms } — phases may be null if the call
+ *   short-circuited before reaching that phase.
+ *
+ * Aggregated stderr summary shape:
+ *   { window_n, total_n, avg_total_ms, p50_total_ms, p95_total_ms, max_total_ms,
+ *     framed_count, error_count, by_type: { [type]: { n, avg_ms, errors } } }
+ *
+ * This is the single sink that both `tcpCommand` (per-call timings) and
+ * ConnectionManager (cache hits/misses) feed into. Tests pass a mock aggregator
+ * with a synchronous flush() to assert shape without timing dependencies.
+ */
+export class MetricsAggregator {
+  constructor({ emitEveryN = 0, logPath = '' } = {}) {
+    this.emitEveryN = emitEveryN | 0;
+    this.logPath = logPath;
+    this._enabled = this.emitEveryN > 0 || !!this.logPath;
+    /** @type {Array<object>} per-call records since last flush */
+    this._window = [];
+    this._totalN = 0;
+    this._cacheHits = 0;
+    this._cacheMisses = 0;
+    /** @type {import('node:fs').WriteStream | null} */
+    this._logStream = null;
+  }
+
+  /**
+   * Whether instrumentation is active. tcpCommand short-circuits its hrtime
+   * captures when this returns false, eliminating per-call overhead in the
+   * default-OFF case.
+   */
+  isEnabled() {
+    return this._enabled;
+  }
+
+  /** Record a per-call metrics row. Cheap when disabled. */
+  record(entry) {
+    if (!this._enabled) return;
+    this._totalN++;
+    this._window.push(entry);
+
+    // Append to JSONL log file if configured (best-effort; no throw on write error).
+    if (this.logPath) {
+      this._lazyOpenLog();
+      try {
+        if (this._logStream) this._logStream.write(JSON.stringify(entry) + '\n');
+      } catch { /* swallow — telemetry must never crash the server */ }
+    }
+
+    // Emit aggregate summary every N records.
+    if (this.emitEveryN > 0 && this._window.length >= this.emitEveryN) {
+      this.flush();
+    }
+  }
+
+  recordCacheHit() { if (this._enabled) this._cacheHits++; }
+  recordCacheMiss() { if (this._enabled) this._cacheMisses++; }
+
+  /** Compute + emit aggregate summary; clears window. Synchronous. */
+  flush() {
+    if (!this._enabled || this._window.length === 0) return null;
+    const summary = this._computeSummary();
+    process.stderr.write(`[uemcp-metrics] ${JSON.stringify(summary)}\n`);
+    this._window = [];
+    return summary;
+  }
+
+  _computeSummary() {
+    const totals = this._window.map((r) => r.total_ms).filter((x) => x != null).sort((a, b) => a - b);
+    const errors = this._window.filter((r) => !r.ok).length;
+    const framedCount = this._window.filter((r) => r.framed).length;
+    const byType = {};
+    for (const r of this._window) {
+      if (!byType[r.type]) byType[r.type] = { n: 0, sum_ms: 0, errors: 0 };
+      byType[r.type].n++;
+      if (r.total_ms != null) byType[r.type].sum_ms += r.total_ms;
+      if (!r.ok) byType[r.type].errors++;
+    }
+    for (const t of Object.keys(byType)) {
+      byType[t].avg_ms = byType[t].n > 0 ? byType[t].sum_ms / byType[t].n : 0;
+      delete byType[t].sum_ms;
+    }
+    const pct = (xs, p) => (xs.length === 0 ? null : xs[Math.min(xs.length - 1, Math.floor(xs.length * p))]);
+    return {
+      window_n: this._window.length,
+      total_n: this._totalN,
+      cache_hits: this._cacheHits,
+      cache_misses: this._cacheMisses,
+      avg_total_ms: totals.length > 0 ? totals.reduce((a, b) => a + b, 0) / totals.length : null,
+      p50_total_ms: pct(totals, 0.5),
+      p95_total_ms: pct(totals, 0.95),
+      max_total_ms: totals.length > 0 ? totals[totals.length - 1] : null,
+      framed_count: framedCount,
+      error_count: errors,
+      by_type: byType,
+    };
+  }
+
+  _lazyOpenLog() {
+    if (this._logStream || !this.logPath) return;
+    // Lazy import keeps startup cost zero when metrics are disabled.
+    import('node:fs').then((fs) => {
+      try { this._logStream = fs.createWriteStream(this.logPath, { flags: 'a' }); }
+      catch { this._logStream = null; }
+    }).catch(() => { this._logStream = null; });
+  }
 }
 
 // ── Result cache ────────────────────────────────────────────
@@ -365,6 +629,13 @@ export class ConnectionManager {
     this._queue = new CommandQueue();
     this._healthTtlMs = 30_000;
 
+    // E-1 §6 (EN-23): metrics aggregator. Default-OFF — no overhead unless
+    // operator sets UEMCP_METRICS_EMIT_EVERY_N or UEMCP_METRICS_LOG.
+    this._metrics = new MetricsAggregator({
+      emitEveryN: config.metricsEmitEveryN || 0,
+      logPath: config.metricsLogPath || '',
+    });
+
     // ── NEW-2 RC HTTP mitigation flags (D118 / D122) ──────────
     // All three mitigations are additive and OFF-by-default. With every flag
     // unset the sendHttp path is observationally identical to pre-NEW-2-mitigation
@@ -474,7 +745,11 @@ export class ConnectionManager {
     // Check cache first (read-ops only — write-ops should set skipCache)
     if (!opts.skipCache) {
       const cached = this._cache.get(type, params);
-      if (cached) return cached;
+      if (cached) {
+        this._metrics.recordCacheHit();
+        return cached;
+      }
+      this._metrics.recordCacheMiss();
     }
 
     // Per-call timeout override (D118 sharpening #1 — bind_widget_event /
@@ -487,20 +762,25 @@ export class ConnectionManager {
       let result;
 
       const tcpFn = this._tcpCommandFn || tcpCommand;
+      // E-1 §6 (EN-23): pass the metrics sink only when enabled. Mock seam
+      // (config.tcpCommandFn) ignores extra args so test fixtures don't break.
+      const metrics = this._metrics.isEnabled() ? this._metrics : null;
 
       if (layerKey === 'tcp-55557') {
         result = await tcpFn(
           this.config.tcpPortExisting,
           type,
           params,
-          timeoutMs
+          timeoutMs,
+          metrics
         );
       } else if (layerKey === 'tcp-55558') {
         result = await tcpFn(
           this.config.tcpPortCustom,
           type,
           params,
-          timeoutMs
+          timeoutMs,
+          metrics
         );
       } else if (layerKey === 'http-30010') {
         // D66 HYBRID: HTTP dispatch via `type` encoding {method, path} and params as body.
@@ -676,6 +956,16 @@ export class ConnectionManager {
    */
   getRcCallCount() {
     return this._rcCallCount;
+  }
+
+  /**
+   * E-1 §6 (EN-23) observability — metrics aggregator handle. Tests use this to
+   * assert per-call shape + flush() behavior; production code may consume for
+   * diagnostics. Always present (default-OFF aggregator is a no-op cheap counter).
+   * @returns {MetricsAggregator}
+   */
+  getMetrics() {
+    return this._metrics;
   }
 
   // ── Auto-detection ──────────────────────────────────────

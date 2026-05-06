@@ -4,7 +4,12 @@
 //
 // Run: cd D:\DevTools\UEMCP\server && node test-mock-seam.mjs
 
-import { ConnectionManager } from './connection-manager.mjs';
+import {
+  ConnectionManager,
+  MetricsAggregator,
+  _FRAMED_PORTS,
+  _detectResponseFraming,
+} from './connection-manager.mjs';
 import {
   FakeTcpResponder,
   ErrorTcpResponder,
@@ -540,6 +545,304 @@ console.log('\n── Test 16: ECONNREFUSED retry-on-next-command (D131) ──'
     statusPostSuccess === 'available',
     `tcp-55558 status flipped to AVAILABLE after success (got "${statusPostSuccess}")`
   );
+}
+
+// ── Test 17: E-1 §1 length-framing detection ────────────────
+console.log('\n── Test 17: E-1 §1 length-framing detection ──');
+
+{
+  // Pure helper coverage — no socket, no mock seam.
+  // Framed: full header + body.
+  {
+    const buf = Buffer.from('Content-Length: 11\r\n\r\n{"x":"abc"}', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === true, 'framed prefix detected');
+    t.assert(r.bodyLen === 11, `bodyLen=11 (got ${r.bodyLen})`);
+    t.assert(r.headerLen === buf.indexOf('\r\n\r\n') + 4, 'headerLen points past terminator');
+  }
+
+  // Legacy: no framing prefix → unframed.
+  {
+    const buf = Buffer.from('{"status":"success"}', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === false, 'unframed JSON detected as legacy path');
+  }
+
+  // Pending: too few bytes to decide.
+  {
+    const buf = Buffer.from('Cont', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === 'pending', 'short prefix returns pending');
+  }
+
+  // Pending: header started but no terminator yet.
+  {
+    const buf = Buffer.from('Content-Length: 100\r\n', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === 'pending', 'partial header (no terminator) is pending');
+  }
+
+  // Case insensitivity.
+  {
+    const buf = Buffer.from('content-LENGTH: 5\r\n\r\nhello', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === true, 'case-insensitive framing prefix detected');
+    t.assert(r.bodyLen === 5, 'case-insensitive bodyLen parsed');
+  }
+
+  // FRAMED_PORTS set: oracle 55557 NOT framed; UEMCP 55558 framed.
+  t.assert(!_FRAMED_PORTS.has(55557), 'tcp-55557 (frozen oracle) does NOT receive framed requests');
+  t.assert(_FRAMED_PORTS.has(55558), 'tcp-55558 (UEMCP custom) DOES receive framed requests');
+
+  // Defense: a legacy JSON payload that contains "Content-Length:" mid-body must NOT
+  // false-positive — sniff inspects only byte 0.
+  {
+    const buf = Buffer.from('{"note":"Content-Length: 42 inside JSON"}', 'utf-8');
+    const r = _detectResponseFraming(buf);
+    t.assert(r.framed === false, 'mid-body Content-Length string does not false-positive');
+  }
+}
+
+// ── Test 18: E-1 §5 timeout default reconciliation ──────────
+console.log('\n── Test 18: E-1 §5 timeout default reconciliation ──');
+
+{
+  // The config baseline raised 5000 → 10000ms. Verify ConnectionManager passes
+  // the configured timeout through to tcpFn (the mock seam captures timeoutMs).
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('slow_op', { status: 'success' });
+
+  const config = {
+    projectRoot: '/fake/project',
+    tcpPortExisting: 55557,
+    tcpPortCustom: 55558,
+    httpPort: 30010,
+    tcpTimeoutMs: 10000,  // E-1 §5 baseline
+    tcpCommandFn: fake.handler(),
+  };
+  const conn = new ConnectionManager(config);
+
+  await conn.send('tcp-55558', 'slow_op', {}, { skipCache: true });
+  const call = fake.lastCall('slow_op');
+  t.assert(call.timeoutMs === 10000, `default timeout 10s applied (got ${call.timeoutMs}ms)`);
+
+  // Per-call override still wins (D118 behavior preserved).
+  await conn.send('tcp-55558', 'slow_op', { id: 2 }, { skipCache: true, timeoutMs: 15000 });
+  const call2 = fake.lastCall('slow_op');
+  t.assert(call2.timeoutMs === 15000, `per-call override 15s applied (got ${call2.timeoutMs}ms)`);
+}
+
+// ── Test 19: E-1 §6 EN-23 metrics aggregator — disabled ────
+console.log('\n── Test 19: E-1 §6 metrics — default-OFF ──');
+
+{
+  // Default: no env vars → emitEveryN=0, logPath='' → aggregator inactive.
+  const agg = new MetricsAggregator();
+  t.assert(agg.isEnabled() === false, 'default aggregator is disabled');
+
+  // record() is a cheap no-op when disabled — does not increment counters.
+  agg.record({ port: 55558, type: 'ping', ok: true, total_ms: 5 });
+  agg.recordCacheHit();
+  agg.recordCacheMiss();
+  // No publicly observable state beyond _enabled — assert flush() does not emit.
+  const summary = agg.flush();
+  t.assert(summary === null, 'flush() returns null when disabled');
+}
+
+// ── Test 20: E-1 §6 EN-23 metrics aggregator — enabled shape ─
+console.log('\n── Test 20: E-1 §6 metrics — enabled shape ──');
+
+{
+  const agg = new MetricsAggregator({ emitEveryN: 100, logPath: '' });
+  t.assert(agg.isEnabled() === true, 'aggregator enabled when emitEveryN > 0');
+
+  agg.recordCacheHit();
+  agg.recordCacheHit();
+  agg.recordCacheMiss();
+
+  agg.record({ port: 55558, type: 'ping', ok: true, framed: true, total_ms: 5, connect_ms: 0.5, send_ms: 0.05, first_byte_ms: 4, response_ms: 0.1 });
+  agg.record({ port: 55558, type: 'ping', ok: true, framed: true, total_ms: 6, connect_ms: 0.5, send_ms: 0.05, first_byte_ms: 5, response_ms: 0.1 });
+  agg.record({ port: 55557, type: 'list_actors', ok: false, err: 'timeout', framed: false, total_ms: 5000 });
+
+  const summary = agg._computeSummary();
+  t.assert(summary.window_n === 3, `window_n=3 (got ${summary.window_n})`);
+  t.assert(summary.total_n === 3, `total_n=3 (got ${summary.total_n})`);
+  t.assert(summary.cache_hits === 2, `cache_hits=2 (got ${summary.cache_hits})`);
+  t.assert(summary.cache_misses === 1, `cache_misses=1 (got ${summary.cache_misses})`);
+  t.assert(summary.framed_count === 2, `framed_count=2 (got ${summary.framed_count})`);
+  t.assert(summary.error_count === 1, `error_count=1 (got ${summary.error_count})`);
+  t.assert(summary.by_type.ping.n === 2, `by_type.ping.n=2 (got ${summary.by_type.ping.n})`);
+  t.assert(summary.by_type.list_actors.errors === 1, 'by_type.list_actors records error');
+  t.assert(summary.avg_total_ms != null, 'avg_total_ms computed');
+  t.assert(summary.p50_total_ms != null, 'p50_total_ms computed');
+  t.assert(summary.max_total_ms === 5000, `max_total_ms=5000 (got ${summary.max_total_ms})`);
+}
+
+// ── Test 21: E-1 §6 ConnectionManager wires metrics ─────────
+console.log('\n── Test 21: E-1 §6 ConnectionManager wires metrics ──');
+
+{
+  // When metrics are enabled, ConnectionManager records cache hits/misses via the aggregator.
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('list_actors', { status: 'success', actors: ['a'] });
+
+  const config = {
+    projectRoot: '/fake/project',
+    tcpPortExisting: 55557,
+    tcpPortCustom: 55558,
+    httpPort: 30010,
+    tcpTimeoutMs: 10000,
+    tcpCommandFn: fake.handler(),
+    metricsEmitEveryN: 100,  // enable
+  };
+  const conn = new ConnectionManager(config);
+  const m = conn.getMetrics();
+  t.assert(m.isEnabled() === true, 'ConnectionManager exposes enabled metrics aggregator');
+
+  // First call: cache miss recorded.
+  await conn.send('tcp-55557', 'list_actors', {});
+  // Second call: cache hit recorded.
+  await conn.send('tcp-55557', 'list_actors', {});
+
+  const summary = m._computeSummary();
+  t.assert(summary.cache_hits >= 1, `cache_hits >= 1 (got ${summary.cache_hits})`);
+  t.assert(summary.cache_misses >= 1, `cache_misses >= 1 (got ${summary.cache_misses})`);
+}
+
+// ── Test 22b: E-1 §1 real-socket framed roundtrip ──────────
+// Validates the production tcpCommand path (no mock seam) end-to-end against
+// a real net.Server. Confirms outgoing requests are framed on tcp-55558,
+// incoming framed responses parse correctly, and (separately) unframed
+// responses still work via the legacy parse-loop fallback.
+console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
+
+{
+  const net = await import('node:net');
+
+  // Helper: spin up a server on a free port that accumulates bytes until a
+  // request can be parsed (framed or unframed), then dispatches the handler.
+  // This avoids races on multi-chunk delivery (the JS framing path emits two
+  // writes for header + body; TCP may deliver them as separate data events).
+  const startEchoServer = (expectFramed, handler) => new Promise((resolve) => {
+    const server = net.createServer((sock) => {
+      const chunks = [];
+      let dispatched = false;
+      sock.on('data', (c) => {
+        if (dispatched) return;
+        chunks.push(c);
+        const buf = Buffer.concat(chunks);
+
+        if (expectFramed) {
+          const r = _detectResponseFraming(buf);
+          if (r.framed === true && buf.length >= r.headerLen + r.bodyLen) {
+            dispatched = true;
+            handler(buf, sock);
+          }
+          return;
+        }
+        // Unframed: parse-loop until JSON valid.
+        try {
+          JSON.parse(buf.toString('utf-8'));
+          dispatched = true;
+          handler(buf, sock);
+        } catch { /* keep reading */ }
+      });
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+
+  // Round-trip 1: framed request from JS → parse on server side → framed response back.
+  // We mimic the new plugin: emit Content-Length-framed reply.
+  {
+    const captured = { req: null, framedReply: false };
+    const { server, port } = await startEchoServer(true, (reqBuf, sock) => {
+      captured.req = reqBuf.toString('utf-8');
+      const body = JSON.stringify({ status: 'success', echoed: true });
+      const reply = `Content-Length: ${Buffer.byteLength(body, 'utf-8')}\r\n\r\n${body}`;
+      captured.framedReply = true;
+      sock.end(reply);
+    });
+
+    // Inject this port into FRAMED_PORTS so the JS side frames the request.
+    _FRAMED_PORTS.add(port);
+    try {
+      const config = {
+        projectRoot: '/fake/project',
+        tcpPortExisting: 55557,
+        tcpPortCustom: port,
+        httpPort: 30010,
+        tcpTimeoutMs: 5000,
+      };
+      const conn = new ConnectionManager(config);
+
+      const result = await conn.send('tcp-55558', 'roundtrip', { x: 1 }, { skipCache: true });
+      t.assert(result && result.echoed === true, 'framed roundtrip parses framed reply');
+      t.assert(captured.req != null, 'server received bytes');
+      t.assert(captured.req.startsWith('Content-Length:'), 'request was length-framed (per FRAMED_PORTS)');
+      // The body after the header terminator must be the JSON payload.
+      const splitIdx = captured.req.indexOf('\r\n\r\n');
+      const body = captured.req.slice(splitIdx + 4);
+      t.assert(body.includes('"type":"roundtrip"'), 'framed body contains type field');
+      t.assert(body.includes('"x":1'), 'framed body contains params');
+    } finally {
+      _FRAMED_PORTS.delete(port);
+      server.close();
+    }
+  }
+
+  // Round-trip 2: legacy port (NOT in FRAMED_PORTS) → unframed request → unframed response.
+  // Confirms backwards-compat shim works on both directions.
+  {
+    const captured = { req: null };
+    const { server, port } = await startEchoServer(false, (reqBuf, sock) => {
+      captured.req = reqBuf.toString('utf-8');
+      // Legacy unframed reply — just JSON, no Content-Length header.
+      sock.end(JSON.stringify({ status: 'success', legacy: true }));
+    });
+
+    try {
+      const config = {
+        projectRoot: '/fake/project',
+        tcpPortExisting: port,  // alias the legacy oracle to this port
+        tcpPortCustom: 55558,
+        httpPort: 30010,
+        tcpTimeoutMs: 5000,
+      };
+      const conn = new ConnectionManager(config);
+
+      const result = await conn.send('tcp-55557', 'oracle_call', {}, { skipCache: true });
+      t.assert(result.legacy === true, 'legacy roundtrip parses unframed reply');
+      t.assert(captured.req != null, 'oracle server received bytes');
+      t.assert(!captured.req.startsWith('Content-Length:'), 'oracle request was NOT framed (D23 preserved)');
+      t.assert(captured.req.startsWith('{'), 'oracle request is raw JSON (legacy shape)');
+    } finally {
+      server.close();
+    }
+  }
+}
+
+// ── Test 22: E-1 §6 metrics off — getMetrics still works ────
+console.log('\n── Test 22: E-1 §6 metrics getter always present ──');
+
+{
+  // Even with metrics disabled, getMetrics() must return an aggregator handle.
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  const config = {
+    projectRoot: '/fake/project',
+    tcpPortExisting: 55557,
+    tcpPortCustom: 55558,
+    httpPort: 30010,
+    tcpTimeoutMs: 10000,
+    tcpCommandFn: fake.handler(),
+    // No metrics flags set → disabled.
+  };
+  const conn = new ConnectionManager(config);
+  const m = conn.getMetrics();
+  t.assert(m instanceof MetricsAggregator, 'getMetrics returns MetricsAggregator instance');
+  t.assert(m.isEnabled() === false, 'aggregator is disabled when no flags set');
 }
 
 // ── Summary ─────────────────────────────────────────────────
