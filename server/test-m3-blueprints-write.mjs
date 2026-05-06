@@ -771,6 +771,48 @@ console.log('\n── Group N: §4 create_blueprint optional path override ─�
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group W-B (D142): Zod enum sharpening — invalid variable_type
+// and node_type rejected pre-wire so wire is never called.
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group W-B: Zod enum sharpening (variable_type, node_type) ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_variable', { status: 'success', result: {} });
+  fake.on('find_blueprint_nodes',   { status: 'success', result: { node_guids: [] } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // Invalid variable_type: 'Bool' is NOT in the enum (must be 'Boolean').
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('add_variable',
+      { blueprint_name: 'BP', variable_name: 'V', variable_type: 'Bool' }, cm),
+    /Invalid|enum/i,
+    'W-B: add_variable rejects unknown variable_type at Zod layer',
+  );
+  t.assert(fake.lastCall('add_blueprint_variable') === undefined,
+    'W-B: invalid variable_type does NOT reach the wire');
+
+  // Both 'Integer' and 'Int' must remain accepted (alias preserved per
+  // BlueprintHandlers.cpp:1012). Smoke-test the alias.
+  await executeBlueprintsWriteTool('add_variable',
+    { blueprint_name: 'BP', variable_name: 'V', variable_type: 'Int' }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable') !== undefined,
+    'W-B: variable_type alias "Int" remains accepted (alias of "Integer")');
+
+  // Invalid node_type: only 'Event' is supported pre-W-G.
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('find_nodes',
+      { blueprint_name: 'BP', node_type: 'Function', event_name: 'X' }, cm),
+    /Invalid|enum/i,
+    'W-B: find_nodes rejects unknown node_type at Zod layer',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

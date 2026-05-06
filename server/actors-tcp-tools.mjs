@@ -71,7 +71,11 @@ export const ACTORS_SCHEMAS = {
   spawn_actor: {
     description: 'Spawn primitive actor (StaticMeshActor, PointLight, SpotLight, DirectionalLight, CameraActor)',
     schema: {
-      type: z.string().describe('Actor type: StaticMeshActor, PointLight, SpotLight, DirectionalLight, CameraActor'),
+      // W-B (D142): enum-narrowed at the JS layer to fail fast on typos before
+      // the wire round-trip; C++ HandleSpawnActor (ActorHandlers.cpp:277-302)
+      // validates the same closed set with UNKNOWN_TYPE — defense-in-depth.
+      type: z.enum(['StaticMeshActor', 'PointLight', 'SpotLight', 'DirectionalLight', 'CameraActor'])
+        .describe('Actor type: StaticMeshActor, PointLight, SpotLight, DirectionalLight, CameraActor'),
       name: z.string().describe('Actor name (must be unique in level)'),
       location: Vec3Optional,
       rotation: Vec3Optional,

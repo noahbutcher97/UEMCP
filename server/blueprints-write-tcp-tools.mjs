@@ -175,7 +175,12 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       variable_name: z.string().describe('Variable name'),
-      variable_type: z.string().describe('One of: Boolean, Integer/Int, Float, String, Vector'),
+      // W-B (D142): enum-narrowed at the JS layer; BlueprintHandlers.cpp:1008-1029
+      // accepts the same closed set with UNSUPPORTED_TYPE on miss. Both
+      // 'Integer' and 'Int' are accepted for backward-compat (handler treats
+      // them as aliases, line 1012).
+      variable_type: z.enum(['Boolean', 'Integer', 'Int', 'Float', 'String', 'Vector'])
+        .describe('One of: Boolean, Integer/Int, Float, String, Vector'),
       is_exposed: z.boolean().optional().describe('If true, adds EditAnywhere flag. Default false.'),
     },
     isReadOp: false,
@@ -216,7 +221,13 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     description: 'Find nodes in event graph by type (currently only Event type supported)',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
-      node_type: z.string().describe("Currently only 'Event' supported"),
+      // W-B (D142): enum-narrowed to the single supported type — pre-W-B
+      // unrecognized strings silently returned [] (Gauntlet Finding 4.1
+      // silent-success-on-edge-case). Closed-form enum at JS layer + C++
+      // dispatch in BlueprintHandlers.cpp:1210-1230 still ships the new
+      // UNSUPPORTED_NODE_TYPE error per W-G as defense-in-depth (handler
+      // path remains valid for future node_type expansion).
+      node_type: z.enum(['Event']).describe("Currently only 'Event' supported"),
       event_name: z.string().optional().describe('Required when node_type=Event'),
     },
     isReadOp: true,

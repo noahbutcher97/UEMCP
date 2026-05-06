@@ -544,6 +544,15 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       /unknown tool/,
       'executeMenhanceTool rejects unknown tool name'
     );
+
+    // W-B (D142): start_pie.mode is now z.enum(['viewport','standalone','new_window']).
+    // Pre-W-B it was z.string().optional() so typos silently fell through to viewport
+    // (Gauntlet Findings 4.3 + 4.7).
+    await t.assertRejects(
+      () => executeMenhanceTool('start_pie', { mode: 'spectator' }, cm),
+      /Invalid|enum/i,
+      'W-B: start_pie rejects unknown mode at Zod layer (no silent fallthrough to viewport)'
+    );
   }
 
   // ── Wire-type map identity fallback ───────────────────────────

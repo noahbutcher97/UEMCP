@@ -315,17 +315,44 @@ console.log('\n── Group 6: Error Propagation (P0-1) ──');
 {
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
-  // Plugin P0-1 envelope (with code field — additive vs oracle)
-  fake.on('spawn_actor', { status: 'error', error: 'Unknown actor type: Bogus', code: 'UNKNOWN_TYPE' });
+  // Plugin P0-1 envelope (with code field — additive vs oracle). Pre-W-B
+  // this test used `type: 'Bogus'` to trigger the wire-side UNKNOWN_TYPE
+  // error — that path is no longer reachable post-W-B because Zod enum
+  // rejects unknown types before the wire round-trip. Switched to a valid
+  // type with a mocked wire-side SPAWN_FAILED so the P0-1 envelope shape
+  // is still exercised independently of the enum-validation layer.
+  fake.on('spawn_actor', { status: 'error', error: 'Spawn failed: name collision', code: 'NAME_COLLISION' });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeActorsTool('spawn_actor', { type: 'PointLight', name: 'L1' }, cm),
+    'Spawn failed: name collision',
+    'P0-1 envelope ({status, error, code}) propagates error message',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 6b (W-B / D142): Zod enum rejection — invalid spawn_actor.type
+// rejected pre-wire so wire is never called.
+// ═══════════════════════════════════════════════════════════════
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('spawn_actor', { status: 'success', result: {} });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
 
   await t.assertRejects(
     () => executeActorsTool('spawn_actor', { type: 'Bogus', name: 'X' }, cm),
-    'Unknown actor type',
-    'P0-1 envelope ({status, error, code}) propagates error message',
+    'Invalid',
+    'W-B: invalid spawn_actor.type rejected by Zod enum (pre-wire)',
   );
+  t.assert(fake.lastCall('spawn_actor') === undefined,
+    'W-B: invalid spawn_actor.type does NOT reach the wire');
 }
 
 // ═══════════════════════════════════════════════════════════════

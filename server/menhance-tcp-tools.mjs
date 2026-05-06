@@ -89,7 +89,13 @@ export const MENHANCE_SCHEMAS = {
   start_pie: {
     description: 'Launch Play In Editor (viewport, standalone, new_window)',
     schema: {
-      mode: z.string().optional().describe('viewport | standalone | new_window (default viewport)'),
+      // W-B (D142): enum-narrowed; pre-W-B mode was z.string().optional() so
+      // typos silently fell through to viewport (Gauntlet Findings 4.3 + 4.7).
+      // C++ HandleStartPie (EdgeCaseHandlers.cpp:122-134) recognises the same
+      // 3 modes; W-G adds an explicit INVALID_PIE_MODE error path on the
+      // C++ side as defense-in-depth.
+      mode: z.enum(['viewport', 'standalone', 'new_window']).optional()
+        .describe('viewport | standalone | new_window (default viewport)'),
     },
     isReadOp: false,
   },
