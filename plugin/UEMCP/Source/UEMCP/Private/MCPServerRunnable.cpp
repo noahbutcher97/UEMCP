@@ -143,6 +143,20 @@ uint32 FMCPServerRunnable::Run()
 			{
 				UEMCP_VERBOSE("accepted client connection");
 				ServeOneConnection(ClientSocket);
+				// E-1-FIX (D140 NEEDS-WORK close-out, 2026-05-06): the §1 Listen(128)
+				// backlog fix in UEMCPModule.cpp targets the actual empirical RST class
+				// (kernel rejects 6th+ concurrent SYN during burst, observed clustering
+				// on calls #0-#9 then steady-state per docs/testing/d140-livefire-2026-05-06.md).
+				// Defense-in-depth `Wait(WaitForWrite)` was considered but DEFERRED:
+				// `Wait(WaitForWrite)` calls `select()` with the write mask — it returns
+				// when the socket's send buffer has room for more writes, NOT when the
+				// buffer has drained to the network. After a successful Send() the socket
+				// is almost always immediately writable, so the call returns within
+				// microseconds without flushing anything. The actual "drain before close"
+				// idiom is `SetLingerSettings(true, smallTimeout)` (kernel waits for
+				// FIN+ACK). If post-deploy bench still shows non-zero error rate after
+				// the §1 fix lands, a follow-on adds SetLingerSettings backed by
+				// empirical evidence rather than speculative comment-claim.
 				if (ISocketSubsystem* Sub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
 				{
 					Sub->DestroySocket(ClientSocket);

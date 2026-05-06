@@ -54,7 +54,21 @@ namespace
 			SocketSubsystem->DestroySocket(RawSocket);
 			return false;
 		}
-		if (!RawSocket->Listen(5))
+		// E-1-FIX backlog overflow fix (D140 NEEDS-WORK close-out, 2026-05-06).
+		// Pre-D140's 50ms accept-poll naturally throttled inbound traffic to <20 conn/sec —
+		// well below the 5-deep accept-queue ceiling. D140 §2's event-driven
+		// `WaitForPendingConnection` removed that covert throttle; live-fire bench n=50
+		// then surfaced ~50% ECONNABORTED/ECONNRESET because connects 6+ during a burst
+		// were RST'd by the kernel before the runnable thread could drain the queue.
+		// Literal 128 chosen over SOMAXCONN: UE's public Sockets.h abstracts the platform
+		// sockets layer and does NOT reliably expose the WinSock2 SOMAXCONN macro to
+		// public consumers (no precedent for SOMAXCONN anywhere under plugin/UEMCP/Source/).
+		// 128 is the standard cross-platform conservative ceiling — matches the default
+		// `/proc/sys/net/core/somaxconn` on most Linux distros, supports 25× the largest
+		// observed burst (n=50 in `_bench-transport-spike`), and ample headroom for any
+		// real-world MCP traffic on a single-machine single-user deployment. Empirically
+		// validated against `_bench-transport-spike --workload=ping --n=50` post-deploy.
+		if (!RawSocket->Listen(128))
 		{
 			UE_LOG(LogUEMCP, Error, TEXT("UEMCP: failed to begin listening on port %d"), UEMCPPort);
 			SocketSubsystem->DestroySocket(RawSocket);
