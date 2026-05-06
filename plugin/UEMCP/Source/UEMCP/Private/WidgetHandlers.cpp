@@ -602,12 +602,25 @@ namespace UEMCP
 			GetVarNode->AllocateDefaultPins();
 
 			// VariableGet's output pin is named after the variable.
+			// W-G (D144): pre-fold this site silently reported success even when
+			// the pin link couldn't form (Gauntlet Finding 5.1). We now fail fast
+			// with a typed error, surfacing which side (var pin / return pin) is
+			// missing so callers can diagnose without digging through the BP.
 			UEdGraphPin* GetVarOut = GetVarNode->FindPin(FName(*BindingName));
-			if (GetVarOut && ReturnPin)
+			if (!GetVarOut || !ReturnPin)
 			{
-				// Data-flow connection (the bug-fix): VarGet output → Result ReturnValue input.
-				GetVarOut->MakeLinkTo(ReturnPin);
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetBoolField  (TEXT("get_var_pin_present"), GetVarOut != nullptr);
+				Detail->SetBoolField  (TEXT("return_pin_present"),  ReturnPin != nullptr);
+				Detail->SetStringField(TEXT("binding_name"),        BindingName);
+				BuildErrorResponse(OutResponse,
+					TEXT("Could not link binding pins (VariableGet output or function ReturnValue missing)"),
+					TEXT("BIND_LINK_FAILED"),
+					Detail);
+				return;
 			}
+			// Data-flow connection (the bug-fix): VarGet output → Result ReturnValue input.
+			GetVarOut->MakeLinkTo(ReturnPin);
 
 			// (7) Register the binding so UMG actually invokes the function.
 			// Avoid duplicate FDelegateEditorBinding entries on re-call by clearing prior

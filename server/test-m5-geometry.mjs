@@ -120,6 +120,25 @@ console.log('\n── Group 3: Param Pass-through ──');
   t.assert(call.params.shape === 'cone', 'create_procedural_mesh: bare shape works');
   t.assert(call.params.location === undefined, 'create_procedural_mesh: optional location stays undefined');
   t.assert(call.params.size === undefined, 'create_procedural_mesh: optional size stays undefined');
+  t.assert(call.params.rotation === undefined,
+    'W-I: optional rotation stays undefined when omitted (default ZeroRotator on C++ side)');
+
+  // W-I (D144): rotation accepted on wire when provided.
+  await executeM5GeometryTool('create_procedural_mesh',
+    { shape: 'box', rotation: [15, 90, 0] }, cm);
+  call = fake.lastCall('create_procedural_mesh');
+  t.assert(Array.isArray(call.params.rotation) && call.params.rotation.length === 3,
+    'W-I: rotation passes through as Vec3 [pitch, yaw, roll]');
+  t.assert(call.params.rotation[0] === 15 && call.params.rotation[1] === 90 && call.params.rotation[2] === 0,
+    'W-I: rotation values preserved [pitch, yaw, roll] in wire payload');
+
+  // W-I: invalid rotation shape rejected by Zod (length-3 invariant).
+  await t.assertRejects(
+    () => executeM5GeometryTool('create_procedural_mesh',
+      { shape: 'box', rotation: [15, 90] }, cm),
+    /array|3|length/i,
+    'W-I: rotation rejected when not length-3 (Zod Vec3 invariant)',
+  );
 
   await executeM5GeometryTool('mesh_boolean',
     { target: 'TargetActor', tool: 'ToolActor', operation: 'difference' }, cm);

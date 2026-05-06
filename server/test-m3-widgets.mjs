@@ -1019,6 +1019,39 @@ console.log('\n── Group 17: §4 create_widget optional path override ──'
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group W-G (D144): set_text_block_binding BIND_LINK_FAILED
+// ═══════════════════════════════════════════════════════════════
+//
+// WidgetHandlers.cpp:605-610 used to silently report success even when the
+// VariableGet output pin or function ReturnValue pin was missing — Gauntlet
+// Finding 5.1. Post-W-G the handler errors with BIND_LINK_FAILED + detail
+// (which-pin-was-missing flags). This wire-mock confirms the new error
+// envelope reaches assertRejects with the expected message.
+
+console.log('\n── Group W-G: set_text_block_binding BIND_LINK_FAILED ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('set_text_block_binding', {
+    status: 'error',
+    error: 'Could not link binding pins (VariableGet output or function ReturnValue missing)',
+    code: 'BIND_LINK_FAILED',
+    detail: { get_var_pin_present: false, return_pin_present: true, binding_name: 'Score' },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeWidgetsTool('set_text_block_binding',
+      { blueprint_name: 'W', widget_name: 'T', binding_name: 'Score' }, cm),
+    /Could not link binding pins/,
+    'W-G: BIND_LINK_FAILED error message propagates from WidgetHandlers C++ → JS',
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

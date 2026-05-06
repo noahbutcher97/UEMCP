@@ -20,6 +20,17 @@ namespace UEMCP
 		OutResponse->SetStringField(TEXT("code"), Code.IsEmpty() ? TEXT("ERROR") : Code);
 	}
 
+	void BuildErrorResponse(TSharedPtr<FJsonObject>& OutResponse, const FString& Message, const FString& Code, const TSharedPtr<FJsonObject>& Detail)
+	{
+		// Reuse the no-detail overload so the field-order convention stays in
+		// one place; null Detail falls back transparently per the .h contract.
+		BuildErrorResponse(OutResponse, Message, Code);
+		if (Detail.IsValid())
+		{
+			OutResponse->SetObjectField(TEXT("detail"), Detail);
+		}
+	}
+
 	FString SerializeResponse(const TSharedPtr<FJsonObject>& Response)
 	{
 		if (!Response.IsValid())

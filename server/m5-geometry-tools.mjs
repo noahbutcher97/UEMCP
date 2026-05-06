@@ -43,6 +43,12 @@ export const M5_GEOMETRY_SCHEMAS = {
     schema: {
       shape:    z.enum(SHAPES).describe('Primitive shape (case-insensitive on wire)'),
       location: Vec3.optional().describe('World location of the spawned actor (default [0,0,0])'),
+      // W-I (D144): rotation arg added to close D131-D135 smoke open item #3
+      // — the C++ handler already constructs an FRotator (FRotator::ZeroRotator
+      // pre-W-I) and TransformParser::ParseRotator is post-W-E adopted, so
+      // the wire-shape addition is mechanical. Matches spawn_actor.rotation
+      // shape — pitch/yaw/roll degrees, optional, default zero rotation.
+      rotation: Vec3.optional().describe('[pitch, yaw, roll] degrees (default [0,0,0])'),
       size:     z.number().positive().optional().describe('Linear extent in cm (default 100; must be > 0)'),
       name:     z.string().optional().describe('Optional actor name (auto-generated if omitted)'),
     },

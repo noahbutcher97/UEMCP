@@ -443,6 +443,38 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
     const bpPath = bpcall.body.Requests[0].Body.objectPath;
     t.assert(bpPath === '/Game/Materials/M_Base.M_Base_C:Default__M_Base_C',
       `list_material_parameters resolves CDO for _C class paths (got ${bpPath})`);
+
+    // W-G (D144 / Gauntlet Finding 2.4): _subErrors[] surfaces non-2xx batch
+    // sub-responses. Pre-W-G, a 500 on (e.g.) GetAllVectorParameterInfo
+    // returned `vector: []` — indistinguishable from "no vector params".
+    // Post-W-G, the response also carries `_subErrors:[{index:1,label:'vector',code:500,body:...}]`.
+    const partialMock = new FakeHttpResponder();
+    partialMock.on('PUT /remote/batch', {
+      Responses: [
+        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
+        { ResponseCode: 500, ResponseBody: { errorMessage: 'editor race' } },
+        { ResponseCode: 200, ResponseBody: { OutInfo: [] } },
+      ],
+    });
+    const partialConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
+    const partial = await executeRcTool('list_material_parameters', {
+      asset_path: '/Game/Materials/M_Brick.M_Brick',
+    }, partialConn);
+    t.assert(Array.isArray(partial._subErrors) && partial._subErrors.length === 1,
+      'W-G: partial-failure surfaces _subErrors array');
+    t.assert(partial._subErrors[0].label === 'vector' && partial._subErrors[0].code === 500,
+      'W-G: _subErrors entry preserves label + ResponseCode');
+    t.assert(partial.scalar.length === 1 && Array.isArray(partial.vector) && partial.vector.length === 0,
+      'W-G: success-path siblings (scalar) still populate; failed slot stays empty');
+
+    // W-G: success path — when ALL responses are 2xx, _subErrors is OMITTED
+    // so the common-case shape stays unchanged.
+    rcMock.resetCalls();
+    const cleanResult = await executeRcTool('list_material_parameters', {
+      asset_path: '/Game/Materials/M_Brick.M_Brick',
+    }, conn);
+    t.assert(cleanResult._subErrors === undefined,
+      'W-G: clean success path does NOT emit _subErrors (response shape preserved)');
   }
 
   // ── get_curve_asset (F-4) — describe-probe then subclass-specific property read ──

@@ -122,6 +122,12 @@ namespace UEMCP
 			FString Mode;
 			if (Params.IsValid() && Params->TryGetStringField(TEXT("mode"), Mode))
 			{
+				// W-G (D144): pre-fold this silently fell through to viewport
+				// for any unrecognized mode (Gauntlet Findings 4.3 + 4.7,
+				// silent-success-on-edge-case). W-B's Zod enum already gates
+				// this at the JS layer; the explicit C++ error path is
+				// defense-in-depth for callers that bypass the JS schema
+				// (e.g. direct TCP wire calls).
 				if (Mode.Equals(TEXT("standalone"), ESearchCase::IgnoreCase))
 				{
 					PlayParams.SessionDestination = EPlaySessionDestinationType::NewProcess;
@@ -130,7 +136,22 @@ namespace UEMCP
 				{
 					PlayParams.SessionDestination = EPlaySessionDestinationType::InProcess;
 				}
-				// default / "viewport" → leave default
+				else if (!Mode.Equals(TEXT("viewport"), ESearchCase::IgnoreCase))
+				{
+					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+					TArray<TSharedPtr<FJsonValue>> Allowed;
+					Allowed.Add(MakeShared<FJsonValueString>(TEXT("viewport")));
+					Allowed.Add(MakeShared<FJsonValueString>(TEXT("standalone")));
+					Allowed.Add(MakeShared<FJsonValueString>(TEXT("new_window")));
+					Detail->SetArrayField (TEXT("allowed_values"), Allowed);
+					Detail->SetStringField(TEXT("provided"),       Mode);
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Invalid PIE mode '%s'"), *Mode),
+						TEXT("INVALID_PIE_MODE"),
+						Detail);
+					return;
+				}
+				// "viewport" (explicit) → leave SessionDestination default
 			}
 
 			GEditor->RequestPlaySession(PlayParams);

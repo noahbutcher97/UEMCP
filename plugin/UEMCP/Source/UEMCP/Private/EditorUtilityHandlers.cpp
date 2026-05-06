@@ -653,13 +653,15 @@ namespace UEMCP
 				Detail->SetArrayField (TEXT("referencers"),     RefArr);
 				Detail->SetNumberField(TEXT("num_referencers"), RefArr.Num());
 
-				OutResponse = MakeShared<FJsonObject>();
-				OutResponse->SetStringField(TEXT("status"), TEXT("error"));
-				OutResponse->SetStringField(TEXT("error"),
+				// W-D (D144): pre-fold this site hand-rolled the error envelope to
+				// attach a `detail` field. With BuildErrorResponse's new
+				// 4-arg overload we delegate to the helper instead, keeping
+				// envelope-shape divergence away from per-handler code.
+				BuildErrorResponse(OutResponse,
 					FString::Printf(TEXT("Asset has %d referencer(s); pass force:true to delete anyway"),
-						Referencers.Num()));
-				OutResponse->SetStringField(TEXT("code"), TEXT("ASSET_HAS_DEPENDENCIES"));
-				OutResponse->SetObjectField(TEXT("detail"), Detail);
+						Referencers.Num()),
+					TEXT("ASSET_HAS_DEPENDENCIES"),
+					Detail);
 				return;
 			}
 

@@ -133,6 +133,18 @@ namespace UEMCP
 				UEMCP::ParseVector3(Params, TEXT("location"), Location, TransformErr);
 			}
 
+			// W-I (D144): pre-W-I create_procedural_mesh hard-coded
+			// FRotator::ZeroRotator at SpawnActor — Tools.yaml had no
+			// rotation arg, JS dispatch couldn't pass one. Closes the surface
+			// gap from D131-D135 smoke open item #3. Matches the ParseVector3
+			// pattern above; identical TransformParser usage as ActorHandlers.
+			FRotator Rotation(0.0);
+			if (Params->HasField(TEXT("rotation")))
+			{
+				FString RotErr;
+				UEMCP::ParseRotator(Params, TEXT("rotation"), Rotation, RotErr);
+			}
+
 			double Size = 100.0;
 			if (Params->HasField(TEXT("size")))
 			{
@@ -160,7 +172,7 @@ namespace UEMCP
 				SpawnParams.Name = *ActorName;
 			}
 			ADynamicMeshActor* MeshActor = World->SpawnActor<ADynamicMeshActor>(
-				ADynamicMeshActor::StaticClass(), Location, FRotator::ZeroRotator, SpawnParams);
+				ADynamicMeshActor::StaticClass(), Location, Rotation, SpawnParams);
 			if (!MeshActor)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to spawn ADynamicMeshActor"), TEXT("SPAWN_FAILED"));
@@ -243,6 +255,13 @@ namespace UEMCP
 			Loc.Add(MakeShared<FJsonValueNumber>(Location.Y));
 			Loc.Add(MakeShared<FJsonValueNumber>(Location.Z));
 			Result->SetArrayField(TEXT("location"), Loc);
+			// W-I (D144): include rotation in the result so callers can
+			// roundtrip-verify the spawn transform without a separate query.
+			TArray<TSharedPtr<FJsonValue>> Rot;
+			Rot.Add(MakeShared<FJsonValueNumber>(Rotation.Pitch));
+			Rot.Add(MakeShared<FJsonValueNumber>(Rotation.Yaw));
+			Rot.Add(MakeShared<FJsonValueNumber>(Rotation.Roll));
+			Result->SetArrayField(TEXT("rotation"), Rot);
 			BuildSuccessResponse(OutResponse, Result);
 		}
 

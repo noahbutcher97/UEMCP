@@ -813,6 +813,50 @@ console.log('\n── Group W-B: Zod enum sharpening (variable_type, node_type) 
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group W-G (D144): Silent-success patches for BlueprintHandlers —
+// INVALID_PARENT_CLASS (HandleCreateBlueprint) + UNSUPPORTED_NODE_TYPE
+// (HandleFindBlueprintNodes). Wire-mock asserts the error envelope
+// shape produced by the new BuildErrorResponse(...,Detail) overload
+// reaches JS-layer assertRejects with the right message.
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group W-G: Silent-success patches (parent_class + node_type) ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  // W-G: HandleCreateBlueprint now errors with INVALID_PARENT_CLASS + detail
+  // when parent_class is provided but not resolvable (was silent AActor fallback).
+  fake.on('create_blueprint', {
+    status: 'error',
+    error: 'Unknown parent_class: NotARealClass (engine + game module lookups failed)',
+    code: 'INVALID_PARENT_CLASS',
+    detail: {
+      allowed_examples: ['Pawn', 'Actor', 'Character', 'PlayerController'],
+      provided: 'NotARealClass',
+      attempted_paths: '/Script/Engine.ANotARealClass, /Script/Game.ANotARealClass',
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('create_blueprint',
+      { name: 'BP_X', parent_class: 'NotARealClass' }, cm),
+    /Unknown parent_class/,
+    'W-G: INVALID_PARENT_CLASS error message propagates from C++ → JS',
+  );
+}
+
+// Note: HandleFindBlueprintNodes UNSUPPORTED_NODE_TYPE error is unreachable
+// from this JS dispatch path post-W-B because z.enum(['Event']) blocks any
+// other value before the wire. The C++ branch is defense-in-depth for direct-
+// TCP callers; live-fire would exercise it. The wire-mock seam can't reach
+// the C++ branch without bypassing Zod (which would defeat the W-B test
+// purpose), so this site is verified at compile time + live-fire only.
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

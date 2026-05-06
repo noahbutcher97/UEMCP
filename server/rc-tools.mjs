@@ -265,20 +265,59 @@ async function execListMaterialParameters(args, connectionManager) {
   ]);
   const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
   const r = res.Responses || [];
-  return {
+  const out = {
     object_path: objectPath,
     scalar:  extractParamInfo(r[0]),
     vector:  extractParamInfo(r[1]),
     texture: extractParamInfo(r[2]),
   };
+  // W-G (D144 / Gauntlet Finding 2.4): pre-W-G non-2xx batch sub-responses
+  // surfaced as `[]` indistinguishable from "no parameters" — silent-success-
+  // on-edge-case. _subErrors[] is non-fatal but lets the caller observe
+  // partial-failure conditions (e.g. RC engine race on one of the three calls).
+  // Field is OMITTED on the success path so the common-case shape stays
+  // unchanged from a client's POV.
+  const subErrors = collectSubErrors(r, ['scalar', 'vector', 'texture']);
+  if (subErrors.length > 0) out._subErrors = subErrors;
+  return out;
 }
 
 function extractParamInfo(response) {
   if (!response || !response.ResponseBody) return [];
   // Treat non-2xx batch sub-responses as empty rather than leaking an error body.
+  // The non-2xx case is now ALSO surfaced via collectSubErrors at the call site
+  // so partial-failure stops being silent-success-on-edge-case.
   if (response.ResponseCode && (response.ResponseCode < 200 || response.ResponseCode >= 300)) return [];
   const body = response.ResponseBody;
   return body.OutInfo || body.OutParameterInfo || body.ReturnValue || [];
+}
+
+/**
+ * W-G (D144 / Gauntlet Finding 2.4): inspect a batch `Responses[]` array and
+ * return a structured `_subErrors` list — one entry per non-2xx sub-response.
+ * Used by aggregating delegates (list_material_parameters, get_mesh_info) to
+ * surface partial-failure rather than silently squashing it.
+ *
+ * @param {Array<{ResponseCode?: number, ResponseBody?: object}>} responses
+ * @param {string[]} labels  matching positional labels (`['scalar','vector','texture']`)
+ * @returns {Array<{index: number, label: string, code: number, body: any}>}
+ */
+function collectSubErrors(responses, labels) {
+  const out = [];
+  for (let i = 0; i < responses.length; i++) {
+    const r = responses[i];
+    if (!r) continue;
+    const code = r.ResponseCode;
+    if (code && (code < 200 || code >= 300)) {
+      out.push({
+        index: i,
+        label: labels[i] !== undefined ? labels[i] : `response_${i}`,
+        code,
+        body: r.ResponseBody !== undefined ? r.ResponseBody : null,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -346,7 +385,7 @@ async function execGetMeshInfo(args, connectionManager) {
   ]);
   const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
   const r = res.Responses || [];
-  return {
+  const out = {
     object_path:    objectPath,
     vertices:       pickReturn(r[0]),
     triangles:      pickReturn(r[1]),
@@ -354,6 +393,11 @@ async function execGetMeshInfo(args, connectionManager) {
     bounds:         pickReturn(r[3]),
     material_slots: pickReturn(r[4]),
   };
+  // W-G (D144): surface non-2xx batch sub-responses as `_subErrors[]` so
+  // partial-failure stops looking like a clean response with null fields.
+  const subErrors = collectSubErrors(r, ['vertices', 'triangles', 'lods', 'bounds', 'material_slots']);
+  if (subErrors.length > 0) out._subErrors = subErrors;
+  return out;
 }
 
 function pickReturn(response) {

@@ -339,6 +339,10 @@ namespace UEMCP
 			}
 
 			// Resolve parent class with oracle's auto-A-prefix + Engine/Game module fallbacks.
+			// W-G (D144): pre-fold this silently fell back to AActor on a miss
+			// — Gauntlet Finding 5.2 + Pattern P2 silent-success-on-edge-case.
+			// We now error explicitly when parent_class is provided but unresolvable.
+			// parent_class omitted still defaults to AActor (documented behavior).
 			UClass* ParentClass = AActor::StaticClass();
 			FString ParentName;
 			if (Params->TryGetStringField(TEXT("parent_class"), ParentName) && !ParentName.IsEmpty())
@@ -361,8 +365,28 @@ namespace UEMCP
 						Found = LoadClass<AActor>(nullptr, *GamePath);
 					}
 				}
-				if (Found) ParentClass = Found;
-				// Oracle silently falls back to AActor on miss — preserve.
+				if (Found)
+				{
+					ParentClass = Found;
+				}
+				else
+				{
+					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+					TArray<TSharedPtr<FJsonValue>> AllowedExamples;
+					AllowedExamples.Add(MakeShared<FJsonValueString>(TEXT("Pawn")));
+					AllowedExamples.Add(MakeShared<FJsonValueString>(TEXT("Actor")));
+					AllowedExamples.Add(MakeShared<FJsonValueString>(TEXT("Character")));
+					AllowedExamples.Add(MakeShared<FJsonValueString>(TEXT("PlayerController")));
+					Detail->SetArrayField (TEXT("allowed_examples"), AllowedExamples);
+					Detail->SetStringField(TEXT("provided"),         ParentName);
+					Detail->SetStringField(TEXT("attempted_paths"),
+						FString::Printf(TEXT("/Script/Engine.%s, /Script/Game.%s"), *ClassName, *ClassName));
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Unknown parent_class: %s (engine + game module lookups failed)"), *ParentName),
+						TEXT("INVALID_PARENT_CLASS"),
+						Detail);
+					return;
+				}
 			}
 
 			UBlueprintFactory* Factory = NewObject<UBlueprintFactory>();
@@ -1227,7 +1251,24 @@ namespace UEMCP
 					}
 				}
 			}
-			// Other node_types: oracle parity — no other types implemented; return empty.
+			else
+			{
+				// W-G (D144): pre-fold this silently returned [] for any non-Event
+				// node_type — Gauntlet Finding 4.1 silent-success-on-edge-case.
+				// W-B's Zod enum (`z.enum(['Event'])`) gates this at the JS layer;
+				// the explicit C++ error path is defense-in-depth for direct-TCP
+				// callers + leaves the handler dispatch valid for future expansion.
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				TArray<TSharedPtr<FJsonValue>> Allowed;
+				Allowed.Add(MakeShared<FJsonValueString>(TEXT("Event")));
+				Detail->SetArrayField (TEXT("allowed_values"), Allowed);
+				Detail->SetStringField(TEXT("provided"),       NodeType);
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Unsupported node_type '%s' (only 'Event' is implemented)"), *NodeType),
+					TEXT("UNSUPPORTED_NODE_TYPE"),
+					Detail);
+				return;
+			}
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetArrayField(TEXT("node_guids"), Guids);

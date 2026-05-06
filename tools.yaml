@@ -887,6 +887,10 @@ toolsets:
         params:
           shape:    { type: string, required: true }
           location: { type: array, required: false }
+          # W-I (D144): rotation arg added to close D131-D135 smoke open item #3.
+          # Matches spawn_actor.rotation shape — pitch/yaw/roll degrees,
+          # optional, default zero rotation. C++ handler reads via UEMCP::ParseRotator.
+          rotation: { type: array, required: false, description: "[pitch, yaw, roll] degrees, default [0,0,0]" }
           size:     { type: number, required: false }
       mesh_boolean:
         description: CSG operation (union, difference, intersection) between two meshes
