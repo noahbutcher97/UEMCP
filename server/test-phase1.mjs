@@ -23,7 +23,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { ToolIndex } from './tool-index.mjs';
-import { ToolsetManager } from './toolset-manager.mjs';
+import { ToolsetManager, summarizeAutoEnable } from './toolset-manager.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
@@ -294,6 +294,74 @@ assert(reEnable.enabled.includes('offline'), 'offline re-enabled successfully');
 const finalEnabled = toolsetMgr.getEnabledNames();
 assert(finalEnabled.includes('offline'), 'offline in enabled set');
 assert(!finalEnabled.includes('actors'), 'actors not in enabled set');
+
+// ── Test 5b: summarizeAutoEnable shape (W-O / D142) ──────
+// Closes the diagnostic-clarity bug Pivot-W3's audit (D141) uncovered:
+// pre-W-O, find_tools reported autoEnabled=[...attempted] regardless of
+// whether the underlying layer's enable actually succeeded. summarizeAutoEnable
+// is a PURE helper that splits attempted → enabled / unavailable / already
+// based on the autoEnable() return value. Tested in isolation here so coverage
+// is independent of UNREAL_PROJECT_ROOT availability — the rotation must pass
+// even when no project root is wired.
+console.log('\n═══ Test 5b: summarizeAutoEnable shape (W-O / D142) ═══');
+
+// (a) Layer-available case: result.enabled non-empty → autoEnabled lists it.
+const woResult_a = { enabled: ['gas'], alreadyEnabled: [], unavailable: [], unknown: [] };
+const woSummary_a = summarizeAutoEnable(['gas'], woResult_a, new Set());
+assert(woSummary_a.autoEnabled.length === 1 && woSummary_a.autoEnabled[0] === 'gas',
+  'W-O: layer-available toolset → autoEnabled lists only the enabled one');
+assert(woSummary_a.unavailable.length === 0 && woSummary_a.alreadyEnabled.length === 0,
+  'W-O: layer-available case → unavailable + alreadyEnabled are empty');
+
+// (b) Layer-unavailable case: result.unavailable populated → autoEnabled does NOT list it.
+//     This is the bug pre-W-O surfaced — find_tools used to claim autoEnabled=['actors']
+//     even when actors' layer was down and enable was a silent no-op.
+const woResult_b = { enabled: [], alreadyEnabled: [], unavailable: ['actors'], unknown: [] };
+const woSummary_b = summarizeAutoEnable(['actors'], woResult_b, new Set());
+assert(woSummary_b.autoEnabled.length === 0,
+  'W-O: layer-unavailable toolset → autoEnabled does NOT list it (the bug — was [actors] pre-fix)');
+assert(woSummary_b.unavailable.includes('actors'),
+  'W-O: layer-unavailable toolset → unavailable lists it');
+
+// (c) Mixed case — one enabled, one unavailable. autoEnabled has only the enabled.
+const woResult_c = { enabled: ['gas'], alreadyEnabled: [], unavailable: ['actors'], unknown: [] };
+const woSummary_c = summarizeAutoEnable(['gas', 'actors'], woResult_c, new Set());
+assert(woSummary_c.autoEnabled.includes('gas') && !woSummary_c.autoEnabled.includes('actors'),
+  'W-O: mixed case → autoEnabled has only the actually-enabled toolset');
+assert(woSummary_c.unavailable.includes('actors') && !woSummary_c.unavailable.includes('gas'),
+  'W-O: mixed case → unavailable has only the layer-down toolset');
+
+// (d) Already-enabled case — autoEnable's pre-filter strips already-enabled
+//     toolsets before reaching enable(), so neither the enabled nor unavailable
+//     fields of the result reference them. summarizeAutoEnable recovers them by
+//     intersecting `attempted` with the pre-call enabled set.
+const woResult_d = { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
+const woSummary_d = summarizeAutoEnable(['gas'], woResult_d, new Set(['gas', 'offline']));
+assert(woSummary_d.autoEnabled.length === 0,
+  'W-O: already-enabled toolset → autoEnabled does NOT list it');
+assert(woSummary_d.alreadyEnabled.includes('gas'),
+  'W-O: already-enabled toolset → alreadyEnabled lists it (recovered from previouslyEnabled)');
+
+// (e) Defensive copy — mutating summary arrays must not mutate result.enabled.
+const woResult_e = { enabled: ['gas'], alreadyEnabled: [], unavailable: ['actors'], unknown: [] };
+const woSummary_e = summarizeAutoEnable(['gas', 'actors'], woResult_e, new Set());
+woSummary_e.autoEnabled.push('mutated');
+woSummary_e.unavailable.push('mutated');
+assert(woResult_e.enabled.length === 1 && !woResult_e.enabled.includes('mutated'),
+  'W-O: summary.autoEnabled is a defensive copy of result.enabled');
+assert(woResult_e.unavailable.length === 1 && !woResult_e.unavailable.includes('mutated'),
+  'W-O: summary.unavailable is a defensive copy of result.unavailable');
+
+// (f) Integration check against actual autoEnable() in the layer-unavailable case.
+//     Test 5 already wired tcpDown, so 'actors' (tcp-55557) and 'gas' (tcp-55558)
+//     are both genuinely unavailable. This bridges the pure-function tests above
+//     to actual autoEnable() behavior — proving find_tools' wiring would
+//     correctly populate `unavailable` rather than masking the failure as success.
+const woPrev_f = new Set(toolsetMgr.getEnabledNames());
+const woResult_f = await toolsetMgr.autoEnable(['actors']);
+const woSummary_f = summarizeAutoEnable(['actors'], woResult_f, woPrev_f);
+assert(woSummary_f.autoEnabled.length === 0 && woSummary_f.unavailable.includes('actors'),
+  'W-O: live autoEnable() with TCP layer down → autoEnabled empty, unavailable lists actors');
 
 // ── Test 8: Edge cases ───────────────────────────────────
 console.log('\n═══ Test 8: Edge cases ═══');

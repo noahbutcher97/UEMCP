@@ -301,3 +301,40 @@ export class ToolsetManager {
     }
   }
 }
+
+// ── Response-shape helpers (W-O, D142) ──────────────────────────
+// Pure functions — exported separately from the class for unit testability.
+
+/**
+ * Summarize an autoEnable() result into the shape exposed by find_tools.
+ *
+ * W-O / D142: closes the diagnostic-clarity bug Pivot-W3's audit (D141)
+ * uncovered. Pre-fix, find_tools reported `autoEnabled: [...attempted]` —
+ * listing toolsets it ATTEMPTED to enable, not those that actually
+ * transitioned. When a toolset's underlying layer was unavailable,
+ * autoEnable() silently skipped it but the response still claimed success.
+ *
+ * Post-fix (Option C, backward-compat preserving):
+ *   - `autoEnabled` retains its name but only contains toolsets that
+ *     actually transitioned from disabled → enabled in this call.
+ *   - `unavailable` (parallel field, present only when non-empty) lists
+ *     toolsets whose layer health-check failed.
+ *   - `alreadyEnabled` (parallel field, present only when non-empty) lists
+ *     toolsets that were already enabled before the call (autoEnable's
+ *     own pre-filter strips these before reaching enable(), so we recover
+ *     them by intersecting `attempted` with the pre-call enabled set).
+ *
+ * @param {string[]} attempted - toolsets passed to autoEnable
+ * @param {{enabled: string[], unavailable: string[], alreadyEnabled: string[], unknown: string[]}} result
+ *        - return value of autoEnable()
+ * @param {Set<string>} previouslyEnabled - getEnabledNames() captured before the call
+ * @returns {{autoEnabled: string[], unavailable: string[], alreadyEnabled: string[]}}
+ */
+export function summarizeAutoEnable(attempted, result, previouslyEnabled) {
+  const alreadyEnabled = attempted.filter(n => previouslyEnabled.has(n));
+  return {
+    autoEnabled: [...result.enabled],
+    unavailable: [...result.unavailable],
+    alreadyEnabled,
+  };
+}
