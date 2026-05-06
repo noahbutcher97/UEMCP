@@ -153,4 +153,27 @@ if [[ -n "$phase3_all_caps" ]]; then
   fi
 fi
 
+# ── W-K (D139): anonymous-namespace duplicate-symbol structural guard ────────
+# Layer 3 of D137's W-F-COMPREHENSIVE close-out. Fires only when staged diff
+# includes plugin/UEMCP/Source/UEMCP/Private/*.cpp files. Runs the same audit
+# logic as server/test-anon-namespace-audit.mjs (single source of truth) and
+# blocks the commit on collision. Bypass: git commit --no-verify.
+#
+# Skipped silently when Node is not on PATH (defense-in-depth — keeps the
+# codename gate above operational on a checkout where Node hasn't been
+# installed yet; the rotation-time guard catches anything this misses).
+staged_private_cpps="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null \
+  | grep -E '^plugin/UEMCP/Source/UEMCP/Private/.*\.cpp$' || true)"
+if [[ -n "$staged_private_cpps" ]]; then
+  if command -v node >/dev/null 2>&1; then
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+    audit_script="$repo_root/server/test-anon-namespace-audit.mjs"
+    if [[ -f "$audit_script" ]]; then
+      if ! node "$audit_script" --hook-mode; then
+        exit 1
+      fi
+    fi
+  fi
+fi
+
 exit 0
