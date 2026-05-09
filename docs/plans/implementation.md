@@ -2,6 +2,8 @@
 
 > Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 > Handler filenames derived by convention: `UEMCP${PascalCase(toolsetName)}Commands.h/.cpp`
+>
+> **Historical status**: This is the original phase implementation plan. It is preserved for roadmap and D-log context, but it is not the current-state guide. For current tool counts and active layer ownership, use `tools.yaml`, `CLAUDE.md`, and the audit docs dated 2026-05-09.
 
 ## File Changes
 
@@ -294,7 +296,7 @@ Phase 3 is the largest phase. It has 4 internal priority tiers. **Test each tier
 - Total estimated time (all phases): ___
 - Total actual time (all phases): ___
 - Ratio (actual/estimated): ___ — use this to calibrate future estimates
-- Tools that shipped as planned: ___ / 114
+- Tools that shipped as planned: ___ / current `tools.yaml` total
 - Tools cut or deferred during implementation: ___
 - Tools added that weren't in the original plan: ___
 - Biggest time sink: ___
@@ -323,4 +325,3 @@ Testing and documentation steps add no significant hours — they're verificatio
 **Deferred items** (see ../tracking/risks-and-decisions.md D16): RC port discovery (~0.5 hrs if triggered), property type pre-validation, rate limiting, undo system. Total deferred: ~40+ raw hours of work that is unlikely to be needed for a solo dev on localhost.
 
 ---
-

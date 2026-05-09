@@ -2,6 +2,8 @@
 
 What to expect after each implementation phase — what works, what you can test, and how to test it.
 
+> **Historical status**: This file records the original phase-gate test plan and early lessons learned. It intentionally preserves Phase 1-6 expectations, TCP:55557 conformance-oracle tests, and old tool names where they document historical validation. For current tool counts and active layer ownership, use `tools.yaml`, `CLAUDE.md`, and the 2026-05-09 audit docs.
+
 ---
 
 ## Phase 1: Core Server + Dynamic Toolset Infrastructure

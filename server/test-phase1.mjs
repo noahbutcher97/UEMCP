@@ -19,11 +19,18 @@
 // See D71 / D75 for prior drift-incident handling; D73 for philosophy.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { load } from 'js-yaml';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager, summarizeAutoEnable } from './toolset-manager.mjs';
+import {
+  WORKFLOW_BUNDLES,
+  selectWorkflowBundle,
+  buildFindToolsEnablePlan,
+  unavailableBundlePieces,
+} from './workflow-bundles.mjs';
 import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
@@ -69,6 +76,31 @@ assert(typeof ToolsetManager === 'function', 'ToolsetManager class imported');
 assert(typeof ConnectionManager === 'function', 'ConnectionManager class imported');
 assert(typeof executeOfflineTool === 'function', 'executeOfflineTool imported');
 assert(typeof matchTagGlob === 'function', 'matchTagGlob imported');
+
+// ── Test 1a: query_asset_registry root path_prefix normalization ─────────
+console.log('\n═══ Test 1a: query_asset_registry root prefix normalization ═══');
+
+let tempProjectRoot = null;
+try {
+  tempProjectRoot = await mkdtemp(join(tmpdir(), 'uemcp-qar-root-'));
+  await mkdir(join(tempProjectRoot, 'Content'));
+  const noSlash = await executeOfflineTool('query_asset_registry',
+    { path_prefix: '/Game', max_scan: 1, limit: 1 }, tempProjectRoot);
+  const withSlash = await executeOfflineTool('query_asset_registry',
+    { path_prefix: '/Game/', max_scan: 1, limit: 1 }, tempProjectRoot);
+  assert(noSlash.scanRoot === 'Content',
+    'query_asset_registry: /Game path_prefix resolves to Content root',
+    `scanRoot=${noSlash.scanRoot}`);
+  assert(withSlash.scanRoot === 'Content',
+    'query_asset_registry: /Game/ path_prefix resolves to Content root',
+    `scanRoot=${withSlash.scanRoot}`);
+} catch (e) {
+  assert(false, 'query_asset_registry: /Game root prefix normalization', e.message);
+} finally {
+  if (tempProjectRoot) {
+    await rm(tempProjectRoot, { recursive: true, force: true });
+  }
+}
 
 // ── Test 1b: matchTagGlob — synthetic patterns (no project root needed) ────
 console.log('\n═══ Test 1b: matchTagGlob (direct glob matcher) ═══');
@@ -222,11 +254,11 @@ console.log('\n═══ Test 4: ToolIndex search quality ═══');
 const searchTests = [
   // Exact name matches — these should be rock solid
   { query: 'spawn actor', expectTop: 'spawn_actor' },
-  { query: 'gameplay effect', expectTop: 'create_gameplay_effect' },
+  { query: 'gameplay effect', expectAny: ['read_gameplay_tags', 'search_gameplay_tags'] },
   // Substring/prefix matches — verify top5 contains a sensible result
   { query: 'montage', expectAny: ['create_montage', 'add_montage_section', 'get_montage_full'] },
   { query: 'property', expectAny: ['get_actor_properties', 'rc_get_property', 'set_actor_property'] },
-  { query: 'screenshot', expectAny: ['get_viewport_screenshot', 'take_screenshot'] },
+  { query: 'screenshot', expectAny: ['take_screenshot'] },
   { query: 'PIE', expectAny: ['start_pie', 'stop_pie', 'execute_console_command'] },
   { query: 'delete asset', expectAny: ['delete_asset_safe', 'delete_actor'] },
 ];
@@ -245,6 +277,83 @@ for (const t of searchTests) {
       `got [${topNames.join(', ')}]`);
   }
 }
+
+const excludedResults = toolIndex.search('create_gameplay_effect get_viewport_screenshot get_audio_asset_info');
+const excludedNames = excludedResults.map(r => r.toolName);
+for (const excluded of ['create_gameplay_effect', 'get_viewport_screenshot', 'get_audio_asset_info']) {
+  assert(!excludedNames.includes(excluded),
+    `ToolIndex excludes planned/non-discoverable tool "${excluded}"`);
+}
+
+// ── Test 4b: Workflow bundle selection ─────────────────────
+console.log('\n═══ Test 4b: Workflow bundle selection ═══');
+
+const bundleNames = WORKFLOW_BUNDLES.map(b => b.name);
+for (const expected of [
+  'blueprint-authoring-live',
+  'blueprint-static-audit',
+  'asset-lifecycle',
+  'material-authoring',
+  'runtime-verification',
+]) {
+  assert(bundleNames.includes(expected), `workflow bundle defined: ${expected}`);
+}
+
+const timerPrompt = 'Create a timer-driven Blueprint mover, spawn it in the level, start PIE, and verify it moves';
+const timerResults = toolIndex.search(timerPrompt);
+const timerBundle = selectWorkflowBundle(timerPrompt, timerResults);
+assert(timerBundle?.name === 'blueprint-authoring-live',
+  'timer-mover creation prompt selects blueprint-authoring-live bundle',
+  `got ${timerBundle?.name || '(none)'}`);
+const timerPlan = buildFindToolsEnablePlan(timerResults, timerBundle, 3);
+for (const expected of ['blueprints-write', 'actors', 'input-and-pie']) {
+  assert(timerPlan.toolsetNames.includes(expected),
+    `timer-mover creation plan includes ${expected}`,
+    `got [${timerPlan.toolsetNames.join(', ')}]`);
+}
+const missingTimerPieces = unavailableBundlePieces(timerBundle, {
+  enabled: ['blueprints-write'],
+  unavailable: ['actors', 'input-and-pie'],
+  unknown: [],
+});
+assert(missingTimerPieces.length === 2
+    && missingTimerPieces.includes('actors')
+    && missingTimerPieces.includes('input-and-pie'),
+  'workflow bundle reports unavailable companion toolsets',
+  `got [${missingTimerPieces.join(', ')}]`);
+assert(timerPlan.directToolsets.length <= 3,
+  'workflow bundle plan preserves top-3 direct-match cap before additive bundle toolsets',
+  `got ${timerPlan.directToolsets.length}`);
+
+const staticPrompt = 'Inspect this Blueprint graph and audit which nodes call ApplyDamage without changing assets';
+const staticResults = toolIndex.search(staticPrompt);
+const staticBundle = selectWorkflowBundle(staticPrompt, staticResults);
+assert(staticBundle?.name === 'blueprint-static-audit',
+  'static Blueprint inspection prompt selects blueprint-static-audit bundle',
+  `got ${staticBundle?.name || '(none)'}`);
+const staticPlan = buildFindToolsEnablePlan(staticResults, staticBundle, 3);
+assert(staticPlan.toolsetNames.includes('offline'),
+  'static Blueprint inspection enables offline read tools');
+assert(!staticPlan.toolsetNames.includes('blueprints-write'),
+  'static Blueprint inspection does not activate broad write bundle');
+
+const assetPrompt = 'Duplicate this asset, rename the copy, then check references and registry metadata';
+const assetBundle = selectWorkflowBundle(assetPrompt, toolIndex.search(assetPrompt));
+assert(assetBundle?.name === 'asset-lifecycle',
+  'asset lifecycle prompt selects asset-lifecycle bundle',
+  `got ${assetBundle?.name || '(none)'}`);
+
+const materialPrompt = 'Create a material instance, set a color parameter, and capture a preview thumbnail';
+const materialBundle = selectWorkflowBundle(materialPrompt, toolIndex.search(materialPrompt));
+assert(materialBundle?.name === 'material-authoring',
+  'material authoring prompt selects material-authoring bundle',
+  `got ${materialBundle?.name || '(none)'}`);
+
+const readOnlyPrompt = 'Read the material graph and inspect asset properties without editing anything';
+const readOnlyBundle = selectWorkflowBundle(readOnlyPrompt, toolIndex.search(readOnlyPrompt));
+assert(readOnlyBundle?.name !== 'material-authoring',
+  'read-only prompt does not select material-authoring write bundle',
+  `got ${readOnlyBundle?.name || '(none)'}`);
 
 // ── Test 5: Accumulation and shedding ────────────────────
 console.log('\n═══ Test 5: Accumulation and shedding ═══');

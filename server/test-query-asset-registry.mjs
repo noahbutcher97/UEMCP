@@ -56,6 +56,26 @@ async function run() {
   check('narrow scan packageName populated', abilities.results.every(r => r.packageName));
   check('narrow scan performance sane', elapsed < 10000, `${elapsed}ms`);
 
+  // 1b. Root prefix accepts both UE mount spellings: /Game and /Game/.
+  reset();
+  const gameRootNoSlash = await executeOfflineTool(
+    'query_asset_registry',
+    { path_prefix: '/Game', max_scan: 1, limit: 1 },
+    projectRoot
+  );
+  check('/Game path_prefix accepted as Content root',
+        gameRootNoSlash.scanRoot === 'Content',
+        gameRootNoSlash.scanRoot);
+  reset();
+  const gameRootSlash = await executeOfflineTool(
+    'query_asset_registry',
+    { path_prefix: '/Game/', max_scan: 1, limit: 1 },
+    projectRoot
+  );
+  check('/Game/ path_prefix accepted as Content root',
+        gameRootSlash.scanRoot === 'Content',
+        gameRootSlash.scanRoot);
+
   // 2. Bogus class returns empty
   reset();
   const empty = await executeOfflineTool(
@@ -120,7 +140,7 @@ async function run() {
       projectRoot
     );
   } catch (err) {
-    threw = err.message.includes('/Game/');
+    threw = err.message.includes('/Game');
   }
   check('non-/Game/ path_prefix rejected', threw);
 

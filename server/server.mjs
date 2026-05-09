@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { ConnectionManager } from './connection-manager.mjs';
 import { ToolIndex } from './tool-index.mjs';
 import { ToolsetManager, summarizeAutoEnable } from './toolset-manager.mjs';
+import { buildFindToolsEnablePlan, selectWorkflowBundle, unavailableBundlePieces } from './workflow-bundles.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import {
@@ -568,20 +569,12 @@ server.tool(
       };
     }
 
-    // Auto-enable toolsets that contain matching tools.
-    // Cap at top 3 toolsets per query (ranked by their best tool's score)
-    // to avoid enabling too many at once. Spec: dynamic-toolsets.md.
-    const toolsetBestScore = {};
-    for (const r of results) {
-      if (r.toolsetName === 'management') continue;
-      if (!toolsetBestScore[r.toolsetName] || r.score > toolsetBestScore[r.toolsetName]) {
-        toolsetBestScore[r.toolsetName] = r.score;
-      }
-    }
-    const toolsetNames = Object.entries(toolsetBestScore)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([name]) => name);
+    // Auto-enable direct matches plus one optional workflow bundle.
+    // Direct matches retain the top-3 cap from dynamic-toolsets.md; bundle
+    // toolsets are additive companion slices for realistic multi-step prompts.
+    const selectedBundle = selectWorkflowBundle(query, results);
+    const enablePlan = buildFindToolsEnablePlan(results, selectedBundle, 3);
+    const toolsetNames = enablePlan.toolsetNames;
 
     const previouslyEnabled = new Set(toolsetManager.getEnabledNames());
     let enableResult = { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
@@ -589,7 +582,8 @@ server.tool(
       enableResult = await toolsetManager.autoEnable(toolsetNames);
       const labelEnabled = enableResult.enabled.length > 0 ? enableResult.enabled.join(', ') : '(none)';
       const labelUnavail = enableResult.unavailable.length > 0 ? ` (unavailable: ${enableResult.unavailable.join(', ')})` : '';
-      log('info', `Auto-enabled toolsets: ${labelEnabled}${labelUnavail}`);
+      const labelBundle = selectedBundle ? ` via bundle ${selectedBundle.name}` : '';
+      log('info', `Auto-enabled toolsets${labelBundle}: ${labelEnabled}${labelUnavail}`);
     }
 
     // W-O (D142): summarizeAutoEnable splits attempted toolsets into
@@ -616,6 +610,13 @@ server.tool(
       })),
       autoEnabled: summary.autoEnabled,
     };
+    if (selectedBundle) {
+      responseObj.selectedBundle = selectedBundle;
+      responseObj.directToolsets = enablePlan.directToolsets;
+      responseObj.bundleToolsets = enablePlan.bundleToolsets;
+      const unavailablePieces = unavailableBundlePieces(selectedBundle, enableResult);
+      if (unavailablePieces.length > 0) responseObj.unavailableBundlePieces = unavailablePieces;
+    }
     // Parallel diagnostic fields — present only when non-empty so the common
     // success path stays unchanged from a client's perspective.
     if (summary.unavailable.length > 0) responseObj.unavailable = summary.unavailable;

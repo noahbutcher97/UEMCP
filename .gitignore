@@ -38,10 +38,11 @@ server/.test-rotation-snapshot.json
 # read by verify-deploy.bat + setup-watcher.bat via server/verify-deploy.mjs).
 .uemcp-targets.txt
 
-# Session-local documentation (handoffs, audits, testing logs, research)
+# Session-local documentation (handoffs, worker reports, audits, testing logs, research)
 # These are artifacts of individual agent dispatches, not product docs.
 # Kept on disk for local reference; not tracked in the public repo.
 docs/handoffs/
+docs/reports/
 docs/audits/
 docs/testing/
 docs/research/

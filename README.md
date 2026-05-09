@@ -89,12 +89,12 @@ Ctrl+C to stop. Server talks MCP over stdio; use a client like Claude Code's `.m
 ```
 Claude ↔ MCP server (stdio) ↔ four layers:
   Layer 1  Offline     — disk reads (Source/, Config/, .uproject bytes)
-  Layer 2  TCP:55557   — existing UnrealMCP plugin (conformance oracle during Phase 2)
-  Layer 3  TCP:55558   — custom UEMCP C++ plugin (this repo)
-  Layer 4  HTTP:30010  — Remote Control API (Phase 4)
+  Layer 2  TCP:55558   — custom UEMCP C++ plugin (this repo)
+  Layer 3  HTTP:30010  — Remote Control API
+  Layer 4  Historical  — TCP:55557 UnrealMCP conformance references only
 ```
 
-15 dynamic toolsets (~122 tools) loaded on-demand + 6 always-loaded management tools. `find_tools(query)` auto-enables the top 3 matching toolsets to stay under the tool-count accuracy threshold.
+`tools.yaml` is the registry source of truth. As of the current registry it declares 132 tools total: 6 always-loaded management tools plus 126 tools across 16 dynamic toolsets. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
 
 ---
 
@@ -104,7 +104,7 @@ Claude ↔ MCP server (stdio) ↔ four layers:
 UEMCP/
 ├── README.md                ← you are here
 ├── CLAUDE.md                ← project instructions for AI agents (read this if contributing)
-├── tools.yaml               ← single source of truth for all ~122 tools
+├── tools.yaml               ← single source of truth for all tool registry entries
 ├── .mcp.json.example        ← template Claude Desktop / Code config
 ├── setup-uemcp.bat          ← new-machine onboarding (GUI or arg)
 ├── sync-plugin.bat          ← propagate plugin source changes to target projects

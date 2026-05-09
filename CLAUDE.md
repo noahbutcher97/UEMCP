@@ -7,8 +7,8 @@ This file provides guidance to Claude when working with code in this repository.
 **UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (referred to internally as **Project A** — the primary/combat-game target — and **Project B** — secondary); the tool itself is project-agnostic.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
-- **UE5 Plugin**: `plugin/` — C++ editor plugin (Phase 3, not yet implemented)
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for all 127 tools (6 mgmt + 121 across 16 toolsets; per Gauntlet V40)
+- **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the current registry: 132 YAML-declared tools (6 management + 126 across 16 toolsets)
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -17,16 +17,16 @@ This file provides guidance to Claude when working with code in this repository.
 ```
 Claude ↔ MCP Server (stdio) ↔ 4 layers:
   Layer 1: Offline     — disk reads (Source/, Config/, .uproject)     ✅ Phase 1 DONE
-  Layer 2: TCP:55557   — existing UnrealMCP plugin (actors, BP write) Phase 2
-  Layer 3: TCP:55558   — custom UEMCP C++ plugin (GAS, introspection) Phase 3
-  Layer 4: HTTP:30010  — Remote Control API (property get/set)        Phase 4
+  Layer 2: TCP:55558   — custom UEMCP C++ plugin (editor/live tools)
+  Layer 3: HTTP:30010  — Remote Control API (RC primitives + delegates)
+  Layer 4: Historical  — TCP:55557 UnrealMCP conformance references only
 ```
 
-**D23 (key decision)**: UEMCP will absorb ALL tools onto TCP:55558 post-Phase 3. The existing UnrealMCP plugin (TCP:55557) is used as a **conformance oracle** during Phase 2 to validate TCP transport patterns, then deprecated. Layer assignments for `actors`, `blueprints-write`, `widgets` in tools.yaml are **transitional** — they'll flip from `tcp-55557` to `tcp-55558` when the custom plugin reimplements them.
+**Current port ownership**: `tools.yaml` has no active `tcp-55557` toolsets. Active editor-backed toolsets route through `tcp-55558`; Remote Control primitives and RC-backed semantic delegates use `http-30010`. Older D-log and conformance docs still mention `tcp-55557` as historical context for the Phase 2 oracle and should not be read as current routing guidance.
 
 ## Dynamic Toolset System
 
-127 tools across 16 toolsets + 6 always-loaded management tools. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
+132 YAML-declared tools: 6 always-loaded management tools plus 126 tools across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
@@ -37,9 +37,9 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 6-tier weighted scoring: FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases loaded from tools.yaml `aliases:` section + hardcoded supplements.
 
-## TCP Wire Protocol (Conformance Oracle Reference)
+## TCP Wire Protocol (Historical Conformance Oracle Reference)
 
-The existing UnrealMCP plugin (TCP:55557) uses a connect-per-command pattern that our ConnectionManager mirrors:
+The old UnrealMCP plugin (TCP:55557) was the Phase 2 conformance oracle. Keep these details for debugging historical D-log entries and legacy comparisons, but do not infer current tool routing from this section; the current registry routes active editor tools through TCP:55558.
 
 - **Connect → Send → Read → Close** per command (no persistent connection)
 - **Request format**: `{"type": "<command_name>", "params": {...}}` — note the field is `type`, NOT `command`
@@ -50,7 +50,7 @@ The existing UnrealMCP plugin (TCP:55557) uses a connect-per-command pattern tha
 - **Health check**: Sends `ping` command with 3s timeout. Results cached for 30s.
 - **Read-op caching**: ResultCache (SHA-256 keyed, 5min TTL) for repeat queries. Write-ops should set `skipCache: true`.
 
-The UEMCP custom plugin (TCP:55558, Phase 3) will use the same wire protocol initially but may evolve it (e.g., adding length framing) once we control both ends.
+The UEMCP custom plugin (TCP:55558) owns the active TCP editor surface.
 
 ## Sibling MCP Servers
 
@@ -79,11 +79,11 @@ The conformance oracle (at `<PROJECT_ROOT>\Plugins\UnrealMCP\` in our developmen
 
 Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target project — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin (found at `<PROJECT_ROOT>\Plugins\NodeToCode-main\`) is a separate BP-to-code tool, also not part of UEMCP.
 
-## Current State — Phase 2 Complete + Level 1+2+2.5 + Option C + L3A S-A Shipped
+## Current State — TCP:55558 Active + Offline/RC Hybrid Registry
 
 ### What's implemented:
 - MCP server with stdio transport (`server/server.mjs`)
-- 16 offline tools fully functional (`server/offline-tools.mjs`): `project_info`, `list_gameplay_tags`, `search_gameplay_tags`, `list_config_values`, `get_asset_info` (AR-metadata reader with verbose blob stripping, D31/D38), `query_asset_registry` (bulk scan with short class name matching, pagination via offset, truncation signalling, D33/D38), `inspect_blueprint` (BP export-table walk + CDO property defaults via `include_defaults`, D38/Option C), `list_level_actors` (placed actors with transforms + pagination + summary_by_class, D38/Option C), `read_asset_properties` (Option C, FPropertyTag iteration on any asset), `find_blueprint_nodes` (L3A S-A skeletal K2Node surface, D48), `find_blueprint_nodes_bulk` (EN-2: corpus-wide variant; closes SERVED_PARTIAL rows 26/27/28/42/62/63), `list_data_sources`, `read_datatable_source`, `read_string_table_source`, `list_plugins`, `get_build_config`
+- Offline toolset currently declares 24 tools in `tools.yaml`, including project/config reads, asset registry scans, serialized Blueprint graph reads, data-source reads, plugin listing, and build config. Older D-log entries below may mention the earlier 16-tool offline milestone.
 - `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block → **Level 1+2+2.5 property decode**: FPropertyTag iteration with UE 5.6 `FPropertyTypeName` + `EPropertyTagFlags` extensions; 12 engine struct handlers (FVector/FRotator/FTransform/FLinearColor/FColor/FGuid/FGameplayTag/FGameplayTagContainer/FSoftObjectPath/FBox/FVector4/FIntPoint/FBodyInstance/FExpressionInput); simple-element + complex-element `TArray`/`TSet` containers; `TMap<K,V>` (scalar keys, struct keys emit `struct_key_map` marker); **tagged-fallback for unknown structs** (D50: self-describing FPropertyTag streams decode 601 unique struct names including UUserDefinedStruct, FTimerHandle, FMaterialParameterInfo without loading referenced asset — supersedes D47 two-pass design). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
 - ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
 - ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
@@ -96,10 +96,10 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
 - **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
-- **tools.yaml fully populated**: all 122 tools have params with types, required flags, descriptions; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
+- **tools.yaml registry populated**: 132 YAML-declared tools have registry entries; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
 - **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
 - **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
-- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for all 15 offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata. D44 invariant verified for `find_blueprint_nodes` at Agent 10.5 landing.
+- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata. D44 invariant verified for `find_blueprint_nodes` at Agent 10.5 landing.
 - **Agent 10 shipped (D39)**: Level 1+2+2.5 parser + Option C tools (`list_level_actors` transforms + pagination + summary_by_class; `inspect_blueprint` with `include_defaults`; new `read_asset_properties`). Agent 9.5's 4 implementation-critical corrections applied — transform chain via `outerIndex` reverse scan, UE 5.6 FPropertyTag extensions, sparse-transform tolerance, mandatory pagination.
 - **Agent 10.5 shipped (D46/D47/D48/D50)**: complex-element containers (TMap + tagged TArray/TSet of custom structs); tagged-fallback for unknown structs (D47 pivot per D50 — 71% total marker reduction, 251K → 22K unknown_struct, 24K → 0 container_deferred); L3A S-A skeletal K2Node surface via `find_blueprint_nodes` (13 node types + 2 delegate-presence types, covers find/grep workflows offline without editor). Performance: 1.06× Agent 10 baseline bulk parse.
 
@@ -124,7 +124,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 ```
 UEMCP/
 ├── CLAUDE.md              ← you are here
-├── tools.yaml             ← SINGLE SOURCE OF TRUTH for all 122 tools
+├── tools.yaml             ← SINGLE SOURCE OF TRUTH for registry tools
 ├── .mcp.json.example      ← template Claude Desktop config
 ├── setup-uemcp.bat        ← one-line onboarding (Node install + .mcp.json + plugin copy + .uproject deps)
 ├── sync-plugin.bat        ← propagate plugin source from this repo to a target UE project
@@ -163,7 +163,8 @@ UEMCP/
 │   ├── plans/             ← implementation phases, test strategy (2 files)
 │   ├── audits/            ← point-in-time audit reports (never edit after creation)
 │   ├── research/          ← parser survey, audit, design options (5 files)
-│   ├── handoffs/          ← agent dispatch documents (self-contained task briefs)
+│   ├── handoffs/          ← orchestrator-authored dispatch documents (self-contained task briefs)
+│   ├── reports/           ← worker return reports + recommendations
 │   └── tracking/          ← living docs: risks-and-decisions.md (D1-D112, growing)
 └── .claude/               ← project-level Claude settings
 ```
@@ -213,10 +214,11 @@ checkout. Absence of a name from that list does NOT mean it's
 contractually safe to commit; it means the maintainer judged it
 non-NDA at the time the gate was configured.
 
-**Project-specific session content** (handoffs, audits, testing logs,
+**Project-specific session content** (handoffs, reports, audits, testing logs,
 research notes) lives in **gitignored** doc trees: `docs/handoffs/`,
-`docs/audits/`, `docs/testing/`, `docs/research/`. Write freely there with
-full project specificity — those directories never enter the index.
+`docs/reports/`, `docs/audits/`, `docs/testing/`, `docs/research/`. Write
+freely there with full project specificity — those directories never enter
+the index.
 
 **Two hooks** in `.githooks/` scan content against
 `.git/info/forbidden-tokens` (per-checkout, untracked):
@@ -275,7 +277,18 @@ Why human-in-the-loop dispatch and not subagents:
 3. Required pre-reads: D-log anchors, related handoff docs, prior-art commits.
 4. Codenames (if needed for live-editor invocations or absolute paths) — clearly delimited as ephemeral, with a "translate to placeholders for disk writes" reminder.
 5. Constraints: D49 path-limit, D82 NDA-gate, no AI attribution, Desktop Commander for git, single-commit preference, report-length cap.
-6. Final-report format the orchestrator expects back.
+6. Final-report format the orchestrator expects back, including that worker-authored report docs go under `docs/reports/`, not `docs/handoffs/`.
+
+**Worker report → orchestrator handoff workflow.**
+Workers may create final reports, evidence matrices, and recommended next
+steps, but those outputs are advisory. They belong in `docs/reports/` using a
+descriptive dated filename, for example
+`docs/reports/tool-metadata-schema-report-2026-05-09.md`. The orchestrator
+reviews returned reports, reconciles them against current repo state, then
+authors any authoritative follow-up task specs in `docs/handoffs/`. Workers
+should not create the next worker's authoritative handoff unless the current
+handoff explicitly assigns that as the deliverable; even then, the output is a
+draft for orchestrator review.
 
 **Validation discipline before drafting major implementation handoffs** (D129 codification):
 

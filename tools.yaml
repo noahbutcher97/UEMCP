@@ -80,7 +80,7 @@ toolsets:
         description: Bulk scan Content/ for assets matching class/path/tag filters. Returns up to `limit` results with objectClassName, tags, package name, export count. Supports pagination via offset/limit.
         params:
           class_name:  { type: string, required: false, description: "Exact match on primary object class (e.g., Blueprint, /Script/Engine.DataTable). Short names supported (e.g., DataTable for /Script/Engine.DataTable)." }
-          path_prefix: { type: string, required: false, description: "/Game/... path to narrow the scan root (not a post-filter)" }
+          path_prefix: { type: string, required: false, description: "/Game or /Game/... path to narrow the scan root (not a post-filter)" }
           tag_key:     { type: string, required: false, description: "Asset-registry tag key to require (e.g., BlueprintType, ParentClass)" }
           tag_value:   { type: string, required: false, description: "When provided, tag_key must equal this value. Omit for presence-only check." }
           limit:       { type: number, required: false, description: "Max matches returned (default 200, cap 2000)" }
@@ -395,6 +395,16 @@ toolsets:
           distance:    { type: number, required: false, description: "Camera offset distance, default 1000" }
           orientation: { type: array, required: false, description: "[pitch, yaw, roll] camera rotation" }
       take_screenshot:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Capture editor viewport to PNG file
         note: Legacy — get_viewport_screenshot in visual-capture returns inline base64
         params:
@@ -413,12 +423,32 @@ toolsets:
       add_input_action_node stays under widgets (already listed there).
     tools:
       create_blueprint:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Create new Blueprint class. Default content path /Game/Blueprints/<name>; pass `path` to override. Other tools in this toolset accept either a bare asset name or a fully-qualified /Game/... path for blueprint_name (resolved via AssetRegistry).
         params:
           name:         { type: string, required: true, description: "Blueprint asset name" }
           parent_class: { type: string, required: false, description: "Parent class name, default AActor. Supports Pawn/Actor shorthand." }
           path:         { type: string, required: false, description: "Content package path (e.g. /Game/Custom/Logic). Default /Game/Blueprints/." }
       add_component:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: true
+        offline_fallback: false
         wire_type: add_component_to_blueprint
         description: Add component to Blueprint (auto-compiles after adding)
         params:
@@ -589,12 +619,32 @@ toolsets:
       to <ProjectName>.log for live-editor verification.
     tools:
       create_widget:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: true
+        offline_fallback: false
         wire_type: create_umg_widget_blueprint
         description: Create UMG Widget Blueprint with root CanvasPanel (compiles on creation to establish GeneratedClass). Default content path /Game/Widgets/<name>; pass `path` to override.
         params:
           name: { type: string, required: true, description: "Widget blueprint name" }
           path: { type: string, required: false, description: "Content package path (e.g. /Game/Custom/UI). Default /Game/Widgets/." }
       add_text_block:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         wire_type: add_text_block_to_widget
         description: Add text block to widget (requires root CanvasPanel). Does NOT auto-compile — call compile_blueprint after batch mutations to materialize generated-class properties.
         params:
@@ -603,6 +653,16 @@ toolsets:
           text:           { type: string, required: false, description: "Initial text, default 'New Text Block'" }
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       add_button:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         wire_type: add_button_to_widget
         description: Add button with child TextBlock to widget (requires root CanvasPanel). Does NOT auto-compile or save — call compile_blueprint after batch mutations and persist explicitly when ready.
         params:
@@ -611,6 +671,16 @@ toolsets:
           text:           { type: string, required: true, description: "Button label text" }
           position:       { type: array, required: false, description: "[x, y] canvas position" }
       bind_widget_event:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: true
+        offline_fallback: false
         description: Bind widget event (e.g. OnClicked) to function in event graph. Self-compiles + saves on completion (compile is required to materialize the FObjectProperty on GeneratedClass before wiring the bound event).
         params:
           blueprint_name: { type: string, required: true, description: "Widget blueprint name" }
@@ -627,6 +697,16 @@ toolsets:
           widget_name:    { type: string, required: true, description: "TextBlock widget to bind" }
           binding_name:   { type: string, required: true, description: "Variable name for the binding" }
       add_widget_to_viewport:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: true
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         # M3-widgets fix (D23 oracle retirement): TCP:55558 handler now creates a
         # widget instance against the PIE world's PlayerController and calls
         # AddToViewport(z_order). Returns NOT_IN_PIE error if PIE is not running
@@ -650,6 +730,9 @@ toolsets:
     description: GAS asset creation and live queries
     tools:
       create_gameplay_effect:
+        status: planned
+        discoverable: false
+        note: Planned GAS authoring tool; excluded until a callable Node/C++ path ships.
         description: Create GE_ data asset with duration, modifiers, tags, stacking
         params:
           name:       { type: string, required: true }
@@ -659,6 +742,9 @@ toolsets:
           tags:       { type: array, required: false }
           stacking:   { type: object, required: false }
       create_gameplay_ability:
+        status: planned
+        discoverable: false
+        note: Planned GAS authoring tool; excluded until a callable Node/C++ path ships.
         description: Create GA_ Blueprint with activation/blocked tags, cost, cooldown
         params:
           name:             { type: string, required: true }
@@ -666,10 +752,16 @@ toolsets:
           activation_tags:  { type: array, required: false }
           blocked_tags:     { type: array, required: false }
       modify_gameplay_effect:
+        status: planned
+        discoverable: false
+        note: Planned GAS authoring tool; excluded until a callable Node/C++ path ships.
         description: Edit existing GE — add/remove modifiers, change tags, set period
         params:
           asset_path: { type: string, required: true }
       create_attribute_set:
+        status: planned
+        discoverable: false
+        note: Planned GAS C++ generation tool; excluded until a callable implementation ships.
         description: Generate AttributeSet class template with specified attributes
         params:
           name:       { type: string, required: true }
@@ -804,6 +896,10 @@ toolsets:
       # reduced_scope: runtime playback state + Wwise SDK AkAudioEvent reflection; SoundCue/SoundWave CDO metadata shipped offline
       # displaced_by: read_asset_properties
       get_audio_asset_info:
+        status: planned
+        discoverable: false
+        replaced_by: read_asset_properties
+        note: Superseded-as-offline per D101; excluded from active discovery until a distinct live callable exists.
         description: Metadata for audio assets — SoundCue, SoundWave, AkAudioEvent. Read-only.
         params:
           asset_path: { type: string, required: true }
@@ -827,6 +923,16 @@ toolsets:
           parent_path:   { type: string, required: true }
           path:          { type: string, required: false }
       set_material_parameter:
+        status: shipped
+        availability_layer: http-30010
+        transport_layer: http-30010
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Set scalar/vector/texture param on material instance
         params:
           asset_path:     { type: string, required: true }
@@ -835,6 +941,16 @@ toolsets:
       # reduced_scope: compiled shader uniforms (compile-time constants baked by the editor material compiler); static parameter defaults shipped offline
       # displaced_by: read_asset_properties (D50 tagged-fallback for FMaterialParameterInfo)
       list_material_parameters:
+        status: shipped
+        availability_layer: http-30010
+        transport_layer: http-30010
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: read_asset_properties
         description: "Get scalar, vector, and texture parameter info (names + IDs) from a UMaterialInterface via 3 batched RC calls (GetAllScalarParameterInfo + GetAllVectorParameterInfo + GetAllTextureParameterInfo). Values require a separate rc_call_function with GetScalar/Vector/TextureParameterValue per parameter. (D131: WebRemoteControl.cpp:930 Passphrase-header workaround in connection-manager.mjs eliminates the prior NEW-2 crash class. Tool functional post-Pivot-W0'.)"
         params:
           asset_path: { type: string, required: true }
@@ -850,12 +966,19 @@ toolsets:
     description: Data asset creation/read, curves, string tables, struct definitions
     tools:
       create_data_asset:
+        status: planned
+        discoverable: false
+        note: Planned writer; excluded until a callable Node/C++ path ships.
         description: Create UDataAsset of specified subclass
         params:
           name:      { type: string, required: true }
           subclass:  { type: string, required: true }
           path:      { type: string, required: false }
       set_data_asset_property:
+        status: planned
+        discoverable: false
+        replaced_by: read_asset_properties
+        note: Planned writer; verify data asset values with offline read_asset_properties until a callable setter ships.
         description: Set property on data asset by name and value
         params:
           asset_path:    { type: string, required: true }
@@ -869,6 +992,16 @@ toolsets:
       # reduced_scope: compiled/baked curve evaluation + complex UCurveTable joins; simple UCurveFloat/Vector/Color keyframes shipped offline
       # displaced_by: read_asset_properties
       get_curve_asset:
+        status: shipped
+        availability_layer: http-30010
+        transport_layer: http-30010
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: read_asset_properties
         description: Read UCurveFloat / UCurveVector / UCurveLinearColor keyframes with tangents and interpolation. Probes class via RC describe, then reads the subclass-specific curve property (FloatCurve singular for UCurveFloat; FloatCurves array for Vector/LinearColor).
         params:
           asset_path:  { type: string, required: true }
@@ -910,6 +1043,16 @@ toolsets:
           action_path:  { type: string, required: true }
           key:          { type: string, required: true }
       start_pie:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Launch Play In Editor (configurable — viewport, new window, standalone)
         params:
           mode: { type: string, required: false, default: viewport }
@@ -952,6 +1095,16 @@ toolsets:
       # reduced_scope: compiled vertex buffer evaluation + runtime bounds
       # displaced_by: (deferred — offline static-mesh header parse could cover vertex/triangle counts in a future enhancement per §Q1.8)
       get_mesh_info:
+        status: shipped
+        availability_layer: http-30010
+        transport_layer: http-30010
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: "Get vertex count, triangle count, LOD count, bounds, and material slots for a UStaticMesh via 5 batched UFUNCTION calls (GetNumVertices / GetNumTriangles / GetNumLODs / GetBounds / GetStaticMaterials). One of asset_path or target is required. (D131: WebRemoteControl.cpp:930 Passphrase-header workaround in connection-manager.mjs eliminates the prior NEW-2 crash class. Tool functional post-Pivot-W0'.)"
         params:
           asset_path: { type: string, required: false }
@@ -971,6 +1124,16 @@ toolsets:
         description: Current level, selected actors, viewport info
         params: {}
       run_python_command:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: true
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Execute Python script. SECURITY-SENSITIVE — requires --enable-python-exec startup flag (Layer 1 server-side gate; PYTHON_EXEC_DISABLED otherwise) AND must pass plugin-side deny-list (rejects os/subprocess/eval/exec/open/__import__ → PYTHON_EXEC_DENY_LIST). Every call audit-logged via LogUEMCPSecurity.
         params:
           command: { type: string, required: true }
@@ -996,6 +1159,16 @@ toolsets:
           asset_path: { type: string, required: true }
           new_name:   { type: string, required: true }
       delete_asset_safe:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: false
+        offline_fallback: false
         description: Delete asset with dependency-check + soft-delete defaults. SECURITY-SENSITIVE — blocks on referencers unless force:true (ASSET_HAS_DEPENDENCIES); defaults to soft-delete (rename to /Game/_Deleted/<name>); permanent:true requires force:true (BAD_PARAMS otherwise). Every successful delete audit-logged.
         params:
           asset_path:    { type: string, required: true }
@@ -1010,14 +1183,31 @@ toolsets:
     note: ~1MB stdio payload limit. Server enforces max resolution and JPEG fallback.
     tools:
       get_asset_thumbnail:
+        status: planned
+        discoverable: false
+        replaced_by: get_asset_preview_render
+        note: Remapped to callable get_asset_preview_render; excluded as a separate SDK handle.
         description: Content Browser thumbnail as inline PNG (256x256). Batch mode supported. Uses UThumbnailManager.
         params:
           asset_paths: { type: array, items: string, required: true }
       get_viewport_screenshot:
+        status: planned
+        discoverable: false
+        note: Planned inline viewport capture; existing take_screenshot writes to disk and is not an inline replacement.
         description: Active viewport as inline base64 PNG. Configurable resolution.
         params:
           quality: { type: string, required: false, default: medium }
       get_asset_preview_render:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: get_asset_info
         description: Asset thumbnail as inline JPEG (any UObject with a UThumbnailRenderer). Covers meshes/materials/textures/blueprints/animations/data-assets. UE's FObjectThumbnail::CompressImageData uses JPEG encoding internally despite the buffer name; mime in response is image/jpeg. Full FPreviewScene offscreen render deferred.
         params:
           asset_path:    { type: string, required: true }
@@ -1026,9 +1216,16 @@ toolsets:
           return_base64: { type: boolean, required: false, default: true }
           output_path:   { type: string, required: false }
       capture_active_editor_tab:
+        status: planned
+        discoverable: false
+        note: Planned editor-widget capture; excluded until FWidgetRenderer path ships.
         description: Active editor panel (BP graph, material editor, etc.) via FWidgetRenderer. Asset must be open.
         params: {}
       get_asset_visual_summary:
+        status: planned
+        discoverable: false
+        replaced_by: get_asset_preview_render
+        note: Planned composite helper; use get_asset_preview_render plus relevant read tools until shipped.
         description: Combines text introspection JSON + inline thumbnail/preview in one MCP response.
         params:
           asset_path: { type: string, required: true }

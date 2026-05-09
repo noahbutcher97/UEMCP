@@ -16,6 +16,7 @@ docs/
 ├── plans/                 — what we're DOING (phases, testing)
 ├── research/              — scope-refresh / feasibility / re-sequence deliverables
 ├── handoffs/              — dispatched worker briefs (self-contained task specs)
+├── reports/               — worker return reports and recommendations
 ├── audits/                — point-in-time reports (never edited after creation)
 ├── testing/               — manual-test deliverables tied to specific milestones
 └── tracking/              — living docs (risks-and-decisions.md, backlog.md)
@@ -66,9 +67,12 @@ Point-in-time research outputs informing milestone decisions. Append only.
 - Phase 3 scope refresh, M-alt commandlet feasibility, MCP-first re-sequence are the load-bearing trio (all 2026-04-20).
 
 ### handoffs/ — dispatched worker briefs
-Self-contained task specs for individual workers. Each handoff has its own lifecycle — active briefs dispatch, complete, and remain as historical record.
+Self-contained task specs for individual workers. Handoffs are authored by the orchestrator after reviewing prior work; they are not worker final reports.
 
 Recent in-flight / recently-shipped handoffs are tracked in [tracking/backlog.md](tracking/backlog.md).
+
+### reports/ — worker return reports
+Worker-generated final reports, investigation notes, and recommendation docs. The orchestrator reviews these reports, then writes or updates authoritative handoffs in `handoffs/` when follow-up work is ready to dispatch.
 
 ### audits/ — point-in-time reports
 Snapshots — never edited after creation. Audit findings are folded into the D-log entries in [tracking/risks-and-decisions.md](tracking/risks-and-decisions.md); the audit files themselves are session-local artifacts kept on the maintainer's local checkout (matching how `handoffs/`, `research/`, `testing/` are described above).

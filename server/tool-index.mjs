@@ -102,6 +102,10 @@ const WEIGHT = {
   ALIAS_BONUS:     2,  // tool-level alias hit
 };
 
+function isDiscoverable(def) {
+  return def?.discoverable !== false && def?.status !== 'planned';
+}
+
 // ── Index entry ─────────────────────────────────────────────
 
 /**
@@ -145,6 +149,7 @@ export class ToolIndex {
     // Index management tools
     if (toolsData.management?.tools) {
       for (const [name, def] of Object.entries(toolsData.management.tools)) {
+        if (!isDiscoverable(def)) continue;
         this._entries.push({
           toolName: name,
           toolsetName: 'management',
@@ -162,6 +167,7 @@ export class ToolIndex {
       for (const [tsName, tsDef] of Object.entries(toolsData.toolsets)) {
         if (!tsDef.tools) continue;
         for (const [name, def] of Object.entries(tsDef.tools)) {
+          if (!isDiscoverable(def)) continue;
           this._entries.push({
             toolName: name,
             toolsetName: tsName,
