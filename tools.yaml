@@ -475,19 +475,21 @@ toolsets:
           can_be_damaged:                { type: boolean, required: false, description: "Maps to bCanBeDamaged" }
       add_event_node:
         wire_type: add_blueprint_event_node
-        description: Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists
+        description: Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists. Returns pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           event_name:     { type: string, required: true, description: "e.g. ReceiveBeginPlay, ReceiveTick" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       # ── Orphan BP node handlers (added from conformance oracle Section 8) ──
       add_function_node:
         wire_type: add_blueprint_function_node
-        description: Add function call node to event graph. Complex resolution — supports target class, default pin values.
+        description: Add function call node to a target graph. Supports target class, default pin values, and KismetMathLibrary vector/math/comparison functions. Returns pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function name to call" }
           target:         { type: string, required: false, description: "Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP's own class." }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph; pass function graph name for callback bodies." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
           params:         { type: object, required: false, description: "Default values for function input pins" }
       add_variable:
@@ -498,34 +500,79 @@ toolsets:
           variable_name:  { type: string, required: true, description: "Variable name" }
           variable_type:  { type: string, required: true, description: "One of: Boolean, Integer/Int, Float, String, Vector" }
           is_exposed:     { type: boolean, required: false, description: "If true, adds EditAnywhere flag. Default false." }
-      add_self_reference:
-        wire_type: add_blueprint_self_reference
-        description: Add Self reference node (UK2Node_Self) to event graph
+      add_function_graph:
+        wire_type: add_blueprint_function_graph
+        description: Create a Blueprint function graph and return its FunctionEntry node with pin metadata. Idempotent by graph/function name.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          function_name:  { type: string, required: true, description: "Function graph name to create" }
+      add_variable_get:
+        wire_type: add_blueprint_variable_get_node
+        description: Add member variable get node to a target Blueprint graph. Returns pin metadata.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          variable_name:  { type: string, required: true, description: "Member variable name" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      add_variable_set:
+        wire_type: add_blueprint_variable_set_node
+        description: Add member variable set node to a target Blueprint graph. Returns pin metadata.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          variable_name:  { type: string, required: true, description: "Member variable name" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+          params:         { type: object, required: false, description: "Default values for input pins, keyed by pin name" }
+      add_control_node:
+        wire_type: add_blueprint_control_node
+        description: Add a basic control node to a target Blueprint graph. node_kind supports Branch, Sequence, Return. Returns pin metadata.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          node_kind:      { type: string, required: true, description: "One of: Branch, Sequence, Return" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      add_math_node:
+        wire_type: add_blueprint_math_node
+        description: Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale. Returns pin metadata.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          operation:      { type: string, required: true, description: "One of: Add, Subtract, Multiply, Less, Greater, LessEqual, GreaterEqual, MakeVector, BreakVector, ScaleVector" }
+          value_type:     { type: string, required: false, description: "One of: Float, Int/Integer, Vector. Defaults to Float." }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+          params:         { type: object, required: false, description: "Default values for input pins" }
+      add_self_reference:
+        wire_type: add_blueprint_self_reference
+        description: Add Self reference node (UK2Node_Self) to a target graph. Returns pin metadata.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       add_component_reference:
         wire_type: add_blueprint_get_self_component_reference
-        description: Add VariableGet node for a named component in event graph
+        description: Add VariableGet node for a named component in a target graph. Returns pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           component_name: { type: string, required: true, description: "Component variable name" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       connect_nodes:
         wire_type: connect_blueprint_nodes
-        description: Connect two Blueprint graph nodes by pin
+        description: Connect two Blueprint graph nodes by pin after K2 schema compatibility validation. INCOMPATIBLE_PINS errors include both pin types.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           source_node_id: { type: string, required: true, description: "Source node GUID string" }
           target_node_id: { type: string, required: true, description: "Target node GUID string" }
           source_pin:     { type: string, required: true, description: "Pin name on source node" }
           target_pin:     { type: string, required: true, description: "Pin name on target node" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
       find_nodes:
         wire_type: find_blueprint_nodes
-        description: Find nodes in event graph by type (currently only Event type supported)
+        description: Find nodes in a target graph by type (currently only Event type supported)
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           node_type:      { type: string, required: true, description: "Currently only 'Event' supported" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           event_name:     { type: string, required: false, description: "Required when node_type=Event" }
 
   widgets:

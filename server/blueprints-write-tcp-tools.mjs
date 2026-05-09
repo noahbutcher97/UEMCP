@@ -1,6 +1,6 @@
 // Blueprints-write toolset TCP handlers — M3 (D23 oracle retirement).
 //
-// 15 tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
+// Blueprints-write tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
 // legacy blueprints-write section of tcp-tools.mjs, which routed to the
 // conformance oracle (UnrealMCP plugin BlueprintCommands + BlueprintNodeCommands,
 // TCP:55557).
@@ -25,6 +25,7 @@ import { z } from 'zod';
 const Vec3 = z.array(z.number()).length(3).describe('[x, y, z]');
 const Vec3Optional = Vec3.optional();
 const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] graph position');
+const GraphNameOptional = z.string().optional().describe('Target graph name. Omit for EventGraph; pass a function graph name for function-body edits.');
 
 // ── Wire-type map (populated by initBlueprintsWriteTools from tools.yaml) ──
 // tools.yaml `blueprints-write:` is the single source of truth (D44). Only
@@ -149,23 +150,82 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_event_node: {
-    description: 'Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists',
+    description: 'Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists. Returns pin metadata.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       event_name: z.string().describe('e.g. ReceiveBeginPlay, ReceiveTick'),
+      graph_name: GraphNameOptional,
       node_position: Vec2Optional,
     },
     isReadOp: false,
   },
 
   add_function_node: {
-    description: 'Add function call node to event graph. Complex resolution — supports target class, default pin values.',
+    description: 'Add function call node to a Blueprint graph. Supports graph_name, target class, default pin values, and returns pin metadata. Use KismetMathLibrary/GameplayStatics/etc. for math, vector, comparison, and timer calls.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function name to call'),
       target: z.string().optional().describe('Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP\'s own class.'),
+      graph_name: GraphNameOptional,
       node_position: Vec2Optional,
       params: z.record(z.any()).optional().describe('Default values for function input pins'),
+    },
+    isReadOp: false,
+  },
+
+  add_function_graph: {
+    description: 'Create a Blueprint function graph and return the generated FunctionEntry node with pin metadata. Idempotent by graph/function name.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      function_name: z.string().describe('Function graph name to create'),
+    },
+    isReadOp: false,
+  },
+
+  add_variable_get: {
+    description: 'Add member variable get node to a target Blueprint graph. Returns pin metadata.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      variable_name: z.string().describe('Member variable name'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+    },
+    isReadOp: false,
+  },
+
+  add_variable_set: {
+    description: 'Add member variable set node to a target Blueprint graph. Returns pin metadata.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      variable_name: z.string().describe('Member variable name'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+      params: z.record(z.any()).optional().describe('Default values for input pins, keyed by pin name'),
+    },
+    isReadOp: false,
+  },
+
+  add_control_node: {
+    description: 'Add a basic control node to a target Blueprint graph: Branch, Sequence, or Return. Returns pin metadata.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      node_kind: z.enum(['Branch', 'Sequence', 'Return']).describe('Control node kind'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+    },
+    isReadOp: false,
+  },
+
+  add_math_node: {
+    description: 'Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale. Returns pin metadata.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      operation: z.enum(['Add', 'Subtract', 'Multiply', 'Less', 'Greater', 'LessEqual', 'GreaterEqual', 'MakeVector', 'BreakVector', 'ScaleVector'])
+        .describe('Math/vector operation to author'),
+      value_type: z.enum(['Float', 'Int', 'Integer', 'Vector']).optional().describe('Operand family. Defaults to Float. Vector comparisons are not supported.'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+      params: z.record(z.any()).optional().describe('Default values for input pins'),
     },
     isReadOp: false,
   },
@@ -187,19 +247,21 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_self_reference: {
-    description: 'Add Self reference node (UK2Node_Self) to event graph',
+    description: 'Add Self reference node (UK2Node_Self) to a target graph. Returns pin metadata.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
+      graph_name: GraphNameOptional,
       node_position: Vec2Optional,
     },
     isReadOp: false,
   },
 
   add_component_reference: {
-    description: 'Add VariableGet node for a named component in event graph',
+    description: 'Add VariableGet node for a named component in a target graph. Returns pin metadata.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       component_name: z.string().describe('Component variable name'),
+      graph_name: GraphNameOptional,
       node_position: Vec2Optional,
     },
     isReadOp: false,
@@ -213,6 +275,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_node_id: z.string().describe('Target node GUID string'),
       source_pin: z.string().describe('Pin name on source node'),
       target_pin: z.string().describe('Pin name on target node'),
+      graph_name: GraphNameOptional,
     },
     isReadOp: false,
   },
@@ -228,6 +291,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       // UNSUPPORTED_NODE_TYPE error per W-G as defense-in-depth (handler
       // path remains valid for future node_type expansion).
       node_type: z.enum(['Event']).describe("Currently only 'Event' supported"),
+      graph_name: GraphNameOptional,
       event_name: z.string().optional().describe('Required when node_type=Event'),
     },
     isReadOp: true,

@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 5,
-	"VersionName": "1.0.4",
+	"Version": 6,
+	"VersionName": "1.0.5",
 	"FriendlyName": "UEMCP",
 	"Description": "Custom MCP bridge plugin — exposes editor APIs over TCP for the UEMCP Node.js server",
 	"Category": "Editor",

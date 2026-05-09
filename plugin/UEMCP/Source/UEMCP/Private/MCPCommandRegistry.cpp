@@ -16,7 +16,7 @@
 // M3-actors: 10 actor-toolset handlers reimplemented on TCP:55558 (D23).
 #include "ActorHandlers.h"
 
-// M3-blueprints-write: 15 BP-write handlers reimplemented on TCP:55558 (D23).
+// Blueprints-write handlers on TCP:55558.
 #include "BlueprintHandlers.h"
 
 // M3-widgets: 7 widgets-toolset handlers reimplemented on TCP:55558 (D23).
@@ -171,7 +171,7 @@ namespace UEMCP
 		// M3-actors: 10 actor-toolset commands (oracle retirement, D23).
 		RegisterActorHandlers(*this);
 
-		// M3-blueprints-write: 15 BP-write commands (oracle retirement, D23).
+		// Blueprints-write commands.
 		RegisterBlueprintHandlers(*this);
 
 		// M3-widgets: 7 widgets-toolset commands (oracle retirement, D23).

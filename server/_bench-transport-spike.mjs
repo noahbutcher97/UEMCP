@@ -81,8 +81,8 @@ async function probe(type, params) {
       const body = JSON.stringify({ type, params: params || {} });
       const bodyBuf = Buffer.from(body, 'utf-8');
       // E-1 §1: framed request to the UEMCP plugin (FRAMED_PORTS includes 55558).
-      sock.write(`Content-Length: ${bodyBuf.length}\r\n\r\n`);
-      sock.write(bodyBuf);
+      const headerBuf = Buffer.from(`Content-Length: ${bodyBuf.length}\r\n\r\n`, 'utf-8');
+      sock.write(Buffer.concat([headerBuf, bodyBuf]));
       tSent = process.hrtime.bigint();
     });
     sock.on('data', (chunk) => {

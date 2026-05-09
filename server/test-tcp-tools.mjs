@@ -36,6 +36,11 @@ const fakeToolsYaml = {
         add_event_node: { wire_type: 'add_blueprint_event_node' },
         add_function_node: { wire_type: 'add_blueprint_function_node' },
         add_variable: { wire_type: 'add_blueprint_variable' },
+        add_function_graph: { wire_type: 'add_blueprint_function_graph' },
+        add_variable_get: { wire_type: 'add_blueprint_variable_get_node' },
+        add_variable_set: { wire_type: 'add_blueprint_variable_set_node' },
+        add_control_node: { wire_type: 'add_blueprint_control_node' },
+        add_math_node: { wire_type: 'add_blueprint_math_node' },
         add_self_reference: { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes: { wire_type: 'connect_blueprint_nodes' },
@@ -61,11 +66,12 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'create_blueprint', 'add_component', 'set_component_property',
     'compile_blueprint', 'set_blueprint_property', 'set_static_mesh_props',
     'set_physics_props', 'set_pawn_props', 'add_event_node',
-    'add_function_node', 'add_variable', 'add_self_reference',
+    'add_function_node', 'add_variable', 'add_function_graph',
+    'add_variable_get', 'add_variable_set', 'add_control_node', 'add_math_node', 'add_self_reference',
     'add_component_reference', 'connect_nodes', 'find_nodes',
   ];
 
-  t.assert(Object.keys(defs).length === 15, '15 blueprints-write tools defined');
+  t.assert(Object.keys(defs).length === 20, '20 blueprints-write tools defined');
 
   for (const name of expectedBpTools) {
     t.assert(defs[name] !== undefined, `BP tool "${name}" is defined`);
@@ -102,6 +108,11 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'add_blueprint_event_node': { status: 'success', result: { node_id: 'abc-123' } },
     'add_blueprint_function_node': { status: 'success', result: { node_id: 'def-456' } },
     'add_blueprint_variable': { status: 'success', result: { success: true } },
+    'add_blueprint_function_graph': { status: 'success', result: { node_id: 'entry-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_variable_get_node': { status: 'success', result: { node_id: 'get-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_variable_set_node': { status: 'success', result: { node_id: 'set-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_control_node': { status: 'success', result: { node_id: 'branch-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_math_node': { status: 'success', result: { node_id: 'math-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
     'add_blueprint_get_self_component_reference': { status: 'success', result: { node_id: 'jkl-012' } },
     'connect_blueprint_nodes': { status: 'success', result: { success: true } },
@@ -140,6 +151,21 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
   await executeBlueprintsWriteTool('add_variable', { blueprint_name: 'BP', variable_name: 'Speed', variable_type: 'Float' }, cm);
   t.assert(fake.lastCall('add_blueprint_variable') !== undefined, 'add_variable -> add_blueprint_variable');
 
+  await executeBlueprintsWriteTool('add_function_graph', { blueprint_name: 'BP', function_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_function_graph') !== undefined, 'add_function_graph -> add_blueprint_function_graph');
+
+  await executeBlueprintsWriteTool('add_variable_get', { blueprint_name: 'BP', variable_name: 'Direction', graph_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable_get_node') !== undefined, 'add_variable_get -> add_blueprint_variable_get_node');
+
+  await executeBlueprintsWriteTool('add_variable_set', { blueprint_name: 'BP', variable_name: 'Direction', graph_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable_set_node') !== undefined, 'add_variable_set -> add_blueprint_variable_set_node');
+
+  await executeBlueprintsWriteTool('add_control_node', { blueprint_name: 'BP', node_kind: 'Branch', graph_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_control_node') !== undefined, 'add_control_node -> add_blueprint_control_node');
+
+  await executeBlueprintsWriteTool('add_math_node', { blueprint_name: 'BP', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_math_node') !== undefined, 'add_math_node -> add_blueprint_math_node');
+
   await executeBlueprintsWriteTool('add_self_reference', { blueprint_name: 'BP' }, cm);
   t.assert(fake.lastCall('add_blueprint_self_reference') !== undefined, 'add_self_reference -> add_blueprint_self_reference');
 
@@ -176,6 +202,9 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   fake.on('ping', { status: 'success' });
   fake.on('add_component_to_blueprint', { status: 'success', result: { success: true } });
   fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'n1' } });
+  fake.on('add_blueprint_variable_get_node', { status: 'success', result: { node_id: 'n2', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_variable_set_node', { status: 'success', result: { node_id: 'n3', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_math_node', { status: 'success', result: { node_id: 'n4', graph_name: 'MoveStep', pins: [] } });
   fake.on('connect_blueprint_nodes', { status: 'success', result: { success: true } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
@@ -194,19 +223,42 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
 
   await executeBlueprintsWriteTool('add_function_node', {
     blueprint_name: 'BP_Test', function_name: 'PrintString',
-    target: 'KismetSystemLibrary', params: { InString: 'Hello' },
+    target: 'KismetSystemLibrary', graph_name: 'MoveStep', params: { InString: 'Hello' },
   }, cm);
   const fnCall = fake.lastCall('add_blueprint_function_node');
   t.assert(fnCall.params.target === 'KismetSystemLibrary', 'add_function_node: target passed');
+  t.assert(fnCall.params.graph_name === 'MoveStep', 'add_function_node: graph_name passed');
   t.assert(fnCall.params.params.InString === 'Hello', 'add_function_node: nested params object passed');
+
+  await executeBlueprintsWriteTool('add_variable_get', {
+    blueprint_name: 'BP_Test', variable_name: 'Direction', graph_name: 'MoveStep',
+  }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable_get_node').params.graph_name === 'MoveStep',
+    'add_variable_get: graph_name passed');
+
+  await executeBlueprintsWriteTool('add_variable_set', {
+    blueprint_name: 'BP_Test', variable_name: 'Direction', graph_name: 'MoveStep', params: { Direction: -1 },
+  }, cm);
+  const setCall = fake.lastCall('add_blueprint_variable_set_node');
+  t.assert(setCall.params.graph_name === 'MoveStep', 'add_variable_set: graph_name passed');
+  t.assert(setCall.params.params.Direction === -1, 'add_variable_set: pin default params passed');
+
+  await executeBlueprintsWriteTool('add_math_node', {
+    blueprint_name: 'BP_Test', operation: 'ScaleVector', value_type: 'Vector', graph_name: 'MoveStep',
+    params: { B: 2 },
+  }, cm);
+  const mathCall = fake.lastCall('add_blueprint_math_node');
+  t.assert(mathCall.params.operation === 'ScaleVector', 'add_math_node: operation passed');
+  t.assert(mathCall.params.params.B === 2, 'add_math_node: pin default params passed');
 
   await executeBlueprintsWriteTool('connect_nodes', {
     blueprint_name: 'BP_Test', source_node_id: 'guid-1', target_node_id: 'guid-2',
-    source_pin: 'then', target_pin: 'execute',
+    source_pin: 'then', target_pin: 'execute', graph_name: 'MoveStep',
   }, cm);
   const connCall = fake.lastCall('connect_blueprint_nodes');
   t.assert(connCall.params.source_node_id === 'guid-1', 'connect_nodes: source_node_id passed');
   t.assert(connCall.params.target_pin === 'execute', 'connect_nodes: target_pin passed');
+  t.assert(connCall.params.graph_name === 'MoveStep', 'connect_nodes: graph_name passed');
 }
 
 // ═══════════════════════════════════════════════════════════════

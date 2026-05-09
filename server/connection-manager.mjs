@@ -155,9 +155,8 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
       if (FRAMED_PORTS.has(port)) {
         // E-1 §1: emit Content-Length-framed request to the UEMCP custom plugin.
         const bodyBuf = Buffer.from(body, 'utf-8');
-        const header = `Content-Length: ${bodyBuf.length}\r\n\r\n`;
-        socket.write(header);
-        socket.write(bodyBuf);
+        const headerBuf = Buffer.from(`Content-Length: ${bodyBuf.length}\r\n\r\n`, 'utf-8');
+        socket.write(Buffer.concat([headerBuf, bodyBuf]));
       } else {
         // Legacy oracle path (tcp-55557): no framing, no newline terminator.
         socket.write(body);

@@ -5,7 +5,7 @@
 #include "Dom/JsonObject.h"
 
 /**
- * M3-blueprints-write: 15 BP-write handlers reimplemented on TCP:55558 (D23).
+ * Blueprints-write handlers on TCP:55558.
  *
  * Replaces the conformance oracle (UnrealMCP plugin BlueprintCommands +
  * BlueprintNodeCommands, TCP:55557) per D23. Wire-shape parity preserved
@@ -30,12 +30,17 @@
  *   - set_physics_properties                      (UPrimitiveComponent physics tunables)
  *   - set_pawn_properties                         (Per-property results — partial-success aware)
  *   - add_blueprint_event_node                    (UK2Node_Event with dedup)
- *   - add_blueprint_function_node                 (UK2Node_CallFunction; pin-default coercion)
+ *   - add_blueprint_function_node                 (UK2Node_CallFunction; graph_name + pin-default coercion)
  *   - add_blueprint_variable                      (5 simple types: Bool/Int/Float/String/Vector)
+ *   - add_blueprint_function_graph                (Function graph + FunctionEntry metadata)
+ *   - add_blueprint_variable_get_node             (UK2Node_VariableGet for member variable)
+ *   - add_blueprint_variable_set_node             (UK2Node_VariableSet for member variable)
+ *   - add_blueprint_control_node                  (Branch, Sequence, Return)
+ *   - add_blueprint_math_node                     (KismetMathLibrary math/vector wrapper)
  *   - add_blueprint_self_reference                (UK2Node_Self)
  *   - add_blueprint_get_self_component_reference  (UK2Node_VariableGet for component)
- *   - connect_blueprint_nodes                     (NodeGuid → pin → MakeLinkTo)
- *   - find_blueprint_nodes                        (Read-only; node_type=Event only — oracle parity)
+ *   - connect_blueprint_nodes                     (NodeGuid → validated pin link)
+ *   - find_blueprint_nodes                        (Read-only; graph_name + node_type=Event only)
  *
  * All handlers run on the game thread (D83 — central marshal at
  * MCPCommandRegistry::Dispatch). BP compile / SCS mutations / FKismet utilities
@@ -46,6 +51,6 @@ namespace UEMCP
 {
 	class FMCPCommandRegistry;
 
-	/** Adds the 15 blueprints-write handlers to the registry. Call pre-thread-create. */
+	/** Adds the blueprints-write handlers to the registry. Call pre-thread-create. */
 	void RegisterBlueprintHandlers(FMCPCommandRegistry& Registry);
 }

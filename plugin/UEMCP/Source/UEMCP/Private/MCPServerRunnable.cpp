@@ -217,6 +217,7 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 	int32 FramingBodyLen = -1;
 	bool bFramingDecided = false;
 	bool bRequestComplete = false;
+	bool bPeerClosed = false;
 
 	// Read until a complete JSON object parses (framed or legacy), client disconnects, or timeout.
 	while (bRunning && (FPlatformTime::Seconds() - StartTime) < PerConnectionTimeoutSec)
@@ -226,6 +227,7 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 		if (bRecv && BytesRead > 0)
 		{
 			Accumulated.Append(Buffer, BytesRead);
+			UEMCP_VERBOSE("recv %d bytes (total=%d)", BytesRead, Accumulated.Num());
 
 			// First, decide framing once we have enough bytes (or unambiguous prefix).
 			if (!bFramingDecided)
@@ -234,11 +236,13 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 				if (bFramed && FramingBodyLen >= 0)
 				{
 					bFramingDecided = true;
+					UEMCP_VERBOSE("detected framed request (bodyOffset=%d bodyLen=%d total=%d)", FramingBodyOffset, FramingBodyLen, Accumulated.Num());
 				}
 				else if (!bFramed && Accumulated.Num() >= ContentLengthHeader.Len())
 				{
 					// Have enough bytes to confirm legacy (no Content-Length: prefix at byte 0).
 					bFramingDecided = true;
+					UEMCP_VERBOSE("detected legacy unframed request (total=%d)", Accumulated.Num());
 				}
 			}
 
@@ -252,6 +256,7 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 					if (TryParseAccumulated(Body, RequestJson))
 					{
 						bRequestComplete = true;
+						UEMCP_VERBOSE("parsed framed request JSON (Content-Length=%d)", FramingBodyLen);
 						break;
 					}
 					UEMCP_WARN("framed body failed to parse as JSON (Content-Length=%d)", FramingBodyLen);
@@ -267,6 +272,7 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 				if (TryParseAccumulated(Accumulated, RequestJson))
 				{
 					bRequestComplete = true;
+					UEMCP_VERBOSE("parsed legacy request JSON (bytes=%d)", Accumulated.Num());
 					break;
 				}
 			}
@@ -276,7 +282,18 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 
 		if (bRecv && BytesRead == 0)
 		{
-			UEMCP_VERBOSE("client closed connection cleanly");
+			// On UE's non-blocking sockets, a successful zero-byte Recv can mean
+			// "no payload available yet", especially immediately after Accept() or
+			// between a client's framed header/body writes. Treat it as a disconnect
+			// only when the socket state says the peer is no longer connected.
+			const ESocketConnectionState State = ClientSocket->GetConnectionState();
+			if (State == SCS_Connected)
+			{
+				ClientSocket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(50));
+				continue;
+			}
+			bPeerClosed = true;
+			UEMCP_VERBOSE("client closed connection cleanly after %d request bytes", Accumulated.Num());
 			break;
 		}
 
@@ -295,6 +312,16 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 		}
 		UEMCP_WARN("recv failed: socket error %d", static_cast<int32>(Err));
 		return;
+	}
+	if (!RequestJson.IsValid())
+	{
+		const double ElapsedMs = (FPlatformTime::Seconds() - StartTime) * 1000.0;
+		UEMCP_WARN("request incomplete before parse (bytes=%d framed=%s bodyLen=%d peerClosed=%s elapsedMs=%.1f)",
+			Accumulated.Num(),
+			bFramed ? TEXT("true") : TEXT("false"),
+			FramingBodyLen,
+			bPeerClosed ? TEXT("true") : TEXT("false"),
+			ElapsedMs);
 	}
 
 	// --- Build response envelope ---

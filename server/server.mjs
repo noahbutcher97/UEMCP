@@ -803,7 +803,7 @@ registerToolGroup(
 );
 
 // ── Register blueprints-write tools (TCP:55558) ─────────────────────
-// M3 (D23 oracle retirement): blueprints-write toolset — 15 tools for BP
+// M3 (D23 oracle retirement): blueprints-write toolset for BP
 // creation, components, and graph nodes. Handlers live in
 // server/blueprints-write-tcp-tools.mjs.
 registerToolGroup(

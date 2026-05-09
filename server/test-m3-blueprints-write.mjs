@@ -1,9 +1,9 @@
-// Tests for M3-blueprints-write — 15 BP-write tools live on TCP:55558.
+// Tests for blueprints-write tools on TCP:55558.
 //
 // Companion to docs/handoffs/m3-blueprints-write-rebuild.md. Mirrors the
 // test-m3-actors.mjs structure (Groups 1-11) adapted to the BP-write surface:
 //   - Port routing → 55558 (oracle retirement, D23)
-//   - Wire-type translation (11 of 15 tools have rename mappings)
+//   - Wire-type translation via tools.yaml
 //   - Conformance shape parity vs canned oracle TCP:55557 fixtures
 //   - P0-1 error propagation (with code field)
 //   - P0-9 / P0-10 defense-in-depth Zod validation
@@ -11,8 +11,8 @@
 //   - Identity wire-type fallback on tools without explicit translation
 //
 // Per conformance-oracle-contracts.md §8.1, the toolset already absorbed the
-// 6 BlueprintNodeCommands "orphans" — total 15 endpoints, NOT 21 as the
-// handoff prose suggested. Tests cover all 15.
+// 6 BlueprintNodeCommands "orphans" were the original M3 expansion; graph-write
+// follow-ups add function-graph, variable get/set, control, and math nodes.
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-m3-blueprints-write.mjs
 
@@ -43,6 +43,11 @@ const fakeToolsYaml = {
         add_event_node:          { wire_type: 'add_blueprint_event_node' },
         add_function_node:       { wire_type: 'add_blueprint_function_node' },
         add_variable:            { wire_type: 'add_blueprint_variable' },
+        add_function_graph:      { wire_type: 'add_blueprint_function_graph' },
+        add_variable_get:        { wire_type: 'add_blueprint_variable_get_node' },
+        add_variable_set:        { wire_type: 'add_blueprint_variable_set_node' },
+        add_control_node:        { wire_type: 'add_blueprint_control_node' },
+        add_math_node:           { wire_type: 'add_blueprint_math_node' },
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes:           { wire_type: 'connect_blueprint_nodes' },
@@ -67,11 +72,13 @@ const expectedTools = [
   'compile_blueprint', 'set_blueprint_property',
   'set_static_mesh_props', 'set_physics_props', 'set_pawn_props',
   'add_event_node', 'add_function_node', 'add_variable',
+  'add_function_graph', 'add_variable_get', 'add_variable_set', 'add_control_node',
+  'add_math_node',
   'add_self_reference', 'add_component_reference',
   'connect_nodes', 'find_nodes',
 ];
 
-t.assert(Object.keys(defs).length === 15, '15 blueprints-write tools defined');
+t.assert(Object.keys(defs).length === 20, '20 blueprints-write tools defined');
 t.assert(defs === BLUEPRINTS_WRITE_SCHEMAS, 'getBlueprintsWriteToolDefs returns BLUEPRINTS_WRITE_SCHEMAS');
 
 for (const name of expectedTools) {
@@ -82,7 +89,7 @@ for (const name of expectedTools) {
   t.assert(typeof defs[name].isReadOp === 'boolean', `Tool "${name}" has isReadOp flag`);
 }
 
-// Read/write classification — find_nodes is the only read op (oracle parity).
+// Read/write classification — find_nodes is the only read op.
 t.assert(defs.find_nodes.isReadOp === true, 'find_nodes is a read op');
 const writeOps = expectedTools.filter(n => n !== 'find_nodes');
 for (const name of writeOps) {
@@ -110,6 +117,11 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_event_node',                      { status: 'success', result: { node_id: 'GUID-EV' } });
   fake.on('add_blueprint_function_node',                   { status: 'success', result: { node_id: 'GUID-FN' } });
   fake.on('add_blueprint_variable',                        { status: 'success', result: { variable_name: 'V', variable_type: 'Boolean' } });
+  fake.on('add_blueprint_function_graph',                  { status: 'success', result: { graph_name: 'MoveStep', node_id: 'GUID-ENTRY', pins: [] } });
+  fake.on('add_blueprint_variable_get_node',               { status: 'success', result: { node_id: 'GUID-GET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_variable_set_node',               { status: 'success', result: { node_id: 'GUID-SET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_control_node',                    { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_math_node',                       { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference',    { status: 'success', result: { node_id: 'GUID-CR' } });
   fake.on('connect_blueprint_nodes',                       { status: 'success', result: { source_node_id: 'A', target_node_id: 'B' } });
@@ -130,6 +142,11 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_event_node',          { blueprint_name: 'BP_X', event_name: 'ReceiveBeginPlay' },                            'add_blueprint_event_node'],
     ['add_function_node',       { blueprint_name: 'BP_X', function_name: 'PrintString', target: 'KismetSystemLibrary' }, 'add_blueprint_function_node'],
     ['add_variable',            { blueprint_name: 'BP_X', variable_name: 'V', variable_type: 'Boolean' },              'add_blueprint_variable'],
+    ['add_function_graph',      { blueprint_name: 'BP_X', function_name: 'MoveStep' },                                 'add_blueprint_function_graph'],
+    ['add_variable_get',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_get_node'],
+    ['add_variable_set',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_set_node'],
+    ['add_control_node',        { blueprint_name: 'BP_X', node_kind: 'Branch', graph_name: 'MoveStep' },               'add_blueprint_control_node'],
+    ['add_math_node',           { blueprint_name: 'BP_X', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, 'add_blueprint_math_node'],
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
     ['add_component_reference', { blueprint_name: 'BP_X', component_name: 'Mesh' },                                    'add_blueprint_get_self_component_reference'],
     ['connect_nodes',           { blueprint_name: 'BP_X', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, 'connect_blueprint_nodes'],
@@ -176,7 +193,7 @@ console.log('\n── Group 3: Wire-type Translation ──');
   t.assert(call.params.function_name === 'PrintString', 'function_name passes through to wire');
 }
 
-// Identity fallback when wire_type is absent (4 of 15 tools)
+// Identity fallback when wire_type is absent
 {
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
@@ -264,6 +281,11 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
   // *_node tools: {node_id} — all 5 node-creation tools share this shape
   fake.on('add_blueprint_event_node',                   { status: 'success', result: { node_id: 'GUID-EV' } });
   fake.on('add_blueprint_function_node',                { status: 'success', result: { node_id: 'GUID-FN' } });
+  fake.on('add_blueprint_function_graph',               { status: 'success', result: { node_id: 'GUID-ENTRY', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_variable_get_node',            { status: 'success', result: { node_id: 'GUID-GET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_variable_set_node',            { status: 'success', result: { node_id: 'GUID-SET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_control_node',                 { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_math_node',                    { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',               { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference', { status: 'success', result: { node_id: 'GUID-CR' } });
   // add_blueprint_variable: {variable_name, variable_type}
@@ -318,6 +340,11 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
   const nodeTools = [
     ['add_event_node',          { blueprint_name: 'BP', event_name: 'ReceiveBeginPlay' },                           'GUID-EV'],
     ['add_function_node',       { blueprint_name: 'BP', function_name: 'PrintString' },                             'GUID-FN'],
+    ['add_function_graph',      { blueprint_name: 'BP', function_name: 'MoveStep' },                                'GUID-ENTRY'],
+    ['add_variable_get',        { blueprint_name: 'BP', variable_name: 'Direction', graph_name: 'MoveStep' },       'GUID-GET'],
+    ['add_variable_set',        { blueprint_name: 'BP', variable_name: 'Direction', graph_name: 'MoveStep' },       'GUID-SET'],
+    ['add_control_node',        { blueprint_name: 'BP', node_kind: 'Branch', graph_name: 'MoveStep' },              'GUID-BRANCH'],
+    ['add_math_node',           { blueprint_name: 'BP', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, 'GUID-MATH'],
     ['add_self_reference',      { blueprint_name: 'BP' },                                                           'GUID-SF'],
     ['add_component_reference', { blueprint_name: 'BP', component_name: 'Mesh' },                                   'GUID-CR'],
   ];
@@ -403,6 +430,30 @@ console.log('\n── Group 5: Error Propagation (P0-1) ──');
     () => executeBlueprintsWriteTool('add_function_node', { blueprint_name: 'BP', function_name: 'NoSuchFn' }, cm),
     'Function not found',
     'add_function_node propagates FUNCTION_NOT_FOUND error',
+  );
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('connect_blueprint_nodes', {
+    status: 'error',
+    error: 'Pins are not compatible',
+    code: 'INCOMPATIBLE_PINS',
+    detail: {
+      source_pin_type: { category: 'bool', subcategory: '' },
+      target_pin_type: { category: 'string', subcategory: '' },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('connect_nodes',
+      { blueprint_name: 'BP', source_node_id: 'A', target_node_id: 'B', source_pin: 'Condition', target_pin: 'InString' }, cm),
+    'Pins are not compatible',
+    'INCOMPATIBLE_PINS validation error propagates through connect_nodes',
   );
 }
 
@@ -855,6 +906,119 @@ console.log('\n── Group W-G: Silent-success patches (parent_class + node_typ
 // TCP callers; live-fire would exercise it. The wire-mock seam can't reach
 // the C++ branch without bypassing Zod (which would defeat the W-B test
 // purpose), so this site is verified at compile time + live-fire only.
+
+// ═══════════════════════════════════════════════════════════════
+// Group Graph-X: timer mover authoring choreography
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group Graph-X: Timer mover graph-write choreography ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('create_blueprint', { status: 'success', result: { name: 'BP_UEMCP_TimerMover', path: '/Game/UEMCP/BP_UEMCP_TimerMover' } });
+  fake.on('add_blueprint_variable', { status: 'success', result: { variable_name: 'Direction', variable_type: 'Float' } });
+  fake.on('add_blueprint_function_graph', {
+    status: 'success',
+    result: {
+      node_id: 'ENTRY',
+      graph_name: 'MoveStep',
+      node_class: 'K2Node_FunctionEntry',
+      pins: [{ name: 'then', direction: 'output', category: 'exec', link_count: 0 }],
+    },
+  });
+  fake.on('add_blueprint_variable_get_node', {
+    status: 'success',
+    result: {
+      node_id: 'GET-DIR',
+      graph_name: 'MoveStep',
+      node_class: 'K2Node_VariableGet',
+      pins: [{ name: 'Direction', direction: 'output', category: 'real', subcategory: 'float', default: '', link_count: 0 }],
+    },
+  });
+  fake.on('add_blueprint_variable_set_node', {
+    status: 'success',
+    result: {
+      node_id: 'SET-DIR',
+      graph_name: 'MoveStep',
+      node_class: 'K2Node_VariableSet',
+      pins: [{ name: 'execute', direction: 'input', category: 'exec', link_count: 0 }],
+    },
+  });
+  fake.on('add_blueprint_control_node', {
+    status: 'success',
+    result: {
+      node_id: 'BRANCH',
+      graph_name: 'MoveStep',
+      node_class: 'K2Node_IfThenElse',
+      pins: [{ name: 'Condition', direction: 'input', category: 'bool', default: 'false', link_count: 0 }],
+    },
+  });
+  fake.on('add_blueprint_math_node', {
+    status: 'success',
+    result: {
+      node_id: 'VEC-ADD',
+      graph_name: 'MoveStep',
+      node_class: 'K2Node_CallFunction',
+      operation: 'Add',
+      function_name: 'Add_VectorVector',
+      pins: [{ name: 'ReturnValue', direction: 'output', category: 'struct', subcategory_object: 'Vector', link_count: 0 }],
+    },
+  });
+  fake.on('connect_blueprint_nodes', {
+    status: 'success',
+    result: {
+      source_node_id: 'ENTRY',
+      target_node_id: 'BRANCH',
+      graph_name: 'MoveStep',
+      pin_types: {
+        source: { category: 'exec', subcategory: '' },
+        target: { category: 'exec', subcategory: '' },
+      },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('create_blueprint',
+    { name: 'BP_UEMCP_TimerMover', path: '/Game/UEMCP' }, cm);
+  await executeBlueprintsWriteTool('add_variable',
+    { blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover', variable_name: 'Direction', variable_type: 'Float' }, cm);
+  const entry = await executeBlueprintsWriteTool('add_function_graph',
+    { blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover', function_name: 'MoveStep' }, cm);
+  const getDir = await executeBlueprintsWriteTool('add_variable_get',
+    { blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover', variable_name: 'Direction', graph_name: 'MoveStep' }, cm);
+  await executeBlueprintsWriteTool('add_variable_set',
+    { blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover', variable_name: 'Direction', graph_name: 'MoveStep', params: { Direction: -1 } }, cm);
+  const branch = await executeBlueprintsWriteTool('add_control_node',
+    { blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover', node_kind: 'Branch', graph_name: 'MoveStep' }, cm);
+  await executeBlueprintsWriteTool('add_math_node',
+    {
+      blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover',
+      operation: 'Add',
+      value_type: 'Vector',
+      graph_name: 'MoveStep',
+    }, cm);
+  await executeBlueprintsWriteTool('connect_nodes',
+    {
+      blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover',
+      graph_name: 'MoveStep',
+      source_node_id: 'ENTRY',
+      target_node_id: 'BRANCH',
+      source_pin: 'then',
+      target_pin: 'execute',
+    }, cm);
+
+  t.assert(entry.result.graph_name === 'MoveStep', 'Timer mover: function graph targeting returned graph_name');
+  t.assert(entry.result.pins[0].name === 'then', 'Timer mover: FunctionEntry pin metadata returned');
+  t.assert(getDir.result.node_class === 'K2Node_VariableGet', 'Timer mover: variable get node available in callback graph');
+  t.assert(branch.result.pins[0].category === 'bool', 'Timer mover: branch condition pin metadata returned');
+  t.assert(fake.lastCall('add_blueprint_math_node').params.operation === 'Add',
+    'Timer mover: math/vector node authored through stable math operation');
+  t.assert(fake.lastCall('connect_blueprint_nodes').params.graph_name === 'MoveStep',
+    'Timer mover: connection targets function graph');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Summary

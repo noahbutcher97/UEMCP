@@ -35,8 +35,8 @@ function assert(cond, msg) {
 }
 
 /**
- * Send one JSON command over a fresh TCP connection, accumulate the response until it parses,
- * then close. Mirrors the ConnectionManager's connect-per-command behavior.
+ * Send one framed JSON command over a fresh TCP connection, accumulate the response until it
+ * parses, then close. Mirrors the ConnectionManager's tcp-55558 behavior.
  *
  * @param {object} request
  * @returns {Promise<object | {_skipped: true, reason: string}>}
@@ -56,7 +56,9 @@ function sendOne(request) {
 
     socket.once('connect', () => {
       clearTimeout(connectTimer);
-      socket.write(JSON.stringify(request), 'utf8');  // no newline terminator — matches wire protocol
+      const body = Buffer.from(JSON.stringify(request), 'utf8');
+      const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf8');
+      socket.write(Buffer.concat([header, body]));
     });
 
     const readTimer = setTimeout(() => {
@@ -68,6 +70,26 @@ function sendOne(request) {
 
     socket.on('data', (chunk) => {
       accumulated = Buffer.concat([accumulated, chunk]);
+      const prefix = accumulated.slice(0, Math.min(accumulated.length, 512)).toString('utf8');
+      if (prefix.toLowerCase().startsWith('content-length:')) {
+        const terminator = prefix.indexOf('\r\n\r\n');
+        if (terminator === -1) return;
+        const bodyLen = parseInt(prefix.slice(prefix.indexOf(':') + 1, terminator).trim(), 10);
+        const headerLen = terminator + 4;
+        if (!Number.isFinite(bodyLen) || accumulated.length < headerLen + bodyLen) return;
+        try {
+          const parsed = JSON.parse(accumulated.slice(headerLen, headerLen + bodyLen).toString('utf8'));
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(readTimer);
+            socket.end();
+            resolve(parsed);
+          }
+        } catch {
+          // Malformed complete frame; let the read timeout report context.
+        }
+        return;
+      }
       try {
         const parsed = JSON.parse(accumulated.toString('utf8'));
         if (!resolved) {
