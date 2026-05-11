@@ -12,6 +12,7 @@ import {
   formatMarkerSyncTime,
   normalizePath,
   extractUprojectFromCommandLine,
+  parseEditorProcessLines,
   applyMarkerVerdictOverlay,
 } from './verify-deploy.mjs';
 
@@ -131,6 +132,33 @@ eq(
 );
 eq(extractUprojectFromCommandLine(null), null, 'null input');
 eq(extractUprojectFromCommandLine(''), null, 'empty input');
+
+// ─── parseEditorProcessLines ────────────────────────────────────────
+eq(
+  parseEditorProcessLines('1234|UnrealEditor.exe D:\\Projects\\Foo\\Foo.uproject -skipcompile\n'),
+  [{
+    pid: 1234,
+    cmdLine: 'UnrealEditor.exe D:\\Projects\\Foo\\Foo.uproject -skipcompile',
+    commandLineAvailable: true,
+    uprojectPath: 'D:\\Projects\\Foo\\Foo.uproject',
+  }],
+  'parseEditorProcessLines: pid + command line',
+);
+eq(
+  parseEditorProcessLines('5678|\n'),
+  [{
+    pid: 5678,
+    cmdLine: '',
+    commandLineAvailable: false,
+    uprojectPath: null,
+  }],
+  'parseEditorProcessLines: fallback pid without command line',
+);
+eq(
+  parseEditorProcessLines('not-a-pid|\n'),
+  [],
+  'parseEditorProcessLines: malformed pid ignored',
+);
 
 // ─── formatMarkerSyncTime ───────────────────────────────────────────
 const epoch1 = formatMarkerSyncTime('2026-05-05T20:34:11.000Z');

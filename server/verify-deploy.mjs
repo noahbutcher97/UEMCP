@@ -253,6 +253,27 @@ function getHeadPluginCommitInfo() {
   }
 }
 
+/** Parse PowerShell process output lines shaped as "pid|commandLine". */
+export function parseEditorProcessLines(stdout) {
+  return String(stdout || '').split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const idx = line.indexOf('|');
+      const pidText = idx >= 0 ? line.slice(0, idx) : line;
+      const cmd = idx >= 0 ? line.slice(idx + 1) : '';
+      const pid = parseInt(pidText, 10);
+      if (!Number.isFinite(pid)) return null;
+      return {
+        pid,
+        cmdLine: cmd,
+        commandLineAvailable: cmd.length > 0,
+        uprojectPath: extractUprojectFromCommandLine(cmd),
+      };
+    })
+    .filter(Boolean);
+}
+
 /** Enumerate UnrealEditor* processes via PowerShell; return [{ pid, uprojectPath }]. */
 export function listEditorProcesses() {
   const ps = spawnSync('powershell', [
@@ -262,16 +283,20 @@ export function listEditorProcesses() {
     "Get-CimInstance Win32_Process -Filter \"Name LIKE 'UnrealEditor%'\" | " +
     "ForEach-Object { '{0}|{1}' -f $_.ProcessId, $_.CommandLine }",
   ], { encoding: 'utf8' });
-  if (ps.status !== 0) return [];
-  return ps.stdout.split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const idx = line.indexOf('|');
-      const pid = parseInt(line.slice(0, idx), 10);
-      const cmd = line.slice(idx + 1);
-      return { pid, cmdLine: cmd, uprojectPath: extractUprojectFromCommandLine(cmd) };
-    });
+  if (ps.status === 0) return parseEditorProcessLines(ps.stdout);
+
+  // In sandboxed shells, CIM command-line introspection can be denied even
+  // though Get-Process can still see UnrealEditor. Fall back so the report
+  // does not falsely imply "no editor"; target attribution will be unknown.
+  const fallback = spawnSync('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command',
+    "Get-Process -Name UnrealEditor* -ErrorAction SilentlyContinue | " +
+    "ForEach-Object { '{0}|' -f $_.Id }",
+  ], { encoding: 'utf8' });
+  if (fallback.status !== 0) return [];
+  return parseEditorProcessLines(fallback.stdout);
 }
 
 /** Read repo-root .mcp.json's UNREAL_PROJECT_ROOT env, if present; null if absent. */
