@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the current registry: 132 YAML-declared tools (6 management + 126 across 16 toolsets)
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the current registry: 133 YAML-declared tools (6 management + 127 across 16 toolsets)
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -26,7 +26,7 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 ## Dynamic Toolset System
 
-132 YAML-declared tools: 6 always-loaded management tools plus 126 tools across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
+133 YAML-declared tools: 6 always-loaded management tools plus 127 tools across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
@@ -96,7 +96,7 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 - **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
 - **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
 - **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
-- **tools.yaml registry populated**: 132 YAML-declared tools have registry entries; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
+- **tools.yaml registry populated**: 133 YAML-declared tools have registry entries; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
 - **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
 - **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
 - **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata. D44 invariant verified for `find_blueprint_nodes` at Agent 10.5 landing.

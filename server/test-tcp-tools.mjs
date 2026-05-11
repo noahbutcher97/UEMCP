@@ -497,7 +497,7 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     'get_material_graph',
     'get_editor_state',
     'start_pie', 'stop_pie', 'is_pie_running',
-    'get_pie_session_state', 'get_pie_actor_state',
+    'get_pie_session_state', 'get_pie_actor_state', 'sample_pie_actor_state',
     'execute_console_command',
     'get_asset_references',
   ];
@@ -553,6 +553,7 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       ['is_pie_running',          {}],
       ['get_pie_session_state',   {}],
       ['get_pie_actor_state',     { actor_ref: { name: 'A' } }],
+      ['sample_pie_actor_state',  { actor_ref: { name: 'A' }, duration_ms: 0 }],
       ['execute_console_command', { command: 'stat fps' }],
       ['get_asset_references',    { asset_path: '/Game/X' }],
     ]) {

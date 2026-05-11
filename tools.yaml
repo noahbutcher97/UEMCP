@@ -1200,6 +1200,28 @@ toolsets:
           include_components: { type: boolean, required: false, description: "Include scene component transforms" }
           component_filter:   { type: array, required: false, description: "Optional component names to include; missing names return COMPONENT_NOT_FOUND" }
           properties:         { type: array, required: false, description: "Optional simple actor property names to read" }
+      sample_pie_actor_state:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: true
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Sample PIE actor state over a short duration using repeated runtime actor reads without blocking the editor game thread.
+        params:
+          pie_instance:       { type: number, required: false, description: "Optional PIE instance id; required when multiple PIE worlds are active unless world_path selects one" }
+          world_path:         { type: string, required: false, description: "Optional PIE world path/name selector" }
+          actor_ref:          { type: object, required: true, description: "Actor identity: one of name, label, object_path, or editor_object_path; optional level_name" }
+          include_components: { type: boolean, required: false, description: "Include scene component transforms" }
+          component_filter:   { type: array, required: false, description: "Optional component names to include; missing names return COMPONENT_NOT_FOUND" }
+          properties:         { type: array, required: false, description: "Optional simple actor property names to read" }
+          duration_ms:        { type: number, required: false, description: "Sampling duration in milliseconds; 0 takes one immediate sample; default 500" }
+          interval_ms:        { type: number, required: false, description: "Delay between samples in milliseconds; default 100" }
+          max_samples:        { type: number, required: false, description: "Upper bound on collected samples; default 25" }
 
   geometry:
     layer: tcp-55558

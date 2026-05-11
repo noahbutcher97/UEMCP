@@ -142,6 +142,34 @@ export const MENHANCE_SCHEMAS = {
     isReadOp: false,
   },
 
+  sample_pie_actor_state: {
+    description: 'Sample PIE actor state over a short duration using repeated runtime actor reads without blocking the editor game thread',
+    schema: {
+      pie_instance: z.number().int().optional().describe('Optional PIE instance id; required when multiple PIE worlds are active unless world_path selects one'),
+      world_path: z.string().optional().describe('Optional PIE world path/name selector'),
+      actor_ref: z.object({
+        name: z.string().optional(),
+        label: z.string().optional(),
+        object_path: z.string().optional(),
+        editor_object_path: z.string().optional(),
+        level_name: z.string().optional(),
+      }).refine((ref) => Boolean(ref.name || ref.label || ref.object_path || ref.editor_object_path), {
+        message: 'actor_ref requires one of name, label, object_path, or editor_object_path',
+      }),
+      include_components: z.boolean().optional(),
+      component_filter: z.array(z.string()).optional(),
+      properties: z.array(z.string()).optional(),
+      duration_ms: z.number().int().min(0).max(30000).optional()
+        .describe('Sampling duration in milliseconds; 0 takes one immediate sample (default 500)'),
+      interval_ms: z.number().int().min(1).max(5000).optional()
+        .describe('Delay between samples in milliseconds (default 100)'),
+      max_samples: z.number().int().min(1).max(100).optional()
+        .describe('Upper bound on collected samples (default 25)'),
+    },
+    // Runtime actor state is volatile — skip cache.
+    isReadOp: false,
+  },
+
   execute_console_command: {
     description: 'Run a console command in PIE or editor context',
     schema: {
@@ -381,6 +409,73 @@ const TRANSFORMS = {
   blueprint_components:   transformBlueprintComponents,
 };
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function unwrapSampleTransform(response) {
+  const body = response?.result || response || {};
+  return body.transform || body;
+}
+
+function vectorDelta(first, last, key) {
+  const a = unwrapSampleTransform(first)?.[key];
+  const b = unwrapSampleTransform(last)?.[key];
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length < 3 || b.length < 3) return null;
+  return [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+}
+
+async function samplePIEActorState(validated, connectionManager) {
+  const {
+    duration_ms = 500,
+    interval_ms = 100,
+    max_samples = 25,
+    ...actorStateParams
+  } = validated;
+  const plannedCount = duration_ms === 0
+    ? 1
+    : Math.floor(duration_ms / interval_ms) + 1;
+  const sampleTarget = Math.max(1, Math.min(max_samples, plannedCount));
+  const started = Date.now();
+  const samples = [];
+
+  for (let i = 0; i < sampleTarget; i++) {
+    if (i > 0) {
+      const targetTime = started + (i * interval_ms);
+      await delay(Math.max(0, targetTime - Date.now()));
+    }
+    const response = await connectionManager.send(
+      'tcp-55558',
+      'get_pie_actor_state',
+      actorStateParams,
+      { skipCache: true },
+    );
+    samples.push({
+      index: i,
+      t_ms: i === 0 ? 0 : Date.now() - started,
+      response,
+    });
+  }
+
+  const first = samples[0]?.response || null;
+  const last = samples[samples.length - 1]?.response || null;
+  return {
+    sample_count: samples.length,
+    requested_duration_ms: duration_ms,
+    requested_interval_ms: interval_ms,
+    elapsed_ms: Date.now() - started,
+    capped: sampleTarget < plannedCount,
+    samples,
+    first,
+    last,
+    delta: {
+      location: vectorDelta(first, last, 'location'),
+      rotation: vectorDelta(first, last, 'rotation'),
+      scale: vectorDelta(first, last, 'scale'),
+    },
+  };
+}
+
 /**
  * Dispatch an M-enhance TCP tool call.
  *
@@ -401,6 +496,10 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
   if (!def) throw new Error(`menhance-tcp-tools: unknown tool "${toolName}"`);
 
   const validated = z.object(def.schema).parse(args);
+
+  if (toolName === 'sample_pie_actor_state') {
+    return samplePIEActorState(validated, connectionManager);
+  }
 
   // PARTIAL-RC path: internal substrate + client transform.
   if (def.partialRc) {
