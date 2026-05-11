@@ -521,6 +521,32 @@ console.log('\n── Group 8: Cache Semantics ──');
 {
   initM5EditorUtilityTools(fakeToolsYaml, { pythonExecEnabled: true });
 
+  const fake = new FakeTcpResponder().on('ping', { status: 'success' });
+  fake.on('save_asset', {
+    status: 'error',
+    code: 'SAVE_FAILED',
+    error: 'Failed to save asset: /Game/UEMCP/BP_Test',
+    detail: {
+      asset_path: '/Game/UEMCP/BP_Test',
+      saved: false,
+      dirty_before: true,
+      dirty_after: true,
+      package_path: '/Game/UEMCP/BP_Test',
+    },
+  });
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeM5EditorUtilityTool('save_asset', { asset_path: '/Game/UEMCP/BP_Test' }, cm),
+    /Failed to save asset/,
+    'save_asset propagates SAVE_FAILED instead of success-wrapping saved:false'
+  );
+}
+
+{
+  initM5EditorUtilityTools(fakeToolsYaml, { pythonExecEnabled: true });
+
   // delete_asset_safe is a write op — should NEVER cache.
   const fake = new FakeTcpResponder().on('ping', { status: 'success' });
   fake.on('delete_asset_safe', {
@@ -559,6 +585,8 @@ console.log('\n── Group 9: Per-tool TCP timeout overrides (NEW-7) ──');
     { status: 'success', result: { renamed: true, dest_path: '/Game/Renamed' } });
   fake.on('delete_asset_safe',
     { status: 'success', result: { mode: 'soft', deleted: true, num_referencers: 0, warnings: [] } });
+  fake.on('save_asset',
+    { status: 'success', result: { saved: true, asset_path: '/Game/A', dirty_before: true, dirty_after: false, package_path: '/Game/A' } });
   fake.on('get_editor_utility_blueprint',
     { status: 'success', result: { asset_path: '/Game/EUW', bp_type: 'EditorUtilityWidget' } });
 
@@ -580,6 +608,11 @@ console.log('\n── Group 9: Per-tool TCP timeout overrides (NEW-7) ──');
     { asset_path: '/Game/A' }, cm);
   t.assert(fake.lastCall('delete_asset_safe').timeoutMs === 15_000,
     'delete_asset_safe wire call carries timeoutMs=15000 override');
+
+  await executeM5EditorUtilityTool('save_asset',
+    { asset_path: '/Game/A' }, cm);
+  t.assert(fake.lastCall('save_asset').timeoutMs === 15_000,
+    'save_asset wire call carries timeoutMs=15000 override');
 
   // Non-asset-mgmt tool → falls back to config.tcpTimeoutMs (5000ms default).
   await executeM5EditorUtilityTool('get_editor_utility_blueprint',

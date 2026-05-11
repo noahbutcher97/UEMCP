@@ -496,6 +496,14 @@ namespace UEMCP
 			Result->SetBoolField(TEXT("dirty_before"), bDirtyBefore);
 			Result->SetBoolField(TEXT("dirty_after"), bDirtyAfter);
 			Result->SetStringField(TEXT("package_path"), PackagePath);
+			if (!bSaved)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Failed to save asset: %s"), *AssetPath),
+					TEXT("SAVE_FAILED"),
+					Result);
+				return;
+			}
 			BuildSuccessResponse(OutResponse, Result);
 		}
 

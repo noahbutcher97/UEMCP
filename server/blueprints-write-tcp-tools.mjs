@@ -51,6 +51,9 @@ let BLUEPRINTS_WRITE_WIRE_MAP = {};
 const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
   add_variable_assignment: 'add_blueprint_variable_assignment',
 };
+const BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES = {
+  compile_and_save_blueprint: 15_000,
+};
 
 /**
  * Initialize wire_type map from parsed tools.yaml.
@@ -360,7 +363,13 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
   // Wire-type translation: tools.yaml name → C++ type string.
   const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;
 
-  return connectionManager.send('tcp-55558', typeString, { ...validated }, { skipCache: !def.isReadOp });
+  const sendOpts = { skipCache: !def.isReadOp };
+  const timeoutOverride = BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES[toolName];
+  if (timeoutOverride !== undefined) {
+    sendOpts.timeoutMs = timeoutOverride;
+  }
+
+  return connectionManager.send('tcp-55558', typeString, { ...validated }, sendOpts);
 }
 
 /** Export tool-def shape for server.mjs registration. */

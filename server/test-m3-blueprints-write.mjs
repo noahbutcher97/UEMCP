@@ -913,6 +913,8 @@ console.log('\n── Group 13: Task 1 lifecycle compile-and-save surface ──
     'compile_and_save_blueprint is a write op and bypasses cache');
   t.assert(fake.lastCall('compile_and_save_blueprint').params.fail_on_compile_error === true,
     'compile_and_save_blueprint defaults fail_on_compile_error to true');
+  t.assert(fake.lastCall('compile_and_save_blueprint').timeoutMs === 15_000,
+    'compile_and_save_blueprint wire call carries timeoutMs=15000 override');
 }
 
 // create_blueprint description regression: still says "/Game/Blueprints/" (it's the

@@ -151,6 +151,7 @@ export const M5_EDITOR_UTILITY_SCHEMAS = {
 // empirical norm. Mirrors WIDGETS_TIMEOUT_OVERRIDES (D118/D121) in
 // widgets-tcp-tools.mjs.
 const M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES = {
+  save_asset:       15_000,
   duplicate_asset:   15_000,
   rename_asset:      15_000,
   delete_asset_safe: 15_000,
