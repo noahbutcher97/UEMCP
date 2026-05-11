@@ -252,7 +252,8 @@ const TOOLSET_TIPS = {
     core: [
       'blueprint_name accepts a fully-qualified `/Game/...` path or a bare asset name. Bare names check `/Game/Blueprints/<Name>` first (back-compat), then fall back to project-wide AssetRegistry lookup. Pass a full path to disambiguate when multiple BPs share a name.',
       'add_component auto-compiles the blueprint. Other mutations (set_component_property, set_blueprint_property) do NOT — call compile_blueprint explicitly.',
-      'compile_blueprint always returns compiled:true even if there are compile errors — no error output in response.',
+      'compile_blueprint returns diagnostic-quality lifecycle output: succeeded/compiled/compiled_ok, error and warning counts, messages, generated-class status, dirty status, and package path.',
+      'add_variable_assignment authors target_variable = literal or target_variable = source_variable in a target graph, returning node/pin/link metadata and requires_compile.',
       'set_pawn_props returns per-property results — partial success is possible. Check the results object.',
       'Node graph commands return node GUIDs. Use connect_nodes with source/target GUIDs + pin names to wire them together.',
       'find_nodes currently supports only node_type="Event". Other types are not yet searchable.',
@@ -317,7 +318,7 @@ const TOOLSET_TIPS = {
       'Plugin-backed (tcp-55558) — full flag surface including Category/Replicated/EditAnywhere that RC\'s SanitizeMetadata allowlist strips out. Prefer these over rc_describe_object when you need reflection fidelity.',
       'get_blueprint_info returns summary {super_class, interfaces, property_count, function_count}. Follow up with get_blueprint_variables or get_blueprint_functions for the full lists.',
       'get_blueprint_components filters get_blueprint_variables down to component-class properties (heuristic: property_class contains "Component" OR name ends _GEN_VARIABLE SCS suffix). Conservative — may miss exotic cases.',
-      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog. Unlike blueprints-write.compile_blueprint (which returns no error output), this returns errors + warnings + node_guid attribution.',
+      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog with node_guid attribution. blueprints-write.compile_blueprint now also returns diagnostic counts/messages, but bp_compile_and_report remains the richer read-focused graph diagnostic surface.',
       'get_widget_blueprint walks UWidgetTree root recursively. Empty widget trees return root_widget:null (valid, not an error).',
     ].join(' '),
     workflows: [

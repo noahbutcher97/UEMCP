@@ -31,7 +31,7 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 │  │  Always-loaded: connection_info, detect_project, find_tools,        │  │
 │  │                 list_toolsets, enable_toolset, disable_toolset       │  │
 │  │                                                                     │  │
-│  │  16 toolsets (126 toolset tools) loaded on demand via find_tools    │  │
+│  │  16 toolsets (129 toolset tools) loaded on demand via find_tools    │  │
 │  │  or enable_toolset. tools/list only returns active toolset tools.   │  │
 │  │  ToolIndex: keyword search + alias expansion + stemming.            │  │
 │  │  Auto-enable: find_tools enables matching toolsets automatically.   │  │
@@ -90,7 +90,7 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 
 **D4: Two C++ plugins coexist** — Existing UnrealMCP stays untouched (team-safe). New custom plugin adds capabilities on a separate port. Both can run simultaneously without conflict.
 
-**D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` currently declares 132 tools total: 6 discovery/management tools plus 126 tools across 16 dynamic toolsets. Claude discovers tools via `find_tools` (keyword search with alias expansion and stemming) or `enable_toolset` (explicit). `tools/list` response only includes active toolset tools. This keeps active tool count near the MCP safe range for typical tasks. Pattern follows GitHub MCP Server's dynamic toolsets approach, adapted with hybrid search from Speakeasy's progressive disclosure model.
+**D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` currently declares 135 tools total: 6 discovery/management tools plus 129 tools across 16 dynamic toolsets. Claude discovers tools via `find_tools` (keyword search with alias expansion and stemming) or `enable_toolset` (explicit). `tools/list` response only includes active toolset tools. This keeps active tool count near the MCP safe range for typical tasks. Pattern follows GitHub MCP Server's dynamic toolsets approach, adapted with hybrid search from Speakeasy's progressive disclosure model.
 
 **D6: Leave old Python servers in place** — `unreal-mcp-main/` directories stay. They don't conflict with the new centralized server (different MCP server name in `.mcp.json`). Can be cleaned up later with team coordination.
 

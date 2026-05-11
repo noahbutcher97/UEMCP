@@ -4,6 +4,8 @@
 
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import {
   initBlueprintsWriteTools,
   executeBlueprintsWriteTool,
@@ -25,6 +27,13 @@ console.log('\n── Group 1: Tool definition and schema ──');
 
 {
   const defs = getBlueprintsWriteToolDefs();
+  const toolsYaml = load(readFileSync('../tools.yaml', 'utf-8'));
+  const yamlDef = toolsYaml.toolsets?.['blueprints-write']?.tools?.add_variable_assignment;
+
+  t.assert(yamlDef !== undefined,
+    'add_variable_assignment is published in tools.yaml blueprints-write');
+  t.assert(yamlDef?.wire_type === 'add_blueprint_variable_assignment',
+    'add_variable_assignment YAML maps to add_blueprint_variable_assignment wire type');
   t.assert(defs.add_variable_assignment !== undefined,
     'add_variable_assignment tool is defined internally');
   if (defs.add_variable_assignment) {

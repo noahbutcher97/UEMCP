@@ -825,6 +825,29 @@ console.log('\n── Group 12: D109 — blueprints-write resolution surface ─
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Group O: D149 — published registry text for diagnostic compile
+// and variable assignment workflow.
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group O: D149 registry publication and compile description ──');
+
+{
+  const { readFileSync } = await import('node:fs');
+  const yaml = (await import('js-yaml')).default;
+  const toolsData = yaml.load(readFileSync('../tools.yaml', 'utf-8'));
+  const bpTools = toolsData.toolsets?.['blueprints-write']?.tools || {};
+
+  t.assert(bpTools.add_variable_assignment !== undefined,
+    'D149: tools.yaml publishes add_variable_assignment');
+  t.assert(bpTools.add_variable_assignment?.wire_type === 'add_blueprint_variable_assignment',
+    'D149: add_variable_assignment registry wire_type matches C++ command');
+  t.assert(/diagnostic|error|warning/i.test(bpTools.compile_blueprint?.description || ''),
+    'D149: compile_blueprint registry description advertises diagnostic output');
+  t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),
+    'D149: compile_blueprint registry description no longer says errors are unavailable');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Group N: §4 — create_blueprint optional `path` override
 // ═══════════════════════════════════════════════════════════════
 //

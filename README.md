@@ -94,7 +94,7 @@ Claude ↔ MCP server (stdio) ↔ four layers:
   Layer 4  Historical  — TCP:55557 UnrealMCP conformance references only
 ```
 
-`tools.yaml` is the registry source of truth. As of the current registry it declares 132 tools total: 6 always-loaded management tools plus 126 tools across 16 dynamic toolsets. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
+`tools.yaml` is the registry source of truth. As of the current registry it declares 135 tools total: 6 always-loaded management tools plus 129 tools across 16 dynamic toolsets. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
 
 ---
 

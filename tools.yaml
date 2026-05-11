@@ -47,7 +47,7 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 121 tools) — plus 6 management tools above = 127 total
+# Toolsets (16 toolsets, 129 tools) — plus 6 management tools above = 135 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
@@ -466,7 +466,7 @@ toolsets:
           property_name:  { type: string, required: true, description: "UProperty name" }
           property_value: { type: any, required: true, description: "Value — special SpringArm handling for Vector/Rotator" }
       compile_blueprint:
-        description: Compile a Blueprint (does not report compile errors)
+        description: Compile a Blueprint and return diagnostic-quality lifecycle output, including succeeded/compiled flags, error and warning counts, messages, generated-class status, dirty status, and package path.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
       set_blueprint_property:
@@ -553,6 +553,27 @@ toolsets:
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
           params:         { type: object, required: false, description: "Default values for input pins, keyed by pin name" }
+      add_variable_assignment:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        wire_type: add_blueprint_variable_assignment
+        description: Add an ergonomic Blueprint variable assignment in a target graph. Supports target_variable = literal and target_variable = source_variable, optional exec wiring, node/pin/link metadata, and requires_compile.
+        params:
+          blueprint_name:   { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
+          target_variable:  { type: string, required: true, description: "Member variable written by the assignment set node" }
+          assignment:       { type: object, required: true, description: "{kind:'literal', value:<scalar/vector>} or {kind:'variable', source_variable:<name>}" }
+          exec_from:        { type: object, required: false, description: "Optional existing source exec pin: {node_id, pin}" }
+          graph_name:       { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:    { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+          compile:          { type: boolean, required: false, description: "If true, compile after authoring. Default false." }
       add_control_node:
         wire_type: add_blueprint_control_node
         description: Add a basic control node to a target Blueprint graph. node_kind supports Branch, Sequence, Return. Returns pin metadata.
@@ -1146,6 +1167,38 @@ toolsets:
       is_pie_running:
         description: Check PIE status
         params: {}
+      get_pie_session_state:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Report active PIE runtime worlds and context metadata for runtime observation.
+        params: {}
+      get_pie_actor_state:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: true
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Read actor transform, optional component transforms, and selected simple properties from a PIE runtime world.
+        params:
+          pie_instance:       { type: number, required: false, description: "Optional PIE instance id; required when multiple PIE worlds are active unless world_path selects one" }
+          world_path:         { type: string, required: false, description: "Optional PIE world path/name selector" }
+          actor_ref:          { type: object, required: true, description: "Actor identity: one of name, label, object_path, or editor_object_path; optional level_name" }
+          include_components: { type: boolean, required: false, description: "Include scene component transforms" }
+          component_filter:   { type: array, required: false, description: "Optional component names to include; missing names return COMPONENT_NOT_FOUND" }
+          properties:         { type: array, required: false, description: "Optional simple actor property names to read" }
 
   geometry:
     layer: tcp-55558

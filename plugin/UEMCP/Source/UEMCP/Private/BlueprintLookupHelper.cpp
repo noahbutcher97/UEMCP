@@ -10,6 +10,27 @@
 
 namespace UEMCP
 {
+	namespace
+	{
+		bool BlueprintPackageExistsInAssetRegistry(const FString& PackagePath)
+		{
+			FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+				TEXT("AssetRegistry"));
+			IAssetRegistry& AR = ARM.Get();
+
+			TArray<FAssetData> Assets;
+			AR.GetAssetsByPackageName(FName(*PackagePath), Assets);
+			for (const FAssetData& Asset : Assets)
+			{
+				if (Asset.AssetClassPath == UBlueprint::StaticClass()->GetClassPathName())
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
 	bool ResolveBlueprintAssetPath(
 		const FString& Input,
 		FString& OutPackagePath,
@@ -35,7 +56,7 @@ namespace UEMCP
 			{
 				PackageOnly = Input.Left(DotIdx);
 			}
-			if (FPackageName::DoesPackageExist(PackageOnly))
+			if (FPackageName::DoesPackageExist(PackageOnly) || BlueprintPackageExistsInAssetRegistry(PackageOnly))
 			{
 				OutPackagePath = PackageOnly;
 				return true;

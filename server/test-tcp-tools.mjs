@@ -67,7 +67,8 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'compile_blueprint', 'set_blueprint_property', 'set_static_mesh_props',
     'set_physics_props', 'set_pawn_props', 'add_event_node',
     'add_function_node', 'add_variable', 'add_function_graph',
-    'add_variable_get', 'add_variable_set', 'add_control_node', 'add_math_node', 'add_self_reference',
+    'add_variable_get', 'add_variable_set', 'add_variable_assignment',
+    'add_control_node', 'add_math_node', 'add_self_reference',
     'add_component_reference', 'connect_nodes', 'find_nodes',
   ];
 
@@ -111,6 +112,7 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'add_blueprint_function_graph': { status: 'success', result: { node_id: 'entry-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_variable_get_node': { status: 'success', result: { node_id: 'get-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_variable_set_node': { status: 'success', result: { node_id: 'set-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_variable_assignment': { status: 'success', result: { node_id: 'assign-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_control_node': { status: 'success', result: { node_id: 'branch-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_math_node': { status: 'success', result: { node_id: 'math-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
@@ -159,6 +161,9 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
 
   await executeBlueprintsWriteTool('add_variable_set', { blueprint_name: 'BP', variable_name: 'Direction', graph_name: 'MoveStep' }, cm);
   t.assert(fake.lastCall('add_blueprint_variable_set_node') !== undefined, 'add_variable_set -> add_blueprint_variable_set_node');
+
+  await executeBlueprintsWriteTool('add_variable_assignment', { blueprint_name: 'BP', target_variable: 'Direction', assignment: { kind: 'literal', value: 1 }, graph_name: 'MoveStep' }, cm);
+  t.assert(fake.lastCall('add_blueprint_variable_assignment') !== undefined, 'add_variable_assignment -> add_blueprint_variable_assignment');
 
   await executeBlueprintsWriteTool('add_control_node', { blueprint_name: 'BP', node_kind: 'Branch', graph_name: 'MoveStep' }, cm);
   t.assert(fake.lastCall('add_blueprint_control_node') !== undefined, 'add_control_node -> add_blueprint_control_node');
@@ -492,6 +497,7 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     'get_material_graph',
     'get_editor_state',
     'start_pie', 'stop_pie', 'is_pie_running',
+    'get_pie_session_state', 'get_pie_actor_state',
     'execute_console_command',
     'get_asset_references',
   ];
@@ -511,6 +517,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     fake.on('start_pie',                { status: 'success', result: { requested: true } });
     fake.on('stop_pie',                 { status: 'success', result: { was_running: false } });
     fake.on('is_pie_running',           { status: 'success', result: { running: false } });
+    fake.on('get_pie_session_state',    { status: 'success', result: { pie_running: false, contexts: [] } });
+    fake.on('get_pie_actor_state',      { status: 'success', result: { resolved: { name: 'A' }, transform: { location: [0, 0, 0] } } });
     fake.on('execute_console_command',  { status: 'success', result: { executed: true } });
     fake.on('get_asset_references',     { status: 'success', result: { num_referencers: 0 } });
 
@@ -543,6 +551,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       ['start_pie',               { mode: 'viewport' }],
       ['stop_pie',                {}],
       ['is_pie_running',          {}],
+      ['get_pie_session_state',   {}],
+      ['get_pie_actor_state',     { actor_ref: { name: 'A' } }],
       ['execute_console_command', { command: 'stat fps' }],
       ['get_asset_references',    { asset_path: '/Game/X' }],
     ]) {

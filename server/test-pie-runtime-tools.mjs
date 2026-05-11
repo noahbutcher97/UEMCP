@@ -4,6 +4,8 @@
 
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import {
   executeMenhanceTool,
   getMenhanceToolDefs,
@@ -28,6 +30,13 @@ console.log('\n── W-BP-PIE Schema Surface ──');
 
 {
   const defs = getMenhanceToolDefs();
+  const toolsYaml = load(readFileSync('../tools.yaml', 'utf-8'));
+  const inputPieTools = toolsYaml.toolsets?.['input-and-pie']?.tools || {};
+
+  t.assert(inputPieTools.get_pie_session_state !== undefined,
+    'get_pie_session_state is published in tools.yaml input-and-pie');
+  t.assert(inputPieTools.get_pie_actor_state !== undefined,
+    'get_pie_actor_state is published in tools.yaml input-and-pie');
   t.assert(MENHANCE_SCHEMAS.get_pie_session_state !== undefined,
     'get_pie_session_state schema exists');
   t.assert(MENHANCE_SCHEMAS.get_pie_actor_state !== undefined,

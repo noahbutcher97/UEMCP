@@ -21,7 +21,7 @@ Tool counts are derived from `tools.yaml` — never hardcode them in documentati
 
 The old UnrealMCP plugin on TCP:55557 is preserved only as conformance-oracle history. Active toolset membership and layer assignment come from `tools.yaml`.
 
-> **Note**: Remaining BP node tools (`add_function_node`, `add_input_action_node`, `add_variable`, `add_self_reference`, `add_component_reference`, `connect_nodes`, `find_nodes`) total 7 more tools. These could stay in `blueprints-write` (making it 16) or split into a `blueprint-nodes` sub-toolset. Decision deferred to implementation — splitting only if 16 tools in one toolset causes selection issues.
+> **Note**: `blueprints-write` now includes graph-targeted node authoring plus `add_variable_assignment`, bringing the toolset to 21 tools. If selection quality degrades, split the graph-authoring subset into a narrower Blueprint graph toolset rather than exposing all Blueprint writes by default.
 
 **`widgets` toolset (7)** — UMG widget creation and binding:
 
