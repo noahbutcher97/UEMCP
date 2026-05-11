@@ -242,14 +242,14 @@ namespace UEMCP
 			}
 		}
 
-		TArray<FWorldContext*> GetActivePIEWorldContexts()
+		TArray<const FWorldContext*> GetActivePIEWorldContexts()
 		{
-			TArray<FWorldContext*> Contexts;
+			TArray<const FWorldContext*> Contexts;
 			if (!GEngine)
 			{
 				return Contexts;
 			}
-			for (FWorldContext& Context : GEngine->GetWorldContexts())
+			for (const FWorldContext& Context : GEngine->GetWorldContexts())
 			{
 				if (Context.WorldType == EWorldType::PIE && Context.World())
 				{
@@ -271,7 +271,7 @@ namespace UEMCP
 			return Out;
 		}
 
-		TArray<TSharedPtr<FJsonValue>> SerializePIEWorldContexts(const TArray<FWorldContext*>& Contexts)
+		TArray<TSharedPtr<FJsonValue>> SerializePIEWorldContexts(const TArray<const FWorldContext*>& Contexts)
 		{
 			TArray<TSharedPtr<FJsonValue>> Out;
 			for (int32 Index = 0; Index < Contexts.Num(); ++Index)
@@ -286,7 +286,7 @@ namespace UEMCP
 
 		void HandleGetPIESessionState(const TSharedPtr<FJsonObject>& /*Params*/, TSharedPtr<FJsonObject>& OutResponse)
 		{
-			const TArray<FWorldContext*> Contexts = GetActivePIEWorldContexts();
+			const TArray<const FWorldContext*> Contexts = GetActivePIEWorldContexts();
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
@@ -310,7 +310,7 @@ namespace UEMCP
 			OutErrorCode.Empty();
 			OutErrorMessage.Empty();
 
-			const TArray<FWorldContext*> Contexts = GetActivePIEWorldContexts();
+			const TArray<const FWorldContext*> Contexts = GetActivePIEWorldContexts();
 			if (Contexts.Num() == 0)
 			{
 				OutErrorDetail = MakeShared<FJsonObject>();
@@ -334,7 +334,7 @@ namespace UEMCP
 			if (bHasPIEInstance)
 			{
 				const int32 RequestedPIEInstance = static_cast<int32>(PIEInstanceNumber);
-				for (FWorldContext* Context : Contexts)
+				for (const FWorldContext* Context : Contexts)
 				{
 					if (Context && Context->PIEInstance == RequestedPIEInstance && Context->World())
 					{
@@ -353,7 +353,7 @@ namespace UEMCP
 
 			if (bHasWorldPath)
 			{
-				for (FWorldContext* Context : Contexts)
+				for (const FWorldContext* Context : Contexts)
 				{
 					UWorld* World = Context ? Context->World() : nullptr;
 					if (!World)
@@ -638,12 +638,13 @@ namespace UEMCP
 				return;
 			}
 
-			TSharedPtr<FJsonObject> ActorRef;
-			if (!Params->TryGetObjectField(TEXT("actor_ref"), ActorRef) || !ActorRef.IsValid())
+			const TSharedPtr<FJsonObject>* ActorRefPtr = nullptr;
+			if (!Params->TryGetObjectField(TEXT("actor_ref"), ActorRefPtr) || !ActorRefPtr || !ActorRefPtr->IsValid())
 			{
 				BuildErrorResponse(OutResponse, TEXT("get_pie_actor_state requires params.actor_ref"), TEXT("MISSING_PARAMS"));
 				return;
 			}
+			TSharedPtr<FJsonObject> ActorRef = *ActorRefPtr;
 
 			UWorld* World = nullptr;
 			TSharedPtr<FJsonObject> WorldJson;
