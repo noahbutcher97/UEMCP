@@ -992,6 +992,75 @@ namespace UEMCP
 			BuildSuccessResponse(OutResponse, BuildBlueprintCompileDiagnosticResult(Blueprint, BPName));
 		}
 
+		void HandleCompileAndSaveBlueprint(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString BPName;
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse, &BPName);
+			if (!Blueprint) return;
+
+			bool bFailOnCompileError = true;
+			Params->TryGetBoolField(TEXT("fail_on_compile_error"), bFailOnCompileError);
+
+			TSharedPtr<FJsonObject> CompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, BPName);
+			bool bCompiledOk = false;
+			CompileResult->TryGetBoolField(TEXT("compiled_ok"), bCompiledOk);
+
+			UPackage* Package = Blueprint->GetOutermost();
+			const FString PackagePath = Package ? Package->GetName() : FString();
+			const bool bDirtyBefore = Package ? Package->IsDirty() : false;
+
+			TSharedPtr<FJsonObject> SaveResult = MakeShared<FJsonObject>();
+			SaveResult->SetBoolField(TEXT("saved"), false);
+			SaveResult->SetBoolField(TEXT("dirty_before"), bDirtyBefore);
+			SaveResult->SetBoolField(TEXT("dirty_after"), Package ? Package->IsDirty() : false);
+			SaveResult->SetStringField(TEXT("package_path"), PackagePath);
+
+			if (!bCompiledOk && bFailOnCompileError)
+			{
+				SaveResult->SetBoolField(TEXT("skipped"), true);
+				SaveResult->SetStringField(TEXT("reason"), TEXT("COMPILE_FAILED"));
+
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetBoolField(TEXT("compiled_ok"), false);
+				Detail->SetBoolField(TEXT("saved"), false);
+				Detail->SetObjectField(TEXT("compile"), CompileResult);
+				Detail->SetObjectField(TEXT("save"), SaveResult);
+				BuildErrorResponse(OutResponse, TEXT("Blueprint compile failed; save skipped"), TEXT("COMPILE_FAILED"), Detail);
+				return;
+			}
+
+			bool bSaved = false;
+			if (!PackagePath.IsEmpty())
+			{
+				bSaved = UEditorAssetLibrary::SaveAsset(PackagePath, false);
+			}
+			const bool bDirtyAfter = Package ? Package->IsDirty() : false;
+
+			SaveResult->SetBoolField(TEXT("saved"), bSaved);
+			SaveResult->SetBoolField(TEXT("dirty_after"), bDirtyAfter);
+
+			if (!bSaved)
+			{
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetBoolField(TEXT("compiled_ok"), bCompiledOk);
+				Detail->SetBoolField(TEXT("saved"), false);
+				Detail->SetObjectField(TEXT("compile"), CompileResult);
+				Detail->SetObjectField(TEXT("save"), SaveResult);
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Failed to save Blueprint package: %s"), *PackagePath),
+					TEXT("SAVE_FAILED"),
+					Detail);
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetBoolField(TEXT("compiled_ok"), bCompiledOk);
+			Result->SetBoolField(TEXT("saved"), bSaved);
+			Result->SetObjectField(TEXT("compile"), CompileResult);
+			Result->SetObjectField(TEXT("save"), SaveResult);
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		// ── 5. set_blueprint_property ─────────────────────────────────────────────
 		void HandleSetBlueprintProperty(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
@@ -2103,6 +2172,7 @@ namespace UEMCP
 		Registry.Register(TEXT("add_component_to_blueprint"),                    &HandleAddComponentToBlueprint);
 		Registry.Register(TEXT("set_component_property"),                        &HandleSetComponentProperty);
 		Registry.Register(TEXT("compile_blueprint"),                             &HandleCompileBlueprint);
+		Registry.Register(TEXT("compile_and_save_blueprint"),                    &HandleCompileAndSaveBlueprint);
 		Registry.Register(TEXT("set_blueprint_property"),                        &HandleSetBlueprintProperty);
 		Registry.Register(TEXT("set_static_mesh_properties"),                    &HandleSetStaticMeshProperties);
 		Registry.Register(TEXT("set_physics_properties"),                        &HandleSetPhysicsProperties);

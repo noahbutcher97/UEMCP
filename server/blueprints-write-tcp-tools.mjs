@@ -120,6 +120,16 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  compile_and_save_blueprint: {
+    description: 'Compile a Blueprint with diagnostic output and save it when compilation succeeds.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name or /Game/... path'),
+      fail_on_compile_error: z.boolean().optional().default(true)
+        .describe('When true, do not save if compile diagnostics contain errors. Default true.'),
+    },
+    isReadOp: false,
+  },
+
   set_blueprint_property: {
     description: 'Set Blueprint Class Default Object property',
     schema: {

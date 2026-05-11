@@ -448,6 +448,58 @@ namespace UEMCP
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
+		// save_asset
+		// ═══════════════════════════════════════════════════════════════════════
+
+		void HandleSaveAsset(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			if (!Params.IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("save_asset requires params.asset_path"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			FString AssetPath;
+			if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath) || AssetPath.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'asset_path' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			const FString PackagePath = PackageNameOnly(AssetPath);
+			if (!PackagePath.StartsWith(TEXT("/Game/")) || !FPackageName::IsValidLongPackageName(PackagePath))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Invalid asset path: %s"), *AssetPath),
+					TEXT("INVALID_ASSET_PATH"));
+				return;
+			}
+
+			const FString SavePath = UEditorAssetLibrary::DoesAssetExist(AssetPath) ? AssetPath : PackagePath;
+			if (!UEditorAssetLibrary::DoesAssetExist(SavePath))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Asset not found: %s"), *AssetPath),
+					TEXT("ASSET_NOT_FOUND"));
+				return;
+			}
+
+			UObject* Asset = UEMCP::LoadAssetPIESafe<UObject>(SavePath);
+			UPackage* Package = Asset ? Asset->GetOutermost() : FindPackage(nullptr, *PackagePath);
+			const bool bDirtyBefore = Package ? Package->IsDirty() : false;
+			const bool bSaved = UEditorAssetLibrary::SaveAsset(SavePath, false);
+			const bool bDirtyAfter = Package ? Package->IsDirty() : false;
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("asset_path"), AssetPath);
+			Result->SetBoolField(TEXT("saved"), bSaved);
+			Result->SetBoolField(TEXT("dirty_before"), bDirtyBefore);
+			Result->SetBoolField(TEXT("dirty_after"), bDirtyAfter);
+			Result->SetStringField(TEXT("package_path"), PackagePath);
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
 		// duplicate_asset
 		// ═══════════════════════════════════════════════════════════════════════
 
@@ -748,6 +800,7 @@ namespace UEMCP
 		Registry.Register(TEXT("run_python_command"),           &HandleRunPythonCommand);
 		Registry.Register(TEXT("get_editor_utility_blueprint"), &HandleGetEditorUtilityBlueprint);
 		Registry.Register(TEXT("run_editor_utility"),           &HandleRunEditorUtility);
+		Registry.Register(TEXT("save_asset"),                   &HandleSaveAsset);
 		Registry.Register(TEXT("duplicate_asset"),              &HandleDuplicateAsset);
 		Registry.Register(TEXT("rename_asset"),                 &HandleRenameAsset);
 		Registry.Register(TEXT("delete_asset_safe"),            &HandleDeleteAssetSafe);

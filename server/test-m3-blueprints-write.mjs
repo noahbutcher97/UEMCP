@@ -36,6 +36,7 @@ const fakeToolsYaml = {
         add_component:           { wire_type: 'add_component_to_blueprint' },
         set_component_property:  {},  // identity
         compile_blueprint:       {},  // identity
+        compile_and_save_blueprint: {},  // identity
         set_blueprint_property:  {},  // identity
         set_static_mesh_props:   { wire_type: 'set_static_mesh_properties' },
         set_physics_props:       { wire_type: 'set_physics_properties' },
@@ -91,7 +92,7 @@ console.log('\n── Group 1: Tool Definitions ──');
 const defs = getBlueprintsWriteToolDefs();
 const expectedTools = [
   'create_blueprint', 'add_component', 'set_component_property',
-  'compile_blueprint', 'set_blueprint_property',
+  'compile_blueprint', 'compile_and_save_blueprint', 'set_blueprint_property',
   'set_static_mesh_props', 'set_physics_props', 'set_pawn_props',
   'add_event_node', 'add_function_node', 'add_variable',
   'add_function_graph', 'add_variable_get', 'add_variable_set', 'add_variable_assignment', 'add_control_node',
@@ -105,6 +106,7 @@ t.assert(defs === BLUEPRINTS_WRITE_SCHEMAS, 'getBlueprintsWriteToolDefs returns 
 
 for (const name of expectedTools) {
   t.assert(defs[name] !== undefined, `Tool "${name}" is defined`);
+  if (defs[name] === undefined) continue;
   t.assert(typeof defs[name].description === 'string' && defs[name].description.length > 0,
     `Tool "${name}" has a non-empty description`);
   t.assert(typeof defs[name].schema === 'object', `Tool "${name}" has a schema object`);
@@ -115,10 +117,17 @@ for (const name of expectedTools) {
 t.assert(defs.find_nodes.isReadOp === true, 'find_nodes is a read op');
 const writeOps = expectedTools.filter(n => n !== 'find_nodes');
 for (const name of writeOps) {
+  if (!defs[name]) continue;
   t.assert(defs[name].isReadOp === false, `${name} is a write op`);
 }
 t.assert(/diagnostic-quality/i.test(defs.compile_blueprint.description),
   'W-BP-Lifecycle: compile_blueprint description promises diagnostic-quality output');
+if (defs.compile_and_save_blueprint) {
+  t.assert(defs.compile_and_save_blueprint.schema.blueprint_name !== undefined,
+    'compile_and_save_blueprint exposes blueprint_name param');
+  t.assert(defs.compile_and_save_blueprint.schema.fail_on_compile_error !== undefined,
+    'compile_and_save_blueprint exposes fail_on_compile_error param');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Group 2: Port routing — every tool dispatches to TCP:55558
@@ -134,6 +143,15 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_component_to_blueprint',                    { status: 'success', result: { component_name: 'Mesh', component_type: 'StaticMesh' } });
   fake.on('set_component_property',                        { status: 'success', result: { component: 'Mesh', property: 'Mobility', success: true } });
   fake.on('compile_blueprint',                             { status: 'success', result: compileDiagnosticResult('BP_X') });
+  fake.on('compile_and_save_blueprint', {
+    status: 'success',
+    result: {
+      compiled_ok: true,
+      saved: true,
+      save: { saved: true, dirty_before: true, dirty_after: false, package_path: '/Game/Blueprints/BP_X' },
+      compile: compileDiagnosticResult('BP_X'),
+    },
+  });
   fake.on('set_blueprint_property',                        { status: 'success', result: { property: 'bHidden', success: true } });
   fake.on('set_static_mesh_properties',                    { status: 'success', result: { component: 'Mesh' } });
   fake.on('set_physics_properties',                        { status: 'success', result: { component: 'Mesh' } });
@@ -159,6 +177,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_component',           { blueprint_name: 'BP_X', component_type: 'StaticMesh', component_name: 'Mesh' },      'add_component_to_blueprint'],
     ['set_component_property',  { blueprint_name: 'BP_X', component_name: 'Mesh', property_name: 'Mobility', property_value: 'Movable' }, 'set_component_property'],
     ['compile_blueprint',       { blueprint_name: 'BP_X' },                                                            'compile_blueprint'],
+    ['compile_and_save_blueprint', { blueprint_name: 'BP_X', fail_on_compile_error: true },                            'compile_and_save_blueprint'],
     ['set_blueprint_property',  { blueprint_name: 'BP_X', property_name: 'bHidden', property_value: true },            'set_blueprint_property'],
     ['set_static_mesh_props',   { blueprint_name: 'BP_X', component_name: 'Mesh', static_mesh: '/Game/Meshes/Cube' },  'set_static_mesh_properties'],
     ['set_physics_props',       { blueprint_name: 'BP_X', component_name: 'Mesh', simulate_physics: true },            'set_physics_properties'],
@@ -178,6 +197,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   ];
 
   for (const [tool, args, wireType] of checks) {
+    if (!defs[tool]) continue;
     await executeBlueprintsWriteTool(tool, args, cm);
     const call = fake.lastCall(wireType);
     t.assert(call !== undefined, `${tool} reaches wire (type=${wireType})`);
@@ -223,6 +243,15 @@ console.log('\n── Group 3: Wire-type Translation ──');
   fake.on('ping', { status: 'success' });
   fake.on('create_blueprint',       { status: 'success', result: { name: 'X', path: '/Game/Blueprints/X' } });
   fake.on('compile_blueprint',      { status: 'success', result: compileDiagnosticResult('X') });
+  fake.on('compile_and_save_blueprint', {
+    status: 'success',
+    result: {
+      compiled_ok: true,
+      saved: true,
+      compile: compileDiagnosticResult('X'),
+      save: { saved: true, dirty_before: false, dirty_after: false, package_path: '/Game/Blueprints/X' },
+    },
+  });
   fake.on('set_component_property', { status: 'success', result: { component: 'C', property: 'P', success: true } });
   fake.on('set_blueprint_property', { status: 'success', result: { property: 'P', success: true } });
 
@@ -236,6 +265,12 @@ console.log('\n── Group 3: Wire-type Translation ──');
   await executeBlueprintsWriteTool('compile_blueprint', { blueprint_name: 'X' }, cm);
   t.assert(fake.lastCall('compile_blueprint') !== undefined,
     'compile_blueprint uses identity wire type');
+
+  if (defs.compile_and_save_blueprint) {
+    await executeBlueprintsWriteTool('compile_and_save_blueprint', { blueprint_name: 'X' }, cm);
+    t.assert(fake.lastCall('compile_and_save_blueprint') !== undefined,
+      'compile_and_save_blueprint uses identity wire type');
+  }
 }
 
 // Empty wire map → identity for all
@@ -809,6 +844,75 @@ console.log('\n── Group 12: D109 — blueprints-write resolution surface ─
     /Ambiguous Blueprint name/,
     'D109: BLUEPRINT_AMBIGUOUS propagates from any blueprints-write tool',
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 13: Task 1 lifecycle compile-and-save surface
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 13: Task 1 lifecycle compile-and-save surface ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('compile_and_save_blueprint', {
+    status: 'success',
+    result: {
+      compiled_ok: true,
+      saved: true,
+      compile: compileDiagnosticResult('BP_Player'),
+      save: {
+        saved: true,
+        dirty_before: true,
+        dirty_after: false,
+        package_path: '/Game/Blueprints/BP_Player',
+      },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const response = await executeBlueprintsWriteTool('compile_and_save_blueprint', {
+    blueprint_name: 'BP_Player',
+    fail_on_compile_error: true,
+  }, cm);
+  const call = fake.lastCall('compile_and_save_blueprint');
+  t.assert(call && call.port === 55558, 'compile_and_save_blueprint routes to tcp-55558');
+  t.assert(call.params.blueprint_name === 'BP_Player', 'compile_and_save_blueprint forwards blueprint_name');
+  t.assert(call.params.fail_on_compile_error === true, 'compile_and_save_blueprint forwards fail_on_compile_error');
+  t.assert(response.result.compiled_ok === true, 'compile_and_save_blueprint reports compiled_ok');
+  t.assert(response.result.saved === true, 'compile_and_save_blueprint reports top-level saved');
+  t.assert(response.result.compile.compiled_ok === true, 'compile_and_save_blueprint returns compile diagnostics');
+  t.assert(response.result.save.saved === true, 'compile_and_save_blueprint returns save.saved');
+  t.assert(response.result.save.dirty_before === true, 'compile_and_save_blueprint returns save.dirty_before');
+  t.assert(response.result.save.dirty_after === false, 'compile_and_save_blueprint returns save.dirty_after');
+  t.assert(response.result.save.package_path === '/Game/Blueprints/BP_Player',
+    'compile_and_save_blueprint returns save.package_path');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('compile_and_save_blueprint', {
+    status: 'success',
+    result: {
+      compiled_ok: true,
+      saved: true,
+      compile: compileDiagnosticResult('BP_Player'),
+      save: { saved: true, dirty_before: true, dirty_after: false, package_path: '/Game/Blueprints/BP_Player' },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('compile_and_save_blueprint', { blueprint_name: 'BP_Player' }, cm);
+  await executeBlueprintsWriteTool('compile_and_save_blueprint', { blueprint_name: 'BP_Player' }, cm);
+  t.assert(fake.callsFor('compile_and_save_blueprint').length === 2,
+    'compile_and_save_blueprint is a write op and bypasses cache');
+  t.assert(fake.lastCall('compile_and_save_blueprint').params.fail_on_compile_error === true,
+    'compile_and_save_blueprint defaults fail_on_compile_error to true');
 }
 
 // create_blueprint description regression: still says "/Game/Blueprints/" (it's the

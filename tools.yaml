@@ -469,6 +469,21 @@ toolsets:
         description: Compile a Blueprint and return diagnostic-quality lifecycle output, including succeeded/compiled flags, error and warning counts, messages, generated-class status, dirty status, and package path.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+      compile_and_save_blueprint:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: true
+        offline_fallback: false
+        description: Compile a Blueprint with diagnostic output and save it when compilation succeeds.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name or /Game/... path" }
+          fail_on_compile_error: { type: boolean, required: false, default: true, description: "When true, do not save if compile diagnostics contain errors." }
       set_blueprint_property:
         description: Set Blueprint Class Default Object property
         params:
@@ -1303,6 +1318,20 @@ toolsets:
         description: Invoke EUB/EUW Run (or K2_Run) on a transient instance. Run must be zero-arg.
         params:
           asset_path: { type: string, required: true }
+      save_asset:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: false
+        offline_fallback: false
+        description: Save an editor asset by /Game/... path and report dirty-state before and after save.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... asset path to save" }
       duplicate_asset:
         description: Duplicate asset to new path. Refuses pre-existing destination unless overwrite:true.
         params:

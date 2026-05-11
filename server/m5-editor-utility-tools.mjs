@@ -1,8 +1,8 @@
-// M5 editor-utility toolset — 6 security-sensitive tools (D101 (iv) decision).
+// M5 editor-utility toolset — editor utility and asset-management tools.
 //
 // Tools shipped:
 //   run_python_command, get_editor_utility_blueprint, run_editor_utility,
-//   duplicate_asset, rename_asset, delete_asset_safe
+//   save_asset, duplicate_asset, rename_asset, delete_asset_safe
 //
 // The 1 shipped tool (get_editor_state via menhance-tcp-tools.mjs under
 // M-enhance D77) is NOT duplicated here.
@@ -96,6 +96,14 @@ export const M5_EDITOR_UTILITY_SCHEMAS = {
       asset_path: z.string().describe('/Game/... path to a compiled EUB / EUW'),
     },
     // Side effects depend on what Run() does — cannot cache.
+    isReadOp: false,
+  },
+
+  save_asset: {
+    description: 'Save an editor asset by /Game/... path and report dirty-state before and after save.',
+    schema: {
+      asset_path: z.string().describe('/Game/... asset path to save'),
+    },
     isReadOp: false,
   },
 

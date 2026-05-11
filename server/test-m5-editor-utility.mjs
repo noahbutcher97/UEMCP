@@ -28,6 +28,7 @@ const fakeToolsYaml = {
         run_python_command:           {},
         get_editor_utility_blueprint: {},
         run_editor_utility:           {},
+        save_asset:                   {},
         duplicate_asset:              {},
         rename_asset:                 {},
         delete_asset_safe:            {},
@@ -51,16 +52,18 @@ const expectedTools = [
   'run_python_command',
   'get_editor_utility_blueprint',
   'run_editor_utility',
+  'save_asset',
   'duplicate_asset',
   'rename_asset',
   'delete_asset_safe',
 ];
 
-t.assert(Object.keys(defs).length === 6, '6 editor-utility tools defined');
+t.assert(Object.keys(defs).length === 7, '7 editor-utility tools defined');
 t.assert(defs === M5_EDITOR_UTILITY_SCHEMAS, 'getM5EditorUtilityToolDefs returns M5_EDITOR_UTILITY_SCHEMAS');
 
 for (const name of expectedTools) {
   t.assert(defs[name] !== undefined, `Tool "${name}" is defined`);
+  if (defs[name] === undefined) continue;
   t.assert(typeof defs[name].description === 'string' && defs[name].description.length > 0,
     `Tool "${name}" has a non-empty description`);
   t.assert(typeof defs[name].schema === 'object', `Tool "${name}" has a schema object`);
@@ -71,6 +74,9 @@ for (const name of expectedTools) {
 t.assert(defs.get_editor_utility_blueprint.isReadOp === true, 'get_editor_utility_blueprint is a read op');
 t.assert(defs.run_python_command.isReadOp === false, 'run_python_command is a write op (could mutate via Python)');
 t.assert(defs.run_editor_utility.isReadOp === false, 'run_editor_utility is a write op (Run() side effects)');
+if (defs.save_asset) {
+  t.assert(defs.save_asset.isReadOp === false, 'save_asset is a write op');
+}
 t.assert(defs.duplicate_asset.isReadOp === false, 'duplicate_asset is a write op');
 t.assert(defs.rename_asset.isReadOp === false, 'rename_asset is a write op');
 t.assert(defs.delete_asset_safe.isReadOp === false, 'delete_asset_safe is a write op');
@@ -213,6 +219,8 @@ console.log('\n── Group 4: Port Routing → 55558 ──');
     { status: 'success', result: { asset_path: '/Game/EUW', bp_type: 'EditorUtilityWidget', run_method: { present: true } } });
   fake.on('run_editor_utility',
     { status: 'success', result: { invoked: true, function: 'Run' } });
+  fake.on('save_asset',
+    { status: 'success', result: { asset_path: '/Game/UEMCP/BP_Test', saved: true, dirty_before: true, dirty_after: false, package_path: '/Game/UEMCP/BP_Test' } });
   fake.on('duplicate_asset',
     { status: 'success', result: { new_path: '/Game/Copy', class: 'StaticMesh' } });
   fake.on('rename_asset',
@@ -227,12 +235,14 @@ console.log('\n── Group 4: Port Routing → 55558 ──');
     ['run_python_command',           { command: 'pass' }],
     ['get_editor_utility_blueprint', { asset_path: '/Game/EUW' }],
     ['run_editor_utility',           { asset_path: '/Game/EUW' }],
+    ['save_asset',                   { asset_path: '/Game/UEMCP/BP_Test' }],
     ['duplicate_asset',              { source_path: '/Game/A', dest_path: '/Game/B' }],
     ['rename_asset',                 { asset_path: '/Game/A', new_name: 'B' }],
     ['delete_asset_safe',            { asset_path: '/Game/A' }],
   ];
 
   for (const [tool, args] of checks) {
+    if (!defs[tool]) continue;
     await executeM5EditorUtilityTool(tool, args, cm);
     const call = fake.lastCall(tool);
     t.assert(call !== undefined, `${tool} reaches wire`);
@@ -472,6 +482,40 @@ console.log('\n── Group 8: Cache Semantics ──');
     { asset_path: '/Game/EUW' }, cm);
   t.assert(fake.callsFor('get_editor_utility_blueprint').length === 1,
     'Read op cached: 2 calls → 1 wire dispatch');
+}
+
+{
+  initM5EditorUtilityTools(fakeToolsYaml, { pythonExecEnabled: true });
+
+  const fake = new FakeTcpResponder().on('ping', { status: 'success' });
+  fake.on('save_asset', {
+    status: 'success',
+    result: {
+      asset_path: '/Game/UEMCP/BP_Test',
+      saved: true,
+      dirty_before: true,
+      dirty_after: false,
+      package_path: '/Game/UEMCP/BP_Test',
+    },
+  });
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const response = await executeM5EditorUtilityTool('save_asset', {
+    asset_path: '/Game/UEMCP/BP_Test',
+  }, cm);
+  t.assert(response.result.asset_path === '/Game/UEMCP/BP_Test', 'save_asset returns asset_path');
+  t.assert(response.result.saved === true, 'save_asset reports saved:true');
+  t.assert(response.result.dirty_before === true, 'save_asset reports dirty_before');
+  t.assert(response.result.dirty_after === false, 'save_asset reports dirty_after');
+  t.assert(response.result.package_path === '/Game/UEMCP/BP_Test', 'save_asset reports package_path');
+  t.assert(fake.lastCall('save_asset').port === 55558, 'save_asset routes to tcp-55558');
+  t.assert(fake.lastCall('save_asset').params.asset_path === '/Game/UEMCP/BP_Test',
+    'save_asset forwards asset_path');
+
+  await executeM5EditorUtilityTool('save_asset', { asset_path: '/Game/UEMCP/BP_Test' }, cm);
+  t.assert(fake.callsFor('save_asset').length === 2,
+    'save_asset is a write op and bypasses cache');
 }
 
 {
