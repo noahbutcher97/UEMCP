@@ -50,6 +50,7 @@ const ExecFromOptional = z.object({
 let BLUEPRINTS_WRITE_WIRE_MAP = {};
 const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
   add_variable_assignment: 'add_blueprint_variable_assignment',
+  set_variable_default: 'set_blueprint_variable_default',
 };
 const BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES = {
   compile_and_save_blueprint: 15_000,
@@ -232,6 +233,19 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
       params: z.record(z.any()).optional().describe('Default values for input pins, keyed by pin name'),
+    },
+    isReadOp: false,
+  },
+
+  set_variable_default: {
+    description: 'Set a Blueprint member variable default value on the generated CDO and mark the Blueprint modified.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name or /Game/... path'),
+      variable_name: z.string().describe('Member variable name'),
+      value: AssignmentLiteralValue
+        .describe('Default value. Supports Number, Boolean, String, and Vector [x,y,z]. Integer variables require an integral int32 value.'),
+      compile: z.boolean().optional().default(false)
+        .describe('If true, compile after setting the default. Default false.'),
     },
     isReadOp: false,
   },

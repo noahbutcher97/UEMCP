@@ -355,6 +355,139 @@ namespace UEMCP
 			return Blueprint->GeneratedClass && Blueprint->GeneratedClass->FindPropertyByName(Name) != nullptr;
 		}
 
+		bool SetSupportedVariableDefault(UObject* CDO, FProperty* Property,
+			const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
+		{
+			if (!CDO)
+			{
+				OutErrorMessage = TEXT("Invalid default object");
+				return false;
+			}
+			if (!Property)
+			{
+				OutErrorMessage = TEXT("Variable property is null");
+				return false;
+			}
+			if (!Value.IsValid())
+			{
+				OutErrorMessage = TEXT("Missing default value");
+				return false;
+			}
+
+			if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
+			{
+				bool BoolValue = false;
+				if (!Value->TryGetBool(BoolValue))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a boolean default"), *Property->GetName());
+					return false;
+				}
+				BoolProp->SetPropertyValue_InContainer(CDO, BoolValue);
+				return true;
+			}
+
+			if (FIntProperty* IntProp = CastField<FIntProperty>(Property))
+			{
+				double NumberValue = 0.0;
+				if (!Value->TryGetNumber(NumberValue))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
+					return false;
+				}
+				const double RoundedValue = FMath::RoundToDouble(NumberValue);
+				if (NumberValue != RoundedValue
+					|| RoundedValue < static_cast<double>(TNumericLimits<int32>::Min())
+					|| RoundedValue > static_cast<double>(TNumericLimits<int32>::Max()))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects an integral int32 default"), *Property->GetName());
+					return false;
+				}
+				IntProp->SetPropertyValue_InContainer(CDO, static_cast<int32>(RoundedValue));
+				return true;
+			}
+
+			if (FFloatProperty* FloatProp = CastField<FFloatProperty>(Property))
+			{
+				double NumberValue = 0.0;
+				if (!Value->TryGetNumber(NumberValue))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
+					return false;
+				}
+				FloatProp->SetPropertyValue_InContainer(CDO, static_cast<float>(NumberValue));
+				return true;
+			}
+
+			if (FDoubleProperty* DoubleProp = CastField<FDoubleProperty>(Property))
+			{
+				double NumberValue = 0.0;
+				if (!Value->TryGetNumber(NumberValue))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
+					return false;
+				}
+				DoubleProp->SetPropertyValue_InContainer(CDO, NumberValue);
+				return true;
+			}
+
+			if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
+			{
+				FString StringValue;
+				if (!Value->TryGetString(StringValue))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a string default"), *Property->GetName());
+					return false;
+				}
+				StrProp->SetPropertyValue_InContainer(CDO, StringValue);
+				return true;
+			}
+
+			if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+			{
+				if (StructProp->Struct != TBaseStructure<FVector>::Get())
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' has unsupported struct default type '%s'"),
+						*Property->GetName(),
+						StructProp->Struct ? *StructProp->Struct->GetName() : TEXT("<null>"));
+					return false;
+				}
+
+				if (Value->Type != EJson::Array)
+				{
+					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects Vector default as [x,y,z]"), *Property->GetName());
+					return false;
+				}
+
+				const TArray<TSharedPtr<FJsonValue>>& Arr = Value->AsArray();
+				if (Arr.Num() != 3)
+				{
+					OutErrorMessage = FString::Printf(TEXT("Vector default for variable '%s' requires 3 values, got %d"),
+						*Property->GetName(), Arr.Num());
+					return false;
+				}
+
+				double X = 0.0;
+				double Y = 0.0;
+				double Z = 0.0;
+				if (!Arr[0].IsValid() || !Arr[0]->TryGetNumber(X)
+					|| !Arr[1].IsValid() || !Arr[1]->TryGetNumber(Y)
+					|| !Arr[2].IsValid() || !Arr[2]->TryGetNumber(Z))
+				{
+					OutErrorMessage = FString::Printf(TEXT("Vector default for variable '%s' must contain only numbers"),
+						*Property->GetName());
+					return false;
+				}
+
+				FVector Vec(X, Y, Z);
+				StructProp->CopySingleValue(StructProp->ContainerPtrToValuePtr<void>(CDO), &Vec);
+				return true;
+			}
+
+			OutErrorMessage = FString::Printf(TEXT("Variable '%s' has unsupported default property type '%s'"),
+				*Property->GetName(), *Property->GetClass()->GetName());
+			return false;
+		}
+
 		void RemoveCreatedAssignmentNodes(UBlueprint* Blueprint, UEdGraphNode* First, UEdGraphNode* Second)
 		{
 			if (Blueprint && Second)
@@ -1062,6 +1195,130 @@ namespace UEMCP
 		}
 
 		// ── 5. set_blueprint_property ─────────────────────────────────────────────
+		void HandleSetBlueprintVariableDefault(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString VariableName;
+			if (!Params->TryGetStringField(TEXT("variable_name"), VariableName) || VariableName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'variable_name' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			if (!Params->HasField(TEXT("value")))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'value' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			if (!HasBlueprintMemberVariable(Blueprint, VariableName))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Variable not found: %s"), *VariableName),
+					TEXT("VARIABLE_NOT_FOUND"));
+				return;
+			}
+
+			auto FindCDOProperty = [&]() -> TPair<UObject*, FProperty*>
+			{
+				UObject* CurrentCDO = Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetDefaultObject() : nullptr;
+				FProperty* CurrentProperty = CurrentCDO ? CurrentCDO->GetClass()->FindPropertyByName(*VariableName) : nullptr;
+				return TPair<UObject*, FProperty*>(CurrentCDO, CurrentProperty);
+			};
+
+			TPair<UObject*, FProperty*> Target = FindCDOProperty();
+			UObject* CDO = Target.Key;
+			FProperty* Property = Target.Value;
+			TSharedPtr<FJsonObject> PreSetCompileResult;
+			if (!Property)
+			{
+				PreSetCompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName());
+				bool bPreSetCompiledOk = false;
+				PreSetCompileResult->TryGetBoolField(TEXT("compiled_ok"), bPreSetCompiledOk);
+				if (!bPreSetCompiledOk)
+				{
+					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+					Detail->SetStringField(TEXT("variable_name"), VariableName);
+					Detail->SetObjectField(TEXT("compile"), PreSetCompileResult);
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Blueprint compile failed before setting variable default: %s"), *VariableName),
+						TEXT("COMPILE_FAILED"),
+						Detail);
+					return;
+				}
+
+				Target = FindCDOProperty();
+				CDO = Target.Key;
+				Property = Target.Value;
+				if (!CDO)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Failed to get default object"), TEXT("NO_CDO"));
+					return;
+				}
+				if (!Property)
+				{
+					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+					Detail->SetStringField(TEXT("variable_name"), VariableName);
+					Detail->SetStringField(TEXT("blueprint"), Blueprint->GetPathName());
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Variable is declared but unavailable on generated CDO after compile: %s"), *VariableName),
+						TEXT("VARIABLE_PROPERTY_UNAVAILABLE"),
+						Detail);
+					return;
+				}
+			}
+
+			TSharedPtr<FJsonValue> Value = Params->Values.FindRef(TEXT("value"));
+			FString Err;
+			CDO->Modify();
+			if (!SetSupportedVariableDefault(CDO, Property, Value, Err))
+			{
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetStringField(TEXT("variable_name"), VariableName);
+				Detail->SetStringField(TEXT("property_type"), Property->GetClass()->GetName());
+				BuildErrorResponse(OutResponse, Err, TEXT("UNSUPPORTED_DEFAULT_TYPE"), Detail);
+				return;
+			}
+
+			FPropertyChangedEvent Event(Property, EPropertyChangeType::ValueSet);
+			CDO->PostEditChangeProperty(Event);
+
+			bool bCompile = false;
+			Params->TryGetBoolField(TEXT("compile"), bCompile);
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			TSharedPtr<FJsonObject> PostSetCompileResult;
+			bool bPostSetCompiledOk = false;
+			if (bCompile)
+			{
+				PostSetCompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName());
+				PostSetCompileResult->TryGetBoolField(TEXT("compiled_ok"), bPostSetCompiledOk);
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("variable_name"), VariableName);
+			Result->SetField(TEXT("default_value"), Value);
+			Result->SetBoolField(TEXT("dirty"), true);
+			Result->SetBoolField(TEXT("requires_compile"), !bCompile || !bPostSetCompiledOk);
+			if (PreSetCompileResult.IsValid())
+			{
+				Result->SetObjectField(TEXT("pre_set_compile"), PreSetCompileResult);
+			}
+			if (PostSetCompileResult.IsValid())
+			{
+				Result->SetBoolField(TEXT("compiled_ok"), bPostSetCompiledOk);
+				Result->SetObjectField(TEXT("compile"), PostSetCompileResult);
+			}
+			if (bCompile && !bPostSetCompiledOk)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Blueprint compile failed after setting variable default: %s"), *VariableName),
+					TEXT("COMPILE_FAILED"),
+					Result);
+				return;
+			}
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleSetBlueprintProperty(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
@@ -2174,6 +2431,7 @@ namespace UEMCP
 		Registry.Register(TEXT("compile_blueprint"),                             &HandleCompileBlueprint);
 		Registry.Register(TEXT("compile_and_save_blueprint"),                    &HandleCompileAndSaveBlueprint);
 		Registry.Register(TEXT("set_blueprint_property"),                        &HandleSetBlueprintProperty);
+		Registry.Register(TEXT("set_blueprint_variable_default"),                &HandleSetBlueprintVariableDefault);
 		Registry.Register(TEXT("set_static_mesh_properties"),                    &HandleSetStaticMeshProperties);
 		Registry.Register(TEXT("set_physics_properties"),                        &HandleSetPhysicsProperties);
 		Registry.Register(TEXT("set_pawn_properties"),                           &HandleSetPawnProperties);

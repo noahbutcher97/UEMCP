@@ -47,6 +47,7 @@ const fakeToolsYaml = {
         add_function_graph:      { wire_type: 'add_blueprint_function_graph' },
         add_variable_get:        { wire_type: 'add_blueprint_variable_get_node' },
         add_variable_set:        { wire_type: 'add_blueprint_variable_set_node' },
+        set_variable_default:    { wire_type: 'set_blueprint_variable_default' },
         add_variable_assignment: { wire_type: 'add_blueprint_variable_assignment' },
         add_control_node:        { wire_type: 'add_blueprint_control_node' },
         add_math_node:           { wire_type: 'add_blueprint_math_node' },
@@ -95,7 +96,7 @@ const expectedTools = [
   'compile_blueprint', 'compile_and_save_blueprint', 'set_blueprint_property',
   'set_static_mesh_props', 'set_physics_props', 'set_pawn_props',
   'add_event_node', 'add_function_node', 'add_variable',
-  'add_function_graph', 'add_variable_get', 'add_variable_set', 'add_variable_assignment', 'add_control_node',
+  'add_function_graph', 'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment', 'add_control_node',
   'add_math_node',
   'add_self_reference', 'add_component_reference',
   'connect_nodes', 'find_nodes',
@@ -127,6 +128,16 @@ if (defs.compile_and_save_blueprint) {
     'compile_and_save_blueprint exposes blueprint_name param');
   t.assert(defs.compile_and_save_blueprint.schema.fail_on_compile_error !== undefined,
     'compile_and_save_blueprint exposes fail_on_compile_error param');
+}
+if (defs.set_variable_default) {
+  t.assert(defs.set_variable_default.schema.blueprint_name !== undefined,
+    'set_variable_default exposes blueprint_name param');
+  t.assert(defs.set_variable_default.schema.variable_name !== undefined,
+    'set_variable_default exposes variable_name param');
+  t.assert(defs.set_variable_default.schema.value !== undefined,
+    'set_variable_default exposes value param');
+  t.assert(defs.set_variable_default.schema.compile !== undefined,
+    'set_variable_default exposes compile param');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -162,6 +173,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_function_graph',                  { status: 'success', result: { graph_name: 'MoveStep', node_id: 'GUID-ENTRY', pins: [] } });
   fake.on('add_blueprint_variable_get_node',               { status: 'success', result: { node_id: 'GUID-GET', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_variable_set_node',               { status: 'success', result: { node_id: 'GUID-SET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('set_blueprint_variable_default',                { status: 'success', result: { variable_name: 'Speed', default_value: 350, dirty: true, requires_compile: true } });
   fake.on('add_blueprint_control_node',                    { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_math_node',                       { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
@@ -188,6 +200,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_function_graph',      { blueprint_name: 'BP_X', function_name: 'MoveStep' },                                 'add_blueprint_function_graph'],
     ['add_variable_get',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_get_node'],
     ['add_variable_set',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_set_node'],
+    ['set_variable_default',    { blueprint_name: 'BP_X', variable_name: 'Speed', value: 350 },                       'set_blueprint_variable_default'],
     ['add_control_node',        { blueprint_name: 'BP_X', node_kind: 'Branch', graph_name: 'MoveStep' },               'add_blueprint_control_node'],
     ['add_math_node',           { blueprint_name: 'BP_X', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, 'add_blueprint_math_node'],
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
@@ -217,6 +230,7 @@ console.log('\n── Group 3: Wire-type Translation ──');
   fake.on('add_component_to_blueprint',  { status: 'success', result: { component_name: 'Mesh', component_type: 'StaticMesh' } });
   fake.on('add_blueprint_event_node',    { status: 'success', result: { node_id: 'X' } });
   fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'Y' } });
+  fake.on('set_blueprint_variable_default', { status: 'success', result: { variable_name: 'Speed' } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
@@ -235,6 +249,13 @@ console.log('\n── Group 3: Wire-type Translation ──');
   const call = fake.lastCall('add_blueprint_function_node');
   t.assert(call !== undefined, 'add_function_node → add_blueprint_function_node');
   t.assert(call.params.function_name === 'PrintString', 'function_name passes through to wire');
+
+  await executeBlueprintsWriteTool('set_variable_default',
+    { blueprint_name: 'BP', variable_name: 'Speed', value: 350 }, cm);
+  t.assert(fake.lastCall('set_blueprint_variable_default') !== undefined,
+    'set_variable_default → set_blueprint_variable_default');
+  t.assert(fake.lastCall('set_variable_default') === undefined,
+    'set_variable_default tools.yaml name NOT used as wire type when wire_type is set');
 }
 
 // Identity fallback when wire_type is absent
@@ -343,6 +364,7 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
   fake.on('add_blueprint_function_graph',               { status: 'success', result: { node_id: 'GUID-ENTRY', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_variable_get_node',            { status: 'success', result: { node_id: 'GUID-GET', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_variable_set_node',            { status: 'success', result: { node_id: 'GUID-SET', graph_name: 'MoveStep', pins: [] } });
+  fake.on('set_blueprint_variable_default',             { status: 'success', result: { variable_name: 'Speed', default_value: 350, dirty: true, requires_compile: true } });
   fake.on('add_blueprint_control_node',                 { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_math_node',                    { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',               { status: 'success', result: { node_id: 'GUID-SF' } });
@@ -438,6 +460,13 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     { blueprint_name: 'BP', variable_name: 'Health', variable_type: 'Float' }, cm);
   t.assert(r7.result.variable_name === 'Health' && r7.result.variable_type === 'Float',
     'add_variable result has {variable_name, variable_type} (oracle parity)');
+
+  const r7Default = await executeBlueprintsWriteTool('set_variable_default',
+    { blueprint_name: 'BP', variable_name: 'Speed', value: 350 }, cm);
+  t.assert(r7Default.result.variable_name === 'Speed' && r7Default.result.default_value === 350,
+    'set_variable_default result has {variable_name, default_value}');
+  t.assert(r7Default.result.dirty === true && r7Default.result.requires_compile === true,
+    'set_variable_default result reports dirty and requires_compile');
 
   const r8 = await executeBlueprintsWriteTool('connect_nodes',
     { blueprint_name: 'BP', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, cm);
@@ -917,6 +946,80 @@ console.log('\n── Group 13: Task 1 lifecycle compile-and-save surface ──
     'compile_and_save_blueprint wire call carries timeoutMs=15000 override');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Group 14: Task 2 variable default surface
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 14: Task 2 variable default surface ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('set_blueprint_variable_default', {
+    status: 'success',
+    result: {
+      variable_name: 'Speed',
+      default_value: 350,
+      dirty: true,
+      requires_compile: true,
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const response = await executeBlueprintsWriteTool('set_variable_default', {
+    blueprint_name: '/Game/UEMCP/BP_TimerMover',
+    variable_name: 'Speed',
+    value: 350,
+  }, cm);
+
+  const call = fake.lastCall('set_blueprint_variable_default');
+  t.assert(call && call.port === 55558, 'set_variable_default routes to tcp-55558');
+  t.assert(call.params.blueprint_name === '/Game/UEMCP/BP_TimerMover',
+    'set_variable_default forwards blueprint_name');
+  t.assert(call.params.variable_name === 'Speed',
+    'set_variable_default forwards variable_name');
+  t.assert(call.params.value === 350,
+    'set_variable_default forwards scalar value');
+  t.assert(call.params.compile === false,
+    'set_variable_default defaults compile to false');
+  t.assert(response.result.variable_name === 'Speed',
+    'set_variable_default returns variable name');
+  t.assert(response.result.default_value === 350,
+    'set_variable_default returns default value');
+  t.assert(response.result.dirty === true,
+    'set_variable_default reports dirty:true');
+  t.assert(response.result.requires_compile === true,
+    'set_variable_default reports requires_compile:true');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('set_blueprint_variable_default', {
+    status: 'success',
+    result: {
+      variable_name: 'Axis',
+      default_value: [1, 0, 0],
+      dirty: true,
+      requires_compile: true,
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('set_variable_default',
+    { blueprint_name: 'BP_Player', variable_name: 'Axis', value: [1, 0, 0], compile: true }, cm);
+  await executeBlueprintsWriteTool('set_variable_default',
+    { blueprint_name: 'BP_Player', variable_name: 'Axis', value: [1, 0, 0], compile: true }, cm);
+  t.assert(fake.callsFor('set_blueprint_variable_default').length === 2,
+    'set_variable_default is a write op and bypasses cache');
+  t.assert(fake.lastCall('set_blueprint_variable_default').params.compile === true,
+    'set_variable_default forwards compile:true');
+}
+
 // create_blueprint description regression: still says "/Game/Blueprints/" (it's the
 // creation root, NOT a lookup site — kept per handoff §Scope-out) but ALSO
 // documents the new cross-tool convention for blueprint_name on other tools.
@@ -947,6 +1050,14 @@ console.log('\n── Group O: D149 registry publication and compile description
     'D149: tools.yaml publishes add_variable_assignment');
   t.assert(bpTools.add_variable_assignment?.wire_type === 'add_blueprint_variable_assignment',
     'D149: add_variable_assignment registry wire_type matches C++ command');
+  t.assert(bpTools.set_variable_default !== undefined,
+    'D157: tools.yaml publishes set_variable_default');
+  t.assert(bpTools.set_variable_default?.wire_type === 'set_blueprint_variable_default',
+    'D157: set_variable_default registry wire_type matches C++ command');
+  t.assert(bpTools.set_variable_default?.mutates_asset === true && bpTools.set_variable_default?.saves_asset === false,
+    'D157: set_variable_default registry marks mutates_asset true and saves_asset false');
+  t.assert(/compile/i.test(bpTools.set_variable_default?.params?.compile?.description || ''),
+    'D157: set_variable_default registry documents compile param behavior');
   t.assert(/diagnostic|error|warning/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description advertises diagnostic output');
   t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),
