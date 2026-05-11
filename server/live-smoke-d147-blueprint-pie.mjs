@@ -53,6 +53,9 @@ const bpPath = `/Game/UEMCP/${bpName}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function unwrap(label, response) {
+  if (label === 'sample_pie_actor_state' && typeof response?.sample_count === 'number') {
+    return response;
+  }
   if (!response || response.status !== 'success') {
     throw new Error(`${label} failed: ${JSON.stringify(response)}`);
   }
@@ -110,6 +113,16 @@ function summary(label, result) {
       root_component: result.root_component?.name,
       component_count: Array.isArray(result.components) ? result.components.length : undefined,
       properties: result.properties,
+    };
+  }
+  if (label === 'sample_pie_actor_state') {
+    return {
+      sample_count: result.sample_count,
+      elapsed_ms: result.elapsed_ms,
+      capped: result.capped,
+      first_location: result.first?.result?.transform?.location,
+      last_location: result.last?.result?.transform?.location,
+      delta: result.delta,
     };
   }
   return result;
@@ -212,6 +225,15 @@ try {
     actor_ref: { label: actorName, name: actorName },
     include_components: true,
     properties: ['CustomTimeDilation'],
+  }, cm));
+
+  await call('sample_pie_actor_state', () => executeMenhanceTool('sample_pie_actor_state', {
+    actor_ref: { label: actorName, name: actorName },
+    include_components: true,
+    properties: ['CustomTimeDilation'],
+    duration_ms: 250,
+    interval_ms: 125,
+    max_samples: 3,
   }, cm));
 } finally {
   if (pieStarted) {
