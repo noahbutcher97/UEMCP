@@ -2,6 +2,7 @@
 #include "BlueprintHandlers.h"
 
 #include "BlueprintLookupHelper.h"
+#include "CompileDiagnosticHandler.h"
 #include "LoadAssetPIESafe.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
@@ -289,6 +290,44 @@ namespace UEMCP
 			return Result;
 		}
 
+		TSharedPtr<FJsonObject> NodeResultToJsonWithRole(const FString& Role, const UEdGraphNode* Node, const UEdGraph* Graph)
+		{
+			TSharedPtr<FJsonObject> Result = NodeResultToJson(Node, Graph);
+			Result->SetStringField(TEXT("role"), Role);
+			return Result;
+		}
+
+		TSharedPtr<FJsonObject> PinToJsonWithRole(const FString& Role, const UEdGraphPin* Pin)
+		{
+			TSharedPtr<FJsonObject> Result = PinToJson(Pin);
+			Result->SetStringField(TEXT("role"), Role);
+			return Result;
+		}
+
+		TSharedPtr<FJsonObject> LinkToJson(const FString& Role, const UEdGraphNode* SourceNode, const UEdGraphPin* SourcePin,
+			const UEdGraphNode* TargetNode, const UEdGraphPin* TargetPin)
+		{
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("role"), Role);
+			if (SourceNode)
+			{
+				Result->SetStringField(TEXT("source_node_id"), SourceNode->NodeGuid.ToString());
+			}
+			if (TargetNode)
+			{
+				Result->SetStringField(TEXT("target_node_id"), TargetNode->NodeGuid.ToString());
+			}
+			if (SourcePin)
+			{
+				Result->SetObjectField(TEXT("source_pin"), PinToJson(SourcePin));
+			}
+			if (TargetPin)
+			{
+				Result->SetObjectField(TEXT("target_pin"), PinToJson(TargetPin));
+			}
+			return Result;
+		}
+
 		UEdGraphNode* FindNodeByGuid(UEdGraph* Graph, const FString& NodeId)
 		{
 			if (!Graph) return nullptr;
@@ -314,6 +353,136 @@ namespace UEMCP
 				}
 			}
 			return Blueprint->GeneratedClass && Blueprint->GeneratedClass->FindPropertyByName(Name) != nullptr;
+		}
+
+		void RemoveCreatedAssignmentNodes(UBlueprint* Blueprint, UEdGraphNode* First, UEdGraphNode* Second)
+		{
+			if (Blueprint && Second)
+			{
+				FBlueprintEditorUtils::RemoveNode(Blueprint, Second, true);
+			}
+			if (Blueprint && First)
+			{
+				FBlueprintEditorUtils::RemoveNode(Blueprint, First, true);
+			}
+		}
+
+		void BuildPinCompatibilityError(TSharedPtr<FJsonObject>& OutResponse, const FString& Message,
+			const UEdGraphPin* SourcePin, const UEdGraphPin* TargetPin)
+		{
+			TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+			if (SourcePin)
+			{
+				Detail->SetObjectField(TEXT("source_pin"), PinToJson(SourcePin));
+				Detail->SetObjectField(TEXT("source_pin_type"), PinTypeToJson(SourcePin->PinType));
+			}
+			if (TargetPin)
+			{
+				Detail->SetObjectField(TEXT("target_pin"), PinToJson(TargetPin));
+				Detail->SetObjectField(TEXT("target_pin_type"), PinTypeToJson(TargetPin->PinType));
+			}
+			BuildErrorResponse(OutResponse, Message, TEXT("INCOMPATIBLE_PINS"), Detail);
+		}
+
+		bool TryLinkPins(UEdGraph* Graph, UEdGraphPin* SourcePin, UEdGraphPin* TargetPin,
+			TSharedPtr<FJsonObject>& OutResponse)
+		{
+			if (!SourcePin || !TargetPin)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to resolve source or target pin"), TEXT("PIN_NOT_FOUND"));
+				return false;
+			}
+
+			const UEdGraphSchema_K2* K2Schema = Cast<const UEdGraphSchema_K2>(Graph ? Graph->GetSchema() : nullptr);
+			if (K2Schema)
+			{
+				const FPinConnectionResponse Response = K2Schema->CanCreateConnection(SourcePin, TargetPin);
+				if (Response.Response == CONNECT_RESPONSE_DISALLOW)
+				{
+					BuildPinCompatibilityError(OutResponse,
+						Response.Message.IsEmpty()
+							? TEXT("Pins are not compatible")
+							: Response.Message.ToString(),
+						SourcePin,
+						TargetPin);
+					return false;
+				}
+			}
+
+			SourcePin->MakeLinkTo(TargetPin);
+			return true;
+		}
+
+		bool TryApplyLiteralAssignmentDefault(UEdGraphPin* Pin, const TSharedPtr<FJsonValue>& Value,
+			TSharedPtr<FJsonObject>& OutResponse)
+		{
+			if (!Pin || !Value.IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Literal assignment requires a target value pin and value"), TEXT("MISSING_PARAMS"));
+				return false;
+			}
+
+			const FName Category = Pin->PinType.PinCategory;
+			if (Category == UEdGraphSchema_K2::PC_Int)
+			{
+				if (Value->Type != EJson::Number)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Integer variable assignment requires a numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					return false;
+				}
+				Pin->DefaultValue = FString::FromInt(FMath::RoundToInt(Value->AsNumber()));
+				return true;
+			}
+			if (Category == UEdGraphSchema_K2::PC_Float || Category == UEdGraphSchema_K2::PC_Real)
+			{
+				if (Value->Type != EJson::Number)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Float variable assignment requires a numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					return false;
+				}
+				Pin->DefaultValue = FString::SanitizeFloat(Value->AsNumber());
+				return true;
+			}
+			if (Category == UEdGraphSchema_K2::PC_Boolean)
+			{
+				if (Value->Type != EJson::Boolean)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Boolean variable assignment requires a boolean literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					return false;
+				}
+				Pin->DefaultValue = Value->AsBool() ? TEXT("true") : TEXT("false");
+				return true;
+			}
+			if (Category == UEdGraphSchema_K2::PC_String)
+			{
+				if (Value->Type != EJson::String)
+				{
+					BuildErrorResponse(OutResponse, TEXT("String variable assignment requires a string literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					return false;
+				}
+				Pin->DefaultValue = Value->AsString();
+				return true;
+			}
+			if (Category == UEdGraphSchema_K2::PC_Struct && Pin->PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
+			{
+				const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+				if (Value->Type != EJson::Array || !Value->TryGetArray(Arr) || !Arr || Arr->Num() != 3)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Vector variable assignment requires [x, y, z] numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					return false;
+				}
+				Pin->DefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"),
+					(*Arr)[0]->AsNumber(),
+					(*Arr)[1]->AsNumber(),
+					(*Arr)[2]->AsNumber());
+				return true;
+			}
+
+			TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+			Detail->SetObjectField(TEXT("target_pin"), PinToJson(Pin));
+			Detail->SetObjectField(TEXT("target_pin_type"), PinTypeToJson(Pin->PinType));
+			BuildErrorResponse(OutResponse, TEXT("Unsupported literal assignment pin type"), TEXT("UNSUPPORTED_LITERAL_TYPE"), Detail);
+			return false;
 		}
 
 		bool ResolveMathFunctionName(const FString& Operation, const FString& ValueType, FString& OutFunctionName)
@@ -820,12 +989,7 @@ namespace UEMCP
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse, &BPName);
 			if (!Blueprint) return;
 
-			FKismetEditorUtilities::CompileBlueprint(Blueprint);
-
-			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-			Result->SetStringField(TEXT("name"), BPName);
-			Result->SetBoolField(TEXT("compiled"), true);
-			BuildSuccessResponse(OutResponse, Result);
+			BuildSuccessResponse(OutResponse, BuildBlueprintCompileDiagnosticResult(Blueprint, BPName));
 		}
 
 		// ── 5. set_blueprint_property ─────────────────────────────────────────────
@@ -1409,6 +1573,210 @@ namespace UEMCP
 			BuildSuccessResponse(OutResponse, NodeResultToJson(SetNode, Graph));
 		}
 
+		void HandleAddBlueprintVariableAssignment(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString TargetVarName;
+			if (!Params->TryGetStringField(TEXT("target_variable"), TargetVarName) || TargetVarName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'target_variable' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			if (!HasBlueprintMemberVariable(Blueprint, TargetVarName))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Blueprint member variable not found: %s"), *TargetVarName),
+					TEXT("VARIABLE_NOT_FOUND"));
+				return;
+			}
+
+			const TSharedPtr<FJsonObject>* Assignment = nullptr;
+			if (!Params->TryGetObjectField(TEXT("assignment"), Assignment) || !Assignment || !Assignment->IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'assignment' object"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			FString AssignmentKind;
+			if (!(*Assignment)->TryGetStringField(TEXT("kind"), AssignmentKind) || AssignmentKind.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing assignment.kind"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			FString SourceVarName;
+			if (AssignmentKind.Equals(TEXT("variable"), ESearchCase::IgnoreCase))
+			{
+				if (!(*Assignment)->TryGetStringField(TEXT("source_variable"), SourceVarName) || SourceVarName.IsEmpty())
+				{
+					BuildErrorResponse(OutResponse, TEXT("Variable assignment requires assignment.source_variable"), TEXT("MISSING_PARAMS"));
+					return;
+				}
+				if (!HasBlueprintMemberVariable(Blueprint, SourceVarName))
+				{
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Blueprint member variable not found: %s"), *SourceVarName),
+						TEXT("VARIABLE_NOT_FOUND"));
+					return;
+				}
+			}
+			else if (!AssignmentKind.Equals(TEXT("literal"), ESearchCase::IgnoreCase))
+			{
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				TArray<TSharedPtr<FJsonValue>> Allowed;
+				Allowed.Add(MakeShared<FJsonValueString>(TEXT("literal")));
+				Allowed.Add(MakeShared<FJsonValueString>(TEXT("variable")));
+				Detail->SetArrayField(TEXT("allowed_values"), Allowed);
+				Detail->SetStringField(TEXT("provided"), AssignmentKind);
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Unsupported assignment kind '%s'"), *AssignmentKind),
+					TEXT("UNSUPPORTED_ASSIGNMENT_KIND"),
+					Detail);
+				return;
+			}
+
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			if (!Graph) return;
+			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
+
+			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph);
+			if (!SetNode)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create variable set node"), TEXT("CREATE_FAILED"));
+				return;
+			}
+			SetNode->VariableReference.SetSelfMember(FName(*TargetVarName));
+			SetNode->NodePosX = NodePos.X;
+			SetNode->NodePosY = NodePos.Y;
+			Graph->AddNode(SetNode);
+			SetNode->CreateNewGuid();
+			SetNode->PostPlacedNewNode();
+			SetNode->AllocateDefaultPins();
+			SetNode->ReconstructNode();
+
+			UK2Node_VariableGet* GetNode = nullptr;
+			TArray<TSharedPtr<FJsonValue>> Links;
+
+			UEdGraphPin* TargetValuePin = FindPin(SetNode, TargetVarName, EGPD_Input);
+			if (!TargetValuePin)
+			{
+				RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+				BuildErrorResponse(OutResponse, TEXT("Failed to resolve target variable input pin"), TEXT("PIN_NOT_FOUND"));
+				return;
+			}
+
+			if (AssignmentKind.Equals(TEXT("literal"), ESearchCase::IgnoreCase))
+			{
+				TSharedPtr<FJsonValue> LiteralValue = (*Assignment)->TryGetField(TEXT("value"));
+				if (!TryApplyLiteralAssignmentDefault(TargetValuePin, LiteralValue, OutResponse))
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+					return;
+				}
+			}
+			else
+			{
+				GetNode = NewObject<UK2Node_VariableGet>(Graph);
+				if (!GetNode)
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+					BuildErrorResponse(OutResponse, TEXT("Failed to create variable get node"), TEXT("CREATE_FAILED"));
+					return;
+				}
+				GetNode->VariableReference.SetSelfMember(FName(*SourceVarName));
+				GetNode->NodePosX = NodePos.X - 240;
+				GetNode->NodePosY = NodePos.Y;
+				Graph->AddNode(GetNode);
+				GetNode->CreateNewGuid();
+				GetNode->PostPlacedNewNode();
+				GetNode->AllocateDefaultPins();
+				GetNode->ReconstructNode();
+
+				UEdGraphPin* SourceValuePin = FindPin(GetNode, SourceVarName, EGPD_Output);
+				if (!TryLinkPins(Graph, SourceValuePin, TargetValuePin, OutResponse))
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					return;
+				}
+				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("value"), GetNode, SourceValuePin, SetNode, TargetValuePin)));
+			}
+
+			const TSharedPtr<FJsonObject>* ExecFrom = nullptr;
+			if (Params->TryGetObjectField(TEXT("exec_from"), ExecFrom) && ExecFrom && ExecFrom->IsValid())
+			{
+				FString SourceNodeId, SourcePinName;
+				if (!(*ExecFrom)->TryGetStringField(TEXT("node_id"), SourceNodeId)
+					|| !(*ExecFrom)->TryGetStringField(TEXT("pin"), SourcePinName)
+					|| SourceNodeId.IsEmpty()
+					|| SourcePinName.IsEmpty())
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					BuildErrorResponse(OutResponse, TEXT("exec_from requires node_id and pin"), TEXT("MISSING_PARAMS"));
+					return;
+				}
+
+				UEdGraphNode* SourceExecNode = FindNodeByGuid(Graph, SourceNodeId);
+				if (!SourceExecNode)
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					BuildErrorResponse(OutResponse, TEXT("exec_from node not found"), TEXT("NODE_NOT_FOUND"));
+					return;
+				}
+
+				UEdGraphPin* SourceExecPin = FindPin(SourceExecNode, SourcePinName, EGPD_Output);
+				UEdGraphPin* TargetExecPin = FindPin(SetNode, TEXT("execute"), EGPD_Input);
+				if (!TryLinkPins(Graph, SourceExecPin, TargetExecPin, OutResponse))
+				{
+					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					return;
+				}
+				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("exec"), SourceExecNode, SourceExecPin, SetNode, TargetExecPin)));
+			}
+
+			bool bCompile = false;
+			Params->TryGetBoolField(TEXT("compile"), bCompile);
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			if (bCompile)
+			{
+				FKismetEditorUtilities::CompileBlueprint(Blueprint);
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Nodes;
+			if (GetNode)
+			{
+				Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("get"), GetNode, Graph)));
+			}
+			Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("set"), SetNode, Graph)));
+
+			TArray<TSharedPtr<FJsonValue>> Pins;
+			if (GetNode)
+			{
+				UEdGraphPin* SourceValuePin = FindPin(GetNode, SourceVarName, EGPD_Output);
+				Pins.Add(MakeShared<FJsonValueObject>(PinToJsonWithRole(TEXT("source_value"), SourceValuePin)));
+			}
+			Pins.Add(MakeShared<FJsonValueObject>(PinToJsonWithRole(TEXT("target_value"), TargetValuePin)));
+			if (UEdGraphPin* TargetExecPin = FindPin(SetNode, TEXT("execute"), EGPD_Input))
+			{
+				Pins.Add(MakeShared<FJsonValueObject>(PinToJsonWithRole(TEXT("exec_in"), TargetExecPin)));
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
+			Result->SetStringField(TEXT("target_variable"), TargetVarName);
+			Result->SetStringField(TEXT("assignment_kind"), AssignmentKind.ToLower());
+			if (!SourceVarName.IsEmpty())
+			{
+				Result->SetStringField(TEXT("source_variable"), SourceVarName);
+			}
+			Result->SetArrayField(TEXT("nodes"), Nodes);
+			Result->SetArrayField(TEXT("pins"), Pins);
+			Result->SetArrayField(TEXT("links"), Links);
+			Result->SetBoolField(TEXT("requires_compile"), !bCompile);
+			Result->SetBoolField(TEXT("compiled"), bCompile);
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleAddBlueprintControlNode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
@@ -1745,6 +2113,7 @@ namespace UEMCP
 		Registry.Register(TEXT("add_blueprint_function_graph"),                  &HandleAddBlueprintFunctionGraph);
 		Registry.Register(TEXT("add_blueprint_variable_get_node"),               &HandleAddBlueprintVariableGetNode);
 		Registry.Register(TEXT("add_blueprint_variable_set_node"),               &HandleAddBlueprintVariableSetNode);
+		Registry.Register(TEXT("add_blueprint_variable_assignment"),             &HandleAddBlueprintVariableAssignment);
 		Registry.Register(TEXT("add_blueprint_control_node"),                    &HandleAddBlueprintControlNode);
 		Registry.Register(TEXT("add_blueprint_math_node"),                       &HandleAddBlueprintMathNode);
 		Registry.Register(TEXT("add_blueprint_self_reference"),                  &HandleAddBlueprintSelfReference);

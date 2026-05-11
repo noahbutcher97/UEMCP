@@ -26,6 +26,21 @@ const Vec3 = z.array(z.number()).length(3).describe('[x, y, z]');
 const Vec3Optional = Vec3.optional();
 const Vec2Optional = z.array(z.number()).length(2).optional().describe('[x, y] graph position');
 const GraphNameOptional = z.string().optional().describe('Target graph name. Omit for EventGraph; pass a function graph name for function-body edits.');
+const AssignmentLiteralValue = z.union([z.number(), z.boolean(), z.string(), Vec3]);
+const VariableAssignment = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('literal'),
+    value: AssignmentLiteralValue.describe('Literal value for the target variable pin. Supports Number, Boolean, String, and Vector [x,y,z].'),
+  }),
+  z.object({
+    kind: z.literal('variable'),
+    source_variable: z.string().describe('Member variable to read and connect into the target variable set node.'),
+  }),
+]);
+const ExecFromOptional = z.object({
+  node_id: z.string().describe('Existing source node GUID'),
+  pin: z.string().describe('Existing source exec output pin name'),
+}).optional();
 
 // ── Wire-type map (populated by initBlueprintsWriteTools from tools.yaml) ──
 // tools.yaml `blueprints-write:` is the single source of truth (D44). Only
@@ -33,6 +48,9 @@ const GraphNameOptional = z.string().optional().describe('Target graph name. Omi
 // stored — identity mappings fall through via `toolName`.
 
 let BLUEPRINTS_WRITE_WIRE_MAP = {};
+const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
+  add_variable_assignment: 'add_blueprint_variable_assignment',
+};
 
 /**
  * Initialize wire_type map from parsed tools.yaml.
@@ -40,7 +58,7 @@ let BLUEPRINTS_WRITE_WIRE_MAP = {};
  * @param {object} toolsData — parsed tools.yaml root object
  */
 export function initBlueprintsWriteTools(toolsData) {
-  BLUEPRINTS_WRITE_WIRE_MAP = {};
+  BLUEPRINTS_WRITE_WIRE_MAP = { ...BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP };
   const toolset = toolsData?.toolsets?.['blueprints-write'];
   if (!toolset?.tools) return;
   for (const [name, def] of Object.entries(toolset.tools)) {
@@ -95,7 +113,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   compile_blueprint: {
-    description: 'Compile a Blueprint (does not report compile errors — see bp_compile_and_report for diagnostics)',
+    description: 'Compile a Blueprint and return diagnostic-quality lifecycle output: succeeded/compiled, error and warning counts, messages, generated-class status, dirty status, and package path.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
     },
@@ -201,6 +219,20 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
       params: z.record(z.any()).optional().describe('Default values for input pins, keyed by pin name'),
+    },
+    isReadOp: false,
+  },
+
+  add_variable_assignment: {
+    description: 'Add an ergonomic Blueprint variable assignment in a target graph. Supports target_variable = literal and target_variable = source_variable, optional exec wiring, node/pin/link metadata, and requires_compile.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      target_variable: z.string().describe('Member variable written by the assignment set node'),
+      assignment: VariableAssignment,
+      exec_from: ExecFromOptional,
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+      compile: z.boolean().optional().describe('If true, compile after authoring. Default false; response still reports requires_compile.'),
     },
     isReadOp: false,
   },

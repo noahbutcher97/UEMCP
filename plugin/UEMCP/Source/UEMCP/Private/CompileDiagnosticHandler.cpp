@@ -11,6 +11,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Logging/TokenizedMessage.h"
 #include "Misc/UObjectToken.h"
+#include "UObject/Package.h"
 
 namespace UEMCP
 {
@@ -100,6 +101,12 @@ namespace UEMCP
 				return;
 			}
 
+			BuildSuccessResponse(OutResponse, BuildBlueprintCompileDiagnosticResult(BP, BP->GetName()));
+		}
+	} // anonymous namespace
+
+	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name)
+	{
 			// Pre-compile: configure results log. bSilentMode=true keeps the compiler from spamming
 			// the Message Log UI; we capture what we need programmatically.
 			FCompilerResultsLog Results;
@@ -139,19 +146,33 @@ namespace UEMCP
 				}
 			}
 
+			const bool bCompiledOk = Errors.Num() == 0;
+			UPackage* Package = BP ? BP->GetOutermost() : nullptr;
+			UClass* GeneratedClass = BP && BP->GeneratedClass ? BP->GeneratedClass.Get() : nullptr;
+
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("name"), Name.IsEmpty() && BP ? BP->GetName() : Name);
 			Result->SetStringField(TEXT("asset_path"), BP->GetPathName());
+			Result->SetStringField(TEXT("package_path"), Package ? Package->GetName() : FString());
 			Result->SetArrayField(TEXT("errors"),      Errors);
 			Result->SetArrayField(TEXT("warnings"),    Warnings);
 			Result->SetArrayField(TEXT("notes"),       Notes);
 			Result->SetArrayField(TEXT("info"),        Info);
 			Result->SetNumberField(TEXT("num_errors"),   Errors.Num());
 			Result->SetNumberField(TEXT("num_warnings"), Warnings.Num());
-			Result->SetBoolField(TEXT("compiled_ok"),    Errors.Num() == 0);
+			Result->SetBoolField(TEXT("succeeded"),      bCompiledOk);
+			Result->SetBoolField(TEXT("compiled"),       bCompiledOk);
+			Result->SetBoolField(TEXT("compiled_ok"),    bCompiledOk);
+			Result->SetStringField(TEXT("generated_class_status"), GeneratedClass ? TEXT("valid") : TEXT("missing"));
+			if (GeneratedClass)
+			{
+				Result->SetStringField(TEXT("generated_class_path"), GeneratedClass->GetPathName());
+			}
+			Result->SetBoolField(TEXT("dirty_available"), Package != nullptr);
+			Result->SetBoolField(TEXT("dirty"), Package ? Package->IsDirty() : false);
 
-			BuildSuccessResponse(OutResponse, Result);
-		}
-	} // anonymous namespace
+			return Result;
+	}
 
 	void RegisterCompileDiagnosticHandlers(FMCPCommandRegistry& Registry)
 	{

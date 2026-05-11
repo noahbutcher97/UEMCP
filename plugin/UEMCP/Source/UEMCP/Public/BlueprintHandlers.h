@@ -35,6 +35,7 @@
  *   - add_blueprint_function_graph                (Function graph + FunctionEntry metadata)
  *   - add_blueprint_variable_get_node             (UK2Node_VariableGet for member variable)
  *   - add_blueprint_variable_set_node             (UK2Node_VariableSet for member variable)
+ *   - add_blueprint_variable_assignment           (literal/source variable assignment helper)
  *   - add_blueprint_control_node                  (Branch, Sequence, Return)
  *   - add_blueprint_math_node                     (KismetMathLibrary math/vector wrapper)
  *   - add_blueprint_self_reference                (UK2Node_Self)

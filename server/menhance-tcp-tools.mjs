@@ -113,6 +113,35 @@ export const MENHANCE_SCHEMAS = {
     isReadOp: false,
   },
 
+  get_pie_session_state: {
+    description: 'Report active PIE runtime worlds and context metadata for runtime observation',
+    schema: {},
+    // PIE session state is volatile — skip cache.
+    isReadOp: false,
+  },
+
+  get_pie_actor_state: {
+    description: 'Read actor transform, optional component transforms, and selected simple properties from a PIE runtime world',
+    schema: {
+      pie_instance: z.number().int().optional().describe('Optional PIE instance id; required when multiple PIE worlds are active unless world_path selects one'),
+      world_path: z.string().optional().describe('Optional PIE world path/name selector'),
+      actor_ref: z.object({
+        name: z.string().optional(),
+        label: z.string().optional(),
+        object_path: z.string().optional(),
+        editor_object_path: z.string().optional(),
+        level_name: z.string().optional(),
+      }).refine((ref) => Boolean(ref.name || ref.label || ref.object_path || ref.editor_object_path), {
+        message: 'actor_ref requires one of name, label, object_path, or editor_object_path',
+      }),
+      include_components: z.boolean().optional(),
+      component_filter: z.array(z.string()).optional(),
+      properties: z.array(z.string()).optional(),
+    },
+    // Runtime actor state is volatile — skip cache.
+    isReadOp: false,
+  },
+
   execute_console_command: {
     description: 'Run a console command in PIE or editor context',
     schema: {

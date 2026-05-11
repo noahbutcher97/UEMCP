@@ -46,6 +46,7 @@ const fakeToolsYaml = {
         add_function_graph:      { wire_type: 'add_blueprint_function_graph' },
         add_variable_get:        { wire_type: 'add_blueprint_variable_get_node' },
         add_variable_set:        { wire_type: 'add_blueprint_variable_set_node' },
+        add_variable_assignment: { wire_type: 'add_blueprint_variable_assignment' },
         add_control_node:        { wire_type: 'add_blueprint_control_node' },
         add_math_node:           { wire_type: 'add_blueprint_math_node' },
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
@@ -60,6 +61,27 @@ initBlueprintsWriteTools(fakeToolsYaml);
 
 const t = new TestRunner('M3-blueprints-write — TCP:55558 blueprints-write toolset');
 
+function compileDiagnosticResult(name = 'BP') {
+  return {
+    name,
+    asset_path: `/Game/Blueprints/${name}.${name}`,
+    package_path: `/Game/Blueprints/${name}`,
+    succeeded: true,
+    compiled: true,
+    compiled_ok: true,
+    num_errors: 0,
+    num_warnings: 0,
+    errors: [],
+    warnings: [],
+    notes: [],
+    info: [],
+    generated_class_status: 'valid',
+    generated_class_path: `/Game/Blueprints/${name}.${name}_C`,
+    dirty_available: true,
+    dirty: false,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Group 1: Tool definition completeness
 // ═══════════════════════════════════════════════════════════════
@@ -72,13 +94,13 @@ const expectedTools = [
   'compile_blueprint', 'set_blueprint_property',
   'set_static_mesh_props', 'set_physics_props', 'set_pawn_props',
   'add_event_node', 'add_function_node', 'add_variable',
-  'add_function_graph', 'add_variable_get', 'add_variable_set', 'add_control_node',
+  'add_function_graph', 'add_variable_get', 'add_variable_set', 'add_variable_assignment', 'add_control_node',
   'add_math_node',
   'add_self_reference', 'add_component_reference',
   'connect_nodes', 'find_nodes',
 ];
 
-t.assert(Object.keys(defs).length === 20, '20 blueprints-write tools defined');
+t.assert(Object.keys(defs).length === expectedTools.length, `${expectedTools.length} blueprints-write tools defined`);
 t.assert(defs === BLUEPRINTS_WRITE_SCHEMAS, 'getBlueprintsWriteToolDefs returns BLUEPRINTS_WRITE_SCHEMAS');
 
 for (const name of expectedTools) {
@@ -95,6 +117,8 @@ const writeOps = expectedTools.filter(n => n !== 'find_nodes');
 for (const name of writeOps) {
   t.assert(defs[name].isReadOp === false, `${name} is a write op`);
 }
+t.assert(/diagnostic-quality/i.test(defs.compile_blueprint.description),
+  'W-BP-Lifecycle: compile_blueprint description promises diagnostic-quality output');
 
 // ═══════════════════════════════════════════════════════════════
 // Group 2: Port routing — every tool dispatches to TCP:55558
@@ -109,7 +133,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('create_blueprint',                              { status: 'success', result: { name: 'BP_X', path: '/Game/Blueprints/BP_X' } });
   fake.on('add_component_to_blueprint',                    { status: 'success', result: { component_name: 'Mesh', component_type: 'StaticMesh' } });
   fake.on('set_component_property',                        { status: 'success', result: { component: 'Mesh', property: 'Mobility', success: true } });
-  fake.on('compile_blueprint',                             { status: 'success', result: { name: 'BP_X', compiled: true } });
+  fake.on('compile_blueprint',                             { status: 'success', result: compileDiagnosticResult('BP_X') });
   fake.on('set_blueprint_property',                        { status: 'success', result: { property: 'bHidden', success: true } });
   fake.on('set_static_mesh_properties',                    { status: 'success', result: { component: 'Mesh' } });
   fake.on('set_physics_properties',                        { status: 'success', result: { component: 'Mesh' } });
@@ -198,7 +222,7 @@ console.log('\n── Group 3: Wire-type Translation ──');
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
   fake.on('create_blueprint',       { status: 'success', result: { name: 'X', path: '/Game/Blueprints/X' } });
-  fake.on('compile_blueprint',      { status: 'success', result: { name: 'X', compiled: true } });
+  fake.on('compile_blueprint',      { status: 'success', result: compileDiagnosticResult('X') });
   fake.on('set_component_property', { status: 'success', result: { component: 'C', property: 'P', success: true } });
   fake.on('set_blueprint_property', { status: 'success', result: { property: 'P', success: true } });
 
@@ -260,10 +284,10 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     status: 'success',
     result: { component: 'Mesh', property: 'Mobility', success: true },
   });
-  // compile_blueprint: {name, compiled}
+  // compile_blueprint: diagnostic-quality lifecycle result
   fake.on('compile_blueprint', {
     status: 'success',
-    result: { name: 'BP_Player', compiled: true },
+    result: compileDiagnosticResult('BP_Player'),
   });
   // set_blueprint_property: {property, success}
   fake.on('set_blueprint_property', {
@@ -322,8 +346,29 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     'set_component_property result has {component, property, success} (oracle parity)');
 
   const r4 = await executeBlueprintsWriteTool('compile_blueprint', { blueprint_name: 'BP_Player' }, cm);
-  t.assert(r4.result.name === 'BP_Player' && r4.result.compiled === true,
-    'compile_blueprint result has {name, compiled:true} (oracle parity)');
+  t.assert(r4.result.name === 'BP_Player' && r4.result.succeeded === true && r4.result.compiled === true && r4.result.compiled_ok === true,
+    'W-BP-Lifecycle: compile_blueprint success result has truthful succeeded/compiled/compiled_ok fields');
+  t.assert(r4.result.num_errors === 0 && Array.isArray(r4.result.errors) && Array.isArray(r4.result.warnings),
+    'W-BP-Lifecycle: compile_blueprint success result includes diagnostic counts and message arrays');
+  t.assert(r4.result.generated_class_status === 'valid' && typeof r4.result.package_path === 'string' && typeof r4.result.dirty === 'boolean',
+    'W-BP-Lifecycle: compile_blueprint success result includes generated-class, package, and dirty status');
+
+  fake.on('compile_blueprint', {
+    status: 'success',
+    result: {
+      ...compileDiagnosticResult('BP_Player'),
+      succeeded: false,
+      compiled: false,
+      compiled_ok: false,
+      num_errors: 1,
+      errors: [{ message: 'Broken pin link', severity: 'Error', node_guid: 'ABCDEF' }],
+    },
+  });
+  const r4Fail = await executeBlueprintsWriteTool('compile_blueprint', { blueprint_name: 'BP_Player' }, cm);
+  t.assert(r4Fail.result.succeeded === false && r4Fail.result.compiled === false && r4Fail.result.compiled_ok === false,
+    'W-BP-Lifecycle: compile_blueprint compile errors are not normalized to compiled:true');
+  t.assert(r4Fail.result.num_errors === 1 && r4Fail.result.errors[0].message === 'Broken pin link',
+    'W-BP-Lifecycle: compile_blueprint failure result carries diagnostic error messages');
 
   const r5 = await executeBlueprintsWriteTool('set_blueprint_property',
     { blueprint_name: 'BP_Player', property_name: 'bHidden', property_value: true }, cm);
@@ -473,7 +518,7 @@ console.log('\n── Group 6: Caching ──');
   });
   fake.on('compile_blueprint', () => {
     calls++;
-    return { status: 'success', result: { name: 'BP', compiled: true } };
+    return { status: 'success', result: compileDiagnosticResult('BP') };
   });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
@@ -723,7 +768,7 @@ console.log('\n── Group 12: D109 — blueprints-write resolution surface ─
 {
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
-  fake.on('compile_blueprint', { status: 'success', result: { name: 'BP', compiled: true } });
+  fake.on('compile_blueprint', { status: 'success', result: compileDiagnosticResult('BP') });
   fake.on('add_blueprint_event_node', { status: 'success', result: { node_id: 'GUID-EV' } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);

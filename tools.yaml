@@ -851,18 +851,48 @@ toolsets:
     description: Animation creation and deep read — montages, sequences, blend spaces, curves
     tools:
       create_montage:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Create UAnimMontage from AnimSequence
         params:
           name:           { type: string, required: true }
           anim_sequence:  { type: string, required: true }
           path:           { type: string, required: false }
       add_montage_section:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Add named section to montage at specified time
         params:
           asset_path:    { type: string, required: true }
           section_name:  { type: string, required: true }
           time:          { type: number, required: true }
       add_montage_notify:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Add AnimNotify/AnimNotifyState at specified time
         params:
           asset_path:    { type: string, required: true }
@@ -910,6 +940,16 @@ toolsets:
     description: Material creation, parameter access, and graph read
     tools:
       create_material:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Create UMaterial with domain and blend mode
         params:
           name:       { type: string, required: true }
@@ -917,6 +957,16 @@ toolsets:
           domain:     { type: string, required: false }
           blend_mode: { type: string, required: false }
       create_material_instance:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
         description: Create UMaterialInstanceConstant from parent
         params:
           name:          { type: string, required: true }
@@ -1026,17 +1076,47 @@ toolsets:
     note: Splits into UEMCPInputCommands + UEMCPPIECommands at implementation time
     tools:
       create_input_action:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: false
+        offline_fallback: false
         description: Create UInputAction asset with value type
         params:
           name:       { type: string, required: true }
           value_type: { type: string, required: true }
           path:       { type: string, required: false }
       create_mapping_context:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: false
+        offline_fallback: false
         description: Create UInputMappingContext
         params:
           name: { type: string, required: true }
           path: { type: string, required: false }
       add_mapping:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: true
+        compiles_asset: false
+        offline_fallback: false
         description: Add key-to-action binding to mapping context
         params:
           context_path: { type: string, required: true }

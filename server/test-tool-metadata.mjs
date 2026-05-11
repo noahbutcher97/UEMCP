@@ -53,6 +53,16 @@ const REQUIRED_ANNOTATED_TOOLS = new Set([
   'delete_asset_safe',
   'get_asset_preview_render',
   'take_screenshot',
+
+  // Source-backed shipped live authoring tools.
+  'create_material',
+  'create_material_instance',
+  'create_input_action',
+  'create_mapping_context',
+  'add_mapping',
+  'create_montage',
+  'add_montage_section',
+  'add_montage_notify',
 ]);
 
 function collectTools(toolsData) {
@@ -194,6 +204,31 @@ for (const name of ['set_material_parameter', 'list_material_parameters', 'get_c
     `got ${record.def.transport_layer}`);
   t.assert(record.toolsetLayer !== record.def.transport_layer,
     `${name} documents user-facing toolset layer distinct from transport layer`);
+}
+
+console.log('\n── Source-backed live authoring metadata reflects persistence split ──');
+for (const name of ['create_material', 'create_material_instance', 'create_montage', 'add_montage_section', 'add_montage_notify']) {
+  const record = tools.get(name);
+  t.assert(record.def.availability_layer === 'tcp-55558',
+    `${name} availability_layer reflects plugin TCP dependency`,
+    `got ${record.def.availability_layer}`);
+  t.assert(record.def.requires_editor === true && record.def.requires_pie === false,
+    `${name} requires editor but not PIE`);
+  t.assert(record.def.mutates_asset === true && record.def.saves_asset === false,
+    `${name} mutates an asset but does not save it`,
+    `mutates_asset=${record.def.mutates_asset}, saves_asset=${record.def.saves_asset}`);
+}
+
+for (const name of ['create_input_action', 'create_mapping_context', 'add_mapping']) {
+  const record = tools.get(name);
+  t.assert(record.def.availability_layer === 'tcp-55558',
+    `${name} availability_layer reflects plugin TCP dependency`,
+    `got ${record.def.availability_layer}`);
+  t.assert(record.def.mutates_asset === true && record.def.saves_asset === true,
+    `${name} mutates and saves an Enhanced Input asset`,
+    `mutates_asset=${record.def.mutates_asset}, saves_asset=${record.def.saves_asset}`);
+  t.assert(record.def.compiles_asset === false && record.def.requires_pie === false,
+    `${name} does not compile assets or require PIE`);
 }
 
 process.exit(t.summary());

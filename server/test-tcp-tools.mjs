@@ -71,7 +71,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_component_reference', 'connect_nodes', 'find_nodes',
   ];
 
-  t.assert(Object.keys(defs).length === 20, '20 blueprints-write tools defined');
+  t.assert(Object.keys(defs).length === 21, '21 blueprints-write tools defined');
 
   for (const name of expectedBpTools) {
     t.assert(defs[name] !== undefined, `BP tool "${name}" is defined`);

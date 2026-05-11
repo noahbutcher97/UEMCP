@@ -8,19 +8,25 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/PanelWidget.h"
+#include "Components/SceneComponent.h"
 #include "Components/Widget.h"
 #include "EdGraph/EdGraph.h"
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/Blueprint.h"
+#include "Engine/Engine.h"
+#include "Engine/Level.h"
 #include "Engine/Selection.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "LevelEditorViewport.h"
+#include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
+#include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectIterator.h"
+#include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
 
 namespace UEMCP
@@ -192,6 +198,560 @@ namespace UEMCP
 		{
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetBoolField(TEXT("running"), GEditor && GEditor->IsPlaySessionInProgress());
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// ── PIE runtime observation ───────────────────────────
+
+		TArray<TSharedPtr<FJsonValue>> PIEVec3ToJson(const FVector& V)
+		{
+			TArray<TSharedPtr<FJsonValue>> Arr;
+			Arr.Add(MakeShared<FJsonValueNumber>(V.X));
+			Arr.Add(MakeShared<FJsonValueNumber>(V.Y));
+			Arr.Add(MakeShared<FJsonValueNumber>(V.Z));
+			return Arr;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> PIERotatorToJson(const FRotator& R)
+		{
+			TArray<TSharedPtr<FJsonValue>> Arr;
+			Arr.Add(MakeShared<FJsonValueNumber>(R.Pitch));
+			Arr.Add(MakeShared<FJsonValueNumber>(R.Yaw));
+			Arr.Add(MakeShared<FJsonValueNumber>(R.Roll));
+			return Arr;
+		}
+
+		TSharedPtr<FJsonObject> TransformToJson(const FTransform& Transform)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetArrayField(TEXT("location"), PIEVec3ToJson(Transform.GetLocation()));
+			Out->SetArrayField(TEXT("rotation"), PIERotatorToJson(Transform.Rotator()));
+			Out->SetArrayField(TEXT("scale"), PIEVec3ToJson(Transform.GetScale3D()));
+			return Out;
+		}
+
+		FString NetModeToString(ENetMode NetMode)
+		{
+			switch (NetMode)
+			{
+			case NM_Standalone: return TEXT("Standalone");
+			case NM_DedicatedServer: return TEXT("DedicatedServer");
+			case NM_ListenServer: return TEXT("ListenServer");
+			case NM_Client: return TEXT("Client");
+			default: return TEXT("Unknown");
+			}
+		}
+
+		TArray<FWorldContext*> GetActivePIEWorldContexts()
+		{
+			TArray<FWorldContext*> Contexts;
+			if (!GEngine)
+			{
+				return Contexts;
+			}
+			for (FWorldContext& Context : GEngine->GetWorldContexts())
+			{
+				if (Context.WorldType == EWorldType::PIE && Context.World())
+				{
+					Contexts.Add(&Context);
+				}
+			}
+			return Contexts;
+		}
+
+		TSharedPtr<FJsonObject> SerializePIEWorldContext(const FWorldContext& Context, bool bIsDefault)
+		{
+			UWorld* World = Context.World();
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetNumberField(TEXT("pie_instance"), Context.PIEInstance);
+			Out->SetStringField(TEXT("world_name"), World ? World->GetName() : TEXT(""));
+			Out->SetStringField(TEXT("world_path"), World ? World->GetPathName() : TEXT(""));
+			Out->SetStringField(TEXT("net_mode"), World ? NetModeToString(World->GetNetMode()) : TEXT("Unknown"));
+			Out->SetBoolField(TEXT("is_default"), bIsDefault);
+			return Out;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> SerializePIEWorldContexts(const TArray<FWorldContext*>& Contexts)
+		{
+			TArray<TSharedPtr<FJsonValue>> Out;
+			for (int32 Index = 0; Index < Contexts.Num(); ++Index)
+			{
+				if (Contexts[Index])
+				{
+					Out.Add(MakeShared<FJsonValueObject>(SerializePIEWorldContext(*Contexts[Index], Index == 0)));
+				}
+			}
+			return Out;
+		}
+
+		void HandleGetPIESessionState(const TSharedPtr<FJsonObject>& /*Params*/, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			const TArray<FWorldContext*> Contexts = GetActivePIEWorldContexts();
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
+			Result->SetNumberField(TEXT("active_context_count"), Contexts.Num());
+			Result->SetNumberField(TEXT("default_pie_instance"), Contexts.Num() > 0 && Contexts[0] ? Contexts[0]->PIEInstance : -1);
+			Result->SetArrayField(TEXT("contexts"), SerializePIEWorldContexts(Contexts));
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		bool SelectPIEWorld(
+			const TSharedPtr<FJsonObject>& Params,
+			UWorld*& OutWorld,
+			TSharedPtr<FJsonObject>& OutWorldJson,
+			TSharedPtr<FJsonObject>& OutErrorDetail,
+			FString& OutErrorCode,
+			FString& OutErrorMessage)
+		{
+			OutWorld = nullptr;
+			OutWorldJson = nullptr;
+			OutErrorDetail = nullptr;
+			OutErrorCode.Empty();
+			OutErrorMessage.Empty();
+
+			const TArray<FWorldContext*> Contexts = GetActivePIEWorldContexts();
+			if (Contexts.Num() == 0)
+			{
+				OutErrorDetail = MakeShared<FJsonObject>();
+				OutErrorDetail->SetBoolField(TEXT("pie_running"), false);
+				OutErrorDetail->SetArrayField(TEXT("contexts"), SerializePIEWorldContexts(Contexts));
+				OutErrorCode = TEXT("PIE_NOT_RUNNING");
+				OutErrorMessage = TEXT("PIE is not running; start PIE before reading runtime actor state");
+				return false;
+			}
+
+			bool bHasPIEInstance = false;
+			double PIEInstanceNumber = 0.0;
+			if (Params.IsValid())
+			{
+				bHasPIEInstance = Params->TryGetNumberField(TEXT("pie_instance"), PIEInstanceNumber);
+			}
+
+			FString WorldPath;
+			const bool bHasWorldPath = Params.IsValid() && Params->TryGetStringField(TEXT("world_path"), WorldPath) && !WorldPath.IsEmpty();
+
+			if (bHasPIEInstance)
+			{
+				const int32 RequestedPIEInstance = static_cast<int32>(PIEInstanceNumber);
+				for (FWorldContext* Context : Contexts)
+				{
+					if (Context && Context->PIEInstance == RequestedPIEInstance && Context->World())
+					{
+						OutWorld = Context->World();
+						OutWorldJson = SerializePIEWorldContext(*Context, Context == Contexts[0]);
+						return true;
+					}
+				}
+				OutErrorDetail = MakeShared<FJsonObject>();
+				OutErrorDetail->SetNumberField(TEXT("pie_instance"), RequestedPIEInstance);
+				OutErrorDetail->SetArrayField(TEXT("contexts"), SerializePIEWorldContexts(Contexts));
+				OutErrorCode = TEXT("PIE_WORLD_NOT_FOUND");
+				OutErrorMessage = FString::Printf(TEXT("PIE world instance %d was not found"), RequestedPIEInstance);
+				return false;
+			}
+
+			if (bHasWorldPath)
+			{
+				for (FWorldContext* Context : Contexts)
+				{
+					UWorld* World = Context ? Context->World() : nullptr;
+					if (!World)
+					{
+						continue;
+					}
+					if (World->GetPathName() == WorldPath || World->GetName() == WorldPath || FPackageName::GetShortName(World->GetPathName()) == WorldPath)
+					{
+						OutWorld = World;
+						OutWorldJson = SerializePIEWorldContext(*Context, Context == Contexts[0]);
+						return true;
+					}
+				}
+				OutErrorDetail = MakeShared<FJsonObject>();
+				OutErrorDetail->SetStringField(TEXT("world_path"), WorldPath);
+				OutErrorDetail->SetArrayField(TEXT("contexts"), SerializePIEWorldContexts(Contexts));
+				OutErrorCode = TEXT("PIE_WORLD_NOT_FOUND");
+				OutErrorMessage = FString::Printf(TEXT("PIE world '%s' was not found"), *WorldPath);
+				return false;
+			}
+
+			if (Contexts.Num() > 1)
+			{
+				OutErrorDetail = MakeShared<FJsonObject>();
+				OutErrorDetail->SetArrayField(TEXT("contexts"), SerializePIEWorldContexts(Contexts));
+				OutErrorCode = TEXT("AMBIGUOUS_PIE_WORLD");
+				OutErrorMessage = TEXT("Multiple PIE worlds are active; provide pie_instance or world_path");
+				return false;
+			}
+
+			OutWorld = Contexts[0]->World();
+			OutWorldJson = SerializePIEWorldContext(*Contexts[0], true);
+			return OutWorld != nullptr;
+		}
+
+		FString GetShortLevelName(AActor* Actor)
+		{
+			if (!Actor || !Actor->GetLevel())
+			{
+				return TEXT("");
+			}
+			return FPackageName::GetShortName(Actor->GetLevel()->GetOutermost()->GetName());
+		}
+
+		FString ActorNameFromObjectPath(const FString& ObjectPath)
+		{
+			FString Tail = ObjectPath;
+			int32 DotIdx = INDEX_NONE;
+			if (Tail.FindLastChar(TEXT('.'), DotIdx))
+			{
+				Tail = Tail.Mid(DotIdx + 1);
+			}
+			int32 ColonIdx = INDEX_NONE;
+			if (Tail.FindLastChar(TEXT(':'), ColonIdx))
+			{
+				Tail = Tail.Mid(ColonIdx + 1);
+			}
+			return Tail;
+		}
+
+		struct FRuntimeActorResolution
+		{
+			AActor* Actor = nullptr;
+			FString MatchedBy;
+			TArray<AActor*> AmbiguousCandidates;
+			TArray<FString> SearchedLevels;
+		};
+
+		FRuntimeActorResolution ResolveRuntimeActor(UWorld* World, const TSharedPtr<FJsonObject>& ActorRef)
+		{
+			FRuntimeActorResolution Result;
+			if (!World || !ActorRef.IsValid())
+			{
+				return Result;
+			}
+
+			FString Name;
+			FString Label;
+			FString ObjectPath;
+			FString EditorObjectPath;
+			FString LevelName;
+			ActorRef->TryGetStringField(TEXT("name"), Name);
+			ActorRef->TryGetStringField(TEXT("label"), Label);
+			ActorRef->TryGetStringField(TEXT("object_path"), ObjectPath);
+			ActorRef->TryGetStringField(TEXT("editor_object_path"), EditorObjectPath);
+			ActorRef->TryGetStringField(TEXT("level_name"), LevelName);
+
+			auto WalkActors = [&](TFunctionRef<void(AActor*)> Visitor)
+			{
+				for (ULevel* Level : World->GetLevels())
+				{
+					if (!Level)
+					{
+						continue;
+					}
+					const FString FullLevelName = Level->GetOutermost()->GetName();
+					const FString ShortLevelName = FPackageName::GetShortName(FullLevelName);
+					if (!LevelName.IsEmpty() && FullLevelName != LevelName && ShortLevelName != LevelName)
+					{
+						continue;
+					}
+					Result.SearchedLevels.AddUnique(ShortLevelName);
+					for (AActor* Actor : Level->Actors)
+					{
+						if (IsValid(Actor))
+						{
+							Visitor(Actor);
+						}
+					}
+				}
+			};
+
+			if (!ObjectPath.IsEmpty())
+			{
+				WalkActors([&](AActor* Actor)
+				{
+					if (!Result.Actor && Actor->GetPathName() == ObjectPath)
+					{
+						Result.Actor = Actor;
+						Result.MatchedBy = TEXT("object_path");
+					}
+				});
+				if (Result.Actor)
+				{
+					return Result;
+				}
+			}
+
+			auto MatchSingle = [&](const FString& Candidate, const FString& MatchKind)
+			{
+				if (Candidate.IsEmpty() || Result.Actor || Result.AmbiguousCandidates.Num() > 0)
+				{
+					return;
+				}
+				TArray<AActor*> Matches;
+				WalkActors([&](AActor* Actor)
+				{
+					if (MatchKind == TEXT("name") && Actor->GetName() == Candidate)
+					{
+						Matches.Add(Actor);
+					}
+					else if (MatchKind == TEXT("label") && Actor->GetActorLabel() == Candidate)
+					{
+						Matches.Add(Actor);
+					}
+				});
+				if (Matches.Num() == 1)
+				{
+					Result.Actor = Matches[0];
+					Result.MatchedBy = MatchKind;
+				}
+				else if (Matches.Num() > 1)
+				{
+					Result.AmbiguousCandidates = Matches;
+					Result.MatchedBy = MatchKind;
+				}
+			};
+
+			MatchSingle(Name, TEXT("name"));
+			MatchSingle(Label, TEXT("label"));
+			MatchSingle(ActorNameFromObjectPath(EditorObjectPath), TEXT("editor_object_path"));
+			return Result;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> ActorCandidatesToJson(const TArray<AActor*>& Actors)
+		{
+			TArray<TSharedPtr<FJsonValue>> Out;
+			for (AActor* Actor : Actors)
+			{
+				if (!IsValid(Actor))
+				{
+					continue;
+				}
+				TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+				Entry->SetStringField(TEXT("name"), Actor->GetName());
+				Entry->SetStringField(TEXT("label"), Actor->GetActorLabel());
+				Entry->SetStringField(TEXT("object_path"), Actor->GetPathName());
+				Entry->SetStringField(TEXT("level"), GetShortLevelName(Actor));
+				Out.Add(MakeShared<FJsonValueObject>(Entry));
+			}
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeResolvedActor(AActor* Actor, const FString& MatchedBy)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetStringField(TEXT("matched_by"), MatchedBy);
+			Out->SetStringField(TEXT("name"), Actor ? Actor->GetName() : TEXT(""));
+			Out->SetStringField(TEXT("label"), Actor ? Actor->GetActorLabel() : TEXT(""));
+			Out->SetStringField(TEXT("object_path"), Actor ? Actor->GetPathName() : TEXT(""));
+			Out->SetStringField(TEXT("class"), Actor && Actor->GetClass() ? Actor->GetClass()->GetPathName() : TEXT(""));
+			Out->SetStringField(TEXT("level"), GetShortLevelName(Actor));
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeSceneComponentState(USceneComponent* Component)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			if (!Component)
+			{
+				return Out;
+			}
+			Out->SetStringField(TEXT("name"), Component->GetName());
+			Out->SetStringField(TEXT("class"), Component->GetClass() ? Component->GetClass()->GetPathName() : TEXT(""));
+			Out->SetObjectField(TEXT("relative_transform"), TransformToJson(Component->GetRelativeTransform()));
+			Out->SetObjectField(TEXT("world_transform"), TransformToJson(Component->GetComponentTransform()));
+			return Out;
+		}
+
+		bool ComponentMatchesFilter(UActorComponent* Component, const TSet<FString>& Filter)
+		{
+			if (!Component)
+			{
+				return false;
+			}
+			return Filter.Num() == 0 || Filter.Contains(Component->GetName());
+		}
+
+		void SetSimplePropertyValue(TSharedPtr<FJsonObject> Out, UObject* Object, FProperty* Property)
+		{
+			if (!Out.IsValid() || !Object || !Property)
+			{
+				return;
+			}
+			const void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Object);
+			if (FNumericProperty* Numeric = CastField<FNumericProperty>(Property))
+			{
+				if (Numeric->IsInteger())
+				{
+					Out->SetNumberField(Property->GetName(), static_cast<double>(Numeric->GetSignedIntPropertyValue(ValuePtr)));
+				}
+				else
+				{
+					Out->SetNumberField(Property->GetName(), Numeric->GetFloatingPointPropertyValue(ValuePtr));
+				}
+			}
+			else if (FBoolProperty* Bool = CastField<FBoolProperty>(Property))
+			{
+				Out->SetBoolField(Property->GetName(), Bool->GetPropertyValue(ValuePtr));
+			}
+			else if (FStrProperty* Str = CastField<FStrProperty>(Property))
+			{
+				Out->SetStringField(Property->GetName(), Str->GetPropertyValue(ValuePtr));
+			}
+			else if (FNameProperty* Name = CastField<FNameProperty>(Property))
+			{
+				Out->SetStringField(Property->GetName(), Name->GetPropertyValue(ValuePtr).ToString());
+			}
+			else if (FTextProperty* Text = CastField<FTextProperty>(Property))
+			{
+				Out->SetStringField(Property->GetName(), Text->GetPropertyValue(ValuePtr).ToString());
+			}
+		}
+
+		TSharedPtr<FJsonObject> SerializeSelectedProperties(AActor* Actor, const TArray<TSharedPtr<FJsonValue>>* PropertyNames)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			if (!Actor || !PropertyNames)
+			{
+				return Out;
+			}
+			for (const TSharedPtr<FJsonValue>& Entry : *PropertyNames)
+			{
+				FString PropertyName;
+				if (!Entry.IsValid() || !Entry->TryGetString(PropertyName) || PropertyName.IsEmpty())
+				{
+					continue;
+				}
+				if (FProperty* Property = Actor->GetClass()->FindPropertyByName(FName(*PropertyName)))
+				{
+					SetSimplePropertyValue(Out, Actor, Property);
+				}
+			}
+			return Out;
+		}
+
+		void HandleGetPIEActorState(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			if (!Params.IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("get_pie_actor_state requires params.actor_ref"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			TSharedPtr<FJsonObject> ActorRef;
+			if (!Params->TryGetObjectField(TEXT("actor_ref"), ActorRef) || !ActorRef.IsValid())
+			{
+				BuildErrorResponse(OutResponse, TEXT("get_pie_actor_state requires params.actor_ref"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UWorld* World = nullptr;
+			TSharedPtr<FJsonObject> WorldJson;
+			TSharedPtr<FJsonObject> ErrorDetail;
+			FString ErrorCode;
+			FString ErrorMessage;
+			if (!SelectPIEWorld(Params, World, WorldJson, ErrorDetail, ErrorCode, ErrorMessage))
+			{
+				BuildErrorResponse(OutResponse, ErrorMessage, ErrorCode, ErrorDetail);
+				return;
+			}
+
+			const FRuntimeActorResolution Resolution = ResolveRuntimeActor(World, ActorRef);
+			if (Resolution.AmbiguousCandidates.Num() > 0)
+			{
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetObjectField(TEXT("world"), WorldJson);
+				Detail->SetStringField(TEXT("matched_by"), Resolution.MatchedBy);
+				Detail->SetArrayField(TEXT("candidates"), ActorCandidatesToJson(Resolution.AmbiguousCandidates));
+				BuildErrorResponse(OutResponse, TEXT("Multiple PIE actors match actor_ref"), TEXT("AMBIGUOUS_ACTOR"), Detail);
+				return;
+			}
+			if (!Resolution.Actor)
+			{
+				TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+				Detail->SetObjectField(TEXT("world"), WorldJson);
+				TArray<TSharedPtr<FJsonValue>> SearchedLevels;
+				for (const FString& Level : Resolution.SearchedLevels)
+				{
+					SearchedLevels.Add(MakeShared<FJsonValueString>(Level));
+				}
+				Detail->SetArrayField(TEXT("searched_levels"), SearchedLevels);
+				Detail->SetStringField(TEXT("world_context"), TEXT("pie"));
+				BuildErrorResponse(OutResponse, TEXT("Actor was not found in the selected PIE world"), TEXT("ACTOR_NOT_FOUND"), Detail);
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetObjectField(TEXT("world"), WorldJson);
+			Result->SetObjectField(TEXT("resolved"), SerializeResolvedActor(Resolution.Actor, Resolution.MatchedBy));
+			Result->SetObjectField(TEXT("transform"), TransformToJson(Resolution.Actor->GetActorTransform()));
+
+			if (USceneComponent* Root = Resolution.Actor->GetRootComponent())
+			{
+				Result->SetObjectField(TEXT("root_component"), SerializeSceneComponentState(Root));
+			}
+
+			bool bIncludeComponents = false;
+			Params->TryGetBoolField(TEXT("include_components"), bIncludeComponents);
+			const TArray<TSharedPtr<FJsonValue>>* ComponentFilterValues = nullptr;
+			Params->TryGetArrayField(TEXT("component_filter"), ComponentFilterValues);
+			TSet<FString> ComponentFilter;
+			if (ComponentFilterValues)
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *ComponentFilterValues)
+				{
+					FString ComponentName;
+					if (Value.IsValid() && Value->TryGetString(ComponentName) && !ComponentName.IsEmpty())
+					{
+						ComponentFilter.Add(ComponentName);
+					}
+				}
+			}
+
+			if (bIncludeComponents || ComponentFilter.Num() > 0)
+			{
+				TArray<TSharedPtr<FJsonValue>> Components;
+				TSet<FString> FoundFilteredComponents;
+				TArray<USceneComponent*> SceneComponents;
+				Resolution.Actor->GetComponents<USceneComponent>(SceneComponents);
+				for (USceneComponent* Component : SceneComponents)
+				{
+					if (!ComponentMatchesFilter(Component, ComponentFilter))
+					{
+						continue;
+					}
+					Components.Add(MakeShared<FJsonValueObject>(SerializeSceneComponentState(Component)));
+					FoundFilteredComponents.Add(Component->GetName());
+				}
+				if (ComponentFilter.Num() > 0)
+				{
+					TArray<TSharedPtr<FJsonValue>> Missing;
+					for (const FString& Requested : ComponentFilter)
+					{
+						if (!FoundFilteredComponents.Contains(Requested))
+						{
+							Missing.Add(MakeShared<FJsonValueString>(Requested));
+						}
+					}
+					if (Missing.Num() > 0)
+					{
+						TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+						Detail->SetObjectField(TEXT("world"), WorldJson);
+						Detail->SetObjectField(TEXT("resolved"), SerializeResolvedActor(Resolution.Actor, Resolution.MatchedBy));
+						Detail->SetArrayField(TEXT("missing_components"), Missing);
+						BuildErrorResponse(OutResponse, TEXT("Requested component was not found on the PIE actor"), TEXT("COMPONENT_NOT_FOUND"), Detail);
+						return;
+					}
+				}
+				Result->SetArrayField(TEXT("components"), Components);
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* PropertyNames = nullptr;
+			if (Params->TryGetArrayField(TEXT("properties"), PropertyNames))
+			{
+				Result->SetObjectField(TEXT("properties"), SerializeSelectedProperties(Resolution.Actor, PropertyNames));
+			}
+
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
@@ -381,6 +941,8 @@ namespace UEMCP
 		Registry.Register(TEXT("start_pie"),               &HandleStartPie);
 		Registry.Register(TEXT("stop_pie"),                &HandleStopPie);
 		Registry.Register(TEXT("is_pie_running"),          &HandleIsPieRunning);
+		Registry.Register(TEXT("get_pie_session_state"),   &HandleGetPIESessionState);
+		Registry.Register(TEXT("get_pie_actor_state"),     &HandleGetPIEActorState);
 		Registry.Register(TEXT("execute_console_command"), &HandleExecuteConsoleCommand);
 		Registry.Register(TEXT("get_widget_blueprint"),    &HandleGetWidgetBlueprint);
 		Registry.Register(TEXT("get_asset_references"),    &HandleGetAssetReferences);

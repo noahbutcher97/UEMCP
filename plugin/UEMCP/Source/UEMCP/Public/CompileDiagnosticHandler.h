@@ -4,6 +4,8 @@
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
 
+class UBlueprint;
+
 /**
  * bp_compile_and_report — Compile a Blueprint and capture the full
  * FCompilerResultsLog surface (errors + warnings + notes + info with
@@ -28,6 +30,12 @@
 namespace UEMCP
 {
 	class FMCPCommandRegistry;
+
+	/**
+	 * Compile a Blueprint and return the diagnostic/lifecycle payload shared by
+	 * bp_compile_and_report and blueprints-write.compile_blueprint.
+	 */
+	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name);
 
 	/** Adds compile-diagnostic handlers to the registry. Call pre-thread-create. */
 	void RegisterCompileDiagnosticHandlers(FMCPCommandRegistry& Registry);
