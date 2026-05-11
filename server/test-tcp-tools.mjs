@@ -29,7 +29,7 @@ const fakeToolsYaml = {
       tools: {
         create_blueprint: {},
         add_component: { wire_type: 'add_component_to_blueprint' },
-        set_component_property: {}, compile_blueprint: {}, set_blueprint_property: {},
+        set_component_property: {}, compile_blueprint: {}, compile_and_save_blueprint: {}, set_blueprint_property: {},
         set_static_mesh_props: { wire_type: 'set_static_mesh_properties' },
         set_physics_props: { wire_type: 'set_physics_properties' },
         set_pawn_props: { wire_type: 'set_pawn_properties' },
@@ -64,7 +64,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
   const defs = getBlueprintsWriteToolDefs();
   const expectedBpTools = [
     'create_blueprint', 'add_component', 'set_component_property',
-    'compile_blueprint', 'set_blueprint_property', 'set_static_mesh_props',
+    'compile_blueprint', 'compile_and_save_blueprint', 'set_blueprint_property', 'set_static_mesh_props',
     'set_physics_props', 'set_pawn_props', 'add_event_node',
     'add_function_node', 'add_variable', 'add_function_graph',
     'add_variable_get', 'add_variable_set', 'add_variable_assignment',
@@ -72,7 +72,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_component_reference', 'connect_nodes', 'find_nodes',
   ];
 
-  t.assert(Object.keys(defs).length === 21, '21 blueprints-write tools defined');
+  t.assert(Object.keys(defs).length === 22, '22 blueprints-write tools defined');
 
   for (const name of expectedBpTools) {
     t.assert(defs[name] !== undefined, `BP tool "${name}" is defined`);
@@ -87,6 +87,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
   t.assert(defs.create_blueprint.isReadOp === false, 'create_blueprint is a write op');
   t.assert(defs.add_component.isReadOp === false, 'add_component is a write op');
   t.assert(defs.compile_blueprint.isReadOp === false, 'compile_blueprint is a write op');
+  t.assert(defs.compile_and_save_blueprint.isReadOp === false, 'compile_and_save_blueprint is a write op');
   t.assert(defs.connect_nodes.isReadOp === false, 'connect_nodes is a write op');
   t.assert(defs.add_variable.isReadOp === false, 'add_variable is a write op');
 }
@@ -122,6 +123,7 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'create_blueprint': { status: 'success', result: { path: '/Game/Blueprints/MyBP' } },
     'set_component_property': { status: 'success', result: { success: true } },
     'compile_blueprint': { status: 'success', result: { success: true } },
+    'compile_and_save_blueprint': { status: 'success', result: { compiled_ok: true, saved: true, compile: { compiled_ok: true }, save: { saved: true } } },
     'set_blueprint_property': { status: 'success', result: { success: true } },
   };
 
@@ -191,6 +193,9 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
 
   await executeBlueprintsWriteTool('compile_blueprint', { blueprint_name: 'BP' }, cm);
   t.assert(fake.lastCall('compile_blueprint') !== undefined, 'compile_blueprint is identity-mapped');
+
+  await executeBlueprintsWriteTool('compile_and_save_blueprint', { blueprint_name: 'BP' }, cm);
+  t.assert(fake.lastCall('compile_and_save_blueprint') !== undefined, 'compile_and_save_blueprint is identity-mapped');
 
   await executeBlueprintsWriteTool('set_blueprint_property', { blueprint_name: 'BP', property_name: 'bCanBeDamaged', property_value: false }, cm);
   t.assert(fake.lastCall('set_blueprint_property') !== undefined, 'set_blueprint_property is identity-mapped');
