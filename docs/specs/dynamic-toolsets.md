@@ -32,7 +32,7 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `widgets` | 7 | TCP:55558 | Create UMG widgets, add elements, bind events |
 | `gas` | 4 | TCP:55558 | Create/modify GE, create GA, create AttributeSet |
 | `blueprint-read` | 8 | TCP:55558 | BP introspection (info, variables, functions, components, dispatchers), Widget BP, Niagara |
-| `asset-registry` | 2 | TCP:55558 | Live asset references and DataTable contents |
+| `asset-registry` | 2 | TCP:55558 | Live asset dependencies, referencers, reverse-dependency checks, and DataTable contents |
 | `materials` | 5 | TCP:55558 | Create material/instance, set parameters, list parameters, material graph read |
 | `animation` | 8 | TCP:55558 | Create montage, sections, notifies, anim sequence info, montage full read, blend space, anim curve data |
 | `data-assets` | 6 | TCP:55558 | Create/set/list data assets, curve assets, string tables, struct definitions |
@@ -83,7 +83,7 @@ This historical deduplication removed 6 redundant tools from the early v2 design
 
 **Tool verb handling**: `get`, `set`, `list`, `create`, `search`, `run` are NOT stop words — they participate in scoring at standard weight. This means `find_tools("create material")` correctly ranks `create_material` above `get_material_graph`.
 
-**Auto-enable behavior**: `find_tools` returns up to 15 matching tools. All parent toolsets of matches are automatically enabled. The response includes `toolsets_enabled: ["materials", "animation"]` so Claude knows what was activated. Server fires `tools/list_changed` notification.
+**Auto-enable behavior**: `find_tools` returns up to 15 matching tools. Parent toolsets of top direct matches are enabled, and one optional workflow bundle can add narrowly scoped companion toolsets. The response includes `toolsets_enabled`, `selectedBundle`, `directToolsets`, and `bundleToolsets` so Claude knows what was activated and why. Server fires `tools/list_changed` notification.
 
 **Accumulation**: Multiple `find_tools` calls accumulate enabled toolsets — previously enabled toolsets stay enabled unless explicitly disabled via `disable_toolset`. There is no hard cap on active toolsets, but `list_toolsets` warns when active tool count exceeds 40 (the empirical accuracy degradation threshold). Use `disable_toolset` to shed toolsets no longer needed.
 
@@ -108,7 +108,21 @@ Claude: enable_toolset("visual-capture")
 ```
 Claude: find_tools("gameplay tags config")
 → Enables: offline
-→ Active tools: 6 always + 10 = 16 tools
+→ Active tools: 6 always + 24 = 30 tools
+```
+
+**Asset impact analysis**:
+```
+Claude: find_tools("who uses this asset")
+→ Selects bundle: asset-impact-analysis
+→ Enables: asset-registry, offline
+```
+
+**Asset lifecycle mutation**:
+```
+Claude: find_tools("find referencers before deleting this asset")
+→ Selects bundle: asset-lifecycle
+→ Enables: editor-utility, asset-registry, offline
 ```
 
 **Context budget recovery** (mid-session):

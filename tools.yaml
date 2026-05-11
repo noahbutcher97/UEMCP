@@ -856,7 +856,8 @@ toolsets:
       # reduced_scope: reverse-reference queries via editor's IAssetRegistry::GetReferencers fast-path; forward-refs shipped offline
       # displaced_by: read_asset_properties (forward-ref subset via FSoftObjectPath walk)
       get_asset_references:
-        description: Dependency graph — what this asset references and what references it. Essential for impact analysis.
+        aliases: ["who uses this asset", "asset referencers", "reverse dependencies", "dependency impact analysis"]
+        description: Dependency graph — what this asset references and what references it. Returns dependencies and referencers for impact analysis, reverse-dependency checks, and safe delete planning.
         params:
           asset_path: { type: string, required: true }
       # reduced_scope: engine-struct-keyed DataTables + cooked/compiled DataTable access; UUserDefinedStruct rows shipped offline via D50 tagged-fallback

@@ -22,6 +22,8 @@ const WRITE_TOKENS = new Set([
   'set',
   'spawn',
   'write',
+  'deleted',
+  'deleting',
 ]);
 
 const READ_ONLY_TOKENS = new Set([
@@ -55,7 +57,13 @@ export const WORKFLOW_BUNDLES = [
     name: 'asset-lifecycle',
     toolsets: ['editor-utility', 'asset-registry', 'offline'],
     keywords: ['asset', 'assets', 'dependency', 'dependencies', 'reference', 'references', 'registry'],
-    writeKeywords: ['delete', 'duplicate', 'lifecycle', 'move', 'rename'],
+    writeKeywords: ['delete', 'deleted', 'deleting', 'duplicate', 'lifecycle', 'move', 'rename'],
+  },
+  {
+    name: 'asset-impact-analysis',
+    toolsets: ['asset-registry', 'offline'],
+    keywords: ['asset', 'assets', 'dependency', 'dependencies', 'reference', 'references', 'referencer', 'referencers', 'registry'],
+    readKeywords: ['affected', 'analysis', 'dependency', 'dependencies', 'impact', 'reference', 'references', 'referencer', 'referencers', 'used', 'uses', 'who'],
   },
   {
     name: 'material-authoring',
@@ -127,6 +135,13 @@ function scoreBundle(bundle, tokenSet, directToolsets, readOnly, query) {
     if (!(hasAsset && hasLifecycle) || readOnly) return 0;
   }
 
+  if (bundle.name === 'asset-impact-analysis') {
+    const hasAsset = hasAny(tokenSet, ['asset', 'assets']);
+    const hasImpact = hasAny(tokenSet, bundle.readKeywords);
+    const hasLifecycleWrite = hasAny(tokenSet, ['delete', 'deleted', 'deleting', 'duplicate', 'lifecycle', 'move', 'rename']);
+    if (!(hasAsset && hasImpact) || hasLifecycleWrite) return 0;
+  }
+
   if (bundle.name === 'material-authoring') {
     const hasMaterial = hasAny(tokenSet, ['material', 'materials', 'instance']);
     const hasAuthoring = hasAny(tokenSet, bundle.writeKeywords);
@@ -179,6 +194,8 @@ export function buildFindToolsEnablePlan(results, selectedBundle, directLimit = 
   for (const r of results) {
     if (r.toolsetName === 'management') continue;
     if (selectedBundle?.name === 'blueprint-static-audit' && r.toolsetName === 'blueprints-write') continue;
+    if (selectedBundle?.name === 'asset-impact-analysis'
+      && ['editor-utility', 'visual-capture'].includes(r.toolsetName)) continue;
     if (!toolsetBestScore[r.toolsetName] || r.score > toolsetBestScore[r.toolsetName]) {
       toolsetBestScore[r.toolsetName] = r.score;
     }

@@ -292,6 +292,7 @@ const bundleNames = WORKFLOW_BUNDLES.map(b => b.name);
 for (const expected of [
   'blueprint-authoring-live',
   'blueprint-static-audit',
+  'asset-impact-analysis',
   'asset-lifecycle',
   'material-authoring',
   'runtime-verification',
@@ -342,6 +343,35 @@ const assetBundle = selectWorkflowBundle(assetPrompt, toolIndex.search(assetProm
 assert(assetBundle?.name === 'asset-lifecycle',
   'asset lifecycle prompt selects asset-lifecycle bundle',
   `got ${assetBundle?.name || '(none)'}`);
+
+const assetImpactPrompt = 'What assets reference this asset and what dependencies would be affected?';
+const assetImpactResults = toolIndex.search(assetImpactPrompt);
+const assetImpactBundle = selectWorkflowBundle(assetImpactPrompt, assetImpactResults);
+assert(assetImpactBundle?.name === 'asset-impact-analysis',
+  'read-only asset reference prompt selects asset-impact-analysis bundle',
+  `got ${assetImpactBundle?.name || '(none)'}`);
+const assetImpactPlan = buildFindToolsEnablePlan(assetImpactResults, assetImpactBundle, 3);
+assert(assetImpactPlan.toolsetNames.includes('asset-registry'),
+  'asset impact analysis enables live asset-registry references');
+assert(assetImpactPlan.toolsetNames.includes('offline'),
+  'asset impact analysis enables offline bulk registry scan');
+assert(!assetImpactPlan.bundleToolsets.includes('editor-utility'),
+  'read-only asset impact bundle does not add editor-utility writes');
+assert(!assetImpactPlan.toolsetNames.includes('editor-utility'),
+  'read-only asset impact plan suppresses editor-utility direct matches');
+assert(!assetImpactPlan.toolsetNames.includes('visual-capture'),
+  'read-only asset impact plan suppresses unrelated visual direct matches');
+
+const whoUsesResults = toolIndex.search('who uses this asset', 5);
+assert(whoUsesResults[0]?.toolName === 'get_asset_references',
+  'who uses this asset ranks get_asset_references first',
+  `top=${whoUsesResults[0]?.toolsetName}.${whoUsesResults[0]?.toolName}`);
+
+const referencerDeletePrompt = 'Find referencers before deleting this asset';
+const referencerDeleteBundle = selectWorkflowBundle(referencerDeletePrompt, toolIndex.search(referencerDeletePrompt));
+assert(referencerDeleteBundle?.name === 'asset-lifecycle',
+  'referencer check before deleting asset selects asset-lifecycle bundle',
+  `got ${referencerDeleteBundle?.name || '(none)'}`);
 
 const materialPrompt = 'Create a material instance, set a color parameter, and capture a preview thumbnail';
 const materialBundle = selectWorkflowBundle(materialPrompt, toolIndex.search(materialPrompt));

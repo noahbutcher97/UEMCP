@@ -416,7 +416,7 @@ const TOOLSET_TIPS = {
 
   'asset-registry': {
     core: [
-      'get_asset_references returns {referencers, dependencies, num_*}. The referencers list answers "who uses this asset" — essential before delete_asset.',
+      'get_asset_references returns {referencers, dependencies, num_*}. The referencers list answers "who uses this asset"; dependencies answers "what does this asset use". Use it for reverse-dependency checks, impact analysis, and delete planning.',
       'Package-name normalization is automatic: accepts both object path (/Game/X.X_C) and package path (/Game/X); strips the object suffix internally.',
       'For broad queries (all assets of class X, path pattern globs), use offline query_asset_registry — it reads AssetRegistry.bin directly without editor.',
     ].join(' '),
