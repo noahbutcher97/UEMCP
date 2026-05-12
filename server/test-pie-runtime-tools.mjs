@@ -22,6 +22,7 @@ initMenhanceTools({
         get_pie_session_state: {},
         get_pie_actor_state: {},
         sample_pie_actor_state: {},
+        wait_for_pie_actor_stable: {},
       },
     },
   },
@@ -40,18 +41,24 @@ console.log('\n── W-BP-PIE Schema Surface ──');
     'get_pie_actor_state is published in tools.yaml input-and-pie');
   t.assert(inputPieTools.sample_pie_actor_state !== undefined,
     'sample_pie_actor_state is published in tools.yaml input-and-pie');
+  t.assert(inputPieTools.wait_for_pie_actor_stable !== undefined,
+    'wait_for_pie_actor_stable is published in tools.yaml input-and-pie');
   t.assert(MENHANCE_SCHEMAS.get_pie_session_state !== undefined,
     'get_pie_session_state schema exists');
   t.assert(MENHANCE_SCHEMAS.get_pie_actor_state !== undefined,
     'get_pie_actor_state schema exists');
   t.assert(MENHANCE_SCHEMAS.sample_pie_actor_state !== undefined,
     'sample_pie_actor_state schema exists');
+  t.assert(MENHANCE_SCHEMAS.wait_for_pie_actor_stable !== undefined,
+    'wait_for_pie_actor_stable schema exists');
   t.assert(defs.get_pie_session_state?.isReadOp === false,
     'get_pie_session_state bypasses cache because PIE state is volatile');
   t.assert(defs.get_pie_actor_state?.isReadOp === false,
     'get_pie_actor_state bypasses cache because PIE actor state is volatile');
   t.assert(defs.sample_pie_actor_state?.isReadOp === false,
     'sample_pie_actor_state bypasses cache because PIE state is volatile');
+  t.assert(defs.wait_for_pie_actor_stable?.isReadOp === false,
+    'wait_for_pie_actor_stable bypasses cache because PIE state is volatile');
 }
 
 console.log('\n── W-BP-PIE Routing and Params ──');
@@ -162,6 +169,148 @@ console.log('\n── W-BP-PIE Sampling Composite ──');
     'sample_pie_actor_state forwards include_components to underlying reads');
 }
 
+console.log('\n── W-BP-PIE Stable Wait Composite ──');
+
+{
+  let calls = 0;
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('get_pie_actor_state', () => {
+    calls++;
+    const z = calls < 2 ? 0 : 120;
+    return {
+      status: 'success',
+      result: {
+        world: { pie_instance: 0, world_name: 'UEDPIE_0_TestMap' },
+        resolved: { matched_by: 'name', name: 'Mover' },
+        transform: { location: [0, 0, z], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    };
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const stable = await executeMenhanceTool('wait_for_pie_actor_stable', {
+    actor_ref: { name: 'Mover' },
+    interval_ms: 1,
+    stable_samples: 2,
+    tolerance: 0.01,
+    timeout_ms: 200,
+  }, cm);
+  t.assert(stable.stable === true,
+    'wait_for_pie_actor_stable reports stable:true');
+  t.assert(stable.final.result.transform.location[2] === 120,
+    'wait_for_pie_actor_stable returns final stable state');
+  t.assert(fake.callsFor('wait_for_pie_actor_stable').length === 0,
+    'wait_for_pie_actor_stable is Node-composed, not a C++ wire command');
+  t.assert(fake.callsFor('get_pie_actor_state').length === 3,
+    'wait_for_pie_actor_stable waits for consecutive stable samples');
+  t.assert(fake.lastCall('get_pie_actor_state').params.actor_ref.name === 'Mover',
+    'wait_for_pie_actor_stable forwards actor_ref to underlying reads');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('get_pie_actor_state', {
+    status: 'success',
+    result: {
+      resolved: { matched_by: 'name', name: 'AlreadyStable' },
+      transform: { location: [10, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const stable = await executeMenhanceTool('wait_for_pie_actor_stable', {
+    actor_ref: { name: 'AlreadyStable' },
+    interval_ms: 1,
+    stable_samples: 2,
+    tolerance: 0.01,
+    timeout_ms: 200,
+  }, cm);
+
+  t.assert(stable.sample_count === 2,
+    'wait_for_pie_actor_stable succeeds after requested consecutive stable samples');
+  t.assert(fake.callsFor('get_pie_actor_state').every(call => call.timeoutMs > 0 && call.timeoutMs <= 200),
+    'wait_for_pie_actor_stable gives each underlying read a remaining timeout budget');
+}
+
+{
+  let calls = 0;
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('get_pie_actor_state', () => {
+    calls++;
+    return {
+      status: 'success',
+      result: {
+        resolved: { matched_by: 'name', name: 'MovingActor' },
+        transform: { location: [calls, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    };
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  try {
+    await executeMenhanceTool('wait_for_pie_actor_stable', {
+      actor_ref: { name: 'MovingActor' },
+      interval_ms: 1,
+      stable_samples: 2,
+      tolerance: 0.01,
+      timeout_ms: 4,
+    }, cm);
+    t.assert(false, 'wait_for_pie_actor_stable rejects when the actor never stabilizes');
+  } catch (e) {
+    t.assert(e.code === 'PIE_ACTOR_NOT_STABLE',
+      'wait_for_pie_actor_stable timeout uses PIE_ACTOR_NOT_STABLE code',
+      `got: ${e.code || e.message}`);
+    t.assert(e.detail?.sample_count > 0,
+      'wait_for_pie_actor_stable timeout includes sample detail');
+    t.assert(e.detail?.last?.result?.transform?.location?.[0] > 0,
+      'wait_for_pie_actor_stable timeout includes last observed response');
+  }
+}
+
+{
+  let calls = 0;
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('get_pie_actor_state', () => {
+    calls++;
+    return {
+      status: 'success',
+      result: {
+        resolved: { matched_by: 'name', name: 'SlowActor' },
+        transform: { location: [calls, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      },
+    };
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  try {
+    await executeMenhanceTool('wait_for_pie_actor_stable', {
+      actor_ref: { name: 'SlowActor' },
+      interval_ms: 20,
+      stable_samples: 2,
+      tolerance: 0.01,
+      timeout_ms: 5,
+    }, cm);
+    t.assert(false, 'wait_for_pie_actor_stable rejects before sleeping past timeout');
+  } catch (e) {
+    t.assert(e.code === 'PIE_ACTOR_NOT_STABLE',
+      'wait_for_pie_actor_stable interval>timeout uses PIE_ACTOR_NOT_STABLE code');
+    t.assert(fake.callsFor('get_pie_actor_state').length === 1,
+      'wait_for_pie_actor_stable does not issue a second read after timeout deadline');
+  }
+}
+
 console.log('\n── W-BP-PIE Typed Error Propagation ──');
 
 {
@@ -262,6 +411,21 @@ console.log('\n── W-BP-PIE Validation ──');
     }, cm),
     /duration_ms/,
     'sample_pie_actor_state rejects negative duration_ms'
+  );
+
+  await t.assertRejects(
+    () => executeMenhanceTool('wait_for_pie_actor_stable', {}, cm),
+    /actor_ref/,
+    'wait_for_pie_actor_stable requires actor_ref'
+  );
+
+  await t.assertRejects(
+    () => executeMenhanceTool('wait_for_pie_actor_stable', {
+      actor_ref: { name: 'MovingActor' },
+      stable_samples: 0,
+    }, cm),
+    /stable_samples/,
+    'wait_for_pie_actor_stable rejects nonpositive stable_samples'
   );
 }
 

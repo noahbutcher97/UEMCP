@@ -170,6 +170,36 @@ export const MENHANCE_SCHEMAS = {
     isReadOp: false,
   },
 
+  wait_for_pie_actor_stable: {
+    description: 'Wait until repeated uncached PIE actor runtime reads show a stable transform without blocking the editor game thread',
+    schema: {
+      pie_instance: z.number().int().optional().describe('Optional PIE instance id; required when multiple PIE worlds are active unless world_path selects one'),
+      world_path: z.string().optional().describe('Optional PIE world path/name selector'),
+      actor_ref: z.object({
+        name: z.string().optional(),
+        label: z.string().optional(),
+        object_path: z.string().optional(),
+        editor_object_path: z.string().optional(),
+        level_name: z.string().optional(),
+      }).refine((ref) => Boolean(ref.name || ref.label || ref.object_path || ref.editor_object_path), {
+        message: 'actor_ref requires one of name, label, object_path, or editor_object_path',
+      }),
+      include_components: z.boolean().optional(),
+      component_filter: z.array(z.string()).optional(),
+      properties: z.array(z.string()).optional(),
+      interval_ms: z.number().int().min(1).max(5000).optional()
+        .describe('Delay between samples in milliseconds (default 100)'),
+      stable_samples: z.number().int().min(1).max(100).optional()
+        .describe('Consecutive transform samples required within tolerance (default 2)'),
+      tolerance: z.number().min(0).max(100000).optional()
+        .describe('Maximum absolute component delta for location, rotation, and scale (default 0.01)'),
+      timeout_ms: z.number().int().min(1).max(120000).optional()
+        .describe('Maximum wait in milliseconds before PIE_ACTOR_NOT_STABLE (default 5000)'),
+    },
+    // Runtime actor state is volatile — skip cache.
+    isReadOp: false,
+  },
+
   execute_console_command: {
     description: 'Run a console command in PIE or editor context',
     schema: {
@@ -425,6 +455,34 @@ function vectorDelta(first, last, key) {
   return [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
 }
 
+function transformDelta(first, last) {
+  const deltas = {
+    location: vectorDelta(first, last, 'location'),
+    rotation: vectorDelta(first, last, 'rotation'),
+    scale: vectorDelta(first, last, 'scale'),
+  };
+  const max_abs = {};
+  let complete = true;
+
+  for (const [key, delta] of Object.entries(deltas)) {
+    if (!Array.isArray(delta)) {
+      max_abs[key] = null;
+      complete = false;
+      continue;
+    }
+    max_abs[key] = Math.max(...delta.map((v) => Math.abs(v)));
+  }
+
+  return { ...deltas, max_abs, complete };
+}
+
+function isStableDelta(delta, tolerance) {
+  return delta.complete
+    && delta.max_abs.location <= tolerance
+    && delta.max_abs.rotation <= tolerance
+    && delta.max_abs.scale <= tolerance;
+}
+
 async function samplePIEActorState(validated, connectionManager) {
   const {
     duration_ms = 500,
@@ -476,6 +534,94 @@ async function samplePIEActorState(validated, connectionManager) {
   };
 }
 
+async function waitForPIEActorStable(validated, connectionManager) {
+  const {
+    interval_ms = 100,
+    stable_samples = 2,
+    tolerance = 0.01,
+    timeout_ms = 5000,
+    ...actorStateParams
+  } = validated;
+  const started = Date.now();
+  const deadline = started + timeout_ms;
+  let previous = null;
+  let last = null;
+  let lastDelta = null;
+  let stableRun = 0;
+  let sampleCount = 0;
+
+  const throwNotStable = () => {
+    const detail = {
+      sample_count: sampleCount,
+      elapsed_ms: Date.now() - started,
+      requested_interval_ms: interval_ms,
+      requested_stable_samples: stable_samples,
+      tolerance,
+      timeout_ms,
+      last,
+      last_delta: lastDelta,
+    };
+    const error = new Error(`PIE_ACTOR_NOT_STABLE: actor transform did not stabilize within ${timeout_ms}ms`);
+    error.code = 'PIE_ACTOR_NOT_STABLE';
+    error.detail = detail;
+    error.response = {
+      status: 'error',
+      code: 'PIE_ACTOR_NOT_STABLE',
+      error: error.message,
+      detail,
+    };
+    throw error;
+  };
+
+  for (;;) {
+    if (Date.now() >= deadline) {
+      throwNotStable();
+    }
+
+    if (sampleCount > 0) {
+      const targetTime = started + (sampleCount * interval_ms);
+      const sleepMs = Math.max(0, targetTime - Date.now());
+      const remainingBeforeSleep = deadline - Date.now();
+      if (sleepMs >= remainingBeforeSleep) {
+        throwNotStable();
+      }
+      if (sleepMs > 0) {
+        await delay(sleepMs);
+      }
+      if (Date.now() >= deadline) {
+        throwNotStable();
+      }
+    }
+
+    const remainingForSend = Math.max(1, deadline - Date.now());
+    last = await connectionManager.send(
+      'tcp-55558',
+      'get_pie_actor_state',
+      actorStateParams,
+      { skipCache: true, timeoutMs: remainingForSend },
+    );
+    sampleCount++;
+
+    if (previous) {
+      lastDelta = transformDelta(previous, last);
+      stableRun = isStableDelta(lastDelta, tolerance) ? stableRun + 1 : 1;
+    } else {
+      stableRun = 1;
+    }
+
+    if (stableRun >= stable_samples) {
+      return {
+        stable: true,
+        sample_count: sampleCount,
+        elapsed_ms: Date.now() - started,
+        final: last,
+      };
+    }
+
+    previous = last;
+  }
+}
+
 /**
  * Dispatch an M-enhance TCP tool call.
  *
@@ -499,6 +645,10 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
 
   if (toolName === 'sample_pie_actor_state') {
     return samplePIEActorState(validated, connectionManager);
+  }
+
+  if (toolName === 'wait_for_pie_actor_stable') {
+    return waitForPIEActorStable(validated, connectionManager);
   }
 
   // PARTIAL-RC path: internal substrate + client transform.
