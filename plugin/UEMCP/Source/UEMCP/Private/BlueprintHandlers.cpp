@@ -34,6 +34,7 @@
 #include "K2Node_Self.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Materials/MaterialInterface.h"
@@ -196,6 +197,19 @@ namespace UEMCP
 			for (UEdGraph* Graph : Blueprint->DelegateSignatureGraphs)
 			{
 				if (MatchGraph(Graph)) return Graph;
+			}
+			return nullptr;
+		}
+
+		UEdGraph* FindFunctionGraphByName(UBlueprint* Blueprint, const FString& GraphName)
+		{
+			if (!Blueprint) return nullptr;
+			for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+			{
+				if (Graph && Graph->GetName().Equals(GraphName, ESearchCase::IgnoreCase))
+				{
+					return Graph;
+				}
 			}
 			return nullptr;
 		}
@@ -795,6 +809,172 @@ namespace UEMCP
 					{
 						return Ev;
 					}
+				}
+			}
+			return nullptr;
+		}
+
+		UEdGraphPin* FindFirstNonExecPin(UEdGraphNode* Node, EEdGraphPinDirection Direction)
+		{
+			if (!Node) return nullptr;
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (Pin && Pin->Direction == Direction && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+				{
+					return Pin;
+				}
+			}
+			return nullptr;
+		}
+
+		UEdGraphPin* FindInputPinByNames(UEdGraphNode* Node, const TArray<FString>& PinNames)
+		{
+			for (const FString& PinName : PinNames)
+			{
+				if (UEdGraphPin* Pin = FindPin(Node, PinName, EGPD_Input))
+				{
+					return Pin;
+				}
+			}
+			return nullptr;
+		}
+
+		void SetStringPinDefault(UEdGraphNode* Node, const TArray<FString>& PinNames, const FString& Value)
+		{
+			if (UEdGraphPin* Pin = FindInputPinByNames(Node, PinNames))
+			{
+				Pin->DefaultValue = Value;
+			}
+		}
+
+		void SetNumberPinDefault(UEdGraphNode* Node, const TArray<FString>& PinNames, double Value)
+		{
+			if (UEdGraphPin* Pin = FindInputPinByNames(Node, PinNames))
+			{
+				Pin->DefaultValue = FString::SanitizeFloat(Value);
+			}
+		}
+
+		void SetBoolPinDefault(UEdGraphNode* Node, const TArray<FString>& PinNames, bool bValue)
+		{
+			if (UEdGraphPin* Pin = FindInputPinByNames(Node, PinNames))
+			{
+				Pin->DefaultValue = bValue ? TEXT("true") : TEXT("false");
+			}
+		}
+
+		UEdGraph* ResolveOrCreateFunctionGraph(UBlueprint* Blueprint, const FString& FunctionName,
+			bool bCreateIfMissing, bool& bCreated, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			bCreated = false;
+			if (UEdGraph* Existing = FindFunctionGraphByName(Blueprint, FunctionName))
+			{
+				return Existing;
+			}
+
+			if (FindGraphByName(Blueprint, FunctionName))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Callback graph is not a function graph: %s"), *FunctionName),
+					TEXT("CALLBACK_GRAPH_NOT_FUNCTION"));
+				return nullptr;
+			}
+
+			if (!bCreateIfMissing)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Callback function graph not found: %s"), *FunctionName),
+					TEXT("CALLBACK_GRAPH_NOT_FOUND"));
+				return nullptr;
+			}
+
+			UEdGraph* FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(
+				Blueprint,
+				FName(*FunctionName),
+				UEdGraph::StaticClass(),
+				UEdGraphSchema_K2::StaticClass());
+			if (!FunctionGraph)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create callback function graph"), TEXT("CREATE_FAILED"));
+				return nullptr;
+			}
+			FBlueprintEditorUtils::AddFunctionGraph<UClass>(Blueprint, FunctionGraph, false, nullptr);
+			bCreated = true;
+			return FunctionGraph;
+		}
+
+		UK2Node_Event* FindOrCreateReceiveBeginPlay(UBlueprint* Blueprint, UEdGraph* EventGraph,
+			bool& bCreated, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			bCreated = false;
+			if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, TEXT("ReceiveBeginPlay")))
+			{
+				return Existing;
+			}
+
+			UK2Node_Event* BeginPlay = NewObject<UK2Node_Event>(EventGraph);
+			if (!BeginPlay)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create ReceiveBeginPlay node"), TEXT("CREATE_FAILED"));
+				return nullptr;
+			}
+
+			UFunction* EventFunc = Blueprint && Blueprint->GeneratedClass
+				? Blueprint->GeneratedClass->FindFunctionByName(TEXT("ReceiveBeginPlay"))
+				: nullptr;
+			if (EventFunc)
+			{
+				BeginPlay->EventReference.SetFromField<UFunction>(EventFunc, true);
+			}
+			else
+			{
+				BeginPlay->EventReference.SetExternalMember(TEXT("ReceiveBeginPlay"), AActor::StaticClass());
+			}
+			BeginPlay->bOverrideFunction = true;
+			BeginPlay->NodePosX = 0;
+			BeginPlay->NodePosY = 0;
+			EventGraph->AddNode(BeginPlay);
+			BeginPlay->CreateNewGuid();
+			BeginPlay->PostPlacedNewNode();
+			BeginPlay->AllocateDefaultPins();
+			bCreated = true;
+			return BeginPlay;
+		}
+
+		void RollbackTimerAuthoring(UBlueprint* Blueprint, UEdGraph* CallbackGraph, bool bFunctionGraphCreated,
+			UK2Node_Event* BeginPlayNode, bool bBeginPlayCreated, UK2Node_Self* SelfNode, UK2Node_CallFunction* TimerNode)
+		{
+			if (SelfNode)
+			{
+				FBlueprintEditorUtils::RemoveNode(Blueprint, SelfNode, true);
+			}
+			if (TimerNode)
+			{
+				FBlueprintEditorUtils::RemoveNode(Blueprint, TimerNode, true);
+			}
+			if (BeginPlayNode && bBeginPlayCreated)
+			{
+				FBlueprintEditorUtils::RemoveNode(Blueprint, BeginPlayNode, true);
+			}
+			if (CallbackGraph && bFunctionGraphCreated)
+			{
+				FBlueprintEditorUtils::RemoveGraph(Blueprint, CallbackGraph);
+			}
+		}
+
+		UFunction* ResolveK2SetTimerFunction()
+		{
+			UClass* KismetSystemClass = UKismetSystemLibrary::StaticClass();
+			if (!KismetSystemClass) return nullptr;
+			if (UFunction* Function = KismetSystemClass->FindFunctionByName(TEXT("K2_SetTimer")))
+			{
+				return Function;
+			}
+			for (TFieldIterator<UFunction> It(KismetSystemClass); It; ++It)
+			{
+				if (It->GetName().Equals(TEXT("K2_SetTimer"), ESearchCase::IgnoreCase))
+				{
+					return *It;
 				}
 			}
 			return nullptr;
@@ -2103,6 +2283,192 @@ namespace UEMCP
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
+		void HandleAddBlueprintTimer(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString BPName;
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse, &BPName);
+			if (!Blueprint) return;
+
+			FString CallbackFunction;
+			if (!Params->TryGetStringField(TEXT("callback_function"), CallbackFunction) || CallbackFunction.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'callback_function' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			double Interval = 0.0;
+			if (!Params->TryGetNumberField(TEXT("interval"), Interval) || Interval <= 0.0)
+			{
+				BuildErrorResponse(OutResponse, TEXT("'interval' must be a positive number"), TEXT("INVALID_INTERVAL"));
+				return;
+			}
+
+			bool bLooping = true;
+			Params->TryGetBoolField(TEXT("looping"), bLooping);
+			bool bCreateCallbackGraph = true;
+			Params->TryGetBoolField(TEXT("create_callback_graph"), bCreateCallbackGraph);
+			bool bInsertOnBeginPlay = true;
+			Params->TryGetBoolField(TEXT("insert_on_begin_play"), bInsertOnBeginPlay);
+			bool bCompile = false;
+			Params->TryGetBoolField(TEXT("compile"), bCompile);
+
+			UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+			if (!EventGraph)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
+				return;
+			}
+
+			bool bFunctionGraphCreated = false;
+			UEdGraph* CallbackGraph = ResolveOrCreateFunctionGraph(
+				Blueprint,
+				CallbackFunction,
+				bCreateCallbackGraph,
+				bFunctionGraphCreated,
+				OutResponse);
+			if (!CallbackGraph) return;
+
+			UFunction* TimerFunction = ResolveK2SetTimerFunction();
+			if (!TimerFunction)
+			{
+				RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, nullptr, nullptr);
+				BuildErrorResponse(OutResponse,
+					TEXT("UKismetSystemLibrary::K2_SetTimer was not found"),
+					TEXT("TIMER_FUNCTION_NOT_FOUND"));
+				return;
+			}
+
+			UK2Node_CallFunction* TimerNode = NewObject<UK2Node_CallFunction>(EventGraph);
+			if (!TimerNode)
+			{
+				RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, nullptr, nullptr);
+				BuildErrorResponse(OutResponse, TEXT("Failed to create SetTimer function call node"), TEXT("CREATE_FAILED"));
+				return;
+			}
+			TimerNode->FunctionReference.SetExternalMember(TimerFunction->GetFName(), TimerFunction->GetOwnerClass());
+			TimerNode->NodePosX = 320;
+			TimerNode->NodePosY = 0;
+			EventGraph->AddNode(TimerNode);
+			TimerNode->CreateNewGuid();
+			TimerNode->PostPlacedNewNode();
+			TimerNode->AllocateDefaultPins();
+			TimerNode->ReconstructNode();
+
+			SetStringPinDefault(TimerNode, { TEXT("FunctionName"), TEXT("Function Name") }, CallbackFunction);
+			SetNumberPinDefault(TimerNode, { TEXT("Time"), TEXT("Interval") }, Interval);
+			SetBoolPinDefault(TimerNode, { TEXT("bLooping"), TEXT("Looping") }, bLooping);
+
+			TArray<TSharedPtr<FJsonValue>> Links;
+			TArray<TSharedPtr<FJsonValue>> Nodes;
+			UK2Node_Event* BeginPlayNode = nullptr;
+			UK2Node_Self* SelfNode = nullptr;
+			bool bBeginPlayCreated = false;
+
+			UEdGraphPin* ObjectPin = FindInputPinByNames(TimerNode, { TEXT("Object") });
+			if (ObjectPin)
+			{
+				SelfNode = NewObject<UK2Node_Self>(EventGraph);
+				if (!SelfNode)
+				{
+					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, nullptr, TimerNode);
+					BuildErrorResponse(OutResponse, TEXT("Failed to create Self node for timer object"), TEXT("CREATE_FAILED"));
+					return;
+				}
+				SelfNode->NodePosX = 80;
+				SelfNode->NodePosY = 120;
+				EventGraph->AddNode(SelfNode);
+				SelfNode->CreateNewGuid();
+				SelfNode->PostPlacedNewNode();
+				SelfNode->AllocateDefaultPins();
+
+				UEdGraphPin* SelfPin = FindFirstNonExecPin(SelfNode, EGPD_Output);
+				if (!TryLinkPins(EventGraph, SelfPin, ObjectPin, OutResponse))
+				{
+					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, SelfNode, TimerNode);
+					return;
+				}
+				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("timer_object"), SelfNode, SelfPin, TimerNode, ObjectPin)));
+			}
+
+			if (bInsertOnBeginPlay)
+			{
+				BeginPlayNode = FindOrCreateReceiveBeginPlay(Blueprint, EventGraph, bBeginPlayCreated, OutResponse);
+				if (!BeginPlayNode)
+				{
+					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
+					return;
+				}
+				UEdGraphPin* SourceExecPin = FindPin(BeginPlayNode, TEXT("then"), EGPD_Output);
+				UEdGraphPin* TargetExecPin = FindPin(TimerNode, TEXT("execute"), EGPD_Input);
+				if (!TryLinkPins(EventGraph, SourceExecPin, TargetExecPin, OutResponse))
+				{
+					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
+					return;
+				}
+				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("exec"), BeginPlayNode, SourceExecPin, TimerNode, TargetExecPin)));
+				Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("begin_play"), BeginPlayNode, EventGraph)));
+			}
+
+			if (SelfNode)
+			{
+				Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("self"), SelfNode, EventGraph)));
+			}
+			Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("timer"), TimerNode, EventGraph)));
+
+			TArray<UK2Node_FunctionEntry*> EntryNodes;
+			CallbackGraph->GetNodesOfClass<UK2Node_FunctionEntry>(EntryNodes);
+			if (EntryNodes.Num() > 0)
+			{
+				Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("callback_entry"), EntryNodes[0], CallbackGraph)));
+			}
+
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+			TSharedPtr<FJsonObject> CompileResult;
+			bool bCompiledOk = false;
+			if (bCompile)
+			{
+				CompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName());
+				CompileResult->TryGetBoolField(TEXT("compiled_ok"), bCompiledOk);
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("blueprint_name"), BPName);
+			Result->SetStringField(TEXT("callback_function"), CallbackFunction);
+			Result->SetStringField(TEXT("event_graph_name"), EventGraph->GetName());
+			Result->SetStringField(TEXT("callback_graph_name"), CallbackGraph->GetName());
+			if (BeginPlayNode)
+			{
+				Result->SetStringField(TEXT("begin_play_node_id"), BeginPlayNode->NodeGuid.ToString());
+			}
+			Result->SetStringField(TEXT("timer_node_id"), TimerNode->NodeGuid.ToString());
+			if (SelfNode)
+			{
+				Result->SetStringField(TEXT("self_node_id"), SelfNode->NodeGuid.ToString());
+			}
+			Result->SetBoolField(TEXT("function_graph_created"), bFunctionGraphCreated);
+			Result->SetBoolField(TEXT("requires_compile"), !bCompile || !bCompiledOk);
+			Result->SetBoolField(TEXT("compiled"), bCompile);
+			Result->SetArrayField(TEXT("nodes"), Nodes);
+			Result->SetArrayField(TEXT("links"), Links);
+			if (CompileResult.IsValid())
+			{
+				Result->SetBoolField(TEXT("compiled_ok"), bCompiledOk);
+				Result->SetObjectField(TEXT("compile"), CompileResult);
+			}
+			if (bCompile && !bCompiledOk)
+			{
+				RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Blueprint compile failed after adding timer: %s"), *BPName),
+					TEXT("COMPILE_FAILED"),
+					Result);
+				return;
+			}
+
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleAddBlueprintControlNode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
@@ -2442,6 +2808,7 @@ namespace UEMCP
 		Registry.Register(TEXT("add_blueprint_variable_get_node"),               &HandleAddBlueprintVariableGetNode);
 		Registry.Register(TEXT("add_blueprint_variable_set_node"),               &HandleAddBlueprintVariableSetNode);
 		Registry.Register(TEXT("add_blueprint_variable_assignment"),             &HandleAddBlueprintVariableAssignment);
+		Registry.Register(TEXT("add_blueprint_timer"),                           &HandleAddBlueprintTimer);
 		Registry.Register(TEXT("add_blueprint_control_node"),                    &HandleAddBlueprintControlNode);
 		Registry.Register(TEXT("add_blueprint_math_node"),                       &HandleAddBlueprintMathNode);
 		Registry.Register(TEXT("add_blueprint_self_reference"),                  &HandleAddBlueprintSelfReference);

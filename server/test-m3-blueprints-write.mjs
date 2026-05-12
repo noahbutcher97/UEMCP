@@ -49,6 +49,7 @@ const fakeToolsYaml = {
         add_variable_set:        { wire_type: 'add_blueprint_variable_set_node' },
         set_variable_default:    { wire_type: 'set_blueprint_variable_default' },
         add_variable_assignment: { wire_type: 'add_blueprint_variable_assignment' },
+        add_timer:               { wire_type: 'add_blueprint_timer' },
         add_control_node:        { wire_type: 'add_blueprint_control_node' },
         add_math_node:           { wire_type: 'add_blueprint_math_node' },
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
@@ -97,7 +98,7 @@ const expectedTools = [
   'set_static_mesh_props', 'set_physics_props', 'set_pawn_props',
   'add_event_node', 'add_function_node', 'add_variable',
   'add_function_graph', 'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment', 'add_control_node',
-  'add_math_node',
+  'add_timer', 'add_math_node',
   'add_self_reference', 'add_component_reference',
   'connect_nodes', 'find_nodes',
 ];
@@ -139,6 +140,22 @@ if (defs.set_variable_default) {
   t.assert(defs.set_variable_default.schema.compile !== undefined,
     'set_variable_default exposes compile param');
 }
+if (defs.add_timer) {
+  t.assert(defs.add_timer.schema.blueprint_name !== undefined,
+    'add_timer exposes blueprint_name param');
+  t.assert(defs.add_timer.schema.callback_function !== undefined,
+    'add_timer exposes callback_function param');
+  t.assert(defs.add_timer.schema.interval !== undefined,
+    'add_timer exposes interval param');
+  t.assert(defs.add_timer.schema.looping !== undefined,
+    'add_timer exposes looping param');
+  t.assert(defs.add_timer.schema.create_callback_graph !== undefined,
+    'add_timer exposes create_callback_graph param');
+  t.assert(defs.add_timer.schema.insert_on_begin_play !== undefined,
+    'add_timer exposes insert_on_begin_play param');
+  t.assert(defs.add_timer.schema.compile !== undefined,
+    'add_timer exposes compile param');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Group 2: Port routing — every tool dispatches to TCP:55558
@@ -174,6 +191,20 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_variable_get_node',               { status: 'success', result: { node_id: 'GUID-GET', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_variable_set_node',               { status: 'success', result: { node_id: 'GUID-SET', graph_name: 'MoveStep', pins: [] } });
   fake.on('set_blueprint_variable_default',                { status: 'success', result: { variable_name: 'Speed', default_value: 350, dirty: true, requires_compile: true } });
+  fake.on('add_blueprint_timer', {
+    status: 'success',
+    result: {
+      blueprint_name: '/Game/UEMCP/BP_TimerMover',
+      callback_function: 'MoveStep',
+      event_graph_name: 'EventGraph',
+      callback_graph_name: 'MoveStep',
+      begin_play_node_id: 'BEGIN',
+      timer_node_id: 'TIMER',
+      function_graph_created: true,
+      requires_compile: true,
+      links: [{ source_node_id: 'BEGIN', target_node_id: 'TIMER' }],
+    },
+  });
   fake.on('add_blueprint_control_node',                    { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_math_node',                       { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
@@ -201,6 +232,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_variable_get',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_get_node'],
     ['add_variable_set',        { blueprint_name: 'BP_X', variable_name: 'Direction', graph_name: 'MoveStep' },        'add_blueprint_variable_set_node'],
     ['set_variable_default',    { blueprint_name: 'BP_X', variable_name: 'Speed', value: 350 },                       'set_blueprint_variable_default'],
+    ['add_timer',               { blueprint_name: 'BP_X', callback_function: 'MoveStep', interval: 0.05 },            'add_blueprint_timer'],
     ['add_control_node',        { blueprint_name: 'BP_X', node_kind: 'Branch', graph_name: 'MoveStep' },               'add_blueprint_control_node'],
     ['add_math_node',           { blueprint_name: 'BP_X', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, 'add_blueprint_math_node'],
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
@@ -231,6 +263,7 @@ console.log('\n── Group 3: Wire-type Translation ──');
   fake.on('add_blueprint_event_node',    { status: 'success', result: { node_id: 'X' } });
   fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'Y' } });
   fake.on('set_blueprint_variable_default', { status: 'success', result: { variable_name: 'Speed' } });
+  fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'TIMER' } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
@@ -256,6 +289,13 @@ console.log('\n── Group 3: Wire-type Translation ──');
     'set_variable_default → set_blueprint_variable_default');
   t.assert(fake.lastCall('set_variable_default') === undefined,
     'set_variable_default tools.yaml name NOT used as wire type when wire_type is set');
+
+  await executeBlueprintsWriteTool('add_timer',
+    { blueprint_name: 'BP', callback_function: 'MoveStep', interval: 0.05 }, cm);
+  t.assert(fake.lastCall('add_blueprint_timer') !== undefined,
+    'add_timer → add_blueprint_timer');
+  t.assert(fake.lastCall('add_timer') === undefined,
+    'add_timer tools.yaml name NOT used as wire type when wire_type is set');
 }
 
 // Identity fallback when wire_type is absent
@@ -1020,6 +1060,132 @@ console.log('\n── Group 14: Task 2 variable default surface ──');
     'set_variable_default forwards compile:true');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Group 15: Task 3 timer callback authoring helper
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 15: Task 3 timer callback authoring helper ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_timer', {
+    status: 'success',
+    result: {
+      blueprint_name: '/Game/UEMCP/BP_TimerMover',
+      callback_function: 'MoveStep',
+      event_graph_name: 'EventGraph',
+      callback_graph_name: 'MoveStep',
+      begin_play_node_id: 'BEGIN',
+      timer_node_id: 'TIMER',
+      function_graph_created: true,
+      requires_compile: true,
+      links: [{ source_node_id: 'BEGIN', target_node_id: 'TIMER' }],
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  const response = await executeBlueprintsWriteTool('add_timer', {
+    blueprint_name: '/Game/UEMCP/BP_TimerMover',
+    callback_function: 'MoveStep',
+    interval: 0.05,
+    looping: true,
+    create_callback_graph: true,
+    insert_on_begin_play: true,
+  }, cm);
+
+  const call = fake.lastCall('add_blueprint_timer');
+  t.assert(call && call.port === 55558, 'add_timer routes to tcp-55558');
+  t.assert(call.params.blueprint_name === '/Game/UEMCP/BP_TimerMover',
+    'add_timer forwards blueprint_name');
+  t.assert(call.params.callback_function === 'MoveStep',
+    'add_timer forwards callback_function');
+  t.assert(call.params.interval === 0.05,
+    'add_timer forwards interval');
+  t.assert(call.params.looping === true,
+    'add_timer forwards looping');
+  t.assert(call.params.create_callback_graph === true,
+    'add_timer forwards create_callback_graph');
+  t.assert(call.params.insert_on_begin_play === true,
+    'add_timer forwards insert_on_begin_play');
+  t.assert(call.params.compile === false,
+    'add_timer defaults compile to false');
+  t.assert(response.result.timer_node_id === 'TIMER',
+    'add_timer returns timer node id');
+  t.assert(response.result.begin_play_node_id === 'BEGIN',
+    'add_timer returns begin play node id');
+  t.assert(response.result.function_graph_created === true,
+    'add_timer returns function_graph_created');
+  t.assert(response.result.requires_compile === true,
+    'add_timer reports requires_compile:true');
+  t.assert(Array.isArray(response.result.links),
+    'add_timer returns link metadata');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_timer', {
+    status: 'success',
+    result: {
+      callback_function: 'MoveStep',
+      timer_node_id: 'TIMER',
+      function_graph_created: true,
+      requires_compile: true,
+      links: [],
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await executeBlueprintsWriteTool('add_timer', {
+    blueprint_name: 'BP_TimerMover',
+    callback_function: 'MoveStep',
+    interval: 0.1,
+  }, cm);
+  await executeBlueprintsWriteTool('add_timer', {
+    blueprint_name: 'BP_TimerMover',
+    callback_function: 'MoveStep',
+    interval: 0.1,
+  }, cm);
+
+  t.assert(fake.callsFor('add_blueprint_timer').length === 2,
+    'add_timer is a write op and bypasses cache');
+  const call = fake.lastCall('add_blueprint_timer');
+  t.assert(call.params.looping === true,
+    'add_timer defaults looping to true');
+  t.assert(call.params.create_callback_graph === true,
+    'add_timer defaults create_callback_graph to true');
+  t.assert(call.params.insert_on_begin_play === true,
+    'add_timer defaults insert_on_begin_play to true');
+  t.assert(call.params.compile === false,
+    'add_timer defaults compile to false');
+}
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'TIMER' } });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('add_timer', {
+      blueprint_name: 'BP_TimerMover',
+      callback_function: 'MoveStep',
+      interval: 0,
+    }, cm),
+    /Number must be greater than 0|too_small/i,
+    'add_timer rejects non-positive interval at Zod layer',
+  );
+  t.assert(fake.lastCall('add_blueprint_timer') === undefined,
+    'add_timer invalid interval does NOT reach the wire');
+}
+
 // create_blueprint description regression: still says "/Game/Blueprints/" (it's the
 // creation root, NOT a lookup site — kept per handoff §Scope-out) but ALSO
 // documents the new cross-tool convention for blueprint_name on other tools.
@@ -1058,6 +1224,16 @@ console.log('\n── Group O: D149 registry publication and compile description
     'D157: set_variable_default registry marks mutates_asset true and saves_asset false');
   t.assert(/compile/i.test(bpTools.set_variable_default?.params?.compile?.description || ''),
     'D157: set_variable_default registry documents compile param behavior');
+  t.assert(bpTools.add_timer !== undefined,
+    'D158: tools.yaml publishes add_timer');
+  t.assert(bpTools.add_timer?.wire_type === 'add_blueprint_timer',
+    'D158: add_timer registry wire_type matches C++ command');
+  t.assert(bpTools.add_timer?.mutates_asset === true && bpTools.add_timer?.compiles_asset === false && bpTools.add_timer?.saves_asset === false,
+    'D158: add_timer registry marks mutates_asset true, compiles_asset false, and saves_asset false');
+  t.assert(bpTools.add_timer?.params?.looping?.default === true
+      && bpTools.add_timer?.params?.create_callback_graph?.default === true
+      && bpTools.add_timer?.params?.insert_on_begin_play?.default === true,
+    'D158: add_timer registry documents true defaults');
   t.assert(/diagnostic|error|warning/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description advertises diagnostic output');
   t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),

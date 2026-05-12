@@ -40,6 +40,7 @@ const fakeToolsYaml = {
         add_variable_get: { wire_type: 'add_blueprint_variable_get_node' },
         add_variable_set: { wire_type: 'add_blueprint_variable_set_node' },
         set_variable_default: { wire_type: 'set_blueprint_variable_default' },
+        add_timer: { wire_type: 'add_blueprint_timer' },
         add_control_node: { wire_type: 'add_blueprint_control_node' },
         add_math_node: { wire_type: 'add_blueprint_math_node' },
         add_self_reference: { wire_type: 'add_blueprint_self_reference' },
@@ -69,7 +70,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'set_physics_props', 'set_pawn_props', 'add_event_node',
     'add_function_node', 'add_variable', 'add_function_graph',
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
-    'add_control_node', 'add_math_node', 'add_self_reference',
+    'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
     'add_component_reference', 'connect_nodes', 'find_nodes',
   ];
 
@@ -93,6 +94,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
   t.assert(defs.connect_nodes.isReadOp === false, 'connect_nodes is a write op');
   t.assert(defs.add_variable.isReadOp === false, 'add_variable is a write op');
   t.assert(defs.set_variable_default.isReadOp === false, 'set_variable_default is a write op');
+  t.assert(defs.add_timer.isReadOp === false, 'add_timer is a write op');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -118,6 +120,7 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'add_blueprint_variable_set_node': { status: 'success', result: { node_id: 'set-001', graph_name: 'MoveStep', pins: [] } },
     'set_blueprint_variable_default': { status: 'success', result: { variable_name: 'Speed', default_value: 350, dirty: true, requires_compile: true } },
     'add_blueprint_variable_assignment': { status: 'success', result: { node_id: 'assign-001', graph_name: 'MoveStep', pins: [] } },
+    'add_blueprint_timer': { status: 'success', result: { timer_node_id: 'timer-001', callback_function: 'MoveStep', links: [] } },
     'add_blueprint_control_node': { status: 'success', result: { node_id: 'branch-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_math_node': { status: 'success', result: { node_id: 'math-001', graph_name: 'MoveStep', pins: [] } },
     'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
@@ -174,6 +177,9 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
   await executeBlueprintsWriteTool('add_variable_assignment', { blueprint_name: 'BP', target_variable: 'Direction', assignment: { kind: 'literal', value: 1 }, graph_name: 'MoveStep' }, cm);
   t.assert(fake.lastCall('add_blueprint_variable_assignment') !== undefined, 'add_variable_assignment -> add_blueprint_variable_assignment');
 
+  await executeBlueprintsWriteTool('add_timer', { blueprint_name: 'BP', callback_function: 'MoveStep', interval: 0.05 }, cm);
+  t.assert(fake.lastCall('add_blueprint_timer') !== undefined, 'add_timer -> add_blueprint_timer');
+
   await executeBlueprintsWriteTool('add_control_node', { blueprint_name: 'BP', node_kind: 'Branch', graph_name: 'MoveStep' }, cm);
   t.assert(fake.lastCall('add_blueprint_control_node') !== undefined, 'add_control_node -> add_blueprint_control_node');
 
@@ -222,6 +228,7 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   fake.on('add_blueprint_variable_get_node', { status: 'success', result: { node_id: 'n2', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_variable_set_node', { status: 'success', result: { node_id: 'n3', graph_name: 'MoveStep', pins: [] } });
   fake.on('set_blueprint_variable_default', { status: 'success', result: { variable_name: 'Speed' } });
+  fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'timer-001', links: [] } });
   fake.on('add_blueprint_math_node', { status: 'success', result: { node_id: 'n4', graph_name: 'MoveStep', pins: [] } });
   fake.on('connect_blueprint_nodes', { status: 'success', result: { success: true } });
 
@@ -267,6 +274,15 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   const defaultCall = fake.lastCall('set_blueprint_variable_default');
   t.assert(defaultCall.params.value === 350, 'set_variable_default: value passed');
   t.assert(defaultCall.params.compile === true, 'set_variable_default: compile flag passed');
+
+  await executeBlueprintsWriteTool('add_timer', {
+    blueprint_name: 'BP_Test', callback_function: 'MoveStep', interval: 0.05,
+  }, cm);
+  const timerCall = fake.lastCall('add_blueprint_timer');
+  t.assert(timerCall.params.looping === true, 'add_timer: looping default passed');
+  t.assert(timerCall.params.create_callback_graph === true, 'add_timer: create_callback_graph default passed');
+  t.assert(timerCall.params.insert_on_begin_play === true, 'add_timer: insert_on_begin_play default passed');
+  t.assert(timerCall.params.compile === false, 'add_timer: compile default passed');
 
   await executeBlueprintsWriteTool('add_math_node', {
     blueprint_name: 'BP_Test', operation: 'ScaleVector', value_type: 'Vector', graph_name: 'MoveStep',

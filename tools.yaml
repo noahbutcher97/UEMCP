@@ -47,7 +47,7 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 133 tools) — plus 6 management tools above = 139 total
+# Toolsets (16 toolsets, 134 tools) — plus 6 management tools above = 140 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
@@ -607,6 +607,27 @@ toolsets:
           graph_name:       { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:    { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
           compile:          { type: boolean, required: false, description: "If true, compile after authoring. Default false." }
+      add_timer:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        wire_type: add_blueprint_timer
+        description: Create a Blueprint SetTimerByFunctionName setup, optionally inserted from ReceiveBeginPlay and optionally creating the callback function graph. Does not save the asset; compile behavior is controlled by the optional compile param.
+        params:
+          blueprint_name:         { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
+          callback_function:      { type: string, required: true, description: "Function graph called by the timer" }
+          interval:               { type: number, required: true, description: "Timer interval in seconds. Must be positive." }
+          looping:                { type: boolean, required: false, default: true, description: "Whether the timer loops. Default true." }
+          create_callback_graph:  { type: boolean, required: false, default: true, description: "Create the callback function graph if missing. Default true." }
+          insert_on_begin_play:   { type: boolean, required: false, default: true, description: "Find or create ReceiveBeginPlay and link it to the timer node. Default true." }
+          compile:                { type: boolean, required: false, default: false, description: "If true, compile after authoring. Default false." }
       add_control_node:
         wire_type: add_blueprint_control_node
         description: Add a basic control node to a target Blueprint graph. node_kind supports Branch, Sequence, Return. Returns pin metadata.

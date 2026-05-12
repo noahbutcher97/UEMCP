@@ -51,6 +51,7 @@ let BLUEPRINTS_WRITE_WIRE_MAP = {};
 const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
   add_variable_assignment: 'add_blueprint_variable_assignment',
   set_variable_default: 'set_blueprint_variable_default',
+  add_timer: 'add_blueprint_timer',
 };
 const BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES = {
   compile_and_save_blueprint: 15_000,
@@ -260,6 +261,23 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
       compile: z.boolean().optional().describe('If true, compile after authoring. Default false; response still reports requires_compile.'),
+    },
+    isReadOp: false,
+  },
+
+  add_timer: {
+    description: 'Create a Blueprint SetTimerByFunctionName setup, optionally inserted from BeginPlay and optionally creating the callback function graph.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name or /Game/... path'),
+      callback_function: z.string().describe('Function graph called by the timer'),
+      interval: z.number().positive().describe('Timer interval in seconds'),
+      looping: z.boolean().optional().default(true).describe('Whether the timer loops. Default true.'),
+      create_callback_graph: z.boolean().optional().default(true)
+        .describe('Create the callback function graph if missing. Default true.'),
+      insert_on_begin_play: z.boolean().optional().default(true)
+        .describe('Wire timer setup from ReceiveBeginPlay. Default true.'),
+      compile: z.boolean().optional().default(false)
+        .describe('If true, compile after authoring. Default false.'),
     },
     isReadOp: false,
   },
