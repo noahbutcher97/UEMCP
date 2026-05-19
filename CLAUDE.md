@@ -4,11 +4,11 @@ This file provides guidance to Claude when working with code in this repository.
 
 ## Project Overview
 
-**UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (referred to internally as **Project A** — the primary/combat-game target — and **Project B** — secondary); the tool itself is project-agnostic.
+**UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (**Project A** — primary/combat-game target — and **Project B** — secondary); tool itself is project-agnostic.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the current registry: 133 YAML-declared tools (6 management + 127 across 16 toolsets)
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 133 YAML-declared tools (6 management + 127 across 16 toolsets)
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -16,106 +16,86 @@ This file provides guidance to Claude when working with code in this repository.
 
 ```
 Claude ↔ MCP Server (stdio) ↔ 4 layers:
-  Layer 1: Offline     — disk reads (Source/, Config/, .uproject)     ✅ Phase 1 DONE
+  Layer 1: Offline     — disk reads (Source/, Config/, .uproject)
   Layer 2: TCP:55558   — custom UEMCP C++ plugin (editor/live tools)
   Layer 3: HTTP:30010  — Remote Control API (RC primitives + delegates)
   Layer 4: Historical  — TCP:55557 UnrealMCP conformance references only
 ```
 
-**Current port ownership**: `tools.yaml` has no active `tcp-55557` toolsets. Active editor-backed toolsets route through `tcp-55558`; Remote Control primitives and RC-backed semantic delegates use `http-30010`. Older D-log and conformance docs still mention `tcp-55557` as historical context for the Phase 2 oracle and should not be read as current routing guidance.
+**Current port ownership**: `tools.yaml` has no active `tcp-55557` toolsets. Active editor tools route through `tcp-55558`; RC primitives and RC-backed semantic delegates use `http-30010`. Older D-log references to `tcp-55557` are historical context for the Phase 2 oracle.
 
 ## Dynamic Toolset System
 
-133 YAML-declared tools: 6 always-loaded management tools plus 127 tools across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40 tool accuracy threshold.
+133 tools: 6 always-loaded management tools + 127 across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
 - `list_toolsets` — orientation tool, warns when >40 active tools
-- Tools use SDK `handle.enable()`/`.disable()` for `tools/list` visibility — disabled tools are completely invisible to Claude, not just guarded at runtime
+- Tools use SDK `handle.enable()`/`.disable()` for `tools/list` visibility — disabled tools are invisible to Claude, not just guarded at runtime
 
-### ToolIndex Search (tool-index.mjs)
+**ToolIndex search** (`tool-index.mjs`): 6-tier weighted scoring — FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases from tools.yaml `aliases:` + hardcoded supplements.
 
-6-tier weighted scoring: FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases loaded from tools.yaml `aliases:` section + hardcoded supplements.
+## TCP Wire Protocol (Historical Conformance Oracle — TCP:55557)
 
-## TCP Wire Protocol (Historical Conformance Oracle Reference)
-
-The old UnrealMCP plugin (TCP:55557) was the Phase 2 conformance oracle. Keep these details for debugging historical D-log entries and legacy comparisons, but do not infer current tool routing from this section; the current registry routes active editor tools through TCP:55558.
+The old UnrealMCP plugin was the Phase 2 conformance oracle. **Do not infer current routing from this** — active editor tools use TCP:55558.
 
 - **Connect → Send → Read → Close** per command (no persistent connection)
-- **Request format**: `{"type": "<command_name>", "params": {...}}` — note the field is `type`, NOT `command`
-- **No newline terminator** on request (matches the Python server's behavior)
-- **Response**: JSON object, parsed by accumulating chunks until valid JSON. No length framing.
-- **Error responses**: Two formats exist — `{"status": "error", "error": "msg"}` and `{"success": false, "message": "msg"}`. ConnectionManager normalizes both.
-- **Serialized per-layer**: CommandQueue ensures one in-flight command per TCP layer; different layers execute in parallel.
-- **Health check**: Sends `ping` command with 3s timeout. Results cached for 30s.
-- **Read-op caching**: ResultCache (SHA-256 keyed, 5min TTL) for repeat queries. Write-ops should set `skipCache: true`.
+- **Request format**: `{"type": "<command_name>", "params": {...}}` — field is `type`, NOT `command`
+- **No newline terminator** on request
+- **Response**: JSON object, parsed by accumulating chunks until valid JSON. No length framing on the legacy port.
+- **Error responses**: Two formats — `{"status": "error", "error": "msg"}` and `{"success": false, "message": "msg"}`. ConnectionManager normalizes both.
+- **Serialized per-layer**: CommandQueue ensures one in-flight command per TCP layer
+- **Health check**: `ping` command, 3s timeout, results cached for 30s
+- **Read-op caching**: ResultCache (SHA-256 keyed, 5min TTL). Write-ops set `skipCache: true`.
 
-The UEMCP custom plugin (TCP:55558) owns the active TCP editor surface.
+The UEMCP plugin on TCP:55558 owns the active TCP editor surface and adds length-framed wire (`Content-Length: <bytes>\r\n\r\n<body>`); see D140 / `connection-manager.mjs _FRAMED_PORTS` for per-port routing.
 
 ## Sibling MCP Servers
 
-UEMCP follows conventions established by existing MCP servers at `~/.claude/mcp-servers/`:
+UEMCP follows conventions from `~/.claude/mcp-servers/`:
 
-| Server | Path | Purpose |
-|--------|------|---------|
-| `jira-bridge` | `~/.claude/mcp-servers/jira-bridge/server.mjs` | Jira + Confluence (Atlassian) |
-| `perforce-bridge` | `~/.claude/mcp-servers/perforce-bridge/server.mjs` | P4 read operations |
-| `miro-bridge` | `~/.claude/mcp-servers/miro-bridge/server.mjs` | Miro board access |
+| Server | Purpose |
+|--------|---------|
+| `jira-bridge` | Jira + Confluence |
+| `perforce-bridge` | P4 read ops |
+| `miro-bridge` | Miro boards |
 
-All are single `server.mjs` files, Node.js ES modules, stdio transport — same pattern UEMCP follows (D1, D17). In Cowork mode, these run with project-specific prefixes (e.g., `jira-<project>`, `perforce-<project>`).
+All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP follows.
 
 ## Existing UnrealMCP C++ Plugin Structure
 
-The conformance oracle (at `<PROJECT_ROOT>\Plugins\UnrealMCP\` in our development environment) has this structure (relevant for Phase 2/3):
+The conformance oracle at `<PROJECT_ROOT>\Plugins\UnrealMCP\`:
 
-- `MCPServerRunnable` — `FRunnable`-based TCP listener on port 55557
-- Command files (the pattern we'll replicate/improve on 55558):
-  - `UnrealMCPBlueprintCommands.cpp` — BP creation, nodes, variables, compile
-  - `UnrealMCPEditorCommands.cpp` — Editor operations, asset management
-  - `UnrealMCPActorCommands.cpp` — Actor spawn, transform, properties
-  - `UnrealMCPUMGCommands.cpp` — UMG widget creation and manipulation
-- Each command file registers handlers keyed by the `type` field from incoming JSON
-- **Known issues** to fix in our reimplementation: no error normalization, limited introspection, no batch support
+- `MCPServerRunnable` — `FRunnable`-based TCP listener on 55557
+- Command files (the pattern we replicate/improve on 55558): `UnrealMCPBlueprintCommands.cpp`, `UnrealMCPEditorCommands.cpp`, `UnrealMCPActorCommands.cpp`, `UnrealMCPUMGCommands.cpp`
+- Each registers handlers keyed by the JSON `type` field
+- **Known issues** fixed in our reimplementation: no error normalization, limited introspection, no batch support
 
-Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target project — this is a third-party reference implementation, NOT used in production. The `NodeToCode-main` plugin (found at `<PROJECT_ROOT>\Plugins\NodeToCode-main\`) is a separate BP-to-code tool, also not part of UEMCP.
+Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP server, not used in production) and `NodeToCode-main` (separate BP-to-code tool, not part of UEMCP).
 
-## Current State — TCP:55558 Active + Offline/RC Hybrid Registry
+## Current State
 
-### What's implemented:
+### Implemented
 - MCP server with stdio transport (`server/server.mjs`)
-- Offline toolset currently declares 24 tools in `tools.yaml`, including project/config reads, asset registry scans, serialized Blueprint graph reads, data-source reads, plugin listing, and build config. Older D-log entries below may mention the earlier 16-tool offline milestone.
-- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+ stride) → FObjectExport (112-byte stride) → FPackageIndex resolver → FAssetRegistryData tag block → **Level 1+2+2.5 property decode**: FPropertyTag iteration with UE 5.6 `FPropertyTypeName` + `EPropertyTagFlags` extensions; 12 engine struct handlers (FVector/FRotator/FTransform/FLinearColor/FColor/FGuid/FGameplayTag/FGameplayTagContainer/FSoftObjectPath/FBox/FVector4/FIntPoint/FBodyInstance/FExpressionInput); simple-element + complex-element `TArray`/`TSet` containers; `TMap<K,V>` (scalar keys, struct keys emit `struct_key_map` marker); **tagged-fallback for unknown structs** (D50: self-describing FPropertyTag streams decode 601 unique struct names including UUserDefinedStruct, FTimerHandle, FMaterialParameterInfo without loading referenced asset — supersedes D47 two-pass design). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
-- ToolIndex with 6-tier scoring + coverage bonus (`server/tool-index.mjs`)
-- ToolsetManager with SDK handle integration + `getToolsData()` getter (`server/toolset-manager.mjs`)
-- ConnectionManager with 4-layer architecture + D24 UMG ad-hoc error detection (`server/connection-manager.mjs`)
-- 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions (tools.yaml)
-- Phase 1 audit completed 2026-04-12 (session-local artifact; findings folded into the D-log)
-- Phase 2 tier-2 parser-validation audit completed 2026-04-15 (session-local artifact; findings folded into the D-log)
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2196 unit-runnable assertions** (post-D144 Gauntlet refactor batch — W-B + W-D + W-G + W-H + W-I; varies ±N by fixture availability — see T-1b synthetic-fixture migration status) across 23 test files. Growth cadence since pre-Agent-10 baseline of 436: Agent 10 +125; Agent 10.5 +51; Polish +37; Parser Extensions +34; Cleanup +26; Pre-Phase-3 Fixes +8; MCP-Wire +50; F-1.5 +16; EN-2 +42; M-spatial +74; EN-8/9 +15; S-B-base +120; Verb-surface +83; M-enhance +166; AUDIT-FIX-3 +17 (D85); SMOKE-FIX +43 (D87); CLEANUP-MICRO +4 (D90); M3-actors split +117 (D93, new test-m3-actors.mjs); M3-widgets +88 (D96, new test-m3-widgets.mjs); M3-blueprints-write +162 (D97, new test-m3-blueprints-write.mjs); CLEANUP-M3-FIXES +24 (D102); TEST-IMPORTS-FIX +197 restored from silent-zero (D104, see `feedback_silent_zero_test_drift.md`); M5-animation+materials +93 (D105, new test-m5-animation.mjs + test-m5-materials.mjs); M5-input+geometry +109 (D106, new test-m5-input-pie.mjs + test-m5-geometry.mjs); M5-editor-utility +94 (D107, new test-m5-editor-utility.mjs); BLUEPRINT-ASSET-PATH-RESOLUTION-FIX +16 (D112); NEW-2-UEMCP-SIDE-MITIGATION +38 (D123, new test-new-2-mitigation.mjs); NEW-7-ASSET-MGMT-TIMEOUT +6 (D134, M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES table); CLEANUP-M5-RESIDUE +23 (D135, §3.5 +5 + §4 +6 + §4.5 +12; D134's +6 already counted above); Q3-DEV-WORKFLOW +28 (D136, new test-verify-deploy.mjs); W-L-SYNC-PLUGIN-HARDENING +33 (D138, new test-sync-plugin-helper.mjs); D138-FIX3 +14 (verify-deploy marker-overlay); W-K +20 (D139, new test-anon-namespace-audit.mjs); E-1 +41 (D140, test-mock-seam.mjs gains length-framing + per-port routing + real-socket framed roundtrip + timeout reconciliation + MetricsAggregator shape); Pivot-W3 +0 (D141, live-fire close-out — no new assertions; existing test-rc-wire.mjs coverage unchanged); W-A +0 (D142, registration-loop refactor preserves wire contract — no new assertions); W-O +11 (D143, test-phase1.mjs Test 5b — summarizeAutoEnable pure-function shape covering layer-available / layer-unavailable / mixed / already-enabled / defensive-copy / live-autoEnable cases); GAUNTLET-BATCH +18 (D144, W-B 7 invalid-enum assertions in test-m3-actors + test-m3-blueprints-write + test-tcp-tools + W-G 6 silent-success-error-shape assertions in test-m3-blueprints-write + test-m3-widgets + test-rc-wire + W-I 4 rotation-arg assertions in test-m5-geometry + W-H 1 supplementary path-traversal assertion in test-query-asset-registry).
-- Conformance oracle research complete — all 36 UnrealMCP C++ command contracts documented in `docs/specs/conformance-oracle-contracts.md`
-- **Phase 2 actors toolset** (`server/tcp-tools.mjs`): 10 tools with name translation, Zod schemas, read/write caching
-- **Phase 2 blueprints-write toolset** (`server/tcp-tools.mjs`): 15 tools (including 6 orphan BP node handlers)
-- **Phase 2 widgets toolset** (`server/tcp-tools.mjs`): 7 tools with KNOWN ISSUE flags on 2 broken handlers
-- **tools.yaml registry populated**: 133 YAML-declared tools have registry entries; 11 `wire_type:` fields for name translation; `buildWireTypeMap()` parses YAML at startup
-- **TOOLSET_TIPS populated**: core gotchas + cross-toolset workflows for all 3 TCP toolsets
-- **Handler fixes landed (D38)**: F0 (verbose blob stripping), F1 (truncation signalling + pagination), F2 (tags removed from inspect_blueprint), F4 (placed actor filter), F6 (short class name matching)
-- **D44 landed**: `server.mjs:offlineToolDefs` eliminated; `tools.yaml` is the single source of truth for offline tool descriptions and params (enforces CLAUDE.md Key Design Rule 1). `tools/list` + `find_tools` now report identical metadata. D44 invariant verified for `find_blueprint_nodes` at Agent 10.5 landing.
-- **Agent 10 shipped (D39)**: Level 1+2+2.5 parser + Option C tools (`list_level_actors` transforms + pagination + summary_by_class; `inspect_blueprint` with `include_defaults`; new `read_asset_properties`). Agent 9.5's 4 implementation-critical corrections applied — transform chain via `outerIndex` reverse scan, UE 5.6 FPropertyTag extensions, sparse-transform tolerance, mandatory pagination.
-- **Agent 10.5 shipped (D46/D47/D48/D50)**: complex-element containers (TMap + tagged TArray/TSet of custom structs); tagged-fallback for unknown structs (D47 pivot per D50 — 71% total marker reduction, 251K → 22K unknown_struct, 24K → 0 container_deferred); L3A S-A skeletal K2Node surface via `find_blueprint_nodes` (13 node types + 2 delegate-presence types, covers find/grep workflows offline without editor). Performance: 1.06× Agent 10 baseline bulk parse.
+- Offline toolset declares 24 tools in `tools.yaml`
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
+- ToolIndex, ToolsetManager, ConnectionManager (4-layer; `tcpCommandFn` mock seam for tests)
+- 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions
+- Phase 2 TCP toolsets: actors (10), blueprints-write (15), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)
+- RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
+- D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
+- Conformance oracle research: 36 UnrealMCP C++ contracts at `docs/specs/conformance-oracle-contracts.md`
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2196 unit-runnable assertions across 23 test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
-### Follow-on queue (post-Agent-10.5):
-- **Polish worker** — 7 response-shape ergonomic items on the new offline surface
-- **Parser extensions** — FExpressionInput native binary layout (~21K relabeled markers, deferred per D50); nested FieldPathProperty (pre-existing L1 edge case)
-- **Cleanup worker** — int64 VFX parse bug + semgrep deep refactor
-- **Manual testing** — Agent 10.5's offline surface (docs/testing/ scope)
-- **3F sidecar writer** (editor plugin) — spec at `docs/specs/blueprints-as-picture-amendment.md`; now critical path since Agent 10.5's name-level floor is in place (D45)
+### Follow-on queue
+- **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
+- **Cleanup** — int64 VFX parse bug, semgrep deep refactor
+- **3F sidecar writer** (editor plugin) — spec at `docs/specs/blueprints-as-picture-amendment.md`
+- See `docs/tracking/backlog.md` for future-consideration items
 
-**Future-consideration items** (not dispatched; tracked for session continuity): see `docs/tracking/backlog.md` — tool-surface cleanup, enhancements, fixture planting, deferred research triggers.
-
-### What's NOT implemented yet:
-- 3F sidecar writer (editor plugin)
-- C++ editor plugin (Phase 3 — deferred per D39; scope has shrunk progressively via D32/D35/D45/D48)
-- HTTP client for Remote Control API (Phase 4)
+### Not yet implemented
+- 3F sidecar writer
+- HTTP client for Remote Control API beyond current delegates (Phase 4)
 - Distribution to Project B via P4 (Phase 5)
 - Per-project tuning (Phase 6)
 
@@ -123,438 +103,184 @@ Also note: `unreal-mcp-main` (Python MCP server) exists alongside the target pro
 
 ```
 UEMCP/
-├── CLAUDE.md              ← you are here
-├── tools.yaml             ← SINGLE SOURCE OF TRUTH for registry tools
-├── .mcp.json.example      ← template Claude Desktop config
-├── setup-uemcp.bat        ← one-line onboarding (Node install + .mcp.json + plugin copy + .uproject deps)
-├── sync-plugin.bat        ← propagate plugin source from this repo to a target UE project
-├── verify-deploy.bat      ← Q3-A pre-dispatch verification (D136); reports per-target SYNC/STALE + editor-lock
-├── setup-watcher.bat      ← Q3-C auto-deploy file-watcher (D136); runs sync on plugin source change
-├── .uemcp-targets.txt     ← per-machine .uproject targets (gitignored; codename-safe)
+├── CLAUDE.md
+├── tools.yaml                  ← single source of truth for registry
+├── .mcp.json.example           ← template Claude config
+├── setup-uemcp.bat             ← onboarding: Node install + .mcp.json + plugin copy + .uproject deps
+├── sync-plugin.bat             ← propagate plugin source to a target UE project
+├── verify-deploy.bat           ← Q3-A pre-dispatch verification (D136)
+├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
+├── .uemcp-targets.txt          ← per-machine .uproject targets (gitignored, codename-safe)
 ├── server/
-│   ├── package.json       ← deps: @modelcontextprotocol/sdk, js-yaml, zod
-│   ├── server.mjs         ← MCP server entry, management tools, tool registration
-│   ├── offline-tools.mjs  ← 16 offline tools incl. query_asset_registry, inspect_blueprint (+include_defaults), list_level_actors (+transforms), read_asset_properties, find_blueprint_nodes, find_blueprint_nodes_bulk (EN-2)
-│   ├── uasset-parser.mjs  ← binary .uasset/.umap parser: headers + FPropertyTag iteration + 12 engine struct handlers + TArray/TSet/TMap containers + tagged-fallback for unknown structs (Level 1+2+2.5, D50)
-│   ├── tcp-tools.mjs      ← Phase 2 TCP tool handlers (actors: 10 tools, name translation, Zod schemas)
-│   ├── tool-index.mjs     ← ToolIndex search with scoring + alias expansion
-│   ├── toolset-manager.mjs ← enable/disable state, SDK handle integration
-│   ├── connection-manager.mjs ← 4-layer connection management (has tcpCommandFn mock seam)
-│   ├── test-phase1.mjs    ← Phase 1 + Agent 10/10.5 + EN-2 offline tool tests (224 assertions)
-│   ├── test-mock-seam.mjs ← Mock seam + ConnectionManager tests (45 assertions)
-│   ├── test-tcp-tools.mjs ← Phase 2 TCP tool tests — blueprints-write only post M3-bpw split (197 assertions)
-│   ├── test-uasset-parser.mjs ← Parser format + Level 1+2+2.5 + tagged-fallback (152 assertions)
-│   ├── test-offline-asset-info.mjs ← get_asset_info shape + cache (15 assertions)
-│   ├── test-query-asset-registry.mjs ← bulk scan + pagination + tag filtering (16 assertions)
-│   ├── test-inspect-and-level-actors.mjs ← inspect_blueprint + list_level_actors (30 assertions)
-│   ├── test-s-b-base-differential.mjs ← S-B-base pin-block parser differential vs Oracle-A-v2 (68 assertions, D70)
-│   ├── test-verb-surface.mjs ← M-new Verb-surface 5 verbs (bp_trace_exec/data/neighbors/show_node/list_entry_points) + oracle cross-check (83 assertions, D72)
-│   ├── test-rc-wire.mjs   ← M-enhance RC HTTP wire-mock + 11 FULL-RC tools + cross-transport consistency (72 assertions, D74+D76)
-│   ├── verify-deploy.mjs  ← Q3-A/Q3-C dev-workflow CLI (D136): per-target SYNC/STALE classifier + editor-lock detector via Get-CimInstance + --watch mode (debounced auto-sync); backed by verify-deploy.bat + setup-watcher.bat thin wrappers
-│   ├── test-verify-deploy.mjs ← Q3 pure-helper unit tests — parseTargetsFile, classifyDeployState 9-case matrix incl. D135 failure mode, formatAge, normalizePath, extractUprojectFromCommandLine (28 assertions)
-│   ├── sync-plugin-helper.mjs ← W-L (D138) deploy-marker + per-workspace lock-check helper for sync-plugin.bat: readDeployMarker / writeDeployMarker / compareDeployMarker / computeIncomingState / checkPerWorkspaceLock + CLI subcommands check/write/lock-check
-│   ├── test-sync-plugin-helper.mjs ← W-L pure-helper unit tests — marker comparison branches incl. schema-version-changed, atomic round-trip, computeIncomingState repo-state extraction (33 assertions)
-│   ├── test-anon-namespace-audit.mjs ← W-K (D139) Layer 3 of W-F-COMPREHENSIVE — heuristic-regex scan over plugin/UEMCP/Source/UEMCP/Private/*.cpp asserting 0 anonymous-namespace duplicate-symbol collisions; --hook-mode CLI spawned by .githooks/pre-commit on staged Private/*.cpp diffs (20 assertions)
-│   └── test-helpers.mjs   ← Shared test infra (FakeTcpResponder, ErrorTcpResponder, etc.)
-├── plugin/                ← C++ UE5 plugin (Phase 3 — empty scaffold)
+│   ├── server.mjs              ← MCP server entry, management tools
+│   ├── offline-tools.mjs       ← offline tool handlers
+│   ├── uasset-parser.mjs       ← .uasset/.umap binary parser (Level 1+2+2.5, D50)
+│   ├── tcp-tools.mjs           ← TCP tool handlers (actors + blueprints-write + widgets shared module)
+│   ├── tool-index.mjs          ← search + scoring + alias expansion
+│   ├── toolset-manager.mjs     ← enable/disable, SDK handle integration
+│   ├── connection-manager.mjs  ← 4-layer routing, mock seam, ResultCache, MetricsAggregator
+│   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
+│   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
+│   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
+│   ├── test-*.mjs              ← 23 test files (see Testing section for table)
+│   └── test-helpers.mjs        ← FakeTcpResponder, ErrorTcpResponder, TestRunner
+├── plugin/UEMCP/               ← C++ UE5 plugin
 ├── docs/
-│   ├── README.md          ← directory map + reading orders
-│   ├── specs/             ← architecture, protocols, design (8 files incl. conformance oracle)
-│   ├── plans/             ← implementation phases, test strategy (2 files)
-│   ├── audits/            ← point-in-time audit reports (never edit after creation)
-│   ├── research/          ← parser survey, audit, design options (5 files)
-│   ├── handoffs/          ← orchestrator-authored dispatch documents (self-contained task briefs)
-│   ├── reports/           ← worker return reports + recommendations
-│   └── tracking/          ← living docs: risks-and-decisions.md (D1-D112, growing)
-└── .claude/               ← project-level Claude settings
+│   ├── specs/                  ← architecture, protocols, design
+│   ├── plans/                  ← implementation phases, test strategy
+│   ├── audits/                 ← point-in-time audit reports (never edit after creation)
+│   ├── research/               ← parser survey, audit, design options
+│   ├── handoffs/               ← orchestrator-authored dispatch documents (gitignored)
+│   ├── reports/                ← worker return reports (gitignored)
+│   └── tracking/               ← living docs: risks-and-decisions.md (D1+, growing)
+└── .githooks/                  ← pre-commit + pre-push hooks (see Public-Repo Hygiene)
 ```
 
 ## Public-Repo Hygiene
 
-This is a public repository. The target projects are private under NDA.
-**Don't commit project codenames into tracked content.** Use generic
-labels: `Project A` / `Project B` / `the primary target` /
-`path/to/YourProject` / `${UNREAL_PROJECT_ROOT}`.
+This is a public repo; target projects are private under NDA. **Don't commit project codenames into tracked content.**
 
-**NDA-gate scope is repo-write-only.** The forbidden-tokens block-list,
-codename scrubbing, placeholder vocabulary, pre-commit grep, and
-pre-push hook all govern what flows OUT of this repo to github.com in
-committed content. They do **NOT** restrict tool execution at runtime.
-UEMCP tools may operate at full capability against the user's own UE
-projects — spawn actors, create assets, mutate Blueprints, run editor
-utilities, etc. If a worker declines a tool call citing "shared
-project," "NDA," or "proprietary" reasons WITHOUT a server-side gate
-(e.g., `--enable-python-exec` per D101 (iv), or a similar future
-`UEMCP_*` env flag), treat that as an opener-template defect, not a
-worker error — the opener didn't communicate scope clearly enough.
-Test artifacts created during smoke / live-fire should be cleaned up
-via the `§Test artifacts pending manual delete` discipline; that's the
-safety contract for scratch work, not an NDA constraint.
+**NDA-gate scope is repo-write-only.** Forbidden-tokens, codename scrubbing, hooks, pre-push gate all govern what flows OUT of this repo to github.com. They do **NOT** restrict tool execution at runtime — UEMCP tools may operate at full capability against the user's own UE projects. If a worker declines a tool call citing "NDA" or "shared project" without a server-side gate (e.g., `--enable-python-exec` per D101), treat that as an opener-template defect.
 
-**Placeholder vocabulary by file type** (pick one, stay consistent):
-- **Config templates** that get programmatically substituted (e.g.,
-  `.mcp.json.example`): angle-bracket placeholders — `<UEMCP_REPO_PATH>`,
-  `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>`. The setup script
-  string-replaces these at install time.
-- **Shell command examples** in tracked docs (CLAUDE.md, README.md,
-  spec/plan docs): `path/to/YourProject` with forward slashes (works in
-  cmd, bash, PowerShell), or `${UNREAL_PROJECT_ROOT}` for env-var-style.
-- **Narrative mentions** of the target projects: `Project A` / `Project B` /
-  `the primary target` / `the secondary target`.
+**Placeholder vocabulary by file type**:
 
-**Asset-name namespace trade-off**: target-project-specific Blueprint /
-anim-notify / gameplay-tag prefixes (e.g., `BP_*` for Blueprint
-conventions plus other project-specific prefixes scattered through
-`docs/tracking/backlog.md` and `server/test-*.mjs` fixtures) are
-**intentionally retained** as dev-time sanity references — they're NOT
-in the pre-push gate's `forbidden-tokens` list. If asset-namespace
-classification ever changes (e.g., a publisher decides specific prefixes
-qualify as confidential), add them to `.git/info/forbidden-tokens` per
-checkout. Absence of a name from that list does NOT mean it's
-contractually safe to commit; it means the maintainer judged it
-non-NDA at the time the gate was configured.
+| File type | Use |
+|-----------|-----|
+| Config templates (`.mcp.json.example`) | Angle-bracket placeholders — `<UEMCP_REPO_PATH>`, `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>`; setup script substitutes at install |
+| Shell command examples in tracked docs | `path/to/YourProject` (forward slashes, cross-shell) or `${UNREAL_PROJECT_ROOT}` |
+| Narrative mentions | `Project A` / `Project B` / `the primary target` / `the secondary target` |
 
-**Project-specific session content** (handoffs, reports, audits, testing logs,
-research notes) lives in **gitignored** doc trees: `docs/handoffs/`,
-`docs/reports/`, `docs/audits/`, `docs/testing/`, `docs/research/`. Write
-freely there with full project specificity — those directories never enter
-the index.
+**Asset namespaces** (e.g., `BP_*`): intentionally retained as dev-time sanity references; NOT in the forbidden-tokens list. If asset-namespace classification ever changes, add specific prefixes per checkout.
 
-**Two hooks** in `.githooks/` scan content against
-`.git/info/forbidden-tokens` (per-checkout, untracked):
+**Project-specific session content** (handoffs, reports, audits, testing logs, research notes) lives in **gitignored** doc trees: `docs/handoffs/`, `docs/reports/`, `docs/audits/`, `docs/testing/`, `docs/research/`. Write freely there with full project specificity.
 
-- **`.githooks/pre-commit`** — scans staged diff at commit time. Catches
-  leaks one cycle earlier so the operator doesn't have to grep manually
-  before each commit. **Also runs the W-K (D139) anonymous-namespace
-  duplicate-symbol guard**: when staged diff includes
-  `plugin/UEMCP/Source/UEMCP/Private/*.cpp` files, spawns
-  `node server/test-anon-namespace-audit.mjs --hook-mode` and blocks on
-  collision (Layer 3 of W-F-COMPREHENSIVE per D137; structural prevention
-  of the duplicate-symbol class that bUseUnity=true bundling surfaces at
-  link time). Skipped silently when Node isn't on PATH — rotation-time
-  guard (`server/test-anon-namespace-audit.mjs` in the rotation) catches
-  anything the hook misses.
-- **`.githooks/pre-push`** — scans the outgoing commit range (file diff +
-  commit messages) at push time. Final gate before content goes public.
+**Two hooks** (`.githooks/`, scan against `.git/info/forbidden-tokens` per-checkout, untracked):
+- **`pre-commit`** — scans staged diff; also runs W-K anonymous-namespace duplicate-symbol guard (`node server/test-anon-namespace-audit.mjs --hook-mode`) when `plugin/UEMCP/Source/UEMCP/Private/*.cpp` is touched
+- **`pre-push`** — scans outgoing commit range (file diff + commit messages)
 
-Both block on match; bypass in genuine emergencies with
-`git commit --no-verify` or `git push --no-verify` (rare).
+Both block on match; bypass in emergencies with `--no-verify` (rare).
 
-One-time setup on a fresh clone:
-
-```cmd
-git config core.hooksPath .githooks
-```
-
-Then create `.git/info/forbidden-tokens` with one codename per line (use
-`regex:<pattern>` lines for regex matches).
+One-time setup on fresh clone: `git config core.hooksPath .githooks`, then populate `.git/info/forbidden-tokens` (one codename per line; `regex:<pattern>` for regex matches).
 
 ### Multi-agent orchestration handoff convention
 
-This codifies how UEMCP runs orchestrator + worker sessions in practice.
+**Dispatch mechanism — orchestrator drafts openers, user dispatches.** The orchestrator does NOT invoke `Agent` to spawn workers from inside its own conversation. It drafts a self-contained **conversation opener** for each worker; the user opens a fresh Claude Code conversation and pastes it. Applies to worker dispatches AND orchestrator-state migrations.
 
-**Dispatch mechanism — orchestrator drafts openers, user dispatches.** The orchestrator session does NOT invoke the `Agent` tool to spawn workers from inside its own conversation. Instead, the orchestrator drafts a self-contained **conversation opener** for each worker, and the user (Noah) opens a fresh Claude Code conversation and pastes the opener as that conversation's first message. This applies equally to:
+**Why human-in-the-loop**: clean context per worker (~200k each), human gate at dispatch boundary (catches codename leaks / scope drift), deployment-cycle ownership (workers ship commits; user runs `sync-plugin.bat` + `Build.bat` + relaunches editor), parallelism without context contention.
 
-- **Worker dispatches** (CLEANUP-MICRO, audit-fix workers, M-* implementation workers, audit workers, etc.)
-- **Orchestrator-state migrations** (when the current orchestrator hits context limits and needs to hand off to a successor — same pattern: write the state doc, draft the inline opener, user opens fresh session and pastes).
+**Two-channel codename pattern**:
+- **Committed channel** (handoff docs in `docs/tracking/`, commit messages, D-log, README, CLAUDE.md, `docs/handoffs/*.md`): placeholder vocabulary only. Pre-push hook blocks codenames anyway.
+- **Ephemeral channel** (inline openers, chat history): may include codenames for live-editor invocations and absolute paths.
 
-Why human-in-the-loop dispatch and not subagents:
-- **Clean context windows per worker** — each worker gets a fresh conversation, no inherited orchestrator context bloat, full ~200k available for the actual task.
-- **Human gate at dispatch boundary** — Noah reviews the opener before dispatching; catches scope drift, codename leaks, or stale assumptions before a worker burns budget.
-- **Deployment cycle ownership** (per D87) — workers ship code commits; Noah runs `sync-plugin.bat` + `Build.bat` + relaunches editor + restarts MCP server. The dispatch handoff is also where Noah picks up the deployment baton; an in-process subagent would blur that ownership.
-- **Parallelism without context contention** — multiple workers run as independent conversation forks, not as competing tool calls in one session.
+**Receiving session translates codenames → placeholders before writing to disk.** Codenames stay in chat; placeholders go to committed files.
 
-**Two-channel codename pattern** (established alongside the dispatch convention so codenames flow safely through openers):
+**Opener content checklist**:
+1. Worker role + 1-line mission
+2. Pointer to handoff doc at `docs/handoffs/<name>.md` (placeholder vocabulary)
+3. Required pre-reads: D-log anchors, related handoff docs, prior-art commits
+4. Codenames if needed (clearly delimited as ephemeral, with translate-to-placeholders reminder)
+5. Constraints: D49 path-limit, D82 NDA-gate, no AI attribution, Desktop Commander for git, single-commit preference, report-length cap
+6. Final-report format; worker-authored reports go to `docs/reports/`, NOT `docs/handoffs/`
 
-- **Committed channel** (handoff docs in `docs/tracking/`, commit messages, D-log entries, README, CLAUDE.md, and the standing handoff docs at `docs/handoffs/*.md` — even though those are gitignored, they're treated as committed-channel for hygiene and `Edit`/`Read` predictability): use placeholder vocabulary only (`<target-project>`, `Project A`, `Project B`, `<your-project>`, `${UNREAL_PROJECT_ROOT}`). Never include codenames. The pre-push hook will block them anyway.
-- **Ephemeral channel** (the inline opener / dispatch message that gets pasted into a new orchestrator session OR into a worker session at dispatch time, plus chat history within any session): may include codenames so the receiving session can fill placeholders when invoking tools, reading paths, or writing local-only inputs.
+**Worker reports are advisory**; orchestrator reconciles against current repo state and authors authoritative follow-up handoffs in `docs/handoffs/`.
 
-**The receiving session translates codenames → placeholders before writing to disk.** Codenames stay in chat history; placeholders go to committed files. Same rule for worker openers that need codename info: pass codenames in the dispatch message, NOT in the worker's handoff doc on disk.
+**Validation discipline before drafting major handoffs (D129)**: when a workstream depends on an empirical claim AND costs >3 worker sessions, verify the claim is source-confirmed + reproduction-confirmed before drafting. Triggers requiring a 1-session validation audit:
+- ≥2 prior hypotheses on the same problem have been falsified
+- Claim rests on correlated observations vs source-reading + standalone reproduction
+- Workstream involves migration / retirement / rewrite (not targeted fix)
+- Orchestrator hedging across multiple dispatch options without empirical disambiguation
 
-**Opener content checklist** (what every worker opener must include):
-1. Worker role + 1-line mission.
-2. Explicit pointer to the worker's handoff doc at `docs/handoffs/<name>.md` (which uses placeholder vocabulary).
-3. Required pre-reads: D-log anchors, related handoff docs, prior-art commits.
-4. Codenames (if needed for live-editor invocations or absolute paths) — clearly delimited as ephemeral, with a "translate to placeholders for disk writes" reminder.
-5. Constraints: D49 path-limit, D82 NDA-gate, no AI attribution, Desktop Commander for git, single-commit preference, report-length cap.
-6. Final-report format the orchestrator expects back, including that worker-authored report docs go under `docs/reports/`, not `docs/handoffs/`.
-
-**Worker report → orchestrator handoff workflow.**
-Workers may create final reports, evidence matrices, and recommended next
-steps, but those outputs are advisory. They belong in `docs/reports/` using a
-descriptive dated filename, for example
-`docs/reports/tool-metadata-schema-report-2026-05-09.md`. The orchestrator
-reviews returned reports, reconciles them against current repo state, then
-authors any authoritative follow-up task specs in `docs/handoffs/`. Workers
-should not create the next worker's authoritative handoff unless the current
-handoff explicitly assigns that as the deliverable; even then, the output is a
-draft for orchestrator review.
-
-**Validation discipline before drafting major implementation handoffs** (D129 codification):
-
-Before drafting a handoff for a workstream that depends on an empirical claim ("X is bugged" / "Y doesn't work" / "Z is too slow") + costs >3 worker sessions, the orchestrator MUST verify the claim is empirically validated, not just correlated. Triggers that REQUIRE a validation audit before drafting:
-
-- Two or more prior hypotheses on the same problem have been falsified (each falsification weakens the next hypothesis's prior).
-- The claim rests on `n=N correlated observations` rather than on source-reading + standalone reproduction.
-- The proposed workstream involves migration / retirement / rewrite (not a targeted fix to a specific bug).
-- The orchestrator finds itself hedging across multiple dispatch options (A/A+/B etc.) without empirical disambiguation.
-
-When any trigger fires: dispatch a 1-session validation audit BEFORE drafting the implementation handoff. The audit's verdict (validated / refuted / mixed) gates the implementation work. The cost asymmetry strongly favors validation: a 1-session audit vs N sessions of potentially-misdirected implementation. The D128 → D129 walk-back saved ~2.25 sessions and is the worked example.
-
-**Handoff draft pre-flight checklist** (before sending an implementation worker handoff to user dispatch):
-
-1. **§0 prior-art search**: grep the codebase for capabilities the implementation duplicates. Many supposedly-greenfield tasks have unused or partially-used helpers in our own source (per `feedback_orchestrator_codebase_state_drift.md`).
-2. **Empirical-claim status check**: if the handoff rests on an empirical claim, is it source-confirmed + reproduction-confirmed? If only correlation: dispatch validation audit first.
-3. **Build-system workaround check**: does the codebase have `bUseUnity = false`, `IWYU.MinSourceFiles = 0`, `PrivateDefinitions[]` fixes, or other workarounds? If yes, ask why — they're often diagnostic of a structural issue worth understanding before implementing on top of.
-4. **Worker-session estimate calibration**: per `feedback_ai_worker_time_estimates.md`, ~500 lines per worker session. Don't anchor estimates on human-time; don't pre-defer architectural cleanup based on stale "this is too big" framing.
-
-These checks are cheap (~10 minutes total per handoff draft) and prevent the failure modes that produced D128's misdirection.
-
-This convention is what makes D82 NDA-gate operationally workable AND keeps the orchestration-as-conversation-fork pattern consistent. Without the chat-side codename channel, every orchestrator migration would either lose project context (forcing rediscovery) or leak codenames into commits (forcing recovery cycles). Without the human-in-the-loop dispatch rule, the orchestrator would silently spawn subagents inside its own context, defeating the parallelism + clean-context-per-worker design that drove the multi-conversation pattern in the first place.
-
-Established 2026-04-25 alongside D88-era orchestrator-state migration; codifies the chat-vs-disk separation that D82 sanitization implies but didn't previously make explicit. Dispatch-mechanism rule (orchestrator drafts openers; user dispatches) added later same day after a fresh-orchestrator session attempted to invoke `Agent` tool directly — clarification was missing from the original convention.
+**Handoff draft pre-flight** (~10 min total, prevents D128-class misdirection):
+1. **§0 prior-art search** — grep codebase for capabilities the implementation duplicates
+2. **Empirical-claim status** — source-confirmed + reproduction-confirmed? If only correlation: validation audit first
+3. **Build-system workaround check** — `bUseUnity = false`, `IWYU.MinSourceFiles = 0`, etc. are diagnostic; ask why before implementing on top
+4. **Worker-session estimate calibration** — ~500 lines per worker session per `feedback_ai_worker_time_estimates.md`
 
 ## Shell & Tooling Requirements
 
-**Desktop Commander is MANDATORY for git and filesystem write operations.** The Cowork sandbox bash (`mcp__workspace__bash`) mounts the repo via a FUSE-like layer that cannot acquire `.git/index.lock` or `.git/HEAD.lock` files, causing git commits to fail or leave stale locks. All agents, workers, and conversations working in this repo MUST use Desktop Commander (`mcp__Desktop_Commander__start_process` with `shell: "cmd"`) for:
-
+**Desktop Commander is MANDATORY for git and filesystem writes.** Cowork sandbox bash mounts the repo via a layer that can't acquire `.git/index.lock`. Use `mcp__Desktop_Commander__start_process` with `shell: "cmd"` for:
 - Git operations (add, commit, status, diff, log, etc.)
-- Any filesystem writes that need to persist reliably
+- Filesystem writes that need to persist
 
-Read operations (grep, glob, file reads) can use sandbox bash or Claude's built-in tools — those work fine through the mount.
+Read operations (grep, glob, file reads) work fine through the sandbox.
 
-**CMD, not PowerShell** — git and node are not in PATH on PowerShell. Always pass `shell: "cmd"` to Desktop Commander.
+**CMD, not PowerShell** — git and node are not in PowerShell's PATH. Always pass `shell: "cmd"`.
 
-**Commit message workaround** — CMD mangles quoted strings. For multi-line commit messages, write to a temp file in the repo root and use `git commit -F file.txt && del file.txt`.
+**Commit message workaround**: CMD mangles quoted strings. For multi-line commits, write to a temp file: `git commit -F file.txt && del file.txt`.
 
-**Handoff documents must include this guidance** — any handoff that involves git operations should note the Desktop Commander requirement.
+**Handoff documents must include this guidance** for any worker that does git operations.
 
-### .bat script convention — pause-on-exit so users can read output
+### .bat script convention — pause-on-exit
 
-**Every `.bat` script in this repo must route all exits through a single `:end` label that pauses before exiting unless an explicit auto-yes / scripted-mode flag is set.** When users double-click a script from Explorer (no persistent terminal), the console closes instantly on `exit /b` regardless of success/failure. Without an explicit pause, error messages disappear before the user can read them — and silent success looks identical to silent failure.
-
-**Required pattern**:
+**Every `.bat` script in this repo routes all exits through a single `:end` label that pauses unless `AUTO_YES=1`.** Double-clicking from Explorer closes the console instantly on `exit /b`; without a pause, errors disappear before the user can read them.
 
 ```cmd
 @echo off
 setlocal EnableDelayedExpansion
-
-set "EXIT_CODE=0"
-set "AUTO_YES=0"
-REM ...arg parsing; if user passes -y / --yes, set AUTO_YES=1...
-
-REM Replace every `exit /b N` with:
-REM   set "EXIT_CODE=N" & goto :end
-
-REM ...script body...
-
-set "EXIT_CODE=0"
-goto :end
-
+set "EXIT_CODE=0" & set "AUTO_YES=0"
+REM ...arg parsing; -y / --yes → AUTO_YES=1...
+REM ...script body; replace every `exit /b N` with `set "EXIT_CODE=N" & goto :end`...
+set "EXIT_CODE=0" & goto :end
 :end
 echo.
-if "!AUTO_YES!"=="0" (
-  echo [<script-name> exit code: !EXIT_CODE!]
-  pause
-)
+if "!AUTO_YES!"=="0" ( echo [<script> exit code: !EXIT_CODE!] & pause )
 endlocal & exit /b %EXIT_CODE%
 ```
 
-**Why this exact shape**:
-- Single point-of-exit means error messages always print before the pause
-- `AUTO_YES` flag lets CI / scripted callers skip the pause without code changes
-- `endlocal & exit /b %EXIT_CODE%` propagates the EXIT_CODE past `endlocal` (immediate-expansion idiom; `%` substitutes before `endlocal` runs)
-- Echo the exit code in interactive mode so users can distinguish success (0) from specific failure modes
-
-**Convention applies to all repo-root `.bat` files**: `setup-uemcp.bat`, `sync-plugin.bat`, `test-uemcp-gate.bat`, and any future scripts. Established 2026-04-25 (D87 era) after sync-plugin.bat exhibited the bug; setup-uemcp.bat had been patched the same way previously.
-
-**Source of the convention**: integration smoke test 2026-04-24/25 surfaced that sync-plugin.bat closed before user could verify success. Same class as setup-uemcp.bat's earlier "opens and closes immediately" issue.
+`endlocal & exit /b %EXIT_CODE%` propagates EXIT_CODE past `endlocal` (immediate-expansion idiom). **Avoid nested `(...)` blocks with literal parens in echoes** — CMD tokenizes parens at load time, not execution time; an unescaped paren inside a nested block corrupts paren-balance of the whole block even on unreachable paths (D138-FIX worked example; flat `goto :label` only).
 
 ## Code Standards
 
 - **ES Modules** (.mjs) — `import/export`, no CommonJS
-- **No TypeScript** — plain JS with JSDoc comments (decision D17: iteration speed with AI-assisted dev)
-- **Zod for validation** — tool params validated via Zod schemas built from tools.yaml definitions
+- **No TypeScript** — plain JS with JSDoc (D17: iteration speed with AI-assisted dev)
+- **Zod for validation** — built from tools.yaml at startup
 - Functions under 50 lines where possible
 - Early returns for validation
 - Comment **intent**, not implementation
 - **NEVER add AI attribution** — no `Co-Authored-By: Claude`, no "generated with AI" in commits
-- **C++ shared helpers go in `Public/HandlerCommon.h` (or another `Public/<feature>.h`)** — helper functions used by >1 `Private/*.cpp` file MUST live in a `Public/` header rather than per-file anonymous namespaces. Unity-mode bundling fails with multiple-definition linker errors when the same name appears in anonymous namespaces across multiple translation units. The `server/test-anon-namespace-audit.mjs` rotation guard + `.githooks/pre-commit` hook (W-K, D139) block re-introduction at rotation-time / commit-time. See D133 / D135 / D137 worked examples (PropertyHandlerRegistry / TransformParser / LoadAssetPIESafe / HandlerCommon).
+- **C++ shared helpers go in `Public/HandlerCommon.h` (or `Public/<feature>.h`)** — helpers used by >1 `Private/*.cpp` MUST live in a `Public/` header, not per-file anonymous namespaces. Unity-mode bundling fails with multiple-definition linker errors on duplicate anon-namespace symbols. `server/test-anon-namespace-audit.mjs` + `.githooks/pre-commit` (W-K, D139) block re-introduction. See D133/D135/D137 for worked examples.
 
 ## Key Design Rules
 
 1. **tools.yaml is the single source of truth** — tool names, descriptions, toolset membership, aliases, params all defined there. Code loads from YAML at startup. Never hardcode tool definitions in server.mjs.
 
-2. **SDK handles control visibility** — `server.tool()` returns a handle with `.enable()/.disable()`. ToolsetManager stores handles and toggles them when toolsets change. Disabled tools don't appear in `tools/list` at all (SDK filters at line 68-69 of mcp.js). Never use runtime guards to check toolset state in tool handlers.
+2. **SDK handles control visibility** — `server.tool()` returns a handle with `.enable()/.disable()`. ToolsetManager stores handles. Disabled tools don't appear in `tools/list` (SDK filters at mcp.js:68-69). Never use runtime guards to check toolset state in tool handlers.
 
-3. **Offline tips go in SERVER_INSTRUCTIONS** — the offline toolset is always-on, so TOOLSET_TIPS never fires for it. Offline constraints (50 match cap, file type restrictions, progressive config drill-down) live in the init instructions string.
+3. **Offline tips go in SERVER_INSTRUCTIONS** — the offline toolset is always-on, so TOOLSET_TIPS never fires for it. Offline constraints (50 match cap, file type restrictions, progressive config drill-down) live in init instructions.
 
 4. **TOOLSET_TIPS for dynamic toolsets only** — `{core, workflows[]}` structure. `workflows[]` entries have `requires[]` arrays for cross-toolset tips that only fire when all required toolsets are active.
 
-5. **Aliases merge at build time** — tools.yaml `aliases:` section is canonical. tool-index.mjs has supplementary defaults. `build()` merges YAML over defaults (YAML wins on conflict).
+5. **Aliases merge at build time** — tools.yaml `aliases:` is canonical. tool-index.mjs has supplementary defaults. `build()` merges YAML over defaults (YAML wins).
 
-6. **Auto-enable capped at 3** — `find_tools` enables top 3 toolsets by highest-scoring tool per query. Prevents accidentally loading too many toolsets.
+6. **Auto-enable capped at 3** — `find_tools` enables top 3 toolsets by highest-scoring tool. Prevents accidentally loading too many.
 
-7. **Validate empirical claims before committing workstreams (D129)** — when a major workstream (>3 worker sessions) rests on an empirical claim ("X is bugged" / "Y doesn't work" / "Z is too slow"), validate the claim empirically BEFORE committing to the workstream. **Triggers that require a 1-session validation audit**: (a) prior hypotheses on the same problem have been falsified — each falsification is signal that the next hypothesis might also be wrong; (b) the claim is inferred from symptom + handler-side error message rather than from reading source code or running standalone reproduction; (c) the proposed workstream cost is large; (d) cheaper alternative explanations exist that haven't been ruled out. **Gold-standard empirical validation techniques** (in order of cost): source-reading + grep verification (~15-30 min); standalone reproduction harness via curl/postman (~30-60 min); cross-test on minimal config (fresh install or plugin-disabled state); comparative dispatch (try same operation via different paths to isolate). **`n=N` correlated observations are not root-cause** — they're triggers for investigation, not substitutes. The D129 walk-back of D128's RC retirement workstream (saved ~2.25 worker sessions of misdirected work after a 1-session validation audit + 10 minutes of curl tests) is the worked example. See `feedback_validate_claims_before_commitment.md` + `feedback_ufunction_decoration_precondition.md` (the specific UE 5.6 lesson) + `feedback_orchestrator_codebase_state_drift.md` (own-codebase prior-art awareness).
+7. **Validate empirical claims before committing workstreams (D129)** — when a major workstream (>3 worker sessions) rests on an empirical claim, validate it before committing. Triggers requiring a 1-session validation audit: (a) prior hypotheses on same problem falsified, (b) claim from symptom + handler error rather than source/repro, (c) workstream cost large, (d) cheaper alternative explanations not ruled out. **`n=N` correlated observations are not root-cause.** Validation techniques in cost order: source-reading + grep, standalone reproduction harness (curl/postman), cross-test on minimal config, comparative dispatch. D128→D129 walk-back saved ~2.25 sessions. See `feedback_validate_claims_before_commitment.md`, `feedback_ufunction_decoration_precondition.md`, `feedback_orchestrator_codebase_state_drift.md`.
 
-8. **Transport choice — RC delegates are valid; correct UFUNCTION targeting is mandatory (D127 walked back; D129 corrects)** — UEMCP uses both **TCP:55558** (UEMCP plugin C++ handlers for productized tools that wrap specific UE APIs) AND **HTTP:30010** (Remote Control plugin for reflection-by-name primitives + a small set of HYBRID delegates per D66/D74/D76). **D128's "retire RC entirely" framing is walked back** per D129 / Audit 7 V4-PRIME finding: the bug-claim foundation (RC is engine-bugged) was empirically wrong. RC works correctly when targeted at real UFUNCTION-decorated methods; it correctly returns "Function does not exist" when targeted at non-UFUNCTION C++ methods. The historical NEW-2 + NEW-4 bugs were **UEMCP-induced** (calling `Set*ParameterValueEditorOnly` / `GetAll*ParameterInfo` — which are `ENGINE_API void`, not UFUNCTIONs — via UFUNCTION-dispatch path). **Standing rule for new tool development**: when adding an RC delegate, verify the target C++ method has the `UFUNCTION` macro before shipping. If only a non-UFUNCTION C++ method exists, find the UFUNCTION-decorated wrapper (e.g., `UMaterialEditingLibrary::SetMaterialInstance*ParameterValue` wraps the editor-only methods); if no wrapper exists, write a TCP:55558 C++ handler instead. **D23's TCP:55558 absorption**: stays as a long-term backlog candidate (post-D129 walk-back), no longer urgent. **Foot-gun caveat**: `rc_call_function` with non-UFUNCTION target name still returns "Function does not exist" — that's correct RC behavior, agent-side responsibility to target real UFUNCTIONs. `rc_batch` with sub-requests targeting non-UFUNCTIONs may trigger the latent V1 race in WebRemoteControl error-handling — the same UEMCP-side discipline applies (target real UFUNCTIONs only).
+8. **Transport choice — RC delegates are valid; UFUNCTION targeting is mandatory** — UEMCP uses both **TCP:55558** (UEMCP plugin C++ handlers for productized tools) AND **HTTP:30010** (Remote Control for reflection-by-name primitives + HYBRID delegates per D66/D74/D76). RC works correctly when targeted at real UFUNCTION-decorated methods; returns "Function does not exist" for non-UFUNCTION C++ methods. Historical NEW-2/NEW-4 bugs were **UEMCP-induced** (calling `Set*ParameterValueEditorOnly` / `GetAll*ParameterInfo` — `ENGINE_API void`, not UFUNCTIONs — via UFUNCTION-dispatch path). **Standing rule**: verify `UFUNCTION` macro presence on RC delegate targets before shipping. If only a non-UFUNCTION C++ method exists, find the UFUNCTION wrapper (e.g., `UMaterialEditingLibrary::SetMaterialInstance*ParameterValue`); if no wrapper exists, write a TCP:55558 C++ handler.
 
 ## Common Tasks
 
 ### Onboarding a new machine
 
-Run `setup-uemcp.bat` from the UEMCP repo root (no arg = GUI mode with
-folder/file browse; arg = `.uproject` path for scripted / repeat use).
-The script:
+Run `setup-uemcp.bat` from the repo root (no arg = GUI mode; arg = `.uproject` path for scripted use). The script: validates Node.js (winget → MSI fallback if missing), runs `npm install` in `server/`, generates `.mcp.json` at the Claude workspace root (auto-detected), physical-copies `plugin/UEMCP/` into `<project>\Plugins\UEMCP\`, enables required `.uproject` plugin deps (`RemoteControl`, `PythonScriptPlugin`, `GeometryScripting`; removes stale `Blutility` entries — `Blutility` is a module not a plugin), atomic-writes via PowerShell, auto-registers codenames in `.git/info/forbidden-tokens` (D124).
 
-- Validates Node.js on PATH. If missing, offers install via winget
-  (Tier 1, user-scope, no admin) → direct MSI download from nodejs.org
-  (Tier 2, UAC prompt). After successful install, user must close cmd
-  and re-run in a fresh window (PATH doesn't refresh mid-session).
-- `npm install` in `server/` (idempotent; skips if `node_modules` exists).
-- Generates `.mcp.json` at the Claude workspace root (auto-detected —
-  parent of `.uproject` dir if it contains `.claude\` or `CLAUDE.md`,
-  otherwise the `.uproject` dir itself). GUI mode lets user override
-  via folder-browse dialog.
-- Physical-copies `plugin/UEMCP/` into `<project>\Plugins\UEMCP\`
-  (D61 established physical copy as the working dev workflow over
-  symlink/junction approaches). Prompts before overwriting existing.
-- Enables UEMCP's required built-in plugin dependencies in the target
-  `.uproject`'s `Plugins[]` array: `RemoteControl` (per D66/D77),
-  `PythonScriptPlugin` (per D107), `GeometryScripting` (per D106).
-  All three are real `.uplugin` files shipped with UE 5.6 at
-  `Engine/Plugins/{VirtualProduction,Experimental,Runtime}/`.
-  **Note:** `Blutility` is *not* a plugin — it's an engine-built-in
-  *module* at `Engine/Source/Editor/Blutility/` providing the
-  `UEditorUtilityBlueprint` / `UEditorUtilityWidgetBlueprint` headers
-  used by UEMCP's editor-utility handlers. The module dep is satisfied
-  by `Blutility` in `UEMCP.Build.cs PrivateDependencyModuleNames`;
-  adding it to `.uproject Plugins[]` triggers UE's "Missing Plugin"
-  dialog at editor startup. An earlier version of this script
-  incorrectly added it; the script now self-heals by REMOVING any
-  stale `Blutility` entry from `.uproject Plugins[]` on every run.
-  Idempotent overall: skips plugins already enabled, flips
-  `Enabled: false` to `true`, appends missing entries, removes
-  stale-cleanup entries. Writes atomically (PowerShell to
-  `<file>.uemcp-tmp` then `Move-Item -Force`) so a partial-write
-  failure can't corrupt the project. Layered explicit enablement on
-  top of `UEMCP.uplugin`'s declared deps as defense-in-depth —
-  D106/D107 confirmed `.uproject Plugins[]` gating is the empirical
-  contract for full toolset coverage; transitive auto-enable from the
-  parent plugin alone is not load-bearing for these. Note:
-  `PythonScriptPlugin` enables `run_python_command` which is itself
-  gated by the `--enable-python-exec` startup flag per D101 (iv) — the
-  plugin being available does NOT expose the tool.
-- Pauses before exit on interactive launch so errors stay visible
-  (fixed 2026-04-21 per friend-machine repro where double-click
-  launches closed the window on the Node-missing check).
-- **Auto-registers project codenames into `.git/info/forbidden-tokens`**
-  (D124): extracts the `.uproject` filename stem + parent-dir name,
-  appends idempotently with sort+dedup, deny-list, and version-folder
-  filters (skip `\d+\.\d+`, Engine, Plugins, Source, etc.). Closes the
-  D109/D118 codename-leak class structurally — registration is now
-  bound to the universal entry points where new projects enter the
-  test-target set, not orchestrator memory. Inline `node -e` helper
-  shared with `sync-plugin.bat`.
+Exit codes: 0 success / 1 args / 2 npm / 3 .mcp.json / 4 plugin copy / 5 plugin-deps. Env `SETUP_AUTO_YES=1` skips prompts.
 
-Exit codes: 0 success, 1 bad args / cancelled / missing deps,
-2 npm install failure, 3 .mcp.json write failure, 4 plugin copy failure,
-5 plugin-deps update failure (.uproject read/write/JSON-parse error).
+`PythonScriptPlugin` enables `run_python_command` which is itself gated by `--enable-python-exec` (D101).
 
-Env var `SETUP_AUTO_YES=1` auto-accepts Node-install prompts (CI use).
+For propagating plugin changes without full onboarding: `sync-plugin.bat <uproject>` (D64). Xcopies `D:\DevTools\UEMCP\plugin\UEMCP\` → target, excluding `Binaries\` + `Intermediate\`. Auto-busts deploy cache (`<dest>/Binaries/` + `<dest>/Intermediate/`) when `manifest.json` or `UEMCP.uplugin` Version changes (W-L deploy-marker, D138). Flags: `--force-clean`, `--no-marker`. Per-workspace editor-lock detection: matches running UnrealEditor CommandLine against `.uproject` full path (not stem) so two workspaces sharing a filename are tracked independently.
 
-For propagating plugin source-of-truth changes to a target project
-without re-running full onboarding, use `sync-plugin.bat <uproject>`
-(D64). This xcopies `D:\DevTools\UEMCP\plugin\UEMCP\` → target,
-excluding `Binaries\` + `Intermediate\` so UBT cache stays intact.
-Also auto-registers project codenames into `.git/info/forbidden-tokens`
-per D124 (same shared helper as setup-uemcp.bat).
+**Plugin versioning convention**: when `manifest.json version` bumps, also bump `UEMCP.uplugin Version` (integer; UE-internal rebuild signal) AND `VersionName` (string; aligned with manifest) in lockstep. W-L marker compares both → either triggers auto-bust.
 
-**W-L (D138) hardening** — `sync-plugin.bat` now auto-busts the deploy
-cache on version-change upgrades. After each successful sync, it writes
-`<dest>/Plugins/UEMCP/.uemcp-deploy-marker.json` capturing manifest
-version + uplugin Version + commit SHAs. On the next sync, if either
-`manifest.json` version OR `UEMCP.uplugin Version` differs from the
-prior marker, it nukes `<dest>/Binaries/` + `<dest>/Intermediate/`
-before xcopy so UBT does a clean rebuild against the structural change.
-First sync after W-L lands has no prior marker → no nuke (preserves any
-hand-built incremental cache the user may have). Two new flags:
-
-- `--force-clean` — nuke `<dest>/Binaries` + `<dest>/Intermediate`
-  regardless of marker comparison (useful for debugging stale-cache
-  states or after a UBT cache corruption from a prior failed build)
-- `--no-marker` — skip marker read/write entirely (escape hatch if
-  marker logic itself ever proves buggy)
-
-Editor-lock detection is now **per-workspace** (D138 §2): only the
-specific workspace whose `.uproject` matches a running editor's
-CommandLine is blocked. Sync against workspace B is no longer blocked
-by an editor running against workspace A. Implementation reuses
-`verify-deploy.mjs`'s `listEditorProcesses` + `extractUprojectFromCommandLine`
-+ `normalizePath` (full-path comparison, NOT stem — two checkouts
-sharing the same `.uproject` filename in different parent dirs are
-tracked independently). Falls back to the old coarse check if Node.js
-is unavailable on PATH.
-
-**Plugin Versioning Convention** — when `manifest.json` `version`
-bumps for any reason that touches `plugin/UEMCP/` source, also bump
-`plugin/UEMCP/UEMCP.uplugin` `Version` (integer; UE-internal
-module-rebuild signal) and `VersionName` (string; align with
-manifest version) in lockstep. The W-L deploy-marker compares both
-`manifestVersion` and `upluginVersion` → either can trigger
-auto-bust. The two values stay coupled to keep the deploy-cycle
-cache-busting deterministic. D137 + D138 established the
-post-bump convention; pre-D137 the uplugin had been stuck at
-`Version: 1` / `VersionName: "0.1.0"` since project start.
-
-Manual setup (skip the script): copy `.mcp.json.example` to your Claude
-workspace root as `.mcp.json`, substitute `<UEMCP_REPO_PATH>` +
-`<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>` with real paths (use
-forward slashes), run `npm install` in `server/`, then restart Claude Code.
+Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>` + `<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>`, run `npm install` in `server/`, restart Claude Code.
 
 ### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
 
-Two scripts close the D113 wasted-worker-session class structurally:
+- **`verify-deploy.bat`** — pre-dispatch CLI. Reads `.uemcp-targets.txt` (gitignored, one `.uproject` per line), reports per-target verdict (`SYNC` / `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY` / `MISSING`), detects UnrealEditor.exe processes locking each DLL via `Get-CimInstance Win32_Process` CommandLine introspection, flags workspace-resolution drift vs `.mcp.json`. Flags: `--auto-sync`, `--regenerate-mcp-json N`, `--quiet`, `--targets <path>`, `--no-color`. Exit 0/1/2 = all-SYNC / non-SYNC / config-error.
 
-- **`verify-deploy.bat`** — pre-dispatch verification CLI. Reads
-  `.uemcp-targets.txt` (gitignored, one `.uproject` path per line), reports
-  per-target verdict (`SYNC` / `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY`
-  / `MISSING`), surfaces UnrealEditor.exe processes locking each DLL via
-  `Get-CimInstance Win32_Process` CommandLine introspection, and flags
-  workspace-resolution drift between the active editor and `.mcp.json`'s
-  `UNREAL_PROJECT_ROOT`. Run before dispatching any post-deployment
-  smoke worker; subsumes the manual `Get-Process *Unreal*` + mtime-grep
-  pre-flight from `feedback_smoke_handoff_preflight.md` into one
-  invocation. Flags: `--auto-sync`, `--regenerate-mcp-json N`, `--quiet`,
-  `--targets <path>`, `--no-color`. Exit 0 all SYNC, 1 any non-SYNC,
-  2 config error.
+- **`setup-watcher.bat`** — long-running file-watcher (Q3-C). Watches `plugin/UEMCP/Source/`; on change, debounces 500ms then runs `sync-plugin.bat <target> -y` per target. Ctrl+C stops cleanly. Backed by `server/verify-deploy.mjs --watch`.
 
-- **`setup-watcher.bat`** — long-running file-watcher (Q3-C). Watches
-  `plugin/UEMCP/Source/` recursively; on change (excluding `Binaries/`,
-  `Intermediate/`, `*.tmp`), debounces 500ms then runs
-  `sync-plugin.bat <target> -y` for each target in `.uemcp-targets.txt`.
-  Pairs with verify-deploy: watcher prevents NEW staleness, verify-deploy
-  catches existing staleness from manual git pulls or cross-machine work.
-  Ctrl+C stops cleanly. Backed by the same `server/verify-deploy.mjs`
-  helper via `--watch` mode.
-
-Both scripts are thin .bat wrappers around `server/verify-deploy.mjs`;
-core logic + 28 unit-runnable assertions live in that helper.
-
-`.uemcp-targets.txt` lives at repo root, is **gitignored**, and may
-contain real codename paths — it never enters the index. To onboard a
-new target: paste its `.uproject` path on its own line. Two workspaces
-sharing the same `.uproject` filename in different parent dirs (e.g.,
-the same Project A pulled into two different sibling-stream workspaces)
-are tracked independently — the CLI distinguishes by full path, not stem.
-
-The §2.6 D135 failure mode (editor running during Build.bat → DLL locked
-→ silent no-op) is the load-bearing piece: verify-deploy reports
-`[EDITOR-LOCKED]` against any target whose `.uproject` matches a running
-`UnrealEditor*.exe` CommandLine, with a clear "close before Build.bat"
-recommendation. The §2.5 multi-workspace drift (MCP server pointing at
-workspace A while editor runs in B) surfaces as `[MCP]` on the wrong
-target. Both are orthogonal to the SYNC/STALE verdict.
+Both are thin .bat wrappers around `server/verify-deploy.mjs`. The §2.6 D135 failure mode (editor running during Build.bat → DLL locked → silent no-op) surfaces as `[EDITOR-LOCKED]` with a clear "close before Build.bat" recommendation. Multi-workspace drift (MCP server pointing at A while editor runs in B) surfaces as `[MCP]` on the wrong target.
 
 ### Running the server locally
 ```bash
@@ -562,14 +288,9 @@ cd D:\DevTools\UEMCP\server
 UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
 ```
 
-### Security flag — `--enable-python-exec` (M5-editor-utility, D101 (iv))
+### Security flag — `--enable-python-exec` (D101)
 
-`run_python_command` is the only tool that can execute arbitrary code in
-the editor. Per D101 (iv) the security model is defense-in-depth: Layer 1
-is a server-side opt-in flag, Layer 2 is a plugin-side deny-list scan,
-Layer 3 is a per-call audit log. The Layer 1 flag is **off by default**;
-without it `run_python_command` returns `PYTHON_EXEC_DISABLED` before any
-wire dispatch (it never even reaches the editor). Enable with either:
+`run_python_command` is the only tool that can execute arbitrary code in the editor. Defense-in-depth: Layer 1 server-side opt-in flag (off by default), Layer 2 plugin-side deny-list scan, Layer 3 per-call audit log. Without Layer 1, the tool returns `PYTHON_EXEC_DISABLED` before any wire dispatch.
 
 ```bash
 node server.mjs --enable-python-exec
@@ -577,362 +298,126 @@ node server.mjs --enable-python-exec
 UEMCP_ENABLE_PYTHON_EXEC=1 node server.mjs
 ```
 
-When enabled, scripts are still scanned at the plugin layer for
-`os` / `subprocess` / `eval(` / `exec(` / `open(` / `__import__` and
-rejected with `PYTHON_EXEC_DENY_LIST` + matched-pattern detail. Every
-executed call is logged to `<UNREAL_PROJECT_NAME>.log` under the
-`[UEMCP-PYTHON-EXEC]` prefix (alongside `[UEMCP-DELETE-ASSET]` for
-asset-delete audit). The flag is the per-session opt-in; deny-list +
-audit-log run regardless. To enable in the .mcp.json env block, add
-`"UEMCP_ENABLE_PYTHON_EXEC": "1"` rather than mutating argv.
+Plugin layer scans for `os` / `subprocess` / `eval(` / `exec(` / `open(` / `__import__` and rejects with `PYTHON_EXEC_DENY_LIST` + matched pattern. Audit logs to `<UNREAL_PROJECT_NAME>.log` under `[UEMCP-PYTHON-EXEC]`. In `.mcp.json` env block: `"UEMCP_ENABLE_PYTHON_EXEC": "1"`.
 
 ### Adding a tool to an existing toolset
-1. Add the tool entry in `tools.yaml` under the appropriate toolset
-2. If offline: implement handler in `offline-tools.mjs`, add case to `executeOfflineTool` switch
-3. If TCP/HTTP: implement in the appropriate handler file (Phase 2+)
-4. Register in `server.mjs` with `server.tool()`, capture handle, call `handle.disable()`, register with ToolsetManager
+1. Add entry in `tools.yaml` under the toolset
+2. If offline: implement in `offline-tools.mjs`, add case to `executeOfflineTool` switch
+3. If TCP/HTTP: implement in the appropriate handler file
+4. Register in `server.mjs` via `server.tool()`, capture handle, `handle.disable()`, register with ToolsetManager
 
 ### Adding a new toolset
 1. Define in `tools.yaml` with `layer:` and `tools:` block
-2. ToolIndex picks it up automatically at `build()` time
+2. ToolIndex picks it up at `build()` time
 3. Add TOOLSET_TIPS entry if cross-toolset workflows exist
-4. Register all tools in server.mjs following the offline pattern (capture handles, start disabled)
+4. Register all tools in server.mjs (capture handles, start disabled)
 
 ### Adding an alias
-Add to `tools.yaml` `aliases:` section. Merged into ToolIndex at build time.
+Add to `tools.yaml aliases:`. Merged into ToolIndex at build time.
 
 ## Known Issues & Deferred Work
 
-- **M4**: `searchGameplayTags` rebuilds full hierarchy just to get flat tag list (perf only)
+- **M4**: `searchGameplayTags` rebuilds full hierarchy for flat list (perf only)
 - **L1**: No TCP reconnection retry (Phase 2 scope)
 - **L2**: No graceful fallback across layers (Phase 4 scope)
 - **L3**: Write-op deduplication not implemented (Phase 2 scope)
 - **L4**: MCP Resources deferred (D21)
 
-See `docs/tracking/risks-and-decisions.md` for full risk table and decision log (D1-D112, growing). D-log entries D78-D112 collectively catalog 30+ UE 5.6 plugin-development institutional-memory items (module-vs-plugin distinctions per D110, deprecation paths per D93/D102, link-time module deps per D111, parameter-association struct gotchas per D105, Python plugin runtime gates per D107, and more) — search `(extends D78/...)` in the D-log to follow the chain.
+See `docs/tracking/risks-and-decisions.md` for the full risk table and D-log (D1+, growing). D-log entries D78-D144 catalog 30+ UE 5.6 plugin-development institutional-memory items (module-vs-plugin per D110, deprecation paths per D93/D102, link-time module deps per D111, parameter-association struct gotchas per D105, Python plugin runtime gates per D107). Search `(extends D78/...)` in the D-log to follow chains.
 
 ## Operational Limits
 
-### WebRemoteControl operational limits (D120 / D122 / D125 / D128 / D129 / D130 / NEW-2 / NEW-4)
+### WebRemoteControl — FIXED-AT-SOURCE (D130/D131)
 
-> **FINAL ROOT CAUSE (D130, 2026-05-03)**: `WebRemoteControl.cpp:930` single-line UE 5.6.1 engine bug — missing `Passphrase` HTTP header triggers `TMap::operator[]` auto-insertion → downstream `FindChecked` assertion → editor crash. **One-line workaround in `server/connection-manager.mjs`**: send `Passphrase: <any-value>` header on `/remote/batch` (or all `/remote/*` for defense-in-depth). RC permissive auth in editor accepts any non-empty string. Empirically validated n=4 vs n=4 controlled experiment (Audit 7 Iteration 3); editor stayed alive 620+ sec after the experiment. **Pivot-W0' ships the fix in 0.25 sessions; saves ~4.75 worker sessions vs D128 retirement.** V4-PRIME (UEMCP calling non-UFUNCTION methods like `Set*ParameterValueEditorOnly`) remains a separate quality issue addressable by Pivot-W1/W2/W3 as routine cleanup; no longer urgent post-W0'. See `feedback_passphrase_header_gotcha.md` for full mechanism + workaround details.
+**NEW-2 root cause**: `WebRemoteControl.cpp:930` UE 5.6.1 engine bug — missing `Passphrase` HTTP header triggers `TMap::operator[]` auto-insertion → downstream `FindChecked` assertion → editor crash. **Workaround in `connection-manager.mjs:126`**: send `Passphrase: <any-value>` header on `/remote/batch` (or all `/remote/*` for defense-in-depth). RC permissive auth accepts any non-empty string. Empirically validated n=4 vs n=4. Full forensics in D-log D118-D131 + `feedback_passphrase_header_gotcha.md`.
 
-> **Historical framings (D129 / D128 / D125 / etc.)**: preserved below for context but superseded by D130. Audit 7's three-iteration verdict arc (V4 PIVOT → V1 RETIRE → V1 + ONE-LINE WORKAROUND) is the canonical worked example for `feedback_validate_claims_before_commitment.md` — even validation audits can produce premature verdicts when scope-of-verdict outruns scope-of-evidence; continued iteration until the two match is part of the discipline.
+**NEW-9 (editor-readiness probe) — FIXED-AT-SOURCE (D131)**: TCP plugin's `Listen()` is gated behind `FCoreDelegates::OnFEngineLoopInitComplete` in `UEMCPModule.cpp:139`. Pre-init connections receive ECONNREFUSED from the OS (not a UEMCP handler) until editor finishes init. Connect-per-command pattern in `connection-manager.mjs` makes this transient — `send()` does not mutate `LayerStatus` on rejection, so next command opens a fresh socket and succeeds once init completes. Collapses 5 audit classes structurally. Commandlets (e.g., DumpBPGraphCommandlet) early-return from `StartupModule` before registering the lambda — pre-W1 commandlet behavior preserved.
 
-#### Transitional pre-pivot constraints (only relevant until Pivot-W1/W2/W3 ship)
+**Behavior under fresh launch**: during the ~5-30s pre-init window (depending on project size + AR scan), TCP:55558 commands return `connect ECONNREFUSED 127.0.0.1:55558` — this is **expected, not a failure**; retry on the next user prompt and it will succeed once init completes. Don't start a deep diagnosis on the first ECONNREFUSED. `get_editor_state` (`EdgeCaseHandlers.cpp:32`) is the canonical readiness signal: a successful round-trip confirms the listener is bound; also useful mid-session to detect PIE start/stop or level-reload world-context shifts.
 
-UE 5.6's `WebRemoteControl` plugin asserts in `Map.h:716` (`Pair != nullptr`) on the GameThread when the `/remote/batch` HTTP endpoint is invoked with `GetAll*ParameterInfo` enumerator function calls. The crash terminates the editor (`Assertion failed: Pair != nullptr` in `TMap::FindChecked` inside the per-request `FRC*Request::StructParameters` map). Engine-code crash; UEMCP cannot patch.
+**Outliner-display-name (NEW-9b)**: 7 SpawnActor sites in plugin set `SpawnParams.Name` (internal FName) but never call `SetActorLabel()`, so actors appear under class name in outliner. Tracked in W2 (`docs/handoffs/cleanup-m5-residue.md` §3); independent of timing.
 
-**Refined trigger** (D125, n=3 empirical evidence): the crash is **endpoint-and-function-specific**, NOT sustained-traffic-volume-driven. Two UEMCP tools currently route through `/remote/batch` and trigger the crash on call #1:
+### Per-tool TCP timeout overrides — retained (D118/D121/D125/NEW-7)
 
-- **`list_material_parameters`** — issues 3 batch sub-requests (`GetAllScalarParameterInfo` + `GetAllVectorParameterInfo` + `GetAllTextureParameterInfo`)
-- **`get_mesh_info`** — issues 5 batch sub-requests across the dynamic-mesh surface
+Three asset-mgmt handlers (`duplicate_asset` / `rename_asset` / `delete_asset_safe`) and two widget-property handlers (`bind_widget_event` / `set_text_block_binding`) routinely run >5s on the GameThread. The default-timeout error was a **silent-success-on-disk trap** — operation completed server-side but JS caller saw timeout and retried, causing double-rename/delete corruption.
 
-All other tested RC tools (`rc_get_property`, `rc_set_property`, `set_material_parameter`, `rc_describe_object` — all single `/remote/object/*` calls) executed 9+ times per session across D118+D122+D125 with **NO** crash. The "~25-call ceiling" from D118+D122 was a red herring: those sessions happened to call `list_material_parameters` early, and call-volume correlation was incidental. **D120 hypothesis (broken-asset GameThread stall) confirmed-falsified by D122; D122 hypothesis (sustained-traffic universal-engine race) ALSO falsified by D125** — the trigger is a thread-safety / lifecycle bug in the `/remote/batch` handler's `FRC*Request::StructParameters` TMap, surfaced when batch sub-requests fan out to enumerator function calls.
+**Fix**: per-toolset `*_TIMEOUT_OVERRIDES` tables — 15s ceiling for asset-mgmt (`server/m5-editor-utility-tools.mjs M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES`), 10s for widget-property (`server/widgets-tcp-tools.mjs WIDGETS_TIMEOUT_OVERRIDES`). Flows through `connectionManager.send(layer, type, params, { timeoutMs })`. Default `config.tcpTimeoutMs` is 10s (E-1 §5, D140; was 5s pre-D140).
 
-**Operational guidance**:
+Deferred: widget compile-on-write candidates (D126 Class C), `tools.yaml timeout_ms:` centralization, async-job model for batch UX.
 
-1. **Avoid the two trigger tools entirely until NEW-2 fix ships.** `list_material_parameters` and `get_mesh_info` are annotated CRASH-TRIGGER in tools.yaml. Workers should not call them.
-2. **Other RC tools are empirically safe at any volume the smoke exercised** — `rc_get_property` / `rc_set_property` / `set_material_parameter` (write-path NEW-4 issue notwithstanding) / `rc_describe_object` do not touch `/remote/batch` and do not trigger the crash.
-3. **Per-section editor relaunch convention** (~15 RC HTTP calls OR ~15 min editor wall-clock per section, with relaunches between sections in smoke / gauntlet handoffs) is now **operational hygiene**, NOT crash-prevention. The crash-prevention value of the convention is empirically zero post-D125 since the trigger fires on call #1 of either trigger tool. The hygiene value remains: editor state stays fresh, asset-registry cache stays warm, hitch profile stays predictable. Smoke and gauntlet handoffs may relax the relaunch frequency for workflows that don't touch the trigger tools.
+### Cache-invalidation gap (D126 audit I.2, pre-W6)
 
-**Remediation paths** (UEMCP-self-contained — see `feedback_self_contained_scope.md`):
+`ResultCache` (in `connection-manager.mjs`) keys by SHA-256 of `(type, params)` with 5min TTL. Read-ops cache; write-ops `skipCache: true`. **But write-ops do NOT invalidate related read-op cache entries.** Read-modify-read can see stale data for up to 5min.
 
-- **NEW-2 batch-endpoint fix worker** (highest priority post-D125): two design options under evaluation, both UEMCP-self-contained — (i) reroute `list_material_parameters` + `get_mesh_info` from `/remote/batch` to per-call `/remote/object/call` with synthetic aggregation in JS (we control the wrapper end-to-end), vs (ii) vendor a patched copy of the `FRC*Request::StructParameters` handler as a UEMCP plugin override (we control the vendoring; no external approval needed). Option (i) is faster + lower maintenance burden. Worker picks after evidence; see `docs/handoffs/new-2-batch-endpoint-fix.md`.
-
-**Parked / not-recommended paths** (require waiting on external parties; not load-bearing):
-
-- Epic UDN bug-report filing — ready-to-submit body at `docs/audits/new-2-udn-bug-report-2026-04-29.md` (gitignored, stale framing pre-D125-narrowing). Parked per user preference 2026-05-02 — UEMCP-side fixes are the path forward, not upstream-Epic engagement.
-- WinDbg + symbols-resolved minidump walk — would only be useful as input to a UDN body; parked alongside.
-
-### Editor-readiness probe (D125 / D126 / D131 / NEW-9 — FIXED-AT-SOURCE)
-
-> **Status post-W1 (D131, 2026-05-03)**: NEW-9 is **fixed at source**. The TCP plugin's `Listen()` call is now gated behind `FCoreDelegates::OnFEngineLoopInitComplete` in `FUEMCPModule::StartupModule` (UEMCPModule.cpp:139). Pre-init connections from the MCP server receive `ECONNREFUSED` from the OS (not from a UEMCP-side handler) until the editor's `FEngineLoop::Init` pass finishes (asset registry initial scan, world creation/load, subsystem init). The connect-per-command pattern in `connection-manager.mjs` makes ECONNREFUSED naturally transient — `send()` does not mutate `LayerStatus` on the rejection path, so the next command opens a fresh socket and succeeds once the editor finishes init. The single-line gate collapses 5 audit classes structurally (A amplification, C amplification, H, I.6, I.7).
-
-**Behavior under fresh editor launch (post-W1)**:
-
-- During pre-init (~5-30s window depending on project size + AR scan duration), MCP commands targeting TCP:55558 return wrapped Node socket errors of the form `TCP:55558 — connect ECONNREFUSED 127.0.0.1:55558`. The MCP client should retry on the next user prompt; subsequent attempts will succeed once `OnFEngineLoopInitComplete` fires and the listener binds.
-- `isLayerAvailable('tcp-55558')` may cache `UNAVAILABLE` for 30s after a probe in the pre-init window (per the health-check TTL in connection-manager). Force a re-probe with `isLayerAvailable(..., true)` if needed.
-- The `connection_info` MCP command continues to function (operates on configuration metadata, not live wire state).
-
-**Behavior under commandlet processes (D57)**: commandlet runs (e.g., M-new Oracle-A `DumpBPGraphCommandlet`) early-return from `StartupModule` BEFORE registering the `OnFEngineLoopInitComplete` lambda. Commandlets do not drive the editor engine loop, so the delegate may never broadcast — the pre-W1 commandlet behavior (no TCP server) is preserved.
-
-**Operational guidance for sustained sessions**:
-
-- `get_editor_state` (EdgeCaseHandlers.cpp:32) remains the canonical readiness signal. Post-W1 it is only reachable AFTER init completes (because the listener doesn't bind until then), so a successful `get_editor_state` round-trip implicitly confirms editor readiness; explicit polling becomes a no-op for first-call confirmation but remains useful for long sessions to detect mid-session world-context shifts (PIE start/stop, level reload).
-- `delete_asset_safe` AR-referencer-block check is now safe under fresh launches — the AR is guaranteed to have completed its initial scan by the time any handler runs. Audit I.6 silent-corruption case is closed.
-- `spawn_actor` `NAME_COLLISION` false-positives against discarded partial-world actors (audit I.7) are no longer reachable.
-- NEW-9b SetActorLabel issue (audit Class A) is **not** addressed by W1 — it's an outliner-display-name correctness bug independent of timing. Tracked separately in W2 (`docs/handoffs/cleanup-m5-residue.md` §3).
-
-Related sub-issue (NEW-9b): `create_procedural_mesh` sets `SpawnParams.Name` (the internal UObject FName) but never calls `SetActorLabel()`, so DynamicMeshActors appear in the outliner with the class name `"DynamicMeshActor"` instead of the specified actor name. The internal FName IS set correctly (handler returns `MeshActor->GetName()`), but the outliner display name is wrong. **D126 audit confirmed this is universal: ALL 7 SpawnActor sites in the plugin lack `SetActorLabel`** (5 in `ActorHandlers.cpp` for `spawn_actor` variants, 1 for `spawn_blueprint_actor`, 1 in `GeometryHandlers.cpp`). Fix queued in W2 (CLEANUP-M5-RESIDUE §3 expanded to all 7 sites).
-
-### Cache-invalidation gap pre-W6 (D126 / audit I.2)
-
-`ResultCache` (in `server/connection-manager.mjs`) keys cache entries by SHA-256 of `(type, params)` with 5-minute TTL. Read-ops cache; write-ops set `skipCache: true` so they don't pollute the cache. **But write-ops do NOT invalidate related read-op cache entries.** Agents that read-modify-read see stale data for up to 5 minutes after any mutation.
-
-Failure pattern: `inspect_blueprint(BP_X)` cached, `add_event_node(BP_X)` mutates, subsequent `inspect_blueprint(BP_X)` returns stale cached state without the new node.
-
-**Operational guidance until W6 ships**: agents that need post-write read-coherence should call write-ops with `skipCache: true` AND wait at least 5 minutes before re-reading the same asset — OR restart the MCP server (cache empties on process restart). For interactive workflows where this matters, prefer routing reads through TCP wire calls that don't go through the cache layer (e.g., `get_actor_properties` which is per-call). W6 worker handoff at `docs/handoffs/w6-cache-invalidation.md` ships the structural fix (`tools.yaml invalidates:` field + connection-manager bust logic).
-
-### `get_mesh_info` status (Pivot-W3 LIVE-VERIFIED, D141)
-
-D125 narrowed the NEW-2 trigger to `/remote/batch` calls with `GetAll*ParameterInfo` enumerator UFUNCTIONs specifically. `get_mesh_info` uses 5 scalar/getter UFUNCTIONs (`GetNumVertices` / `GetNumTriangles` / `GetNumLODs` / `GetBounds` / `GetStaticMaterials`) — NOT GetAll*-class enumerators — and was never the actual crash trigger, only guilt-by-association with `list_material_parameters`.
-
-**Pivot-W3 verdict (D141, 2026-05-06)**: LIVE-VERIFIED. UE 5.6 `StaticMesh.h` confirmed all 5 targets UFUNCTION-decorated (`UFUNCTION(BlueprintPure)` on 4 scalar getters; `UFUNCTION(BlueprintGetter)` on `GetStaticMaterials`). D131 Passphrase header fix shipped at `connection-manager.mjs:126`. Live-fire on `/Engine/BasicShapes/Cube.Cube` returned correct mesh data — vertices=54, triangles=48, lods=1, bounds Origin (0,0,0) BoxExtent (50,50,50) SphereRadius 86.6, 1 material slot (WorldGridMaterial); first round-trip 98ms, subsequent calls 13-38ms. NEW-2 V1 contingency check: 8 rapid sequential calls all PASS, editor stayed alive throughout (pid 81268). Engine `/remote/batch` crash class empirically closed for scalar UFUNCTIONs. No code change required; existing dispatch shape kept (saves 4 round-trips vs per-call migration). Tools.yaml description already reflects D131 fix-shipped status. **Latent papercut** (not blocking): `GetNumVertices(int32 LODIndex)` and `GetNumTriangles(int32 LODIndex)` take an `LODIndex` parameter the dispatch passes empty `parameters: {}` for — RC default-init to 0 worked correctly in live-fire (LOD-0 vertex/triangle counts returned), but adding `parameters: { LODIndex: 0 }` explicitly is a defensive-intent cleanup tracked for future hardening.
-
-### Mitigation flags (UEMCP-side defense-in-depth)
-
-Three additive opt-in env flags shipped with D123 as defense against the
-then-presumed sustained-traffic NEW-2 hypothesis. **D125 narrowed the
-trigger to two specific batch-using tools, so these flags' empirical
-crash-prevention value is now near-zero** (the crash fires at batch
-call #1, before any of the three flags' counters / rate-caps / hint
-thresholds engage). Their remaining value is operational hygiene —
-keeping editor state fresh and providing a stderr signal for sustained
-sessions. All three default OFF; with no flags set, sendHttp behaves
-identically to the pre-mitigation baseline. Operator can enable any
-subset; flags are independent.
-
-- `UEMCP_RC_RECYCLE_AFTER_N=N` — every N un-cached RC HTTP calls,
-  destroy and recreate an explicit `http.Agent`, severing the connection
-  boundary. **Side effect:** enabling this flag also flips ON keep-alive
-  socket pooling for RC HTTP within each recycle window (the default-OFF
-  path uses Node's globalAgent with `keepAlive:false`). The recycle
-  resets the connection-level state Unreal sees; whether that clears
-  the editor-side `StructParameters` TMap corruption hypothesized in
-  D118 is empirically uncertain — this is defense-in-depth, not a
-  proven fix.
-- `UEMCP_RC_RATE_CAP=R` — token-bucket rate-cap of R RC HTTP calls/sec
-  (e.g. `0.5/sec` or `2`). Bucket capacity = R (1 second of headroom),
-  refills at R tokens/sec. When empty, sendHttp blocks via setTimeout
-  until enough tokens have accumulated for the next call. Caller-side
-  throttling reduces the sustained-traffic intensity that may trigger
-  the race; doesn't bound the total call count, only the rate.
-- `UEMCP_RC_RELAUNCH_HINT_AFTER_N=N` — after N un-cached RC HTTP calls
-  in a single server process, emit one stderr warning telling the
-  operator to relaunch the editor + restart the MCP server before the
-  NEW-2 ceiling hits. Idempotent within a session (fires exactly once).
-  Counter resets on server restart, which correlates with editor
-  relaunch.
-
-**Counters track un-cached calls only.** Cached reads do not hit the
-editor and do not increment any of the three counters; only calls that
-actually round-trip to RC count toward the ceiling.
-
-**Recommended layering** (post-D125, scaled back from D123 framing):
-
-1. **`UEMCP_RC_RELAUNCH_HINT_AFTER_N=15`** is still cheap to enable and
-   gives a single stderr line at the threshold — useful as a session-
-   length signal even though it doesn't prevent the crash. Operator
-   discretion; orchestrator no longer recommends it as a default.
-2. **`UEMCP_RC_RECYCLE_AFTER_N` and `UEMCP_RC_RATE_CAP` are now
-   explicitly NOT recommended** for general use. They were designed
-   against the falsified sustained-traffic hypothesis. Flipping
-   `RECYCLE_AFTER_N` also turns ON keep-alive socket pooling within
-   each recycle window, which changes the connection-level shape of
-   every RC call — measurable HYBRID-transport regression risk for
-   zero crash-prevention benefit. Only enable if a future n=4+
-   reproduction shape suggests connection-state corruption is involved.
-
-The actual mitigation post-D125 is **don't call `list_material_parameters`
-or `get_mesh_info`** until the NEW-2 batch-endpoint fix worker ships.
-See `docs/handoffs/new-2-batch-endpoint-fix.md`.
-
-In `.mcp.json`, add the desired flags to the `env` block (e.g.
-`"UEMCP_RC_RELAUNCH_HINT_AFTER_N": "15"`). The startup banner on
-stderr confirms which mitigations are active. Tests in
-`server/test-new-2-mitigation.mjs` verify each flag's wire-mock
-behavior plus the no-flags baseline.
-
-### Per-tool TCP timeout overrides — asset-mgmt + widgets (D118 / D121 / D125 / NEW-7)
-
-Three asset-mgmt handlers (`duplicate_asset` / `rename_asset` /
-`delete_asset_safe`) and two widget-property handlers
-(`bind_widget_event` / `set_text_block_binding`) run on the GameThread
-and exceed the default 5s TCP timeout under live editor conditions.
-D125 measured asset-mgmt durations of rename 5238-6474ms,
-delete 2654-5489ms, duplicate 3641-3814ms — all over the 5s default.
-The default-timeout error is a **silent-success-on-disk trap**: the
-operation completes server-side, but the JS caller sees a timeout and
-may retry, causing double-rename / double-delete data corruption.
-D125 verified via direct disk inspection that the rename / soft-delete
-DID succeed despite the timeout error returned to the caller.
-
-**Fix (NEW-7)**: per-toolset `*_TIMEOUT_OVERRIDES` tables apply a 15s
-ceiling for the 3 asset-mgmt tools (≈2.3× empirical worst case) and a
-10s ceiling for the 2 widget-property tools (D118 measured 5633ms
-under PIE for `bind_widget_event`). Tables live next to the schemas
-in their respective handler files:
-`server/m5-editor-utility-tools.mjs M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES`
-(rename / delete / duplicate, D125/NEW-7) and
-`server/widgets-tcp-tools.mjs WIDGETS_TIMEOUT_OVERRIDES`
-(bind_widget_event / set_text_block_binding, D118/D121).
-Override flows through `connectionManager.send(layer, type, params,
-{ timeoutMs })`; default per-call ceiling falls back to
-`config.tcpTimeoutMs` (raised to 10s in E-1 §5; was 5s pre-D140).
-
-**Deferred — widget compile-on-write candidates (D126 audit Class C)**:
-five additional widget handlers (`create_widget`, `add_text_block`,
-`add_button`, `add_widget_to_viewport`, `add_input_action_node`) plus
-`compile_blueprint` call `CompileBlueprint` inline and may exceed 5s
-under PIE. Override extension is **DEFERRED** until the next smoke
-records their durations under PIE — premature override at 10s could
-mask real plugin-side regressions. If next-smoke shows any of them >3s
-under PIE, a follow-up worker extends overrides at that point.
-
-**Deferred — `tools.yaml timeout_ms:` centralization (INFO-level)**:
-the per-toolset-file table approach is sufficient for now; a unified
-`tools.yaml timeout_ms:` field would consolidate the convention when
-the pattern crosses 3+ files. Tracked for a future cleanup worker.
-
-**Async-job model (Option ii, deferred)**: future enhancement for
-batch UX where callers don't want to block synchronously for up to 15s
-per asset-mgmt op. Out of scope for the immediate silent-corruption fix.
+Workaround until W6 ships: call write-ops with `skipCache: true` AND wait 5min before re-reading the same asset OR restart MCP server. Handoff at `docs/handoffs/w6-cache-invalidation.md`.
 
 ### E-1 connection-layer hygiene + EN-23 metrics (D140)
 
-Five connection-layer hygiene fixes shipped together with EN-23 baseline
-measurement instrumentation in a single deploy cycle:
+Five hygiene fixes shipped together:
+- **§1 Length-framed wire** (`Content-Length:` LSP/DAP convention) per-port: tcp-55558 framed, tcp-55557 legacy (frozen oracle); auto-detect on incoming
+- **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() uses `WaitForPendingConnection(500ms)` instead of `Sleep(0.05f)`
+- **§3 Event-driven recv** — `ServeOneConnection` uses `Wait(WaitForRead, 50ms)` instead of `Sleep(0.01f)`
+- **§4 Loopback-only bind** — listener on `FIPv4Address::InternalLoopback` (127.0.0.1), not 0.0.0.0; security hardening
+- **§5 Timeout reconciliation** — `tcpTimeoutMs` default 5000 → 10000ms; plugin `PerConnectionTimeoutSec` 5.0 → 10.0
 
-- **§1 Length-framed wire** — `Content-Length: <bytes>\r\n\r\n<body>` per
-  LSP/DAP convention. **Per-port routing**: outgoing framing applies only
-  to `tcp-55558` (UEMCP custom plugin) via the `_FRAMED_PORTS` set in
-  `connection-manager.mjs`. The frozen UnrealMCP oracle on `tcp-55557`
-  (D23) stays unframed — a Content-Length prefix would choke its
-  parse-loop. Incoming responses are auto-detected on EITHER port:
-  framed responses parse via the framed path; legacy unframed responses
-  fall through to JSON-parse-completion. Backwards-compat shim is
-  load-bearing during transitional deploys (old plugin sending unframed
-  + new server expecting framed, or vice versa).
-- **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() replaces
-  `Sleep(0.05f)` polling with `WaitForPendingConnection(bPending,
-  FTimespan::FromMilliseconds(500))`. Eliminates the 50ms accept-poll
-  floor measured in Audit 6 §1 (n=210 calls, firstByte median 51-52ms
-  across all workload classes). Projected post-A+ firstByte ~1.5-8ms
-  (5-25× speedup on property-read class).
-- **§3 Event-driven recv** — `ServeOneConnection` recv-EWOULDBLOCK loop
-  replaces `Sleep(0.01f)` with `Wait(ESocketWaitConditions::WaitForRead,
-  FTimespan::FromMilliseconds(50))`. Eliminates the secondary 10ms
-  quantization on multi-chunk receives (Audit 6 advisor-flagged second
-  polling site). Same fix class as §2.
-- **§4 Loopback-only bind** — `UEMCPModule.cpp` flips listener bind from
-  `FIPv4Address::Any` (0.0.0.0) to `FIPv4Address::InternalLoopback`
-  (127.0.0.1). Security hardening: prevents the TCP listener from
-  accepting connections from other machines on the LAN. UEMCP is
-  single-machine-only by design.
-- **§5 Handler-timeout reconciliation** — `tcpTimeoutMs` default raised
-  5000 → 10000ms (server.mjs `UNREAL_TCP_TIMEOUT_MS` default + manifest
-  field default); plugin-side `PerConnectionTimeoutSec` raised 5.0 → 10.0.
-  D121 widget overrides + D125/NEW-7 asset-mgmt overrides recorded
-  empirical durations >5s; raising the baseline removes the
-  silent-success-on-disk trap class. Per-tool overrides
-  (`WIDGETS_TIMEOUT_OVERRIDES`, `M5_EDITOR_UTILITY_TIMEOUT_OVERRIDES`)
-  remain in place as empirical-evidence anchors for >10s outliers.
+**EN-23 metrics aggregator** — `MetricsAggregator` in `connection-manager.mjs` collects per-call timings, cache hits, framed counts. Default-OFF (cheap no-op). Opt-in via `.mcp.json` env: `UEMCP_METRICS_EMIT_EVERY_N=100` (stderr summary) or `UEMCP_METRICS_LOG=<path>` (JSONL append, best-effort). `ConnectionManager.getMetrics()` exposes the data.
 
-**EN-23 metrics aggregator** — `MetricsAggregator` class in
-`connection-manager.mjs` collects per-call wire-phase timings (connect,
-send, first_byte, response, total), cache hit/miss counts, framed-vs-
-unframed counts, and per-type aggregates. **Default-OFF**: when
-`UEMCP_METRICS_EMIT_EVERY_N` is 0 AND `UEMCP_METRICS_LOG` is empty,
-`record()` is a cheap no-op and `tcpCommand` skips its hrtime captures.
-Operator opts in via `.mcp.json` env block:
+**Bench script** — `server/_bench-transport-spike.mjs` (underscore = test-only). Direct-TCP probe with per-phase hrtime; bypasses MCP-SDK + ConnectionManager.
 
-- `"UEMCP_METRICS_EMIT_EVERY_N": "100"` — emit aggregate stderr summary
-  every 100 un-cached calls. Summary shape: `{ window_n, total_n,
-  cache_hits, cache_misses, avg_total_ms, p50_total_ms, p95_total_ms,
-  max_total_ms, framed_count, error_count, by_type }`.
-- `"UEMCP_METRICS_LOG": "<path>"` — append per-call records as JSONL
-  to the named file. Best-effort: write errors are swallowed so
-  telemetry never crashes the server.
+### RC mitigation flags (D123) — NOT recommended post-D131
 
-Connection-manager exposes `getMetrics()` so tools / tests can introspect.
-
-**Bench script** — `server/_bench-transport-spike.mjs` (underscore prefix
-= test-only, not loaded by main server). Direct-TCP probe at 127.0.0.1
-with per-phase `process.hrtime.bigint()` timing; bypasses MCP-SDK +
-ConnectionManager so numbers reflect the wire floor. Run on demand for
-pre/post-A+ comparison and for EN-23 baseline reproducibility:
-`node server/_bench-transport-spike.mjs --workload=ping --n=50`.
-
-**Plugin version coupling** — D140 ships with `manifest.json` 1.0.1 →
-1.0.2 + `UEMCP.uplugin Version` 2 → 3 + `VersionName` 1.0.1 → 1.0.2.
-W-L deploy-marker (D138) compares both → either change triggers
-auto-bust of `Binaries/` + `Intermediate/` so the next sync rebuilds
-against the new wire shape.
+Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_RC_RELAUNCH_HINT_AFTER_N`) shipped against the then-presumed sustained-traffic NEW-2 hypothesis. Hypothesis was falsified by D125+D131. **Not recommended for general use post-fix**. `RELAUNCH_HINT_AFTER_N=15` retains marginal value as a session-length signal; the other two change connection-level shape with zero crash-prevention benefit. Implementation kept in case a future n=4+ reproduction surfaces a different connection-state corruption.
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43, organized by phase).
-**Total: ~2196 unit-runnable assertions across 23 test files** (post-D144 Gauntlet refactor batch baseline; varies ±N by fixture availability — see T-1b synthetic-fixture migration status). Growth cadence since 436 baseline: +125 Agent 10, +51 Agent 10.5, +37 Polish, +34 Parser Extensions, +26 Cleanup, +8 Pre-Phase-3, +50 MCP-Wire, +16 F-1.5, +42 EN-2, +74 M-spatial, +15 EN-8/9, +120 S-B-base, +83 Verb-surface, +166 M-enhance, +17 AUDIT-FIX-3 (D85), +43 SMOKE-FIX (D87), +4 CLEANUP-MICRO (D90), +117 M3-actors split (D93), +88 M3-widgets (D96), +162 M3-blueprints-write (D97), +24 CLEANUP-M3-FIXES (D102), +197 TEST-IMPORTS-FIX restored from silent-zero (D104; see `feedback_silent_zero_test_drift.md`), +93 M5-animation+materials (D105), +109 M5-input+geometry (D106), +94 M5-editor-utility (D107), +16 BLUEPRINT-ASSET-PATH-RESOLUTION-FIX (D112), +38 NEW-2-UEMCP-SIDE-MITIGATION (D123); +6 NEW-7-ASSET-MGMT-TIMEOUT (D134); +23 CLEANUP-M5-RESIDUE (D135, §3.5 +5 + §4 +6 + §4.5 +12); +28 Q3-DEV-WORKFLOW (D136, new test-verify-deploy.mjs); +33 W-L-SYNC-PLUGIN-HARDENING (D138, new test-sync-plugin-helper.mjs); +14 D138-FIX3 (verify-deploy marker-overlay coverage in test-verify-deploy.mjs: applyMarkerVerdictOverlay 8 branches + formatMarkerSyncTime 4 cases); +20 W-K (D139, new test-anon-namespace-audit.mjs — Layer 3 structural enforcement of anon-namespace duplicate-symbol class); +41 E-1 connection-layer rewrite + EN-23 baseline (D140, test-mock-seam.mjs gains length-framing detection + per-port routing + real-socket framed roundtrip + timeout reconciliation + MetricsAggregator shape + ConnectionManager getMetrics getter); +0 W-A registration-loop refactor (D142, behavior-preserving — no new assertions); +11 W-O find_tools autoEnabled fix (D143, test-phase1.mjs Test 5b — summarizeAutoEnable pure-function shape across layer-available / layer-unavailable / mixed / already-enabled / defensive-copy / live-autoEnable cases); +18 GAUNTLET-BATCH (D144, W-B 7 invalid-enum + W-G 6 error-envelope-shape + W-I 4 rotation-arg + W-H 1 supplementary path-traversal across test-m3-actors + test-m3-blueprints-write + test-tcp-tools + test-m3-widgets + test-rc-wire + test-m5-geometry + test-query-asset-registry). test-m1-ping live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **~2196 unit-runnable assertions across 23 test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
-### Rotation Runner — Single Authoritative Count + FAIL-LOUD on Import Errors
+### Rotation Runner — FAIL-LOUD on Import Errors
 
-`server/run-rotation.mjs` enumerates every `server/test-*.mjs` (excluding the
-two library helpers and the live-gated `test-m1-ping`), spawns each as an
-isolated `node` subprocess, parses the `Passed/Failed/Total` summary from
-stdout, and produces a single authoritative aggregate count. It is the
-canonical way to run the rotation; per-file commands in the tables below remain
-useful for narrow iteration but no longer set the rotation count.
-
-**Run**:
+`server/run-rotation.mjs` is the canonical rotation runner. Enumerates `server/test-*.mjs` (excluding library helpers + live-gated `test-m1-ping`), spawns each as an isolated `node` subprocess, parses `Passed/Failed/Total` from stdout, produces single authoritative aggregate.
 
 ```bash
 cd D:\DevTools\UEMCP\server
-node run-rotation.mjs           # standard
-node run-rotation.mjs --json    # machine-readable
-node run-rotation.mjs --snapshot  # writes server/.test-rotation-snapshot.json
-npm test                        # equivalent to `node run-rotation.mjs`
+node run-rotation.mjs             # standard
+node run-rotation.mjs --json      # machine-readable
+node run-rotation.mjs --snapshot  # writes .test-rotation-snapshot.json
+npm test                          # equivalent
 ```
 
-For full coverage of the supplementary rotation set (the fixture-backed tests
-listed below), prefix with `set UNREAL_PROJECT_ROOT=path/to/YourProject&& `
-(no space before `&&`) — without it, those tests legitimately skip.
+For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJECT_ROOT=path/to/YourProject&& ` (no space before `&&`).
 
-**FAIL-LOUD on import errors (closes D104 silent-zero meta-finding)**: the
-runner classifies each subprocess outcome into one of `PASS`, `SKIPPED` (live-
-or env-gated), `ASSERTION_FAILED`, `IMPORT_ERROR` (stderr matches Node module-
-resolution patterns AND no summary parsed), `CRASHED_NO_SUMMARY` (exit ≠ 0,
-no summary, not an import error — top-level throw), or `NO_SUMMARY_PARSED`
-(exit 0 but no Pass/Fail/Total — silent-zero shape, investigate). Any non-PASS,
-non-SKIPPED bucket exits non-zero with file-name attribution. The historic
-silent-zero failure mode where a deleted-barrel import error masqueraded as
-0/0 is structurally impossible to reproduce against this runner.
-
-The runner does NOT replace per-file invocation for narrow debugging — those
-commands still work and are documented in the tables below for that purpose.
+**FAIL-LOUD on import errors** (closes D104 silent-zero meta-finding): subprocess outcomes classified as `PASS`, `SKIPPED` (live/env-gated), `ASSERTION_FAILED`, `IMPORT_ERROR`, `CRASHED_NO_SUMMARY`, or `NO_SUMMARY_PARSED`. Any non-PASS/non-SKIPPED bucket exits non-zero with attribution. The historic silent-zero where deleted-barrel import errors masqueraded as 0/0 is structurally impossible against this runner.
 
 ### Test Files — Primary Rotation
 
-| File | Purpose | Run command |
-|------|---------|-------------|
-| `server/test-phase1.mjs` | Offline tools, ToolIndex search, toolset enable/disable, handler fixes, Option C + L3A S-A coverage + EN-2 bulk-scan coverage (224 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-phase1.mjs` |
-| `server/test-mock-seam.mjs` | Mock seam wiring, cache, error normalization, queue serialization (45 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-mock-seam.mjs` |
-| `server/test-tcp-tools.mjs` | Phase 2 TCP tools: blueprints-write only (15 tools) — name translation, param pass-through, caching, port routing (tcp-55558 post M3-bpw D97), wire map building. Actors moved to test-m3-actors.mjs (D93), widgets to test-m3-widgets.mjs (D96). (197 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs` |
-| `server/test-mcp-wire.mjs` | MCP-wire integration — in-process McpServer + FakeTransport. Covers F-1 Zod-coerce (bool+number) through the real JSON-RPC path, runtime D44 invariant (tools/list matches yaml), happy-path + error response shapes, tools/list_changed timing on enable/disable, truncation/large-response wire round-trip + EN-2 bulk-tool entry (64 assertions, <1s runtime) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs` |
-| `server/test-verify-deploy.mjs` | Q3-A verify-deploy pure-helper unit tests (D136 + D138-FIX3) — `parseTargetsFile` (CRLF + comment stripping), `classifyDeployState` 9-case verdict matrix incl. `MISSING-PARTIAL` + slop tolerance + D135 "both stale" failure mode + sync-without-build trap, `formatAge` time deltas, `formatMarkerSyncTime` ISO-to-local + null/empty/invalid-input fallback, `normalizePath` Windows path equality, `extractUprojectFromCommandLine` editor-process introspection, `applyMarkerVerdictOverlay` 8 branches (no-op cases for null incomingState / MISSING / MISSING-PARTIAL; no-marker → NEEDS-SYNC seed prompt; version-match → base verdict prevails over SYNC + NEEDS-BUILD; version-changed → NEEDS-SYNC override; schema-version-changed escape hatch) (42 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-verify-deploy.mjs` |
-| `server/test-sync-plugin-helper.mjs` | W-L sync-plugin-helper pure-helper unit tests (D138) — `compareDeployMarker` 7 branches incl. null/undefined prior, version-match, manifest-changed, uplugin-changed, both-changed, schema-version-changed escape hatch, detail-presence; `readDeployMarker` / `writeDeployMarker` round-trip (atomic .uemcp-tmp + rename, parent-dir creation, malformed-JSON tolerance); `computeIncomingState` repo-state extraction (manifest.json + UEMCP.uplugin + git short SHAs) + missing-manifest throw (33 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-sync-plugin-helper.mjs` |
-| `server/test-anon-namespace-audit.mjs` | W-K (D139) Layer 3 of W-F-COMPREHENSIVE — heuristic-regex scan asserting 0 anonymous-namespace duplicate-symbol collisions across `plugin/UEMCP/Source/UEMCP/Private/*.cpp` (currently 27 files). Covers `stripCommentsAndStrings` length-preservation + string-content removal; `findAnonNamespaceBlocks` named-vs-anon discrimination + nested-anon-inside-named; `findFunctionsInBlock` positive shapes (simple, multi-arg with templates, cv-qualifiers); false-positive guards (variable construction `FVector V(1,2,3);`, lambdas `[](){}`, struct definitions, local-scope inside function bodies, if-statements); synthetic cross-file duplicate detection; live-HEAD 0-collision invariant. `--hook-mode` CLI flag spawned by `.githooks/pre-commit` on staged Private/*.cpp diffs (20 assertions) | `cd /d D:\DevTools\UEMCP\server && node test-anon-namespace-audit.mjs` |
-| `server/test-helpers.mjs` | Shared infrastructure — not a runner. Exports: `FakeTcpResponder`, `ErrorTcpResponder`, `TestRunner`, `createTestConfig` |
+| File | Purpose |
+|------|---------|
+| `test-phase1.mjs` | Offline tools, ToolIndex, toolset enable/disable, handler fixes, Option C + L3A S-A + EN-2 + W-O autoEnabled |
+| `test-mock-seam.mjs` | Mock seam, cache, error normalization, queue serialization, length-framing, MetricsAggregator |
+| `test-tcp-tools.mjs` | Phase 2 TCP — blueprints-write only post M3-bpw split; name translation, params, caching, port routing |
+| `test-mcp-wire.mjs` | MCP-wire integration; in-process McpServer + FakeTransport; Zod-coerce, D44 invariant, tools/list_changed |
+| `test-verify-deploy.mjs` | Q3-A pure-helper: parseTargetsFile, classifyDeployState 9-case matrix, formatAge, normalizePath, extractUprojectFromCommandLine, applyMarkerVerdictOverlay |
+| `test-sync-plugin-helper.mjs` | W-L pure-helper: compareDeployMarker 7 branches, readDeployMarker/writeDeployMarker round-trip, computeIncomingState |
+| `test-anon-namespace-audit.mjs` | W-K Layer 3 — heuristic-regex scan asserting 0 anon-namespace duplicate-symbol collisions across `Private/*.cpp`; `--hook-mode` for pre-commit |
+| `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig |
 
-### Test Files — Supplementary Rotation
+### Test Files — Supplementary Rotation (require UNREAL_PROJECT_ROOT)
 
-These exercise real Project-A fixtures (`.uasset`/`.umap` bytes on disk) and require `UNREAL_PROJECT_ROOT`. Wired into rotation 2026-04-16 after M6 fix propagated F1/F2 changes.
+| File | Purpose |
+|------|---------|
+| `test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 + tagged-fallback (D50) + synthetic containers. Optional `UEMCP_VFX_FIXTURE_RELPATH` for int64 salvage test |
+| `test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty |
+| `test-query-asset-registry.mjs` | bulk scan, pagination, truncation, tag filtering |
+| `test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (F2 regression guard) |
+| `test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 (6 fixtures, D70) |
+| `test-verb-surface.mjs` | M-new 5 offline traversal verbs + oracle cross-check (3 fixtures, D72) |
+| `test-rc-wire.mjs` | RC HTTP wire-mock; 11 FULL-RC tools + cross-transport consistency (D74+D76) |
 
-| File | Purpose | Run command |
-|------|---------|-------------|
-| `server/test-uasset-parser.mjs` | Parser format + Level 1+2+2.5 property decode + tagged-fallback (D50) + synthetic container coverage (152 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& set UEMCP_VFX_FIXTURE_RELPATH=Content/<your-vfx-dir>/SM_auraHousya.uasset&& node test-uasset-parser.mjs` (the `UEMCP_VFX_FIXTURE_RELPATH` env var points at a real VFX mesh whose export row carries int64-overflow values; without it the int64 salvage test skips with `[SKIP-NEED-ENV]`) |
-| `server/test-offline-asset-info.mjs` | `get_asset_info` shape + cache + indexDirty invariants (15 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-offline-asset-info.mjs` |
-| `server/test-query-asset-registry.mjs` | `query_asset_registry` bulk scan, pagination, truncation, tag filtering (16 assertions) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-query-asset-registry.mjs` |
-| `server/test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (30 assertions, includes F2 tags-removed regression guard) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-inspect-and-level-actors.mjs` |
-| `server/test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 fixtures — 6 fixtures × per-graph edge-set hybrid match (68 assertions, D70) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-s-b-base-differential.mjs` |
-| `server/test-verb-surface.mjs` | M-new Verb-surface — 5 offline traversal verbs (bp_trace_exec, bp_trace_data, bp_neighbors edge mode, bp_show_node pin completion, bp_list_entry_points precision) + oracle cross-check on 3 fixtures (83 assertions, D72) | `cd /d D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-verb-surface.mjs` |
-| `server/test-rc-wire.mjs` | M-enhance RC HTTP wire-mock — 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates) + cross-transport consistency checks (72 assertions, D74+D76) | `cd /d D:\DevTools\UEMCP\server && node test-rc-wire.mjs` |
-
-**Note**: The `set` command must have NO space before `&&` or CMD adds a trailing space to the env var. The mock seam tests don't need `UNREAL_PROJECT_ROOT` (they use fake paths).
+**Note**: `set` command must have NO space before `&&` or CMD adds a trailing space to the env var.
 
 ### Mock Seam Pattern
 
-`ConnectionManager` accepts `config.tcpCommandFn` — a `(port, type, params, timeoutMs) => Promise<object>` that replaces real TCP. This enables unit-testing TCP tool handlers without a running editor. `FakeTcpResponder` provides canned responses; `ErrorTcpResponder` simulates failure modes (timeout, ECONNREFUSED, error_status, success:false, invalid_json).
+`ConnectionManager` accepts `config.tcpCommandFn` — `(port, type, params, timeoutMs) => Promise<object>` — replacing real TCP. Enables unit-testing TCP handlers without a running editor. `FakeTcpResponder` for canned responses; `ErrorTcpResponder` for failure modes (timeout, ECONNREFUSED, error_status, success:false, invalid_json).
 
 ### API Gotchas for Test Authors
 
@@ -944,21 +429,20 @@ These exercise real Project-A fixtures (`.uasset`/`.umap` bytes on disk) and req
 
 ## MCP Configuration Files
 
-UEMCP is referenced from `.mcp.json` files in each UE project root. These need updating when UEMCP server args or env vars change:
+UEMCP is referenced from `.mcp.json` files in each UE project root; update when UEMCP server args or env vars change.
 
-- **Project A**: per-project `.mcp.json` with `UNREAL_PROJECT_ROOT` pointing at the local `.uproject` root.
-- **Project B**: same pattern, different local path.
-- **Template**: `D:\DevTools\UEMCP\.mcp.json.example` — copy and customize per project.
+- **Project A** / **Project B**: per-project `.mcp.json` with `UNREAL_PROJECT_ROOT` pointing at the local `.uproject` root
+- **Template**: `.mcp.json.example` at the UEMCP repo root
 
-In Cowork mode (Claude Desktop), the config lives in `claude_desktop_config.json` and servers get project-specific name prefixes (e.g., the Jira bridge runs as `jira-<project>`).
+In Cowork mode (Claude Desktop), config lives in `claude_desktop_config.json` and servers get project-specific name prefixes.
 
 ## Related Projects
 
-- **Project A**: primary target (combat game) — tracked in Perforce in our dev environment.
-- **Project B**: secondary target (BreakOut-style entry) — separate Perforce depot.
-- **Existing UnrealMCP**: Plugin at `<PROJECT_ROOT>\Plugins\UnrealMCP\` (TCP:55557) — conformance oracle for Phase 2, deprecated post-Phase 3.
-- **unreal-mcp-main**: Python MCP server co-located with Project A — third-party reference, not used in production.
-- **NodeToCode-main**: BP-to-code plugin at `<PROJECT_ROOT>\Plugins\NodeToCode-main\` — separate tool, not part of UEMCP.
+- **Project A**: primary target (combat game) — Perforce
+- **Project B**: secondary target (BreakOut-style) — separate Perforce depot
+- **Existing UnrealMCP**: `<PROJECT_ROOT>\Plugins\UnrealMCP\` (TCP:55557) — conformance oracle, deprecated post-Phase 3
+- **unreal-mcp-main**: third-party Python MCP server, not used in production
+- **NodeToCode-main**: BP-to-code plugin, not part of UEMCP
 
 ## Documentation Reading Order
 
