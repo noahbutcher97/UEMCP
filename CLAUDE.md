@@ -196,6 +196,8 @@ One-time setup on fresh clone: `git config core.hooksPath .githooks`, then popul
 3. **Build-system workaround check** — `bUseUnity = false`, `IWYU.MinSourceFiles = 0`, etc. are diagnostic; ask why before implementing on top
 4. **Worker-session estimate calibration** — ~500 lines per worker session per `feedback_ai_worker_time_estimates.md`
 
+Use `/handoff-preflight <doc>` to run this checklist automatically.
+
 ## Shell & Tooling Requirements
 
 **Desktop Commander is MANDATORY for git and filesystem writes.** Cowork sandbox bash mounts the repo via a layer that can't acquire `.git/index.lock`. Use `mcp__Desktop_Commander__start_process` with `shell: "cmd"` for:
