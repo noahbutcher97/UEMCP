@@ -264,6 +264,14 @@ endlocal & exit /b %EXIT_CODE%
 
 ## Common Tasks
 
+### Canonical dev-cycle commands
+
+Three project-scoped slash commands codify the high-frequency rituals (see `docs/specs/2026-05-19-dev-cycle-slash-commands-design.md`):
+
+- **`/handoff-preflight <doc>`** — runs the 4-point pre-flight checklist (see **Handoff draft pre-flight** above). Soft advisory.
+- **`/dispatch-worker <doc> [--target <stem>]`** — generates a worker-conversation opener following the 6-point **Opener content checklist** above. `--target` hydrates codenames from `.uemcp-targets.txt`.
+- **`/deploy-cycle [--target <stem>]`** — walks through verify-deploy → sync-plugin (auto) → Build.bat → editor relaunch → MCP restart (manual stop-gates). See §Q3 dev-workflow scripts.
+
 ### Onboarding a new machine
 
 Run `setup-uemcp.bat` from the repo root (no arg = GUI mode; arg = `.uproject` path for scripted use). The script: validates Node.js (winget → MSI fallback if missing), runs `npm install` in `server/`, generates `.mcp.json` at the Claude workspace root (auto-detected), physical-copies `plugin/UEMCP/` into `<project>\Plugins\UEMCP\`, enables required `.uproject` plugin deps (`RemoteControl`, `PythonScriptPlugin`, `GeometryScripting`; removes stale `Blutility` entries — `Blutility` is a module not a plugin), atomic-writes via PowerShell, auto-registers codenames in `.git/info/forbidden-tokens` (D124).
@@ -285,6 +293,8 @@ Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute
 - **`setup-watcher.bat`** — long-running file-watcher (Q3-C). Watches `plugin/UEMCP/Source/`; on change, debounces 500ms then runs `sync-plugin.bat <target> -y` per target. Ctrl+C stops cleanly. Backed by `server/verify-deploy.mjs --watch`.
 
 Both are thin .bat wrappers around `server/verify-deploy.mjs`. The §2.6 D135 failure mode (editor running during Build.bat → DLL locked → silent no-op) surfaces as `[EDITOR-LOCKED]` with a clear "close before Build.bat" recommendation. Multi-workspace drift (MCP server pointing at A while editor runs in B) surfaces as `[MCP]` on the wrong target.
+
+`/deploy-cycle` orchestrates these scripts end-to-end with stop-gates at manual steps (Build.bat, editor relaunch, MCP restart).
 
 ### Running the server locally
 ```bash
