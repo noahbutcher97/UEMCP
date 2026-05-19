@@ -288,9 +288,16 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
     blueprint_name: 'BP_Test', operation: 'ScaleVector', value_type: 'Vector', graph_name: 'MoveStep',
     params: { B: 2 },
   }, cm);
-  const mathCall = fake.lastCall('add_blueprint_math_node');
+  let mathCall = fake.lastCall('add_blueprint_math_node');
   t.assert(mathCall.params.operation === 'ScaleVector', 'add_math_node: operation passed');
   t.assert(mathCall.params.params.B === 2, 'add_math_node: pin default params passed');
+
+  await executeBlueprintsWriteTool('add_math_node', {
+    blueprint_name: 'BP_Test', operation: 'Distance', value_type: 'Vector', graph_name: 'MoveStep',
+  }, cm);
+  mathCall = fake.lastCall('add_blueprint_math_node');
+  t.assert(mathCall.params.operation === 'Distance', 'add_math_node: Distance operation passed');
+  t.assert(mathCall.params.value_type === 'Vector', 'add_math_node: Distance uses vector value_type');
 
   await executeBlueprintsWriteTool('connect_nodes', {
     blueprint_name: 'BP_Test', source_node_id: 'guid-1', target_node_id: 'guid-2',

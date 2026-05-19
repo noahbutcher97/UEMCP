@@ -1461,6 +1461,13 @@ console.log('\n── Group Graph-X: Timer mover graph-write choreography ──
       value_type: 'Vector',
       graph_name: 'MoveStep',
     }, cm);
+  await executeBlueprintsWriteTool('add_math_node',
+    {
+      blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover',
+      operation: 'Distance',
+      value_type: 'Vector',
+      graph_name: 'MoveStep',
+    }, cm);
   await executeBlueprintsWriteTool('connect_nodes',
     {
       blueprint_name: '/Game/UEMCP/BP_UEMCP_TimerMover',
@@ -1475,8 +1482,10 @@ console.log('\n── Group Graph-X: Timer mover graph-write choreography ──
   t.assert(entry.result.pins[0].name === 'then', 'Timer mover: FunctionEntry pin metadata returned');
   t.assert(getDir.result.node_class === 'K2Node_VariableGet', 'Timer mover: variable get node available in callback graph');
   t.assert(branch.result.pins[0].category === 'bool', 'Timer mover: branch condition pin metadata returned');
-  t.assert(fake.lastCall('add_blueprint_math_node').params.operation === 'Add',
+  t.assert(fake.callsFor('add_blueprint_math_node').some((call) => call.params.operation === 'Add'),
     'Timer mover: math/vector node authored through stable math operation');
+  t.assert(fake.callsFor('add_blueprint_math_node').some((call) => call.params.operation === 'Distance' && call.params.value_type === 'Vector'),
+    'Timer mover: vector distance math node authored through stable math operation');
   t.assert(fake.lastCall('connect_blueprint_nodes').params.graph_name === 'MoveStep',
     'Timer mover: connection targets function graph');
 }

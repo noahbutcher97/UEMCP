@@ -210,11 +210,11 @@ async function connect(source, sourcePin, target, targetPin, graphName = callbac
   }, cm));
 }
 
-async function addFunctionNode(function_name, target, node_position, params = {}) {
+async function addFunctionNode(function_name, target, node_position, params = {}, graphName = callbackFunction) {
   try {
     return await call(`add_function_node:${function_name}`, () => executeBlueprintsWriteTool('add_function_node', {
       blueprint_name: bpPath,
-      graph_name: callbackFunction,
+      graph_name: graphName,
       function_name,
       target,
       node_position,
@@ -225,14 +225,15 @@ async function addFunctionNode(function_name, target, node_position, params = {}
   }
 }
 
-async function addMathNode(operation, value_type, node_position) {
+async function addMathNode(operation, value_type, node_position, params = {}, graphName = callbackFunction) {
   try {
     return await call(`add_math_node:${operation}:${value_type}`, () => executeBlueprintsWriteTool('add_math_node', {
       blueprint_name: bpPath,
-      graph_name: callbackFunction,
+      graph_name: graphName,
       operation,
       value_type,
       node_position,
+      params,
     }, cm));
   } catch (err) {
     throw new Error(`MISSING_K2_SUPPORT add_math_node ${operation}/${value_type}: ${err.message}`);
@@ -255,6 +256,50 @@ async function waitForActorReadiness() {
   throw new Error(`PIE actor did not reach expected spawn height before sampling: ${JSON.stringify(summarize('actor_readiness', last || {}))}`);
 }
 
+async function authorBeginPlayInitialization(timerResult) {
+  const timerNode = timerResult.nodes?.find((node) => node.role === 'timer');
+  if (!timerNode?.node_id) {
+    throw new Error(`MISSING_K2_SUPPORT add_timer did not return timer node metadata: ${JSON.stringify(timerResult)}`);
+  }
+
+  const beginPlay = await call('add_event_node:ReceiveBeginPlay', () => executeBlueprintsWriteTool('add_event_node', {
+    blueprint_name: bpPath,
+    graph_name: 'EventGraph',
+    event_name: 'ReceiveBeginPlay',
+    node_position: [-520, 0],
+  }, cm));
+  const self = await call('add_self_reference:EventGraph', () => executeBlueprintsWriteTool('add_self_reference', {
+    blueprint_name: bpPath,
+    graph_name: 'EventGraph',
+    node_position: [-520, 140],
+  }, cm));
+  const getLocation = await addFunctionNode('K2_GetActorLocation', 'Actor', [-260, 120], {}, 'EventGraph');
+  const setStartLocation = await call('add_variable_set:StartLocation:init', () => executeBlueprintsWriteTool('add_variable_set', {
+    blueprint_name: bpPath,
+    graph_name: 'EventGraph',
+    variable_name: 'StartLocation',
+    node_position: [40, 0],
+  }, cm));
+  const setDirection = await call('add_variable_set:Direction:init', () => executeBlueprintsWriteTool('add_variable_set', {
+    blueprint_name: bpPath,
+    graph_name: 'EventGraph',
+    variable_name: 'Direction',
+    node_position: [300, 0],
+    params: { Direction: 1 },
+  }, cm));
+
+  const selfOut = firstNonExecOut(self);
+  const getLocationTarget = maybePin(getLocation, 'input', ['self', 'Target']);
+  if (getLocationTarget) {
+    await connect(self, selfOut, getLocation, getLocationTarget, 'EventGraph');
+  }
+
+  await connect(beginPlay, firstExecOut(beginPlay), setStartLocation, firstExecIn(setStartLocation), 'EventGraph');
+  await connect(getLocation, firstNonExecOut(getLocation), setStartLocation, findPin(setStartLocation, 'input', ['StartLocation']), 'EventGraph');
+  await connect(setStartLocation, firstExecOut(setStartLocation), setDirection, firstExecIn(setDirection), 'EventGraph');
+  await connect(setDirection, firstExecOut(setDirection), timerNode, firstExecIn(timerNode), 'EventGraph');
+}
+
 async function authorMovementGraph(timerResult) {
   const entry = timerResult.nodes?.find((node) => node.role === 'callback_entry');
   if (!entry?.node_id) {
@@ -267,10 +312,20 @@ async function authorMovementGraph(timerResult) {
     node_position: [0, 120],
   }, cm));
   const getLocation = await addFunctionNode('K2_GetActorLocation', 'Actor', [260, 0]);
-  const setLocation = await addFunctionNode('K2_SetActorLocation', 'Actor', [1120, 0], {
+  const setLocationForward = await addFunctionNode('K2_SetActorLocation', 'Actor', [1280, 80], {
     bSweep: false,
     bTeleport: false,
   });
+  const setLocationReverse = await addFunctionNode('K2_SetActorLocation', 'Actor', [1280, -160], {
+    bSweep: false,
+    bTeleport: false,
+  });
+  const branch = await call('add_control_node:Branch', () => executeBlueprintsWriteTool('add_control_node', {
+    blueprint_name: bpPath,
+    graph_name: callbackFunction,
+    node_kind: 'Branch',
+    node_position: [930, -180],
+  }, cm));
   const axis = await call('add_variable_get:MoveAxis', () => executeBlueprintsWriteTool('add_variable_get', {
     blueprint_name: bpPath,
     graph_name: callbackFunction,
@@ -283,32 +338,66 @@ async function authorMovementGraph(timerResult) {
     variable_name: 'MoveSpeed',
     node_position: [240, 420],
   }, cm));
+  const moveDistance = await call('add_variable_get:MoveDistance', () => executeBlueprintsWriteTool('add_variable_get', {
+    blueprint_name: bpPath,
+    graph_name: callbackFunction,
+    variable_name: 'MoveDistance',
+    node_position: [520, -260],
+  }, cm));
+  const startLocation = await call('add_variable_get:StartLocation', () => executeBlueprintsWriteTool('add_variable_get', {
+    blueprint_name: bpPath,
+    graph_name: callbackFunction,
+    variable_name: 'StartLocation',
+    node_position: [240, -220],
+  }, cm));
   const direction = await call('add_variable_get:Direction', () => executeBlueprintsWriteTool('add_variable_get', {
     blueprint_name: bpPath,
     graph_name: callbackFunction,
     variable_name: 'Direction',
     node_position: [240, 540],
   }, cm));
+  const setDirection = await call('add_variable_set:Direction:reverse', () => executeBlueprintsWriteTool('add_variable_set', {
+    blueprint_name: bpPath,
+    graph_name: callbackFunction,
+    variable_name: 'Direction',
+    node_position: [1080, -180],
+  }, cm));
+  const distanceFromStart = await addMathNode('Distance', 'Vector', [520, -80]);
+  const pastDistance = await addMathNode('GreaterEqual', 'Float', [740, -160]);
+  const reverseDirection = await addMathNode('Multiply', 'Float', [760, 520], {
+    B: -1,
+  });
   const speedTimesDirection = await addMathNode('Multiply', 'Float', [520, 440]);
   const movementDelta = await addMathNode('ScaleVector', 'Vector', [740, 260]);
   const targetLocation = await addMathNode('Add', 'Vector', [930, 80]);
 
   const selfOut = firstNonExecOut(self);
-  for (const node of [getLocation, setLocation]) {
+  for (const node of [getLocation, setLocationForward, setLocationReverse]) {
     const targetPin = maybePin(node, 'input', ['self', 'Target']);
     if (targetPin) {
       await connect(self, selfOut, node, targetPin);
     }
   }
 
-  await connect(entry, firstExecOut(entry), setLocation, firstExecIn(setLocation));
+  await connect(entry, firstExecOut(entry), branch, firstExecIn(branch));
+  await connect(getLocation, firstNonExecOut(getLocation), distanceFromStart, findPin(distanceFromStart, 'input', ['V1', 'A']));
+  await connect(startLocation, firstNonExecOut(startLocation), distanceFromStart, findPin(distanceFromStart, 'input', ['V2', 'B']));
+  await connect(distanceFromStart, firstNonExecOut(distanceFromStart), pastDistance, findPin(pastDistance, 'input', ['A']));
+  await connect(moveDistance, firstNonExecOut(moveDistance), pastDistance, findPin(pastDistance, 'input', ['B']));
+  await connect(pastDistance, firstNonExecOut(pastDistance), branch, findPin(branch, 'input', ['Condition']));
+  await connect(branch, findPin(branch, 'output', ['then', 'true']), setDirection, firstExecIn(setDirection));
+  await connect(setDirection, firstExecOut(setDirection), setLocationReverse, firstExecIn(setLocationReverse));
+  await connect(branch, findPin(branch, 'output', ['else', 'false']), setLocationForward, firstExecIn(setLocationForward));
+  await connect(direction, firstNonExecOut(direction), reverseDirection, findPin(reverseDirection, 'input', ['A']));
+  await connect(reverseDirection, firstNonExecOut(reverseDirection), setDirection, findPin(setDirection, 'input', ['Direction']));
   await connect(speed, firstNonExecOut(speed), speedTimesDirection, findPin(speedTimesDirection, 'input', ['A']));
   await connect(direction, firstNonExecOut(direction), speedTimesDirection, findPin(speedTimesDirection, 'input', ['B']));
   await connect(axis, firstNonExecOut(axis), movementDelta, findPin(movementDelta, 'input', ['A', 'Vector']));
   await connect(speedTimesDirection, firstNonExecOut(speedTimesDirection), movementDelta, findPin(movementDelta, 'input', ['B', 'Scale']));
   await connect(getLocation, firstNonExecOut(getLocation), targetLocation, findPin(targetLocation, 'input', ['A']));
   await connect(movementDelta, firstNonExecOut(movementDelta), targetLocation, findPin(targetLocation, 'input', ['B']));
-  await connect(targetLocation, firstNonExecOut(targetLocation), setLocation, findPin(setLocation, 'input', ['NewLocation']));
+  await connect(targetLocation, firstNonExecOut(targetLocation), setLocationForward, findPin(setLocationForward, 'input', ['NewLocation']));
+  await connect(targetLocation, firstNonExecOut(targetLocation), setLocationReverse, findPin(setLocationReverse, 'input', ['NewLocation']));
 }
 
 let assetCreated = false;
@@ -353,17 +442,18 @@ try {
     static_mesh: '/Engine/BasicShapes/Cube.Cube',
   }, cm));
 
-  for (const [variable_name, variable_type, value] of [
-    ['MoveAxis', 'Vector', [1, 0, 0]],
-    ['MoveSpeed', 'Float', 5],
-    ['MoveDistance', 'Float', 200],
-    ['Direction', 'Float', 1],
+  for (const [variable_name, variable_type, value, is_exposed] of [
+    ['MoveAxis', 'Vector', [1, 0, 0], true],
+    ['MoveSpeed', 'Float', 5, true],
+    ['MoveDistance', 'Float', 40, true],
+    ['StartLocation', 'Vector', [0, 0, 0], false],
+    ['Direction', 'Float', 1, false],
   ]) {
     await call(`add_variable:${variable_name}`, () => executeBlueprintsWriteTool('add_variable', {
       blueprint_name: bpPath,
       variable_name,
       variable_type,
-      is_exposed: true,
+      is_exposed,
     }, cm));
     await call(`set_variable_default:${variable_name}`, () => executeBlueprintsWriteTool('set_variable_default', {
       blueprint_name: bpPath,
@@ -379,10 +469,11 @@ try {
     interval: 0.05,
     looping: true,
     create_callback_graph: true,
-    insert_on_begin_play: true,
+    insert_on_begin_play: false,
     compile: false,
   }, cm));
 
+  await authorBeginPlayInitialization(timer);
   await authorMovementGraph(timer);
 
   const compiled = await call('compile_and_save_blueprint', () => executeBlueprintsWriteTool('compile_and_save_blueprint', {
@@ -431,18 +522,33 @@ try {
 
   const sample = await call('sample_pie_actor_state', () => executeMenhanceTool('sample_pie_actor_state', {
     actor_ref: { label: actorName, name: actorName },
-    duration_ms: 1000,
-    interval_ms: 250,
-    max_samples: 5,
+    duration_ms: 1800,
+    interval_ms: 100,
+    max_samples: 20,
   }, cm));
-  const delta = sample.delta?.location || [0, 0, 0];
-  if (Math.abs(delta[0]) < 1) {
-    throw new Error(`Expected nonzero X movement, got delta ${JSON.stringify(delta)}`);
+  const locations = sample.samples
+    ?.map((entry) => entry.response?.result?.transform?.location)
+    ?.filter((location) => Array.isArray(location)) || [];
+  const xPositions = locations.map((location) => location[0]);
+  const xSteps = xPositions.slice(1).map((x, index) => x - xPositions[index]);
+  const hasPositiveStep = xSteps.some((step) => step > 1);
+  const hasNegativeStep = xSteps.some((step) => step < -1);
+  const maxAbsX = Math.max(...xPositions.map((x) => Math.abs(x)));
+  const maxAbsY = Math.max(...locations.map((location) => Math.abs(location[1])));
+  const maxAbsZDelta = Math.max(...locations.map((location) => Math.abs(location[2] - 120)));
+  if (locations.length < 4) {
+    throw new Error(`Expected at least 4 runtime samples, got ${locations.length}: ${JSON.stringify(sample)}`);
   }
-  if (Math.abs(delta[1]) > 1 || Math.abs(delta[2]) > 1) {
-    throw new Error(`Expected minimal Y/Z movement, got delta ${JSON.stringify(delta)}`);
+  if (!hasPositiveStep || !hasNegativeStep) {
+    throw new Error(`Expected X-axis reversal, got x positions ${JSON.stringify(xPositions)}`);
   }
-  console.log(`PASS movement_assertion: ${JSON.stringify({ delta })}`);
+  if (maxAbsX > 60) {
+    throw new Error(`Expected X movement bounded by MoveDistance with small overshoot, got x positions ${JSON.stringify(xPositions)}`);
+  }
+  if (maxAbsY > 1 || maxAbsZDelta > 1) {
+    throw new Error(`Expected minimal Y/Z movement, got locations ${JSON.stringify(locations)}`);
+  }
+  console.log(`PASS bounded_oscillation_assertion: ${JSON.stringify({ x_positions: xPositions, x_steps: xSteps, max_abs_x: maxAbsX })}`);
 } finally {
   const cleanupErrors = [];
   if (pieCleanupCandidate || pieStarted) {

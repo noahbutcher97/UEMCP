@@ -294,10 +294,10 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_math_node: {
-    description: 'Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale. Returns pin metadata.',
+    description: 'Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale/distance. Returns pin metadata.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
-      operation: z.enum(['Add', 'Subtract', 'Multiply', 'Less', 'Greater', 'LessEqual', 'GreaterEqual', 'MakeVector', 'BreakVector', 'ScaleVector'])
+      operation: z.enum(['Add', 'Subtract', 'Multiply', 'Less', 'Greater', 'LessEqual', 'GreaterEqual', 'MakeVector', 'BreakVector', 'ScaleVector', 'Distance'])
         .describe('Math/vector operation to author'),
       value_type: z.enum(['Float', 'Int', 'Integer', 'Vector']).optional().describe('Operand family. Defaults to Float. Vector comparisons are not supported.'),
       graph_name: GraphNameOptional,

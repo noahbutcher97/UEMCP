@@ -638,10 +638,10 @@ toolsets:
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       add_math_node:
         wire_type: add_blueprint_math_node
-        description: Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale. Returns pin metadata.
+        description: Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale/distance. Returns pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
-          operation:      { type: string, required: true, description: "One of: Add, Subtract, Multiply, Less, Greater, LessEqual, GreaterEqual, MakeVector, BreakVector, ScaleVector" }
+          operation:      { type: string, required: true, description: "One of: Add, Subtract, Multiply, Less, Greater, LessEqual, GreaterEqual, MakeVector, BreakVector, ScaleVector, Distance" }
           value_type:     { type: string, required: false, description: "One of: Float, Int/Integer, Vector. Defaults to Float." }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }

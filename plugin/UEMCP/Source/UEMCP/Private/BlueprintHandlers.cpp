@@ -651,6 +651,15 @@ namespace UEMCP
 				OutFunctionName = TEXT("Multiply_VectorFloat");
 				return true;
 			}
+			if (Op == TEXT("distance"))
+			{
+				if (!Type.Equals(TEXT("Vector"), ESearchCase::IgnoreCase))
+				{
+					return false;
+				}
+				OutFunctionName = TEXT("Vector_Distance");
+				return true;
+			}
 
 			FString Suffix;
 			if (Type.Equals(TEXT("Int"), ESearchCase::IgnoreCase) || Type.Equals(TEXT("Integer"), ESearchCase::IgnoreCase))
