@@ -182,6 +182,8 @@ One-time setup on fresh clone: `git config core.hooksPath .githooks`, then popul
 5. Constraints: D49 path-limit, D82 NDA-gate, no AI attribution, Desktop Commander for git, single-commit preference, report-length cap
 6. Final-report format; worker-authored reports go to `docs/reports/`, NOT `docs/handoffs/`
 
+Use `/dispatch-worker <doc> [--target <stem>]` to generate an opener following this structure.
+
 **Worker reports are advisory**; orchestrator reconciles against current repo state and authors authoritative follow-up handoffs in `docs/handoffs/`.
 
 **Validation discipline before drafting major handoffs (D129)**: when a workstream depends on an empirical claim AND costs >3 worker sessions, verify the claim is source-confirmed + reproduction-confirmed before drafting. Triggers requiring a 1-session validation audit:
