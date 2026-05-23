@@ -20,6 +20,12 @@ Desktop.ini
 plugin/**/Binaries/
 plugin/**/Intermediate/
 plugin/**/DerivedDataCache/
+
+# Fixture project generated output (text fixture is committed; build output is not)
+server/fixtures/**/Binaries/
+server/fixtures/**/Intermediate/
+server/fixtures/**/Saved/
+server/fixtures/**/DerivedDataCache/
 *.sln
 *.vcxproj*
 

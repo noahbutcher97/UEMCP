@@ -110,7 +110,7 @@ fi
 #
 # Allow-list is conservative — operator can extend by adding to forbidden-
 # tokens (which short-circuits this warning anyway).
-phase3_allow_pattern='^(Engine|Plugins|Source|Saved|Content|Config|Game|UnrealEditor|UnrealEngine|UnrealProjects|Intermediate|Binaries|DerivedDataCache|Default|Local|Public|Private|Build|Editor|Server|Client|Win64|Linux|Mac|Win32|Development|Shipping|Debug|DebugGame|Test|StagedBuilds|Cooked|Modules|Programs|Restricted|Platforms|Tools|BatchFiles|UEMCP|YourProject|MyProject|RemoteControl|PythonScriptPlugin|GeometryScripting|Blutility|Wwise|Steam|EOS|RiderLink|UnrealMCP|NodeToCode)$'
+phase3_allow_pattern='^(Engine|Plugins|Source|Saved|Content|Config|Game|UnrealEditor|UnrealEngine|UnrealProjects|Intermediate|Binaries|DerivedDataCache|Default|Local|Public|Private|Build|Editor|Server|Client|Win64|Linux|Mac|Win32|Development|Shipping|Debug|DebugGame|Test|StagedBuilds|Cooked|Modules|Programs|Restricted|Platforms|Tools|BatchFiles|UEMCP|UEMCPFixture|YourProject|MyProject|RemoteControl|PythonScriptPlugin|GeometryScripting|Blutility|Wwise|Steam|EOS|RiderLink|UnrealMCP|NodeToCode)$'
 
 # Path-segment captures: after UnrealProjects/<version>/, capture next 1-2
 # segments. tr normalizes \\ → / for awk's slash-splitting.

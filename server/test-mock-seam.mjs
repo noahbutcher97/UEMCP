@@ -845,6 +845,19 @@ console.log('\n── Test 22: E-1 §6 metrics getter always present ──');
   t.assert(m.isEnabled() === false, 'aggregator is disabled when no flags set');
 }
 
+// ── Test 23: resolveProjectRoot() — env wins; fixture is the fallback ──
+console.log('\n── Test 23: resolveProjectRoot() env/fixture fallback ──');
+
+{
+  const { resolveProjectRoot } = await import('./test-helpers.mjs');
+  const saved = process.env.UNREAL_PROJECT_ROOT;
+  process.env.UNREAL_PROJECT_ROOT = '';
+  t.assert(resolveProjectRoot().endsWith('uemcp-fixture'), 'resolveProjectRoot falls back to fixture when unset');
+  process.env.UNREAL_PROJECT_ROOT = '/some/real/proj';
+  t.assert(resolveProjectRoot() === '/some/real/proj', 'resolveProjectRoot returns env when set');
+  if (saved === undefined) delete process.env.UNREAL_PROJECT_ROOT; else process.env.UNREAL_PROJECT_ROOT = saved;
+}
+
 // ── Summary ─────────────────────────────────────────────────
 const failures = t.summary();
 process.exit(failures > 0 ? 1 : 0);
