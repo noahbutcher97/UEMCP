@@ -174,6 +174,10 @@ function main() {
   if (!FLAG_JSON) {
     console.log(`UEMCP test rotation — ${files.length} files in ${SERVER_DIR}`);
     console.log(`Excluded (library/live-gated): ${[...EXCLUDED].sort().join(', ') || '(none)'}`);
+    // Surface which project root the adopting tests (test-phase1, test-mcp-wire) will use,
+    // so a green run against the fixture isn't mistaken for coverage of a real project.
+    const _rr = (process.env.UNREAL_PROJECT_ROOT || '').trim();
+    console.log(`Project root: ${_rr ? `${_rr} (UNREAL_PROJECT_ROOT)` : 'fixture default — server/fixtures/uemcp-fixture'}`);
     console.log('');
   }
 
