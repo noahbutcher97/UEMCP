@@ -59,7 +59,9 @@ const PROJECT_ROOT = resolveProjectRoot();
 // docs/specs/2026-05-23-generic-fixture-project-design.md.)
 const HAS_REAL_ASSETS = await (async () => {
   try {
-    // GAS_ABILITY_BP.path is a /Game/... path; map to <root>/Content/<rest>.uasset
+    // GAS_ABILITY_BP.path is a /Game/... path; map to <root>/Content/<rest>.uasset.
+    // Coupled to that constant's /Game/ shape — if its format changes, this probe
+    // silently returns false (asset blocks would skip even on a real project).
     const rel = GAS_ABILITY_BP.path.replace(/^\/Game\//, 'Content/') + '.uasset';
     await stat(join(PROJECT_ROOT, rel));
     return true;
@@ -991,7 +993,7 @@ if (HAS_REAL_ASSETS) {
 // ── Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ──────────
 async function testFindBlueprintNodes() {
   console.log(`\n═══ Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ═══`);
-  if (!HAS_REAL_ASSETS) { console.log('  SKIP: UNREAL_PROJECT_ROOT not set'); return; }
+  if (!HAS_REAL_ASSETS) { console.log('  SKIP: real binary assets not found (fixture / no real project)'); return; }
 
   // Unfiltered call — returns all skeletal K2Nodes paginated.
   try {
@@ -1557,7 +1559,7 @@ try {
 }
 
 if (!HAS_REAL_ASSETS) {
-  console.log('  SKIP: UNREAL_PROJECT_ROOT not set — skipping fixture-backed M-spatial tests');
+  console.log('  SKIP: real binary assets not found — skipping fixture-backed M-spatial tests');
 } else {
   const BP = PLAYER_BP.path;
 

@@ -413,10 +413,15 @@ Expected: exit 0, `0 failed`. `test-phase1` and `test-mcp-wire` PASS with a HIGH
 Run: `cd server && node test-phase1.mjs`
 Expected: PASS, exit 0 — same project-gated offline assertions run as under the runner (proves the resolver works for single-file iteration).
 
-- [ ] **Step 3: Explicit fixture path matches**
+- [ ] **Step 3: Explicit fixture path on the adopting files**
 
-Run: `cd server && UNREAL_PROJECT_ROOT="$(pwd)/fixtures/uemcp-fixture" node run-rotation.mjs`
-Expected: identical green.
+Run: `cd server && UNREAL_PROJECT_ROOT="$(pwd)/fixtures/uemcp-fixture" node test-phase1.mjs`
+Expected: 140/0, same as the no-env run (resolver returns the explicit path → same fixture).
+**NOTE:** the *full* `run-rotation.mjs` with `UNREAL_PROJECT_ROOT` pointed at the fixture is NOT
+green — the pure-asset files (`test-query-asset-registry`, `test-inspect-and-level-actors`,
+`test-verb-surface`) read the env directly and fail trying to read binary assets the fixture lacks.
+That is correct per spec §2 (no runner-side env injection): the fixture is the default for the
+*adopting* files, not a whole-suite stand-in project.
 
 - [ ] **Step 4: Real-project precedence (resolver does not clobber a set value)**
 
