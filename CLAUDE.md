@@ -404,6 +404,10 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 
 **FAIL-LOUD on import errors** (closes D104 silent-zero meta-finding): subprocess outcomes classified as `PASS`, `SKIPPED` (live/env-gated), `ASSERTION_FAILED`, `IMPORT_ERROR`, `CRASHED_NO_SUMMARY`, or `NO_SUMMARY_PARSED`. Any non-PASS/non-SKIPPED bucket exits non-zero with attribution. The historic silent-zero where deleted-barrel import errors masqueraded as 0/0 is structurally impossible against this runner.
 
+### Fixture-project default — `resolveProjectRoot()`
+
+`server/test-helpers.mjs resolveProjectRoot()` returns `UNREAL_PROJECT_ROOT` when set, else the committed text fixture `server/fixtures/uemcp-fixture/` (generic, NDA-safe: `.uproject` + `Config/*.ini` + `Source/*.Target.cs`). `test-phase1` and `test-mcp-wire` adopt it, so their project-gated **offline** assertions (project_info, gameplay-tags, list_plugins, list_data_sources, get_build_config, list_config_values) run everywhere — locally and on a project-less CI runner — against the fixture. `test-phase1` is therefore no longer "needs no env": it exercises offline tools against the fixture by default, so aggregate counts vary with project presence (fixture vs real). Binary-asset assertions gate on a real asset existing (`HAS_REAL_ASSETS` in test-phase1) and skip against the fixture; a real `UNREAL_PROJECT_ROOT` runs them. The other supplementary files keep reading the env directly and skip when unset. Binary-asset CI coverage is deferred to Phase 2 (`docs/specs/2026-05-23-generic-fixture-project-design.md`); the `rotation` GitHub workflow inherits this default.
+
 ### Test Files — Primary Rotation
 
 | File | Purpose |
@@ -415,7 +419,7 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 | `test-verify-deploy.mjs` | Q3-A pure-helper: parseTargetsFile, classifyDeployState 9-case matrix, formatAge, normalizePath, extractUprojectFromCommandLine, applyMarkerVerdictOverlay |
 | `test-sync-plugin-helper.mjs` | W-L pure-helper: compareDeployMarker 7 branches, readDeployMarker/writeDeployMarker round-trip, computeIncomingState |
 | `test-anon-namespace-audit.mjs` | W-K Layer 3 — heuristic-regex scan asserting 0 anon-namespace duplicate-symbol collisions across `Private/*.cpp`; `--hook-mode` for pre-commit |
-| `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig |
+| `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig, resolveProjectRoot |
 
 ### Test Files — Supplementary Rotation (require UNREAL_PROJECT_ROOT)
 
