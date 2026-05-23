@@ -30,12 +30,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { buildZodSchema } from './zod-builder.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
-import { TestRunner } from './test-helpers.mjs';
+import { TestRunner, resolveProjectRoot } from './test-helpers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TOOLS_YAML = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
 const OFFLINE_DEFS = TOOLS_YAML.toolsets.offline.tools;
-const PROJECT_ROOT = process.env.UNREAL_PROJECT_ROOT || '';
+const PROJECT_ROOT = resolveProjectRoot();
 
 const PROTOCOL_VERSION = '2024-11-05';
 
