@@ -14,5 +14,33 @@
       "Bash(wc:*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/codename-scan.mjs\"",
+            "statusMessage": "Scanning for NDA codenames"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/mjs-syntax-check.mjs\"",
+            "statusMessage": "Checking .mjs syntax"
+          }
+        ]
+      }
+    ]
   }
 }
