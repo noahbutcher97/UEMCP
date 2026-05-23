@@ -19,7 +19,7 @@
 // See D71 / D75 for prior drift-incident handling; D73 for philosophy.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { load } from 'js-yaml';
@@ -35,7 +35,7 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
-import { ErrorTcpResponder } from './test-helpers.mjs';
+import { ErrorTcpResponder, resolveProjectRoot } from './test-helpers.mjs';
 import {
   GAS_ABILITY_BP, PLAYER_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
   ABILITIES_PREFIX, CHARACTERS_PREFIX, BLUEPRINTS_PREFIX, GAME_ROOT_PREFIX,
@@ -51,7 +51,20 @@ import {
 // has a tag-valued CDO default.
 const GAS_ABILITY_BP_ISBLOCKING_TAG = 'Gameplay.State.Guard.IsActive';
 
-const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
+const PROJECT_ROOT = resolveProjectRoot();
+// The byte-accurate / inspect_blueprint / level-actor / find-nodes blocks need real binary
+// assets, which the text fixture does not ship. Probe one representative asset on disk; when
+// absent (fixture, or any project lacking it) those blocks skip. A real project supplying the
+// asset runs them unchanged. (Phase 2 adds generic assets + their own assertions — see
+// docs/specs/2026-05-23-generic-fixture-project-design.md.)
+const HAS_REAL_ASSETS = await (async () => {
+  try {
+    // GAS_ABILITY_BP.path is a /Game/... path; map to <root>/Content/<rest>.uasset
+    const rel = GAS_ABILITY_BP.path.replace(/^\/Game\//, 'Content/') + '.uasset';
+    await stat(join(PROJECT_ROOT, rel));
+    return true;
+  } catch { return false; }
+})();
 let passed = 0;
 let failed = 0;
 
@@ -665,7 +678,7 @@ if (!PROJECT_ROOT) {
 }
 
 // ── Test 9: Phase 2 handler fixes (F0, F2, F4, F6, F1) ──
-if (PROJECT_ROOT) {
+if (HAS_REAL_ASSETS) {
   console.log(`\n═══ Test 9: Handler fixes (F0, F2, F4, F6, F1) ═══`);
 
   // F0: get_asset_info strips verbose blob tags by default
@@ -760,7 +773,7 @@ if (PROJECT_ROOT) {
 }
 
 // ── Test 10: Agent 10 Option C — transforms + pagination + include_defaults + read_asset_properties ──
-if (PROJECT_ROOT) {
+if (HAS_REAL_ASSETS) {
   console.log(`\n═══ Test 10: Option C tool wiring ═══`);
 
   // list_level_actors: transforms always-on, outer-index reverse scan (V9.5 #1).
@@ -978,7 +991,7 @@ if (PROJECT_ROOT) {
 // ── Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ──────────
 async function testFindBlueprintNodes() {
   console.log(`\n═══ Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ═══`);
-  if (!PROJECT_ROOT) { console.log('  SKIP: UNREAL_PROJECT_ROOT not set'); return; }
+  if (!HAS_REAL_ASSETS) { console.log('  SKIP: UNREAL_PROJECT_ROOT not set'); return; }
 
   // Unfiltered call — returns all skeletal K2Nodes paginated.
   try {
@@ -1098,7 +1111,7 @@ await testFindBlueprintNodes();
 // per Agent 9 design to never silently skip if such a tag DID appear (e.g.,
 // in a hand-authored asset), but real-world corpus coverage confirms
 // it won't fire on BP/Widget/AnimBP/DataTable CDOs. No fixture constructed.
-if (PROJECT_ROOT) {
+if (HAS_REAL_ASSETS) {
   console.log(`\n═══ Test 12: Polish Worker — response-shape ergonomics ═══`);
 
   // Helper: recursively check an object has no `packageIndex` key anywhere.
@@ -1258,7 +1271,7 @@ if (PROJECT_ROOT) {
 // Closes Workflow Catalog SERVED_PARTIAL rows 26/27/28/42/62/63 by folding
 // N-round-trip "which BPs call X / handle Y / access Z" iteration into one
 // call. Inherits filter semantics from find_blueprint_nodes.
-if (PROJECT_ROOT) {
+if (HAS_REAL_ASSETS) {
   console.log(`\n═══ Test 13: EN-2 Worker — find_blueprint_nodes_bulk ═══`);
 
   // D44 invariant — yaml registration.
@@ -1543,7 +1556,7 @@ try {
   assert(false, 'EN-9 withAssetExistenceCheck unit', e.message);
 }
 
-if (!PROJECT_ROOT) {
+if (!HAS_REAL_ASSETS) {
   console.log('  SKIP: UNREAL_PROJECT_ROOT not set — skipping fixture-backed M-spatial tests');
 } else {
   const BP = PLAYER_BP.path;
