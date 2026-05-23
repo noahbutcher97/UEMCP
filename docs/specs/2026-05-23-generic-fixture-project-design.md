@@ -47,9 +47,9 @@ leak.)
 ## Approach
 
 Reuse `UNREAL_PROJECT_ROOT` pointed at a committed text fixture, with a shared
-`resolveProjectRoot()` helper (used by both the test files and `run-rotation.mjs`) defaulting to
-the fixture when the env var is unset (a real project always wins). See §2 for why the default
-must be shared rather than runner-only.
+`resolveProjectRoot()` helper (in `test-helpers.mjs`) defaulting to the fixture when the env var is
+unset (a real project always wins). Only the two test files the fixture *satisfies* adopt the
+helper; see §2.
 
 Alternatives considered and rejected:
 - **CI-only wiring** (set the env var only in the workflow): less coverage; local `npm test`
@@ -92,17 +92,22 @@ So the default lives in a **shared helper** `resolveProjectRoot()` in `test-help
 export function resolveProjectRoot() { ... }
 ```
 
-Every test file that currently reads `process.env.UNREAL_PROJECT_ROOT` adopts it
-(`const PROJECT_ROOT = resolveProjectRoot()`), so direct invocation and the runner behave
-identically. `run-rotation.mjs` additionally sets `process.env.UNREAL_PROJECT_ROOT` for its
-subprocesses as belt-and-suspenders (covers any code path that reads the env var directly). A
-real `UNREAL_PROJECT_ROOT` always takes precedence.
+**Selective adoption.** Only the test files the fixture *satisfies* adopt the helper —
+`test-phase1` and `test-mcp-wire` (`const PROJECT_ROOT = resolveProjectRoot()`). For them, direct
+invocation and the runner behave identically. A real `UNREAL_PROJECT_ROOT` always wins.
 
-**Adoption set** (verified by `grep -lE "process\.env\.UNREAL_PROJECT_ROOT" test-*.mjs`):
-`test-phase1`, `test-mcp-wire`, `test-offline-asset-info`, `test-query-asset-registry`,
+The pure-asset-backed files (`test-offline-asset-info`, `test-query-asset-registry`,
 `test-inspect-and-level-actors`, `test-verb-surface`, `test-uasset-parser`,
-`test-s-b-base-differential`. `test-m1-ping` also reads it but is live-editor-gated and excluded
-from the rotation — leave it untouched.
+`test-s-b-base-differential`) **keep reading `process.env.UNREAL_PROJECT_ROOT` directly** with
+their existing skip-when-unset behavior. The fixture ships no binary assets for them, so adopting
+the resolver would only make them run-and-fail and need re-gating. They still pick up a real
+`UNREAL_PROJECT_ROOT` when set.
+
+**No runner-side env injection.** An earlier draft had `run-rotation.mjs` set
+`process.env.UNREAL_PROJECT_ROOT` for subprocesses as belt-and-suspenders. Dropped: the offline
+tools receive `projectRoot` as a parameter and never read `process.env` directly, so nothing needs
+it — and injecting it would force the pure-asset files above to run-and-fail against the asset-less
+fixture. `test-m1-ping` also reads the env var but is live-gated and excluded from the rotation.
 
 ### 3. Asset-existence gating normalization
 
@@ -111,27 +116,25 @@ on `UNREAL_PROJECT_ROOT` presence — matching the existing `exists(path)` patte
 fixture (no assets), they skip; under a real project supplying the asset, they run. The adoption
 set splits into three categories by how much work each needs:
 
-**(a) Needs structural change — whole-file `!ROOT` skip → per-asset `exists()` gating.** These
-currently skip the whole file when `!ROOT`; under a fixture `ROOT` that guard stops firing, so
-each asset-reading section must gain its own `exists()` guard (or empty-result tolerance):
-- `test-query-asset-registry.mjs`, `test-inspect-and-level-actors.mjs`, `test-verb-surface.mjs`
-- `test-phase1.mjs` — the asset-backed block (Tests 3 / 9–14 + M-spatial): F0/F2 `get_asset_info`,
-  `inspect_blueprint`, the gameplay-tag-on-CDO assert. (Note: test-phase1's *other* `PROJECT_ROOT`
-  block — project_info, gameplay-tags, list_plugins, list_data_sources, get_build_config,
-  list_config_values, datatable/stringtable validation, dropped-tools — is all **structural** and
-  is *satisfied* by the fixture, not gated. Verified by enumeration 2026-05-23.)
+**(a) Structural change — `test-phase1.mjs` only.** It is the one file that *adopts the resolver*
+(§2) AND contains a binary-asset block, so under a fixture `ROOT` that block (currently
+`if (PROJECT_ROOT) {`) activates and would fail. Gate it on a real asset existing (a
+`HAS_REAL_ASSETS` probe): F0/F2 `get_asset_info`, `inspect_blueprint`, the gameplay-tag-on-CDO
+assert (Tests 9–14 + M-spatial). Its *other* `PROJECT_ROOT` block — project_info, gameplay-tags,
+list_plugins, list_data_sources, get_build_config, list_config_values, datatable/stringtable
+validation, dropped-tools — is all **structural**, satisfied by the fixture, and stays as-is.
+Verified by enumeration 2026-05-23.
 
-**(b) Already `exists()`-gated — verify only, no structural change.** Every asset section already
-guards on `exists(path)`, so a fixture `ROOT` (asset-less) makes them skip cleanly:
-- `test-offline-asset-info.mjs` (per-function `exists()`; `testMissingAsset` passes against a real
-  `.uproject` root — expected "Asset not found")
-- `test-uasset-parser.mjs` (synthetic tests run; fixture-asset sections skip on `exists()`)
-- `test-s-b-base-differential.mjs` (all oracle/asset sections skip on `exists()`)
+**(b) Newly activates — `test-mcp-wire.mjs`, verify only.** It adopts the resolver; its happy-path
+else-branch (`project_info` smoke against a real handler) now runs against the fixture instead of
+skipping. Confirm valid shape and that no else-branch assertion pins to a value the synthetic
+fixture cannot satisfy. No structural change expected.
 
-**(c) Newly activates against the fixture — verify it passes.**
-- `test-mcp-wire.mjs` — the happy-path else-branch (`project_info` smoke against a real handler)
-  now runs against the fixture. Confirm valid shape and that no else-branch assertion pins to a
-  value the synthetic fixture cannot satisfy.
+**(c) Untouched — the pure-asset files.** `test-offline-asset-info`, `test-query-asset-registry`,
+`test-inspect-and-level-actors`, `test-verb-surface`, `test-uasset-parser`,
+`test-s-b-base-differential` do **not** adopt the resolver, so with no env set they keep their
+current behavior — whole-file `!ROOT` or per-`exists()` skips (synthetic-only sections still run).
+No change; the validation rotation confirms they stay green/skipped.
 
 **Decision rule for value-pinned assertions:** if any assertion the fixture is *meant* to satisfy
 turns out pinned to a real-content value (rather than structural), gate it on real-project
