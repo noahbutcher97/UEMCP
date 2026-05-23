@@ -166,6 +166,8 @@ One-time setup on fresh clone: `git config core.hooksPath .githooks`, then popul
 
 **Dispatch mechanism — orchestrator drafts openers, user dispatches.** The orchestrator does NOT invoke `Agent` to spawn workers from inside its own conversation. It drafts a self-contained **conversation opener** for each worker; the user opens a fresh Claude Code conversation and pastes it. Applies to worker dispatches AND orchestrator-state migrations.
 
+**Scope — heavyweight dispatches only.** This human-paste convention governs *heavyweight* worker dispatches: fresh ~200k-context sessions that ship commits and own a deployment cycle (`sync-plugin.bat` + `Build.bat` + editor relaunch), plugin C++ work, or anything that could leak codenames across the public boundary. It does NOT govern *lightweight, in-session* execution of a self-contained plan — e.g. local server-side `.mjs` test changes with no plugin/Build/deploy step — where dispatching `Agent`-tool subagents per task (with review between) from within the orchestrator's conversation is fine. The superpowers `subagent-driven-development` skill is the in-session path; `/dispatch-worker` is the heavyweight path.
+
 **Why human-in-the-loop**: clean context per worker (~200k each), human gate at dispatch boundary (catches codename leaks / scope drift), deployment-cycle ownership (workers ship commits; user runs `sync-plugin.bat` + `Build.bat` + relaunches editor), parallelism without context contention.
 
 **Two-channel codename pattern**:
