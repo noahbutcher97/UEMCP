@@ -3,6 +3,9 @@
 // Provides mock TCP responders for unit-testing tools without an editor.
 // Injected via config.tcpCommandFn into ConnectionManager.
 
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
 /**
  * FakeTcpResponder — queues canned responses and records all calls.
  *
@@ -203,6 +206,21 @@ export class TestRunner {
     }
     return this.failed;
   }
+}
+
+// Absolute path to the committed text fixture (resolved from THIS file's
+// location, not cwd), used as the default project root for tests when
+// UNREAL_PROJECT_ROOT is unset. A real project always wins.
+const FIXTURE_PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'uemcp-fixture');
+
+/**
+ * Resolve the project root for tests: a non-empty UNREAL_PROJECT_ROOT, else the
+ * committed fixture. Mirrors the trim() the test files used to apply inline.
+ * @returns {string}
+ */
+export function resolveProjectRoot() {
+  const env = (process.env.UNREAL_PROJECT_ROOT || '').trim();
+  return env || FIXTURE_PROJECT_ROOT;
 }
 
 /**
