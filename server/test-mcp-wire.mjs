@@ -419,7 +419,7 @@ console.log('\n── Test 4.5: Zod preprocess array (F-1.5) ──');
 console.log('\n── Test 5: Happy-path response shape ──');
 {
   if (!PROJECT_ROOT) {
-    t.assert(false, 'UNREAL_PROJECT_ROOT not set — skipping happy-path test');
+    console.log('  · skipped happy-path response shape (no project root)');
   } else {
     const realHandlers = (toolName) => async (args) =>
       executeOfflineTool(toolName, args, PROJECT_ROOT);

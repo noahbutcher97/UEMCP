@@ -1,0 +1,46 @@
+# Test rotation — the Node-server regression gate.
+#
+# Scope is deliberately narrow (see the CI discussion in CLAUDE.md / D-log):
+#   - Runs the PRIMARY rotation only (run-rotation.mjs): unit-runnable,
+#     fixture-free, no editor, no UNREAL_PROJECT_ROOT.
+#   - Does NOT build the C++ plugin (UE 5.6 isn't available on runners).
+#   - Does NOT run live-editor (TCP:55558) or supplementary fixture tests.
+#   - Does NOT gate codenames — the forbidden-tokens denylist is intentionally
+#     untracked/per-checkout (NDA), so it cannot live in a public-repo workflow.
+#     Codename enforcement stays at the local pre-push hook (the public boundary).
+#
+# Primary value: catches the silent-zero / import-error regression class
+# automatically on every push+PR (the D97->D102 failure that lost 234
+# assertions for 5 days). run-rotation.mjs is FAIL-LOUD on import errors,
+# so a dropped-on-import test file fails the job instead of vanishing.
+#
+# windows-latest mirrors the only dev environment and avoids false failures
+# from path-separator / CRLF assumptions in tests like test-verify-deploy.mjs.
+
+name: rotation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rotation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Run test rotation
+        working-directory: server
+        run: node run-rotation.mjs

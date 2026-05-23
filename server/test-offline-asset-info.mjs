@@ -161,6 +161,13 @@ async function testUmap() {
 }
 
 async function main() {
+  // Entirely fixture-dependent (byte-accurate ground truth from real assets).
+  // With no project wired, skip the whole file — the env-skip marker is detected
+  // by run-rotation.mjs and classified SKIPPED (matches test-query-asset-registry).
+  if (!ROOT) {
+    console.error('UNREAL_PROJECT_ROOT not set — skipping');
+    process.exit(0);
+  }
   await testAssetInfoShape();
   await testCacheHit();
   await testIndexDirtyForcesRescan();
