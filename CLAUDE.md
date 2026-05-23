@@ -85,7 +85,7 @@ Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP ser
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Conformance oracle research: 36 UnrealMCP C++ contracts at `docs/specs/conformance-oracle-contracts.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2196 unit-runnable assertions across 23 test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2050 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 28 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -122,7 +122,7 @@ UEMCP/
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
 │   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
-│   ├── test-*.mjs              ← 23 test files (see Testing section for table)
+│   ├── test-*.mjs              ← 28 rotation test files (see Testing section for table)
 │   └── test-helpers.mjs        ← FakeTcpResponder, ErrorTcpResponder, TestRunner
 ├── plugin/UEMCP/               ← C++ UE5 plugin
 ├── docs/
@@ -386,7 +386,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **~2196 unit-runnable assertions across 23 test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **~2050 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 28 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 
