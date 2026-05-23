@@ -60,6 +60,12 @@ const toolInput = payload.tool_input || {};
 const filePath = toolInput.file_path || '';
 if (!filePath) allow();
 
+// Only files INSIDE the repo can become tracked content destined for github.
+// Edits outside it (local auto-memory, /tmp, other projects) are out of the
+// NDA gate's scope — codenames there are harmless and must not be blocked.
+const absPath = resolve(filePath);
+if (!absPath.toLowerCase().startsWith(REPO_ROOT.toLowerCase())) allow();
+
 // Content about to be written: Write→content, Edit→new_string.
 const content = [toolInput.content, toolInput.new_string]
   .filter((s) => typeof s === 'string')

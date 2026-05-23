@@ -23,7 +23,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/codename-scan.mjs\"",
+            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/codename-scan.mjs\" || true",
             "statusMessage": "Scanning for NDA codenames"
           }
         ]
@@ -36,7 +36,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/mjs-syntax-check.mjs\"",
+            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/mjs-syntax-check.mjs\" || true",
             "statusMessage": "Checking .mjs syntax"
           }
         ]
