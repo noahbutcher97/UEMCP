@@ -1,10 +1,13 @@
 # Test rotation — the Node-server regression gate.
 #
 # Scope is deliberately narrow (see the CI discussion in CLAUDE.md / D-log):
-#   - Runs the PRIMARY rotation only (run-rotation.mjs): unit-runnable,
-#     fixture-free, no editor, no UNREAL_PROJECT_ROOT.
+#   - Runs the PRIMARY rotation only (run-rotation.mjs): unit-runnable, no editor.
+#     Project-gated offline tools run against the committed text fixture
+#     (server/fixtures/uemcp-fixture/) via resolveProjectRoot() — no real
+#     UNREAL_PROJECT_ROOT needed, so no env block here.
 #   - Does NOT build the C++ plugin (UE 5.6 isn't available on runners).
-#   - Does NOT run live-editor (TCP:55558) or supplementary fixture tests.
+#   - Does NOT run live-editor (TCP:55558) or binary-asset fixture tests
+#     (those skip without real assets; deferred to fixture Phase 2).
 #   - Does NOT gate codenames — the forbidden-tokens denylist is intentionally
 #     untracked/per-checkout (NDA), so it cannot live in a public-repo workflow.
 #     Codename enforcement stays at the local pre-push hook (the public boundary).
