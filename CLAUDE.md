@@ -361,11 +361,11 @@ Three asset-mgmt handlers (`duplicate_asset` / `rename_asset` / `delete_asset_sa
 
 Deferred: widget compile-on-write candidates (D126 Class C), `tools.yaml timeout_ms:` centralization, async-job model for batch UX.
 
-### Cache-invalidation gap (D126 audit I.2, pre-W6)
+### Cache-invalidation — W6 Phase 1 shipped (D165)
 
-`ResultCache` (in `connection-manager.mjs`) keys by SHA-256 of `(type, params)` with 5min TTL. Read-ops cache; write-ops `skipCache: true`. **But write-ops do NOT invalidate related read-op cache entries.** Read-modify-read can see stale data for up to 5min.
+`ResultCache` (in `connection-manager.mjs`) keys by SHA-256 of `(type, params)` with 5min TTL. Read-ops cache; write-ops `skipCache: true`. **W6 Phase 1 (D165): a successful write-op now clears the read cache** (`_invalidateReadCacheOnWrite`, called from both `send()` and `sendHttp()` after the wire-error check). This closes the D126 audit Class I.2 stale-read-after-write bug — read-modify-read no longer sees pre-mutation data.
 
-Workaround until W6 ships: call write-ops with `skipCache: true` AND wait 5min before re-reading the same asset OR restart MCP server. Handoff at `docs/handoffs/w6-cache-invalidation.md`.
+The bust is **broad** (clears all read entries; TCP + RC share `_cache`), not per-asset. The surgical per-tool declarative `invalidates:` refinement (hit-rate preserving) is deferred to W6 Phase 2 — `docs/handoffs/w6-cache-invalidation.md`; only worth it if EN-23 metrics show the broad bust hurts hit-rate. Failed writes don't churn the cache (clear fires only on success).
 
 ### E-1 connection-layer hygiene + EN-23 metrics (D140)
 

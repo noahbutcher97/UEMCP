@@ -813,6 +813,7 @@ export class ConnectionManager {
       if (!opts.skipCache) {
         this._cache.set(type, params, result);
       }
+      this._invalidateReadCacheOnWrite(opts);
 
       // Mark layer as available (we just got a good response)
       this.layers[layerKey].status = LayerStatus.AVAILABLE;
@@ -890,11 +891,31 @@ export class ConnectionManager {
       if (!opts.skipCache) {
         this._cache.set(cacheType, body || {}, result);
       }
+      this._invalidateReadCacheOnWrite(opts);
       this.layers['http-30010'].status = LayerStatus.AVAILABLE;
       this.layers['http-30010'].lastCheck = Date.now();
       this.layers['http-30010'].error = undefined;
       return result;
     });
+  }
+
+  /**
+   * W6 (D165): clear the read cache after a successful write-op.
+   *
+   * A write-op (skipCache:true, set from `!def.isReadOp`) may have mutated
+   * editor state that cached read-ops now misrepresent — e.g. inspect_blueprint
+   * cached, add_event_node mutates the BP, inspect_blueprint then returns the
+   * stale pre-mutation cache (D126 audit Class I.2). Clearing makes the next
+   * read re-fetch.
+   *
+   * Broad by design: clears ALL read entries (TCP + RC share `_cache`), not just
+   * related ones. The surgical per-tool declarative `invalidates:` refinement is
+   * deferred (docs/handoffs/w6-cache-invalidation.md); EN-23 metrics will reveal
+   * if the hit-rate cost ever warrants it. Fires only on success (after the
+   * wire-error check), so a failed write does not churn the cache.
+   */
+  _invalidateReadCacheOnWrite(opts) {
+    if (opts && opts.skipCache) this._cache.clear();
   }
 
   // ── NEW-2 mitigation helpers ────────────────────────────

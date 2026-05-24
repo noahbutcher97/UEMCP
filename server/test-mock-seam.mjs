@@ -858,6 +858,29 @@ console.log('\n── Test 23: resolveProjectRoot() env/fixture fallback ──'
   if (saved === undefined) delete process.env.UNREAL_PROJECT_ROOT; else process.env.UNREAL_PROJECT_ROOT = saved;
 }
 
+// ── Test 24: W6 — a successful write-op clears the read cache (D165) ──
+console.log('\n── Test 24: W6 write-op clears read cache ──');
+
+{
+  const { config } = createTestConfig('/fake/project');
+  let calls = 0;
+  config.tcpCommandFn = async (_port, type) => { calls++; return { status: 'success', echo: type }; };
+  const conn = new ConnectionManager(config);
+
+  // Read-op caches; the repeat is served from cache (no new wire call).
+  await conn.send('tcp-55558', 'read_x', {}, { skipCache: false });
+  await conn.send('tcp-55558', 'read_x', {}, { skipCache: false });
+  t.assert(calls === 1, `W6: repeated read-op served from cache (got ${calls} wire calls, want 1)`);
+
+  // A write-op (skipCache:true) dispatches and busts the read cache.
+  await conn.send('tcp-55558', 'write_y', {}, { skipCache: true });
+  t.assert(calls === 2, `W6: write-op dispatched (got ${calls}, want 2)`);
+
+  // The same read now re-fetches — proves the write cleared the stale entry.
+  await conn.send('tcp-55558', 'read_x', {}, { skipCache: false });
+  t.assert(calls === 3, `W6: read after write re-fetches, not stale (got ${calls}, want 3)`);
+}
+
 // ── Summary ─────────────────────────────────────────────────
 const failures = t.summary();
 process.exit(failures > 0 ? 1 : 0);
