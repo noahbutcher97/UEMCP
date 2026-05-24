@@ -419,6 +419,7 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 | `test-verify-deploy.mjs` | Q3-A pure-helper: parseTargetsFile, classifyDeployState 9-case matrix, formatAge, normalizePath, extractUprojectFromCommandLine, applyMarkerVerdictOverlay |
 | `test-sync-plugin-helper.mjs` | W-L pure-helper: compareDeployMarker 7 branches, readDeployMarker/writeDeployMarker round-trip, computeIncomingState |
 | `test-anon-namespace-audit.mjs` | W-K Layer 3 — heuristic-regex scan asserting 0 anon-namespace duplicate-symbol collisions across `Private/*.cpp`; `--hook-mode` for pre-commit |
+| `test-plugin-manifest.mjs` | Plugin static validation (no UE build, D164) — `UEMCP.uplugin` JSON + required fields, `manifest.json`↔`.uplugin` VersionName lockstep, `UEMCP.Build.cs` gross structure; runs in hosted CI |
 | `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig, resolveProjectRoot |
 
 ### Test Files — Supplementary Rotation (require UNREAL_PROJECT_ROOT)
