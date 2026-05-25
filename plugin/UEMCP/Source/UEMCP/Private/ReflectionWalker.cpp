@@ -250,27 +250,6 @@ namespace UEMCP
 	namespace
 	{
 		/**
-		 * Resolve a class path → UClass*. Handles three input shapes that callers commonly mix:
-		 *   1. `/Game/BPs/X.X_C`           — BP generated-class convention (the canonical form)
-		 *   2. `/Game/BPs/X`               — bare package path (agent shorthand; rewrite to .X_C)
-		 *   3. `/Script/Engine.Actor`      — native class
-		 *
-		 * Pre-normalize bare package paths before LoadClass: handing a path without a class
-		 * suffix to LoadClass triggers a `Class None.<package>` warning and a ZenLoader
-		 * `FlushAsyncLoading` attempt that the loader refuses on non-game / non-loading
-		 * threads. With the marshal at Dispatch we're now on the game thread, but the warning
-		 * + extra attempted load remain — and on a cold BP the missing suffix can degrade
-		 * results to an empty cache hit. Suffix-rewrite eliminates both failure modes.
-		 */
-		UClass* ResolveClass(const FString& Path)
-		{
-			// Delegates to the single shared resolver (HandlerCommon). The shared
-			// resolver does the same _C synthesis + LoadClass + SoftPath.TryLoad,
-			// plus native short-name lookup (a harmless superset for this caller).
-			return UEMCP::ResolveClass(Path);
-		}
-
-		/**
 		 * Resolve a struct path → UStruct*. Handles both UUserDefinedStruct
 		 * ('/Game/Structs/X.X' loads the asset; cast to UUserDefinedStruct)
 		 * and native UScriptStruct ('/Script/Engine.Transform').
@@ -349,7 +328,7 @@ namespace UEMCP
 				return;
 			}
 
-			UClass* Class = ResolveClass(AssetPath);
+			UClass* Class = UEMCP::ResolveClass(AssetPath);
 			if (!Class)
 			{
 				BuildErrorResponse(OutResponse,
