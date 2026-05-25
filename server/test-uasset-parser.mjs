@@ -22,6 +22,8 @@ import {
   isGraphNodeExportClass,
   parsePinBlock,
   PACKAGE_FILE_TAG,
+  UE5_PACKAGE_SAVED_HASH,
+  UE5_IMPORT_TYPE_HIERARCHIES,
 } from './uasset-parser.mjs';
 import {
   buildStructHandlers,
@@ -46,6 +48,86 @@ const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 
 async function exists(p) {
   try { await stat(p); return true; } catch { return false; }
+}
+
+// ── Synthetic FPackageFileSummary builder — version-delta regression (D166) ──
+//
+// Builds a byte-accurate summary (LegacyFileVersion=-9, hasSavedHash) for a given
+// EUnrealEngineObjectUE5Version, mirroring parseSummary's read order field-for-field.
+// The ONLY layout difference between 1016 (UE 5.6) and 1018 (UE 5.7) is the 8-byte
+// ImportTypeHierarchies{Count,Offset} block inserted after ThumbnailTableOffset.
+// Drift-immune + NDA-safe (no real asset bytes). Guards the D166 fix in hosted CI.
+function buildSyntheticSummary({ fileVersionUE5, nameCount, nameOffset, exportCount,
+                                 importCount, assetRegistryDataOffset }) {
+  const chunks = [];
+  const i32 = (v) => { const b = Buffer.alloc(4); b.writeInt32LE(v); chunks.push(b); };
+  const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v >>> 0); chunks.push(b); };
+  const i64 = (v) => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(v)); chunks.push(b); };
+  const zeros = (n) => chunks.push(Buffer.alloc(n));
+  const fstrEmpty = () => i32(0);                       // empty FString
+  const engineVersion = () => { zeros(2 + 2 + 2 + 4); fstrEmpty(); };
+
+  u32(PACKAGE_FILE_TAG);
+  i32(-9);                 // LegacyFileVersion
+  i32(0);                  // LegacyUE3Version
+  i32(522);                // FileVersionUE4
+  i32(fileVersionUE5);
+  i32(0);                  // FileVersionLicenseeUE
+  zeros(20);               // SavedHash (FIoHash; hasSavedHash since UE5 >= 1016)
+  i32(0);                  // TotalHeaderSize
+  i32(0);                  // CustomVersion count (legacy <= -2)
+  fstrEmpty();             // PackageName
+  u32(0);                  // PackageFlags
+  i32(nameCount); i32(nameOffset);
+  i32(0); i32(0);          // SoftObjectPaths count/offset (UE5 >= 1008)
+  fstrEmpty();             // LocalizationId
+  i32(0); i32(0);          // GatherableTextData count/offset
+  i32(exportCount); i32(7777);     // Export count/offset
+  i32(importCount); i32(8888);     // Import count/offset
+  i32(0); i32(0); i32(0); i32(0);  // Cells (UE5 >= 1015)
+  i32(0);                  // MetaDataOffset (UE5 >= 1014)
+  i32(0);                  // DependsOffset
+  i32(0); i32(0);          // SoftPackageReferences count/offset
+  i32(0);                  // SearchableNamesOffset
+  i32(0);                  // ThumbnailTableOffset
+  if (fileVersionUE5 >= UE5_IMPORT_TYPE_HIERARCHIES) {
+    i32(111); i32(222);    // ImportTypeHierarchies count/offset — the 5.7 (1018) insert
+  }
+  zeros(16);               // PersistentGuid
+  i32(0);                  // GenerationCount
+  engineVersion(); engineVersion();
+  u32(0);                  // CompressionFlags
+  i32(0);                  // CompressedChunkCount (must be 0)
+  u32(0);                  // PackageSource
+  i32(0);                  // AdditionalPackagesToCook count
+  i32(assetRegistryDataOffset);
+  i64(0);                  // BulkDataStartOffset
+  i32(0);                  // WorldTileInfoDataOffset
+  i32(0);                  // ChunkIDs count
+  i32(0); i32(0);          // PreloadDependency count/offset
+  i32(nameCount);          // NamesReferencedFromExportData (UE5 >= 1001)
+  i64(0);                  // PayloadTocOffset (UE5 >= 1002)
+  i32(0);                  // DataResourceOffset (UE5 >= 1009)
+  return Buffer.concat(chunks);
+}
+
+// Round-trip a synthetic summary at 5.6 (1016) and 5.7 (1018): downstream fields
+// must align identically at both, proving the parser consumes the 1018-only
+// ImportTypeHierarchies block (and not below). Regression guard for D166.
+function testVersionSummaryDelta() {
+  const sentinels = { nameCount: 7, nameOffset: 1000, exportCount: 3, importCount: 5, assetRegistryDataOffset: 424242 };
+  for (const ue5 of [UE5_PACKAGE_SAVED_HASH, UE5_IMPORT_TYPE_HIERARCHIES]) {
+    const buf = buildSyntheticSummary({ fileVersionUE5: ue5, ...sentinels });
+    let s;
+    try { s = parseSummary(new Cursor(buf)); }
+    catch (e) { runner.assert(false, `synthetic UE5=${ue5} summary parses`, e.message); continue; }
+    runner.assert(s.fileVersionUE5 === ue5, `synthetic UE5=${ue5}: fileVersionUE5 round-trips`);
+    runner.assert(s.nameCount === 7 && s.nameOffset === 1000, `synthetic UE5=${ue5}: name count/offset aligned`);
+    runner.assert(s.exportCount === 3 && s.importCount === 5, `synthetic UE5=${ue5}: export/import counts aligned`);
+    runner.assert(s.assetRegistryDataOffset === 424242,
+      `synthetic UE5=${ue5}: downstream AR offset aligned (1018 ImportTypeHierarchies field consumed)`,
+      `got ${s.assetRegistryDataOffset}`);
+  }
 }
 
 // ── Fixture 1: Footstep anim-notify Blueprint (hex-dump-verified) ───
@@ -1620,6 +1702,7 @@ async function main() {
   await testExportInt64Salvage();
   testBadMagic();
   testTruncated();
+  testVersionSummaryDelta();
   await testPinBlockOffsetCP1();
   await testPinBodyParseCP2();
   process.exit(runner.summary());
