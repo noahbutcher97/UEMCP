@@ -1,7 +1,7 @@
 # Live plugin (C++) multi-version compat — characterization
 
 **Date:** 2026-05-25
-**Status:** Characterization / scoping (not an implementation plan). Companion to D166 (offline parser now does 5.3/5.6/5.7).
+**Status:** ✅ **VERIFIED — plugin compiles clean on both UE 5.7 and UE 5.3** (see §Verified compile, D168). Began as characterization/scoping; the compile is now done. Companion to D166 (offline parser now does 5.3/5.6/5.7).
 **Question:** What would it take to **compile + run** the UEMCP C++ editor plugin (`plugin/UEMCP/`, currently 5.6-targeted) against **UE 5.7** and **UE 5.3**?
 
 > Note: this characterizes the surface; exact error lists require an actual `Build.bat` against each
@@ -112,6 +112,46 @@ engine trees:
   the `Build.cs` deps resolve in all three versions.
 
 **Bottom line.** The include surface is now clean for **both** 5.7 and 5.3 — 5.7 needed nothing,
-5.3 needed the single `UserDefinedStruct` guard. The only remaining unknown is **signature /
-symbol / deprecation residue within existing headers**, which is compile-only. Next step: an actual
-`Build.bat` per engine (operator-run); any error list feeds the next fix pass.
+5.3 needed the single `UserDefinedStruct` guard. The remaining unknown (signature / symbol /
+deprecation residue within existing headers, compile-only) has now been **resolved by an actual
+build** — see below.
+
+## Verified compile (2026-05-25, D168)
+
+Both engines now compile the plugin **clean** — the static cross-check predicted exactly one source
+change (5.3) and zero (5.7), and the real build confirmed it.
+
+**Method.** Throwaway minimal host projects (`D:\UEMCPCompat\v57\`, `D:\UEMCPCompat\v53\`), each with:
+a one-module `Compat.uproject` pinning `EngineAssociation` to the version, an `Editor` target
+(`CompatEditor.Target.cs`, `BuildSettingsVersion.Latest`), the plugin set the real targets use
+(`RemoteControl`, `GeometryScripting`, `EnhancedInput`, `EditorScriptingUtilities`,
+`PythonScriptPlugin`, `UEMCP`), and a copy of `plugin/UEMCP/` carrying the D167 fix. Built with:
+
+```
+Build.bat CompatEditor Win64 Development -project="D:/UEMCPCompat/v5X/Compat.uproject" -waitmutex
+```
+
+against each installed engine. Building in throwaway hosts (not the user's live projects) sidesteps
+the D135 editor-locked-DLL trap — no need to close the running editors.
+
+**Results.**
+
+| Engine | Outcome | Evidence |
+|---|---|---|
+| **5.7** | ✅ compiled + linked | `UnrealEditor-UEMCP.dll` linked, 43 actions, no errors |
+| **5.3** | ✅ compiled + linked | full build 33s, UBT reached `[11/11] WriteMetadata`, 0 compile errors, fresh `UnrealEditor-UEMCP.dll` |
+
+> UBT emits no single "Result: Succeeded" line; the definitive success signal is reaching
+> `[N/N] WriteMetadata <Target>.target` (UBT only writes target metadata after every compile+link
+> action succeeds) plus a freshly-timestamped DLL.
+
+**Source changes needed.** Exactly **one hunk**, commit `75e396a`: version-guarded the
+`UUserDefinedStruct` include in `ReflectionWalker.cpp` (the snippet above). 5.7 needed **zero** source
+changes. The other table risks (`AccessCompressedImageData`, the 6 GeometryScript functions actually
+called, `OnObjectPreSave`, `RenderThumbnail`) were symbol-confirmed PRESENT in 5.3 before the build,
+so no further fixes surfaced — the compile agreed.
+
+**Cleanup.** Throwaway hosts removed after verification. To re-verify later, recreate the minimal
+host (or sync the plugin into any real per-version project) and re-run the `Build.bat` line above.
+`UE_VERSION_OLDER_THAN` (`Misc/EngineVersionComparison.h`) is the standing idiom for any future
+cross-version include/API divergence.
