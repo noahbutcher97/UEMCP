@@ -78,7 +78,7 @@ Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP ser
 ### Implemented
 - MCP server with stdio transport (`server/server.mjs`)
 - Offline toolset declares 24 tools in `tools.yaml`
-- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files).
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files). **Multi-version: UE 5.3 / 5.6 / 5.7** — version-gated `EUnrealEngineObjectUE5Version` reads (incl. 5.7's `IMPORT_TYPE_HIERARCHIES` summary field, D166); verified 0 errors across whole 5.7 (338) + 5.3 (1255) projects, header + Level-2.5 decode.
 - ToolIndex, ToolsetManager, ConnectionManager (4-layer; `tcpCommandFn` mock seam for tests)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions
 - Phase 2 TCP toolsets: actors (10), blueprints-write (15), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)

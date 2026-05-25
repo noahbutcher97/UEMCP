@@ -44,6 +44,11 @@ export const UE5_DATA_RESOURCES = 1009;
 export const UE5_METADATA_SERIALIZATION_OFFSET = 1014;
 export const UE5_VERSE_CELLS = 1015;
 export const UE5_PACKAGE_SAVED_HASH = 1016;
+// UE 5.7 additions (source: UE_5.7 ObjectVersion.h). 1017 is export/subobject
+// serialization (no summary field); 1018 adds an import-type-hierarchies table
+// descriptor to FPackageFileSummary (the only summary-layout delta in 5.7).
+export const UE5_OS_SUB_OBJECT_SHADOW_SERIALIZATION = 1017;
+export const UE5_IMPORT_TYPE_HIERARCHIES = 1018;
 
 // Minimum LegacyFileVersion we support. UE5.6 writes -9.
 // -8 is also valid (no SavedHash block), but we treat anything newer than -9
@@ -337,6 +342,16 @@ export function parseSummary(cur) {
 
   const searchableNamesOffset = cur.readInt32();
   const thumbnailTableOffset = cur.readInt32();
+
+  // UE 5.7 (UE5 version ≥ IMPORT_TYPE_HIERARCHIES, 1018) inserts an import-type-
+  // hierarchies table descriptor here — 8 bytes immediately after ThumbnailTableOffset,
+  // before the SavedHash/Guid block (source: PackageFileSummary.cpp Serialize, 5.7).
+  // Unread, these 8 bytes drift every subsequent offset, producing garbage length
+  // reads on every 5.7 asset. We don't need the values yet — consume to realign.
+  if (fileVersionUE5 >= UE5_IMPORT_TYPE_HIERARCHIES) {
+    cur.readInt32(); // ImportTypeHierarchiesCount
+    cur.readInt32(); // ImportTypeHierarchiesOffset
+  }
 
   // Pre-PACKAGE_SAVED_HASH files write an FGuid here.
   if (!hasSavedHash) {
