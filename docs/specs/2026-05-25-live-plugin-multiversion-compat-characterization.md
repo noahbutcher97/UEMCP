@@ -78,3 +78,40 @@ actual compile enumerates whatever the header checks miss.
 ## Out of scope here
 Implementation (this is scoping); the offline parser (already 5.3/5.6/5.7 via D166); a hosted-CI
 plugin build (engine-gated).
+
+## Static cross-check results (2026-05-25)
+
+Cross-checked the plugin's **156 engine `#include` headers** against the installed 5.3 / 5.6 / 5.7
+engine trees:
+
+- **Removed/relocated-header break class is EMPTY for both 5.7 and 5.3** by basename — every engine
+  header the plugin includes exists in all three versions. (The only 3 "missing" are the plugin's
+  own `*.generated.h` UHT build artifacts — false positives.) This rules out the biggest port hazard.
+- **The real 5.3 risk is include-*path* relocation** (a header exists but moved modules). Confirmed
+  example: the plugin does `#include "StructUtils/UserDefinedStruct.h"` (the 5.6/5.7 path), but 5.3
+  has it at `Engine/Classes/Engine/UserDefinedStruct.h` → the include fails on 5.3.
+  **Fix pattern**: a version-guarded include —
+  ```cpp
+  #include "Misc/EngineVersionComparison.h"
+  #if UE_VERSION_OLDER_THAN(5, 5, 0)
+  #include "Engine/UserDefinedStruct.h"   // pre-relocation (5.3/5.4)
+  #else
+  #include "StructUtils/UserDefinedStruct.h"  // 5.5+
+  #endif
+  ```
+  (Relocation assumed at 5.5 — verify if 5.4/5.5 are ever targeted; correct for the 5.3/5.6/5.7 set.)
+
+**Completed path-relocation sweep (all 118 path-includes, full Engine tree incl. `Plugins/`):**
+- **5.7 — ZERO include breaks.** Every header + include-path resolves; near-clean at the include level.
+- **5.3 — ONE include break:** `StructUtils/UserDefinedStruct.h` (5.3 exposes it via `Engine/UserDefinedStruct.h`).
+  **Fixed** with the version guard above in `ReflectionWalker.cpp` (D167).
+- The 3 `GeometryScript/*` headers first flagged were **false positives** — they live under
+  `Engine/Plugins/` (the GeometryScripting plugin), which the initial `Engine/Source`-only scan
+  missed. The module moved `Plugins/Experimental/` (5.3) → `Plugins/Runtime/` (5.7), but the
+  include-path suffix and module name (`GeometryScriptingCore`) are stable, so the includes **and**
+  the `Build.cs` deps resolve in all three versions.
+
+**Bottom line.** The include surface is now clean for **both** 5.7 and 5.3 — 5.7 needed nothing,
+5.3 needed the single `UserDefinedStruct` guard. The only remaining unknown is **signature /
+symbol / deprecation residue within existing headers**, which is compile-only. Next step: an actual
+`Build.bat` per engine (operator-run); any error list feeds the next fix pass.
