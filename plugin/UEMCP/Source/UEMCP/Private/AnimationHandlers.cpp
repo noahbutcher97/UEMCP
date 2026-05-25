@@ -14,7 +14,6 @@
 #include "Animation/Skeleton.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
-#include "UObject/UObjectIterator.h"
 
 namespace UEMCP
 {
@@ -223,8 +222,8 @@ namespace UEMCP
 		// 3. add_montage_notify — append a UAnimNotify or UAnimNotifyState
 		// ═══════════════════════════════════════════════════════════════════════
 		//
-		// Resolves notify_class by short-name first, falling back to TObjectIterator
-		// over loaded UClass — mirrors how editor browsers resolve notify subclasses.
+		// Resolves notify_class via the shared UEMCP::ResolveClass resolver (load-first):
+		// tries the bare name, then /Script/Engine.<name>, then /Script/Engine.AnimNotify_<name>.
 		// Stateful (UAnimNotifyState) gets a default 0.1s duration; Notify is
 		// instantaneous.
 

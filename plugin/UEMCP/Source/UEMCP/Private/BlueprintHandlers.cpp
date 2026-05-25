@@ -1047,7 +1047,11 @@ namespace UEMCP
 				else if (ClassName == TEXT("AActor")) Found = AActor::StaticClass();
 				else
 				{
-					// Gains /Game actor-Blueprint support over the old /Script-only chain.
+					// Route through the shared resolver: adds a bare-name in-memory probe
+					// (FindFirstObjectSafe) and a /Script/Game candidate over the old
+					// /Script/Engine-only chain. (/Game content-path parents are NOT
+					// reachable here — upstream A-prefix normalization mangles content
+					// paths; genuine /Game-parent support is out of scope for this refactor.)
 					const TArray<FString> Candidates = {
 						ClassName,
 						FString::Printf(TEXT("/Script/Engine.%s"), *ClassName),
@@ -1812,11 +1816,13 @@ namespace UEMCP
 			UClass* TargetClass = nullptr;
 			if (!Target.IsEmpty())
 			{
-				const TArray<FString> Candidates = {
-					Target,
-					Target.StartsWith(TEXT("U")) ? Target : (TEXT("U") + Target),
-					FString::Printf(TEXT("/Script/Engine.%s"), *Target),
-				};
+				TArray<FString> Candidates;
+				Candidates.Add(Target);
+				if (!Target.StartsWith(TEXT("U")))
+				{
+					Candidates.Add(TEXT("U") + Target);
+				}
+				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *Target));
 				for (const FString& Candidate : Candidates)
 				{
 					TargetClass = UEMCP::ResolveClass(Candidate);
