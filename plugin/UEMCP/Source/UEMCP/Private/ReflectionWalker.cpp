@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "ReflectionWalker.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -263,34 +264,10 @@ namespace UEMCP
 		 */
 		UClass* ResolveClass(const FString& Path)
 		{
-			FString Normalized = Path;
-			if (!Normalized.IsEmpty() && !Normalized.Contains(TEXT(".")))
-			{
-				int32 SlashIdx = INDEX_NONE;
-				if (Normalized.FindLastChar(TEXT('/'), SlashIdx) && SlashIdx + 1 < Normalized.Len())
-				{
-					const FString AssetName = Normalized.Mid(SlashIdx + 1);
-					Normalized = Normalized + TEXT(".") + AssetName + TEXT("_C");
-				}
-			}
-
-			if (UClass* Loaded = LoadClass<UObject>(nullptr, *Normalized))
-			{
-				return Loaded;
-			}
-			const FSoftObjectPath Soft(Normalized);
-			if (UObject* Obj = Soft.TryLoad())
-			{
-				if (UBlueprint* BP = Cast<UBlueprint>(Obj))
-				{
-					return BP->GeneratedClass;
-				}
-				if (UClass* C = Cast<UClass>(Obj))
-				{
-					return C;
-				}
-			}
-			return nullptr;
+			// Delegates to the single shared resolver (HandlerCommon). The shared
+			// resolver does the same _C synthesis + LoadClass + SoftPath.TryLoad,
+			// plus native short-name lookup (a harmless superset for this caller).
+			return UEMCP::ResolveClass(Path);
 		}
 
 		/**
