@@ -6,16 +6,10 @@
 
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
-// UserDefinedStruct.h relocated CoreUObject `Engine/` → `StructUtils/` in UE 5.5
-// (D167 multi-version compat). 5.3/5.4 expose it via the Engine module; 5.5+ via
-// CoreUObject/StructUtils. Both modules are already plugin deps, so this is an
-// include-path-only guard. Correct for the 5.3 / 5.6 / 5.7 targets.
-#include "Misc/EngineVersionComparison.h"
-#if UE_VERSION_OLDER_THAN(5, 5, 0)
-#include "Engine/UserDefinedStruct.h"
-#else
-#include "StructUtils/UserDefinedStruct.h"
-#endif
+// UserDefinedStruct.h moved Engine/ → StructUtils/ in UE 5.5; the version guard
+// lives in UEMCPCompat.h (single home for engine-version divergence, D170).
+#include "UEMCPCompat.h"
+#include UEMCP_USERDEFINEDSTRUCT_HEADER
 #include "UObject/Class.h"
 #include "UObject/Interface.h"
 #include "UObject/Package.h"
