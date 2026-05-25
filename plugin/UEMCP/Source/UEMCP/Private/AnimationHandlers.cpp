@@ -230,28 +230,20 @@ namespace UEMCP
 
 		UClass* ResolveNotifyClass(const FString& NotifyClassName)
 		{
-			// Direct path resolution first (e.g. "/Script/Engine.AnimNotify_PlaySound").
-			if (UClass* Direct = FindObject<UClass>(nullptr, *NotifyClassName))
+			// Load-first via the shared resolver, then the two engine short-name shapes.
+			// No RequiredBase: the montage handler validates the notify type afterward
+			// (behavior preserved). The deleted FindObject/TObjectIterator paths were
+			// loaded-only — a cold /Game Blueprint notify now resolves because the
+			// shared resolver loads /Game paths from disk.
+			if (UClass* C = UEMCP::ResolveClass(NotifyClassName))
 			{
-				return Direct;
+				return C;
 			}
-			// /Script/Engine.<ShortName> hint.
-			const FString WithEnginePrefix = FString::Printf(TEXT("/Script/Engine.%s"), *NotifyClassName);
-			if (UClass* WithPrefix = FindObject<UClass>(nullptr, *WithEnginePrefix))
+			if (UClass* C = UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.%s"), *NotifyClassName)))
 			{
-				return WithPrefix;
+				return C;
 			}
-			// Fall back to short-name match across all loaded UClasses. O(n) but
-			// once-per-handler-call; the editor already pays this cost in its own
-			// notify-class browser.
-			for (TObjectIterator<UClass> It; It; ++It)
-			{
-				if (It->GetName() == NotifyClassName)
-				{
-					return *It;
-				}
-			}
-			return nullptr;
+			return UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.AnimNotify_%s"), *NotifyClassName));
 		}
 
 		void HandleAddMontageNotify(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
