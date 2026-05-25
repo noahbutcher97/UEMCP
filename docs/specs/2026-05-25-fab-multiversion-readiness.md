@@ -39,7 +39,7 @@ Dropped `RemoteControl` from `Build.cs PrivateDependencyModuleNames` (kept the `
 ## Hardening roadmap (cheapest-first)
 
 **Tier 0 — low cost, do regardless of Fab timing**
-- Central compat header `Public/UEMCPCompat.h` — all `UE_VERSION_OLDER_THAN`/`#if ENGINE_*` behind version-neutral aliases; rule: no raw version `#if` elsewhere. Seed: the lone guard in `ReflectionWalker.cpp`. Mirrors the `HandlerCommon.h` shared-helper discipline.
+- ✅ **DONE (D170)** — Central compat header `Public/UEMCPCompat.h`: all `UE_VERSION_OLDER_THAN`/`#if ENGINE_*` behind version-neutral aliases; rule: no raw version `#if` elsewhere. Seeded from the lone `ReflectionWalker.cpp` guard. Mirrors the `HandlerCommon.h` shared-helper discipline.
 - Warning audit per version — deprecation warnings are the early-warning radar for the next version's breakage (5.7 was "mostly deprecation warnings" per D167).
 - `.uplugin` hygiene — clear `IsBetaVersion`, reconcile `Version`/`VersionName` (W-L marker wants lockstep).
 

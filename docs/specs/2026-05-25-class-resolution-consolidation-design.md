@@ -19,7 +19,11 @@ Reported on a real 5.3 project (engine 5.3). UEMCP's live editor handlers (TCP:5
 - `BlueprintHandlers` add-component (≈1124–1148) — interleaved `LoadClass`/`FindObject`; the suffix/prefix variants use `FindObject` only, so `/Game` component Blueprints are asset-blind.
 - `BlueprintHandlers` reparent/target (≈1809–1818) — `FindObject` + `/Script/Engine.` `LoadClass`; no `/Game` `LoadClass`, so `/Game` target classes are asset-blind.
 
-Root cause of drift: each site hand-rolls its own `Find`/`Load` chain with different name-mutation fallbacks.
+**Load-based but narrow (not the quirk, but inconsistent — route through the shared resolver too):**
+- `BlueprintHandlers` class-pin default (≈756–761) — `LoadObject<UClass>` + `/Script/Engine.` only; lacks `_C` synthesis / `SoftObjectPath::TryLoad`, so a package-only or BP-generated-class path can miss.
+- `BlueprintHandlers` actor-class resolve (≈1045–1056) — hardcoded `APawn`/`AActor` + `/Script/Engine.` / `/Script/Game.` `LoadClass`; no `/Game` path, so `/Game` actor Blueprints don't resolve.
+
+These two are not `FindObject`-blind, so the Find-only guard would **not** flag them — see the widened guard scope below. Root cause of drift: each site hand-rolls its own `Find`/`Load` chain with different fallbacks.
 
 ## Design (layered: load-first core + caller adapters)
 
@@ -41,24 +45,34 @@ Resolution order:
    b. If no `.`, synthesize the Blueprint generated-class path `"<path>.<leaf>_C"` and `LoadClass`.
    c. `FSoftObjectPath(Identifier).TryLoad()` → if `UBlueprint`, return `GeneratedClass`; if `UClass`, return it.
 3. **Short name** (no `/`):
-   a. `FindFirstObject<UClass>(*Identifier, EFindFirstObjectOptions::NativeFirst)` (native classes are always loaded — `FindFirst` is correct here, not a quirk).
+   a. `FindFirstObjectSafe<UClass>(*Identifier, EFindFirstObjectOptions::NativeFirst)` (native classes are always loaded — find-in-memory is correct here, not a quirk). The `Safe` variant won't assert during GC / package-save, which matters for handlers that can run at arbitrary editor times. **Verified present in UE 5.3** (`UObjectGlobals.h`), so available across 5.3/5.6/5.7.
    b. If it does not start with `U`, retry with the `U`-prefix.
+
+   **Deliberate behavior change:** today's find-only sites use `FindObject<UClass>(nullptr, *Name)` (an unreliable null-outer search, `ANY_PACKAGE`-era). Switching to `FindFirstObjectSafe<…, NativeFirst>` is the sanctioned modern lookup; in the rare ambiguous-name case it prefers the native class. The live anchor case + clean builds on both engines validate the swap.
 4. If `RequiredBase` is set, return the class only if `IsChildOf(RequiredBase)`, else `nullptr`.
 
 This is the single source of truth; it absorbs `ReflectionWalker::ResolveClass`'s `_C` + `TryLoad` logic.
+
+**Precondition:** must run on the game thread (`LoadClass`/`LoadObject`/`TryLoad` require it). All current callers already marshal via `MCPThreadMarshal` before reaching resolution, so the resolver inherits the invariant and does **not** re-marshal — keeping it a pure synchronous helper.
 
 ### Component 2 — caller adapters
 Each site keeps its domain-specific candidate generation but routes every candidate **through `UEMCP::ResolveClass`**, deleting the direct `FindObject`/`TObjectIterator` calls:
 - `ResolveNotifyClass(name)` → try `ResolveClass(name)`, then `ResolveClass("/Script/Engine." + name)`, then `ResolveClass("/Script/Engine." + "AnimNotify_" + name)` to preserve the current short-name reach. Pass `RequiredBase = nullptr` — the current code applies **no** base filter at resolution (the montage handler validates the type afterward); keep that division so behavior is unchanged.
 - add-component → candidate list `[type, type+"Component", "U"+type, "U"+type+"Component", "/Script/Engine."+type, "/Script/Engine."+type+"Component"]`, first `ResolveClass(c, UActorComponent::StaticClass())` hit wins.
 - reparent/target → `[target, "U"+target, "/Script/Engine."+target]` through `ResolveClass`.
+- class-pin default (≈756) → `ResolveClass(className)` (gains `_C`/SoftPath reach over the current `LoadObject`+`/Script/Engine.`-only chain).
+- actor-class resolve (≈1045) → keep the `APawn`/`AActor` fast-path, then `ResolveClass(className, AActor::StaticClass())` (gains `/Game` actor-Blueprint support).
 - `ReflectionWalker::ResolveClass` → becomes a thin call to `UEMCP::ResolveClass` (keeps its `inspect_blueprint` callers unchanged).
 
 ### Component 3 — version tie-in
-The short-name native lookup is the version-sensitive spot (`ANY_PACKAGE`-era `FindObject` → modern `FindFirstObject`). Use `FindFirstObject<UClass>` (present in UE 5.1+, so in 5.3/5.6/5.7). If a signature/enum delta surfaces at build, gate it in `UEMCPCompat.h` (D170) — no raw version `#if` in the resolver itself.
+The short-name native lookup is the historically version-sensitive spot (`ANY_PACKAGE`-era `FindObject` → modern `FindFirstObject`). `FindFirstObjectSafe<UClass>` + `EFindFirstObjectOptions::NativeFirst` were **confirmed present with identical signatures in UE 5.3** (`UObjectGlobals.h`) — so across 5.3/5.6/5.7 no version gate is needed today. If a *future* engine diverges here, the gate goes in `UEMCPCompat.h` (D170) — never a raw version `#if` in the resolver itself.
 
 ### Component 4 — regression guard
-`server/test-class-resolution-audit.mjs` — a static scan (W-K-anon-namespace-audit-style, FAIL-LOUD via `run-rotation.mjs`) that flags raw `FindObject<UClass>` / `StaticFindObject(` targeting `UClass` in `plugin/UEMCP/Source/UEMCP/Private/*.cpp`, **excluding** the shared resolver in `HandlerCommon.cpp` (which legitimately uses `FindFirstObject` for native short names). Documented allow-comment marker for any future legitimate exception.
+`server/test-class-resolution-audit.mjs` — a static scan (W-K-anon-namespace-audit-style, FAIL-LOUD via `run-rotation.mjs`) over `plugin/UEMCP/Source/UEMCP/Private/*.cpp`. It flags **all raw `UClass`-resolution primitives** outside the shared resolver — not just the Find-only ones — so the load-but-narrow sites can't silently stay inconsistent:
+- `FindObject<UClass>` / `FindFirstObject(Safe)?<UClass>` / `StaticFind*Object(UClass::StaticClass()`
+- `LoadClass<` / `LoadObject<UClass>` / `StaticLoadObject(UClass::StaticClass()`
+
+**Excluded:** `HandlerCommon.cpp` (home of `UEMCP::ResolveClass`, the one place these primitives legitimately live) and the `Commandlets/` dir (offline/DumpBP tooling, out of the live-handler scope). A documented `// uemcp-allow-class-resolution: <reason>` line marker permits any future vetted exception (the scan skips the flagged line when the marker is on the preceding line). This keeps the guard from flagging asset (non-`UClass`) loads like `LoadObject<UBlueprint>` / `LoadObject<UAnimSequence>`, which are unaffected.
 
 ## Validation
 - Build the plugin clean on **UE 5.3** (`Engine/` compat branch) **and UE 5.7** (`StructUtils/` branch) via the throwaway-host / real-project method (D168/D170).

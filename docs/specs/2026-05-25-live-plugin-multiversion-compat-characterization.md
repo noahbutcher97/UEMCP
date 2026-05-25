@@ -104,7 +104,9 @@ engine trees:
 **Completed path-relocation sweep (all 118 path-includes, full Engine tree incl. `Plugins/`):**
 - **5.7 — ZERO include breaks.** Every header + include-path resolves; near-clean at the include level.
 - **5.3 — ONE include break:** `StructUtils/UserDefinedStruct.h` (5.3 exposes it via `Engine/UserDefinedStruct.h`).
-  **Fixed** with the version guard above in `ReflectionWalker.cpp` (D167).
+  **Fixed** with the version guard (D167). *Update (D170): the guard was subsequently centralized into
+  `Public/UEMCPCompat.h` as `UEMCP_USERDEFINEDSTRUCT_HEADER`; `ReflectionWalker.cpp` no longer holds an
+  inline `#if` — all engine-version divergence now lives in that header.*
 - The 3 `GeometryScript/*` headers first flagged were **false positives** — they live under
   `Engine/Plugins/` (the GeometryScripting plugin), which the initial `Engine/Source`-only scan
   missed. The module moved `Plugins/Experimental/` (5.3) → `Plugins/Runtime/` (5.7), but the
