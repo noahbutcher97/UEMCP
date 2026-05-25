@@ -40,10 +40,10 @@ UClass* UEMCP::ResolveClass(const FString& Identifier, UClass* RequiredBase = nu
 
 Resolution order:
 1. Empty → `nullptr`.
-2. **Path-shaped** input (contains `/`, e.g. `/Game/...` or `/Script/...`):
-   a. `LoadClass<UObject>(nullptr, Identifier)` as-is.
-   b. If no `.`, synthesize the Blueprint generated-class path `"<path>.<leaf>_C"` and `LoadClass`.
-   c. `FSoftObjectPath(Identifier).TryLoad()` → if `UBlueprint`, return `GeneratedClass`; if `UClass`, return it.
+2. **Path-shaped** input (contains `/`, e.g. `/Game/...` or `/Script/...`) — **normalize FIRST, then load**:
+   a. Normalize: if the path has no `.`, synthesize the Blueprint generated-class path `"<path>.<leaf>_C"`. This must happen *before* the first `LoadClass` — passing a suffix-less package path to `LoadClass` emits a `Class None.<package>` warning + a refused `FlushAsyncLoading`, and on a cold Blueprint can degrade to an empty result (the sibling `ReflectionWalker.cpp` resolver normalizes-first for exactly this reason).
+   b. `LoadClass<UObject>(nullptr, Normalized)`.
+   c. `FSoftObjectPath(Normalized).TryLoad()` → if `UBlueprint`, return `GeneratedClass`; if `UClass`, return it.
 3. **Short name** (no `/`):
    a. `FindFirstObjectSafe<UClass>(*Identifier, EFindFirstObjectOptions::NativeFirst)` (native classes are always loaded — find-in-memory is correct here, not a quirk). The `Safe` variant won't assert during GC / package-save, which matters for handlers that can run at arbitrary editor times. **Verified present in UE 5.3** (`UObjectGlobals.h`), so available across 5.3/5.6/5.7.
    b. If it does not start with `U`, retry with the `U`-prefix.
