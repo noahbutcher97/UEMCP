@@ -41,11 +41,13 @@ public class UEMCP : ModuleRules
 			"GameplayTags",
 			"Json",
 			"JsonUtilities",
-			// D66 HYBRID — matches UEMCP.uplugin Plugins[] entry (UBT D60 rule).
-			// Consumed directly for RC-adjacent type references (URemoteControlPreset etc).
-			// HTTP traffic to the engine's WebRemoteControl server is server-side so no
-			// direct WebRemoteControl dep here.
-			"RemoteControl",
+			// D169: RemoteControl is NOT a compile dependency. Grep confirms zero source
+			// references in plugin/UEMCP/Source — all RC traffic is server-side HTTP:30010
+			// (the Node layer) to the engine's WebRemoteControl server, not C++ here. The
+			// runtime enablement stays in UEMCP.uplugin Plugins[] (the host project must have
+			// RemoteControl ENABLED for the :30010 server), but no module link/header dep
+			// belongs in Build.cs. Dropping it removes one Fab plugin-dependency-rule compile
+			// exposure with zero functionality loss (validated by clean rebuild, D169).
 			// M-enhance CP3 handler deps:
 			"UMG",           // UWidget / UPanelWidget base types
 			"UMGEditor",     // UWidgetBlueprint + WidgetTree (editor-only)
