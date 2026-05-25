@@ -1047,11 +1047,11 @@ namespace UEMCP
 				else if (ClassName == TEXT("AActor")) Found = AActor::StaticClass();
 				else
 				{
-					// Route through the shared resolver: adds a bare-name in-memory probe
-					// (FindFirstObjectSafe) and a /Script/Game candidate over the old
-					// /Script/Engine-only chain. (/Game content-path parents are NOT
-					// reachable here — upstream A-prefix normalization mangles content
-					// paths; genuine /Game-parent support is out of scope for this refactor.)
+					// Route through the shared resolver: the new delta is a bare-name
+					// in-memory probe (FindFirstObjectSafe) added over the old
+					// /Script/Engine + /Script/Game LoadClass chain. (/Game content-path
+					// parents are NOT reachable here — upstream A-prefix normalization
+					// mangles content paths; genuine /Game-parent support is out of scope.)
 					const TArray<FString> Candidates = {
 						ClassName,
 						FString::Printf(TEXT("/Script/Engine.%s"), *ClassName),

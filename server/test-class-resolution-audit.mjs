@@ -6,7 +6,9 @@
 // variants — so the asset-blind "needs the asset loaded this session" quirk can't
 // reappear and the load-but-narrow sites can't drift back.
 //
-// Excludes HandlerCommon.cpp (home of the resolver) and Commandlets/ (offline tooling).
+// Excludes HandlerCommon.cpp (home of the resolver). Scans only top-level
+// `Private/*.cpp` (single-level `readdirSync`), so `Commandlets/` and any future
+// subdir are not scanned.
 // An `// uemcp-allow-class-resolution: <reason>` line directly above a flagged line
 // whitelists that line. Reuses stripCommentsAndStrings so primitives inside comments
 // or string literals are not flagged.
@@ -30,6 +32,7 @@ const VIOLATION_PATTERNS = [
   /\bLoadClass\s*</,
   /\bLoadObject\s*<\s*UClass\b/,
   /\bStaticLoadObject\s*\(\s*UClass::StaticClass\(\)/,
+  /\bTObjectIterator\s*<\s*UClass\b/,
 ];
 
 /** Scan one file's source → array of { line, text } violations (1-based line nums). */
@@ -83,6 +86,7 @@ if (isMain) {
   eq(scanSource('UClass* C = FindObject<UClass>(nullptr, *N);').length, 1, 'flags FindObject<UClass>');
   eq(scanSource('UClass* C = LoadClass<AActor>(nullptr, *P);').length, 1, 'flags LoadClass<>');
   eq(scanSource('UClass* C = FindFirstObjectSafe<UClass>(*N, O);').length, 1, 'flags FindFirstObjectSafe<UClass>');
+  eq(scanSource('for (TObjectIterator<UClass> It; It; ++It) {').length, 1, 'flags TObjectIterator<UClass>');
   eq(scanSource('auto* BP = LoadObject<UBlueprint>(nullptr, *P);').length, 0, 'asset load LoadObject<UBlueprint> NOT flagged');
   eq(scanSource('// FindObject<UClass>(nullptr, *N);').length, 0, 'commented-out primitive NOT flagged');
   eq(scanSource('// uemcp-allow-class-resolution: native enum\nUClass* C = FindObject<UClass>(nullptr, *N);').length, 0, 'allow-marker whitelists next line');
