@@ -53,26 +53,29 @@ namespace UEMCP
 
 		if (Identifier.Contains(TEXT("/")))
 		{
-			// Path-shaped → load from disk.
-			Resolved = LoadClass<UObject>(nullptr, *Identifier);
-
-			// Package-only path (no '.') → synthesize the Blueprint generated-class path.
-			if (!Resolved && !Identifier.Contains(TEXT(".")))
+			// Normalize a package-only path to its Blueprint generated-class path
+			// BEFORE the first LoadClass. Passing a suffix-less package path to
+			// LoadClass emits a "Class None.<package>" warning + a refused
+			// FlushAsyncLoading, and on a cold BP can degrade to an empty result
+			// (see ReflectionWalker.cpp normalize-first rationale).
+			FString Normalized = Identifier;
+			if (!Normalized.Contains(TEXT(".")))
 			{
 				int32 SlashIdx = INDEX_NONE;
-				if (Identifier.FindLastChar(TEXT('/'), SlashIdx) && SlashIdx + 1 < Identifier.Len())
+				if (Normalized.FindLastChar(TEXT('/'), SlashIdx) && SlashIdx + 1 < Normalized.Len())
 				{
-					const FString Leaf = Identifier.Mid(SlashIdx + 1);
-					const FString BpClassPath = Identifier + TEXT(".") + Leaf + TEXT("_C");
-					Resolved = LoadClass<UObject>(nullptr, *BpClassPath);
+					const FString Leaf = Normalized.Mid(SlashIdx + 1);
+					Normalized = Normalized + TEXT(".") + Leaf + TEXT("_C");
 				}
 			}
+
+			Resolved = LoadClass<UObject>(nullptr, *Normalized);
 
 			// Soft-path fallback: resolves a UBlueprint asset → its GeneratedClass,
 			// or a UClass object directly.
 			if (!Resolved)
 			{
-				const FSoftObjectPath Soft(Identifier);
+				const FSoftObjectPath Soft(Normalized);
 				if (UObject* Obj = Soft.TryLoad())
 				{
 					if (UBlueprint* BP = Cast<UBlueprint>(Obj))

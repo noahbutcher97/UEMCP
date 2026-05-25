@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 
 class UBlueprint;
+class UClass;
 class UWorld;
 
 /**
@@ -19,6 +20,7 @@ class UWorld;
  * Helpers in scope:
  *   - GetEditorWorld()     — editor-context world resolver, PIE-aware
  *   - ResolveBlueprint()   — /Game/... path → UBlueprint* (LoadObject + soft-path fallback)
+ *   - ResolveClass()       — path or short name → UClass* (normalize-first LoadClass + soft-path fallback)
  *   - ToObjectPath()       — package-only path → doubled object-path form
  *   - GetStringOr()        — JSON string field with fallback default
  *
