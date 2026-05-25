@@ -62,7 +62,7 @@ Each site keeps its domain-specific candidate generation but routes every candid
 - reparent/target → `[target, "U"+target, "/Script/Engine."+target]` through `ResolveClass`.
 - class-pin default (≈756) → `ResolveClass(className)` (gains `_C`/SoftPath reach over the current `LoadObject`+`/Script/Engine.`-only chain).
 - actor-class resolve (≈1045) → keep the `APawn`/`AActor` fast-path, then `ResolveClass(className, AActor::StaticClass())` (gains `/Game` actor-Blueprint support).
-- `ReflectionWalker::ResolveClass` → becomes a thin call to `UEMCP::ResolveClass` (keeps its `inspect_blueprint` callers unchanged).
+- `ReflectionWalker` → **delete** the file-local `ResolveClass` (it lives in an unnamed namespace nested in `UEMCP`, so a same-named delegating wrapper would alias-ambiguate the qualified `UEMCP::ResolveClass` call); the `inspect_blueprint` call site calls `UEMCP::ResolveClass` directly.
 
 ### Component 3 — version tie-in
 The short-name native lookup is the historically version-sensitive spot (`ANY_PACKAGE`-era `FindObject` → modern `FindFirstObject`). `FindFirstObjectSafe<UClass>` + `EFindFirstObjectOptions::NativeFirst` were **confirmed present with identical signatures in UE 5.3** (`UObjectGlobals.h`) — so across 5.3/5.6/5.7 no version gate is needed today. If a *future* engine diverges here, the gate goes in `UEMCPCompat.h` (D170) — never a raw version `#if` in the resolver itself.

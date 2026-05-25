@@ -153,19 +153,15 @@ git commit -m "Add shared load-first UEMCP::ResolveClass resolver (class-resolut
 #include "HandlerCommon.h"
 ```
 
-- [ ] **Step 2: Replace the `ResolveClass` body with delegation**
+- [ ] **Step 2: Delete the local wrapper, call the shared resolver at the call site**
 
-Replace the entire existing function (the `_C`-synthesis + `LoadClass` + `SoftObjectPath::TryLoad` block, currently lines ≈264-294) with:
+⚠️ Do NOT keep a same-named delegating wrapper. The file-local `ResolveClass(const FString&)` lives in an unnamed namespace nested in `namespace UEMCP`, so a body of `return UEMCP::ResolveClass(Path);` is **ambiguous** — qualified `UEMCP::ResolveClass` finds BOTH the local one-arg and the shared two-arg-with-default overloads (the `f(x)` vs `f(x, y=default)` ambiguity → compile error). Instead **delete the whole local function** (and its orphaned doc-comment) and update its one call site (the `inspect_blueprint`/`HandleReflectionWalk` site, was ≈line 375):
 
 ```cpp
-		UClass* ResolveClass(const FString& Path)
-		{
-			// Delegates to the single shared resolver (HandlerCommon). The shared
-			// resolver does the same _C synthesis + LoadClass + SoftPath.TryLoad,
-			// plus native short-name lookup (a harmless superset for this caller).
-			return UEMCP::ResolveClass(Path);
-		}
+				UClass* Class = UEMCP::ResolveClass(AssetPath);
 ```
+
+After this, `git grep -n ResolveClass -- .../ReflectionWalker.cpp` should show ONLY the qualified call site — no local definition. This fully consolidates (no redundant wrapper).
 
 - [ ] **Step 3: Build to confirm it compiles**
 
