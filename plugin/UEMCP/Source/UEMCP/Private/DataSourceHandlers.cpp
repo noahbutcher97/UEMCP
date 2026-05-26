@@ -124,6 +124,7 @@ namespace UEMCP
 			// Walk all UClass* in memory, filter to UDataAsset subclasses.
 			// Iteration is instant; callers can filter client-side.
 			TArray<TSharedPtr<FJsonValue>> Classes;
+			// uemcp-allow-class-resolution: enumerates all UClass subclasses (list data-asset types), not identifier→class resolution
 			for (TObjectIterator<UClass> It; It; ++It)
 			{
 				UClass* C = *It;

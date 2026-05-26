@@ -3,6 +3,7 @@
 
 #include "BlueprintLookupHelper.h"
 #include "CompileDiagnosticHandler.h"
+#include "HandlerCommon.h"
 #include "LoadAssetPIESafe.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
@@ -753,11 +754,10 @@ namespace UEMCP
 				if (PinValue->Type == EJson::String && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class)
 				{
 					const FString ClassName = PinValue->AsString();
-					UClass* Class = LoadObject<UClass>(nullptr, *ClassName);
+					UClass* Class = UEMCP::ResolveClass(ClassName);
 					if (!Class)
 					{
-						const FString EngineClassName = FString::Printf(TEXT("/Script/Engine.%s"), *ClassName);
-						Class = LoadObject<UClass>(nullptr, *EngineClassName);
+						Class = UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.%s"), *ClassName));
 					}
 					if (Class && K2Schema)
 					{
@@ -1047,12 +1047,20 @@ namespace UEMCP
 				else if (ClassName == TEXT("AActor")) Found = AActor::StaticClass();
 				else
 				{
-					const FString EnginePath = FString::Printf(TEXT("/Script/Engine.%s"), *ClassName);
-					Found = LoadClass<AActor>(nullptr, *EnginePath);
-					if (!Found)
+					// Route through the shared resolver: the new delta is a bare-name
+					// in-memory probe (FindFirstObjectSafe) added over the old
+					// /Script/Engine + /Script/Game LoadClass chain. (/Game content-path
+					// parents are NOT reachable here — upstream A-prefix normalization
+					// mangles content paths; genuine /Game-parent support is out of scope.)
+					const TArray<FString> Candidates = {
+						ClassName,
+						FString::Printf(TEXT("/Script/Engine.%s"), *ClassName),
+						FString::Printf(TEXT("/Script/Game.%s"), *ClassName),
+					};
+					for (const FString& Candidate : Candidates)
 					{
-						const FString GamePath = FString::Printf(TEXT("/Script/Game.%s"), *ClassName);
-						Found = LoadClass<AActor>(nullptr, *GamePath);
+						Found = UEMCP::ResolveClass(Candidate, AActor::StaticClass());
+						if (Found) break;
 					}
 				}
 				if (Found)
@@ -1121,30 +1129,32 @@ namespace UEMCP
 			}
 
 			// Flexible class resolution — exact, +Component suffix, U+ prefix, U+name+Component.
-			UClass* ComponentClass = LoadClass<UActorComponent>(nullptr, *ComponentType);
-			if (!ComponentClass)
+			// Build candidate identifiers, resolve each load-first, filtered to UActorComponent.
+			TArray<FString> Candidates;
+			Candidates.Add(ComponentType);
+			if (!ComponentType.EndsWith(TEXT("Component")))
 			{
-				ComponentClass = FindObject<UClass>(nullptr, *ComponentType);
+				Candidates.Add(ComponentType + TEXT("Component"));
 			}
-			if (!ComponentClass && !ComponentType.EndsWith(TEXT("Component")))
+			if (!ComponentType.StartsWith(TEXT("U")))
 			{
-				const FString WithSuffix = ComponentType + TEXT("Component");
-				ComponentClass = FindObject<UClass>(nullptr, *WithSuffix);
-				if (!ComponentClass)
+				Candidates.Add(TEXT("U") + ComponentType);
+				if (!ComponentType.EndsWith(TEXT("Component")))
 				{
-					ComponentClass = LoadClass<UActorComponent>(nullptr,
-						*FString::Printf(TEXT("/Script/Engine.%s"), *WithSuffix));
+					Candidates.Add(TEXT("U") + ComponentType + TEXT("Component"));
 				}
 			}
-			if (!ComponentClass && !ComponentType.StartsWith(TEXT("U")))
+			Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *ComponentType));
+			if (!ComponentType.EndsWith(TEXT("Component")))
 			{
-				const FString WithPrefix = TEXT("U") + ComponentType;
-				ComponentClass = FindObject<UClass>(nullptr, *WithPrefix);
-				if (!ComponentClass && !ComponentType.EndsWith(TEXT("Component")))
-				{
-					const FString Both = TEXT("U") + ComponentType + TEXT("Component");
-					ComponentClass = FindObject<UClass>(nullptr, *Both);
-				}
+				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%sComponent"), *ComponentType));
+			}
+
+			UClass* ComponentClass = nullptr;
+			for (const FString& Candidate : Candidates)
+			{
+				ComponentClass = UEMCP::ResolveClass(Candidate, UActorComponent::StaticClass());
+				if (ComponentClass) break;
 			}
 
 			if (!ComponentClass || !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
@@ -1806,15 +1816,17 @@ namespace UEMCP
 			UClass* TargetClass = nullptr;
 			if (!Target.IsEmpty())
 			{
-				TargetClass = FindObject<UClass>(nullptr, *Target);
-				if (!TargetClass && !Target.StartsWith(TEXT("U")))
+				TArray<FString> Candidates;
+				Candidates.Add(Target);
+				if (!Target.StartsWith(TEXT("U")))
 				{
-					TargetClass = FindObject<UClass>(nullptr, *(TEXT("U") + Target));
+					Candidates.Add(TEXT("U") + Target);
 				}
-				if (!TargetClass)
+				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *Target));
+				for (const FString& Candidate : Candidates)
 				{
-					TargetClass = LoadClass<UObject>(nullptr,
-						*FString::Printf(TEXT("/Script/Engine.%s"), *Target));
+					TargetClass = UEMCP::ResolveClass(Candidate);
+					if (TargetClass) break;
 				}
 			}
 

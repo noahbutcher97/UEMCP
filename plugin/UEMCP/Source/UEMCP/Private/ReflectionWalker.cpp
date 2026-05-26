@@ -1,6 +1,7 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "ReflectionWalker.h"
 
+#include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -249,51 +250,6 @@ namespace UEMCP
 	namespace
 	{
 		/**
-		 * Resolve a class path → UClass*. Handles three input shapes that callers commonly mix:
-		 *   1. `/Game/BPs/X.X_C`           — BP generated-class convention (the canonical form)
-		 *   2. `/Game/BPs/X`               — bare package path (agent shorthand; rewrite to .X_C)
-		 *   3. `/Script/Engine.Actor`      — native class
-		 *
-		 * Pre-normalize bare package paths before LoadClass: handing a path without a class
-		 * suffix to LoadClass triggers a `Class None.<package>` warning and a ZenLoader
-		 * `FlushAsyncLoading` attempt that the loader refuses on non-game / non-loading
-		 * threads. With the marshal at Dispatch we're now on the game thread, but the warning
-		 * + extra attempted load remain — and on a cold BP the missing suffix can degrade
-		 * results to an empty cache hit. Suffix-rewrite eliminates both failure modes.
-		 */
-		UClass* ResolveClass(const FString& Path)
-		{
-			FString Normalized = Path;
-			if (!Normalized.IsEmpty() && !Normalized.Contains(TEXT(".")))
-			{
-				int32 SlashIdx = INDEX_NONE;
-				if (Normalized.FindLastChar(TEXT('/'), SlashIdx) && SlashIdx + 1 < Normalized.Len())
-				{
-					const FString AssetName = Normalized.Mid(SlashIdx + 1);
-					Normalized = Normalized + TEXT(".") + AssetName + TEXT("_C");
-				}
-			}
-
-			if (UClass* Loaded = LoadClass<UObject>(nullptr, *Normalized))
-			{
-				return Loaded;
-			}
-			const FSoftObjectPath Soft(Normalized);
-			if (UObject* Obj = Soft.TryLoad())
-			{
-				if (UBlueprint* BP = Cast<UBlueprint>(Obj))
-				{
-					return BP->GeneratedClass;
-				}
-				if (UClass* C = Cast<UClass>(Obj))
-				{
-					return C;
-				}
-			}
-			return nullptr;
-		}
-
-		/**
 		 * Resolve a struct path → UStruct*. Handles both UUserDefinedStruct
 		 * ('/Game/Structs/X.X' loads the asset; cast to UUserDefinedStruct)
 		 * and native UScriptStruct ('/Script/Engine.Transform').
@@ -372,7 +328,7 @@ namespace UEMCP
 				return;
 			}
 
-			UClass* Class = ResolveClass(AssetPath);
+			UClass* Class = UEMCP::ResolveClass(AssetPath);
 			if (!Class)
 			{
 				BuildErrorResponse(OutResponse,

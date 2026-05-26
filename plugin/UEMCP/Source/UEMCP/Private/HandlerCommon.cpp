@@ -5,7 +5,9 @@
 #include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "UObject/Class.h"            // UClass
 #include "UObject/SoftObjectPath.h"
+#include "UObject/UObjectGlobals.h"   // LoadClass, FindFirstObjectSafe, EFindFirstObjectOptions
 
 namespace UEMCP
 {
@@ -38,6 +40,72 @@ namespace UEMCP
 			return Cast<UBlueprint>(Obj);
 		}
 		return nullptr;
+	}
+
+	UClass* ResolveClass(const FString& Identifier, UClass* RequiredBase)
+	{
+		if (Identifier.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		UClass* Resolved = nullptr;
+
+		if (Identifier.Contains(TEXT("/")))
+		{
+			// Normalize a package-only path to its Blueprint generated-class path
+			// BEFORE the first LoadClass. Passing a suffix-less package path to
+			// LoadClass emits a "Class None.<package>" warning + a refused
+			// FlushAsyncLoading, and on a cold BP can degrade to an empty result
+			// (see ReflectionWalker.cpp normalize-first rationale).
+			FString Normalized = Identifier;
+			if (!Normalized.Contains(TEXT(".")))
+			{
+				int32 SlashIdx = INDEX_NONE;
+				if (Normalized.FindLastChar(TEXT('/'), SlashIdx) && SlashIdx + 1 < Normalized.Len())
+				{
+					const FString Leaf = Normalized.Mid(SlashIdx + 1);
+					Normalized = Normalized + TEXT(".") + Leaf + TEXT("_C");
+				}
+			}
+
+			Resolved = LoadClass<UObject>(nullptr, *Normalized);
+
+			// Soft-path fallback: resolves a UBlueprint asset → its GeneratedClass,
+			// or a UClass object directly.
+			if (!Resolved)
+			{
+				const FSoftObjectPath Soft(Normalized);
+				if (UObject* Obj = Soft.TryLoad())
+				{
+					if (UBlueprint* BP = Cast<UBlueprint>(Obj))
+					{
+						Resolved = BP->GeneratedClass;
+					}
+					else if (UClass* AsClass = Cast<UClass>(Obj))
+					{
+						Resolved = AsClass;
+					}
+				}
+			}
+		}
+		else
+		{
+			// Short name → native in-memory lookup (native classes are always loaded;
+			// FindFirstObjectSafe won't assert during GC / package-save).
+			Resolved = FindFirstObjectSafe<UClass>(*Identifier, EFindFirstObjectOptions::NativeFirst);
+			if (!Resolved && !Identifier.StartsWith(TEXT("U")))
+			{
+				const FString WithPrefix = TEXT("U") + Identifier;
+				Resolved = FindFirstObjectSafe<UClass>(*WithPrefix, EFindFirstObjectOptions::NativeFirst);
+			}
+		}
+
+		if (Resolved && RequiredBase && !Resolved->IsChildOf(RequiredBase))
+		{
+			return nullptr;
+		}
+		return Resolved;
 	}
 
 	FString ToObjectPath(const FString& AssetPath)

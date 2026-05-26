@@ -40,10 +40,10 @@ UClass* UEMCP::ResolveClass(const FString& Identifier, UClass* RequiredBase = nu
 
 Resolution order:
 1. Empty → `nullptr`.
-2. **Path-shaped** input (contains `/`, e.g. `/Game/...` or `/Script/...`):
-   a. `LoadClass<UObject>(nullptr, Identifier)` as-is.
-   b. If no `.`, synthesize the Blueprint generated-class path `"<path>.<leaf>_C"` and `LoadClass`.
-   c. `FSoftObjectPath(Identifier).TryLoad()` → if `UBlueprint`, return `GeneratedClass`; if `UClass`, return it.
+2. **Path-shaped** input (contains `/`, e.g. `/Game/...` or `/Script/...`) — **normalize FIRST, then load**:
+   a. Normalize: if the path has no `.`, synthesize the Blueprint generated-class path `"<path>.<leaf>_C"`. This must happen *before* the first `LoadClass` — passing a suffix-less package path to `LoadClass` emits a `Class None.<package>` warning + a refused `FlushAsyncLoading`, and on a cold Blueprint can degrade to an empty result (the sibling `ReflectionWalker.cpp` resolver normalizes-first for exactly this reason).
+   b. `LoadClass<UObject>(nullptr, Normalized)`.
+   c. `FSoftObjectPath(Normalized).TryLoad()` → if `UBlueprint`, return `GeneratedClass`; if `UClass`, return it.
 3. **Short name** (no `/`):
    a. `FindFirstObjectSafe<UClass>(*Identifier, EFindFirstObjectOptions::NativeFirst)` (native classes are always loaded — find-in-memory is correct here, not a quirk). The `Safe` variant won't assert during GC / package-save, which matters for handlers that can run at arbitrary editor times. **Verified present in UE 5.3** (`UObjectGlobals.h`), so available across 5.3/5.6/5.7.
    b. If it does not start with `U`, retry with the `U`-prefix.
@@ -62,7 +62,7 @@ Each site keeps its domain-specific candidate generation but routes every candid
 - reparent/target → `[target, "U"+target, "/Script/Engine."+target]` through `ResolveClass`.
 - class-pin default (≈756) → `ResolveClass(className)` (gains `_C`/SoftPath reach over the current `LoadObject`+`/Script/Engine.`-only chain).
 - actor-class resolve (≈1045) → keep the `APawn`/`AActor` fast-path, then `ResolveClass(className, AActor::StaticClass())` (gains `/Game` actor-Blueprint support).
-- `ReflectionWalker::ResolveClass` → becomes a thin call to `UEMCP::ResolveClass` (keeps its `inspect_blueprint` callers unchanged).
+- `ReflectionWalker` → **delete** the file-local `ResolveClass` (it lives in an unnamed namespace nested in `UEMCP`, so a same-named delegating wrapper would alias-ambiguate the qualified `UEMCP::ResolveClass` call); the `inspect_blueprint` call site calls `UEMCP::ResolveClass` directly.
 
 ### Component 3 — version tie-in
 The short-name native lookup is the historically version-sensitive spot (`ANY_PACKAGE`-era `FindObject` → modern `FindFirstObject`). `FindFirstObjectSafe<UClass>` + `EFindFirstObjectOptions::NativeFirst` were **confirmed present with identical signatures in UE 5.3** (`UObjectGlobals.h`) — so across 5.3/5.6/5.7 no version gate is needed today. If a *future* engine diverges here, the gate goes in `UEMCPCompat.h` (D170) — never a raw version `#if` in the resolver itself.

@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 
 class UBlueprint;
+class UClass;
 class UWorld;
 
 /**
@@ -19,6 +20,7 @@ class UWorld;
  * Helpers in scope:
  *   - GetEditorWorld()     — editor-context world resolver, PIE-aware
  *   - ResolveBlueprint()   — /Game/... path → UBlueprint* (LoadObject + soft-path fallback)
+ *   - ResolveClass()       — path or short name → UClass* (normalize-first LoadClass + soft-path fallback)
  *   - ToObjectPath()       — package-only path → doubled object-path form
  *   - GetStringOr()        — JSON string field with fallback default
  *
@@ -58,6 +60,20 @@ namespace UEMCP
 	 * with error-envelope emission; it is NOT this function.
 	 */
 	UBlueprint* ResolveBlueprint(const FString& AssetPath);
+
+	/**
+	 * Load-first UClass resolution from a flexible identifier.
+	 *
+	 * Path-shaped input (contains '/') loads from disk so a cold /Game Blueprint
+	 * class resolves WITHOUT being opened in the editor this session; short names
+	 * resolve native (always-loaded) classes. Returns nullptr if unresolved, or
+	 * if RequiredBase is set and the resolved class is not a child of it.
+	 *
+	 * PRECONDITION: must be called on the game thread (LoadClass/LoadObject/TryLoad
+	 * require it). All current callers already marshal via MCPThreadMarshal, so
+	 * this stays a pure synchronous helper and does NOT re-marshal.
+	 */
+	UClass* ResolveClass(const FString& Identifier, UClass* RequiredBase = nullptr);
 
 	/**
 	 * `/Game/Foo/Bar` → `/Game/Foo/Bar.Bar` (canonical doubled object-path

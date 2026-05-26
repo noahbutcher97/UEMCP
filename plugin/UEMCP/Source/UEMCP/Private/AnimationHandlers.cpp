@@ -14,7 +14,6 @@
 #include "Animation/Skeleton.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
-#include "UObject/UObjectIterator.h"
 
 namespace UEMCP
 {
@@ -223,35 +222,27 @@ namespace UEMCP
 		// 3. add_montage_notify — append a UAnimNotify or UAnimNotifyState
 		// ═══════════════════════════════════════════════════════════════════════
 		//
-		// Resolves notify_class by short-name first, falling back to TObjectIterator
-		// over loaded UClass — mirrors how editor browsers resolve notify subclasses.
+		// Resolves notify_class via the shared UEMCP::ResolveClass resolver (load-first):
+		// tries the bare name, then /Script/Engine.<name>, then /Script/Engine.AnimNotify_<name>.
 		// Stateful (UAnimNotifyState) gets a default 0.1s duration; Notify is
 		// instantaneous.
 
 		UClass* ResolveNotifyClass(const FString& NotifyClassName)
 		{
-			// Direct path resolution first (e.g. "/Script/Engine.AnimNotify_PlaySound").
-			if (UClass* Direct = FindObject<UClass>(nullptr, *NotifyClassName))
+			// Load-first via the shared resolver, then the two engine short-name shapes.
+			// No RequiredBase: the montage handler validates the notify type afterward
+			// (behavior preserved). The deleted FindObject/TObjectIterator paths were
+			// loaded-only — a cold /Game Blueprint notify now resolves because the
+			// shared resolver loads /Game paths from disk.
+			if (UClass* C = UEMCP::ResolveClass(NotifyClassName))
 			{
-				return Direct;
+				return C;
 			}
-			// /Script/Engine.<ShortName> hint.
-			const FString WithEnginePrefix = FString::Printf(TEXT("/Script/Engine.%s"), *NotifyClassName);
-			if (UClass* WithPrefix = FindObject<UClass>(nullptr, *WithEnginePrefix))
+			if (UClass* C = UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.%s"), *NotifyClassName)))
 			{
-				return WithPrefix;
+				return C;
 			}
-			// Fall back to short-name match across all loaded UClasses. O(n) but
-			// once-per-handler-call; the editor already pays this cost in its own
-			// notify-class browser.
-			for (TObjectIterator<UClass> It; It; ++It)
-			{
-				if (It->GetName() == NotifyClassName)
-				{
-					return *It;
-				}
-			}
-			return nullptr;
+			return UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.AnimNotify_%s"), *NotifyClassName));
 		}
 
 		void HandleAddMontageNotify(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
