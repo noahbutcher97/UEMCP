@@ -3,7 +3,7 @@
   "name": "uemcp",
   "displayName": "Unreal Engine MCP (UEMCP)",
   "description": "Unreal editor automation. Requires UE editor running.",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "main": "server/server.mjs",
   "fields": [
     {

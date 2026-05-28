@@ -46,6 +46,8 @@ const fakeToolsYaml = {
         add_self_reference: { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes: { wire_type: 'connect_blueprint_nodes' },
+        disconnect_pin: { wire_type: 'disconnect_blueprint_pin' },
+        delete_nodes: { wire_type: 'delete_blueprint_nodes' },
         find_nodes: { wire_type: 'find_blueprint_nodes' },
       }
     },
@@ -71,7 +73,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_function_node', 'add_variable', 'add_function_graph',
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
     'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
-    'add_component_reference', 'connect_nodes', 'find_nodes',
+    'add_component_reference', 'connect_nodes', 'disconnect_pin', 'delete_nodes', 'find_nodes',
   ];
 
   t.assert(Object.keys(defs).length === expectedBpTools.length,
@@ -95,6 +97,8 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
   t.assert(defs.add_variable.isReadOp === false, 'add_variable is a write op');
   t.assert(defs.set_variable_default.isReadOp === false, 'set_variable_default is a write op');
   t.assert(defs.add_timer.isReadOp === false, 'add_timer is a write op');
+  t.assert(defs.disconnect_pin.isReadOp === false, 'disconnect_pin is a write op');
+  t.assert(defs.delete_nodes.isReadOp === false, 'delete_nodes is a write op');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -126,6 +130,8 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
     'add_blueprint_get_self_component_reference': { status: 'success', result: { node_id: 'jkl-012' } },
     'connect_blueprint_nodes': { status: 'success', result: { success: true } },
+    'disconnect_blueprint_pin': { status: 'success', result: { node_id: 'a', pin: 'then', links_broken: 1 } },
+    'delete_blueprint_nodes': { status: 'success', result: { deleted_count: 1, deleted: [{ node_id: 'a' }], skipped: [], not_found: [] } },
     'find_blueprint_nodes': { status: 'success', result: { nodes: [] } },
     'create_blueprint': { status: 'success', result: { path: '/Game/Blueprints/MyBP' } },
     'set_component_property': { status: 'success', result: { success: true } },
@@ -195,6 +201,12 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
   await executeBlueprintsWriteTool('connect_nodes', { blueprint_name: 'BP', source_node_id: 'a', target_node_id: 'b', source_pin: 'then', target_pin: 'execute' }, cm);
   t.assert(fake.lastCall('connect_blueprint_nodes') !== undefined, 'connect_nodes -> connect_blueprint_nodes');
 
+  await executeBlueprintsWriteTool('disconnect_pin', { blueprint_name: 'BP', node_id: 'a', pin: 'then', direction: 'output' }, cm);
+  t.assert(fake.lastCall('disconnect_blueprint_pin') !== undefined, 'disconnect_pin -> disconnect_blueprint_pin');
+
+  await executeBlueprintsWriteTool('delete_nodes', { blueprint_name: 'BP', node_ids: ['a'] }, cm);
+  t.assert(fake.lastCall('delete_blueprint_nodes') !== undefined, 'delete_nodes -> delete_blueprint_nodes');
+
   await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
   t.assert(fake.lastCall('find_blueprint_nodes') !== undefined, 'find_nodes -> find_blueprint_nodes');
 
@@ -231,6 +243,8 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'timer-001', links: [] } });
   fake.on('add_blueprint_math_node', { status: 'success', result: { node_id: 'n4', graph_name: 'MoveStep', pins: [] } });
   fake.on('connect_blueprint_nodes', { status: 'success', result: { success: true } });
+  fake.on('disconnect_blueprint_pin', { status: 'success', result: { links_broken: 1 } });
+  fake.on('delete_blueprint_nodes', { status: 'success', result: { deleted_count: 2 } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
@@ -307,6 +321,24 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   t.assert(connCall.params.source_node_id === 'guid-1', 'connect_nodes: source_node_id passed');
   t.assert(connCall.params.target_pin === 'execute', 'connect_nodes: target_pin passed');
   t.assert(connCall.params.graph_name === 'MoveStep', 'connect_nodes: graph_name passed');
+
+  await executeBlueprintsWriteTool('disconnect_pin', {
+    blueprint_name: 'BP_Test', node_id: 'guid-1', pin: 'then', direction: 'output',
+    target_node_id: 'guid-2', target_pin: 'execute', graph_name: 'MoveStep',
+  }, cm);
+  const disconnectCall = fake.lastCall('disconnect_blueprint_pin');
+  t.assert(disconnectCall.params.node_id === 'guid-1', 'disconnect_pin: node_id passed');
+  t.assert(disconnectCall.params.direction === 'output', 'disconnect_pin: direction passed');
+  t.assert(disconnectCall.params.target_node_id === 'guid-2', 'disconnect_pin: target_node_id passed');
+  t.assert(disconnectCall.params.compile === false, 'disconnect_pin: compile default passed');
+
+  await executeBlueprintsWriteTool('delete_nodes', {
+    blueprint_name: 'BP_Test', node_ids: ['guid-1', 'guid-2'], graph_name: 'MoveStep',
+  }, cm);
+  const deleteCall = fake.lastCall('delete_blueprint_nodes');
+  t.assert(JSON.stringify(deleteCall.params.node_ids) === '["guid-1","guid-2"]', 'delete_nodes: node_ids passed');
+  t.assert(deleteCall.params.force === false, 'delete_nodes: force default passed');
+  t.assert(deleteCall.params.compile === false, 'delete_nodes: compile default passed');
 }
 
 // ═══════════════════════════════════════════════════════════════

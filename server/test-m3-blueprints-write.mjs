@@ -55,6 +55,8 @@ const fakeToolsYaml = {
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes:           { wire_type: 'connect_blueprint_nodes' },
+        disconnect_pin:          { wire_type: 'disconnect_blueprint_pin' },
+        delete_nodes:            { wire_type: 'delete_blueprint_nodes' },
         find_nodes:              { wire_type: 'find_blueprint_nodes' },
       },
     },
@@ -100,7 +102,7 @@ const expectedTools = [
   'add_function_graph', 'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment', 'add_control_node',
   'add_timer', 'add_math_node',
   'add_self_reference', 'add_component_reference',
-  'connect_nodes', 'find_nodes',
+  'connect_nodes', 'disconnect_pin', 'delete_nodes', 'find_nodes',
 ];
 
 t.assert(Object.keys(defs).length === expectedTools.length, `${expectedTools.length} blueprints-write tools defined`);
@@ -139,6 +141,24 @@ if (defs.set_variable_default) {
     'set_variable_default exposes value param');
   t.assert(defs.set_variable_default.schema.compile !== undefined,
     'set_variable_default exposes compile param');
+}
+if (defs.disconnect_pin) {
+  t.assert(defs.disconnect_pin.schema.blueprint_name !== undefined,
+    'disconnect_pin exposes blueprint_name param');
+  t.assert(defs.disconnect_pin.schema.node_id !== undefined,
+    'disconnect_pin exposes node_id param');
+  t.assert(defs.disconnect_pin.schema.pin !== undefined,
+    'disconnect_pin exposes pin param');
+  t.assert(defs.disconnect_pin.schema.direction !== undefined,
+    'disconnect_pin exposes optional direction param');
+}
+if (defs.delete_nodes) {
+  t.assert(defs.delete_nodes.schema.blueprint_name !== undefined,
+    'delete_nodes exposes blueprint_name param');
+  t.assert(defs.delete_nodes.schema.node_ids !== undefined,
+    'delete_nodes exposes node_ids param');
+  t.assert(defs.delete_nodes.schema.force !== undefined,
+    'delete_nodes exposes structural-node force override');
 }
 if (defs.add_timer) {
   t.assert(defs.add_timer.schema.blueprint_name !== undefined,
@@ -210,6 +230,8 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference',    { status: 'success', result: { node_id: 'GUID-CR' } });
   fake.on('connect_blueprint_nodes',                       { status: 'success', result: { source_node_id: 'A', target_node_id: 'B' } });
+  fake.on('disconnect_blueprint_pin',                      { status: 'success', result: { node_id: 'A', pin: 'Then', links_broken: 1 } });
+  fake.on('delete_blueprint_nodes',                        { status: 'success', result: { deleted_count: 1, deleted: [{ node_id: 'A' }], skipped: [], not_found: [] } });
   fake.on('find_blueprint_nodes',                          { status: 'success', result: { node_guids: [] } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
@@ -238,6 +260,8 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
     ['add_component_reference', { blueprint_name: 'BP_X', component_name: 'Mesh' },                                    'add_blueprint_get_self_component_reference'],
     ['connect_nodes',           { blueprint_name: 'BP_X', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, 'connect_blueprint_nodes'],
+    ['disconnect_pin',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'disconnect_blueprint_pin'],
+    ['delete_nodes',            { blueprint_name: 'BP_X', node_ids: ['A'] },                                           'delete_blueprint_nodes'],
     ['find_nodes',              { blueprint_name: 'BP_X', node_type: 'Event', event_name: 'ReceiveBeginPlay' },         'find_blueprint_nodes'],
   ];
 
@@ -264,6 +288,8 @@ console.log('\n── Group 3: Wire-type Translation ──');
   fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'Y' } });
   fake.on('set_blueprint_variable_default', { status: 'success', result: { variable_name: 'Speed' } });
   fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'TIMER' } });
+  fake.on('disconnect_blueprint_pin', { status: 'success', result: { links_broken: 1 } });
+  fake.on('delete_blueprint_nodes', { status: 'success', result: { deleted_count: 1 } });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
@@ -296,6 +322,20 @@ console.log('\n── Group 3: Wire-type Translation ──');
     'add_timer → add_blueprint_timer');
   t.assert(fake.lastCall('add_timer') === undefined,
     'add_timer tools.yaml name NOT used as wire type when wire_type is set');
+
+  await executeBlueprintsWriteTool('disconnect_pin',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
+  t.assert(fake.lastCall('disconnect_blueprint_pin') !== undefined,
+    'disconnect_pin → disconnect_blueprint_pin');
+  t.assert(fake.lastCall('disconnect_pin') === undefined,
+    'disconnect_pin tools.yaml name NOT used as wire type when wire_type is set');
+
+  await executeBlueprintsWriteTool('delete_nodes',
+    { blueprint_name: 'BP', node_ids: ['A'] }, cm);
+  t.assert(fake.lastCall('delete_blueprint_nodes') !== undefined,
+    'delete_nodes → delete_blueprint_nodes');
+  t.assert(fake.lastCall('delete_nodes') === undefined,
+    'delete_nodes tools.yaml name NOT used as wire type when wire_type is set');
 }
 
 // Identity fallback when wire_type is absent
@@ -419,6 +459,23 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     status: 'success',
     result: { source_node_id: 'A', target_node_id: 'B' },
   });
+  // disconnect_blueprint_pin: {node_id, pin, links_broken}
+  fake.on('disconnect_blueprint_pin', {
+    status: 'success',
+    result: { node_id: 'A', pin: 'Then', direction: 'output', links_broken: 1 },
+  });
+  // delete_blueprint_nodes: {deleted_count, deleted, skipped, not_found}
+  fake.on('delete_blueprint_nodes', {
+    status: 'success',
+    result: {
+      graph_name: 'MoveStep',
+      deleted_count: 2,
+      deleted: [{ node_id: 'A' }, { node_id: 'B' }],
+      skipped: [],
+      not_found: [],
+      requires_compile: true,
+    },
+  });
   // find_blueprint_nodes: {node_guids: [...]}
   fake.on('find_blueprint_nodes', {
     status: 'success',
@@ -512,6 +569,18 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     { blueprint_name: 'BP', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, cm);
   t.assert(r8.result.source_node_id === 'A' && r8.result.target_node_id === 'B',
     'connect_nodes result has {source_node_id, target_node_id} (oracle parity)');
+
+  const r8Disconnect = await executeBlueprintsWriteTool('disconnect_pin',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output', graph_name: 'MoveStep' }, cm);
+  t.assert(r8Disconnect.result.node_id === 'A' && r8Disconnect.result.pin === 'Then' && r8Disconnect.result.links_broken === 1,
+    'disconnect_pin result has {node_id, pin, links_broken}');
+
+  const r8Delete = await executeBlueprintsWriteTool('delete_nodes',
+    { blueprint_name: 'BP', graph_name: 'MoveStep', node_ids: ['A', 'B'] }, cm);
+  t.assert(r8Delete.result.deleted_count === 2 && Array.isArray(r8Delete.result.deleted) && Array.isArray(r8Delete.result.not_found),
+    'delete_nodes result has deletion accounting arrays');
+  t.assert(r8Delete.result.requires_compile === true,
+    'delete_nodes reports requires_compile for graph mutation cleanup');
 
   const r9 = await executeBlueprintsWriteTool('find_nodes',
     { blueprint_name: 'BP', node_type: 'Event', event_name: 'ReceiveBeginPlay' }, cm);
@@ -689,6 +758,23 @@ console.log('\n── Group 7: P0-9 Required-Param Validation ──');
     /variable_type/i,
     'add_variable rejects when variable_type is missing',
   );
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('delete_nodes', { blueprint_name: 'BP', node_ids: [] }, cm),
+    /array|too_small|greater than 0/i,
+    'delete_nodes rejects an empty node_ids array',
+  );
+  t.assert(fake.lastCall('delete_blueprint_nodes') === undefined,
+    'delete_nodes invalid request does NOT reach the wire');
+
+  await t.assertRejects(
+    () => executeBlueprintsWriteTool('disconnect_pin',
+      { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'sideways' }, cm),
+    /Invalid|enum/i,
+    'disconnect_pin rejects unknown pin direction at Zod layer',
+  );
+  t.assert(fake.lastCall('disconnect_blueprint_pin') === undefined,
+    'disconnect_pin invalid direction does NOT reach the wire');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1234,10 +1320,32 @@ console.log('\n── Group O: D149 registry publication and compile description
       && bpTools.add_timer?.params?.create_callback_graph?.default === true
       && bpTools.add_timer?.params?.insert_on_begin_play?.default === true,
     'D158: add_timer registry documents true defaults');
+  t.assert(bpTools.disconnect_pin !== undefined,
+    'D174: tools.yaml publishes disconnect_pin');
+  t.assert(bpTools.disconnect_pin?.wire_type === 'disconnect_blueprint_pin',
+    'D174: disconnect_pin registry wire_type matches C++ command');
+  t.assert(bpTools.disconnect_pin?.mutates_asset === true && bpTools.disconnect_pin?.saves_asset === false,
+    'D174: disconnect_pin registry marks mutates_asset true and saves_asset false');
+  t.assert(bpTools.delete_nodes !== undefined,
+    'D174: tools.yaml publishes delete_nodes');
+  t.assert(bpTools.delete_nodes?.wire_type === 'delete_blueprint_nodes',
+    'D174: delete_nodes registry wire_type matches C++ command');
+  t.assert(bpTools.delete_nodes?.mutates_asset === true && bpTools.delete_nodes?.saves_asset === false,
+    'D174: delete_nodes registry marks mutates_asset true and saves_asset false');
   t.assert(/diagnostic|error|warning/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description advertises diagnostic output');
   t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description no longer says errors are unavailable');
+
+  const handlers = readFileSync('../plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp', 'utf-8');
+  t.assert(/delete_blueprint_nodes/.test(handlers) && /HandleDeleteBlueprintNodes/.test(handlers),
+    'D174: C++ registers delete_blueprint_nodes handler');
+  t.assert(/disconnect_blueprint_pin/.test(handlers) && /HandleDisconnectBlueprintPin/.test(handlers),
+    'D174: C++ registers disconnect_blueprint_pin handler');
+  t.assert(/FBlueprintEditorUtils::RemoveNode/.test(handlers),
+    'D174: C++ delete handler uses BlueprintEditorUtils removal path');
+  t.assert(/BreakAllPinLinks|BreakLinkTo/.test(handlers),
+    'D174: C++ disconnect handler uses UE pin unlink APIs');
 }
 
 // ═══════════════════════════════════════════════════════════════

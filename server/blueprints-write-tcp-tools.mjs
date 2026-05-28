@@ -52,6 +52,8 @@ const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
   add_variable_assignment: 'add_blueprint_variable_assignment',
   set_variable_default: 'set_blueprint_variable_default',
   add_timer: 'add_blueprint_timer',
+  disconnect_pin: 'disconnect_blueprint_pin',
+  delete_nodes: 'delete_blueprint_nodes',
 };
 const BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES = {
   compile_and_save_blueprint: 15_000,
@@ -353,6 +355,37 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       source_pin: z.string().describe('Pin name on source node'),
       target_pin: z.string().describe('Pin name on target node'),
       graph_name: GraphNameOptional,
+    },
+    isReadOp: false,
+  },
+
+  disconnect_pin: {
+    description: 'Disconnect links from a named Blueprint graph pin. Breaks all links on that pin, or a specific target link when target_node_id and target_pin are provided.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      node_id: z.string().describe('Node GUID string'),
+      pin: z.string().describe('Pin name on node'),
+      direction: z.enum(['input', 'output']).optional().describe('Pin direction. Omit to search both directions.'),
+      target_node_id: z.string().optional().describe('Optional target node GUID for a specific link'),
+      target_pin: z.string().optional().describe('Optional target pin name for a specific link'),
+      target_direction: z.enum(['input', 'output']).optional().describe('Optional target pin direction. Omit to infer the opposite direction.'),
+      graph_name: GraphNameOptional,
+      compile: z.boolean().optional().default(false)
+        .describe('If true, compile after disconnecting. Default false.'),
+    },
+    isReadOp: false,
+  },
+
+  delete_nodes: {
+    description: 'Delete one or more Blueprint graph nodes by GUID. Refuses structural nodes such as events and function entry/result nodes unless force=true.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      node_ids: z.array(z.string()).min(1).describe('Node GUID strings to delete'),
+      graph_name: GraphNameOptional,
+      force: z.boolean().optional().default(false)
+        .describe('Allow deletion of structural event/function entry/result nodes. Default false.'),
+      compile: z.boolean().optional().default(false)
+        .describe('If true, compile after deleting nodes. Default false.'),
     },
     isReadOp: false,
   },
