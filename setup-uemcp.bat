@@ -476,8 +476,8 @@ goto :tcp_note
 
 :tcp_note
 echo.
-echo TCP tools (actors, blueprints-write, widgets) need the UE editor with
-echo the UnrealMCP plugin active. Offline tools work against project files
+echo Editor-backed TCP tools need the UE editor with the UEMCP plugin active.
+echo Offline tools work against project files
 echo on disk with no editor running.
 set "EXIT_CODE=0"
 goto :end

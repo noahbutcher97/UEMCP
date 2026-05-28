@@ -7,7 +7,7 @@
 #   - Handler filename = UEMCP${PascalCase(toolsetName)}Commands.h/.cpp
 #     Exception: input-and-pie splits into UEMCPInputCommands + UEMCPPIECommands
 #   - params: stubs — populated incrementally during implementation
-#   - Existing plugin toolsets (tcp-55557) have priority: null (not ours to implement)
+#   - Legacy-oracle-derived toolsets may keep priority: null after reimplementation
 
 # ─────────────────────────────────────────────────────────────
 # Always-loaded management tools (6)
@@ -17,7 +17,7 @@ management:
   description: Always-loaded discovery and management tools
   tools:
     connection_info:
-      description: Show status of all 4 layers (TCP:55557, TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.
+      description: Show status of active layers (TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.
       params:
         force_reconnect: { type: boolean, required: false, default: false }
 
@@ -333,7 +333,7 @@ toolsets:
       get_build_config:
         description: Parse .Build.cs, .Target.cs — show module dependencies and build settings
 
-  # ── Existing Plugin (TCP:55557) ───────────────────────────
+  # ── UEMCP Plugin (TCP:55558; reimplemented from legacy oracle) ──
   actors:
     layer: tcp-55558
     priority: null   # M3 (D23): reimplemented on UEMCP custom plugin TCP:55558
@@ -798,7 +798,7 @@ toolsets:
           action_name:    { type: string, required: true, description: "Input action name" }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
 
-  # ── New Custom Plugin (TCP:55558) ─────────────────────────
+  # ── UEMCP Plugin (TCP:55558) ──────────────────────────────
   gas:
     layer: tcp-55558
     priority: 1

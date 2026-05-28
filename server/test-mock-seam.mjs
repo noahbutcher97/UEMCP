@@ -13,6 +13,7 @@ import {
 import {
   FakeTcpResponder,
   ErrorTcpResponder,
+  FakeHttpResponder,
   TestRunner,
   createTestConfig,
 } from './test-helpers.mjs';
@@ -879,6 +880,30 @@ console.log('\n── Test 24: W6 write-op clears read cache ──');
   // The same read now re-fetches — proves the write cleared the stale entry.
   await conn.send('tcp-55558', 'read_x', {}, { skipCache: false });
   t.assert(calls === 3, `W6: read after write re-fetches, not stale (got ${calls}, want 3)`);
+}
+
+// ── Test 25: active layer status/probe excludes retired tcp-55557 ──
+console.log('\n── Test 25: Active layer probe excludes retired tcp-55557 ──');
+
+{
+  const fake = new FakeTcpResponder().on('ping', { status: 'success' });
+  const rc = new FakeHttpResponder().on('GET /remote/presets', { Presets: [] });
+  const { config } = createTestConfig('/fake/project', fake);
+  config.httpCommandFn = rc.handler();
+  const conn = new ConnectionManager(config);
+
+  await conn.isLayerAvailable('tcp-55557', true);
+  fake.resetCalls();
+
+  await conn.probeActiveLayers();
+  const probedPorts = fake.calls.map(c => c.port);
+  t.assert(!probedPorts.includes(55557), 'active layer probe does not ping retired tcp-55557');
+  t.assert(probedPorts.includes(55558), 'active layer probe still pings tcp-55558');
+
+  const activeStatus = conn.getActiveStatus();
+  t.assert(!Object.hasOwn(activeStatus, 'tcp-55557'), 'active status omits retired tcp-55557');
+  t.assert(Object.hasOwn(activeStatus, 'tcp-55558'), 'active status includes tcp-55558');
+  t.assert(Object.hasOwn(activeStatus, 'http-30010'), 'active status includes http-30010');
 }
 
 // ── Summary ─────────────────────────────────────────────────

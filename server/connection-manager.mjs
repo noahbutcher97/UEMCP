@@ -27,6 +27,8 @@ const LayerStatus = {
   CONNECTING:   'connecting',    // probe in progress
 };
 
+const ACTIVE_LAYER_KEYS = Object.freeze(['offline', 'tcp-55558', 'http-30010']);
+
 // ── TCP Client (connect-per-command) ────────────────────────
 
 /**
@@ -717,8 +719,29 @@ export class ConnectionManager {
    * @returns {object} Status snapshot of all layers
    */
   getStatus() {
+    return this._statusSnapshot(Object.keys(this.layers));
+  }
+
+  /**
+   * @returns {object} Status snapshot of current active UEMCP layers.
+   */
+  getActiveStatus() {
+    return this._statusSnapshot(ACTIVE_LAYER_KEYS);
+  }
+
+  /**
+   * Force-probe only current active UEMCP layers. The retired UnrealMCP oracle
+   * remains available for historical tests but is not part of normal health.
+   */
+  async probeActiveLayers() {
+    await Promise.all(ACTIVE_LAYER_KEYS.map(layerKey => this.isLayerAvailable(layerKey, true)));
+  }
+
+  _statusSnapshot(layerKeys) {
     const out = {};
-    for (const [key, info] of Object.entries(this.layers)) {
+    for (const key of layerKeys) {
+      const info = this.layers[key];
+      if (!info) continue;
       out[key] = {
         status: info.status,
         error: info.error || null,

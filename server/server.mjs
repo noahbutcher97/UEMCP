@@ -87,6 +87,8 @@ const TOOLS_YAML = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), '
 const config = Object.freeze({
   projectRoot:     process.env.UNREAL_PROJECT_ROOT || '',
   projectName:     process.env.UNREAL_PROJECT_NAME || '',
+  // Legacy UnrealMCP oracle port; retained for low-level compatibility tests,
+  // not surfaced or probed by normal connection_info.
   tcpPortExisting: parseInt(process.env.UNREAL_TCP_PORT_EXISTING || '55557', 10),
   tcpPortCustom:   parseInt(process.env.UNREAL_TCP_PORT_CUSTOM   || '55558', 10),
   // E-1 §5: baseline TCP timeout raised 5000 → 10000 to match the server-side
@@ -490,20 +492,15 @@ const toolsetManager = new ToolsetManager(connectionManager, toolIndex);
 // 1. connection_info
 server.tool(
   'connection_info',
-  'Show status of all 4 layers (TCP:55557, TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.',
-  { force_reconnect: z.boolean().optional().default(false).describe('Re-probe all layers instead of using cached status') },
+  'Show status of active layers (TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.',
+  { force_reconnect: z.boolean().optional().default(false).describe('Re-probe active layers instead of using cached status') },
   async ({ force_reconnect }, ctx) => {
     if (force_reconnect) {
-      log('info', 'Force-reconnecting all layers...');
-      await Promise.all([
-        connectionManager.isLayerAvailable('offline', true),
-        connectionManager.isLayerAvailable('tcp-55557', true),
-        connectionManager.isLayerAvailable('tcp-55558', true),
-        connectionManager.isLayerAvailable('http-30010', true),
-      ]);
+      log('info', 'Force-reconnecting active layers...');
+      await connectionManager.probeActiveLayers();
     }
 
-    const layers = connectionManager.getStatus();
+    const layers = connectionManager.getActiveStatus();
     const enabled = toolsetManager.getEnabledNames();
 
     return {

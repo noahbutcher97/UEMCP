@@ -23,16 +23,8 @@
       "examplePlaceholder": "MyProject"
     },
     {
-      "name": "UNREAL_TCP_PORT_EXISTING",
-      "label": "TCP port for the existing UEMCP plugin",
-      "type": "string",
-      "secret": false,
-      "required": false,
-      "default": "55557"
-    },
-    {
       "name": "UNREAL_TCP_PORT_CUSTOM",
-      "label": "TCP port for the custom UEMCP plugin",
+      "label": "TCP port for the UEMCP plugin",
       "type": "string",
       "secret": false,
       "required": false,
