@@ -43,6 +43,9 @@ export class ToolsetManager {
 
     /** @type {Map<string, {enable: () => void, disable: () => void}>} SDK tool handles */
     this._toolHandles = new Map();
+
+    /** @type {Map<string, string>} initially visible tool name → parent toolset */
+    this._initiallyVisibleTools = new Map();
   }
 
   /**
@@ -71,6 +74,8 @@ export class ToolsetManager {
     if (offlineOk) {
       await this.enable(['offline']);
     }
+
+    await this._enableInitiallyVisibleTools();
   }
 
   /**
@@ -104,6 +109,9 @@ export class ToolsetManager {
       const handle = this._toolHandles.get(tool.toolName);
       if (handle) {
         visible ? handle.enable() : handle.disable();
+      }
+      if (!visible) {
+        this._initiallyVisibleTools.delete(tool.toolName);
       }
     }
   }
@@ -239,6 +247,19 @@ export class ToolsetManager {
   }
 
   /**
+   * Count tools visible outside enabled toolsets. Used for active-count
+   * summaries when selected tools are visible in the initial schema.
+   * @returns {number}
+   */
+  getAdditionalVisibleToolCount() {
+    let count = 0;
+    for (const toolsetName of this._initiallyVisibleTools.values()) {
+      if (!this._enabled.has(toolsetName)) count++;
+    }
+    return count;
+  }
+
+  /**
    * Get the full tool definition for a specific tool from tools.yaml.
    * Includes params schema if defined.
    * @param {string} toolName
@@ -273,6 +294,34 @@ export class ToolsetManager {
     if (layer === 'tcp-55558') return await this.connectionManager.isLayerAvailable('tcp-55558');
     if (layer === 'http-30010') return await this.connectionManager.isLayerAvailable('http-30010');
     return false;
+  }
+
+  async _enableInitiallyVisibleTools() {
+    const tools = typeof this.toolIndex.getInitiallyVisibleTools === 'function'
+      ? this.toolIndex.getInitiallyVisibleTools()
+      : [];
+    const availability = new Map();
+    let changed = false;
+
+    for (const tool of tools) {
+      if (tool.toolsetName === 'management' || this._enabled.has(tool.toolsetName)) continue;
+
+      const handle = this._toolHandles.get(tool.toolName);
+      if (!handle) continue;
+
+      let available = availability.get(tool.toolsetName);
+      if (available === undefined) {
+        available = await this._isToolsetAvailable(tool.toolsetName);
+        availability.set(tool.toolsetName, available);
+      }
+      if (!available) continue;
+
+      handle.enable();
+      this._initiallyVisibleTools.set(tool.toolName, tool.toolsetName);
+      changed = true;
+    }
+
+    if (changed) this._fireListChanged();
   }
 
   _unavailableReason(name) {

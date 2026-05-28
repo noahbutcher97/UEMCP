@@ -243,10 +243,11 @@ When any dispatched handoff completes and residual items surface, consolidate th
 
 ## Bugs / defects
 
-### BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema
+### BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema — fixed 2026-05-28
 - **Source**: field report (2026-05-25, flagged near-term). The MCP client (Codex) sees both tools via discovery (`find_tools`) but cannot call them — they aren't exposed as callable in the `tools/list` schema.
 - **Confirmed present in the registry** (so the gap is *exposure*, not implementation): both declared in `tools.yaml` (`get_datatable_contents` ≈L919, `get_montage_full` ≈L979), with server handlers (`menhance-tcp-tools.mjs`, `m5-animation-tools.mjs`), plugin C++ handlers (`DataSourceHandlers.cpp`, montage reflection-walk), and rotation coverage (`test-tcp-tools.mjs`).
 - **Likely root cause** (one of): (a) a `server.mjs` registration gap — declared in yaml + has a handler, but never `server.tool()`-registered, so there's no SDK handle and it's invisible to `tools/list`; or (b) a toolset-visibility issue where their toolset isn't enabled and `find_tools` auto-enable (top-3 cap) isn't promoting it. Either way it manifests as a **D44-invariant tension** — `find_tools` surfaces tools that `tools/list` doesn't expose as callable.
 - **Investigate**: confirm whether `server.mjs` registers both via `server.tool()` + captures handles + registers with `ToolsetManager`; identify which toolset owns them and whether it enables; cross-check the D44 invariant assertion in `test-mcp-wire.mjs`.
 - **Scope**: likely small (registration/visibility wiring); ~0.5 session to diagnose + fix + add a regression assertion that every `tools.yaml`-declared tool is reachable via `tools/list` (closes the class structurally).
 - **Trigger**: near-term — actively hit from the Codex MCP client.
+- **Status 2026-05-28**: fixed in JS/server metadata. Root cause was Codex deferred tool metadata not refreshing reliably for tools made visible only after dynamic enable, even though a direct MCP client sees them after `find_tools`. `get_datatable_contents` and `get_montage_full` are now `initially_visible` when `tcp-55558` is available, without enabling their whole parent toolsets or exposing animation writes by default. Regression coverage lives in `server/test-phase1.mjs` Test 5c.

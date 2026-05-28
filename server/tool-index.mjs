@@ -117,6 +117,7 @@ function isDiscoverable(def) {
  * @property {string[]} nameTokens   — stemmed tokens from tool name
  * @property {string[]} descTokens   — stemmed tokens from description
  * @property {string[]} [aliases]    — from tools.yaml aliases field
+ * @property {boolean} initiallyVisible — visible in the first tools/list snapshot
  */
 
 // ── ToolIndex class ─────────────────────────────────────────
@@ -158,6 +159,7 @@ export class ToolIndex {
           nameTokens: tokenize(name),
           descTokens: tokenize(def.description || ''),
           aliases: def.aliases || [],
+          initiallyVisible: def.initially_visible === true,
         });
       }
     }
@@ -176,6 +178,7 @@ export class ToolIndex {
             nameTokens: tokenize(name),
             descTokens: tokenize(def.description || ''),
             aliases: def.aliases || [],
+            initiallyVisible: def.initially_visible === true,
           });
         }
       }
@@ -300,6 +303,22 @@ export class ToolIndex {
     return this._entries
       .filter(e => e.toolsetName === toolsetName)
       .map(({ toolName, description, layer }) => ({ toolName, description, layer }));
+  }
+
+  /**
+   * Get discoverable tools that should be visible in the initial tools/list
+   * snapshot even before their whole parent toolset is enabled.
+   * @returns {{toolName: string, toolsetName: string, description: string, layer: string}[]}
+   */
+  getInitiallyVisibleTools() {
+    return this._entries
+      .filter(e => e.initiallyVisible)
+      .map(({ toolName, toolsetName, description, layer }) => ({
+        toolName,
+        toolsetName,
+        description,
+        layer,
+      }));
   }
 
   /**

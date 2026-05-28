@@ -530,6 +530,46 @@ const woSummary_f = summarizeAutoEnable(['actors'], woResult_f, woPrev_f);
 assert(woSummary_f.autoEnabled.length === 0 && woSummary_f.unavailable.includes('actors'),
   'W-O: live autoEnable() with TCP layer down → autoEnabled empty, unavailable lists actors');
 
+// ── Test 5c: initially-visible live reads (BUG-1 / Codex deferred tools) ──
+console.log('\n═══ Test 5c: initially-visible live reads (BUG-1) ═══');
+
+// Codex's deferred tool metadata can miss tools that only become visible after
+// a dynamic enable. These two read tools must be present in the first tools/list
+// snapshot when tcp-55558 is available, without exposing their whole parent
+// toolsets by default.
+const tcpOk = async () => ({ status: 'success', result: { ok: true } });
+const visibleConnMgr = new ConnectionManager({
+  ...config,
+  projectRoot: '',
+  tcpCommandFn: tcpOk,
+});
+const visibleIndex = new ToolIndex();
+const visibleMgr = new ToolsetManager(visibleConnMgr, visibleIndex);
+const visibleHandles = new Map();
+for (const name of [
+  'get_datatable_contents',
+  'get_montage_full',
+  'create_montage',
+]) {
+  const state = { enabled: false };
+  visibleHandles.set(name, state);
+  visibleMgr.registerToolHandle(name, {
+    enable: () => { state.enabled = true; },
+    disable: () => { state.enabled = false; },
+  });
+}
+await visibleMgr.load();
+
+assert(visibleHandles.get('get_datatable_contents').enabled,
+  'BUG-1: get_datatable_contents is initially visible when tcp-55558 is available');
+assert(visibleHandles.get('get_montage_full').enabled,
+  'BUG-1: get_montage_full is initially visible when tcp-55558 is available');
+assert(!visibleHandles.get('create_montage').enabled,
+  'BUG-1: initially-visible reads do not expose animation writes by default');
+assert(!visibleMgr.getEnabledNames().includes('asset-registry')
+    && !visibleMgr.getEnabledNames().includes('animation'),
+  'BUG-1: initially-visible reads do not mark their parent toolsets enabled');
+
 // ── Test 8: Edge cases ───────────────────────────────────
 console.log('\n═══ Test 8: Edge cases ═══');
 

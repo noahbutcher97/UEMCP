@@ -917,6 +917,7 @@ toolsets:
       # reduced_scope: engine-struct-keyed DataTables + cooked/compiled DataTable access; UUserDefinedStruct rows shipped offline via D50 tagged-fallback
       # displaced_by: read_asset_properties
       get_datatable_contents:
+        initially_visible: true
         description: Read all rows from a DataTable asset as structured JSON (column names, types, values)
         params:
           asset_path: { type: string, required: true }
@@ -977,6 +978,7 @@ toolsets:
       # reduced_scope: evaluated blend settings + compiled slot machinery (requires live UAnimInstance); scalar section/notify data shipped offline
       # displaced_by: read_asset_properties
       get_montage_full:
+        initially_visible: true
         description: Deep montage read — sections, notifies, slots, blend settings, composite segments.
         note: Supersedes old list_montage_sections
         params:

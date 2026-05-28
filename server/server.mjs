@@ -641,8 +641,10 @@ server.tool(
     log('info', 'Listing all toolsets...');
     const toolsets = await toolsetManager.listToolsets();
 
-    // Count active tools (6 management + enabled toolset tools)
-    const activeToolCount = 6 + toolsets
+    // Count active tools (6 management + enabled toolset tools + metadata-pinned tools).
+    const activeToolCount = 6
+      + toolsetManager.getAdditionalVisibleToolCount()
+      + toolsets
       .filter(t => t.enabled)
       .reduce((sum, t) => sum + t.toolCount, 0);
 
