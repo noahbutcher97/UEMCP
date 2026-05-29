@@ -671,6 +671,28 @@ toolsets:
           source_pin:     { type: string, required: true, description: "Pin name on source node" }
           target_pin:     { type: string, required: true, description: "Pin name on target node" }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+      show_pin_links:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        wire_type: show_blueprint_pin_links
+        description: Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.
+        params:
+          blueprint_name:    { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
+          node_id:           { type: string, required: true, description: "Node GUID string" }
+          pin:               { type: string, required: true, description: "Pin name on node" }
+          direction:         { type: string, required: false, description: "One of: input, output. Omit to search both directions." }
+          target_node_id:    { type: string, required: false, description: "Optional linked node GUID filter" }
+          target_pin:        { type: string, required: false, description: "Optional linked pin name filter" }
+          target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
+          graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
       disconnect_pin:
         status: shipped
         availability_layer: tcp-55558
@@ -683,7 +705,7 @@ toolsets:
         compiles_asset: false
         offline_fallback: false
         wire_type: disconnect_blueprint_pin
-        description: Disconnect links from a named Blueprint graph pin. Breaks all links on that pin, or a specific target link when target_node_id and target_pin are provided. Does not save the asset; compile behavior is controlled by the optional compile param.
+        description: Disconnect links from a named Blueprint graph pin. Breaks all links on that pin, or a specific target link when target_node_id and target_pin are provided. Reports broken link identities. Does not save the asset; compile behavior is controlled by the optional compile param. Pass dry_run=true to preview without mutation.
         params:
           blueprint_name:    { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
           node_id:           { type: string, required: true, description: "Node GUID string" }
@@ -693,6 +715,7 @@ toolsets:
           target_pin:        { type: string, required: false, description: "Optional target pin name for a specific link" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
           graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          dry_run:           { type: boolean, required: false, default: false, description: "If true, report matching links without disconnecting or compiling. Default false." }
           compile:           { type: boolean, required: false, default: false, description: "If true, compile after disconnecting. Default false." }
       delete_nodes:
         status: shipped
@@ -706,12 +729,13 @@ toolsets:
         compiles_asset: false
         offline_fallback: false
         wire_type: delete_blueprint_nodes
-        description: Delete one or more Blueprint graph nodes by GUID. Refuses structural nodes such as events and function entry/result nodes unless force=true. Does not save the asset; compile behavior is controlled by the optional compile param.
+        description: Delete one or more Blueprint graph nodes by GUID. Refuses structural nodes such as events and function entry/result nodes unless force=true. Reports node and link preflight details. Does not save the asset; compile behavior is controlled by the optional compile param. Pass dry_run=true to preview without mutation.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
           node_ids:       { type: array, required: true, description: "Node GUID strings to delete. Must contain at least one node id." }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           force:          { type: boolean, required: false, default: false, description: "Allow deletion of structural event/function entry/result nodes. Default false." }
+          dry_run:        { type: boolean, required: false, default: false, description: "If true, report matching nodes and links without deleting or compiling. Default false." }
           compile:        { type: boolean, required: false, default: false, description: "If true, compile after deleting nodes. Default false." }
       find_nodes:
         wire_type: find_blueprint_nodes

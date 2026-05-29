@@ -55,6 +55,7 @@ const fakeToolsYaml = {
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes:           { wire_type: 'connect_blueprint_nodes' },
+        show_pin_links:          { wire_type: 'show_blueprint_pin_links' },
         disconnect_pin:          { wire_type: 'disconnect_blueprint_pin' },
         delete_nodes:            { wire_type: 'delete_blueprint_nodes' },
         find_nodes:              { wire_type: 'find_blueprint_nodes' },
@@ -102,7 +103,7 @@ const expectedTools = [
   'add_function_graph', 'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment', 'add_control_node',
   'add_timer', 'add_math_node',
   'add_self_reference', 'add_component_reference',
-  'connect_nodes', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+  'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
 ];
 
 t.assert(Object.keys(defs).length === expectedTools.length, `${expectedTools.length} blueprints-write tools defined`);
@@ -117,9 +118,10 @@ for (const name of expectedTools) {
   t.assert(typeof defs[name].isReadOp === 'boolean', `Tool "${name}" has isReadOp flag`);
 }
 
-// Read/write classification — find_nodes is the only read op.
+// Read/write classification — find_nodes and show_pin_links are read ops.
 t.assert(defs.find_nodes.isReadOp === true, 'find_nodes is a read op');
-const writeOps = expectedTools.filter(n => n !== 'find_nodes');
+t.assert(defs.show_pin_links.isReadOp === true, 'show_pin_links is a read op');
+const writeOps = expectedTools.filter(n => n !== 'find_nodes' && n !== 'show_pin_links');
 for (const name of writeOps) {
   if (!defs[name]) continue;
   t.assert(defs[name].isReadOp === false, `${name} is a write op`);
@@ -151,6 +153,20 @@ if (defs.disconnect_pin) {
     'disconnect_pin exposes pin param');
   t.assert(defs.disconnect_pin.schema.direction !== undefined,
     'disconnect_pin exposes optional direction param');
+  t.assert(defs.disconnect_pin.schema.dry_run !== undefined,
+    'disconnect_pin exposes dry_run preflight param');
+}
+if (defs.show_pin_links) {
+  t.assert(defs.show_pin_links.schema.blueprint_name !== undefined,
+    'show_pin_links exposes blueprint_name param');
+  t.assert(defs.show_pin_links.schema.node_id !== undefined,
+    'show_pin_links exposes node_id param');
+  t.assert(defs.show_pin_links.schema.pin !== undefined,
+    'show_pin_links exposes pin param');
+  t.assert(defs.show_pin_links.schema.direction !== undefined,
+    'show_pin_links exposes optional direction param');
+  t.assert(defs.show_pin_links.schema.target_node_id !== undefined,
+    'show_pin_links exposes optional target_node_id filter');
 }
 if (defs.delete_nodes) {
   t.assert(defs.delete_nodes.schema.blueprint_name !== undefined,
@@ -159,6 +175,8 @@ if (defs.delete_nodes) {
     'delete_nodes exposes node_ids param');
   t.assert(defs.delete_nodes.schema.force !== undefined,
     'delete_nodes exposes structural-node force override');
+  t.assert(defs.delete_nodes.schema.dry_run !== undefined,
+    'delete_nodes exposes dry_run preflight param');
 }
 if (defs.add_timer) {
   t.assert(defs.add_timer.schema.blueprint_name !== undefined,
@@ -230,6 +248,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference',    { status: 'success', result: { node_id: 'GUID-CR' } });
   fake.on('connect_blueprint_nodes',                       { status: 'success', result: { source_node_id: 'A', target_node_id: 'B' } });
+  fake.on('show_blueprint_pin_links',                      { status: 'success', result: { node_id: 'A', pin: 'Then', link_count: 1, links: [] } });
   fake.on('disconnect_blueprint_pin',                      { status: 'success', result: { node_id: 'A', pin: 'Then', links_broken: 1 } });
   fake.on('delete_blueprint_nodes',                        { status: 'success', result: { deleted_count: 1, deleted: [{ node_id: 'A' }], skipped: [], not_found: [] } });
   fake.on('find_blueprint_nodes',                          { status: 'success', result: { node_guids: [] } });
@@ -260,6 +279,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
     ['add_component_reference', { blueprint_name: 'BP_X', component_name: 'Mesh' },                                    'add_blueprint_get_self_component_reference'],
     ['connect_nodes',           { blueprint_name: 'BP_X', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, 'connect_blueprint_nodes'],
+    ['show_pin_links',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'show_blueprint_pin_links'],
     ['disconnect_pin',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'disconnect_blueprint_pin'],
     ['delete_nodes',            { blueprint_name: 'BP_X', node_ids: ['A'] },                                           'delete_blueprint_nodes'],
     ['find_nodes',              { blueprint_name: 'BP_X', node_type: 'Event', event_name: 'ReceiveBeginPlay' },         'find_blueprint_nodes'],
@@ -288,6 +308,7 @@ console.log('\n── Group 3: Wire-type Translation ──');
   fake.on('add_blueprint_function_node', { status: 'success', result: { node_id: 'Y' } });
   fake.on('set_blueprint_variable_default', { status: 'success', result: { variable_name: 'Speed' } });
   fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'TIMER' } });
+  fake.on('show_blueprint_pin_links', { status: 'success', result: { link_count: 1, links: [] } });
   fake.on('disconnect_blueprint_pin', { status: 'success', result: { links_broken: 1 } });
   fake.on('delete_blueprint_nodes', { status: 'success', result: { deleted_count: 1 } });
 
@@ -322,6 +343,13 @@ console.log('\n── Group 3: Wire-type Translation ──');
     'add_timer → add_blueprint_timer');
   t.assert(fake.lastCall('add_timer') === undefined,
     'add_timer tools.yaml name NOT used as wire type when wire_type is set');
+
+  await executeBlueprintsWriteTool('show_pin_links',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
+  t.assert(fake.lastCall('show_blueprint_pin_links') !== undefined,
+    'show_pin_links → show_blueprint_pin_links');
+  t.assert(fake.lastCall('show_pin_links') === undefined,
+    'show_pin_links tools.yaml name NOT used as wire type when wire_type is set');
 
   await executeBlueprintsWriteTool('disconnect_pin',
     { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
@@ -459,20 +487,45 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
     status: 'success',
     result: { source_node_id: 'A', target_node_id: 'B' },
   });
-  // disconnect_blueprint_pin: {node_id, pin, links_broken}
+  // show_blueprint_pin_links: {node_id, pin, link_count, links}
+  fake.on('show_blueprint_pin_links', {
+    status: 'success',
+    result: {
+      node_id: 'A',
+      pin: 'Then',
+      direction: 'output',
+      link_count: 1,
+      links: [{ target_node_id: 'B', target_pin: 'Exec' }],
+    },
+  });
+  // disconnect_blueprint_pin: {node_id, pin, links_broken, broken_links}
   fake.on('disconnect_blueprint_pin', {
     status: 'success',
-    result: { node_id: 'A', pin: 'Then', direction: 'output', links_broken: 1 },
+    result: {
+      node_id: 'A',
+      pin: 'Then',
+      direction: 'output',
+      dry_run: false,
+      links_matched: 1,
+      links_broken: 1,
+      broken_links: [{ target_node_id: 'B', target_pin: 'Exec' }],
+    },
   });
-  // delete_blueprint_nodes: {deleted_count, deleted, skipped, not_found}
+  // delete_blueprint_nodes: {deleted_count, deleted, skipped, not_found, broken_links}
   fake.on('delete_blueprint_nodes', {
     status: 'success',
     result: {
       graph_name: 'MoveStep',
+      dry_run: false,
+      would_delete_count: 2,
       deleted_count: 2,
       deleted: [{ node_id: 'A' }, { node_id: 'B' }],
+      would_delete: [{ node_id: 'A' }, { node_id: 'B' }],
       skipped: [],
       not_found: [],
+      links_matched: 1,
+      links_broken: 1,
+      broken_links: [{ source_node_id: 'A', source_pin: 'Then', target_node_id: 'B', target_pin: 'Exec' }],
       requires_compile: true,
     },
   });
@@ -570,15 +623,28 @@ console.log('\n── Group 4: Conformance Shape Parity ──');
   t.assert(r8.result.source_node_id === 'A' && r8.result.target_node_id === 'B',
     'connect_nodes result has {source_node_id, target_node_id} (oracle parity)');
 
+  const r8ShowLinks = await executeBlueprintsWriteTool('show_pin_links',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output', graph_name: 'MoveStep' }, cm);
+  t.assert(r8ShowLinks.result.node_id === 'A' && r8ShowLinks.result.pin === 'Then' && r8ShowLinks.result.link_count === 1,
+    'show_pin_links result has {node_id, pin, link_count}');
+  t.assert(Array.isArray(r8ShowLinks.result.links) && r8ShowLinks.result.links[0].target_node_id === 'B',
+    'show_pin_links result exposes target node identity');
+
   const r8Disconnect = await executeBlueprintsWriteTool('disconnect_pin',
     { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output', graph_name: 'MoveStep' }, cm);
   t.assert(r8Disconnect.result.node_id === 'A' && r8Disconnect.result.pin === 'Then' && r8Disconnect.result.links_broken === 1,
     'disconnect_pin result has {node_id, pin, links_broken}');
+  t.assert(r8Disconnect.result.links_matched === 1 && Array.isArray(r8Disconnect.result.broken_links),
+    'disconnect_pin reports matched link identities in broken_links');
 
   const r8Delete = await executeBlueprintsWriteTool('delete_nodes',
     { blueprint_name: 'BP', graph_name: 'MoveStep', node_ids: ['A', 'B'] }, cm);
   t.assert(r8Delete.result.deleted_count === 2 && Array.isArray(r8Delete.result.deleted) && Array.isArray(r8Delete.result.not_found),
     'delete_nodes result has deletion accounting arrays');
+  t.assert(r8Delete.result.would_delete_count === 2 && Array.isArray(r8Delete.result.would_delete),
+    'delete_nodes result reports nodes that would be deleted');
+  t.assert(r8Delete.result.links_matched === 1 && Array.isArray(r8Delete.result.broken_links),
+    'delete_nodes result reports link identities severed by deletion');
   t.assert(r8Delete.result.requires_compile === true,
     'delete_nodes reports requires_compile for graph mutation cleanup');
 
@@ -689,6 +755,10 @@ console.log('\n── Group 6: Caching ──');
     calls++;
     return { status: 'success', result: { node_guids: [] } };
   });
+  fake.on('show_blueprint_pin_links', () => {
+    calls++;
+    return { status: 'success', result: { link_count: 0, links: [] } };
+  });
   fake.on('compile_blueprint', () => {
     calls++;
     return { status: 'success', result: compileDiagnosticResult('BP') };
@@ -704,6 +774,13 @@ console.log('\n── Group 6: Caching ──');
   await executeBlueprintsWriteTool('find_nodes',
     { blueprint_name: 'BP', node_type: 'Event', event_name: 'ReceiveBeginPlay' }, cm);
   t.assert(calls === 1, 'find_nodes (read) caches — second call served from cache');
+
+  calls = 0;
+  await executeBlueprintsWriteTool('show_pin_links',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
+  await executeBlueprintsWriteTool('show_pin_links',
+    { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
+  t.assert(calls === 1, 'show_pin_links (read) caches — second call served from cache');
 
   // Write op: every call hits wire
   calls = 0;
@@ -1326,12 +1403,22 @@ console.log('\n── Group O: D149 registry publication and compile description
     'D174: disconnect_pin registry wire_type matches C++ command');
   t.assert(bpTools.disconnect_pin?.mutates_asset === true && bpTools.disconnect_pin?.saves_asset === false,
     'D174: disconnect_pin registry marks mutates_asset true and saves_asset false');
+  t.assert(bpTools.disconnect_pin?.params?.dry_run?.default === false,
+    'D176: disconnect_pin registry documents dry_run default false');
+  t.assert(bpTools.show_pin_links !== undefined,
+    'D176: tools.yaml publishes show_pin_links');
+  t.assert(bpTools.show_pin_links?.wire_type === 'show_blueprint_pin_links',
+    'D176: show_pin_links registry wire_type matches C++ command');
+  t.assert(bpTools.show_pin_links?.mutates_asset === false && bpTools.show_pin_links?.saves_asset === false,
+    'D176: show_pin_links registry marks mutates_asset false and saves_asset false');
   t.assert(bpTools.delete_nodes !== undefined,
     'D174: tools.yaml publishes delete_nodes');
   t.assert(bpTools.delete_nodes?.wire_type === 'delete_blueprint_nodes',
     'D174: delete_nodes registry wire_type matches C++ command');
   t.assert(bpTools.delete_nodes?.mutates_asset === true && bpTools.delete_nodes?.saves_asset === false,
     'D174: delete_nodes registry marks mutates_asset true and saves_asset false');
+  t.assert(bpTools.delete_nodes?.params?.dry_run?.default === false,
+    'D176: delete_nodes registry documents dry_run default false');
   t.assert(/diagnostic|error|warning/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description advertises diagnostic output');
   t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),
@@ -1342,10 +1429,16 @@ console.log('\n── Group O: D149 registry publication and compile description
     'D174: C++ registers delete_blueprint_nodes handler');
   t.assert(/disconnect_blueprint_pin/.test(handlers) && /HandleDisconnectBlueprintPin/.test(handlers),
     'D174: C++ registers disconnect_blueprint_pin handler');
+  t.assert(/show_blueprint_pin_links/.test(handlers) && /HandleShowBlueprintPinLinks/.test(handlers),
+    'D176: C++ registers show_blueprint_pin_links handler');
   t.assert(/FBlueprintEditorUtils::RemoveNode/.test(handlers),
     'D174: C++ delete handler uses BlueprintEditorUtils removal path');
   t.assert(/BreakAllPinLinks|BreakLinkTo/.test(handlers),
     'D174: C++ disconnect handler uses UE pin unlink APIs');
+  t.assert(/broken_links/.test(handlers) && /links_matched/.test(handlers),
+    'D176: C++ mutation handlers report broken link identities and matched link counts');
+  t.assert(/dry_run/.test(handlers) && /would_delete/.test(handlers),
+    'D176: C++ mutation handlers expose dry_run and delete preflight accounting');
 }
 
 // ═══════════════════════════════════════════════════════════════

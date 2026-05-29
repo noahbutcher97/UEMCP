@@ -52,6 +52,7 @@ const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
   add_variable_assignment: 'add_blueprint_variable_assignment',
   set_variable_default: 'set_blueprint_variable_default',
   add_timer: 'add_blueprint_timer',
+  show_pin_links: 'show_blueprint_pin_links',
   disconnect_pin: 'disconnect_blueprint_pin',
   delete_nodes: 'delete_blueprint_nodes',
 };
@@ -359,8 +360,23 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  show_pin_links: {
+    description: 'Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      node_id: z.string().describe('Node GUID string'),
+      pin: z.string().describe('Pin name on node'),
+      direction: z.enum(['input', 'output']).optional().describe('Pin direction. Omit to search both directions.'),
+      target_node_id: z.string().optional().describe('Optional linked node GUID filter'),
+      target_pin: z.string().optional().describe('Optional linked pin name filter'),
+      target_direction: z.enum(['input', 'output']).optional().describe('Optional linked pin direction filter. Omit to infer the opposite direction.'),
+      graph_name: GraphNameOptional,
+    },
+    isReadOp: true,
+  },
+
   disconnect_pin: {
-    description: 'Disconnect links from a named Blueprint graph pin. Breaks all links on that pin, or a specific target link when target_node_id and target_pin are provided.',
+    description: 'Disconnect links from a named Blueprint graph pin. Breaks all links on that pin, or a specific target link when target_node_id and target_pin are provided. Reports broken link identities; dry_run reports what would be broken without mutating.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       node_id: z.string().describe('Node GUID string'),
@@ -370,6 +386,8 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin: z.string().optional().describe('Optional target pin name for a specific link'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional target pin direction. Omit to infer the opposite direction.'),
       graph_name: GraphNameOptional,
+      dry_run: z.boolean().optional().default(false)
+        .describe('If true, report matching links without disconnecting or compiling. Default false.'),
       compile: z.boolean().optional().default(false)
         .describe('If true, compile after disconnecting. Default false.'),
     },
@@ -377,13 +395,15 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   delete_nodes: {
-    description: 'Delete one or more Blueprint graph nodes by GUID. Refuses structural nodes such as events and function entry/result nodes unless force=true.',
+    description: 'Delete one or more Blueprint graph nodes by GUID. Refuses structural nodes such as events and function entry/result nodes unless force=true. Reports node and link preflight details; dry_run reports what would be deleted without mutating.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       node_ids: z.array(z.string()).min(1).describe('Node GUID strings to delete'),
       graph_name: GraphNameOptional,
       force: z.boolean().optional().default(false)
         .describe('Allow deletion of structural event/function entry/result nodes. Default false.'),
+      dry_run: z.boolean().optional().default(false)
+        .describe('If true, report matching nodes and links without deleting or compiling. Default false.'),
       compile: z.boolean().optional().default(false)
         .describe('If true, compile after deleting nodes. Default false.'),
     },

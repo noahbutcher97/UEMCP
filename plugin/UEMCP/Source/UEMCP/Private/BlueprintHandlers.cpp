@@ -343,6 +343,120 @@ namespace UEMCP
 			return Result;
 		}
 
+		FString PinLinkIdentity(const UEdGraphPin* Pin)
+		{
+			if (!Pin) return FString();
+			const UEdGraphNode* Node = Pin->GetOwningNode();
+			return FString::Printf(TEXT("%s:%s"),
+				Node ? *Node->NodeGuid.ToString() : TEXT("NO_NODE"),
+				*Pin->PinId.ToString());
+		}
+
+		FString UndirectedPinLinkKey(const UEdGraphPin* A, const UEdGraphPin* B)
+		{
+			const FString AKey = PinLinkIdentity(A);
+			const FString BKey = PinLinkIdentity(B);
+			return AKey.Compare(BKey, ESearchCase::CaseSensitive) <= 0
+				? FString::Printf(TEXT("%s|%s"), *AKey, *BKey)
+				: FString::Printf(TEXT("%s|%s"), *BKey, *AKey);
+		}
+
+		TSharedPtr<FJsonObject> BlueprintPinLinkToJson(const UEdGraphPin* Pin, const UEdGraphPin* LinkedPin)
+		{
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			const UEdGraphNode* Node = Pin ? Pin->GetOwningNode() : nullptr;
+			const UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNode() : nullptr;
+
+			if (Node)
+			{
+				Result->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
+			}
+			if (Pin)
+			{
+				Result->SetStringField(TEXT("pin"), Pin->PinName.ToString());
+				Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+				Result->SetObjectField(TEXT("pin_info"), PinToJson(Pin));
+			}
+			if (LinkedNode)
+			{
+				Result->SetStringField(TEXT("linked_node_id"), LinkedNode->NodeGuid.ToString());
+			}
+			if (LinkedPin)
+			{
+				Result->SetStringField(TEXT("linked_pin"), LinkedPin->PinName.ToString());
+				Result->SetStringField(TEXT("linked_direction"), PinDirectionToString(LinkedPin->Direction));
+				Result->SetObjectField(TEXT("linked_pin_info"), PinToJson(LinkedPin));
+			}
+
+			const UEdGraphPin* SourcePin = Pin;
+			const UEdGraphPin* TargetPin = LinkedPin;
+			if (Pin && LinkedPin && Pin->Direction == EGPD_Input && LinkedPin->Direction == EGPD_Output)
+			{
+				SourcePin = LinkedPin;
+				TargetPin = Pin;
+			}
+			else if (Pin && LinkedPin && Pin->Direction == EGPD_Output && LinkedPin->Direction == EGPD_Input)
+			{
+				SourcePin = Pin;
+				TargetPin = LinkedPin;
+			}
+
+			const UEdGraphNode* SourceNode = SourcePin ? SourcePin->GetOwningNode() : nullptr;
+			const UEdGraphNode* TargetNode = TargetPin ? TargetPin->GetOwningNode() : nullptr;
+			if (SourceNode)
+			{
+				Result->SetStringField(TEXT("source_node_id"), SourceNode->NodeGuid.ToString());
+			}
+			if (SourcePin)
+			{
+				Result->SetStringField(TEXT("source_pin"), SourcePin->PinName.ToString());
+				Result->SetStringField(TEXT("source_direction"), PinDirectionToString(SourcePin->Direction));
+				Result->SetObjectField(TEXT("source_pin_info"), PinToJson(SourcePin));
+			}
+			if (TargetNode)
+			{
+				Result->SetStringField(TEXT("target_node_id"), TargetNode->NodeGuid.ToString());
+			}
+			if (TargetPin)
+			{
+				Result->SetStringField(TEXT("target_pin"), TargetPin->PinName.ToString());
+				Result->SetStringField(TEXT("target_direction"), PinDirectionToString(TargetPin->Direction));
+				Result->SetObjectField(TEXT("target_pin_info"), PinToJson(TargetPin));
+			}
+			return Result;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> CollectPinLinksJson(const UEdGraphPin* Pin, const UEdGraphPin* OnlyLinkedPin = nullptr)
+		{
+			TArray<TSharedPtr<FJsonValue>> Links;
+			if (!Pin) return Links;
+			for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			{
+				if (!LinkedPin || (OnlyLinkedPin && LinkedPin != OnlyLinkedPin))
+				{
+					continue;
+				}
+				Links.Add(MakeShared<FJsonValueObject>(BlueprintPinLinkToJson(Pin, LinkedPin)));
+			}
+			return Links;
+		}
+
+		void AddUniquePinLinksJson(const UEdGraphPin* Pin, TArray<TSharedPtr<FJsonValue>>& Links, TSet<FString>& SeenLinks)
+		{
+			if (!Pin) return;
+			for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			{
+				if (!LinkedPin) continue;
+				const FString LinkKey = UndirectedPinLinkKey(Pin, LinkedPin);
+				if (SeenLinks.Contains(LinkKey))
+				{
+					continue;
+				}
+				SeenLinks.Add(LinkKey);
+				Links.Add(MakeShared<FJsonValueObject>(BlueprintPinLinkToJson(Pin, LinkedPin)));
+			}
+		}
+
 		UEdGraphNode* FindNodeByGuid(UEdGraph* Graph, const FString& NodeId)
 		{
 			if (!Graph) return nullptr;
@@ -2822,6 +2936,107 @@ namespace UEMCP
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
+		void HandleShowBlueprintPinLinks(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString NodeId, PinName;
+			if (!Params->TryGetStringField(TEXT("node_id"), NodeId) || NodeId.IsEmpty()
+				|| !Params->TryGetStringField(TEXT("pin"), PinName) || PinName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing required parameter (node_id, pin)"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			FString DirectionRaw;
+			EEdGraphPinDirection Direction = EGPD_Input;
+			const bool bHasDirection = Params->TryGetStringField(TEXT("direction"), DirectionRaw) && !DirectionRaw.IsEmpty();
+			if (bHasDirection && !TryParsePinDirection(DirectionRaw, Direction))
+			{
+				BuildErrorResponse(OutResponse, TEXT("'direction' must be 'input' or 'output'"), TEXT("INVALID_DIRECTION"));
+				return;
+			}
+
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			if (!Graph) return;
+
+			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);
+			if (!Node)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Node not found"), TEXT("NODE_NOT_FOUND"));
+				return;
+			}
+
+			bool bAmbiguous = false;
+			UEdGraphPin* Pin = FindNamedPinOptionalDirection(Node, PinName, bHasDirection, Direction, bAmbiguous);
+			if (bAmbiguous)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Pin name matches both input and output pins; pass direction"), TEXT("PIN_AMBIGUOUS"));
+				return;
+			}
+			if (!Pin)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Pin not found"), TEXT("PIN_NOT_FOUND"));
+				return;
+			}
+
+			FString TargetNodeId, TargetPinName, TargetDirectionRaw;
+			const bool bHasTargetNode = Params->TryGetStringField(TEXT("target_node_id"), TargetNodeId) && !TargetNodeId.IsEmpty();
+			const bool bHasTargetPin = Params->TryGetStringField(TEXT("target_pin"), TargetPinName) && !TargetPinName.IsEmpty();
+			const bool bHasTargetDirection = Params->TryGetStringField(TEXT("target_direction"), TargetDirectionRaw) && !TargetDirectionRaw.IsEmpty();
+			if (bHasTargetNode != bHasTargetPin || (bHasTargetDirection && (!bHasTargetNode || !bHasTargetPin)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Specific link query requires target_node_id and target_pin"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UEdGraphPin* TargetPin = nullptr;
+			TSharedPtr<FJsonObject> TargetPinJson;
+			if (bHasTargetNode)
+			{
+				UEdGraphNode* TargetNode = FindNodeByGuid(Graph, TargetNodeId);
+				if (!TargetNode)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Target node not found"), TEXT("NODE_NOT_FOUND"));
+					return;
+				}
+
+				EEdGraphPinDirection TargetDirection = Pin->Direction == EGPD_Output ? EGPD_Input : EGPD_Output;
+				if (bHasTargetDirection && !TryParsePinDirection(TargetDirectionRaw, TargetDirection))
+				{
+					BuildErrorResponse(OutResponse, TEXT("'target_direction' must be 'input' or 'output'"), TEXT("INVALID_DIRECTION"));
+					return;
+				}
+
+				TargetPin = FindNamedPinNoFallback(TargetNode, TargetPinName, TargetDirection);
+				if (!TargetPin)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Target pin not found"), TEXT("PIN_NOT_FOUND"));
+					return;
+				}
+				TargetPinJson = PinToJson(TargetPin);
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Links = CollectPinLinksJson(Pin, TargetPin);
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
+			Result->SetStringField(TEXT("node_id"), NodeId);
+			Result->SetStringField(TEXT("pin"), PinName);
+			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+			Result->SetNumberField(TEXT("link_count"), Links.Num());
+			Result->SetArrayField(TEXT("links"), Links);
+			Result->SetObjectField(TEXT("pin_info"), PinToJson(Pin));
+			if (TargetPinJson.IsValid())
+			{
+				Result->SetStringField(TEXT("target_node_id"), TargetNodeId);
+				Result->SetStringField(TEXT("target_pin"), TargetPinName);
+				Result->SetObjectField(TEXT("target_pin_info"), TargetPinJson);
+			}
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleDisconnectBlueprintPin(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
@@ -2877,7 +3092,7 @@ namespace UEMCP
 				return;
 			}
 
-			int32 LinksBroken = 0;
+			UEdGraphPin* TargetPin = nullptr;
 			TSharedPtr<FJsonObject> TargetPinJson;
 			if (bHasTargetNode)
 			{
@@ -2895,29 +3110,39 @@ namespace UEMCP
 					return;
 				}
 
-				UEdGraphPin* TargetPin = FindNamedPinNoFallback(TargetNode, TargetPinName, TargetDirection);
+				TargetPin = FindNamedPinNoFallback(TargetNode, TargetPinName, TargetDirection);
 				if (!TargetPin)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Target pin not found"), TEXT("PIN_NOT_FOUND"));
 					return;
 				}
-				if (!Pin->LinkedTo.Contains(TargetPin))
-				{
-					BuildErrorResponse(OutResponse, TEXT("Requested pin link was not found"), TEXT("LINK_NOT_FOUND"));
-					return;
-				}
-
-				const int32 Before = Pin->LinkedTo.Num();
-				Pin->BreakLinkTo(TargetPin);
-				LinksBroken = FMath::Max(0, Before - Pin->LinkedTo.Num());
 				TargetPinJson = PinToJson(TargetPin);
 			}
-			else
+
+			TArray<TSharedPtr<FJsonValue>> BrokenLinks = CollectPinLinksJson(Pin, TargetPin);
+			const int32 LinksMatched = BrokenLinks.Num();
+			if (bHasTargetNode && LinksMatched == 0)
 			{
-				LinksBroken = Pin->LinkedTo.Num();
-				if (LinksBroken > 0)
+				BuildErrorResponse(OutResponse, TEXT("Requested pin link was not found"), TEXT("LINK_NOT_FOUND"));
+				return;
+			}
+
+			bool bDryRun = false;
+			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
+
+			int32 LinksBroken = 0;
+			if (!bDryRun && LinksMatched > 0)
+			{
+				if (TargetPin)
+				{
+					const int32 Before = Pin->LinkedTo.Num();
+					Pin->BreakLinkTo(TargetPin);
+					LinksBroken = FMath::Max(0, Before - Pin->LinkedTo.Num());
+				}
+				else
 				{
 					Pin->BreakAllPinLinks(true);
+					LinksBroken = LinksMatched;
 				}
 			}
 
@@ -2925,7 +3150,7 @@ namespace UEMCP
 			Params->TryGetBoolField(TEXT("compile"), bCompile);
 			TSharedPtr<FJsonObject> CompileResult;
 			bool bCompiledOk = false;
-			if (LinksBroken > 0)
+			if (!bDryRun && LinksBroken > 0)
 			{
 				FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 				if (bCompile)
@@ -2940,10 +3165,15 @@ namespace UEMCP
 			Result->SetStringField(TEXT("node_id"), NodeId);
 			Result->SetStringField(TEXT("pin"), PinName);
 			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+			Result->SetBoolField(TEXT("dry_run"), bDryRun);
+			Result->SetNumberField(TEXT("links_matched"), LinksMatched);
 			Result->SetNumberField(TEXT("links_broken"), LinksBroken);
+			Result->SetArrayField(TEXT("broken_links"), BrokenLinks);
+			Result->SetBoolField(TEXT("would_modify"), LinksMatched > 0);
+			Result->SetBoolField(TEXT("would_require_compile"), LinksMatched > 0);
 			Result->SetObjectField(TEXT("pin_info"), PinToJson(Pin));
-			Result->SetBoolField(TEXT("requires_compile"), LinksBroken > 0 && (!bCompile || !bCompiledOk));
-			Result->SetBoolField(TEXT("compiled"), LinksBroken > 0 && bCompile);
+			Result->SetBoolField(TEXT("requires_compile"), !bDryRun && LinksBroken > 0 && (!bCompile || !bCompiledOk));
+			Result->SetBoolField(TEXT("compiled"), !bDryRun && LinksBroken > 0 && bCompile);
 			if (TargetPinJson.IsValid())
 			{
 				Result->SetStringField(TEXT("target_node_id"), TargetNodeId);
@@ -2977,13 +3207,19 @@ namespace UEMCP
 
 			bool bForce = false;
 			Params->TryGetBoolField(TEXT("force"), bForce);
+			bool bDryRun = false;
+			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
 
 			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!Graph) return;
 
 			TArray<TSharedPtr<FJsonValue>> Deleted;
+			TArray<TSharedPtr<FJsonValue>> WouldDelete;
 			TArray<TSharedPtr<FJsonValue>> Skipped;
 			TArray<TSharedPtr<FJsonValue>> NotFound;
+			TArray<UEdGraphNode*> NodesToDelete;
+			TArray<TSharedPtr<FJsonValue>> BrokenLinks;
+			TSet<FString> SeenLinks;
 
 			for (const TSharedPtr<FJsonValue>& Value : *NodeIds)
 			{
@@ -3008,15 +3244,32 @@ namespace UEMCP
 					continue;
 				}
 
-				Deleted.Add(MakeShared<FJsonValueObject>(NodeCleanupResultToJson(NodeId, NodeClass)));
-				FBlueprintEditorUtils::RemoveNode(Blueprint, Node, true);
+				TSharedPtr<FJsonObject> NodeResult = NodeCleanupResultToJson(NodeId, NodeClass);
+				TSharedPtr<FJsonValueObject> NodeValue = MakeShared<FJsonValueObject>(NodeResult);
+				WouldDelete.Add(NodeValue);
+				NodesToDelete.Add(Node);
+				for (const UEdGraphPin* Pin : Node->Pins)
+				{
+					AddUniquePinLinksJson(Pin, BrokenLinks, SeenLinks);
+				}
+			}
+
+			if (!bDryRun)
+			{
+				for (UEdGraphNode* Node : NodesToDelete)
+				{
+					if (!Node) continue;
+					Deleted.Add(MakeShared<FJsonValueObject>(
+						NodeCleanupResultToJson(Node->NodeGuid.ToString(), Node->GetClass()->GetName())));
+					FBlueprintEditorUtils::RemoveNode(Blueprint, Node, true);
+				}
 			}
 
 			bool bCompile = false;
 			Params->TryGetBoolField(TEXT("compile"), bCompile);
 			TSharedPtr<FJsonObject> CompileResult;
 			bool bCompiledOk = false;
-			if (Deleted.Num() > 0)
+			if (!bDryRun && Deleted.Num() > 0)
 			{
 				FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 				if (bCompile)
@@ -3028,14 +3281,22 @@ namespace UEMCP
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
+			Result->SetBoolField(TEXT("dry_run"), bDryRun);
+			Result->SetArrayField(TEXT("would_delete"), WouldDelete);
 			Result->SetArrayField(TEXT("deleted"), Deleted);
 			Result->SetArrayField(TEXT("skipped"), Skipped);
 			Result->SetArrayField(TEXT("not_found"), NotFound);
+			Result->SetNumberField(TEXT("would_delete_count"), WouldDelete.Num());
 			Result->SetNumberField(TEXT("deleted_count"), Deleted.Num());
 			Result->SetNumberField(TEXT("skipped_count"), Skipped.Num());
 			Result->SetNumberField(TEXT("not_found_count"), NotFound.Num());
-			Result->SetBoolField(TEXT("requires_compile"), Deleted.Num() > 0 && (!bCompile || !bCompiledOk));
-			Result->SetBoolField(TEXT("compiled"), Deleted.Num() > 0 && bCompile);
+			Result->SetNumberField(TEXT("links_matched"), BrokenLinks.Num());
+			Result->SetNumberField(TEXT("links_broken"), bDryRun ? 0 : BrokenLinks.Num());
+			Result->SetArrayField(TEXT("broken_links"), BrokenLinks);
+			Result->SetBoolField(TEXT("would_modify"), WouldDelete.Num() > 0);
+			Result->SetBoolField(TEXT("would_require_compile"), WouldDelete.Num() > 0);
+			Result->SetBoolField(TEXT("requires_compile"), !bDryRun && Deleted.Num() > 0 && (!bCompile || !bCompiledOk));
+			Result->SetBoolField(TEXT("compiled"), !bDryRun && Deleted.Num() > 0 && bCompile);
 			if (CompileResult.IsValid())
 			{
 				Result->SetBoolField(TEXT("compiled_ok"), bCompiledOk);
@@ -3140,6 +3401,7 @@ namespace UEMCP
 		Registry.Register(TEXT("add_blueprint_self_reference"),                  &HandleAddBlueprintSelfReference);
 		Registry.Register(TEXT("add_blueprint_get_self_component_reference"),    &HandleAddBlueprintGetSelfComponentReference);
 		Registry.Register(TEXT("connect_blueprint_nodes"),                       &HandleConnectBlueprintNodes);
+		Registry.Register(TEXT("show_blueprint_pin_links"),                      &HandleShowBlueprintPinLinks);
 		Registry.Register(TEXT("disconnect_blueprint_pin"),                      &HandleDisconnectBlueprintPin);
 		Registry.Register(TEXT("delete_blueprint_nodes"),                        &HandleDeleteBlueprintNodes);
 		Registry.Register(TEXT("find_blueprint_nodes"),                          &HandleFindBlueprintNodes);

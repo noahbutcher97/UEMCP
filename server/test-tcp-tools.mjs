@@ -46,6 +46,7 @@ const fakeToolsYaml = {
         add_self_reference: { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
         connect_nodes: { wire_type: 'connect_blueprint_nodes' },
+        show_pin_links: { wire_type: 'show_blueprint_pin_links' },
         disconnect_pin: { wire_type: 'disconnect_blueprint_pin' },
         delete_nodes: { wire_type: 'delete_blueprint_nodes' },
         find_nodes: { wire_type: 'find_blueprint_nodes' },
@@ -73,7 +74,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_function_node', 'add_variable', 'add_function_graph',
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
     'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
-    'add_component_reference', 'connect_nodes', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+    'add_component_reference', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
   ];
 
   t.assert(Object.keys(defs).length === expectedBpTools.length,
@@ -87,13 +88,15 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     t.assert(typeof defs[name].isReadOp === 'boolean', `BP tool "${name}" has isReadOp flag`);
   }
 
-  // Read/write classification — only find_nodes is a read op
+  // Read/write classification — find_nodes and show_pin_links are read ops
   t.assert(defs.find_nodes.isReadOp === true, 'find_nodes is a read op');
+  t.assert(defs.show_pin_links.isReadOp === true, 'show_pin_links is a read op');
   t.assert(defs.create_blueprint.isReadOp === false, 'create_blueprint is a write op');
   t.assert(defs.add_component.isReadOp === false, 'add_component is a write op');
   t.assert(defs.compile_blueprint.isReadOp === false, 'compile_blueprint is a write op');
   t.assert(defs.compile_and_save_blueprint.isReadOp === false, 'compile_and_save_blueprint is a write op');
   t.assert(defs.connect_nodes.isReadOp === false, 'connect_nodes is a write op');
+  t.assert(defs.show_pin_links.schema.target_node_id !== undefined, 'show_pin_links exposes target_node_id filter');
   t.assert(defs.add_variable.isReadOp === false, 'add_variable is a write op');
   t.assert(defs.set_variable_default.isReadOp === false, 'set_variable_default is a write op');
   t.assert(defs.add_timer.isReadOp === false, 'add_timer is a write op');
@@ -130,6 +133,7 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
     'add_blueprint_self_reference': { status: 'success', result: { node_id: 'ghi-789' } },
     'add_blueprint_get_self_component_reference': { status: 'success', result: { node_id: 'jkl-012' } },
     'connect_blueprint_nodes': { status: 'success', result: { success: true } },
+    'show_blueprint_pin_links': { status: 'success', result: { link_count: 1, links: [] } },
     'disconnect_blueprint_pin': { status: 'success', result: { node_id: 'a', pin: 'then', links_broken: 1 } },
     'delete_blueprint_nodes': { status: 'success', result: { deleted_count: 1, deleted: [{ node_id: 'a' }], skipped: [], not_found: [] } },
     'find_blueprint_nodes': { status: 'success', result: { nodes: [] } },
@@ -201,6 +205,9 @@ console.log('\n── Group 13: Blueprints-write Name Translation ──');
   await executeBlueprintsWriteTool('connect_nodes', { blueprint_name: 'BP', source_node_id: 'a', target_node_id: 'b', source_pin: 'then', target_pin: 'execute' }, cm);
   t.assert(fake.lastCall('connect_blueprint_nodes') !== undefined, 'connect_nodes -> connect_blueprint_nodes');
 
+  await executeBlueprintsWriteTool('show_pin_links', { blueprint_name: 'BP', node_id: 'a', pin: 'then', direction: 'output' }, cm);
+  t.assert(fake.lastCall('show_blueprint_pin_links') !== undefined, 'show_pin_links -> show_blueprint_pin_links');
+
   await executeBlueprintsWriteTool('disconnect_pin', { blueprint_name: 'BP', node_id: 'a', pin: 'then', direction: 'output' }, cm);
   t.assert(fake.lastCall('disconnect_blueprint_pin') !== undefined, 'disconnect_pin -> disconnect_blueprint_pin');
 
@@ -243,6 +250,7 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   fake.on('add_blueprint_timer', { status: 'success', result: { timer_node_id: 'timer-001', links: [] } });
   fake.on('add_blueprint_math_node', { status: 'success', result: { node_id: 'n4', graph_name: 'MoveStep', pins: [] } });
   fake.on('connect_blueprint_nodes', { status: 'success', result: { success: true } });
+  fake.on('show_blueprint_pin_links', { status: 'success', result: { link_count: 1, links: [] } });
   fake.on('disconnect_blueprint_pin', { status: 'success', result: { links_broken: 1 } });
   fake.on('delete_blueprint_nodes', { status: 'success', result: { deleted_count: 2 } });
 
@@ -322,6 +330,15 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   t.assert(connCall.params.target_pin === 'execute', 'connect_nodes: target_pin passed');
   t.assert(connCall.params.graph_name === 'MoveStep', 'connect_nodes: graph_name passed');
 
+  await executeBlueprintsWriteTool('show_pin_links', {
+    blueprint_name: 'BP_Test', node_id: 'guid-1', pin: 'then', direction: 'output',
+    target_node_id: 'guid-2', target_pin: 'execute', graph_name: 'MoveStep',
+  }, cm);
+  const showLinksCall = fake.lastCall('show_blueprint_pin_links');
+  t.assert(showLinksCall.params.node_id === 'guid-1', 'show_pin_links: node_id passed');
+  t.assert(showLinksCall.params.target_pin === 'execute', 'show_pin_links: target_pin filter passed');
+  t.assert(showLinksCall.params.graph_name === 'MoveStep', 'show_pin_links: graph_name passed');
+
   await executeBlueprintsWriteTool('disconnect_pin', {
     blueprint_name: 'BP_Test', node_id: 'guid-1', pin: 'then', direction: 'output',
     target_node_id: 'guid-2', target_pin: 'execute', graph_name: 'MoveStep',
@@ -330,6 +347,7 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   t.assert(disconnectCall.params.node_id === 'guid-1', 'disconnect_pin: node_id passed');
   t.assert(disconnectCall.params.direction === 'output', 'disconnect_pin: direction passed');
   t.assert(disconnectCall.params.target_node_id === 'guid-2', 'disconnect_pin: target_node_id passed');
+  t.assert(disconnectCall.params.dry_run === false, 'disconnect_pin: dry_run default passed');
   t.assert(disconnectCall.params.compile === false, 'disconnect_pin: compile default passed');
 
   await executeBlueprintsWriteTool('delete_nodes', {
@@ -338,6 +356,7 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   const deleteCall = fake.lastCall('delete_blueprint_nodes');
   t.assert(JSON.stringify(deleteCall.params.node_ids) === '["guid-1","guid-2"]', 'delete_nodes: node_ids passed');
   t.assert(deleteCall.params.force === false, 'delete_nodes: force default passed');
+  t.assert(deleteCall.params.dry_run === false, 'delete_nodes: dry_run default passed');
   t.assert(deleteCall.params.compile === false, 'delete_nodes: compile default passed');
 }
 
@@ -352,6 +371,7 @@ console.log('\n── Group 15: Blueprints-write Caching ──');
   const fake = new FakeTcpResponder();
   fake.on('ping', { status: 'success' });
   fake.on('find_blueprint_nodes', () => { callCount++; return { status: 'success', result: { nodes: [] } }; });
+  fake.on('show_blueprint_pin_links', () => { callCount++; return { status: 'success', result: { link_count: 0, links: [] } }; });
   fake.on('create_blueprint', () => { callCount++; return { status: 'success', result: { path: '/Game/Blueprints/BP' } }; });
 
   const { config } = createTestConfig('D:/FakeProject', fake);
@@ -361,6 +381,11 @@ console.log('\n── Group 15: Blueprints-write Caching ──');
   await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
   await executeBlueprintsWriteTool('find_nodes', { blueprint_name: 'BP', node_type: 'Event' }, cm);
   t.assert(callCount === 1, 'find_nodes (read op) is cached — second call skips TCP');
+
+  callCount = 0;
+  await executeBlueprintsWriteTool('show_pin_links', { blueprint_name: 'BP', node_id: 'A', pin: 'Then' }, cm);
+  await executeBlueprintsWriteTool('show_pin_links', { blueprint_name: 'BP', node_id: 'A', pin: 'Then' }, cm);
+  t.assert(callCount === 1, 'show_pin_links (read op) is cached — second call skips TCP');
 
   callCount = 0;
   await executeBlueprintsWriteTool('create_blueprint', { name: 'BP1' }, cm);
