@@ -46,6 +46,13 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: 1-2 agent sessions. Most of the cost is AST walking + handling edge cases (destructuring, alias chains).
 - **Trigger**: after the next time a yaml↔handler param drift is caught by manual testing or audit. If F-2/F-3 class issues recur, promote.
 
+### EN-7 — Next live tool-surface gap: inline viewport screenshot
+- **Source**: D180 registry backlog pass (2026-06-17). `test-tool-registry-truth` reported 10 management tools, 24 offline tools, 103 implemented live tools, 11 planned/excluded exemptions, and 0 missing active live tools.
+- **Recommendation**: make `visual-capture.get_viewport_screenshot` the next implementation branch. It is a true live gap: existing `take_screenshot` writes to disk, while no inline viewport image payload exists.
+- **Why before writers**: lower destructive surface than GAS/data-asset writes, adjacent to the shipped `get_asset_preview_render` response contract, and straightforward to verify with fake TCP routing, registry truthfulness, compile/deploy, and opt-in live smoke.
+- **Keep hidden/remapped**: `get_asset_thumbnail` remains replaced by `get_asset_preview_render`; `get_asset_visual_summary` remains a composite helper; `get_audio_asset_info` remains superseded by `read_asset_properties` until a distinct live-only need appears.
+- **Defer after this**: `capture_active_editor_tab` if `FWidgetRenderer` is stable, then data-asset writers with explicit dirty/save/undo policy, then GAS authoring/codegen.
+
 ---
 
 ## Fixture planting

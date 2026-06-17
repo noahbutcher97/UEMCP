@@ -196,7 +196,7 @@ function writeTargetsJson(repoRoot, data) {
     t.assert(result.profile.name === 'legacy', `legacy profile name reported (got ${result.profile?.name})`);
     t.assert(result.warnings.some(w => w.code === 'LEGACY_TARGETS_TXT'), 'legacy txt warning is reported');
     t.assert(
-      result.warnings.some(w => /setup-uemcp\.bat/.test(w.migrationHint || '') && /\.uemcp-targets\.json/.test(w.migrationHint || '')),
+      result.warnings.some(w => /migrate-targets\.bat/.test(w.migrationHint || '') && /setup-uemcp\.bat/.test(w.migrationHint || '')),
       'legacy txt warning includes structured profile migration hint',
     );
     t.assert(result.candidates.length === 1, `legacy txt still resolves one target (got ${result.candidates.length})`);

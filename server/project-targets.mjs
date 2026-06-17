@@ -191,6 +191,59 @@ export function registerProjectTargetProfile({
   };
 }
 
+export function migrateLegacyTargetsToProfiles({
+  legacyTargetsPath,
+  configPath,
+  profiles = ['default', 'smoke', 'release-gate'],
+  fsImpl = DEFAULT_FS,
+} = {}) {
+  if (!legacyTargetsPath) throw new Error('migrateLegacyTargetsToProfiles requires legacyTargetsPath');
+  if (!configPath) throw new Error('migrateLegacyTargetsToProfiles requires configPath');
+
+  if (!fsImpl.existsSync(legacyTargetsPath)) {
+    return {
+      status: 'missing',
+      legacyTargetsPath,
+      configPath,
+      profiles,
+      entries: [],
+      migrated: [],
+    };
+  }
+
+  const entries = parseTargetsFile(fsImpl.readFileSync(legacyTargetsPath, 'utf8'));
+  if (entries.length === 0) {
+    return {
+      status: 'empty',
+      legacyTargetsPath,
+      configPath,
+      profiles,
+      entries,
+      migrated: [],
+    };
+  }
+
+  const migrated = entries.map(entry => ({
+    entry,
+    ...registerProjectTargetProfile({
+      configPath,
+      uprojectPath: entry,
+      profiles,
+      fsImpl,
+    }),
+  }));
+  const changed = migrated.some(item => item.status === 'added');
+
+  return {
+    status: changed ? 'migrated' : 'unchanged',
+    legacyTargetsPath,
+    configPath,
+    profiles,
+    entries,
+    migrated,
+  };
+}
+
 export function readProjectTargets({
   repoRoot,
   targetsPath = null,
@@ -255,7 +308,7 @@ function readLegacyProjectTargets({
       'LEGACY_TARGETS_TXT',
       '.uemcp-targets.txt is compatibility-only; prefer .uemcp-targets.json profiles for production verification.',
       {
-        migrationHint: 'Run setup-uemcp.bat "<path-to-project.uproject>" or copy .uemcp-targets.json.example to .uemcp-targets.json and fill local .uproject paths.',
+        migrationHint: 'Run migrate-targets.bat to convert existing .uemcp-targets.txt entries, or setup-uemcp.bat "<path-to-project.uproject>" to register a new target.',
       },
     ),
   ];

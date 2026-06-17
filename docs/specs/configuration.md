@@ -30,7 +30,7 @@ At session start, UEMCP uses MCP workspace roots:
 - If the workspace is ambiguous or has no project, remain unresolved and expose management tools only.
 - Use `attach_project` to attach manually for the current session.
 
-Repeated deploy/smoke workflows should use repo-local `.uemcp-targets.json` profiles. Copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and replace placeholder paths with local `.uproject` paths:
+Repeated deploy/smoke workflows should use repo-local `.uemcp-targets.json` profiles. Copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and replace placeholder paths with local `.uproject` paths, or run `migrate-targets.bat` to convert an existing legacy `.uemcp-targets.txt`:
 
 ```json
 {
@@ -49,7 +49,7 @@ Repeated deploy/smoke workflows should use repo-local `.uemcp-targets.json` prof
 
 `verify-deploy --profile smoke` verifies only the named profile. `--profile all` is built in and selects every target in the JSON file. `list_project_targets({ profile: "smoke" })`, `list_project_targets({ profile: "all" })`, and `attach_project({ target: "primary", target_profile: "smoke" })` use the same profile resolver for MCP sessions. When a session attaches by target alias, `connection_info` includes `targetAttachment` with the requested alias, selected profile, target source type, and target config path.
 
-Legacy `.uemcp-targets.txt` remains supported when no JSON file exists, but it is reported as compatibility-only because commented lines are not a production state model. To migrate, run `setup-uemcp.bat "<path-to-project.uproject>"` or copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths.
+Legacy `.uemcp-targets.txt` remains supported when no JSON file exists, but it is reported as compatibility-only because commented lines are not a production state model. To migrate an existing legacy list, run `migrate-targets.bat`; to add a new target from scratch, run `setup-uemcp.bat "<path-to-project.uproject>"` or copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths.
 
 ## Compatibility Env Mode
 

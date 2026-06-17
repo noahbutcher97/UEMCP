@@ -33,7 +33,7 @@ namespace UEMCP
 			}
 
 			// Optional knobs.
-			bool bReturnBase64 = true;   // Default — inline base64 PNG in response.
+			bool bReturnBase64 = true;   // Default — inline base64 JPEG in response.
 			bool bReturnBase64Tmp = false;
 			if (Params->TryGetBoolField(TEXT("return_base64"), bReturnBase64Tmp))
 			{

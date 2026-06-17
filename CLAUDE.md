@@ -107,6 +107,7 @@ UEMCP/
 ├── tools.yaml                  ← single source of truth for registry
 ├── .mcp.json.example           ← template Claude config
 ├── setup-uemcp.bat             ← onboarding: Node install + .mcp.json + plugin copy + .uproject deps
+├── migrate-targets.bat         ← convert legacy .uemcp-targets.txt to JSON profiles
 ├── sync-plugin.bat             ← propagate plugin source to a target UE project
 ├── verify-deploy.bat           ← Q3-A pre-dispatch verification (D136)
 ├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
@@ -287,7 +288,7 @@ For propagating plugin changes without full onboarding: `sync-plugin.bat <uproje
 
 **Plugin versioning convention**: when `manifest.json version` bumps, also bump `UEMCP.uplugin Version` (integer; UE-internal rebuild signal) AND `VersionName` (string; aligned with manifest) in lockstep. W-L marker compares both → either triggers auto-bust.
 
-Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, copy `.uemcp-targets.json.example` to local `.uemcp-targets.json` if repeated deploy/smoke profiles are needed, run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
+Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, copy `.uemcp-targets.json.example` to local `.uemcp-targets.json` if repeated deploy/smoke profiles are needed, or run `migrate-targets.bat` to convert an existing `.uemcp-targets.txt`; run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
 
 ### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
 

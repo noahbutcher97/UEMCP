@@ -21,13 +21,14 @@ Root-level Windows helpers:
 
 ```cmd
 setup-uemcp.bat "path\to\Project.uproject"
+migrate-targets.bat
 sync-plugin.bat "path\to\Project.uproject" -y
 verify-deploy.bat
 test-uemcp-gate.bat
 smoke-live.bat
 ```
 
-Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. Use local `.uemcp-targets.json` profiles, based on `.uemcp-targets.json.example`, for repeated `attach_project`, `verify-deploy`, and live-smoke workflows; legacy `.uemcp-targets.txt` is compatibility-only. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
+Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. Use local `.uemcp-targets.json` profiles, based on `.uemcp-targets.json.example`, for repeated `attach_project`, `verify-deploy`, and live-smoke workflows; run `migrate-targets.bat` to convert an existing legacy `.uemcp-targets.txt`. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
 
 ## Coding Style & Naming Conventions
 
@@ -47,4 +48,4 @@ Pull requests should describe the behavioral change, list commands run, call out
 
 ## Security & Configuration Tips
 
-Do not commit machine-local configuration or sensitive paths. `.mcp.json`, `.uemcp-targets.json`, `.uemcp-targets.txt`, logs, `node_modules/`, UE `Binaries/`, and `Intermediate/` are intentionally ignored. Use `.mcp.json.example` as the template for client configuration and `.uemcp-targets.json.example` for local target profiles.
+Do not commit machine-local configuration or sensitive paths. `.mcp.json`, `.uemcp-targets.json`, `.uemcp-targets.txt`, logs, `node_modules/`, UE `Binaries/`, and `Intermediate/` are intentionally ignored. Use `.mcp.json.example` as the template for client configuration, `.uemcp-targets.json.example` for new local target profiles, and `migrate-targets.bat` only for local conversion of existing legacy lists.
