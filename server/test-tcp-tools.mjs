@@ -948,6 +948,73 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     );
   }
 
+  // get_viewport_screenshot dispatches to tcp-55558 and preserves inline PNG metadata.
+  {
+    const fakePngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+    const fake = new FakeTcpResponder();
+    fake.on('ping', { status: 'success' });
+    fake.on('get_viewport_screenshot', {
+      status: 'success',
+      result: {
+        source_width: 1920,
+        source_height: 1080,
+        width: 768,
+        height: 432,
+        mime: 'image/png',
+        byte_length: 1024,
+        base64: fakePngBase64,
+      },
+    });
+
+    const { config } = createTestConfig('D:/FakeProject', fake);
+    const cm = new ConnectionManager(config);
+    const defs = getMenhanceToolDefs();
+
+    t.assert(defs.get_viewport_screenshot !== undefined,
+      'get_viewport_screenshot is registered in M-enhance defs');
+    t.assert(defs.get_viewport_screenshot.isReadOp === false,
+      'get_viewport_screenshot bypasses cache because viewport state is volatile');
+    t.assert(/PNG/.test(defs.get_viewport_screenshot.description),
+      'get_viewport_screenshot description labels PNG output');
+
+    const res = await executeMenhanceTool('get_viewport_screenshot',
+      { width: 768, height: 432, return_base64: true }, cm);
+    t.assert(res.result.mime === 'image/png',
+      'get_viewport_screenshot labels PNG output');
+    t.assert(res.result.base64 === fakePngBase64,
+      'get_viewport_screenshot returns inline base64 payload');
+    t.assert(res.result.width === 768 && res.result.height === 432,
+      'output dimensions round-trip');
+
+    const call = fake.lastCall('get_viewport_screenshot');
+    t.assert(call && call.port === 55558,
+      'get_viewport_screenshot routed to tcp-55558');
+    t.assert(call.params.width === 768 && call.params.height === 432,
+      'width/height forwarded');
+    t.assert(call.params.return_base64 === true,
+      'return_base64 forwarded');
+
+    fake.resetCalls();
+    await executeMenhanceTool('get_viewport_screenshot',
+      { return_base64: false, output_path: 'UEMCP/viewport.png' }, cm);
+    const fileCall = fake.lastCall('get_viewport_screenshot');
+    t.assert(fileCall.params.return_base64 === false,
+      'return_base64=false forwarded');
+    t.assert(fileCall.params.output_path === 'UEMCP/viewport.png',
+      'output_path forwarded');
+
+    await t.assertRejects(
+      () => executeMenhanceTool('get_viewport_screenshot', { width: 0 }, cm),
+      /Number must be greater than or equal to 1/,
+      'get_viewport_screenshot rejects width below 1'
+    );
+    await t.assertRejects(
+      () => executeMenhanceTool('get_viewport_screenshot', { width: 1921 }, cm),
+      /Number must be less than or equal to 1920/,
+      'get_viewport_screenshot rejects width above 1920'
+    );
+  }
+
   // ── CP5: regenerate_sidecar dispatches to tcp-55558 as mutation ──
   {
     const fake = new FakeTcpResponder();

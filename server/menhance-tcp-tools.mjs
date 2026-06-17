@@ -361,6 +361,21 @@ export const MENHANCE_SCHEMAS = {
     // Reading-style — safe to cache per (asset + dimensions).
     isReadOp: true,
   },
+
+  get_viewport_screenshot: {
+    description: 'Capture the active editor viewport as inline PNG, defaulting to bounded 768x432 output.',
+    schema: {
+      width: z.number().int().min(1).max(1920).optional()
+        .describe('Output PNG width in pixels (default 768)'),
+      height: z.number().int().min(1).max(1080).optional()
+        .describe('Output PNG height in pixels (default 432)'),
+      return_base64: z.boolean().optional()
+        .describe('Inline base64 PNG in response (default true)'),
+      output_path: z.string().optional()
+        .describe('Optional disk output; absolute path or relative to Saved/'),
+    },
+    isReadOp: false,
+  },
 };
 
 // ── PARTIAL-RC response transforms ────────────────────────────

@@ -1520,7 +1520,7 @@ toolsets:
     layer: tcp-55558
     priority: 4
     description: Screenshots, thumbnails, and asset previews as inline images
-    note: ~1MB stdio payload limit. Server enforces max resolution and JPEG fallback.
+    note: ~1MB stdio payload limit. Server enforces tool-specific max resolution and MIME output.
     tools:
       get_asset_thumbnail:
         status: planned
@@ -1531,12 +1531,22 @@ toolsets:
         params:
           asset_paths: { type: array, items: string, required: true }
       get_viewport_screenshot:
-        status: planned
-        discoverable: false
-        note: Planned inline viewport capture; existing take_screenshot writes to disk and is not an inline replacement.
-        description: Active viewport as inline base64 PNG. Configurable resolution.
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Active editor viewport as bounded inline base64 PNG, with optional disk output.
         params:
-          quality: { type: string, required: false, default: medium }
+          width:         { type: number, required: false, default: 768 }
+          height:        { type: number, required: false, default: 432 }
+          return_base64: { type: boolean, required: false, default: true }
+          output_path:   { type: string, required: false }
       get_asset_preview_render:
         status: shipped
         availability_layer: tcp-55558
