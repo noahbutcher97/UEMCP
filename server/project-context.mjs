@@ -577,6 +577,13 @@ export class ProjectContext {
         { target },
       );
     }
+    identity.targetAttachment = {
+      requestedTarget: target,
+      alias: identity.targetAlias || target,
+      profile: targets.profile?.name || profile || null,
+      sourceType: targets.sourceType,
+      targetsPath: targets.targetsPath,
+    };
     return identity;
   }
 

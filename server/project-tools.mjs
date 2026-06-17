@@ -77,4 +77,5 @@ export const MANAGEMENT_OUTPUT_SHAPE = {
   resultCount: z.number().optional(),
   results: z.any().optional(),
   autoEnabled: z.array(z.string()).optional(),
+  targetAttachment: z.any().optional(),
 };

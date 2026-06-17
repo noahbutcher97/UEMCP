@@ -254,6 +254,9 @@ function readLegacyProjectTargets({
     warning(
       'LEGACY_TARGETS_TXT',
       '.uemcp-targets.txt is compatibility-only; prefer .uemcp-targets.json profiles for production verification.',
+      {
+        migrationHint: 'Run setup-uemcp.bat "<path-to-project.uproject>" or copy .uemcp-targets.json.example to .uemcp-targets.json and fill local .uproject paths.',
+      },
     ),
   ];
   const profileName = profile || 'legacy';

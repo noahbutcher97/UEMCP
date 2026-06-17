@@ -638,6 +638,46 @@ await runCase('list_project_targets selects structured profile', async () => {
   }
 });
 
+await runCase('attach_project target_profile is visible in connection_info', async () => {
+  const cwd = makeTempRoot();
+  const repoRoot = makeTempRoot();
+  try {
+    const primary = writeProject(join(repoRoot, 'PrimaryProject'), 'PrimaryProject');
+    const secondary = writeProject(join(repoRoot, 'SecondaryProject'), 'SecondaryProject');
+    writeFileSync(join(repoRoot, '.uemcp-targets.json'), `${JSON.stringify({
+      version: 1,
+      profiles: {
+        default: ['primary'],
+        smoke: ['secondary'],
+      },
+      targets: {
+        primary: { uproject: primary.uprojectPath },
+        secondary: { uproject: secondary.uprojectPath },
+      },
+    }, null, 2)}\n`, 'utf8');
+
+    const { app, transport } = await createWireApp({ cwd, repoRoot });
+    await initialize(transport, {});
+    const attach = await callTool(transport, 'attach_project', { target: 'secondary', target_profile: 'smoke' });
+    t.assert(!attach.result.isError, `profile target attach succeeds (got isError=${attach.result.isError})`);
+
+    const info = parseTextResult(await callTool(transport, 'connection_info', {}));
+    t.assert(info.targetAttachment.profile === 'smoke', `connection_info target profile is smoke (got ${info.targetAttachment?.profile})`);
+    t.assert(info.targetAttachment.alias === 'secondary', `connection_info target alias is secondary (got ${info.targetAttachment?.alias})`);
+    t.assert(info.targetAttachment.requestedTarget === 'secondary', `connection_info requested target is secondary (got ${info.targetAttachment?.requestedTarget})`);
+    t.assert(info.targetAttachment.sourceType === 'json', `connection_info target source type is json (got ${info.targetAttachment?.sourceType})`);
+    t.assert(info.targetAttachment.targetsPath.endsWith('.uemcp-targets.json'), `connection_info target config path points to json (got ${info.targetAttachment?.targetsPath})`);
+    t.assert(
+      info.projectContext.identity.targetAttachment.profile === 'smoke',
+      `project context identity carries target profile (got ${info.projectContext.identity.targetAttachment?.profile})`,
+    );
+    await app.server.close();
+  } finally {
+    cleanup(cwd);
+    cleanup(repoRoot);
+  }
+});
+
 await runCase('project hygiene does not write for unresolved candidate listing', async () => {
   const root = makeTempRoot();
   const repoRoot = makeTempRoot();
