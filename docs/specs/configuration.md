@@ -47,7 +47,9 @@ Repeated deploy/smoke workflows should use repo-local `.uemcp-targets.json` prof
 }
 ```
 
-`verify-deploy --profile smoke` verifies only the named profile. `--profile all` is built in and selects every target in the JSON file. `list_project_targets({ profile: "smoke" })` and `attach_project({ target: "primary", target_profile: "smoke" })` use the same profile resolver for MCP sessions. Legacy `.uemcp-targets.txt` remains supported when no JSON file exists, but it is reported as compatibility-only because commented lines are not a production state model.
+`verify-deploy --profile smoke` verifies only the named profile. `--profile all` is built in and selects every target in the JSON file. `list_project_targets({ profile: "smoke" })`, `list_project_targets({ profile: "all" })`, and `attach_project({ target: "primary", target_profile: "smoke" })` use the same profile resolver for MCP sessions. When a session attaches by target alias, `connection_info` includes `targetAttachment` with the requested alias, selected profile, target source type, and target config path.
+
+Legacy `.uemcp-targets.txt` remains supported when no JSON file exists, but it is reported as compatibility-only because commented lines are not a production state model. To migrate, run `setup-uemcp.bat "<path-to-project.uproject>"` or copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths.
 
 ## Compatibility Env Mode
 
@@ -80,6 +82,8 @@ Use env mode for CLI compatibility tests, scripted one-off sessions, or old clie
 | transportOwnership | Whether plugin handshake identity proves the transport belongs to the attached project |
 
 A target can be deploy `SYNC` and still be blocked for live mutation if attachment, editor identity, or transport ownership is not verified. A known-stale deploy freshness check blocks live mutators with `DEPLOY_STALE`.
+
+If the project was attached through a configured target alias, `connection_info.targetAttachment` reports the alias/profile/config source used for the current session. Direct workspace or explicit path attachments leave this field `null`.
 
 ## Live Smoke Configuration
 

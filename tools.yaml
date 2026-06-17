@@ -17,7 +17,7 @@ management:
   description: Always-loaded discovery and management tools
   tools:
     connection_info:
-      description: Show project attachment, deploy freshness, editor/transport readiness, active layers, and enabled toolsets.
+      description: Show project attachment, targetAttachment metadata for alias/profile attaches, deploy freshness, editor/transport readiness, active layers, and enabled toolsets.
       params:
         force_reconnect: { type: boolean, required: false, default: false }
 

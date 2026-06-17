@@ -658,6 +658,7 @@ export async function createUemcpServer(options = {}) {
         project: projectSnapshot.identity?.projectName || config.projectName || connectionManager.detectedProject || '(not detected)',
         projectRoot: connectionManager.resolvedProjectRoot || '(not set)',
         projectContext: projectSnapshot,
+        targetAttachment: projectSnapshot.identity?.targetAttachment || null,
         readiness: {
           attachment: projectSnapshot.attachmentState,
           editorIdentity: projectSnapshot.editorIdentityState,

@@ -66,12 +66,12 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 1. Install Node.js LTS (v20+): `winget install OpenJS.NodeJS.LTS` or https://nodejs.org/.
 2. `cd <UEMCP_REPO_PATH>/server && npm install`.
 3. Copy `.mcp.json.example` to your workspace root as `.mcp.json`; substitute `<UEMCP_REPO_PATH>` with this repo path.
-4. Add your `.uproject` paths to repo-local `.uemcp-targets.json` profiles or call `attach_project` from the MCP session when needed; target aliases can be scoped with `target_profile`.
+4. Add your `.uproject` paths to repo-local `.uemcp-targets.json` profiles or call `attach_project` from the MCP session when needed; target aliases can be scoped with `target_profile`, and `list_project_targets({ profile: "all" })` shows every structured target.
 5. Copy `plugin/UEMCP/` into `<your-project>/Plugins/UEMCP/` (or run `sync-plugin.bat <uproject>`).
 6. Open the project in Unreal Editor once to compile the plugin.
 7. Restart Claude Code.
 
-Legacy env-authoritative attachment remains available for CLI compatibility by setting `UEMCP_PROJECT_ATTACH_MODE=env` together with `UNREAL_PROJECT_ROOT`, but it is not the default MCP setup.
+Legacy `.uemcp-targets.txt` remains compatibility-only; migrate by running `setup-uemcp.bat "<path-to-project.uproject>"` or copying `.uemcp-targets.json.example` to `.uemcp-targets.json`. Legacy env-authoritative attachment remains available for CLI compatibility by setting `UEMCP_PROJECT_ATTACH_MODE=env` together with `UNREAL_PROJECT_ROOT`, but it is not the default MCP setup.
 
 ---
 

@@ -8,6 +8,7 @@ import {
   CONNECTION_INFO_INPUT_SHAPE,
   FIND_TOOLS_INPUT_SHAPE,
   LIST_PROJECT_TARGETS_INPUT_SHAPE,
+  MANAGEMENT_OUTPUT_SHAPE,
   PROJECT_CONTEXT_OUTPUT_SHAPE,
   PROJECT_ERROR_OUTPUT_SHAPE,
   TOOLSET_RESULT_OUTPUT_SHAPE,
@@ -32,6 +33,7 @@ t.assert('profile' in LIST_PROJECT_TARGETS_INPUT_SHAPE, 'list_project_targets sh
 t.assert('projectContext' in PROJECT_CONTEXT_OUTPUT_SHAPE, 'project context output exposes projectContext');
 t.assert('code' in PROJECT_ERROR_OUTPUT_SHAPE, 'project error output exposes code');
 t.assert('toolsets' in TOOLSET_RESULT_OUTPUT_SHAPE, 'toolset result output exposes toolsets');
+t.assert('targetAttachment' in MANAGEMENT_OUTPUT_SHAPE, 'management output exposes targetAttachment');
 
 for (const name of ['list_project_targets', 'attach_project', 'detach_project', 'refresh_project_context']) {
   t.assert(PROJECT_MANAGEMENT_TOOL_NAMES.includes(name), `management names include ${name}`);
