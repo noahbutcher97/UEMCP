@@ -584,6 +584,7 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
   const {
     initMenhanceTools,
     executeMenhanceTool,
+    getMenhanceToolDefs,
     MENHANCE_SCHEMAS,
   } = await import('./menhance-tcp-tools.mjs');
 
@@ -891,6 +892,10 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
   // produces JPEG (bytes start with FFD8 FFE0 SOI+JFIF), not PNG. Plugin response
   // mime field corrected from "image/png" to "image/jpeg"; bytes are unchanged.
   {
+    const defs = getMenhanceToolDefs();
+    t.assert(/JPEG/.test(defs.get_asset_preview_render.description),
+      'get_asset_preview_render tool description labels JPEG output');
+
     // /9j/4AAQSkZJRg... is canonical base64 for the JPEG SOI + JFIF header.
     const fakeJpegBase64 = '/9j/4AAQSkZJRgABAQEAAAAAAAAA';
     const fake = new FakeTcpResponder();

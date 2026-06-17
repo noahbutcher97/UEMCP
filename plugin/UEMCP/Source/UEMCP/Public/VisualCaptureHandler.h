@@ -5,7 +5,7 @@
 #include "Dom/JsonObject.h"
 
 /**
- * get_asset_preview_render — capture an asset's thumbnail as PNG.
+ * get_asset_preview_render — capture an asset's thumbnail as JPEG.
  *
  * Uses UThumbnailManager's rendered thumbnail path (RenderThumbnail into
  * a FObjectThumbnail cache entry) which reuses the editor's existing
@@ -17,7 +17,7 @@
  *   {
  *     asset_path: "...",
  *     width: 256, height: 256,
- *     mime: "image/png",
+ *     mime: "image/jpeg",
  *     base64: "...",         // optional — only if request had return_base64 = true
  *     file_path: "...",      // optional — only if request had output_path set
  *   }

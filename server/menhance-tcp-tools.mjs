@@ -350,12 +350,12 @@ export const MENHANCE_SCHEMAS = {
 
   // ── S4: visual capture via thumbnail pipeline ────────────────
   get_asset_preview_render: {
-    description: 'Render an asset thumbnail as PNG (inline base64 + optional disk write). Uses UThumbnailManager\'s registered renderer — supports any asset class with one.',
+    description: 'Render an asset thumbnail as JPEG (inline base64 + optional disk write). Uses UThumbnailManager\'s registered renderer — supports any asset class with one.',
     schema: {
       asset_path:    z.string().describe('/Game/... path to any asset'),
       width:         z.number().int().optional().describe('Output width in pixels (default 256)'),
       height:        z.number().int().optional().describe('Output height in pixels (default 256)'),
-      return_base64: z.boolean().optional().describe('Inline base64 PNG in response (default true)'),
+      return_base64: z.boolean().optional().describe('Inline base64 JPEG in response (default true)'),
       output_path:   z.string().optional().describe('Optional disk output — absolute path or relative to Saved/'),
     },
     // Reading-style — safe to cache per (asset + dimensions).

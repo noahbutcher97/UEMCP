@@ -91,4 +91,4 @@ After the fenced code block, on new lines:
 - `$ARGUMENTS` empty → usage + `Glob docs/handoffs/*.md`
 - handoff doc not found → fuzzy-match suggestions
 - `--target` mismatch → list available targets from `.uemcp-targets.json` or legacy `.uemcp-targets.txt` + abort (no silent fallback)
-- target config missing when `--target` requested → copy `.uemcp-targets.json.example` to `.uemcp-targets.json` at repo root and fill local `.uproject` paths per CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)"
+- target config missing when `--target` requested → copy `.uemcp-targets.json.example` to `.uemcp-targets.json` at repo root and fill local `.uproject` paths, or run `setup-uemcp.bat <uproject>` per CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)"

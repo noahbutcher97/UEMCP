@@ -45,9 +45,10 @@ For active plugin development (when you're frequently editing `plugin/UEMCP/Sour
 ```cmd
 verify-deploy.bat              :: profile-scoped SYNC/STALE report incl. editor-lock detection
 setup-watcher.bat              :: long-running file-watcher; auto-syncs on every source change
+migrate-targets.bat            :: convert legacy .uemcp-targets.txt into structured profiles
 ```
 
-Both read local `.uemcp-targets.json` profiles by default, falling back to legacy `.uemcp-targets.txt` when no structured file exists. `verify-deploy` is a fast pre-flight that catches the "DLL stale because editor was running during Build.bat" silent no-op. `setup-watcher` is the optional always-on counterpart that prevents drift from accumulating. Use `.uemcp-targets.json.example` as the template; real paths stay gitignored.
+`verify-deploy` and `setup-watcher` read local `.uemcp-targets.json` profiles by default, falling back to legacy `.uemcp-targets.txt` when no structured file exists. `verify-deploy` is a fast pre-flight that catches the "DLL stale because editor was running during Build.bat" silent no-op. `setup-watcher` is the optional always-on counterpart that prevents drift from accumulating. Use `.uemcp-targets.json.example` as the template for new profile files, or `migrate-targets.bat` to convert an existing legacy list; real paths stay gitignored.
 
 ### Verifying the install
 
@@ -71,7 +72,7 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 6. Open the project in Unreal Editor once to compile the plugin.
 7. Restart Claude Code.
 
-Legacy `.uemcp-targets.txt` remains compatibility-only; migrate by running `setup-uemcp.bat "<path-to-project.uproject>"` or copying `.uemcp-targets.json.example` to `.uemcp-targets.json`. Legacy env-authoritative attachment remains available for CLI compatibility by setting `UEMCP_PROJECT_ATTACH_MODE=env` together with `UNREAL_PROJECT_ROOT`, but it is not the default MCP setup.
+Legacy `.uemcp-targets.txt` remains compatibility-only; migrate existing lists with `migrate-targets.bat`, or register a new target with `setup-uemcp.bat "<path-to-project.uproject>"`. Legacy env-authoritative attachment remains available for CLI compatibility by setting `UEMCP_PROJECT_ATTACH_MODE=env` together with `UNREAL_PROJECT_ROOT`, but it is not the default MCP setup.
 
 ---
 
@@ -110,6 +111,7 @@ UEMCP/
 ├── .mcp.json.example        ← template Claude Desktop / Code config
 ├── .uemcp-targets.json.example ← template local deploy/smoke target profiles
 ├── setup-uemcp.bat          ← new-machine onboarding (GUI or arg)
+├── migrate-targets.bat      ← convert legacy target lists to JSON profiles
 ├── sync-plugin.bat          ← propagate plugin source changes to target projects
 ├── verify-deploy.bat        ← Q3-A pre-dispatch SYNC/STALE/editor-lock report (D136)
 ├── setup-watcher.bat        ← Q3-C auto-deploy file-watcher (D136)

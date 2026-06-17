@@ -172,6 +172,6 @@ Print:
 
 ## Errors
 
-- `.uemcp-targets.json` and legacy `.uemcp-targets.txt` missing → print "No UEMCP target config found at repo root; copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths." Exit.
+- `.uemcp-targets.json` and legacy `.uemcp-targets.txt` missing → print "No UEMCP target config found at repo root; copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths, or run `setup-uemcp.bat <uproject>`." Exit.
 - `server/verify-deploy.mjs` missing → print "UEMCP install appears broken: `server/verify-deploy.mjs` not found. Suggest re-running `setup-uemcp.bat`." Exit.
 - `--target <stem>` / `--profile <name>` not in target config → print available targets/profiles + abort (no silent fallback).
