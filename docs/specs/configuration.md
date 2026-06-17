@@ -1,105 +1,90 @@
-# Configuration & Connection Manager
+# Configuration & Project Attachment
 
 > Source of truth for tool definitions: [tools.yaml](../../tools.yaml)
 
-## Configuration Design
+## Normal MCP Configuration
 
-### Claude Code (.mcp.json)
+`.mcp.json.example` is project-neutral by default:
 
-**Project A**:
 ```json
 {
-  "unreal": {
-    "command": "node",
-    "args": ["D:/DevTools/UEMCP/server/server.mjs"],
-    "env": {
-      "UNREAL_PROJECT_ROOT": "path/to/YourProject",
-      "UNREAL_PROJECT_NAME": "YourProject",
-      "UNREAL_TCP_PORT_CUSTOM": "55558",
-      "UNREAL_TCP_TIMEOUT_MS": "10000",
-      "UNREAL_RC_PORT": "30010",
-      "UNREAL_AUTO_DETECT": "true"
+  "mcpServers": {
+    "uemcp": {
+      "command": "node",
+      "args": ["D:/DevTools/UEMCP/server/server.mjs"],
+      "env": {
+        "UNREAL_TCP_PORT_CUSTOM": "55558",
+        "UNREAL_TCP_TIMEOUT_MS": "5000",
+        "UNREAL_RC_PORT": "30010",
+        "UNREAL_AUTO_DETECT": "true"
+      }
     }
   }
 }
 ```
 
-**Project B**:
+At session start, UEMCP uses MCP workspace roots:
+
+- If a workspace root directly contains one `.uproject`, attach it.
+- If a workspace root has exactly one immediate child project with one `.uproject`, attach it.
+- If the workspace is ambiguous or has no project, remain unresolved and expose management tools only.
+- Use `attach_project` to attach manually for the current session.
+
+`setup-uemcp.bat` records selected `.uproject` paths in repo-local `.uemcp-targets.txt`; this supports `list_project_targets`, target aliases, `verify-deploy`, and `smoke-live.bat`.
+
+## Compatibility Env Mode
+
+Legacy env attachment is opt-in:
+
 ```json
 {
-  "unreal": {
-    "command": "node",
-    "args": ["D:/DevTools/UEMCP/server/server.mjs"],
-    "env": {
-      "UNREAL_PROJECT_ROOT": "path/to/OtherProject",
-      "UNREAL_PROJECT_NAME": "OtherProject",
-      "UNREAL_TCP_PORT_CUSTOM": "55558",
-      "UNREAL_TCP_TIMEOUT_MS": "10000",
-      "UNREAL_RC_PORT": "30010",
-      "UNREAL_AUTO_DETECT": "true"
-    }
+  "env": {
+    "UEMCP_PROJECT_ATTACH_MODE": "env",
+    "UNREAL_PROJECT_ROOT": "path/to/YourProject",
+    "UNREAL_PROJECT_NAME": "YourProject"
   }
 }
 ```
 
-### Cowork (claude_desktop_config.json)
+Use env mode for CLI compatibility tests, scripted one-off sessions, or old clients that cannot provide workspace roots or call `attach_project`. Without `UEMCP_PROJECT_ATTACH_MODE=env`, `UNREAL_PROJECT_ROOT` is treated as metadata and does not silently attach the session.
 
-Same structure as above but with per-project prefixed keys (e.g. `unreal-<project>`).
+## Readiness Dimensions
 
-### Environment Variables Reference
+`connection_info` reports these dimensions separately:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UNREAL_PROJECT_ROOT` | (required) | Absolute path to project directory (contains .uproject) |
-| `UNREAL_PROJECT_NAME` | (from .uproject) | Human-readable project name for auto-detection matching |
-| `UNREAL_TCP_PORT_CUSTOM` | `55558` | Port for the active UEMCP plugin TCP layer |
+| Dimension | Meaning |
+|-----------|---------|
+| attachment | Whether a session project is attached |
+| offline | Whether project files are readable |
+| deployFreshness | Whether the UEMCP plugin copy is fresh for the attached project |
+| editorIdentity | Whether the running editor matches the attached `.uproject` |
+| tcp-55558 | Whether the UEMCP plugin TCP transport is reachable |
+| http-30010 | Whether Remote Control API is reachable |
+| transportOwnership | Whether plugin handshake identity proves the transport belongs to the attached project |
+
+A target can be deploy `SYNC` and still be blocked for live mutation if attachment, editor identity, or transport ownership is not verified. A known-stale deploy freshness check blocks live mutators with `DEPLOY_STALE`.
+
+## Live Smoke Configuration
+
+Live smoke remains opt-in:
+
+```cmd
+set UEMCP_LIVE_SMOKE=1
+smoke-live.bat --project "path\to\YourProject.uproject"
+```
+
+No opt-in means a clean skip. Opt-in without an explicit project source returns `BLOCKED_CONFIG`. Accepted project sources are `--project`, `--target`, `--targets-first` from `.uemcp-targets.txt`, or explicit env compatibility mode.
+
+## Environment Variables Reference
+
+| Variable | Default | Scope |
+|----------|---------|-------|
+| `UEMCP_PROJECT_ATTACH_MODE` | `workspace` | `workspace` or explicit `env` compatibility mode |
+| `UNREAL_PROJECT_ROOT` | unset | Compatibility/CLI project root; authoritative only in env mode |
+| `UNREAL_PROJECT_NAME` | unset | Compatibility display name and log naming |
+| `UEMCP_LIVE_SMOKE` | unset | Must be `1` to allow live smoke mutations |
+| `UEMCP_LIVE_PROJECT_ROOT` | unset | Internal/runner explicit live-smoke project root |
+| `UNREAL_TCP_PORT_CUSTOM` | `55558` | UEMCP plugin TCP port |
 | `UNREAL_TCP_TIMEOUT_MS` | `10000` | TCP socket timeout per command unless a tool-specific override applies |
 | `UNREAL_RC_PORT` | `30010` | Remote Control API HTTP port |
-| `UNREAL_AUTO_DETECT` | `true` | Enable process-based auto-detection |
-
----
-
-## Connection Manager Design
-
-```javascript
-class ConnectionManager {
-  constructor(config) {
-    this.projectRoot = config.projectRoot;
-    this.projectName = config.projectName;
-    this.customTcpPort = config.customTcpPort || 55558;
-    this.rcPort = config.rcPort || 30010;
-    this.tcpTimeout = config.tcpTimeoutMs || 10000;
-    this.autoDetect = config.autoDetect !== false;
-
-    // Lazy state — null means "never tried"
-    this.customTcpStatus = null;    // null | "connected" | "unavailable"
-    this.rcStatus = null;
-    this.detectedProject = null;
-
-    // Debounce
-    this.lastCustomTcpAttempt = 0;
-    this.lastRcAttempt = 0;
-    this.lastDetection = 0;
-    this.RETRY_INTERVAL = 10_000;     // 10 seconds between retries
-    this.DETECTION_TTL = 30_000;      // 30 seconds detection cache
-  }
-
-  async detectProject() { /* PowerShell → WMIC → null */ }
-  async ensureCustomTcp() { /* lazy connect to 55558 */ }
-  async ensureRc() { /* lazy connect to 30010 */ }
-  async sendCustomTcpCommand(type, params) { /* UEMCP plugin */ }
-  async sendRcRequest(method, path, body) { /* HTTP to RC API */ }
-}
-```
-
-### Error Behavior
-
-| Scenario | Tool Response |
-|----------|---------------|
-| Editor not running | "Editor not connected. Start Unreal Editor with [project] to use this tool. Offline tools are available." |
-| Custom plugin not loaded | "UEMCP plugin not responding on port 55558. Ensure the plugin is enabled in your project." |
-| RC API not enabled | "Remote Control API not available on port 30010. Enable the plugin in Edit > Plugins." |
-| Wrong project detected | "Detected [OtherProject] but expected [ThisProject]. Is the correct editor open?" |
-| Both editors running | Uses UNREAL_PROJECT_ROOT to filter process list to the correct one. |
-
----
+| `UEMCP_ENABLE_PYTHON_EXEC` | unset | Enables `run_python_command` only when set to `1` |

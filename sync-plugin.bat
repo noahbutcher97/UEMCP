@@ -217,7 +217,9 @@ echo.
 :lock_check_done
 
 REM --- Prompt before overwriting existing plugin dir ---
+set "OVERWRITE_EXISTING=0"
 if exist "!PLUGIN_DEST!" (
+  set "OVERWRITE_EXISTING=1"
   if "!AUTO_YES!"=="0" (
     echo Plugin already installed at !PLUGIN_DEST!.
     set "CONFIRM="
@@ -229,7 +231,33 @@ if exist "!PLUGIN_DEST!" (
   ) else (
     echo Overwriting existing plugin at !PLUGIN_DEST! [auto-yes].
   )
+)
 
+REM --- Preflight target write access before deleting existing plugin files ---
+REM This catches ACL/sandbox/readonly failures while the deployed plugin is
+REM still intact. Without this guard, a failed xcopy can leave a target with
+REM Source/ and UEMCP.uplugin already removed.
+if not exist "!PLUGIN_DEST!" (
+  mkdir "!PLUGIN_DEST!" >nul 2>&1
+  if errorlevel 1 (
+    echo [ERROR] Cannot create plugin target directory: !PLUGIN_DEST!
+    set "EXIT_CODE=1" & goto :end
+  )
+)
+
+set "WRITE_PROBE=!PLUGIN_DEST!\.uemcp-write-probe.tmp"
+> "!WRITE_PROBE!" echo uemcp-write-probe
+if errorlevel 1 (
+  echo [ERROR] Cannot write to plugin target: !PLUGIN_DEST!
+  echo         Existing plugin preserved; no source files removed.
+  set "EXIT_CODE=1" & goto :end
+)
+del /q "!WRITE_PROBE!" >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] Could not remove write probe: !WRITE_PROBE!
+)
+
+if "!OVERWRITE_EXISTING!"=="1" (
   REM Remove only source-controlled subdirs so we don't nuke Binaries/Intermediate
   REM (those are UBT output the user may want preserved for an incremental build).
   if exist "!PLUGIN_DEST!\Source\" rmdir /s /q "!PLUGIN_DEST!\Source"

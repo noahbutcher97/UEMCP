@@ -56,6 +56,12 @@ export const assetCache = {
   indexDirty: false,
 };
 
+export function resetOfflineAssetCache() {
+  assetCache.entries.clear();
+  assetCache.lastBulkCheckMs = 0;
+  assetCache.indexDirty = false;
+}
+
 /**
  * Decide whether a specific cached entry needs to be re-parsed.
  *
@@ -2933,7 +2939,7 @@ const bpShowNodeSafe = withAssetExistenceCheck(bpShowNode);
 
 export async function executeOfflineTool(toolName, params, projectRoot) {
   if (!projectRoot) {
-    throw new Error('UNREAL_PROJECT_ROOT not configured — offline tools require a project path');
+    throw new Error('Project root not configured — offline tools require an attached project path');
   }
 
   switch (toolName) {

@@ -4,8 +4,6 @@
       "command": "node",
       "args": ["<UEMCP_REPO_PATH>/server/server.mjs"],
       "env": {
-        "UNREAL_PROJECT_ROOT": "<UNREAL_PROJECT_ROOT>",
-        "UNREAL_PROJECT_NAME": "<UNREAL_PROJECT_NAME>",
         "UNREAL_TCP_PORT_CUSTOM": "55558",
         "UNREAL_TCP_TIMEOUT_MS": "5000",
         "UNREAL_RC_PORT": "30010",

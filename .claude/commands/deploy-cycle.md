@@ -1,5 +1,5 @@
 ---
-description: Deploy cycle walkthrough — verify-deploy → sync-plugin (auto) → Build.bat (manual) → relaunch (manual) → MCP restart (manual)
+description: Deploy cycle walkthrough — verify-deploy → sync-plugin (auto) → Build.bat (manual) → relaunch (manual) → MCP restart (manual) → live smoke (optional)
 argument-hint: [--target <stem>] [--targets <list-file>]
 ---
 
@@ -21,6 +21,7 @@ Print:
 ☐ Step 3 — Build.bat (manual)
 ☐ Step 4 — Editor relaunch (manual)
 ☐ Step 5 — MCP restart (manual)
+☐ Step 6 — live smoke (optional)
 ```
 
 Update the relevant box to ☑ after each completed step. Re-print the full list at each transition so progress is visible.
@@ -130,7 +131,32 @@ Env vars from each target's `.mcp.json` that will re-apply on restart:
 Reply `done` when restarted (or skip if you'll restart later).
 ```
 
-Mark Step 5 ☑ when user replies (`done` OR `skip`).
+Mark Step 5 ☑ when user replies (`done` OR `skip`). Continue to Step 6.
+
+## Step 6 — live smoke (optional)
+
+Print:
+
+```
+Optional but recommended after plugin or server tool-surface changes:
+
+set UEMCP_LIVE_SMOKE=1
+set UNREAL_PROJECT_ROOT=<full-project-root>
+smoke-live.bat
+
+Without UEMCP_LIVE_SMOKE=1 this skips cleanly, so it is safe to run as a no-op check.
+If the editor is down, the runner also skips cleanly instead of reporting a feature failure.
+
+Reply `done` after the live smoke passes, `skip` if you are deferring the live run, or paste any failure output.
+```
+
+**Wait for user response.**
+
+If user pastes `done`: mark Step 6 ☑ and continue to Final summary.
+
+If user pastes `skip`: mark Step 6 ⊘, note "live smoke deferred", and continue to Final summary.
+
+If user pastes a failure: stop the cycle. Summarize what succeeded (verify-deploy, sync, build, relaunch, MCP restart) and the live-smoke failure. Do not call the deploy cycle complete.
 
 ## Final summary
 
@@ -140,6 +166,7 @@ Print:
 - Targets synced: <list>
 - Targets built: <list>
 - Cache-bust triggered: <yes/no per target>
+- Live smoke: <passed / skipped / deferred>
 ```
 
 ## Errors

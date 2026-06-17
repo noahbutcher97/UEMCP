@@ -2,7 +2,7 @@
 
 A monorepo that gives Claude (via MCP) read + write access to Unreal Engine 5.6 projects. Ships a **Node.js MCP server** (`server/`) and a **C++ UE5 editor plugin** (`plugin/UEMCP/`).
 
-Built for a pair of private Unreal Engine 5 projects; the tool itself is project-agnostic (accepts any `.uproject` via `UNREAL_PROJECT_ROOT`).
+Built for Unreal Engine 5 projects; the tool itself is project-agnostic. In normal MCP sessions it attaches from the client workspace roots when there is exactly one unambiguous `.uproject`, or by an explicit `attach_project` call.
 
 ---
 
@@ -65,10 +65,13 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 
 1. Install Node.js LTS (v20+): `winget install OpenJS.NodeJS.LTS` or https://nodejs.org/.
 2. `cd <UEMCP_REPO_PATH>/server && npm install`.
-3. Copy `.mcp.json.example` to your workspace root as `.mcp.json`; substitute `<UEMCP_REPO_PATH>`, `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>` with real paths (use forward slashes).
-4. Copy `plugin/UEMCP/` into `<your-project>/Plugins/UEMCP/` (or run `sync-plugin.bat <uproject>`).
-5. Open the project in Unreal Editor once to compile the plugin.
-6. Restart Claude Code.
+3. Copy `.mcp.json.example` to your workspace root as `.mcp.json`; substitute `<UEMCP_REPO_PATH>` with this repo path.
+4. Add your `.uproject` path to repo-local `.uemcp-targets.txt` or call `attach_project` from the MCP session when needed.
+5. Copy `plugin/UEMCP/` into `<your-project>/Plugins/UEMCP/` (or run `sync-plugin.bat <uproject>`).
+6. Open the project in Unreal Editor once to compile the plugin.
+7. Restart Claude Code.
+
+Legacy env-authoritative attachment remains available for CLI compatibility by setting `UEMCP_PROJECT_ATTACH_MODE=env` together with `UNREAL_PROJECT_ROOT`, but it is not the default MCP setup.
 
 ---
 
@@ -76,11 +79,10 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 
 ```cmd
 cd <UEMCP_REPO_PATH>/server
-set UNREAL_PROJECT_ROOT=path/to/YourProject
 node server.mjs
 ```
 
-Ctrl+C to stop. Server talks MCP over stdio; use a client like Claude Code's `.mcp.json` or `npx @modelcontextprotocol/inspector` to interact.
+Ctrl+C to stop. Server talks MCP over stdio; use a client like Claude Code's `.mcp.json` or `npx @modelcontextprotocol/inspector` to interact. For a project-less terminal session, use `attach_project` after startup or run with explicit env mode for compatibility tests.
 
 ---
 
@@ -94,7 +96,7 @@ Claude ↔ MCP server (stdio) ↔ four layers:
   Layer 4  Historical  — TCP:55557 UnrealMCP conformance references only
 ```
 
-`tools.yaml` is the registry source of truth. As of the current registry it declares 135 tools total: 6 always-loaded management tools plus 129 tools across 16 dynamic toolsets. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
+`tools.yaml` is the registry source of truth. The current registry exposes 10 always-loaded management tools plus project-scoped dynamic toolsets. Project-scoped tools stay hidden or blocked until a session project is attached. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
 
 ---
 
@@ -110,6 +112,7 @@ UEMCP/
 ├── sync-plugin.bat          ← propagate plugin source changes to target projects
 ├── verify-deploy.bat        ← Q3-A pre-dispatch SYNC/STALE/editor-lock report (D136)
 ├── setup-watcher.bat        ← Q3-C auto-deploy file-watcher (D136)
+├── smoke-live.bat           ← opt-in live-editor smoke runner wrapper
 ├── test-uemcp-gate.bat      ← verify D57 commandlet gate (smoke test)
 ├── server/                  ← Node.js MCP server (ES modules .mjs)
 ├── plugin/UEMCP/            ← C++ UE5 editor plugin

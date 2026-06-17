@@ -10,23 +10,23 @@
 #   - Legacy-oracle-derived toolsets may keep priority: null after reimplementation
 
 # ─────────────────────────────────────────────────────────────
-# Always-loaded management tools (6)
+# Always-loaded management tools (10)
 # Visible to Claude regardless of which toolsets are enabled
 # ─────────────────────────────────────────────────────────────
 management:
   description: Always-loaded discovery and management tools
   tools:
     connection_info:
-      description: Show status of active layers (TCP:55558, HTTP:30010, Offline). Reports detected project, available layers, and enabled toolsets.
+      description: Show project attachment, deploy freshness, editor/transport readiness, active layers, and enabled toolsets.
       params:
         force_reconnect: { type: boolean, required: false, default: false }
 
     detect_project:
-      description: Run auto-detection chain and report which project's editor is open, with confidence score.
+      description: Run editor project detection and report candidates without attaching the session.
       params: {}
 
     find_tools:
-      description: Keyword search across all tools. Returns matching tool names, descriptions, and parent toolset. Auto-enables parent toolsets of matches.
+      description: Keyword search across all tools. Auto-enables matching project-scoped toolsets only when a project is attached.
       params:
         query:       { type: string, required: true }
         max_results: { type: integer, required: false, default: 15 }
@@ -36,7 +36,7 @@ management:
       params: {}
 
     enable_toolset:
-      description: Explicitly enable one or more toolsets by name. Fires tools/list_changed notification.
+      description: Explicitly enable one or more toolsets by name. Project-scoped toolsets require an attached project.
       params:
         toolsets: { type: array, items: string, required: true }
 
@@ -45,9 +45,32 @@ management:
       params:
         toolsets: { type: array, items: string, required: true }
 
+    list_project_targets:
+      description: Read repo-root .uemcp-targets.txt, validate entries, and report project attachment candidates, aliases, invalid entries, and duplicate-stem collisions.
+      params: {}
+
+    attach_project:
+      description: Attach an Unreal project for the current MCP session from a project root, .uproject path, configured target alias, running-editor path, or elicited prompt.
+      params:
+        project_root: { type: string, required: false }
+        uproject_path: { type: string, required: false }
+        target: { type: string, required: false }
+        from_running_editor: { type: string, required: false }
+        allow_outside_client_roots: { type: boolean, required: false, default: false }
+        force_generation_change: { type: boolean, required: false, default: false }
+        prompt: { type: boolean, required: false, default: false }
+
+    detach_project:
+      description: Clear manual project attachment, rerun workspace resolution, reset project-scoped caches, and refresh visible toolsets.
+      params: {}
+
+    refresh_project_context:
+      description: Re-read negotiated MCP roots or fallback workspace roots, refresh project candidates, and re-resolve session project attachment.
+      params: {}
+
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 134 tools) — plus 6 management tools above = 140 total
+# Toolsets (16 toolsets, 138 tools) — plus 10 management tools above = 148 total
 # ─────────────────────────────────────────────────────────────
 toolsets:
 

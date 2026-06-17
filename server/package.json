@@ -12,7 +12,7 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "js-yaml": "^4.1.0",
     "zod": "^3.24.4"
   }

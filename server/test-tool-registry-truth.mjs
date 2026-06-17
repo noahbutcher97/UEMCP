@@ -27,6 +27,10 @@ const MANAGEMENT_TOOLS = new Set([
   'list_toolsets',
   'enable_toolset',
   'disable_toolset',
+  'list_project_targets',
+  'attach_project',
+  'detach_project',
+  'refresh_project_context',
 ]);
 
 const LIVE_DEFINITION_GROUPS = [

@@ -422,17 +422,21 @@ const toolsetMgr = new ToolsetManager(connMgr, toolIndex);
 // but load() re-builds the index from tools.yaml. We pass our pre-built index.
 await toolsetMgr.load();
 
-// Offline auto-enable requires a real .uproject at PROJECT_ROOT (checkOfflineAvailable
-// gates on it). When no project is wired (project-less CI / fresh checkout) we SKIP the
-// offline enable/disable asserts so the rotation stays green; the rest of Test 5 is
-// genuinely env-independent and keeps running. On a real project these run unchanged.
-const enabledNames = toolsetMgr.getEnabledNames();
-const offlineAvailable = enabledNames.includes('offline');
-if (offlineAvailable) {
-  assert(offlineAvailable, 'offline auto-enabled on load');
-} else {
-  console.log('  SKIP: offline auto-enable asserts — UNREAL_PROJECT_ROOT not set / no .uproject');
-}
+assert(!toolsetMgr.getEnabledNames().includes('offline'),
+  'Phase5: load() parses/builds only and does not auto-enable offline');
+
+const unresolvedOffline = await toolsetMgr.enable(['offline']);
+assert(unresolvedOffline.blocked.some(b => b.code === 'PROJECT_NOT_ATTACHED' && b.toolset === 'offline'),
+  'Phase5: manual offline enable is blocked before ProjectContext attachment');
+
+connMgr.resetForProjectRoot(PROJECT_ROOT);
+await connMgr.checkOfflineAvailable();
+const applyResult = await toolsetMgr.applyProjectContext({
+  attachmentState: 'attached',
+  identity: { projectRoot: PROJECT_ROOT },
+});
+assert(applyResult.enabled.includes('offline') || toolsetMgr.getEnabledNames().includes('offline'),
+  'Phase5: ProjectContext attachment enables offline');
 
 // Enable actors — should fail (tcp-55557 unavailable, editor not running)
 const enableResult1 = await toolsetMgr.enable(['actors']);
@@ -444,20 +448,16 @@ const enableResult2 = await toolsetMgr.enable(['gas']);
 assert(enableResult2.unavailable.includes('gas'),
   'gas correctly reported unavailable (no plugin)');
 
-if (offlineAvailable) {
-  // Disable offline (should work)
-  const disableResult = toolsetMgr.disable(['offline']);
-  assert(disableResult.disabled.includes('offline'), 'offline disabled successfully');
+// Disable offline (should work)
+const disableResult = toolsetMgr.disable(['offline']);
+assert(disableResult.disabled.includes('offline'), 'offline disabled successfully');
 
-  // Re-enable offline
-  const reEnable = await toolsetMgr.enable(['offline']);
-  assert(reEnable.enabled.includes('offline'), 'offline re-enabled successfully');
+// Re-enable offline
+const reEnable = await toolsetMgr.enable(['offline']);
+assert(reEnable.enabled.includes('offline'), 'offline re-enabled successfully');
 
-  // Verify offline is in enabled set
-  assert(toolsetMgr.getEnabledNames().includes('offline'), 'offline in enabled set');
-} else {
-  console.log('  SKIP: offline disable/re-enable asserts — offline layer unavailable');
-}
+// Verify offline is in enabled set
+assert(toolsetMgr.getEnabledNames().includes('offline'), 'offline in enabled set');
 
 // actors must never be in the enabled set (env-independent — tcp layer is down)
 assert(!toolsetMgr.getEnabledNames().includes('actors'), 'actors not in enabled set');
@@ -560,15 +560,15 @@ for (const name of [
 }
 await visibleMgr.load();
 
-assert(visibleHandles.get('get_datatable_contents').enabled,
-  'BUG-1: get_datatable_contents is initially visible when tcp-55558 is available');
-assert(visibleHandles.get('get_montage_full').enabled,
-  'BUG-1: get_montage_full is initially visible when tcp-55558 is available');
+assert(!visibleHandles.get('get_datatable_contents').enabled,
+  'Phase5: load() does not expose initially-visible live reads before project context');
+assert(!visibleHandles.get('get_montage_full').enabled,
+  'Phase5: load() keeps get_montage_full hidden before project context');
 assert(!visibleHandles.get('create_montage').enabled,
-  'BUG-1: initially-visible reads do not expose animation writes by default');
+  'Phase5: load() does not expose animation writes by default');
 assert(!visibleMgr.getEnabledNames().includes('asset-registry')
     && !visibleMgr.getEnabledNames().includes('animation'),
-  'BUG-1: initially-visible reads do not mark their parent toolsets enabled');
+  'Phase5: parse-only load does not mark parent toolsets enabled');
 
 // ── Test 8: Edge cases ───────────────────────────────────
 console.log('\n═══ Test 8: Edge cases ═══');
@@ -582,7 +582,7 @@ const badEnable = await toolsetMgr.enable(['nonexistent_toolset_xyz']);
 assert(badEnable.unknown.includes('nonexistent_toolset_xyz'),
   'nonexistent toolset reported as unknown');
 
-if (offlineAvailable) {
+if (toolsetMgr.getEnabledNames().includes('offline')) {
   // Disable offline (should work — we re-enabled it in Test 5)
   const edgeDisable = toolsetMgr.disable(['offline']);
   assert(edgeDisable.disabled.includes('offline'), 'offline can be disabled');

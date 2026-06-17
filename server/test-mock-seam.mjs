@@ -176,6 +176,40 @@ console.log('\n── Test 6: Error normalization — status: "error" ──');
   );
 }
 
+// ── Test 6b: Error normalization preserves structured bridge detail ──
+console.log('\n── Test 6b: Error normalization preserves structured detail ──');
+
+{
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('get_pie_actor_state', {
+    status: 'error',
+    error: 'Multiple PIE worlds are active; provide pie_instance or world_path',
+    code: 'AMBIGUOUS_PIE_WORLD',
+    detail: {
+      contexts: [
+        { pie_instance: 0, world_name: 'UEDPIE_0_TestMap' },
+        { pie_instance: 1, world_name: 'Untitled' },
+      ],
+    },
+  });
+
+  const { config } = createTestConfig('/fake/project', fake);
+  const conn = new ConnectionManager(config);
+
+  try {
+    await conn.send('tcp-55558', 'get_pie_actor_state', { actor_ref: { name: 'A' } }, { skipCache: true });
+    t.assert(false, 'structured bridge error rejects');
+  } catch (err) {
+    t.assert(/Multiple PIE worlds/.test(err.message), 'structured bridge error keeps human message');
+    t.assert(err.layer === 'tcp-55558', 'structured bridge error records layer');
+    t.assert(err.code === 'AMBIGUOUS_PIE_WORLD', `structured bridge error exposes code (got ${err.code})`);
+    t.assert(err.wireError?.code === 'AMBIGUOUS_PIE_WORLD', 'structured bridge error exposes wireError.code');
+    t.assert(err.wireError?.detail?.contexts?.length === 2, 'structured bridge error preserves detail contexts');
+    t.assert(err.wireResponse?.status === 'error', 'structured bridge error preserves original response');
+  }
+}
+
 // ── Test 7: Error normalization — success: false ────────────
 console.log('\n── Test 7: Error normalization — success: false ──');
 

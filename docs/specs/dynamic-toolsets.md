@@ -5,22 +5,26 @@
 
 ## Why Dynamic Toolsets
 
-With 135 YAML-declared tools across the registry, a static tool list would consume a large share of context in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
+With 148 YAML-declared tools across the registry, a static tool list would consume a large share of context in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
 
-UEMCP uses a hybrid of GitHub's explicit toolsets and Speakeasy's progressive disclosure: 6 always-visible management tools + 16 on-demand toolsets + keyword search with auto-enable. Claude typically activates 2-3 toolsets per task instead of the full registry.
+UEMCP uses a hybrid of GitHub's explicit toolsets and Speakeasy's progressive disclosure: 10 always-visible management tools + on-demand project-scoped toolsets + keyword search with guarded auto-enable. Claude typically activates 2-3 toolsets per task instead of the full registry.
 
-## Always-Loaded Tools — 6 tools
+## Always-Loaded Tools — 10 tools
 
 These are always visible to Claude regardless of which toolsets are enabled:
 
 | # | Tool | Description |
 |---|------|-------------|
-| 1 | `connection_info` | Show status of active layers (TCP:55558, HTTP:30010, Offline). Reports which project is detected, what's available, and which toolsets are currently enabled. |
-| 2 | `detect_project` | Run auto-detection chain and report which project's editor is open, with confidence score. |
-| 3 | `find_tools` | Keyword search across the YAML registry. Returns matching tool names + one-line descriptions + parent toolset. Auto-enables parent toolsets of matches. Uses weighted scoring: exact name > name token > name prefix > name substring > description match. Supports alias expansion (e.g., "GE" → "gameplay effect") and plural stemming. |
+| 1 | `connection_info` | Show attachment, editor/deploy/transport readiness dimensions, active layers, and enabled toolsets. |
+| 2 | `detect_project` | Report running editor candidates without attaching the session. |
+| 3 | `find_tools` | Keyword search across the YAML registry. Auto-enables project-scoped parent toolsets only when a project is attached. |
 | 4 | `list_toolsets` | Show all 16 toolsets with: tool count, required layer, layer availability status (connected/unavailable), and enabled/disabled state. This is Claude's orientation tool — call it first to understand what's available. |
-| 5 | `enable_toolset` | Explicitly enable one or more toolsets by name. Fires `tools/list_changed` notification so Claude receives updated tool list. Use when Claude already knows what category it needs. |
+| 5 | `enable_toolset` | Explicitly enable one or more toolsets by name. Project-scoped toolsets return `PROJECT_NOT_ATTACHED` while unresolved. |
 | 6 | `disable_toolset` | Disable one or more toolsets to free context. Use when switching tasks or when active tool count is getting high. |
+| 7 | `list_project_targets` | Read repo-local `.uemcp-targets.txt` and report validated attachment candidates. |
+| 8 | `attach_project` | Attach a project for the current MCP session by root, `.uproject`, target alias, or elicited prompt. |
+| 9 | `detach_project` | Clear manual attachment and rerun workspace resolution. |
+| 10 | `refresh_project_context` | Re-read roots/candidates and refresh session attachment state. |
 
 ## Toolset Registry
 
@@ -43,7 +47,7 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `sidecar` | 1 | TCP:55558 | Narrow-sidecar regeneration |
 | `remote-control` | 8 | HTTP:30010 | RC get/set property, call function, list/describe objects, batch, presets, passthrough |
 
-**Subtotals from `tools.yaml`**: 6 always-loaded management tools + 129 toolset tools = **135 YAML-declared tools**. Layer totals: 24 offline, 97 TCP:55558, 8 HTTP:30010. There are no active TCP:55557 toolsets in the current registry.
+**Subtotals from `tools.yaml`**: 10 always-loaded management tools plus dynamic project-scoped toolsets. Layer totals are derived from `tools.yaml`; do not hardcode counts outside registry truthfulness tests. There are no active TCP:55557 toolsets in the current registry.
 
 ## Tool Deduplication (Audit Fixes)
 
@@ -58,7 +62,7 @@ The v2 tool list had overlapping tools that caused confusion. Resolved as follow
 | `create_input_mapping` (#46 old) | `create_input_action` + `create_mapping_context` | Legacy input system tool. Enhanced Input tools in `input-and-pie` supersede it. |
 | `get_project_info_live` (#91 old) | `project_info` (offline) + `get_editor_state` | Redundant — offline `project_info` covers .uproject data, `get_editor_state` covers live editor info. |
 
-This historical deduplication removed 6 redundant tools from the early v2 design: 120 → 114. That paragraph is preserved as design history; the current registry has since grown to 135 YAML-declared tools across 16 toolsets plus management entries, with `tools.yaml` as the current source of truth.
+This historical deduplication removed 6 redundant tools from the early v2 design: 120 → 114. That paragraph is preserved as design history; the current registry has since grown to 148 YAML-declared tools across 16 toolsets plus management entries, with `tools.yaml` as the current source of truth.
 
 ## ToolIndex — Search Implementation
 
@@ -83,7 +87,7 @@ This historical deduplication removed 6 redundant tools from the early v2 design
 
 **Tool verb handling**: `get`, `set`, `list`, `create`, `search`, `run` are NOT stop words — they participate in scoring at standard weight. This means `find_tools("create material")` correctly ranks `create_material` above `get_material_graph`.
 
-**Auto-enable behavior**: `find_tools` returns up to 15 matching tools. Parent toolsets of top direct matches are enabled, and one optional workflow bundle can add narrowly scoped companion toolsets. The response includes `toolsets_enabled`, `selectedBundle`, `directToolsets`, and `bundleToolsets` so Claude knows what was activated and why. Server fires `tools/list_changed` notification.
+**Auto-enable behavior**: `find_tools` returns up to 15 matching tools. Parent toolsets of top direct matches are enabled only when ProjectContext has an attached project. While unresolved, matching project-scoped results include `PROJECT_NOT_ATTACHED` guidance and the tool list stays management-only.
 
 **Accumulation**: Multiple `find_tools` calls accumulate enabled toolsets — previously enabled toolsets stay enabled unless explicitly disabled via `disable_toolset`. There is no hard cap on active toolsets, but `list_toolsets` warns when active tool count exceeds 40 (the empirical accuracy degradation threshold). Use `disable_toolset` to shed toolsets no longer needed.
 
@@ -93,7 +97,7 @@ This historical deduplication removed 6 redundant tools from the early v2 design
 ```
 Claude: find_tools("gameplay ability effects combat")
 → Enables: gas, blueprint-read, animation
-→ Active tools: 6 always + 5 + 10 + 8 = 29 tools
+→ Active tools: 10 always + 4 + 8 + 8 = 30 tools
 ```
 
 **Level design session**:
@@ -101,14 +105,14 @@ Claude: find_tools("gameplay ability effects combat")
 Claude: enable_toolset("actors")
 Claude: enable_toolset("materials")
 Claude: enable_toolset("visual-capture")
-→ Active tools: 6 always + 10 + 5 + 5 = 26 tools
+→ Active tools: 10 always + 10 + 5 + 5 = 30 tools
 ```
 
 **Quick asset lookup (offline, no editor)**:
 ```
 Claude: find_tools("gameplay tags config")
 → Enables: offline
-→ Active tools: 6 always + 24 = 30 tools
+→ Active tools: 10 always + 24 = 34 tools
 ```
 
 **Asset impact analysis**:

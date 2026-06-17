@@ -15,7 +15,7 @@ node run-rotation.mjs --json
 node server.mjs
 ```
 
-`npm install` installs server dependencies. `npm test` runs the default rotation via `run-rotation.mjs`. Use `--json` for machine-readable output. `node server.mjs` starts the MCP server over stdio; set `UNREAL_PROJECT_ROOT` first when testing against a project.
+`npm install` installs server dependencies. `npm test` runs the default rotation via `run-rotation.mjs`. Use `--json` for machine-readable output. `node server.mjs` starts the MCP server over stdio. Normal MCP sessions attach from workspace roots or `attach_project`; set `UEMCP_PROJECT_ATTACH_MODE=env` with `UNREAL_PROJECT_ROOT` only for explicit compatibility or CLI tests.
 
 Root-level Windows helpers:
 
@@ -24,9 +24,10 @@ setup-uemcp.bat "path\to\Project.uproject"
 sync-plugin.bat "path\to\Project.uproject" -y
 verify-deploy.bat
 test-uemcp-gate.bat
+smoke-live.bat
 ```
 
-Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
+Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. `setup-uemcp.bat` records selected projects in `.uemcp-targets.txt` for later `attach_project`, `verify-deploy`, and live-smoke use. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
 
 ## Coding Style & Naming Conventions
 
@@ -36,7 +37,7 @@ For Unreal C++, follow the existing UE style: tabs for indentation, PascalCase t
 
 ## Testing Guidelines
 
-Before submitting server or tool-surface changes, run `npm test`. Use `node run-rotation.mjs --include-live-gated` only when Unreal Editor is running and reachable on the expected TCP port. For plugin deployment checks, run `verify-deploy.bat` before and after syncing. Use `test-uemcp-gate.bat` as a commandlet-gate smoke test.
+Before submitting server or tool-surface changes, run `npm test`. Use `node run-rotation.mjs --include-live-gated` only when Unreal Editor is running and reachable on the expected TCP port. For plugin deployment checks, run `verify-deploy.bat` before and after syncing. Use `test-uemcp-gate.bat` as a commandlet-gate smoke test. Use `smoke-live.bat` for the opt-in live-editor smoke suite after relaunching the editor and restarting the MCP client; it skips cleanly unless `UEMCP_LIVE_SMOKE=1` is set.
 
 ## Commit & Pull Request Guidelines
 

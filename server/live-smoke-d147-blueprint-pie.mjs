@@ -2,65 +2,37 @@
 //
 // Preconditions:
 //   - Unreal Editor is open with UEMCP loaded.
-//   - UNREAL_PROJECT_ROOT points at the target project.
 //   - Set UEMCP_LIVE_SMOKE=1 to acknowledge this creates/deletes a temp asset.
+//   - Provide an explicit project via smoke-live.bat --project or UEMCP_LIVE_PROJECT_ROOT.
 //
 // Run:
-//   cd server
-//   $env:UNREAL_PROJECT_ROOT='D:\Path\To\Project'
 //   $env:UEMCP_LIVE_SMOKE='1'
-//   node live-smoke-d147-blueprint-pie.mjs
+//   ..\smoke-live.bat --project "D:\Path\To\Project\Project.uproject"
 
-import { readFileSync } from 'node:fs';
-import yaml from 'js-yaml';
-import { ConnectionManager } from './connection-manager.mjs';
-import { initBlueprintsWriteTools, executeBlueprintsWriteTool } from './blueprints-write-tcp-tools.mjs';
-import { initActorsTools, executeActorsTool } from './actors-tcp-tools.mjs';
-import { initMenhanceTools, executeMenhanceTool } from './menhance-tcp-tools.mjs';
-import { initM5EditorUtilityTools, executeM5EditorUtilityTool } from './m5-editor-utility-tools.mjs';
-
-if (process.env.UEMCP_LIVE_SMOKE !== '1') {
-  console.error('Refusing to run: set UEMCP_LIVE_SMOKE=1 to allow live editor mutations.');
-  process.exit(2);
-}
-
-const projectRoot = process.env.UNREAL_PROJECT_ROOT;
-if (!projectRoot) {
-  console.error('Refusing to run: UNREAL_PROJECT_ROOT is required.');
-  process.exit(2);
-}
-
-const toolsData = yaml.load(readFileSync('../tools.yaml', 'utf8'));
-initBlueprintsWriteTools(toolsData);
-initActorsTools(toolsData);
-initMenhanceTools(toolsData);
-initM5EditorUtilityTools(toolsData, { pythonExecEnabled: false });
-
-const cm = new ConnectionManager({
-  projectRoot,
-  projectName: process.env.UNREAL_PROJECT_NAME || '',
-  tcpPortExisting: Number.parseInt(process.env.UNREAL_TCP_PORT_EXISTING || '55557', 10),
-  tcpPortCustom: Number.parseInt(process.env.UNREAL_TCP_PORT_CUSTOM || '55558', 10),
-  tcpTimeoutMs: Number.parseInt(process.env.UNREAL_TCP_TIMEOUT_MS || '30000', 10),
-  rcPort: Number.parseInt(process.env.UNREAL_RC_PORT || '30010', 10),
-  autoDetect: true,
-});
+import { executeBlueprintsWriteTool } from './blueprints-write-tcp-tools.mjs';
+import { executeActorsTool } from './actors-tcp-tools.mjs';
+import { executeMenhanceTool } from './menhance-tcp-tools.mjs';
+import { executeM5EditorUtilityTool } from './m5-editor-utility-tools.mjs';
+import {
+  cleanupWithBackoff as sharedCleanupWithBackoff,
+  createLiveSmokeCall,
+  isTransientPIEActorLookupError,
+  pieSelectorFromSessionState,
+  prepareLiveSmoke,
+  sleep,
+  stopPIEAndWaitForStopped,
+  unwrapLiveSmokeResponse,
+} from './live-smoke-harness.mjs';
 
 const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 const bpName = `BP_UEMCP_LiveSmoke_${stamp}`;
 const actorName = `UEMCP_LiveSmoke_${stamp}`;
 const bpPath = `/Game/UEMCP/${bpName}`;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function unwrap(label, response) {
-  if (label === 'sample_pie_actor_state' && typeof response?.sample_count === 'number') {
-    return response;
-  }
-  if (!response || response.status !== 'success') {
-    throw new Error(`${label} failed: ${JSON.stringify(response)}`);
-  }
-  return response.result ?? response;
-}
+const smoke = await prepareLiveSmoke({ name: 'live-smoke-d147-blueprint-pie' });
+if (!smoke.ready) process.exit(smoke.exitCode);
+const { cm } = smoke;
+const unwrap = unwrapLiveSmokeResponse;
 
 function summary(label, result) {
   if (label === 'compile_blueprint') {
@@ -128,26 +100,26 @@ function summary(label, result) {
   return result;
 }
 
-async function call(label, fn) {
-  const result = unwrap(label, await fn());
-  console.log(`PASS ${label}: ${JSON.stringify(summary(label, result))}`);
-  return result;
-}
+const call = createLiveSmokeCall({ summarize: summary });
 
 async function cleanupWithBackoff(label, fn) {
+  return sharedCleanupWithBackoff(label, fn, { delaysMs: [1000, 3000, 10000, 30000] });
+}
+
+async function readPIEActorStateWithBackoff(params) {
   let lastError = null;
-  for (const delay of [1000, 3000, 10000, 30000]) {
-    await sleep(delay);
+  for (let attempt = 0; attempt < 30; attempt++) {
     try {
-      const response = await fn();
-      console.log(`CLEAN ${label}: ${JSON.stringify(response)}`);
-      return response;
+      return await executeMenhanceTool('get_pie_actor_state', params, cm);
     } catch (err) {
+      if (!isTransientPIEActorLookupError(err)) {
+        throw err;
+      }
       lastError = err;
-      console.log(`CLEAN ${label} retry after ${delay}ms failed: ${err.message}`);
+      await sleep(100);
     }
   }
-  throw lastError;
+  throw lastError || new Error('get_pie_actor_state did not produce a response');
 }
 
 let assetCreated = false;
@@ -155,11 +127,6 @@ let actorCreated = false;
 let pieStarted = false;
 
 try {
-  if (!await cm.isLayerAvailable('tcp-55558', true)) {
-    throw new Error(`tcp-55558 unavailable: ${JSON.stringify(cm.getStatus()['tcp-55558'])}`);
-  }
-  console.log(`PASS tcp-55558 layer: ${JSON.stringify(cm.getStatus()['tcp-55558'])}`);
-
   await executeMenhanceTool('stop_pie', {}, cm).catch(() => null);
 
   await call('create_blueprint', () => executeBlueprintsWriteTool('create_blueprint', {
@@ -220,14 +187,17 @@ try {
   if (!session.pie_running || !Array.isArray(session.contexts) || session.contexts.length === 0) {
     throw new Error(`PIE did not report an active runtime world: ${JSON.stringify(session)}`);
   }
+  const pieSelector = pieSelectorFromSessionState(session);
 
-  await call('get_pie_actor_state', () => executeMenhanceTool('get_pie_actor_state', {
+  await call('get_pie_actor_state', () => readPIEActorStateWithBackoff({
+    ...pieSelector,
     actor_ref: { label: actorName, name: actorName },
     include_components: true,
     properties: ['CustomTimeDilation'],
   }, cm));
 
   await call('sample_pie_actor_state', () => executeMenhanceTool('sample_pie_actor_state', {
+    ...pieSelector,
     actor_ref: { label: actorName, name: actorName },
     include_components: true,
     properties: ['CustomTimeDilation'],
@@ -237,15 +207,11 @@ try {
   }, cm));
 } finally {
   if (pieStarted) {
-    await cleanupWithBackoff('stop_pie', () => executeMenhanceTool('stop_pie', {}, cm));
-    await cleanupWithBackoff('final_pie_state', async () => {
-      const response = await executeMenhanceTool('get_pie_session_state', {}, cm);
-      const state = unwrap('final_pie_state', response);
-      if (state.pie_running) {
-        throw new Error(`PIE still running: ${JSON.stringify(state)}`);
-      }
-      return response;
-    });
+    await cleanupWithBackoff('stop_pie_and_wait', () => stopPIEAndWaitForStopped({
+      stop: () => executeMenhanceTool('stop_pie', {}, cm),
+      getState: () => executeMenhanceTool('get_pie_session_state', {}, cm),
+      delaysMs: [500, 1500, 3000, 5000, 10000],
+    }));
   }
   if (actorCreated) {
     await cleanupWithBackoff('delete_actor', () => executeActorsTool('delete_actor', { name: actorName }, cm));

@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import yaml from 'js-yaml';
+import { PROJECT_ERROR_CODES } from './project-errors.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,9 +29,10 @@ export class ToolsetManager {
    * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
    * @param {import('./tool-index.mjs').ToolIndex} toolIndex
    */
-  constructor(connectionManager, toolIndex) {
+  constructor(connectionManager, toolIndex, options = {}) {
     this.connectionManager = connectionManager;
     this.toolIndex = toolIndex;
+    this._sendToolListChanged = options.sendToolListChanged || null;
 
     /** @type {object} raw parsed tools.yaml */
     this._toolsData = null;
@@ -46,6 +48,12 @@ export class ToolsetManager {
 
     /** @type {Map<string, string>} initially visible tool name → parent toolset */
     this._initiallyVisibleTools = new Map();
+
+    /** @type {boolean} whether ProjectContext has an attached identity */
+    this._projectAttached = false;
+
+    /** @type {object|null} last ProjectContext snapshot applied */
+    this._projectContextSnapshot = null;
   }
 
   /**
@@ -68,14 +76,8 @@ export class ToolsetManager {
       }
     }
 
-    // Auto-enable 'offline' toolset if its layer is available.
-    // Uses enable() so SDK tool handles get toggled visible too.
-    const offlineOk = await this.connectionManager.checkOfflineAvailable();
-    if (offlineOk) {
-      await this.enable(['offline']);
-    }
-
-    await this._enableInitiallyVisibleTools();
+    this._enabled.clear();
+    this._initiallyVisibleTools.clear();
   }
 
   /**
@@ -116,6 +118,42 @@ export class ToolsetManager {
     }
   }
 
+  /**
+   * Batch visibility changes by mutating the SDK RegisteredTool.enabled field
+   * directly when available, then emitting one list-changed notification.
+   * @param {string[]} toolsetNames
+   * @param {boolean} visible
+   * @returns {boolean} true when any handle visibility changed
+   */
+  setToolsetVisibilityBatch(toolsetNames, visible) {
+    let changed = false;
+    for (const toolsetName of toolsetNames) {
+      const tools = this.toolIndex.getToolsetTools(toolsetName);
+      for (const tool of tools) {
+        const handle = this._toolHandles.get(tool.toolName);
+        if (!handle) continue;
+
+        if (Object.prototype.hasOwnProperty.call(handle, 'enabled')) {
+          if (handle.enabled !== visible) {
+            handle.enabled = visible;
+            changed = true;
+          }
+        } else {
+          visible ? handle.enable() : handle.disable();
+          changed = true;
+        }
+
+        if (visible) {
+          this._initiallyVisibleTools.delete(tool.toolName);
+        } else {
+          this._initiallyVisibleTools.delete(tool.toolName);
+        }
+      }
+    }
+    if (changed) this._fireListChanged();
+    return changed;
+  }
+
   // ── Enable / Disable ──────────────────────────────────────
 
   /**
@@ -123,10 +161,8 @@ export class ToolsetManager {
    * @param {string[]} names
    * @returns {{enabled: string[], alreadyEnabled: string[], unavailable: string[], unknown: string[]}}
    */
-  async enable(names) {
-    const result = { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
-    let changed = false;
-
+  async enable(names, { source = 'manual' } = {}) {
+    const result = { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [], blocked: [] };
     for (const name of names) {
       if (!TOOLSET_LAYERS[name]) {
         result.unknown.push(name);
@@ -134,6 +170,16 @@ export class ToolsetManager {
       }
       if (this._enabled.has(name)) {
         result.alreadyEnabled.push(name);
+        continue;
+      }
+
+      if (this.isProjectScopedToolset(name) && !this._projectAttached && source !== 'project_context') {
+        result.unavailable.push(name);
+        result.blocked.push({
+          toolset: name,
+          code: PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED,
+          message: 'No Unreal project is attached for this UEMCP session.',
+        });
         continue;
       }
 
@@ -146,15 +192,10 @@ export class ToolsetManager {
       }
 
       this._enabled.add(name);
-      this.setToolsetVisibility(name, true);
+      this.setToolsetVisibilityBatch([name], true);
       result.enabled.push(name);
-      changed = true;
     }
 
-    // Note: tools/list_changed is fired by the SDK when handle.enable() is called,
-    // so we don't need _fireListChanged() here anymore. But we keep it for safety
-    // in case there are toolsets with no registered tool handles yet (future phases).
-    if (changed) this._fireListChanged();
     return result;
   }
 
@@ -165,8 +206,6 @@ export class ToolsetManager {
    */
   disable(names) {
     const result = { disabled: [], wasNotEnabled: [], unknown: [] };
-    let changed = false;
-
     for (const name of names) {
       if (!TOOLSET_LAYERS[name]) {
         result.unknown.push(name);
@@ -178,12 +217,9 @@ export class ToolsetManager {
       }
 
       this._enabled.delete(name);
-      this.setToolsetVisibility(name, false);
+      this.setToolsetVisibilityBatch([name], false);
       result.disabled.push(name);
-      changed = true;
     }
-
-    if (changed) this._fireListChanged();
     return result;
   }
 
@@ -192,12 +228,50 @@ export class ToolsetManager {
    * @param {string[]} toolsetNames
    * @returns {Promise<{enabled: string[], alreadyEnabled: string[], unavailable: string[], unknown: string[]}>}
    */
-  async autoEnable(toolsetNames) {
+  async autoEnable(toolsetNames, options = {}) {
     const toEnable = toolsetNames.filter(n => !this._enabled.has(n) && TOOLSET_LAYERS[n]);
     if (toEnable.length > 0) {
-      return await this.enable(toEnable);
+      return await this.enable(toEnable, { source: options.source || 'find_tools' });
     }
-    return { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [] };
+    return { enabled: [], alreadyEnabled: [], unavailable: [], unknown: [], blocked: [] };
+  }
+
+  /**
+   * Whether a toolset requires a session project attachment.
+   * @param {string} name
+   * @returns {boolean}
+   */
+  isProjectScopedToolset(name) {
+    const layer = TOOLSET_LAYERS[name];
+    return layer === 'offline' || layer === 'tcp-55557' || layer === 'tcp-55558' || layer === 'http-30010';
+  }
+
+  /**
+   * Apply ProjectContext visibility policy after attach/detach/root changes.
+   * @param {object} snapshot
+   */
+  async applyProjectContext(snapshot) {
+    this._projectContextSnapshot = snapshot;
+    this._projectAttached = !!snapshot?.identity;
+
+    if (this._projectAttached) {
+      const offline = await this.enable(['offline'], { source: 'project_context' });
+      const initiallyVisible = await this._enableInitiallyVisibleTools();
+      return { ...offline, initiallyVisible };
+    }
+
+    const initiallyHidden = this._disableInitiallyVisibleTools();
+    const toDisable = this.getEnabledNames().filter(name => this.isProjectScopedToolset(name));
+    const disabled = toDisable.length > 0 ? this.disable(toDisable) : { disabled: [], wasNotEnabled: [], unknown: [] };
+    return {
+      enabled: [],
+      alreadyEnabled: [],
+      unavailable: [],
+      unknown: [],
+      blocked: [],
+      disabled: disabled.disabled,
+      initiallyHidden,
+    };
   }
 
   // ── Status queries ────────────────────────────────────────
@@ -302,6 +376,8 @@ export class ToolsetManager {
       : [];
     const availability = new Map();
     let changed = false;
+    const visible = [];
+    const unavailable = [];
 
     for (const tool of tools) {
       if (tool.toolsetName === 'management' || this._enabled.has(tool.toolsetName)) continue;
@@ -314,14 +390,38 @@ export class ToolsetManager {
         available = await this._isToolsetAvailable(tool.toolsetName);
         availability.set(tool.toolsetName, available);
       }
-      if (!available) continue;
+      if (!available) {
+        unavailable.push(tool.toolName);
+        continue;
+      }
 
+      if (this._initiallyVisibleTools.has(tool.toolName)) continue;
       handle.enable();
       this._initiallyVisibleTools.set(tool.toolName, tool.toolsetName);
+      visible.push(tool.toolName);
       changed = true;
     }
 
     if (changed) this._fireListChanged();
+    return { visible, unavailable };
+  }
+
+  _disableInitiallyVisibleTools() {
+    const hidden = [];
+    let changed = false;
+
+    for (const toolName of this._initiallyVisibleTools.keys()) {
+      const handle = this._toolHandles.get(toolName);
+      if (handle) {
+        handle.disable();
+        changed = true;
+      }
+      hidden.push(toolName);
+    }
+
+    this._initiallyVisibleTools.clear();
+    if (changed) this._fireListChanged();
+    return hidden;
   }
 
   _unavailableReason(name) {
@@ -330,7 +430,7 @@ export class ToolsetManager {
     if (!layerInfo) return `Unknown layer: ${layer}`;
 
     if (layer === 'offline') {
-      return layerInfo.error || 'UNREAL_PROJECT_ROOT not set or path not found. Fix: set UNREAL_PROJECT_ROOT in .mcp.json env block to your .uproject directory.';
+      return layerInfo.error || 'No project attached or project path not readable. Fix: use attach_project, select a .uemcp-targets entry, or use explicit UEMCP_PROJECT_ATTACH_MODE=env compatibility mode.';
     }
     if (layer === 'tcp-55557') {
       return layerInfo.error || 'Unreal Editor not running or UnrealMCP plugin not loaded. Fix: open the project in Unreal Editor and enable UnrealMCP in Edit → Plugins.';
@@ -345,6 +445,10 @@ export class ToolsetManager {
   }
 
   _fireListChanged() {
+    if (this._sendToolListChanged) {
+      this._sendToolListChanged();
+      return;
+    }
     if (this._onListChanged) {
       try { this._onListChanged(); } catch { /* swallow */ }
     }

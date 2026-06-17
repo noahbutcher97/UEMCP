@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 133 YAML-declared tools (6 management + 127 across 16 toolsets)
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 148 YAML-declared tools (10 management + 138 across 16 toolsets)
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -26,7 +26,7 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 ## Dynamic Toolset System
 
-133 tools: 6 always-loaded management tools + 127 across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
+148 tools: 10 always-loaded management tools + 138 across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
@@ -110,6 +110,7 @@ UEMCP/
 ├── sync-plugin.bat             ← propagate plugin source to a target UE project
 ├── verify-deploy.bat           ← Q3-A pre-dispatch verification (D136)
 ├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
+├── smoke-live.bat              ← opt-in live-editor smoke runner wrapper
 ├── .uemcp-targets.txt          ← per-machine .uproject targets (gitignored, codename-safe)
 ├── server/
 │   ├── server.mjs              ← MCP server entry, management tools
@@ -122,7 +123,7 @@ UEMCP/
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
 │   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
-│   ├── test-*.mjs              ← 28 rotation test files (see Testing section for table)
+│   ├── test-*.mjs              ← rotation test files (see Testing section for table)
 │   └── test-helpers.mjs        ← FakeTcpResponder, ErrorTcpResponder, TestRunner
 ├── plugin/UEMCP/               ← C++ UE5 plugin
 ├── docs/
@@ -146,7 +147,7 @@ This is a public repo; target projects are private under NDA. **Don't commit pro
 
 | File type | Use |
 |-----------|-----|
-| Config templates (`.mcp.json.example`) | Angle-bracket placeholders — `<UEMCP_REPO_PATH>`, `<UNREAL_PROJECT_ROOT>`, `<UNREAL_PROJECT_NAME>`; setup script substitutes at install |
+| Config templates (`.mcp.json.example`) | Angle-bracket placeholder — `<UEMCP_REPO_PATH>`; setup script substitutes it at install |
 | Shell command examples in tracked docs | `path/to/YourProject` (forward slashes, cross-shell) or `${UNREAL_PROJECT_ROOT}` |
 | Narrative mentions | `Project A` / `Project B` / `the primary target` / `the secondary target` |
 
@@ -272,7 +273,7 @@ Three project-scoped slash commands codify the high-frequency rituals (see `docs
 
 - **`/handoff-preflight <doc>`** — runs the 4-point pre-flight checklist (see **Handoff draft pre-flight** above). Soft advisory.
 - **`/dispatch-worker <doc> [--target <stem>]`** — generates a worker-conversation opener following the 6-point **Opener content checklist** above. `--target` hydrates codenames from `.uemcp-targets.txt`.
-- **`/deploy-cycle [--target <stem>]`** — walks through verify-deploy → sync-plugin (auto) → Build.bat → editor relaunch → MCP restart (manual stop-gates). See §Q3 dev-workflow scripts.
+- **`/deploy-cycle [--target <stem>]`** — walks through verify-deploy → sync-plugin (auto) → Build.bat → editor relaunch → MCP restart → optional live smoke. See §Q3 dev-workflow scripts.
 
 ### Onboarding a new machine
 
@@ -286,7 +287,7 @@ For propagating plugin changes without full onboarding: `sync-plugin.bat <uproje
 
 **Plugin versioning convention**: when `manifest.json version` bumps, also bump `UEMCP.uplugin Version` (integer; UE-internal rebuild signal) AND `VersionName` (string; aligned with manifest) in lockstep. W-L marker compares both → either triggers auto-bust.
 
-Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>` + `<UNREAL_PROJECT_ROOT>` + `<UNREAL_PROJECT_NAME>`, run `npm install` in `server/`, restart Claude Code.
+Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, add target `.uproject` paths to `.uemcp-targets.txt` if needed, run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
 
 ### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
 
@@ -296,13 +297,15 @@ Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute
 
 Both are thin .bat wrappers around `server/verify-deploy.mjs`. The §2.6 D135 failure mode (editor running during Build.bat → DLL locked → silent no-op) surfaces as `[EDITOR-LOCKED]` with a clear "close before Build.bat" recommendation. Multi-workspace drift (MCP server pointing at A while editor runs in B) surfaces as `[MCP]` on the wrong target.
 
-`/deploy-cycle` orchestrates these scripts end-to-end with stop-gates at manual steps (Build.bat, editor relaunch, MCP restart).
+`/deploy-cycle` orchestrates these scripts end-to-end with stop-gates at manual steps (Build.bat, editor relaunch, MCP restart) and an optional `smoke-live.bat` pass after restart.
 
 ### Running the server locally
 ```bash
 cd D:\DevTools\UEMCP\server
-UNREAL_PROJECT_ROOT="path/to/YourProject" node server.mjs
+node server.mjs
 ```
+
+For CLI compatibility tests that intentionally bypass workspace roots, use `UEMCP_PROJECT_ATTACH_MODE=env` with `UNREAL_PROJECT_ROOT`.
 
 ### Security flag — `--enable-python-exec` (D101)
 
@@ -452,7 +455,7 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 
 UEMCP is referenced from `.mcp.json` files in each UE project root; update when UEMCP server args or env vars change.
 
-- **Project A** / **Project B**: per-project `.mcp.json` with `UNREAL_PROJECT_ROOT` pointing at the local `.uproject` root
+- **Project A** / **Project B**: per-project workspace roots or session-local `attach_project` target; use env-mode only for compatibility tests
 - **Template**: `.mcp.json.example` at the UEMCP repo root
 
 In Cowork mode (Claude Desktop), config lives in `claude_desktop_config.json` and servers get project-specific name prefixes.

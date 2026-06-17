@@ -34,6 +34,15 @@ import { readFileSync, statSync, readdirSync, existsSync, writeFileSync, watch a
 import { join, dirname, resolve, sep, basename } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parseTargetsFile as parseTargetsFileShared } from './project-targets.mjs';
+import {
+  extractUprojectFromCommandLine as extractUprojectFromCommandLineShared,
+  normalizePath as normalizePathShared,
+} from './project-identity.mjs';
+import {
+  parseEditorProcessLines as parseEditorProcessLinesShared,
+  listEditorProcesses as listEditorProcessesShared,
+} from './editor-processes.mjs';
 // W-L marker integration (D138-FIX3): consult <dest>/.uemcp-deploy-marker.json
 // to detect uplugin/manifest version-mismatch — closes the gap where
 // verify-deploy could report SYNC for a target whose Source/ matches but
@@ -61,11 +70,7 @@ const red = C('31'), green = C('32'), yellow = C('33'), cyan = C('36'), bold = C
 // ─── Pure helpers (exported for tests) ──────────────────────────────
 
 /** Parse .uemcp-targets.txt: strip comments, blank lines; return array of trimmed paths. */
-export function parseTargetsFile(content) {
-  return content.split(/\r?\n/)
-    .map((line) => line.replace(/#.*$/, '').trim())
-    .filter((line) => line.length > 0);
-}
+export const parseTargetsFile = parseTargetsFileShared;
 
 /** Recursively walk a directory and return the maximum mtime in seconds (Unix epoch). */
 export function newestMtimeSec(dir) {
@@ -196,17 +201,10 @@ export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, in
 }
 
 /** Normalize a Windows path for comparison: lowercase + forward slashes + no trailing slash. */
-export function normalizePath(p) {
-  return resolve(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
-}
+export const normalizePath = normalizePathShared;
 
 /** Extract .uproject argument from a UnrealEditor CommandLine string. */
-export function extractUprojectFromCommandLine(cmdLine) {
-  if (!cmdLine) return null;
-  // Quoted form: "...\\Foo.uproject"  OR unquoted form ending with .uproject
-  const m = cmdLine.match(/"([^"]+\.uproject)"/i) || cmdLine.match(/(\S+\.uproject)/i);
-  return m ? m[1] : null;
-}
+export const extractUprojectFromCommandLine = extractUprojectFromCommandLineShared;
 
 // ─── Side-effecting helpers ─────────────────────────────────────────
 
@@ -254,49 +252,11 @@ function getHeadPluginCommitInfo() {
 }
 
 /** Parse PowerShell process output lines shaped as "pid|commandLine". */
-export function parseEditorProcessLines(stdout) {
-  return String(stdout || '').split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const idx = line.indexOf('|');
-      const pidText = idx >= 0 ? line.slice(0, idx) : line;
-      const cmd = idx >= 0 ? line.slice(idx + 1) : '';
-      const pid = parseInt(pidText, 10);
-      if (!Number.isFinite(pid)) return null;
-      return {
-        pid,
-        cmdLine: cmd,
-        commandLineAvailable: cmd.length > 0,
-        uprojectPath: extractUprojectFromCommandLine(cmd),
-      };
-    })
-    .filter(Boolean);
-}
+export const parseEditorProcessLines = parseEditorProcessLinesShared;
 
 /** Enumerate UnrealEditor* processes via PowerShell; return [{ pid, uprojectPath }]. */
 export function listEditorProcesses() {
-  const ps = spawnSync('powershell', [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-Command',
-    "Get-CimInstance Win32_Process -Filter \"Name LIKE 'UnrealEditor%'\" | " +
-    "ForEach-Object { '{0}|{1}' -f $_.ProcessId, $_.CommandLine }",
-  ], { encoding: 'utf8' });
-  if (ps.status === 0) return parseEditorProcessLines(ps.stdout);
-
-  // In sandboxed shells, CIM command-line introspection can be denied even
-  // though Get-Process can still see UnrealEditor. Fall back so the report
-  // does not falsely imply "no editor"; target attribution will be unknown.
-  const fallback = spawnSync('powershell', [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-Command',
-    "Get-Process -Name UnrealEditor* -ErrorAction SilentlyContinue | " +
-    "ForEach-Object { '{0}|' -f $_.Id }",
-  ], { encoding: 'utf8' });
-  if (fallback.status !== 0) return [];
-  return parseEditorProcessLines(fallback.stdout);
+  return listEditorProcessesShared();
 }
 
 /** Read repo-root .mcp.json's UNREAL_PROJECT_ROOT env, if present; null if absent. */
@@ -325,13 +285,9 @@ function regenerateMcpJson(uprojectPath) {
     console.error(red('[ERROR]') + ` Template missing: ${tmpl}`);
     return 1;
   }
-  const projectName = basename(uprojectPath, '.uproject');
-  const projectRoot = dirname(uprojectPath).replace(/\\/g, '/');
   const repoRootFwd = REPO_ROOT.replace(/\\/g, '/');
   const out = readFileSync(tmpl, 'utf8')
-    .split('<UEMCP_REPO_PATH>').join(repoRootFwd)
-    .split('<UNREAL_PROJECT_ROOT>').join(projectRoot)
-    .split('<UNREAL_PROJECT_NAME>').join(projectName);
+    .split('<UEMCP_REPO_PATH>').join(repoRootFwd);
   // Validate JSON before writing.
   try { JSON.parse(out); } catch (e) {
     console.error(red('[ERROR]') + ` Generated .mcp.json invalid: ${e.message}`);
@@ -340,8 +296,9 @@ function regenerateMcpJson(uprojectPath) {
   const dest = join(REPO_ROOT, '.mcp.json');
   writeFileSync(dest, out, 'utf8');
   console.log(green('[OK]') + ` Wrote ${dest}`);
-  console.log(`  UNREAL_PROJECT_ROOT = ${projectRoot}`);
-  console.log(`  UNREAL_PROJECT_NAME = ${projectName}`);
+  console.log(`  Project target      = ${uprojectPath}`);
+  console.log(`  Attachment          = workspace roots or attach_project (env mode not written by default)`);
+  console.log(`  Compatibility env   = set UEMCP_PROJECT_ATTACH_MODE=env manually if required`);
   return 0;
 }
 
