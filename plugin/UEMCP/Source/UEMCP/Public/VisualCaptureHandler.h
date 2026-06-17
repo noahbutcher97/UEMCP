@@ -40,7 +40,7 @@
  *     mime: "image/png",
  *     byte_length: 123456,
  *     base64: "...",         // optional — omitted when return_base64 = false
- *     file_path: "...",      // optional — only if request had output_path set
+ *     file_path: "...",      // optional — output_path with .png appended if missing
  *   }
  */
 namespace UEMCP

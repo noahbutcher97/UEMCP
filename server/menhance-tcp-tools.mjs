@@ -372,7 +372,7 @@ export const MENHANCE_SCHEMAS = {
       return_base64: z.boolean().optional()
         .describe('Inline base64 PNG in response (default true)'),
       output_path: z.string().optional()
-        .describe('Optional disk output; absolute path or relative to Saved/'),
+        .describe('Optional disk output; absolute path or relative to Saved/ (.png appended if missing)'),
     },
     isReadOp: false,
   },
