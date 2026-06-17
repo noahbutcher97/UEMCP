@@ -25,6 +25,23 @@
  * Note: offscreen render via FPreviewScene + FWidgetRenderer (handoff §2.5)
  * is NOT implemented here — the thumbnail path covers 90% of use cases at
  * a fraction of the complexity. A full offscreen render is future scope.
+ *
+ * get_viewport_screenshot — capture the active editor viewport as PNG.
+ *
+ * Uses GEditor->GetActiveViewport(), FViewport::ReadPixels, optional
+ * FImageUtils::ImageResize, and FImageUtils::CompressImage. This is the
+ * inline visual-capture counterpart to the legacy actors.take_screenshot
+ * file-output command.
+ *
+ * Response shape:
+ *   {
+ *     source_width: 1920, source_height: 1080,
+ *     width: 768, height: 432,
+ *     mime: "image/png",
+ *     byte_length: 123456,
+ *     base64: "...",         // optional — omitted when return_base64 = false
+ *     file_path: "...",      // optional — only if request had output_path set
+ *   }
  */
 namespace UEMCP
 {

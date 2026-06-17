@@ -293,12 +293,17 @@ for (const t of searchTests) {
   }
 }
 
-const excludedResults = toolIndex.search('create_gameplay_effect get_viewport_screenshot get_audio_asset_info');
+const excludedResults = toolIndex.search('create_gameplay_effect get_audio_asset_info');
 const excludedNames = excludedResults.map(r => r.toolName);
-for (const excluded of ['create_gameplay_effect', 'get_viewport_screenshot', 'get_audio_asset_info']) {
+for (const excluded of ['create_gameplay_effect', 'get_audio_asset_info']) {
   assert(!excludedNames.includes(excluded),
     `ToolIndex excludes planned/non-discoverable tool "${excluded}"`);
 }
+
+const visualResults = toolIndex.search('viewport screenshot inline png');
+const visualNames = visualResults.map(r => r.toolName);
+assert(visualNames.includes('get_viewport_screenshot'),
+  'ToolIndex includes shipped visual-capture tool "get_viewport_screenshot"');
 
 // ── Test 4b: Workflow bundle selection ─────────────────────
 console.log('\n═══ Test 4b: Workflow bundle selection ═══');

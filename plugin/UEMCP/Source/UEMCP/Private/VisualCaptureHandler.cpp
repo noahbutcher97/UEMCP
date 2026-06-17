@@ -1,8 +1,12 @@
 // Copyright Optimum Athena. All Rights Reserved.
 #include "VisualCaptureHandler.h"
 
+#include "Editor.h"
+#include "HAL/FileManager.h"
+#include "ImageUtils.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
+#include "UnrealClient.h"
 
 #include "AssetRegistry/AssetData.h"
 #include "Misc/Base64.h"
@@ -18,6 +22,11 @@ namespace UEMCP
 {
 	namespace
 	{
+		constexpr int32 ViewportScreenshotDefaultWidth = 768;
+		constexpr int32 ViewportScreenshotDefaultHeight = 432;
+		constexpr int32 ViewportScreenshotMaxWidth = 1920;
+		constexpr int32 ViewportScreenshotMaxHeight = 1080;
+
 		void HandleGetAssetPreviewRender(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			if (!Params.IsValid())
@@ -131,10 +140,134 @@ namespace UEMCP
 
 			BuildSuccessResponse(OutResponse, Result);
 		}
+
+		void HandleGetViewportScreenshot(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			TSharedPtr<FJsonObject> SafeParams = Params;
+			if (!SafeParams.IsValid())
+			{
+				SafeParams = MakeShared<FJsonObject>();
+			}
+
+			int32 Width = ViewportScreenshotDefaultWidth;
+			int32 Height = ViewportScreenshotDefaultHeight;
+			SafeParams->TryGetNumberField(TEXT("width"), Width);
+			SafeParams->TryGetNumberField(TEXT("height"), Height);
+			if (Width < 1 || Width > ViewportScreenshotMaxWidth ||
+				Height < 1 || Height > ViewportScreenshotMaxHeight)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Requested dimensions %dx%d are outside bounds 1..%d x 1..%d"),
+						Width, Height, ViewportScreenshotMaxWidth, ViewportScreenshotMaxHeight),
+					TEXT("INVALID_DIMENSIONS"));
+				return;
+			}
+
+			bool bReturnBase64 = true;
+			bool bReturnBase64Value = false;
+			if (SafeParams->TryGetBoolField(TEXT("return_base64"), bReturnBase64Value))
+			{
+				bReturnBase64 = bReturnBase64Value;
+			}
+
+			FString OutputFilePath;
+			SafeParams->TryGetStringField(TEXT("output_path"), OutputFilePath);
+
+			if (!GEditor || !GEditor->GetActiveViewport())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to get active viewport"), TEXT("NO_VIEWPORT"));
+				return;
+			}
+
+			FViewport* Viewport = GEditor->GetActiveViewport();
+			const FIntPoint SourceSize = Viewport->GetSizeXY();
+			if (SourceSize.X <= 0 || SourceSize.Y <= 0)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Active viewport has invalid size %dx%d"), SourceSize.X, SourceSize.Y),
+					TEXT("INVALID_VIEWPORT_SIZE"));
+				return;
+			}
+
+			TArray<FColor> Bitmap;
+			const FIntRect Rect(0, 0, SourceSize.X, SourceSize.Y);
+			if (!Viewport->ReadPixels(Bitmap, FReadSurfaceDataFlags(), Rect))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Viewport ReadPixels failed"), TEXT("READ_PIXELS_FAILED"));
+				return;
+			}
+			if (Bitmap.Num() != SourceSize.X * SourceSize.Y)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Viewport ReadPixels returned %d pixels for %dx%d viewport"),
+						Bitmap.Num(), SourceSize.X, SourceSize.Y),
+					TEXT("READ_PIXELS_FAILED"));
+				return;
+			}
+
+			TArray<FColor> ResizedBitmap;
+			const TArray<FColor>* PngSource = &Bitmap;
+			if (Width != SourceSize.X || Height != SourceSize.Y)
+			{
+				ResizedBitmap.SetNumUninitialized(Width * Height);
+				FImageUtils::ImageResize(SourceSize.X, SourceSize.Y, Bitmap, Width, Height, ResizedBitmap, true, true);
+				PngSource = &ResizedBitmap;
+			}
+
+			TArray64<uint8> CompressedPng;
+			FImageView View(PngSource->GetData(), Width, Height);
+			FImageUtils::CompressImage(CompressedPng, TEXT("png"), View, 0);
+			if (CompressedPng.Num() == 0)
+			{
+				BuildErrorResponse(OutResponse, TEXT("PNG compression produced empty buffer"), TEXT("PNG_COMPRESS_FAILED"));
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetNumberField(TEXT("source_width"), SourceSize.X);
+			Result->SetNumberField(TEXT("source_height"), SourceSize.Y);
+			Result->SetNumberField(TEXT("width"), Width);
+			Result->SetNumberField(TEXT("height"), Height);
+			Result->SetStringField(TEXT("mime"), TEXT("image/png"));
+			Result->SetNumberField(TEXT("byte_length"), CompressedPng.Num());
+
+			if (!OutputFilePath.IsEmpty())
+			{
+				if (FPaths::IsRelative(OutputFilePath))
+				{
+					OutputFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir(), OutputFilePath);
+				}
+
+				const FString OutputDir = FPaths::GetPath(OutputFilePath);
+				if (!OutputDir.IsEmpty())
+				{
+					IFileManager::Get().MakeDirectory(*OutputDir, true);
+				}
+
+				if (!FFileHelper::SaveArrayToFile(CompressedPng, *OutputFilePath))
+				{
+					BuildErrorResponse(OutResponse,
+						FString::Printf(TEXT("Failed to write PNG to '%s'"), *OutputFilePath),
+						TEXT("FILE_WRITE_FAILED"));
+					return;
+				}
+
+				Result->SetStringField(TEXT("file_path"), OutputFilePath);
+			}
+
+			if (bReturnBase64)
+			{
+				Result->SetStringField(TEXT("base64"),
+					FBase64::Encode(CompressedPng.GetData(), static_cast<uint32>(CompressedPng.Num())));
+			}
+
+			BuildSuccessResponse(OutResponse, Result);
+		}
 	}
 
 	void RegisterVisualCaptureHandler(FMCPCommandRegistry& Registry)
 	{
 		Registry.Register(TEXT("get_asset_preview_render"), &HandleGetAssetPreviewRender);
+		Registry.Register(TEXT("get_viewport_screenshot"), &HandleGetViewportScreenshot);
 	}
 }
