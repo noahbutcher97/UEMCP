@@ -2,12 +2,12 @@
 REM setup-watcher.bat — UEMCP plugin auto-deploy file-watcher.
 REM Usage: setup-watcher.bat
 REM        setup-watcher.bat --debounce-ms 1000
-REM        setup-watcher.bat --targets path\to\custom-targets.txt
+REM        setup-watcher.bat --targets path\to\custom-targets.json --profile smoke
 REM
 REM Long-running process. Watches D:\DevTools\UEMCP\plugin\UEMCP\Source\
 REM recursively. On any change (excluding Binaries\, Intermediate\, *.tmp),
 REM debounces 500ms then runs `sync-plugin.bat <target> -y` for each target
-REM in .uemcp-targets.txt. Press Ctrl+C to stop.
+REM in the selected local target profile. Press Ctrl+C to stop.
 REM
 REM Pairs with verify-deploy.bat — watcher prevents NEW staleness; verify-
 REM deploy catches existing staleness across machines / cross-stream pulls.

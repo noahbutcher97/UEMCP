@@ -46,15 +46,17 @@ management:
         toolsets: { type: array, items: string, required: true }
 
     list_project_targets:
-      description: Read repo-root .uemcp-targets.txt, validate entries, and report project attachment candidates, aliases, invalid entries, and duplicate-stem collisions.
-      params: {}
+      description: Read repo-root .uemcp-targets.json profiles, or legacy .uemcp-targets.txt when no structured config exists, and report project attachment candidates, aliases, invalid entries, warnings, and duplicate-stem collisions.
+      params:
+        profile: { type: string, required: false }
 
     attach_project:
-      description: Attach an Unreal project for the current MCP session from a project root, .uproject path, configured target alias, running-editor path, or elicited prompt.
+      description: Attach an Unreal project for the current MCP session from a project root, .uproject path, configured target alias, optional target profile, running-editor path, or elicited prompt.
       params:
         project_root: { type: string, required: false }
         uproject_path: { type: string, required: false }
         target: { type: string, required: false }
+        target_profile: { type: string, required: false }
         from_running_editor: { type: string, required: false }
         allow_outside_client_roots: { type: boolean, required: false, default: false }
         force_generation_change: { type: boolean, required: false, default: false }

@@ -196,6 +196,36 @@ async function expectRejectCode(fn, code, label) {
   }
 }
 
+// Structured target profiles can scope target alias attachment.
+{
+  const root = makeTempRoot();
+  try {
+    const primary = writeProject(join(root, 'PrimaryProject'), 'PrimaryProject');
+    const secondary = writeProject(join(root, 'SecondaryProject'), 'SecondaryProject');
+    writeFileSync(join(root, '.uemcp-targets.json'), `${JSON.stringify({
+      version: 1,
+      profiles: {
+        default: ['primary'],
+        smoke: ['secondary'],
+      },
+      targets: {
+        primary: { uproject: primary.uprojectPath },
+        secondary: { uproject: secondary.uprojectPath },
+      },
+    }, null, 2)}\n`, 'utf8');
+
+    const ctx = new ProjectContext({ cwd: root, repoRoot: root, workspaceRoots: [root], env: {} });
+    await ctx.initializeFromProcessHints();
+    await ctx.attachProject({ target: 'secondary', target_profile: 'smoke' });
+
+    const snap = ctx.snapshot();
+    t.assert(snap.attachmentState === 'attached', `profile target attach succeeds (got ${snap.attachmentState})`);
+    t.assert(snap.identity.projectName === 'SecondaryProject', `profile target attached secondary project (got ${snap.identity?.projectName})`);
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Detach clears manual attachment and reruns workspace auto-resolution.
 {
   const root = makeTempRoot();

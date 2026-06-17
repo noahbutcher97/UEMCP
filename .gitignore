@@ -40,8 +40,9 @@ server/.test-rotation-snapshot.json
 .mcp.json
 .claude/settings.local.json
 
-# Q3 dev-workflow targets list (per-machine, contains real codename paths;
+# Q3 dev-workflow targets config (per-machine, contains real codename paths;
 # read by verify-deploy.bat + setup-watcher.bat via server/verify-deploy.mjs).
+.uemcp-targets.json
 .uemcp-targets.txt
 
 # Sibling AI-tool per-machine config (Codex CLI).

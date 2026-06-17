@@ -17,10 +17,15 @@ export const ATTACH_PROJECT_INPUT_SHAPE = {
   project_root: z.string().optional(),
   uproject_path: z.string().optional(),
   target: z.string().optional(),
+  target_profile: z.string().optional(),
   from_running_editor: z.string().optional(),
   allow_outside_client_roots: z.boolean().optional().default(false),
   force_generation_change: z.boolean().optional().default(false),
   prompt: z.boolean().optional().default(false),
+};
+
+export const LIST_PROJECT_TARGETS_INPUT_SHAPE = {
+  profile: z.string().optional(),
 };
 
 export const CONNECTION_INFO_INPUT_SHAPE = {

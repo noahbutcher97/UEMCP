@@ -22,6 +22,7 @@ import {
   ATTACH_PROJECT_INPUT_SHAPE,
   CONNECTION_INFO_INPUT_SHAPE,
   FIND_TOOLS_INPUT_SHAPE,
+  LIST_PROJECT_TARGETS_INPUT_SHAPE,
   MANAGEMENT_OUTPUT_SHAPE,
 } from './project-tools.mjs';
 import {
@@ -816,14 +817,15 @@ export async function createUemcpServer(options = {}) {
   registerManagementTool(
     'list_project_targets',
     {
-      description: 'Read repo-root .uemcp-targets.txt and report validated attachment candidates.',
-      inputSchema: {},
+      description: 'Read repo-root .uemcp-targets.json profiles or legacy .uemcp-targets.txt and report validated attachment candidates.',
+      inputSchema: LIST_PROJECT_TARGETS_INPUT_SHAPE,
     },
-    async () => {
+    async (args) => {
       const targets = readProjectTargets({
         repoRoot,
         clientRoots: projectContext.workspaceRoots,
         fsImpl: options.fsImpl,
+        profile: args.profile,
       });
       return managementResult({ ok: true, targets, projectContext: projectContext.snapshot() });
     }
@@ -856,6 +858,7 @@ export async function createUemcpServer(options = {}) {
               properties: {
                 project_path: { type: 'string', title: 'Project path' },
                 target: { type: 'string', title: 'Target alias' },
+                target_profile: { type: 'string', title: 'Target profile' },
                 allow_outside_client_roots: { type: 'boolean', title: 'Allow outside client roots' },
               },
             },
@@ -882,6 +885,7 @@ export async function createUemcpServer(options = {}) {
           };
           if (content.target) {
             nextArgs.target = content.target;
+            if (content.target_profile) nextArgs.target_profile = content.target_profile;
           } else if (content.project_path && /\.uproject$/i.test(content.project_path)) {
             nextArgs.uproject_path = content.project_path;
           } else if (content.project_path) {

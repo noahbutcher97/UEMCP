@@ -1240,7 +1240,7 @@ export class ConnectionManager {
       this.projectRootWarning =
         `Attached project root has no .uproject file. ` +
         `Auto-resolved to "${resolved.root}" (found ${resolved.uproject}). ` +
-        `Attach the direct project root or add the .uproject path to .uemcp-targets.txt for future sessions.`;
+        `Attach the direct project root or add the .uproject path to .uemcp-targets.json for future sessions.`;
       process.stderr.write(`[uemcp] WARNING: ${this.projectRootWarning}\n`);
       this.layers['offline'].status = LayerStatus.AVAILABLE;
       this.layers['offline'].lastCheck = Date.now();

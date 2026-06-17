@@ -21,8 +21,8 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | 4 | `list_toolsets` | Show all 16 toolsets with: tool count, required layer, layer availability status (connected/unavailable), and enabled/disabled state. This is Claude's orientation tool — call it first to understand what's available. |
 | 5 | `enable_toolset` | Explicitly enable one or more toolsets by name. Project-scoped toolsets return `PROJECT_NOT_ATTACHED` while unresolved. |
 | 6 | `disable_toolset` | Disable one or more toolsets to free context. Use when switching tasks or when active tool count is getting high. |
-| 7 | `list_project_targets` | Read repo-local `.uemcp-targets.txt` and report validated attachment candidates. |
-| 8 | `attach_project` | Attach a project for the current MCP session by root, `.uproject`, target alias, or elicited prompt. |
+| 7 | `list_project_targets` | Read repo-local `.uemcp-targets.json` profiles, or legacy `.uemcp-targets.txt`, and report validated attachment candidates. |
+| 8 | `attach_project` | Attach a project for the current MCP session by root, `.uproject`, target alias/profile, running editor, or elicited prompt. |
 | 9 | `detach_project` | Clear manual attachment and rerun workspace resolution. |
 | 10 | `refresh_project_context` | Re-read roots/candidates and refresh session attachment state. |
 

@@ -260,12 +260,22 @@ if "!ENV_MODE!"=="1" (
 echo.
 
 REM --- Register the selected .uproject as a repo-local attachment target ---
+REM Structured profiles are the production path. registerProjectTargetProfile
+REM seeds "default", "smoke", and "release-gate"; legacy .txt is kept only for
+REM older scripts that have not migrated yet.
+set "TARGETS_JSON=!UEMCP_PATH!\.uemcp-targets.json"
 set "TARGETS_FILE=!UEMCP_PATH!\.uemcp-targets.txt"
+node --input-type=module -e "import { pathToFileURL } from 'node:url'; const mod = await import(pathToFileURL(process.env.UEMCP_PATH + '\\server\\project-targets.mjs').href); const r = mod.registerProjectTargetProfile({ configPath: process.env.TARGETS_JSON, uprojectPath: process.env.UPROJECT_FULL }); console.log(r.status.toUpperCase() + ': ' + r.alias + ' -> ' + process.env.UPROJECT_FULL);"
+if errorlevel 1 (
+  echo [WARN] Failed to update !TARGETS_JSON!; continuing.
+) else (
+  echo [SUCCESS] Registered target in !TARGETS_JSON! profiles default/smoke/release-gate.
+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:TARGETS_FILE; $target=$env:UPROJECT_FULL; $dir=Split-Path -Parent $p; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }; $existing=@(); if (Test-Path $p) { $existing=Get-Content $p }; if (-not ($existing | Where-Object { $_.Trim().ToLowerInvariant() -eq $target.ToLowerInvariant() })) { Add-Content -Path $p -Value $target; Write-Output ('ADDED: ' + $target) } else { Write-Output ('UNCHANGED: ' + $target) }"
 if errorlevel 1 (
-  echo [WARN] Failed to update !TARGETS_FILE!; continuing.
+  echo [WARN] Failed to update legacy !TARGETS_FILE!; continuing.
 ) else (
-  echo [SUCCESS] Registered target in !TARGETS_FILE!.
+  echo [INFO] Updated legacy compatibility list !TARGETS_FILE!.
 )
 echo.
 

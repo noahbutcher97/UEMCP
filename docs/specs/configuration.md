@@ -30,7 +30,24 @@ At session start, UEMCP uses MCP workspace roots:
 - If the workspace is ambiguous or has no project, remain unresolved and expose management tools only.
 - Use `attach_project` to attach manually for the current session.
 
-`setup-uemcp.bat` records selected `.uproject` paths in repo-local `.uemcp-targets.txt`; this supports `list_project_targets`, target aliases, `verify-deploy`, and `smoke-live.bat`.
+Repeated deploy/smoke workflows should use repo-local `.uemcp-targets.json` profiles. Copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and replace placeholder paths with local `.uproject` paths:
+
+```json
+{
+  "version": 1,
+  "profiles": {
+    "default": ["primary"],
+    "smoke": ["primary"],
+    "release-gate": ["primary", "secondary"]
+  },
+  "targets": {
+    "primary": { "uproject": "D:/UnrealProjects/PrimaryProject/PrimaryProject.uproject" },
+    "secondary": { "uproject": "D:/UnrealProjects/SecondaryProject/SecondaryProject.uproject" }
+  }
+}
+```
+
+`verify-deploy --profile smoke` verifies only the named profile. `--profile all` is built in and selects every target in the JSON file. `list_project_targets({ profile: "smoke" })` and `attach_project({ target: "primary", target_profile: "smoke" })` use the same profile resolver for MCP sessions. Legacy `.uemcp-targets.txt` remains supported when no JSON file exists, but it is reported as compatibility-only because commented lines are not a production state model.
 
 ## Compatibility Env Mode
 
@@ -73,7 +90,7 @@ set UEMCP_LIVE_SMOKE=1
 smoke-live.bat --project "path\to\YourProject.uproject"
 ```
 
-No opt-in means a clean skip. Opt-in without an explicit project source returns `BLOCKED_CONFIG`. Accepted project sources are `--project`, `--target`, `--targets-first` from `.uemcp-targets.txt`, or explicit env compatibility mode.
+No opt-in means a clean skip. Opt-in without an explicit project source returns `BLOCKED_CONFIG`. Accepted project sources are `--project`, `--target`, `--targets-first` from local target profiles, or explicit env compatibility mode.
 
 ## Environment Variables Reference
 

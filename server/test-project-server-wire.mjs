@@ -604,6 +604,40 @@ await runCase('list_project_targets reports absent empty valid and partially_inv
   }
 });
 
+await runCase('list_project_targets selects structured profile', async () => {
+  const cwd = makeTempRoot();
+  const repoRoot = makeTempRoot();
+  try {
+    const primary = writeProject(join(repoRoot, 'PrimaryProject'), 'PrimaryProject');
+    const secondary = writeProject(join(repoRoot, 'SecondaryProject'), 'SecondaryProject');
+    writeFileSync(join(repoRoot, '.uemcp-targets.json'), `${JSON.stringify({
+      version: 1,
+      profiles: {
+        default: ['primary'],
+        smoke: ['secondary'],
+      },
+      targets: {
+        primary: { uproject: primary.uprojectPath },
+        secondary: { uproject: secondary.uprojectPath },
+      },
+    }, null, 2)}\n`, 'utf8');
+
+    const { app, transport } = await createWireApp({ cwd, repoRoot });
+    await initialize(transport, {});
+    const response = await callTool(transport, 'list_project_targets', { profile: 'smoke' });
+    const targets = response.result.structuredContent.targets;
+    t.assert(targets.status === 'valid', `profile targets valid (got ${targets.status})`);
+    t.assert(targets.profile.name === 'smoke', `profile name smoke (got ${targets.profile.name})`);
+    t.assert(targets.candidates.length === 1, `profile selected one target (got ${targets.candidates.length})`);
+    t.assert(targets.candidates[0].projectName === 'SecondaryProject', `profile selected secondary project (got ${targets.candidates[0]?.projectName})`);
+    t.assert(!targets.entries.includes(primary.uprojectPath), 'profile selection excludes default-only target');
+    await app.server.close();
+  } finally {
+    cleanup(cwd);
+    cleanup(repoRoot);
+  }
+});
+
 await runCase('project hygiene does not write for unresolved candidate listing', async () => {
   const root = makeTempRoot();
   const repoRoot = makeTempRoot();

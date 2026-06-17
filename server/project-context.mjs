@@ -541,14 +541,15 @@ export class ProjectContext {
         clientRoots: this.workspaceRoots,
       });
     }
-    return this._identityFromTarget(input.target);
+    return this._identityFromTarget(input.target, input.target_profile);
   }
 
-  _identityFromTarget(target) {
+  _identityFromTarget(target, profile) {
     const targets = readProjectTargets({
       repoRoot: this.repoRoot,
       fsImpl: this.fsImpl,
       clientRoots: this.workspaceRoots,
+      profile,
     });
 
     if (targets.aliasCollisions.some(c => c.alias === target)) {
@@ -564,7 +565,7 @@ export class ProjectContext {
       throw new ProjectContextError(
         PROJECT_ERROR_CODES.PROJECT_PATH_INVALID,
         `Unknown project target: ${target}`,
-        { target, status: targets.status },
+        { target, targetProfile: profile || targets.profile?.name, status: targets.status },
       );
     }
 

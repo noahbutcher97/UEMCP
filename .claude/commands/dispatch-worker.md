@@ -17,9 +17,9 @@ If `<handoff-doc-path>` is missing: print usage + `Glob docs/handoffs/*.md` list
 If `<handoff-doc-path>` doesn't exist: print fuzzy-match suggestions from `docs/handoffs/`. Exit.
 
 If `--target` is provided:
-1. Read `.uemcp-targets.txt` at repo root.
-2. Find an entry where the `.uproject` filename stem matches `<stem>` OR the full path matches `<full-path>`.
-3. If no match: print "target not found"; list all entries from `.uemcp-targets.txt`; exit (do not silently fall back to placeholders).
+1. Read repo-local `.uemcp-targets.json` profiles if present; otherwise fall back to legacy `.uemcp-targets.txt`.
+2. Find an entry where a configured alias, generated alias, `.uproject` filename stem, or full path matches `<stem-or-path>`.
+3. If no match: print "target not found"; list all available targets from the resolved target config; exit (do not silently fall back to placeholders).
 4. Build the substitution map:
    - `<UNREAL_PROJECT_NAME>` ← stem of the matched `.uproject`
    - `<UNREAL_PROJECT_ROOT>` ← parent directory of the matched `.uproject`
@@ -84,11 +84,11 @@ Write your final report to `docs/reports/<descriptive-dated-filename>.md` (NOT `
 
 After the fenced code block, on new lines:
 - 1-line summary: "Generated opener for `<handoff-doc-path>` (role: `<role>`, hydration: `<target-stem | placeholders-only>`, mission-fallback: `<which>`)."
-- If `--target` was NOT specified AND `.uemcp-targets.txt` has entries: list available targets with the hint "re-run with `--target <stem>` to hydrate codenames".
+- If `--target` was NOT specified AND local target config has entries: list available targets with the hint "re-run with `--target <stem>` to hydrate codenames".
 
 ## Errors
 
 - `$ARGUMENTS` empty → usage + `Glob docs/handoffs/*.md`
 - handoff doc not found → fuzzy-match suggestions
-- `--target` mismatch → list available targets from `.uemcp-targets.txt` + abort (no silent fallback)
-- `.uemcp-targets.txt` missing when `--target` requested → create `.uemcp-targets.txt` at repo root per CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)"
+- `--target` mismatch → list available targets from `.uemcp-targets.json` or legacy `.uemcp-targets.txt` + abort (no silent fallback)
+- target config missing when `--target` requested → copy `.uemcp-targets.json.example` to `.uemcp-targets.json` at repo root and fill local `.uproject` paths per CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)"

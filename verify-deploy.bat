@@ -3,13 +3,13 @@ REM verify-deploy.bat — UEMCP pre-dispatch deployment verification CLI.
 REM Usage: verify-deploy.bat [flags]
 REM        verify-deploy.bat --help
 REM
-REM Reads .uemcp-targets.txt at repo root (one .uproject path per line;
-REM gitignored, codename-safe). Reports per-target whether deployed plugin
-REM matches repo source (SYNC / NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY /
-REM MISSING). Detects UnrealEditor.exe processes locking each target's DLL
-REM (the §2.6 D135 re-smoke failure mode — editor running during Build.bat
-REM silently no-op'd). Pairs with setup-watcher.bat (auto-deploy on source
-REM change).
+REM Reads .uemcp-targets.json profiles at repo root, falling back to legacy
+REM .uemcp-targets.txt when no structured config exists. Reports per-target
+REM whether deployed plugin matches repo source (SYNC / NEEDS-SYNC /
+REM NEEDS-BUILD / NEEDS-DEPLOY / MISSING). Detects UnrealEditor.exe processes
+REM locking each target's DLL (the §2.6 D135 re-smoke failure mode — editor
+REM running during Build.bat silently no-op'd). Pairs with setup-watcher.bat
+REM (auto-deploy on source change).
 REM
 REM Closes the D113 wasted-worker-session class structurally — orchestrator
 REM no longer relies on procedural memory to grep deploy-state markers.

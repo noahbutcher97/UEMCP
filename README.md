@@ -43,11 +43,11 @@ Pass `-y` / `--yes` to suppress the overwrite prompt for scripted use.
 For active plugin development (when you're frequently editing `plugin/UEMCP/Source/`):
 
 ```cmd
-verify-deploy.bat              :: per-target SYNC/STALE report incl. editor-lock detection
+verify-deploy.bat              :: profile-scoped SYNC/STALE report incl. editor-lock detection
 setup-watcher.bat              :: long-running file-watcher; auto-syncs on every source change
 ```
 
-Both read `.uemcp-targets.txt` (one `.uproject` path per line, gitignored). `verify-deploy` is a fast pre-flight that catches the "DLL stale because editor was running during Build.bat" silent no-op. `setup-watcher` is the optional always-on counterpart that prevents drift from accumulating.
+Both read local `.uemcp-targets.json` profiles by default, falling back to legacy `.uemcp-targets.txt` when no structured file exists. `verify-deploy` is a fast pre-flight that catches the "DLL stale because editor was running during Build.bat" silent no-op. `setup-watcher` is the optional always-on counterpart that prevents drift from accumulating. Use `.uemcp-targets.json.example` as the template; real paths stay gitignored.
 
 ### Verifying the install
 
@@ -66,7 +66,7 @@ Then inside Claude: `project_info` should return the detected UE project + versi
 1. Install Node.js LTS (v20+): `winget install OpenJS.NodeJS.LTS` or https://nodejs.org/.
 2. `cd <UEMCP_REPO_PATH>/server && npm install`.
 3. Copy `.mcp.json.example` to your workspace root as `.mcp.json`; substitute `<UEMCP_REPO_PATH>` with this repo path.
-4. Add your `.uproject` path to repo-local `.uemcp-targets.txt` or call `attach_project` from the MCP session when needed.
+4. Add your `.uproject` paths to repo-local `.uemcp-targets.json` profiles or call `attach_project` from the MCP session when needed; target aliases can be scoped with `target_profile`.
 5. Copy `plugin/UEMCP/` into `<your-project>/Plugins/UEMCP/` (or run `sync-plugin.bat <uproject>`).
 6. Open the project in Unreal Editor once to compile the plugin.
 7. Restart Claude Code.
@@ -108,6 +108,7 @@ UEMCP/
 ├── CLAUDE.md                ← project instructions for AI agents (read this if contributing)
 ├── tools.yaml               ← single source of truth for all tool registry entries
 ├── .mcp.json.example        ← template Claude Desktop / Code config
+├── .uemcp-targets.json.example ← template local deploy/smoke target profiles
 ├── setup-uemcp.bat          ← new-machine onboarding (GUI or arg)
 ├── sync-plugin.bat          ← propagate plugin source changes to target projects
 ├── verify-deploy.bat        ← Q3-A pre-dispatch SYNC/STALE/editor-lock report (D136)

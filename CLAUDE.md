@@ -111,7 +111,7 @@ UEMCP/
 ├── verify-deploy.bat           ← Q3-A pre-dispatch verification (D136)
 ├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
 ├── smoke-live.bat              ← opt-in live-editor smoke runner wrapper
-├── .uemcp-targets.txt          ← per-machine .uproject targets (gitignored, codename-safe)
+├── .uemcp-targets.json.example ← template per-machine target profiles
 ├── server/
 │   ├── server.mjs              ← MCP server entry, management tools
 │   ├── offline-tools.mjs       ← offline tool handlers
@@ -272,7 +272,7 @@ endlocal & exit /b %EXIT_CODE%
 Three project-scoped slash commands codify the high-frequency rituals (see `docs/specs/2026-05-19-dev-cycle-slash-commands-design.md`):
 
 - **`/handoff-preflight <doc>`** — runs the 4-point pre-flight checklist (see **Handoff draft pre-flight** above). Soft advisory.
-- **`/dispatch-worker <doc> [--target <stem>]`** — generates a worker-conversation opener following the 6-point **Opener content checklist** above. `--target` hydrates codenames from `.uemcp-targets.txt`.
+- **`/dispatch-worker <doc> [--target <stem>]`** — generates a worker-conversation opener following the 6-point **Opener content checklist** above. `--target` hydrates local target aliases from `.uemcp-targets.json` profiles or legacy `.uemcp-targets.txt`.
 - **`/deploy-cycle [--target <stem>]`** — walks through verify-deploy → sync-plugin (auto) → Build.bat → editor relaunch → MCP restart → optional live smoke. See §Q3 dev-workflow scripts.
 
 ### Onboarding a new machine
@@ -287,11 +287,11 @@ For propagating plugin changes without full onboarding: `sync-plugin.bat <uproje
 
 **Plugin versioning convention**: when `manifest.json version` bumps, also bump `UEMCP.uplugin Version` (integer; UE-internal rebuild signal) AND `VersionName` (string; aligned with manifest) in lockstep. W-L marker compares both → either triggers auto-bust.
 
-Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, add target `.uproject` paths to `.uemcp-targets.txt` if needed, run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
+Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, copy `.uemcp-targets.json.example` to local `.uemcp-targets.json` if repeated deploy/smoke profiles are needed, run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
 
 ### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
 
-- **`verify-deploy.bat`** — pre-dispatch CLI. Reads `.uemcp-targets.txt` (gitignored, one `.uproject` per line), reports per-target verdict (`SYNC` / `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY` / `MISSING`), detects UnrealEditor.exe processes locking each DLL via `Get-CimInstance Win32_Process` CommandLine introspection, flags workspace-resolution drift vs `.mcp.json`. Flags: `--auto-sync`, `--regenerate-mcp-json N`, `--quiet`, `--targets <path>`, `--no-color`. Exit 0/1/2 = all-SYNC / non-SYNC / config-error.
+- **`verify-deploy.bat`** — pre-dispatch CLI. Reads `.uemcp-targets.json` profiles by default and falls back to legacy `.uemcp-targets.txt` when no structured config exists, reports per-target verdict (`SYNC` / `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY` / `MISSING`), detects UnrealEditor.exe processes locking each DLL via `Get-CimInstance Win32_Process` CommandLine introspection, flags workspace-resolution drift vs `.mcp.json`. Flags: `--profile <name>`, `--auto-sync`, `--regenerate-mcp-json N`, `--quiet`, `--targets <path>`, `--no-color`. Exit 0/1/2 = all-SYNC / non-SYNC / config-error.
 
 - **`setup-watcher.bat`** — long-running file-watcher (Q3-C). Watches `plugin/UEMCP/Source/`; on change, debounces 500ms then runs `sync-plugin.bat <target> -y` per target. Ctrl+C stops cleanly. Backed by `server/verify-deploy.mjs --watch`.
 

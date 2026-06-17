@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "profiles": {
+    "default": ["primary"],
+    "smoke": ["primary"],
+    "release-gate": ["primary", "secondary"]
+  },
+  "targets": {
+    "primary": {
+      "uproject": "D:/UnrealProjects/PrimaryProject/PrimaryProject.uproject"
+    },
+    "secondary": {
+      "uproject": "D:/UnrealProjects/SecondaryProject/SecondaryProject.uproject"
+    }
+  }
+}
