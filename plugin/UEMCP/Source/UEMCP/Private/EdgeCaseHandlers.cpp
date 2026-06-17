@@ -19,10 +19,16 @@
 #include "Engine/Selection.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Interfaces/IPluginManager.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "LevelEditorViewport.h"
+#include "Misc/App.h"
+#include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectIterator.h"
@@ -35,6 +41,105 @@ namespace UEMCP
 	{
 		// ── get_editor_state ──────────────────────────────────
 
+		void SetNullField(TSharedPtr<FJsonObject> Object, const TCHAR* FieldName)
+		{
+			if (Object.IsValid())
+			{
+				Object->SetField(FieldName, MakeShared<FJsonValueNull>());
+			}
+		}
+
+		void AddStringOrNull(TSharedPtr<FJsonObject> Object, const TCHAR* FieldName, const TSharedPtr<FJsonObject>& Source, const TCHAR* SourceField)
+		{
+			FString Value;
+			if (Source.IsValid() && Source->TryGetStringField(SourceField, Value))
+			{
+				Object->SetStringField(FieldName, Value);
+				return;
+			}
+			SetNullField(Object, FieldName);
+		}
+
+		void AddNumberOrNull(TSharedPtr<FJsonObject> Object, const TCHAR* FieldName, const TSharedPtr<FJsonObject>& Source, const TCHAR* SourceField)
+		{
+			double Value = 0.0;
+			if (Source.IsValid() && Source->TryGetNumberField(SourceField, Value))
+			{
+				Object->SetNumberField(FieldName, Value);
+				return;
+			}
+			SetNullField(Object, FieldName);
+		}
+
+		void AddProjectIdentityFields(TSharedPtr<FJsonObject> Result)
+		{
+			if (!Result.IsValid())
+			{
+				return;
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Warnings;
+			const FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+			const FString UprojectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
+			FString ProjectName = FApp::GetProjectName();
+			if (ProjectName.IsEmpty() && !UprojectPath.IsEmpty())
+			{
+				ProjectName = FPaths::GetBaseFilename(UprojectPath);
+			}
+
+			Result->SetStringField(TEXT("project_root"), ProjectRoot);
+			Result->SetStringField(TEXT("uproject_path"), UprojectPath);
+			Result->SetStringField(TEXT("project_name"), ProjectName);
+
+			TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UEMCP"));
+			if (Plugin.IsValid())
+			{
+				Result->SetNumberField(TEXT("plugin_version"), Plugin->GetDescriptor().Version);
+				Result->SetStringField(TEXT("plugin_version_name"), Plugin->GetDescriptor().VersionName);
+			}
+			else
+			{
+				SetNullField(Result, TEXT("plugin_version"));
+				SetNullField(Result, TEXT("plugin_version_name"));
+				Warnings.Add(MakeShared<FJsonValueString>(TEXT("UEMCP plugin descriptor was not found")));
+			}
+
+			const FString MarkerPath = FPaths::Combine(ProjectRoot, TEXT("Plugins"), TEXT("UEMCP"), TEXT(".uemcp-deploy-marker.json"));
+			FString MarkerRaw;
+			if (FFileHelper::LoadFileToString(MarkerRaw, *MarkerPath))
+			{
+				TSharedPtr<FJsonObject> MarkerJson;
+				TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(MarkerRaw);
+				if (FJsonSerializer::Deserialize(Reader, MarkerJson) && MarkerJson.IsValid())
+				{
+					Result->SetBoolField(TEXT("deploy_marker_present"), true);
+					AddStringOrNull(Result, TEXT("deploy_marker_schema_version"), MarkerJson, TEXT("schemaVersion"));
+					AddStringOrNull(Result, TEXT("deploy_marker_manifest_version"), MarkerJson, TEXT("manifestVersion"));
+					AddNumberOrNull(Result, TEXT("deploy_marker_uplugin_version"), MarkerJson, TEXT("upluginVersion"));
+				}
+				else
+				{
+					Result->SetBoolField(TEXT("deploy_marker_present"), false);
+					SetNullField(Result, TEXT("deploy_marker_schema_version"));
+					SetNullField(Result, TEXT("deploy_marker_manifest_version"));
+					SetNullField(Result, TEXT("deploy_marker_uplugin_version"));
+					Warnings.Add(MakeShared<FJsonValueString>(TEXT("Deploy marker exists but could not be parsed")));
+				}
+			}
+			else
+			{
+				Result->SetBoolField(TEXT("deploy_marker_present"), false);
+				SetNullField(Result, TEXT("deploy_marker_schema_version"));
+				SetNullField(Result, TEXT("deploy_marker_manifest_version"));
+				SetNullField(Result, TEXT("deploy_marker_uplugin_version"));
+			}
+
+			if (Warnings.Num() > 0)
+			{
+				Result->SetArrayField(TEXT("identity_warnings"), Warnings);
+			}
+		}
+
 		void HandleGetEditorState(const TSharedPtr<FJsonObject>& /*Params*/, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			if (!GEditor)
@@ -44,6 +149,7 @@ namespace UEMCP
 			}
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			AddProjectIdentityFields(Result);
 
 			// Current world / level info
 			if (UWorld* World = GEditor->GetEditorWorldContext().World())

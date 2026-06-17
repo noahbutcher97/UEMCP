@@ -16,6 +16,7 @@
 import net from 'node:net';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
+import { PROJECT_ERROR_CODES } from './project-errors.mjs';
 
 // ── Layer status ────────────────────────────────────────────
 
@@ -530,7 +531,7 @@ class CommandQueue {
 /**
  * Normalize the three error-response formats produced by the frozen UnrealMCP
  * plugin (D23: deprecated post-Phase 3, no C++ fixes). Returns the error
- * message if the response indicates failure, or null if it represents success.
+ * error metadata if the response indicates failure, or null if it represents success.
  *
  * Format 1 — Bridge envelope:   { status: "error", error|message: "..." }
  * Format 2 — CommonUtils flag:  { success: false, error|message: "..." }
@@ -543,21 +544,49 @@ class CommandQueue {
  *   - Sibling error at success envelope:   { status: "success", error: "..." }.
  *
  * @param {any} result
- * @returns {string | null}
+ * @returns {{message: string, code?: string, detail?: any, raw?: object} | null}
  */
 function extractWireError(result) {
   if (!result || typeof result !== 'object') return null;
 
-  const pickMsg = (o) =>
-    (typeof o.error === 'string' && o.error) ||
-    (typeof o.message === 'string' && o.message) ||
-    'Unknown error from Unreal';
+  const metadataKeys = new Set(['error', 'message', 'code', 'error_code', 'errorCode', 'detail', 'details', 'data']);
+  const buildWireError = (o) => {
+    const wireError = {
+      message:
+        (typeof o.error === 'string' && o.error) ||
+        (typeof o.message === 'string' && o.message) ||
+        'Unknown error from Unreal',
+      raw: o,
+    };
+    const code = (
+      (typeof o.code === 'string' && o.code) ||
+      (typeof o.error_code === 'string' && o.error_code) ||
+      (typeof o.errorCode === 'string' && o.errorCode) ||
+      null
+    );
+    if (code) {
+      wireError.code = code;
+    }
+    if ('detail' in o) {
+      wireError.detail = o.detail;
+    } else if ('details' in o) {
+      wireError.detail = o.details;
+    } else if ('data' in o) {
+      wireError.detail = o.data;
+    }
+    return wireError;
+  };
+  const isMetadataOnlyErrorObject = (o) =>
+    o &&
+    typeof o === 'object' &&
+    ((typeof o.error === 'string' && o.error) || (typeof o.message === 'string' && o.message)) &&
+    Object.keys(o).every((key) => metadataKeys.has(key));
 
   // Format 1: explicit error status
-  if (result.status === 'error') return pickMsg(result);
+  if (result.status === 'error') return buildWireError(result);
 
   // Format 2: success flag false
-  if (result.success === false) return pickMsg(result);
+  if (result.success === false) return buildWireError(result);
 
   // Format 3: Bridge-wrapped ad-hoc — status:"success" with an error-only inner result.
   // Only one known shape in the wild (inner object has a single "error" key), but
@@ -566,15 +595,14 @@ function extractWireError(result) {
   // happen to carry an `error` field alongside real data.
   if (result.status === 'success' && result.result && typeof result.result === 'object') {
     const inner = result.result;
-    const keys = Object.keys(inner);
-    if (keys.length === 1 && keys[0] === 'error' && typeof inner.error === 'string') {
-      return inner.error;
+    if (isMetadataOnlyErrorObject(inner)) {
+      return buildWireError(inner);
     }
   }
 
   // Defensive: sibling error at envelope level (status:"success" with a top-level error)
   if (result.status === 'success' && typeof result.error === 'string' && result.error) {
-    return result.error;
+    return buildWireError(result);
   }
 
   // Defensive: raw ad-hoc with no envelope at all — only trigger when there is
@@ -585,12 +613,26 @@ function extractWireError(result) {
     !('success' in result) &&
     typeof result.error === 'string' &&
     result.error &&
-    Object.keys(result).length === 1
+    isMetadataOnlyErrorObject(result)
   ) {
-    return result.error;
+    return buildWireError(result);
   }
 
   return null;
+}
+
+function makeLayerWireError(layerKey, wireError, wireResponse) {
+  const err = new Error(`${layerKey}: ${wireError.message}`);
+  err.layer = layerKey;
+  err.wireError = wireError;
+  err.wireResponse = wireResponse;
+  if (wireError.code) {
+    err.code = wireError.code;
+  }
+  if ('detail' in wireError) {
+    err.detail = wireError.detail;
+  }
+  return err;
 }
 
 // ── ConnectionManager ───────────────────────────────────────
@@ -680,6 +722,7 @@ export class ConnectionManager {
     this._rcCallCount = 0;
 
     this._detectedProject = null;
+    this._attachedProjectIdentity = null;
 
     /**
      * Resolved project root — may differ from config.projectRoot if the
@@ -696,6 +739,61 @@ export class ConnectionManager {
   }
 
   // ── Layer status ────────────────────────────────────────
+
+  /**
+   * Update the session's active Unreal project root and clear cached layer
+   * state. ProjectContext owns when this is called; ConnectionManager owns
+   * transport/cache state for the active attachment.
+   * @param {string} projectRoot
+   */
+  resetForProjectRoot(projectRoot = '') {
+    this.setAttachedProject(projectRoot ? { projectRoot } : null);
+    this.resetProjectScopedState({ reason: 'resetForProjectRoot' });
+  }
+
+  /**
+   * Set the active ProjectContext identity for transport/file operations.
+   * @param {object|null} identityOrNull
+   */
+  setAttachedProject(identityOrNull) {
+    this._attachedProjectIdentity = identityOrNull || null;
+    const projectRoot = this._attachedProjectIdentity?.projectRoot || '';
+    this.config.projectRoot = projectRoot;
+    this.resolvedProjectRoot = projectRoot;
+    this.projectRootWarning = null;
+  }
+
+  /**
+   * @returns {string}
+   */
+  getAttachedProjectRoot() {
+    return this._attachedProjectIdentity?.projectRoot || this.resolvedProjectRoot || this.config.projectRoot || '';
+  }
+
+  /**
+   * Clear project-scoped connection state after an attachment generation change.
+   * @param {{generation?: number, reason?: string, resetMetrics?: boolean}} _options
+   */
+  resetProjectScopedState(_options = {}) {
+    this._cache.clear();
+    for (const layer of Object.values(this.layers)) {
+      layer.status = LayerStatus.UNKNOWN;
+      layer.lastCheck = 0;
+      delete layer.error;
+    }
+    this._detectedProject = null;
+    if (this._rcAgent) {
+      this._rcAgent.destroy();
+      this._rcAgent = null;
+    }
+    this._rcCallsSinceRecycle = 0;
+    this._rcTokens = this._rcRateCap;
+    this._rcLastRefillTs = Date.now();
+    this._rcRelaunchHintFired = false;
+    if (_options.resetMetrics && this._metrics?.reset) {
+      this._metrics.reset();
+    }
+  }
 
   /**
    * Check if a layer is available, using cached status if fresh enough.
@@ -827,9 +925,9 @@ export class ConnectionManager {
       //     → Bridge wraps as: { status: "success", result: { error: "msg" } }
       //     → Also defend against the raw form escaping Bridge entirely and against
       //       status:"success" with a sibling error (belt-and-braces for format drift).
-      const errMessage = extractWireError(result);
-      if (errMessage !== null) {
-        throw new Error(`${layerKey}: ${errMessage}`);
+      const wireError = extractWireError(result);
+      if (wireError !== null) {
+        throw makeLayerWireError(layerKey, wireError, result);
       }
 
       // Cache successful results
@@ -906,9 +1004,9 @@ export class ConnectionManager {
       // (config.httpCommandFn) is in use, the agent argument is ignored.
       const result = await httpFn(port, method, path, body, timeoutMs, this._rcAgent || undefined);
 
-      const errMessage = extractWireError(result);
-      if (errMessage !== null) {
-        throw new Error(`http-30010: ${errMessage}`);
+      const wireError = extractWireError(result);
+      if (wireError !== null) {
+        throw makeLayerWireError('http-30010', wireError, result);
       }
 
       if (!opts.skipCache) {
@@ -1096,10 +1194,14 @@ export class ConnectionManager {
    * (handles the common case of pointing to a workspace root instead).
    * @returns {Promise<boolean>}
    */
-  async checkOfflineAvailable() {
-    if (!this.config.projectRoot) {
+  async checkOfflineAvailable(projectRoot = this.getAttachedProjectRoot()) {
+    if (projectRoot) {
+      this.setAttachedProject({ ...(this._attachedProjectIdentity || {}), projectRoot });
+    }
+
+    if (!projectRoot) {
       this.layers['offline'].status = LayerStatus.UNAVAILABLE;
-      this.layers['offline'].error = 'UNREAL_PROJECT_ROOT not set';
+      this.layers['offline'].error = PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED;
       this.layers['offline'].lastCheck = Date.now();
       return false;
     }
@@ -1109,20 +1211,20 @@ export class ConnectionManager {
 
     // Check if the configured root exists
     try {
-      await fs.access(this.config.projectRoot);
+      await fs.access(projectRoot);
     } catch {
       this.layers['offline'].status = LayerStatus.UNAVAILABLE;
-      this.layers['offline'].error = `Path not found: ${this.config.projectRoot}`;
+      this.layers['offline'].error = `Path not found: ${projectRoot}`;
       this.layers['offline'].lastCheck = Date.now();
       return false;
     }
 
     // Look for .uproject at the configured root
-    const hasUproject = await this._findUprojectIn(fs, this.config.projectRoot);
+    const hasUproject = await this._findUprojectIn(fs, projectRoot);
 
     if (hasUproject) {
       // Configured root is correct
-      this.resolvedProjectRoot = this.config.projectRoot;
+      this.setAttachedProject({ ...(this._attachedProjectIdentity || {}), projectRoot });
       this.projectRootWarning = null;
       this.layers['offline'].status = LayerStatus.AVAILABLE;
       this.layers['offline'].lastCheck = Date.now();
@@ -1131,14 +1233,14 @@ export class ConnectionManager {
     }
 
     // No .uproject at configured root — scan immediate children
-    const resolved = await this._resolveProjectRoot(fs, path, this.config.projectRoot);
+    const resolved = await this._resolveProjectRoot(fs, path, projectRoot);
 
     if (resolved) {
-      this.resolvedProjectRoot = resolved.root;
+      this.setAttachedProject({ ...(this._attachedProjectIdentity || {}), projectRoot: resolved.root });
       this.projectRootWarning =
-        `UNREAL_PROJECT_ROOT has no .uproject file. ` +
+        `Attached project root has no .uproject file. ` +
         `Auto-resolved to "${resolved.root}" (found ${resolved.uproject}). ` +
-        `Consider updating UNREAL_PROJECT_ROOT in .mcp.json to point directly to the UE project root.`;
+        `Attach the direct project root or add the .uproject path to .uemcp-targets.json for future sessions.`;
       process.stderr.write(`[uemcp] WARNING: ${this.projectRootWarning}\n`);
       this.layers['offline'].status = LayerStatus.AVAILABLE;
       this.layers['offline'].lastCheck = Date.now();
@@ -1149,8 +1251,8 @@ export class ConnectionManager {
     // No .uproject anywhere — fail with helpful error
     this.layers['offline'].status = LayerStatus.UNAVAILABLE;
     this.layers['offline'].error =
-      `No .uproject file found at "${this.config.projectRoot}" or in immediate subdirectories. ` +
-      `UNREAL_PROJECT_ROOT must point to the directory containing the .uproject file.`;
+      `No .uproject file found at "${projectRoot}" or in immediate subdirectories. ` +
+      `Attach a directory containing exactly one .uproject file, or attach the .uproject path directly.`;
     this.layers['offline'].lastCheck = Date.now();
     return false;
   }

@@ -1,6 +1,6 @@
 ---
-description: Deploy cycle walkthrough — verify-deploy → sync-plugin (auto) → Build.bat (manual) → relaunch (manual) → MCP restart (manual)
-argument-hint: [--target <stem>] [--targets <list-file>]
+description: Deploy cycle walkthrough — verify-deploy → sync-plugin (auto) → Build.bat (manual) → relaunch (manual) → MCP restart (manual) → live smoke (optional)
+argument-hint: [--target <stem>] [--targets <config-file>] [--profile <name>]
 ---
 
 Walk the user through the UEMCP deploy cycle. Auto-run the automatable scripts; stop-gate at manual steps (Build.bat, editor relaunch, MCP restart). Reference: CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)".
@@ -9,8 +9,9 @@ Walk the user through the UEMCP deploy cycle. Auto-run the automatable scripts; 
 
 Parse `$ARGUMENTS` for:
 - `--target <stem|full-path>` (optional): limit to one target
-- `--targets <path>` (optional): override `.uemcp-targets.txt` location
-- (no args): process all targets in `.uemcp-targets.txt`
+- `--targets <path>` (optional): override `.uemcp-targets.json` / legacy `.txt` location
+- `--profile <name>` (optional): select a structured target profile (`all` is built in)
+- (no args): process the `default` structured profile, or legacy `.uemcp-targets.txt` if no JSON file exists
 
 ## Render initial checkbox list
 
@@ -21,6 +22,7 @@ Print:
 ☐ Step 3 — Build.bat (manual)
 ☐ Step 4 — Editor relaunch (manual)
 ☐ Step 5 — MCP restart (manual)
+☐ Step 6 — live smoke (optional)
 ```
 
 Update the relevant box to ☑ after each completed step. Re-print the full list at each transition so progress is visible.
@@ -32,7 +34,7 @@ Run:
 node server/verify-deploy.mjs <forwarded-args>
 ```
 
-Forward `--target` / `--targets` if provided. Capture stdout.
+Forward `--target` / `--targets` / `--profile` if provided. Capture stdout.
 
 Parse the per-target verdict lines. Surface each target's status:
 - `SYNC` — no action needed
@@ -130,7 +132,32 @@ Env vars from each target's `.mcp.json` that will re-apply on restart:
 Reply `done` when restarted (or skip if you'll restart later).
 ```
 
-Mark Step 5 ☑ when user replies (`done` OR `skip`).
+Mark Step 5 ☑ when user replies (`done` OR `skip`). Continue to Step 6.
+
+## Step 6 — live smoke (optional)
+
+Print:
+
+```
+Optional but recommended after plugin or server tool-surface changes:
+
+set UEMCP_LIVE_SMOKE=1
+set UNREAL_PROJECT_ROOT=<full-project-root>
+smoke-live.bat
+
+Without UEMCP_LIVE_SMOKE=1 this skips cleanly, so it is safe to run as a no-op check.
+If the editor is down, the runner also skips cleanly instead of reporting a feature failure.
+
+Reply `done` after the live smoke passes, `skip` if you are deferring the live run, or paste any failure output.
+```
+
+**Wait for user response.**
+
+If user pastes `done`: mark Step 6 ☑ and continue to Final summary.
+
+If user pastes `skip`: mark Step 6 ⊘, note "live smoke deferred", and continue to Final summary.
+
+If user pastes a failure: stop the cycle. Summarize what succeeded (verify-deploy, sync, build, relaunch, MCP restart) and the live-smoke failure. Do not call the deploy cycle complete.
 
 ## Final summary
 
@@ -140,10 +167,11 @@ Print:
 - Targets synced: <list>
 - Targets built: <list>
 - Cache-bust triggered: <yes/no per target>
+- Live smoke: <passed / skipped / deferred>
 ```
 
 ## Errors
 
-- `.uemcp-targets.txt` missing → print "`.uemcp-targets.txt` not found at repo root; see CLAUDE.md §"Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)" for setup." Exit.
+- `.uemcp-targets.json` and legacy `.uemcp-targets.txt` missing → print "No UEMCP target config found at repo root; copy `.uemcp-targets.json.example` to `.uemcp-targets.json` and fill local `.uproject` paths." Exit.
 - `server/verify-deploy.mjs` missing → print "UEMCP install appears broken: `server/verify-deploy.mjs` not found. Suggest re-running `setup-uemcp.bat`." Exit.
-- `--target <stem>` not in `.uemcp-targets.txt` → print available targets + abort (no silent fallback).
+- `--target <stem>` / `--profile <name>` not in target config → print available targets/profiles + abort (no silent fallback).

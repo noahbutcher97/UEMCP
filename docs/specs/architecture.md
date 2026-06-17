@@ -29,9 +29,11 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │                     Dynamic Toolset Manager                         │  │
 │  │  Always-loaded: connection_info, detect_project, find_tools,        │  │
-│  │                 list_toolsets, enable_toolset, disable_toolset       │  │
+│  │                 list_toolsets, enable_toolset, disable_toolset,      │  │
+│  │                 list_project_targets, attach_project,                │  │
+│  │                 detach_project, refresh_project_context              │  │
 │  │                                                                     │  │
-│  │  16 toolsets (129 toolset tools) loaded on demand via find_tools    │  │
+│  │  16 toolsets (138 toolset tools) loaded on demand via find_tools    │  │
 │  │  or enable_toolset. tools/list only returns active toolset tools.   │  │
 │  │  ToolIndex: keyword search + alias expansion + stemming.            │  │
 │  │  Auto-enable: find_tools enables matching toolsets automatically.   │  │
@@ -52,8 +54,9 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘   │
 │         │                 │                  │                │          │
 │  ┌──────┴─────────────────┴──────────────────┴────────────────┴──────┐   │
-│  │                    Connection Manager                             │   │
-│  │  - Auto-detect running project (PowerShell process inspection)    │   │
+│  │                    ProjectContext + Connection Manager            │   │
+│  │  - ProjectContext owns session-local .uproject attachment         │   │
+│  │  - ConnectionManager owns transport/cache health for attachment   │   │
 │  │  - Lazy connect (don't connect until first tool call)             │   │
 │  │  - Graceful fallback (TCP55558 → HTTP → offline)                 │   │
 │  │  - Health check caching with 30s TTL                              │   │
@@ -86,56 +89,38 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 - **Offline**: Project file analysis — always works, no editor needed
 - **TCP:55557**: historical Phase 2 conformance-oracle references only; not an active layer in `tools.yaml`
 
-**D3: Auto-detection via process inspection** — PowerShell `Get-CimInstance` extracts `.uproject` path from running `UnrealEditor.exe`. No manual port configuration needed. Falls back to TCP handshake → RC API query → offline-only mode.
+**D3: Session-local project attachment** — ProjectContext attaches from MCP workspace roots only when the workspace topology is unambiguous. Ambiguous workspaces start management-only and require `attach_project`. Process inspection and plugin handshake are readiness checks, not attachment authority.
 
 **D4: Two C++ plugins coexist** — Existing UnrealMCP stays untouched (team-safe). New custom plugin adds capabilities on a separate port. Both can run simultaneously without conflict.
 
-**D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` currently declares 135 tools total: 6 discovery/management tools plus 129 tools across 16 dynamic toolsets. Claude discovers tools via `find_tools` (keyword search with alias expansion and stemming) or `enable_toolset` (explicit). `tools/list` response only includes active toolset tools. This keeps active tool count near the MCP safe range for typical tasks. Pattern follows GitHub MCP Server's dynamic toolsets approach, adapted with hybrid search from Speakeasy's progressive disclosure model.
+**D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` declares 10 discovery/management tools plus dynamic project-scoped toolsets. Claude discovers tools via `find_tools` or `enable_toolset`; both block project-scoped toolsets until ProjectContext has an attached project. `tools/list` response only includes management tools plus active toolset tools.
 
 **D6: Leave old Python servers in place** — `unreal-mcp-main/` directories stay. They don't conflict with the new centralized server (different MCP server name in `.mcp.json`). Can be cleaned up later with team coordination.
 
 ---
 
-## Auto-Detection System
+## Project Attachment And Readiness
 
-### Detection Chain (ordered by reliability)
+### Attachment Chain
 
 ```
-Layer 1: Process Inspection (PRIMARY — 95%+ reliability)
-  │  PowerShell Get-CimInstance Win32_Process
-  │  Extracts .uproject path from UnrealEditor.exe command line
-  │  Falls back to WMIC on older Windows
-  │
-  ├─ Found ProjectA.uproject → route to Project A ports
-  ├─ Found ProjectB.uproject → route to Project B ports
-  ├─ Found both → use UNREAL_PROJECT_ROOT env to disambiguate
-  └─ Found none → offline mode only
-
-Layer 2: TCP Handshake (SECONDARY — 90% reliability)
-  │  Probe the configured UEMCP TCP layer (default 55558) for responsive plugin
-  │  Send lightweight command to identify project
-  │
-  └─ Verifies process inspection result; discovers actual port if shifted
-
-Layer 3: RC API Query (TERTIARY — 85% reliability)
-  │  GET http://127.0.0.1:30010/remote/info
-  │  Returns world name, can infer project
-  │
-  └─ Additional verification if TCP layers unavailable
-
-Layer 4: Offline Fallback
-  │  No editor detected
-  │  All offline tools work using UNREAL_PROJECT_ROOT
-  │
-  └─ Tools clearly report "Editor not connected" for online-only features
+MCP workspace roots
+  ├─ exactly one direct .uproject → auto-attach
+  ├─ exactly one immediate child project → auto-attach
+  ├─ ambiguous/no project → unresolved management-only startup
+  └─ user calls attach_project → session-local manual attachment
 ```
 
-### Caching
-- Detection results cached for **30 seconds**
-- Cache invalidated on any connection failure
-- Re-detection is automatic and transparent
+### Readiness Chain
 
-### Multi-Instance Edge Case
-When both editors are running (rare), the server uses `UNREAL_PROJECT_ROOT` from env to determine which project THIS server instance is responsible for. Process inspection finds both, filters to the matching one.
+After attachment, `connection_info(force_reconnect=true)` separates:
+
+1. project attachment and offline file availability;
+2. plugin deploy freshness;
+3. editor process identity from full `.uproject` command-line paths;
+4. TCP:55558 and HTTP:30010 reachability;
+5. plugin `get_editor_state` identity proving transport ownership.
+
+Live mutators require the attached project, non-stale deploy freshness, verified editor identity, and verified transport ownership. Raw port reachability alone is never enough; when deploy freshness is known stale, guarded live mutators return `DEPLOY_STALE`.
 
 ---

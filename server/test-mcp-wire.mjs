@@ -31,6 +31,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { buildZodSchema } from './zod-builder.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
 import { TestRunner, resolveProjectRoot } from './test-helpers.mjs';
+import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TOOLS_YAML = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
@@ -40,71 +41,6 @@ const PROJECT_ROOT = resolveProjectRoot();
 const PROTOCOL_VERSION = '2024-11-05';
 
 const t = new TestRunner('MCP-Wire Integration Tests');
-
-// ── FakeTransport ────────────────────────────────────────────────────
-// Implements the MCP Transport contract (shared/transport.d.ts):
-//   start(), close(), send(msg) — called by the server
-//   onmessage(msg)               — invoked to deliver a client-side message
-//
-// Responses and notifications from the server land in _outbound. Tests
-// post inbound messages via injectMessage() and await matching responses
-// via waitForResponse(id).
-
-class FakeTransport {
-  constructor() {
-    this._outbound = [];
-    this._started = false;
-    this._closed = false;
-  }
-
-  async start() {
-    if (this._started) throw new Error('FakeTransport already started');
-    this._started = true;
-  }
-
-  async close() {
-    this._closed = true;
-    this.onclose?.();
-  }
-
-  async send(message) {
-    this._outbound.push(message);
-  }
-
-  // Deliver an inbound JSON-RPC message as if from the client.
-  // The SDK processes asynchronously, so callers must await waitForResponse.
-  injectMessage(message) {
-    if (!this.onmessage) throw new Error('onmessage not installed — did you forget server.connect(transport)?');
-    this.onmessage(message);
-  }
-
-  // Await a response with the given id. Polls _outbound every tick.
-  async waitForResponse(id, timeoutMs = 3000) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const idx = this._outbound.findIndex(m => m.id === id);
-      if (idx !== -1) {
-        const msg = this._outbound[idx];
-        this._outbound.splice(idx, 1);
-        return msg;
-      }
-      await new Promise(r => setImmediate(r));
-    }
-    throw new Error(`waitForResponse(${id}) timed out after ${timeoutMs}ms; outbound=${JSON.stringify(this._outbound).slice(0, 200)}`);
-  }
-
-  // Drain any pending notifications matching method.
-  drainNotifications(method) {
-    const matches = [];
-    const keep = [];
-    for (const m of this._outbound) {
-      if (!m.id && m.method === method) matches.push(m);
-      else keep.push(m);
-    }
-    this._outbound = keep;
-    return matches;
-  }
-}
 
 // ── Test server factory ──────────────────────────────────────────────
 // Mirrors server.mjs's offline-tool registration using the SAME inputs:
@@ -145,7 +81,7 @@ async function createTestServer(handlerFactory) {
     handles[name] = handle;
   }
 
-  const transport = new FakeTransport();
+  const transport = new FakeMcpTransport();
   await server.connect(transport);
 
   let idCounter = 1;

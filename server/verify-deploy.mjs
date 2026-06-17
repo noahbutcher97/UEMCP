@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // verify-deploy.mjs — Pre-dispatch deployment verification CLI.
 //
-// Reads .uemcp-targets.txt (repo root, gitignored, one .uproject path per
-// line). For each target, reports whether the deployed UEMCP plugin is in
-// sync with the repo source: SYNC / NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY
-// / MISSING. Surfaces editor-lock state (UnrealEditor.exe running with the
-// target's .uproject in its CommandLine) so users don't invoke Build.bat
-// against a locked DLL and silently no-op.
+// Reads .uemcp-targets.json profiles by default, falling back to legacy
+// .uemcp-targets.txt when no structured file exists. For each selected target,
+// reports whether the deployed UEMCP plugin is in sync with the repo source:
+// SYNC / NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY / MISSING. Surfaces
+// editor-lock state (UnrealEditor.exe running with the target's .uproject in
+// its CommandLine) so users don't invoke Build.bat against a locked DLL and
+// silently no-op.
 //
 // Closes the D113 wasted-worker-session class structurally (per
 // `feedback_predispatch_deploy_state_check.md` memory) and the D135
@@ -20,7 +21,8 @@
 //   --regenerate-mcp-json N    rewrite .mcp.json for target N (1-based)
 //   --quiet                    only print verdicts, suppress details
 //   --no-color                 disable ANSI colors
-//   --targets <path>           override .uemcp-targets.txt path
+//   --targets <path>           override .uemcp-targets.json/.txt path
+//   --profile <name>           select a structured profile (default/all/smoke/etc.)
 //   --watch                    long-running file-watcher mode (Q3-C). Watches
 //                              plugin/UEMCP/Source/ recursively; on change,
 //                              debounces 500ms then runs sync-plugin.bat -y
@@ -34,6 +36,18 @@ import { readFileSync, statSync, readdirSync, existsSync, writeFileSync, watch a
 import { join, dirname, resolve, sep, basename } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  parseTargetsFile as parseTargetsFileShared,
+  readProjectTargets,
+} from './project-targets.mjs';
+import {
+  extractUprojectFromCommandLine as extractUprojectFromCommandLineShared,
+  normalizePath as normalizePathShared,
+} from './project-identity.mjs';
+import {
+  parseEditorProcessLines as parseEditorProcessLinesShared,
+  listEditorProcesses as listEditorProcessesShared,
+} from './editor-processes.mjs';
 // W-L marker integration (D138-FIX3): consult <dest>/.uemcp-deploy-marker.json
 // to detect uplugin/manifest version-mismatch — closes the gap where
 // verify-deploy could report SYNC for a target whose Source/ matches but
@@ -50,7 +64,6 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(__filename), '..');
 const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source');
-const DEFAULT_TARGETS_FILE = join(REPO_ROOT, '.uemcp-targets.txt');
 const MTIME_SLOP_SEC = 5;  // tolerance for filesystem mtime jitter on copy
 
 // ─── ANSI colors (no dependency) ────────────────────────────────────
@@ -61,11 +74,7 @@ const red = C('31'), green = C('32'), yellow = C('33'), cyan = C('36'), bold = C
 // ─── Pure helpers (exported for tests) ──────────────────────────────
 
 /** Parse .uemcp-targets.txt: strip comments, blank lines; return array of trimmed paths. */
-export function parseTargetsFile(content) {
-  return content.split(/\r?\n/)
-    .map((line) => line.replace(/#.*$/, '').trim())
-    .filter((line) => line.length > 0);
-}
+export const parseTargetsFile = parseTargetsFileShared;
 
 /** Recursively walk a directory and return the maximum mtime in seconds (Unix epoch). */
 export function newestMtimeSec(dir) {
@@ -196,17 +205,10 @@ export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, in
 }
 
 /** Normalize a Windows path for comparison: lowercase + forward slashes + no trailing slash. */
-export function normalizePath(p) {
-  return resolve(p).replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
-}
+export const normalizePath = normalizePathShared;
 
 /** Extract .uproject argument from a UnrealEditor CommandLine string. */
-export function extractUprojectFromCommandLine(cmdLine) {
-  if (!cmdLine) return null;
-  // Quoted form: "...\\Foo.uproject"  OR unquoted form ending with .uproject
-  const m = cmdLine.match(/"([^"]+\.uproject)"/i) || cmdLine.match(/(\S+\.uproject)/i);
-  return m ? m[1] : null;
-}
+export const extractUprojectFromCommandLine = extractUprojectFromCommandLineShared;
 
 // ─── Side-effecting helpers ─────────────────────────────────────────
 
@@ -254,49 +256,11 @@ function getHeadPluginCommitInfo() {
 }
 
 /** Parse PowerShell process output lines shaped as "pid|commandLine". */
-export function parseEditorProcessLines(stdout) {
-  return String(stdout || '').split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const idx = line.indexOf('|');
-      const pidText = idx >= 0 ? line.slice(0, idx) : line;
-      const cmd = idx >= 0 ? line.slice(idx + 1) : '';
-      const pid = parseInt(pidText, 10);
-      if (!Number.isFinite(pid)) return null;
-      return {
-        pid,
-        cmdLine: cmd,
-        commandLineAvailable: cmd.length > 0,
-        uprojectPath: extractUprojectFromCommandLine(cmd),
-      };
-    })
-    .filter(Boolean);
-}
+export const parseEditorProcessLines = parseEditorProcessLinesShared;
 
 /** Enumerate UnrealEditor* processes via PowerShell; return [{ pid, uprojectPath }]. */
 export function listEditorProcesses() {
-  const ps = spawnSync('powershell', [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-Command',
-    "Get-CimInstance Win32_Process -Filter \"Name LIKE 'UnrealEditor%'\" | " +
-    "ForEach-Object { '{0}|{1}' -f $_.ProcessId, $_.CommandLine }",
-  ], { encoding: 'utf8' });
-  if (ps.status === 0) return parseEditorProcessLines(ps.stdout);
-
-  // In sandboxed shells, CIM command-line introspection can be denied even
-  // though Get-Process can still see UnrealEditor. Fall back so the report
-  // does not falsely imply "no editor"; target attribution will be unknown.
-  const fallback = spawnSync('powershell', [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-Command',
-    "Get-Process -Name UnrealEditor* -ErrorAction SilentlyContinue | " +
-    "ForEach-Object { '{0}|' -f $_.Id }",
-  ], { encoding: 'utf8' });
-  if (fallback.status !== 0) return [];
-  return parseEditorProcessLines(fallback.stdout);
+  return listEditorProcessesShared();
 }
 
 /** Read repo-root .mcp.json's UNREAL_PROJECT_ROOT env, if present; null if absent. */
@@ -325,13 +289,9 @@ function regenerateMcpJson(uprojectPath) {
     console.error(red('[ERROR]') + ` Template missing: ${tmpl}`);
     return 1;
   }
-  const projectName = basename(uprojectPath, '.uproject');
-  const projectRoot = dirname(uprojectPath).replace(/\\/g, '/');
   const repoRootFwd = REPO_ROOT.replace(/\\/g, '/');
   const out = readFileSync(tmpl, 'utf8')
-    .split('<UEMCP_REPO_PATH>').join(repoRootFwd)
-    .split('<UNREAL_PROJECT_ROOT>').join(projectRoot)
-    .split('<UNREAL_PROJECT_NAME>').join(projectName);
+    .split('<UEMCP_REPO_PATH>').join(repoRootFwd);
   // Validate JSON before writing.
   try { JSON.parse(out); } catch (e) {
     console.error(red('[ERROR]') + ` Generated .mcp.json invalid: ${e.message}`);
@@ -340,8 +300,9 @@ function regenerateMcpJson(uprojectPath) {
   const dest = join(REPO_ROOT, '.mcp.json');
   writeFileSync(dest, out, 'utf8');
   console.log(green('[OK]') + ` Wrote ${dest}`);
-  console.log(`  UNREAL_PROJECT_ROOT = ${projectRoot}`);
-  console.log(`  UNREAL_PROJECT_NAME = ${projectName}`);
+  console.log(`  Project target      = ${uprojectPath}`);
+  console.log(`  Attachment          = workspace roots or attach_project (env mode not written by default)`);
+  console.log(`  Compatibility env   = set UEMCP_PROJECT_ATTACH_MODE=env manually if required`);
   return 0;
 }
 
@@ -490,7 +451,8 @@ function parseArgs(argv) {
     autoSync: false,
     regenIdx: null,
     quiet: false,
-    targetsFile: DEFAULT_TARGETS_FILE,
+    targetsFile: null,
+    profile: null,
     watch: false,
     debounceMs: 500,
     help: false,
@@ -502,6 +464,7 @@ function parseArgs(argv) {
     else if (a === '--quiet') flags.quiet = true;
     else if (a === '--no-color') useColor = false;
     else if (a === '--targets') flags.targetsFile = argv[++i];
+    else if (a === '--profile') flags.profile = argv[++i] || '';
     else if (a === '--watch') flags.watch = true;
     else if (a === '--debounce-ms') flags.debounceMs = parseInt(argv[++i], 10);
     else if (a === '--help' || a === '-h') flags.help = true;
@@ -517,9 +480,10 @@ Usage: node verify-deploy.mjs [flags]
    or: verify-deploy.bat [flags]
    or: setup-watcher.bat                  (--watch mode wrapper)
 
-Reads .uemcp-targets.txt at repo root (one .uproject path per line; gitignored,
-codename-safe). For each target, reports SYNC / NEEDS-SYNC / NEEDS-BUILD /
-NEEDS-DEPLOY / MISSING. Surfaces UnrealEditor.exe processes locking each DLL.
+Reads .uemcp-targets.json at repo root when present, otherwise falls back to
+legacy .uemcp-targets.txt (gitignored, local-machine paths only). For each
+selected target, reports SYNC / NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY /
+MISSING. Surfaces UnrealEditor.exe processes locking each DLL.
 
 Flags:
   --auto-sync                run sync-plugin.bat on stale targets (NEEDS-SYNC,
@@ -527,7 +491,9 @@ Flags:
   --regenerate-mcp-json N    rewrite repo-root .mcp.json for target N (1-based)
   --quiet                    only verdict line per target, no detail
   --no-color                 disable ANSI colors
-  --targets <path>           use a different targets file
+  --targets <path>           use a different .uemcp-targets.json/.txt file
+  --profile <name>           select a structured profile. Built-in: all.
+                             Legacy .txt supports only legacy/default/all.
   --watch                    long-running mode: watch plugin/UEMCP/Source/ and
                              auto-sync to all targets on change (Q3-C).
                              Skips Binaries/, Intermediate/, *.tmp paths.
@@ -538,19 +504,71 @@ Flags:
 Exit: 0 all SYNC; 1 any non-SYNC; 2 config error.`);
 }
 
+function resolveTargetSelection(flags) {
+  return readProjectTargets({
+    repoRoot: REPO_ROOT,
+    ...(flags.targetsFile ? { targetsPath: flags.targetsFile } : {}),
+    profile: flags.profile,
+  });
+}
+
+function printTargetSelectionHeader(selection) {
+  const sourceLabel = selection.sourceType === 'json'
+    ? 'structured json'
+    : 'legacy txt';
+  console.log(`Targets source      : ${selection.targetsPath} ${dim('(' + sourceLabel + ')')}`);
+  console.log(`Profile             : ${selection.profile?.name || '(none)'} ${dim('(' + selection.candidates.length + ' selected)')}`);
+}
+
+function printTargetSelectionWarnings(selection) {
+  for (const w of selection.warnings || []) {
+    console.log(yellow('[WARN]') + ` ${w.message}`);
+  }
+}
+
+function printTargetSelectionError(selection) {
+  printTargetSelectionWarnings(selection);
+  if (selection.status === 'profile_not_found') {
+    console.error(red('[ERROR]') + ` Profile not found: ${selection.profile?.name || '(none)'}`);
+    const profiles = selection.profile?.availableProfiles || [];
+    if (profiles.length > 0) console.error(`  Available profiles: ${profiles.join(', ')}`);
+    return;
+  }
+  if (selection.status === 'absent') {
+    console.error(red('[ERROR]') + ` Targets file not found: ${selection.targetsPath}`);
+    console.error('  Create .uemcp-targets.json from .uemcp-targets.json.example, or use legacy .uemcp-targets.txt.');
+    return;
+  }
+  if (selection.status === 'empty') {
+    console.error(yellow('[WARN]') + ` No targets selected in ${selection.targetsPath}.`);
+    return;
+  }
+  if (selection.status === 'invalid_config') {
+    console.error(red('[ERROR]') + ` Invalid targets config: ${selection.targetsPath}`);
+  } else if (selection.status === 'invalid_profile') {
+    console.error(red('[ERROR]') + ` Invalid profile: ${selection.profile?.name || '(none)'}`);
+  } else {
+    console.error(red('[ERROR]') + ` Invalid targets: ${selection.targetsPath}`);
+  }
+  for (const entry of selection.invalidEntries || []) {
+    console.error(`  - ${entry.alias ? `${entry.alias}: ` : ''}${entry.entry} [${entry.reason}] ${entry.message}`);
+  }
+}
+
+function targetSelectionIsUsable(selection) {
+  return selection.candidates.length > 0 && selection.invalidEntries.length === 0 && selection.status === 'valid';
+}
+
 // ─── Watch mode (Q3-C) ──────────────────────────────────────────────
 
 /** Long-running file watcher; debounces source changes and runs sync-plugin.bat per target. */
 function runWatchMode(flags) {
-  if (!existsSync(flags.targetsFile)) {
-    console.error(red('[ERROR]') + ` Targets file not found: ${flags.targetsFile}`);
+  const selection = resolveTargetSelection(flags);
+  if (!targetSelectionIsUsable(selection)) {
+    printTargetSelectionError(selection);
     return 2;
   }
-  const targets = parseTargetsFile(readFileSync(flags.targetsFile, 'utf8'));
-  if (targets.length === 0) {
-    console.error(yellow('[WARN]') + ` No targets in ${flags.targetsFile}.`);
-    return 2;
-  }
+  const targets = selection.candidates.map(candidate => candidate.uprojectPath);
   if (!existsSync(PLUGIN_SRC_DIR)) {
     console.error(red('[ERROR]') + ` Plugin source dir missing: ${PLUGIN_SRC_DIR}`);
     return 2;
@@ -561,7 +579,8 @@ function runWatchMode(flags) {
   console.log(bold('=== UEMCP setup-watcher (Q3-C auto-deploy) ==='));
   console.log(`Repo            : ${REPO_ROOT}`);
   console.log(`Watching        : ${PLUGIN_SRC_DIR}`);
-  console.log(`Targets file    : ${flags.targetsFile}`);
+  console.log(`Targets source  : ${selection.targetsPath}`);
+  console.log(`Profile         : ${selection.profile?.name || '(none)'}`);
   console.log(`Targets         : ${targets.length}`);
   for (let i = 0; i < targets.length; i++) console.log(`  [${i + 1}] ${targets[i]}`);
   console.log(`Debounce        : ${flags.debounceMs}ms`);
@@ -655,18 +674,12 @@ function main() {
   if (flags.help) { printHelp(); return 0; }
   if (flags.watch) return runWatchMode(flags);
 
-  // Targets file
-  if (!existsSync(flags.targetsFile)) {
-    console.error(red('[ERROR]') + ` Targets file not found: ${flags.targetsFile}`);
-    console.error('  Create it with one .uproject path per line. Example:');
-    console.error('    D:/UnrealProjects/5.6/MyProject/MyProject.uproject');
+  const targetSelection = resolveTargetSelection(flags);
+  if (!targetSelectionIsUsable(targetSelection)) {
+    printTargetSelectionError(targetSelection);
     return 2;
   }
-  const targets = parseTargetsFile(readFileSync(flags.targetsFile, 'utf8'));
-  if (targets.length === 0) {
-    console.error(yellow('[WARN]') + ` No targets in ${flags.targetsFile}. Add .uproject paths and re-run.`);
-    return 2;
-  }
+  const targets = targetSelection.candidates.map(candidate => candidate.uprojectPath);
 
   // Repo-side metrics
   const repoSrcInfo = newestMtimeSec(PLUGIN_SRC_DIR);
@@ -712,6 +725,8 @@ function main() {
   console.log(`Repo                : ${REPO_ROOT}`);
   console.log(`Repo plugin source  : ${formatTime(repoSrcMtime)} ${dim('(' + repoSrcLabel + ')')}`);
   console.log(`HEAD plugin/Source  : ${headInfo.sha} ${dim(headInfo.subject)}`);
+  printTargetSelectionHeader(targetSelection);
+  printTargetSelectionWarnings(targetSelection);
   console.log(`Active .mcp.json    : ${activeMcpRoot ? activeMcpRoot : '(none / not found)'}`);
   console.log(`Editor processes    : ${editorProcs.length}${editorProcs.length > 0 ? dim(' — ' + editorProcs.map((e) => `pid ${e.pid}`).join(', ')) : ''}`);
   // List unmatched-but-active editors (running editors whose .uproject is not in targets list).
@@ -724,7 +739,7 @@ function main() {
     for (const e of orphanEditors) {
       console.log(`        pid ${e.pid} → ${e.uprojectPath}`);
     }
-    console.log(`        Add it to ${flags.targetsFile} to track its deploy state.`);
+    console.log(`        Add it to ${targetSelection.targetsPath} to track its deploy state.`);
   }
   console.log('');
   console.log(bold('Targets:'));

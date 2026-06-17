@@ -2,50 +2,29 @@
 //
 // Preconditions:
 //   - Unreal Editor is open with UEMCP loaded.
-//   - UNREAL_PROJECT_ROOT points at the target project.
 //   - Set UEMCP_LIVE_SMOKE=1 to acknowledge this creates/deletes temp content.
+//   - Provide an explicit project via smoke-live.bat --project or UEMCP_LIVE_PROJECT_ROOT.
 //
 // Run:
-//   cd server
-//   $env:UNREAL_PROJECT_ROOT='D:\Path\To\Project'
 //   $env:UEMCP_LIVE_SMOKE='1'
-//   node live-smoke-blueprint-timer-mover.mjs
+//   ..\smoke-live.bat --project "D:\Path\To\Project\Project.uproject"
 
-import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import yaml from 'js-yaml';
-import { ConnectionManager } from './connection-manager.mjs';
-import { initBlueprintsWriteTools, executeBlueprintsWriteTool } from './blueprints-write-tcp-tools.mjs';
-import { initActorsTools, executeActorsTool } from './actors-tcp-tools.mjs';
-import { initMenhanceTools, executeMenhanceTool } from './menhance-tcp-tools.mjs';
-import { initM5EditorUtilityTools, executeM5EditorUtilityTool } from './m5-editor-utility-tools.mjs';
-
-if (process.env.UEMCP_LIVE_SMOKE !== '1') {
-  console.error('Refusing to run: set UEMCP_LIVE_SMOKE=1 to allow live editor mutations.');
-  process.exit(2);
-}
-
-const projectRoot = process.env.UNREAL_PROJECT_ROOT;
-if (!projectRoot) {
-  console.error('Refusing to run: UNREAL_PROJECT_ROOT is required.');
-  process.exit(2);
-}
-
-const toolsData = yaml.load(readFileSync('../tools.yaml', 'utf8'));
-initBlueprintsWriteTools(toolsData);
-initActorsTools(toolsData);
-initMenhanceTools(toolsData);
-initM5EditorUtilityTools(toolsData, { pythonExecEnabled: false });
-
-const cm = new ConnectionManager({
-  projectRoot,
-  projectName: process.env.UNREAL_PROJECT_NAME || '',
-  tcpPortExisting: Number.parseInt(process.env.UNREAL_TCP_PORT_EXISTING || '55557', 10),
-  tcpPortCustom: Number.parseInt(process.env.UNREAL_TCP_PORT_CUSTOM || '55558', 10),
-  tcpTimeoutMs: Number.parseInt(process.env.UNREAL_TCP_TIMEOUT_MS || '30000', 10),
-  rcPort: Number.parseInt(process.env.UNREAL_RC_PORT || '30010', 10),
-  autoDetect: true,
-});
+import { executeBlueprintsWriteTool } from './blueprints-write-tcp-tools.mjs';
+import { executeActorsTool } from './actors-tcp-tools.mjs';
+import { executeMenhanceTool } from './menhance-tcp-tools.mjs';
+import { executeM5EditorUtilityTool } from './m5-editor-utility-tools.mjs';
+import {
+  createLiveSmokeCall,
+  isNonMutatingNameConflict,
+  isTransientPIEActorLookupError,
+  pieSelectorFromSessionState,
+  prepareLiveSmoke,
+  runCleanup,
+  sleep,
+  stopPIEAndWaitForStopped,
+  unwrapLiveSmokeResponse,
+} from './live-smoke-harness.mjs';
 
 const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17);
 const ownerToken = randomUUID().replace(/-/g, '').slice(0, 8);
@@ -53,23 +32,11 @@ const bpName = `BP_UEMCP_TimerMover_${stamp}_${ownerToken}`;
 const actorName = `UEMCP_TimerMover_${stamp}_${ownerToken}`;
 const bpPath = `/Game/UEMCP/${bpName}`;
 const callbackFunction = 'MoveStep';
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function unwrap(label, response) {
-  if (label === 'sample_pie_actor_state' && typeof response?.sample_count === 'number') {
-    return response;
-  }
-  if ((label === 'wait_for_pie_actor_stable' || label === 'actor_readiness') && typeof response?.stable === 'boolean') {
-    return response;
-  }
-  if (label === 'get_pie_actor_state' && response?.transform) {
-    return response;
-  }
-  if (!response || response.status !== 'success') {
-    throw new Error(`${label} failed: ${JSON.stringify(response)}`);
-  }
-  return response.result ?? response;
-}
+const smoke = await prepareLiveSmoke({ name: 'live-smoke-blueprint-timer-mover' });
+if (!smoke.ready) process.exit(smoke.exitCode);
+const { cm } = smoke;
+const unwrap = unwrapLiveSmokeResponse;
 
 function summarize(label, result) {
   if (label === 'compile_and_save_blueprint') {
@@ -113,48 +80,7 @@ function summarize(label, result) {
   return result;
 }
 
-async function call(label, fn) {
-  const result = unwrap(label, await fn());
-  console.log(`PASS ${label}: ${JSON.stringify(summarize(label, result))}`);
-  return result;
-}
-
-async function cleanupWithBackoff(label, fn) {
-  let lastError = null;
-  for (const delay of [500, 1500, 5000, 15000]) {
-    await sleep(delay);
-    try {
-      const response = await fn();
-      console.log(`CLEAN ${label}: ${JSON.stringify(response)}`);
-      return response;
-    } catch (err) {
-      lastError = err;
-      console.log(`CLEAN ${label} retry after ${delay}ms failed: ${err.message}`);
-    }
-  }
-  throw lastError;
-}
-
-function isNotFoundCleanupError(err) {
-  return /not found|does not exist|missing asset|missing actor|asset_not_found|actor_not_found|not_found/i.test(err?.message || '');
-}
-
-function isNonMutatingNameConflict(err) {
-  return /already exists|exists already|duplicate|blueprint_exists|actor_exists|name conflict|name.*exists|object.*exists/i.test(err?.message || '');
-}
-
-async function runCleanup(label, fn, errors, options = {}) {
-  try {
-    await cleanupWithBackoff(label, fn);
-  } catch (err) {
-    if (options.tolerateNotFound && isNotFoundCleanupError(err)) {
-      console.log(`CLEAN ${label}: tolerated not-found cleanup result: ${err.message}`);
-      return;
-    }
-    errors.push(new Error(`${label}: ${err.message}`));
-    console.error(`CLEAN ${label} failed permanently: ${err.stack || err.message}`);
-  }
-}
+const call = createLiveSmokeCall({ summarize });
 
 function pins(node, direction) {
   return Array.isArray(node?.pins)
@@ -240,20 +166,29 @@ async function addMathNode(operation, value_type, node_position, params = {}, gr
   }
 }
 
-async function waitForActorReadiness() {
+async function waitForActorReadiness(pieSelector = {}) {
   let last = null;
+  let lastTransientError = null;
   for (let attempt = 0; attempt < 30; attempt++) {
-    last = unwrap('get_pie_actor_state', await executeMenhanceTool('get_pie_actor_state', {
-      actor_ref: { label: actorName, name: actorName },
-    }, cm));
-    const location = last.transform?.location;
-    if (Array.isArray(location) && Math.abs(location[2] - 120) <= 1) {
-      console.log(`PASS actor_readiness: ${JSON.stringify(summarize('actor_readiness', last))}`);
-      return last;
+    try {
+      last = unwrap('get_pie_actor_state', await executeMenhanceTool('get_pie_actor_state', {
+        ...pieSelector,
+        actor_ref: { label: actorName, name: actorName },
+      }, cm));
+      const location = last.transform?.location;
+      if (Array.isArray(location) && Math.abs(location[2] - 120) <= 1) {
+        console.log(`PASS actor_readiness: ${JSON.stringify(summarize('actor_readiness', last))}`);
+        return last;
+      }
+    } catch (err) {
+      if (!isTransientPIEActorLookupError(err)) {
+        throw err;
+      }
+      lastTransientError = err;
     }
     await sleep(100);
   }
-  throw new Error(`PIE actor did not reach expected spawn height before sampling: ${JSON.stringify(summarize('actor_readiness', last || {}))}`);
+  throw new Error(`PIE actor did not reach expected spawn height before sampling: ${JSON.stringify(summarize('actor_readiness', last || {}))}; last_error=${lastTransientError?.message || ''}`);
 }
 
 async function authorBeginPlayInitialization(timerResult) {
@@ -408,11 +343,6 @@ let actorCleanupCandidate = false;
 let pieCleanupCandidate = false;
 
 try {
-  if (!await cm.isLayerAvailable('tcp-55558', true)) {
-    throw new Error(`tcp-55558 unavailable: ${JSON.stringify(cm.getStatus()['tcp-55558'])}`);
-  }
-  console.log(`PASS tcp-55558 layer: ${JSON.stringify(cm.getStatus()['tcp-55558'])}`);
-
   await executeMenhanceTool('stop_pie', {}, cm).catch(() => null);
 
   assetCleanupCandidate = true;
@@ -517,10 +447,12 @@ try {
   if (!session?.pie_running || !Array.isArray(session.contexts) || session.contexts.length === 0) {
     throw new Error(`PIE did not report an active runtime world: ${JSON.stringify(session)}`);
   }
+  const pieSelector = pieSelectorFromSessionState(session);
 
-  await waitForActorReadiness();
+  await waitForActorReadiness(pieSelector);
 
   const sample = await call('sample_pie_actor_state', () => executeMenhanceTool('sample_pie_actor_state', {
+    ...pieSelector,
     actor_ref: { label: actorName, name: actorName },
     duration_ms: 1800,
     interval_ms: 100,
@@ -552,15 +484,11 @@ try {
 } finally {
   const cleanupErrors = [];
   if (pieCleanupCandidate || pieStarted) {
-    await runCleanup('stop_pie', () => executeMenhanceTool('stop_pie', {}, cm), cleanupErrors);
-    await runCleanup('final_pie_state', async () => {
-      const response = await executeMenhanceTool('get_pie_session_state', {}, cm);
-      const state = unwrap('final_pie_state', response);
-      if (state.pie_running) {
-        throw new Error(`PIE still running: ${JSON.stringify(state)}`);
-      }
-      return response;
-    }, cleanupErrors);
+    await runCleanup('stop_pie_and_wait', () => stopPIEAndWaitForStopped({
+      stop: () => executeMenhanceTool('stop_pie', {}, cm),
+      getState: () => executeMenhanceTool('get_pie_session_state', {}, cm),
+      delaysMs: [500, 1500, 3000, 5000, 10000],
+    }), cleanupErrors);
   }
   if (actorCleanupCandidate || actorCreated) {
     await runCleanup('delete_actor', () => executeActorsTool('delete_actor', { name: actorName }, cm), cleanupErrors, { tolerateNotFound: true });

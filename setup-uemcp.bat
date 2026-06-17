@@ -172,6 +172,9 @@ REM   Arg given: use it (programmatic / repeat-run mode).
 REM   No arg: show GUI dialogs (workspace folder first, then .uproject file).
 REM   PowerShell WinForms: standard Windows-installer pattern for GUI pickers.
 set "PROJECT_ARG=%~1"
+set "ENV_MODE=0"
+if /i "%~2"=="--env-mode" set "ENV_MODE=1"
+if defined SETUP_UEMCP_ENV_MODE set "ENV_MODE=1"
 set "WORKSPACE_OVERRIDE="
 if "!PROJECT_ARG!"=="" (
   echo Opening workspace folder picker...
@@ -216,7 +219,7 @@ if /i not "!PROJECT_EXT!"==".uproject" (
   set "EXIT_CODE=1" & goto :end
 )
 
-REM --- UNREAL_PROJECT_ROOT env var = directory containing the .uproject ---
+REM --- Project directory containing the .uproject ---
 set "UPROJECT_DIR=!UPROJECT_DIR_RAW!"
 if "!UPROJECT_DIR:~-1!"=="\" set "UPROJECT_DIR=!UPROJECT_DIR:~0,-1!"
 set "UPROJECT_DIR_FWD=!UPROJECT_DIR:\=/!"
@@ -247,8 +250,33 @@ if not "!WORKSPACE_OVERRIDE!"=="" (
 echo.
 echo UEMCP repo      : !UEMCP_PATH!
 echo Project         : !PROJECT_NAME!
-echo Project dir     : !UPROJECT_DIR!   (UNREAL_PROJECT_ROOT)
+echo Project dir     : !UPROJECT_DIR!
 echo Workspace root  : !WORKSPACE_ROOT!  (layout: !LAYOUT!)
+if "!ENV_MODE!"=="1" (
+  echo Attach mode     : explicit env compatibility mode
+) else (
+  echo Attach mode     : workspace roots / attach_project ^(default^)
+)
+echo.
+
+REM --- Register the selected .uproject as a repo-local attachment target ---
+REM Structured profiles are the production path. registerProjectTargetProfile
+REM seeds "default", "smoke", and "release-gate"; legacy .txt is kept only for
+REM older scripts that have not migrated yet.
+set "TARGETS_JSON=!UEMCP_PATH!\.uemcp-targets.json"
+set "TARGETS_FILE=!UEMCP_PATH!\.uemcp-targets.txt"
+node --input-type=module -e "import { pathToFileURL } from 'node:url'; const mod = await import(pathToFileURL(process.env.UEMCP_PATH + '\\server\\project-targets.mjs').href); const r = mod.registerProjectTargetProfile({ configPath: process.env.TARGETS_JSON, uprojectPath: process.env.UPROJECT_FULL }); console.log(r.status.toUpperCase() + ': ' + r.alias + ' -> ' + process.env.UPROJECT_FULL);"
+if errorlevel 1 (
+  echo [WARN] Failed to update !TARGETS_JSON!; continuing.
+) else (
+  echo [SUCCESS] Registered target in !TARGETS_JSON! profiles default/smoke/release-gate.
+)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:TARGETS_FILE; $target=$env:UPROJECT_FULL; $dir=Split-Path -Parent $p; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }; $existing=@(); if (Test-Path $p) { $existing=Get-Content $p }; if (-not ($existing | Where-Object { $_.Trim().ToLowerInvariant() -eq $target.ToLowerInvariant() })) { Add-Content -Path $p -Value $target; Write-Output ('ADDED: ' + $target) } else { Write-Output ('UNCHANGED: ' + $target) }"
+if errorlevel 1 (
+  echo [WARN] Failed to update legacy !TARGETS_FILE!; continuing.
+) else (
+  echo [INFO] Updated legacy compatibility list !TARGETS_FILE!.
+)
 echo.
 
 REM --- Auto-register project codenames into NDA forbidden-tokens block-list ---
@@ -330,7 +358,11 @@ REM Export values for node to read via process.env (avoids CMD-quoting hazards
 REM and the JS string-literal escape pitfalls of interpolating %VAR% into code).
 set "TARGET_PATH=!TARGET_MCP!"
 set "PROJECT_ROOT_FWD=!UPROJECT_DIR_FWD!"
-node -e "const fs=require('fs');const t=fs.readFileSync(process.env.TEMPLATE_PATH,'utf8');const o=t.split('<UEMCP_REPO_PATH>').join(process.env.UEMCP_PATH_FWD).split('<UNREAL_PROJECT_ROOT>').join(process.env.PROJECT_ROOT_FWD).split('<UNREAL_PROJECT_NAME>').join(process.env.PROJECT_NAME);fs.writeFileSync(process.env.TARGET_PATH,o);"
+if "!ENV_MODE!"=="1" (
+  echo [WARN] Writing env-authoritative compatibility config ^(UEMCP_PROJECT_ATTACH_MODE=env^).
+)
+set "SETUP_ENV_MODE=!ENV_MODE!"
+node -e "const fs=require('fs');const t=fs.readFileSync(process.env.TEMPLATE_PATH,'utf8').split('<UEMCP_REPO_PATH>').join(process.env.UEMCP_PATH_FWD);const j=JSON.parse(t);const env=j.mcpServers.uemcp.env||(j.mcpServers.uemcp.env={});if(process.env.SETUP_ENV_MODE==='1'){env.UEMCP_PROJECT_ATTACH_MODE='env';env.UNREAL_PROJECT_ROOT=process.env.PROJECT_ROOT_FWD;env.UNREAL_PROJECT_NAME=process.env.PROJECT_NAME;}fs.writeFileSync(process.env.TARGET_PATH,JSON.stringify(j,null,2)+'\n');"
 if errorlevel 1 (
   echo [ERROR] Failed to generate .mcp.json.
   set "EXIT_CODE=3" & goto :end
