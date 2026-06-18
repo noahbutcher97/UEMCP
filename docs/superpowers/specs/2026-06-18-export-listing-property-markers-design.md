@@ -86,6 +86,8 @@ Validation:
 - Reject calls that provide both `export_name` and `export_index`.
 - Reject `export_index` values outside `1..exports.length`.
 - Preserve the existing unknown `export_name` error behavior.
+- Return `export_selection_reason: "explicit_export_name"` for explicit name selection.
+- Return `export_selection_reason: "explicit_export_index"` for explicit index selection.
 
 ## Default Export Selection
 
@@ -99,6 +101,8 @@ Both tools use the same default-export selector:
 
 Selection reasons:
 
+- `explicit_export_name`
+- `explicit_export_index`
 - `blueprint_cdo`
 - `package_root_name_match`
 - `root_asset_export`
