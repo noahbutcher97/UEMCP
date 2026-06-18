@@ -12,6 +12,7 @@
 
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { readFileSync } from 'node:fs';
 import {
   initM5AnimationTools,
   executeM5AnimationTool,
@@ -298,6 +299,62 @@ console.log('\n── Group 8: NEW-1 Slot-Count Contract ──');
     `create_montage response carries slot_count=1 (NEW-1 regression contract); got ${res.result?.slot_count}`);
   t.assert(!('duplicate_slots' in (res.result || {})),
     'create_montage response shape excludes any duplicate-slot indicator');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Group 9: D183 source guard — live read handlers load animation
+// asset instances instead of sending montage/sequence reads through
+// reflection_walk's class resolver.
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 9: D183 Montage/Sequence Read Handler Source Guard ──');
+
+{
+  const source = readFileSync(
+    new URL('../plugin/UEMCP/Source/UEMCP/Private/AnimationHandlers.cpp', import.meta.url),
+    'utf8'
+  );
+
+  const sliceBetween = (startNeedle, endNeedle) => {
+    const start = source.indexOf(startNeedle);
+    if (start < 0) {
+      return '';
+    }
+    const end = source.indexOf(endNeedle, start + startNeedle.length);
+    return end >= 0 ? source.slice(start, end) : source.slice(start);
+  };
+
+  const montageBlock = sliceBetween('void HandleGetMontageFull', 'void HandleGetAnimSequenceInfo');
+  const sequenceBlock = sliceBetween('void HandleGetAnimSequenceInfo', '} // anonymous namespace');
+
+  t.assert(montageBlock.includes('LoadObject<UAnimMontage>'),
+    'get_montage_full handler loads a UAnimMontage asset instance');
+  t.assert(montageBlock.includes('CompositeSections'),
+    'get_montage_full handler reads montage sections');
+  t.assert(montageBlock.includes('SlotAnimTracks'),
+    'get_montage_full handler reads montage slot tracks');
+  t.assert(montageBlock.includes('Notifies'),
+    'get_montage_full handler reads montage notifies');
+  t.assert(!/ResolveClass|reflection_walk/.test(montageBlock),
+    'get_montage_full handler does not use class-resolution/reflection_walk path');
+
+  t.assert(sequenceBlock.includes('LoadObject<UAnimSequence>'),
+    'get_anim_sequence_info handler loads a UAnimSequence asset instance');
+  t.assert(sequenceBlock.includes('GetSkeleton'),
+    'get_anim_sequence_info handler reports skeleton');
+  t.assert(sequenceBlock.includes('GetPlayLength'),
+    'get_anim_sequence_info handler reports duration');
+  t.assert(sequenceBlock.includes('GetNumberOfSampledKeys'),
+    'get_anim_sequence_info handler reports sampled key/frame count from sequence API');
+  t.assert(sequenceBlock.includes('Notifies'),
+    'get_anim_sequence_info handler reads sequence notifies');
+  t.assert(!/ResolveClass|reflection_walk/.test(sequenceBlock),
+    'get_anim_sequence_info handler does not use class-resolution/reflection_walk path');
+
+  t.assert(/Registry\.Register\(TEXT\("get_montage_full"\),\s*&HandleGetMontageFull\)/.test(source),
+    'get_montage_full is registered on the live TCP command registry');
+  t.assert(/Registry\.Register\(TEXT\("get_anim_sequence_info"\),\s*&HandleGetAnimSequenceInfo\)/.test(source),
+    'get_anim_sequence_info is registered on the live TCP command registry');
 }
 
 // ── Done ───────────────────────────────────────────────────────

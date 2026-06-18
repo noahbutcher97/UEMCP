@@ -740,14 +740,18 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     const expectedPartial = [
       'get_blueprint_info', 'get_blueprint_variables', 'get_blueprint_functions',
       'get_blueprint_components', 'get_niagara_system_info',
-      'get_montage_full', 'get_anim_sequence_info', 'get_blend_space',
-      'get_anim_curve_data', 'get_struct_definition',
+      'get_blend_space', 'get_anim_curve_data', 'get_struct_definition',
       'get_datatable_contents', 'get_string_table', 'list_data_asset_types',
     ];
     for (const name of expectedPartial) {
       t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
       t.assert(MENHANCE_SCHEMAS[name].partialRc !== undefined,
         `${name} declares partialRc dispatch config`);
+    }
+    for (const name of ['get_montage_full', 'get_anim_sequence_info']) {
+      t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
+      t.assert(MENHANCE_SCHEMAS[name].partialRc === undefined,
+        `${name} dispatches to its asset-instance TCP handler, not reflection_walk`);
     }
   }
 
@@ -877,14 +881,34 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     const types = await executeMenhanceTool('list_data_asset_types', {}, cm);
     t.assert(types.num_classes === 42, 'list_data_asset_types pass-through');
 
-    // Animation tools — each hits reflection_walk with identity transform
+    // Animation asset-instance reads use dedicated TCP handlers. Routing them
+    // through reflection_walk would ask the plugin for a UClass at a montage or
+    // sequence asset path and fail with "Could not resolve class".
     fake.resetCalls();
-    for (const tool of ['get_montage_full', 'get_anim_sequence_info', 'get_blend_space', 'get_anim_curve_data']) {
+    fake.on('get_montage_full', {
+      status: 'success',
+      result: { asset_path: '/Game/Anim/M', sections: [], slot_tracks: [] },
+    });
+    fake.on('get_anim_sequence_info', {
+      status: 'success',
+      result: { asset_path: '/Game/Anim/S', duration_seconds: 1.0 },
+    });
+    const montage = await executeMenhanceTool('get_montage_full', { asset_path: '/Game/Anim/M' }, cm);
+    const seq = await executeMenhanceTool('get_anim_sequence_info', { asset_path: '/Game/Anim/S' }, cm);
+    t.assert(Array.isArray(montage.result?.sections), 'get_montage_full pass-through from dedicated handler');
+    t.assert(seq.result?.duration_seconds === 1.0, 'get_anim_sequence_info pass-through from dedicated handler');
+    t.assert(fake.lastCall('get_montage_full')?.params?.asset_path === '/Game/Anim/M',
+      'get_montage_full dispatches to get_montage_full wire type');
+    t.assert(fake.lastCall('get_anim_sequence_info')?.params?.asset_path === '/Game/Anim/S',
+      'get_anim_sequence_info dispatches to get_anim_sequence_info wire type');
+
+    // Remaining generic animation reflection tools still use reflection_walk.
+    for (const tool of ['get_blend_space', 'get_anim_curve_data']) {
       await executeMenhanceTool(tool, { asset_path: '/Game/Anim/Uniq' + tool }, cm);
     }
     const reflectionCalls = fake.callsFor('reflection_walk');
-    t.assert(reflectionCalls.length >= 4,
-      `4 animation tools each dispatch to reflection_walk (got ${reflectionCalls.length})`);
+    t.assert(reflectionCalls.length === 2,
+      `only 2 generic animation tools dispatch to reflection_walk (got ${reflectionCalls.length})`);
   }
 
   // ── S4: get_asset_preview_render dispatches to tcp-55558 ─────

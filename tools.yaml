@@ -1066,16 +1066,16 @@ toolsets:
           asset_path:    { type: string, required: true }
           notify_class:  { type: string, required: true }
           time:          { type: number, required: true }
-      # reduced_scope: evaluated blend settings + compiled slot machinery (requires live UAnimInstance); scalar section/notify data shipped offline
-      # displaced_by: read_asset_properties
+      # full_tcp: loads UAnimMontage asset instance; returns sections/notifies/slot tracks/static blend data.
+      # offline_pair: read_asset_properties is still useful for batch file-level inspection.
       get_montage_full:
         initially_visible: true
         description: Deep montage read — sections, notifies, slots, blend settings, composite segments.
         note: Supersedes old list_montage_sections
         params:
           asset_path: { type: string, required: true }
-      # reduced_scope: compiled notify tracks + runtime-evaluated curves + sync markers; duration/frame count/skeleton ref shipped offline
-      # displaced_by: read_asset_properties
+      # full_tcp: loads UAnimSequence asset instance; returns skeleton/duration/rates/notifies/curves/sync markers.
+      # offline_pair: read_asset_properties is still useful for batch file-level inspection.
       get_anim_sequence_info:
         description: AnimSequence metadata — duration, frame count, rate, skeleton, notify tracks, curves, sync markers.
         params:

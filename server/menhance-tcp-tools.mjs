@@ -11,9 +11,10 @@
 //   execute_console_command        — input-and-pie
 //   get_asset_references           — asset-registry
 //
-// The 13 PARTIAL-RC tools (hybrid RC-primary with plugin-TCP fallback for
-// fields outside RC's SanitizeMetadata allowlist) ship in Session 3 — they
-// need a compound dispatch pattern that warrants its own file section.
+// The original PARTIAL-RC family ships below. D183 promotes
+// get_montage_full/get_anim_sequence_info to dedicated asset-instance TCP
+// readers; remaining partialRc entries still dispatch through plugin helpers
+// such as reflection_walk for fields outside RC's SanitizeMetadata allowlist.
 //
 // Convention matches tcp-tools.mjs: {description, schema, isReadOp} per tool,
 // wire_type translation via tools.yaml, ConnectionManager.send dispatching.
@@ -269,21 +270,19 @@ export const MENHANCE_SCHEMAS = {
   },
 
   get_montage_full: {
-    description: 'Deep montage read — sections, notifies, slots, blend settings (reflection schema; values via read_asset_properties)',
+    description: 'Deep montage read — sections, notifies, slots, blend settings from the UAnimMontage asset instance',
     schema: {
       asset_path: z.string().describe('/Game/... UAnimMontage path'),
     },
     isReadOp: true,
-    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
   },
 
   get_anim_sequence_info: {
-    description: 'AnimSequence metadata — skeleton, notify tracks, curves, sync markers (reflection schema)',
+    description: 'AnimSequence metadata — skeleton, duration, frame count/rate, notifies, curves, sync markers from the UAnimSequence asset instance',
     schema: {
       asset_path: z.string().describe('/Game/... UAnimSequence path'),
     },
     isReadOp: true,
-    partialRc: { tcpWireType: 'reflection_walk', transform: 'identity' },
   },
 
   get_blend_space: {
