@@ -1111,6 +1111,15 @@ if (HAS_REAL_ASSETS) {
     assert(page.default_export.selection_reason === 'package_root_name_match',
       `D185: default export reason is package_root_name_match (got ${page.default_export.selection_reason})`);
 
+    const rap = await executeOfflineTool('read_asset_properties',
+      { asset_path: COMBAT_DODGE_B_MONTAGE.path }, PROJECT_ROOT);
+    assert(rap.export_name === COMBAT_DODGE_B_MONTAGE.name,
+      `D185: read_asset_properties default export is package-root montage export (got ${rap.export_name})`);
+    assert(rap.struct_type === 'AnimMontage',
+      `D185: read_asset_properties struct_type is AnimMontage (got ${rap.struct_type})`);
+    assert(rap.export_index === page.default_export.export_index,
+      'D185: read_asset_properties default export_index matches list_asset_exports default_export');
+
     const heavy = await executeOfflineTool('list_asset_exports',
       { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, limit: 200 },
       PROJECT_ROOT);
