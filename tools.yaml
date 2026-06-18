@@ -124,6 +124,20 @@ toolsets:
           limit:              { type: number, required: false, description: "Max actors returned (default 100, cap 500)" }
           offset:             { type: number, required: false, description: "Result offset for pagination (default 0)" }
           summarize_by_class: { type: boolean, required: false, default: false, description: "When true, returns {className: count} instead of per-row actors. Use on dense levels before drilling down." }
+      list_asset_exports:
+        aliases: ["list exports", "export table", "choose export", "asset export names", "export index"]
+        description: >-
+          List export-table rows for a .uasset/.umap so callers can choose the
+          correct export before calling read_asset_properties. Returns one-based
+          export_index, object/canonical names, class, outer, asset flag,
+          serial size, pagination fields, and the same default_export selection
+          shared by read_asset_properties. Call this when a package has multiple exports,
+          duplicate export names, montage notify subobjects, AnimDataModel exports,
+          or when export_name alone is ambiguous. Pointed query - not cached.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
+          limit:      { type: number, required: false, description: "Max exports returned (default 200, cap 2000)" }
+          offset:     { type: number, required: false, description: "Result offset for pagination (default 0)" }
       read_asset_properties:
         description: >-
           Read serialized UPROPERTY values from a specific export in a .uasset/.umap.

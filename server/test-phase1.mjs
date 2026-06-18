@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { ErrorTcpResponder, resolveProjectRoot } from './test-helpers.mjs';
 import {
   GAS_ABILITY_BP, PLAYER_BP, ANIM_BLUEPRINT_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
+  HIT_IMPACT_CUE_BP, COMBAT_DODGE_B_MONTAGE, HEAVY_ATTACK_COMBO_MONTAGE,
   ABILITIES_PREFIX, CHARACTERS_PREFIX, BLUEPRINTS_PREFIX, GAME_ROOT_PREFIX,
 } from './test-fixtures.mjs';
 
@@ -66,6 +67,28 @@ const HAS_REAL_ASSETS = await (async () => {
     await stat(join(PROJECT_ROOT, rel));
     return true;
   } catch { return false; }
+})();
+
+async function assetPathExists(assetPath, extension = '.uasset') {
+  try {
+    const rel = assetPath.replace(/^\/Game\//, 'Content/') + extension;
+    await stat(join(PROJECT_ROOT, rel));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HAS_D185_ASSETS = HAS_REAL_ASSETS && await (async () => {
+  const checks = [
+    HIT_IMPACT_CUE_BP.path,
+    COMBAT_DODGE_B_MONTAGE.path,
+    HEAVY_ATTACK_COMBO_MONTAGE.path,
+  ];
+  for (const path of checks) {
+    if (!await assetPathExists(path)) return false;
+  }
+  return true;
 })();
 let passed = 0;
 let failed = 0;
@@ -1033,6 +1056,77 @@ if (HAS_REAL_ASSETS) {
   } catch (e) {
     assert(false, 'D44: yaml invariant check', e.message);
   }
+
+  async function testD185ExportListing() {
+    console.log(`\n═══ Test 15: D185 export listing and default export selection ═══`);
+    if (!HAS_D185_ASSETS) {
+      console.log('  SKIP: D185 empirical assets not found in this project');
+      return;
+    }
+
+    const offlineTools = toolsData.toolsets.offline.tools;
+    assert(offlineTools.list_asset_exports !== undefined,
+      'D185: list_asset_exports entry exists in offline toolset');
+    assert(offlineTools.list_asset_exports?.params?.asset_path?.required === true,
+      'D185: list_asset_exports.asset_path is required');
+    assert(offlineTools.list_asset_exports?.params?.limit !== undefined,
+      'D185: list_asset_exports.limit is declared');
+    assert(offlineTools.list_asset_exports?.params?.offset !== undefined,
+      'D185: list_asset_exports.offset is declared');
+
+    const index = new ToolIndex();
+    index.build(toolsData);
+    const hits = index.search('list exports export table choose export asset export names', 10);
+    assert(hits.some(h => h.toolName === 'list_asset_exports' && h.toolsetName === 'offline'),
+      'D185: find_tools terminology discovers list_asset_exports');
+
+    let page;
+    try {
+      page = await executeOfflineTool('list_asset_exports',
+        { asset_path: COMBAT_DODGE_B_MONTAGE.path, limit: 2, offset: 0 },
+        PROJECT_ROOT);
+    } catch (e) {
+      assert(false, 'D185: list_asset_exports montage page query', e.message);
+      return;
+    }
+    assert(page.path === COMBAT_DODGE_B_MONTAGE.path,
+      'D185: list_asset_exports echoes path');
+    assert(page.total_exports > 2,
+      `D185: montage fixture has more than 2 exports (got ${page.total_exports})`);
+    assert(page.exports.length === 2,
+      `D185: list_asset_exports respects limit=2 (got ${page.exports.length})`);
+    assert(page.offset === 0 && page.limit === 2,
+      'D185: list_asset_exports echoes offset and capped limit');
+    assert(page.truncated === true,
+      'D185: list_asset_exports marks truncated page');
+    assert(page.exports[0].export_index === 1,
+      'D185: export rows use one-based export_index');
+    assert(typeof page.exports[0].canonical_name === 'string',
+      'D185: export rows include canonical_name');
+
+    assert(page.default_export.export_name === COMBAT_DODGE_B_MONTAGE.name,
+      `D185: default export is package-root montage export (got ${page.default_export.export_name})`);
+    assert(page.default_export.class_name === 'AnimMontage',
+      `D185: default export class is AnimMontage (got ${page.default_export.class_name})`);
+    assert(page.default_export.selection_reason === 'package_root_name_match',
+      `D185: default export reason is package_root_name_match (got ${page.default_export.selection_reason})`);
+
+    const heavy = await executeOfflineTool('list_asset_exports',
+      { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, limit: 200 },
+      PROJECT_ROOT);
+    const counts = new Map();
+    for (const row of heavy.exports) {
+      counts.set(row.object_name, (counts.get(row.object_name) || 0) + 1);
+    }
+    assert([...counts.values()].some(count => count > 1),
+      'D185: heavy attack montage fixture exposes duplicate export object names');
+    assert(heavy.exports.some(row =>
+      row.export_index === heavy.default_export.export_index &&
+      row.object_name === HEAVY_ATTACK_COMBO_MONTAGE.name),
+      'D185: default_export export_index points at a returned export row');
+  }
+
+  await testD185ExportListing();
 }
 
 // ── Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ──────────

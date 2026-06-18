@@ -1245,6 +1245,125 @@ async function parseAssetForPropertyRead(projectRoot, assetPath) {
   };
 }
 
+function assetPathLeaf(assetPath) {
+  const normalized = String(assetPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const leaf = normalized.split('/').pop() || '';
+  return leaf.replace(/\.(uasset|umap)$/i, '');
+}
+
+function canonicalExportName(entry) {
+  const number = Number.isInteger(entry.objectNameNumber) ? entry.objectNameNumber : 0;
+  return number > 0 ? `${entry.objectName}_${number - 1}` : entry.objectName;
+}
+
+function formatExportRow(entry, index, exports, imports) {
+  const outerExport = entry.outerIndex > 0 ? exports[entry.outerIndex - 1] : null;
+  return {
+    export_index: index + 1,
+    object_name: entry.objectName,
+    object_name_number: Number.isInteger(entry.objectNameNumber) ? entry.objectNameNumber : 0,
+    canonical_name: canonicalExportName(entry),
+    class_name: resolvePackageIndex(entry.classIndex, exports, imports, 'objectName'),
+    super_name: resolvePackageIndex(entry.superIndex, exports, imports, 'objectName'),
+    outer_index: entry.outerIndex,
+    outer_name: resolvePackageIndex(entry.outerIndex, exports, imports, 'objectName'),
+    outer_class_name: outerExport
+      ? resolvePackageIndex(outerExport.classIndex, exports, imports, 'objectName')
+      : null,
+    b_is_asset: entry.bIsAsset,
+    serial_size: entry.serialSize,
+  };
+}
+
+function selectAssetExport(exports, imports, assetPath) {
+  const generatedIndex = exports.findIndex(e => {
+    const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
+    return cls && BP_GENERATED_CLASSES.has(cls);
+  });
+  if (generatedIndex >= 0) {
+    const cdoName = `Default__${exports[generatedIndex].objectName}`;
+    const cdoIndex = exports.findIndex(e => e.objectName === cdoName);
+    if (cdoIndex >= 0) {
+      return { index: cdoIndex, entry: exports[cdoIndex], reason: 'blueprint_cdo' };
+    }
+  }
+
+  const packageLeaf = assetPathLeaf(assetPath);
+  const rootNameIndex = exports.findIndex(e => e.outerIndex === 0 && e.objectName === packageLeaf);
+  if (rootNameIndex >= 0) {
+    return { index: rootNameIndex, entry: exports[rootNameIndex], reason: 'package_root_name_match' };
+  }
+
+  const rootAssetIndex = exports.findIndex(e => e.outerIndex === 0 && e.bIsAsset);
+  if (rootAssetIndex >= 0) {
+    return { index: rootAssetIndex, entry: exports[rootAssetIndex], reason: 'root_asset_export' };
+  }
+
+  const assetIndex = exports.findIndex(e => e.bIsAsset);
+  if (assetIndex >= 0) {
+    return { index: assetIndex, entry: exports[assetIndex], reason: 'first_asset_export' };
+  }
+
+  if (exports.length > 0) {
+    return { index: 0, entry: exports[0], reason: 'first_export_fallback' };
+  }
+
+  return null;
+}
+
+function normalizeIntegerParam(value, name, { defaultValue, min, cap = null }) {
+  const resolved = value ?? defaultValue;
+  const n = Number(resolved);
+  if (!Number.isInteger(n)) {
+    throw new Error(`${name} must be an integer`);
+  }
+  if (n < min) {
+    throw new Error(`${name} must be >= ${min}`);
+  }
+  return cap === null ? n : Math.min(n, cap);
+}
+
+function summarizeSelectedExport(selection, exports, imports) {
+  if (!selection) return null;
+  const row = formatExportRow(selection.entry, selection.index, exports, imports);
+  return {
+    export_name: row.object_name,
+    export_index: row.export_index,
+    canonical_name: row.canonical_name,
+    class_name: row.class_name,
+    selection_reason: selection.reason,
+  };
+}
+
+async function listAssetExports(projectRoot, params) {
+  const assetPath = params.asset_path;
+  const limit = normalizeIntegerParam(params.limit, 'limit', {
+    defaultValue: 200,
+    min: 1,
+    cap: 2000,
+  });
+  const offset = normalizeIntegerParam(params.offset, 'offset', {
+    defaultValue: 0,
+    min: 0,
+  });
+
+  const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
+  const { diskPath, exports, imports } = ctx;
+  const allRows = exports.map((entry, index) => formatExportRow(entry, index, exports, imports));
+  const defaultSelection = selectAssetExport(exports, imports, assetPath);
+
+  return stripPackageIndex({
+    path: assetPath,
+    diskPath: diskPath.replace(/\\/g, '/'),
+    total_exports: exports.length,
+    offset,
+    limit,
+    truncated: offset + limit < exports.length,
+    default_export: summarizeSelectedExport(defaultSelection, exports, imports),
+    exports: allRows.slice(offset, offset + limit),
+  });
+}
+
 /**
  * inspect_blueprint — Deep introspection of a .uasset (BP, UMG, AnimBP, DataAsset).
  *
@@ -1532,21 +1651,10 @@ async function readAssetProperties(projectRoot, params) {
     }
     target = exports[exportIndex];
   } else {
-    // Auto-default: prefer Default__<generatedClass> for BP-subclass assets.
-    const generated = exports.find(e => {
-      const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
-      return cls && BP_GENERATED_CLASSES.has(cls);
-    });
-    if (generated) {
-      const cdoName = `Default__${generated.objectName}`;
-      exportIndex = exports.findIndex(e => e.objectName === cdoName);
-      if (exportIndex >= 0) target = exports[exportIndex];
-    }
-    if (!target) {
-      // Fall back to main bIsAsset export.
-      exportIndex = exports.findIndex(e => e.bIsAsset);
-      if (exportIndex < 0) { exportIndex = 0; }
-      target = exports[exportIndex];
+    const selection = selectAssetExport(exports, imports, assetPath);
+    if (selection) {
+      exportIndex = selection.index;
+      target = selection.entry;
     }
   }
 
@@ -2996,6 +3104,10 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
     case 'list_level_actors':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await listLevelActors(projectRoot, params);
+
+    case 'list_asset_exports':
+      if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
+      return await listAssetExports(projectRoot, params);
 
     case 'read_asset_properties':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');

@@ -48,6 +48,23 @@ export const PLAYER_BP = deriveBpNames('/Game/Blueprints/Character/BP_OSPlayerR'
 // coverage for AnimGraph, whose class is AnimationGraph rather than EdGraph.
 export const ANIM_BLUEPRINT_BP = deriveBpNames('/Game/Animations/Retargeted/StreetFighterAnimation/ABP_Manny');
 
+// Gameplay cue Blueprint from the external VFX/audio audits. It has serialized
+// ImpactVfx but reported callers also requested HitAkEvent and
+// DefaultSocketName, which are not serialized on the selected export.
+export const HIT_IMPACT_CUE_BP = deriveBpNames('/Game/GAS/Cues/BPGC_OSHitImpact');
+
+// Montage assets whose export tables empirically exposed the default-selection
+// bug: notify / AnimDataModel exports appeared before the root AnimMontage.
+export const COMBAT_DODGE_B_MONTAGE = {
+  path: '/Game/Animations/Combat/AM_Combat_Dodge_B',
+  name: 'AM_Combat_Dodge_B',
+};
+
+export const HEAVY_ATTACK_COMBO_MONTAGE = {
+  path: '/Game/Animations/Combat/AM_HeavyAttackCombo',
+  name: 'AM_HeavyAttackCombo',
+};
+
 // Medium-complexity dev map for list_level_actors placed-actor walking and
 // transform decoding.
 export const DEV_TEST_MAP = { path: '/Game/Developers/steve/Steve_TestMap' };
