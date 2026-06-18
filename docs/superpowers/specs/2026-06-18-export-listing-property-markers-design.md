@@ -15,7 +15,7 @@ This design covers two related problems reported from live project usage:
 - Do not decode montage `SlotAnimTracks` or animation-specific nested structs in this change.
 - Do not claim offline bytes prove that a class property does not exist.
 - Do not add editor-only declaration introspection to this offline tool pass.
-- Do not alter unfiltered `read_asset_properties` behavior except for additive metadata.
+- Do not alter unfiltered `read_asset_properties` property payload behavior except for additive metadata; the default export selection change is explicitly in scope.
 
 ## Empirical Inputs
 

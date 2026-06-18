@@ -14,7 +14,7 @@
 - Do not decode montage `SlotAnimTracks` or animation-specific nested structs in this change.
 - Do not claim offline bytes prove that a class property does not exist.
 - Do not add editor-only declaration introspection to this offline tool pass.
-- Do not alter unfiltered `read_asset_properties` behavior except for additive metadata.
+- Do not alter unfiltered `read_asset_properties` property payload behavior except for additive metadata; the default export selection change is explicitly in scope.
 - `list_asset_exports` belongs in the existing `offline` toolset and must be discoverable through export-listing terminology.
 - Parameter names remain snake_case in this pass.
 - Start each implementation task with RED tests and watch them fail for the expected missing behavior before editing production code.
