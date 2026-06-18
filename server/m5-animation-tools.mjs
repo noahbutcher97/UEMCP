@@ -10,9 +10,10 @@
 // (Wwise) requires the SDK — neither offline NOR live reflection_walk
 // would extend coverage. yaml entry preserved for discovery, no live route.
 //
-// The 4 shipped reads (get_montage_full / get_anim_sequence_info /
-// get_blend_space / get_anim_curve_data) live in menhance-tcp-tools.mjs
-// under M-enhance D77 — do NOT duplicate them here.
+// The 4 shipped reads live in menhance-tcp-tools.mjs under M-enhance D77.
+// get_montage_full / get_anim_sequence_info are dedicated asset-instance
+// reads; get_blend_space / get_anim_curve_data remain reflection-backed.
+// Do NOT duplicate them here.
 
 import { z } from 'zod';
 
