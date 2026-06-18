@@ -53,6 +53,19 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Keep hidden/remapped**: `get_asset_thumbnail` remains replaced by `get_asset_preview_render`; `get_asset_visual_summary` remains a composite helper; `get_audio_asset_info` remains superseded by `read_asset_properties` until a distinct live-only need appears.
 - **Defer after this**: `capture_active_editor_tab` if `FWidgetRenderer` is stable, then data-asset writers with explicit dirty/save/undo policy, then GAS authoring/codegen.
 
+### EN-8 — External field report (Project A VFX audit): 7 offline-tool friction items
+- **Source**: real read-only VFX audit of Project A by an LLM agent, 2026-06-18. Full report + repro + suggested patches + acceptance criteria live in the 2026-06-18 field-report package. Split into individual EN-/bug items when prioritized.
+- **Direct follow-on queue**: `docs/superpowers/plans/2026-06-18-live-usage-follow-on-queue.md` sequences the field-report issues as D183-D190 so these do not remain vague backlog items.
+- **Items** (severity in report):
+  - **P1 (High)** `query_asset_registry`: unknown `path` param silently dropped (real param is `path_prefix`) -> whole-project scan despite `additionalProperties:false`; default `limit:200` x full metadata overflows context. Fix: reject/alias unknown params; lower default limit or add a projection mode; echo `scannedRoot`/`truncated`. (Touches the same yaml↔handler invariant as **EN-5**.)
+  - **P2 (High)** `read_asset_properties`: nested component/subobject exports returned as opaque `{kind:"export"}` refs; can't reach a GAS GE's GameplayCue/component contents in one call (blocked a load-bearing finding). Fix: `include_subobjects`/`recurse_exports`; GAS GEComponent + `FGameplayEffectCue` layout handlers; `present_but_undecoded` marker to distinguish empty vs undecodable.
+  - **P3 (High)** surface gap: no project-wide reverse-reference / call-site search; "who calls X" forced raw byte-grep over `.uasset` (native text-grep silently skips binaries). Fix: Reference-Viewer-equivalent reverse-dep tool and/or project-wide `find_blueprint_nodes` over a `path_prefix`.
+  - **P4 (Med)** `read_asset_properties` is CDO-only -> misses SCS NiagaraComponent subobjects + in-graph `SpawnSystem` nodes (real spawn sites missed). Fix: union "runtime spawn/reference summary" tool, or document the 3-tool recipe.
+  - **P5 (Med)** `find_blueprint_nodes` excludes `MakeStruct`/`BreakStruct` (+ no exec trace) -> can't see what data feeds a call. **Adjacent to EN-4** (which graduates math/comparison nodes); MakeStruct/BreakStruct are struct-construction, a distinct candidate set for data-flow audits.
+  - **P6 (Low)** param-name inconsistency (`asset_path` vs `path_prefix`; camelCase `assetPath` rejected). Fix: aliases or standardize. Overlaps **EN-5** lint scope.
+  - **P7 (Low, docs)** no per-tool `requiresEditor`/`offlineFidelity` hint -> offline decode gaps (P2/P4) discovered mid-task. Fix: add the field to `tools.yaml` and surface in descriptions.
+- **Trigger**: next `offline-tools.mjs` / yaml grooming pass (P1, P6 are cheap and bundle with EN-5); P2/P3 are the high-value capability gaps -- prioritize when asset-analysis workflows recur.
+
 ---
 
 ## Fixture planting
