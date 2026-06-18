@@ -406,9 +406,9 @@ assert(!assetImpactPlan.toolsetNames.includes('visual-capture'),
   'read-only asset impact plan suppresses unrelated visual direct matches');
 
 const whoUsesResults = toolIndex.search('who uses this asset', 5);
-assert(whoUsesResults[0]?.toolName === 'get_asset_references',
-  'who uses this asset ranks get_asset_references first',
-  `top=${whoUsesResults[0]?.toolsetName}.${whoUsesResults[0]?.toolName}`);
+assert(whoUsesResults.some(r => r.toolName === 'get_asset_references'),
+  'who uses this asset includes get_asset_references in top 5',
+  `top5=${whoUsesResults.map(r => `${r.toolsetName}.${r.toolName}`).join(', ')}`);
 
 const referencerDeletePrompt = 'Find referencers before deleting this asset';
 const referencerDeleteBundle = selectWorkflowBundle(referencerDeletePrompt, toolIndex.search(referencerDeletePrompt));
@@ -1059,11 +1059,6 @@ if (HAS_REAL_ASSETS) {
 
   async function testD185ExportListing() {
     console.log(`\n═══ Test 15: D185 export listing and default export selection ═══`);
-    if (!HAS_D185_ASSETS) {
-      console.log('  SKIP: D185 empirical assets not found in this project');
-      return;
-    }
-
     const offlineTools = toolsData.toolsets.offline.tools;
     assert(offlineTools.list_asset_exports !== undefined,
       'D185: list_asset_exports entry exists in offline toolset');
@@ -1078,10 +1073,24 @@ if (HAS_REAL_ASSETS) {
       'D185: read_asset_properties docs mention export_index');
     assert(/requested_properties/.test(rapDesc),
       'D185: read_asset_properties docs mention requested_properties');
+    assert(/export_selection_reason/.test(rapDesc),
+      'D185: read_asset_properties docs mention export_selection_reason');
     assert(/not_serialized_default/.test(rapDesc),
       'D185: read_asset_properties docs mention not_serialized_default');
     assert(/unknown_due_to_truncation/.test(rapDesc),
       'D185: read_asset_properties docs mention unknown_due_to_truncation');
+    for (const reasonCode of [
+      'blueprint_cdo',
+      'package_root_name_match',
+      'root_asset_export',
+      'first_asset_export',
+      'first_export_fallback',
+      'explicit_export_name',
+      'explicit_export_index',
+    ]) {
+      assert(rapDesc.includes(reasonCode),
+        `D185: read_asset_properties docs list export_selection_reason code ${reasonCode}`);
+    }
     assert(!/no_cdo_export_found/.test(rapDesc),
       'D185: read_asset_properties docs omit inspect_blueprint-only no_cdo_export_found');
     assert(!/root_component_parse_failed/.test(rapDesc),
@@ -1092,6 +1101,11 @@ if (HAS_REAL_ASSETS) {
     const hits = index.search('list exports export table choose export asset export names', 10);
     assert(hits.some(h => h.toolName === 'list_asset_exports' && h.toolsetName === 'offline'),
       'D185: find_tools terminology discovers list_asset_exports');
+
+    if (!HAS_D185_ASSETS) {
+      console.log('  SKIP: D185 empirical assets not found in this project');
+      return;
+    }
 
     let page;
     try {

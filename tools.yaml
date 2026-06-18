@@ -170,13 +170,17 @@ toolsets:
           flag — tagged-fallback covers partial overrides; native binary needs a known
           layout), `expression_input_native_layout_unknown` (FExpressionInput /
           MaterialInput beyond the documented native layouts).
-          Response capped at max_bytes with truncated flag. When property_names is set,
-          properties remains a decoded-value map and requested_properties returns
-          one row per requested name with status serialized, unsupported,
-          not_serialized_default, or unknown_due_to_truncation. unsupported[] is
-          scoped to the filter (plus `__stream__`-wide markers). This offline reader
-          reports serialized overrides and parser-supported values; it does not prove
-          inherited native or Blueprint class defaults.
+          Responses include export_selection_reason: `blueprint_cdo`,
+          `package_root_name_match`, `root_asset_export`, `first_asset_export`,
+          `first_export_fallback`, `explicit_export_name`, or
+          `explicit_export_index`. Response capped at max_bytes with truncated
+          flag. When property_names is set, properties remains a decoded-value
+          map and requested_properties returns one row per requested name with
+          status serialized, unsupported, not_serialized_default, or
+          unknown_due_to_truncation. unsupported[] is scoped to the filter (plus
+          `__stream__`-wide markers). This offline reader reports serialized
+          overrides and parser-supported values; it does not prove inherited
+          native or Blueprint class defaults.
         params:
           asset_path:     { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
           export_name:    { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }
