@@ -142,7 +142,9 @@ toolsets:
         description: >-
           Read serialized UPROPERTY values from a specific export in a .uasset/.umap.
           Default export is the asset's primary CDO (Default__<Name>_C for BPs, main
-          export otherwise). Supports scalars, enums, object refs, soft refs, gameplay
+          export otherwise). Use export_index to target a specific export row from
+          list_asset_exports when packages contain multiple exports or duplicate export
+          names. Supports scalars, enums, object refs, soft refs, gameplay
           tags/containers, 24 engine structs (FVector, FRotator, FQuat, FTransform,
           FLinearColor, FColor, FVector2D, FVector4, FGuid, FBox, FIntPoint,
           FBodyInstance, FSoftObjectPath, FSoftClassPath, FGameplayTag,
@@ -167,14 +169,14 @@ toolsets:
           `body_instance_native_layout_unknown` (FBodyInstance with HAS_BINARY_NATIVE
           flag — tagged-fallback covers partial overrides; native binary needs a known
           layout), `expression_input_native_layout_unknown` (FExpressionInput /
-          MaterialInput beyond the documented native layouts). Handler-level:
-          `no_cdo_export_found` (include_defaults=true but CDO export missing),
-          `root_component_parse_failed` (list_level_actors only).
+          MaterialInput beyond the documented native layouts).
           Response capped at max_bytes with truncated flag. When property_names is set,
           properties remains a decoded-value map and requested_properties returns
           one row per requested name with status serialized, unsupported,
           not_serialized_default, or unknown_due_to_truncation. unsupported[] is
-          scoped to the filter (plus `__stream__`-wide markers).
+          scoped to the filter (plus `__stream__`-wide markers). This offline reader
+          reports serialized overrides and parser-supported values; it does not prove
+          inherited native or Blueprint class defaults.
         params:
           asset_path:     { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
           export_name:    { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }

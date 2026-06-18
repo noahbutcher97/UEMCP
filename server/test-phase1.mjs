@@ -1073,6 +1073,19 @@ if (HAS_REAL_ASSETS) {
       'D185: list_asset_exports.limit is declared');
     assert(offlineTools.list_asset_exports?.params?.offset !== undefined,
       'D185: list_asset_exports.offset is declared');
+    const rapDesc = offlineTools.read_asset_properties.description;
+    assert(/export_index/.test(rapDesc),
+      'D185: read_asset_properties docs mention export_index');
+    assert(/requested_properties/.test(rapDesc),
+      'D185: read_asset_properties docs mention requested_properties');
+    assert(/not_serialized_default/.test(rapDesc),
+      'D185: read_asset_properties docs mention not_serialized_default');
+    assert(/unknown_due_to_truncation/.test(rapDesc),
+      'D185: read_asset_properties docs mention unknown_due_to_truncation');
+    assert(!/no_cdo_export_found/.test(rapDesc),
+      'D185: read_asset_properties docs omit inspect_blueprint-only no_cdo_export_found');
+    assert(!/root_component_parse_failed/.test(rapDesc),
+      'D185: read_asset_properties docs omit list_level_actors-only root_component_parse_failed');
 
     const index = new ToolIndex();
     index.build(toolsData);
