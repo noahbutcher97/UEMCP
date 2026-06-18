@@ -1223,6 +1223,38 @@ function dedupeUnsupported(arr) {
   return out;
 }
 
+function buildRequestedPropertyRows(requestedNames, parsed) {
+  const unsupportedByName = new Map();
+  for (const marker of parsed.unsupported || []) {
+    if (!marker || !marker.name || marker.name === '__stream__') continue;
+    if (!unsupportedByName.has(marker.name)) {
+      unsupportedByName.set(marker.name, marker);
+    }
+  }
+
+  return requestedNames.map(name => {
+    if (Object.prototype.hasOwnProperty.call(parsed.properties, name)) {
+      const value = parsed.properties[name];
+      if (value && typeof value === 'object' && value.unsupported === true) {
+        const { unsupported: _unsupported, ...marker } = value;
+        return { name, status: 'unsupported', ...stripPackageIndex(marker) };
+      }
+      return { name, status: 'serialized', value: stripPackageIndex(value) };
+    }
+
+    const marker = unsupportedByName.get(name);
+    if (marker) {
+      const { name: _name, unsupported: _unsupported, ...rest } = marker;
+      return { name, status: 'unsupported', ...stripPackageIndex(rest) };
+    }
+
+    return {
+      name,
+      status: parsed.truncated ? 'unknown_due_to_truncation' : 'not_serialized_default',
+    };
+  });
+}
+
 /**
  * Parse an asset's header + tables and return a shared context for property
  * reading. Consumes the file once; all struct/container dispatch reuses
@@ -1634,8 +1666,10 @@ async function listLevelActors(projectRoot, params) {
 async function readAssetProperties(projectRoot, params) {
   const assetPath = params.asset_path;
   const requestedExportName = params.export_name || null;
-  const filterNames = Array.isArray(params.property_names) && params.property_names.length
-    ? new Set(params.property_names) : null;
+  const requestedPropertyNames = Array.isArray(params.property_names)
+    ? params.property_names : null;
+  const filterNames = requestedPropertyNames && requestedPropertyNames.length
+    ? new Set(requestedPropertyNames) : null;
   const maxBytes = params.max_bytes ?? 65_536;
 
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
@@ -1701,9 +1735,7 @@ async function readAssetProperties(projectRoot, params) {
     );
   }
 
-  // P7: deterministic top-level key ordering (path info → target → payload →
-  // counts → truncation). P4: dedupe unsupported[] by {name, reason}.
-  return stripPackageIndex({
+  const result = {
     path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     export_name: target.objectName,
@@ -1715,7 +1747,15 @@ async function readAssetProperties(projectRoot, params) {
     property_count_returned: propertyCountReturned,
     property_count_total: parsed.propertyCount,
     truncated: parsed.truncated,
-  });
+  };
+
+  if (requestedPropertyNames && requestedPropertyNames.length > 0) {
+    result.requested_properties = buildRequestedPropertyRows(requestedPropertyNames, parsed);
+  }
+
+  // P7: deterministic top-level key ordering (path info → target → payload →
+  // counts → truncation). P4: dedupe unsupported[] by {name, reason}.
+  return stripPackageIndex(result);
 }
 
 /**

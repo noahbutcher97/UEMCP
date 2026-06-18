@@ -1159,6 +1159,42 @@ if (HAS_REAL_ASSETS) {
     assert(byName.export_selection_reason === 'explicit_export_name',
       `D185: explicit export_name reason reported (got ${byName.export_selection_reason})`);
 
+    const requested = await executeOfflineTool('read_asset_properties',
+      {
+        asset_path: HIT_IMPACT_CUE_BP.path,
+        property_names: ['HitAkEvent', 'ImpactVfx', 'DefaultSocketName'],
+      },
+      PROJECT_ROOT);
+    assert(Array.isArray(requested.requested_properties),
+      'D185: filtered read returns requested_properties array');
+    assert(requested.requested_properties.length === 3,
+      `D185: requested_properties has one row per requested name (got ${requested.requested_properties?.length})`);
+    const requestedRows = Object.fromEntries(requested.requested_properties.map(row => [row.name, row]));
+    assert(requestedRows.ImpactVfx?.status === 'serialized',
+      `D185: serialized requested property is marked serialized (got ${requestedRows.ImpactVfx?.status})`);
+    assert(requestedRows.ImpactVfx?.value !== undefined,
+      'D185: serialized requested property row includes value');
+    assert(requestedRows.HitAkEvent?.status === 'not_serialized_default',
+      `D185: absent requested HitAkEvent is not_serialized_default (got ${requestedRows.HitAkEvent?.status})`);
+    assert(requestedRows.DefaultSocketName?.status === 'not_serialized_default',
+      `D185: absent requested DefaultSocketName is not_serialized_default (got ${requestedRows.DefaultSocketName?.status})`);
+    assert(requested.properties.ImpactVfx !== undefined,
+      'D185: properties map still includes serialized requested value');
+    assert(requested.properties.HitAkEvent === undefined,
+      'D185: properties map does not gain absent marker objects');
+
+    const truncated = await executeOfflineTool('read_asset_properties',
+      {
+        asset_path: GAS_ABILITY_BP.path,
+        max_bytes: 50,
+        property_names: ['D185DefinitelyAbsentAfterBudget'],
+      },
+      PROJECT_ROOT);
+    assert(truncated.truncated === true,
+      'D185: truncation setup produced truncated=true');
+    assert(truncated.requested_properties?.[0]?.status === 'unknown_due_to_truncation',
+      `D185: absent requested name under truncation is unknown_due_to_truncation (got ${truncated.requested_properties?.[0]?.status})`);
+
     let conflict = null;
     try {
       await executeOfflineTool('read_asset_properties',
