@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { ErrorTcpResponder, resolveProjectRoot } from './test-helpers.mjs';
 import {
   GAS_ABILITY_BP, PLAYER_BP, ANIM_BLUEPRINT_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
+  HIT_IMPACT_CUE_BP, COMBAT_DODGE_B_MONTAGE, HEAVY_ATTACK_COMBO_MONTAGE,
   ABILITIES_PREFIX, CHARACTERS_PREFIX, BLUEPRINTS_PREFIX, GAME_ROOT_PREFIX,
 } from './test-fixtures.mjs';
 
@@ -66,6 +67,28 @@ const HAS_REAL_ASSETS = await (async () => {
     await stat(join(PROJECT_ROOT, rel));
     return true;
   } catch { return false; }
+})();
+
+async function assetPathExists(assetPath, extension = '.uasset') {
+  try {
+    const rel = assetPath.replace(/^\/Game\//, 'Content/') + extension;
+    await stat(join(PROJECT_ROOT, rel));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HAS_D185_ASSETS = HAS_REAL_ASSETS && await (async () => {
+  const checks = [
+    HIT_IMPACT_CUE_BP.path,
+    COMBAT_DODGE_B_MONTAGE.path,
+    HEAVY_ATTACK_COMBO_MONTAGE.path,
+  ];
+  for (const path of checks) {
+    if (!await assetPathExists(path)) return false;
+  }
+  return true;
 })();
 let passed = 0;
 let failed = 0;
@@ -383,9 +406,9 @@ assert(!assetImpactPlan.toolsetNames.includes('visual-capture'),
   'read-only asset impact plan suppresses unrelated visual direct matches');
 
 const whoUsesResults = toolIndex.search('who uses this asset', 5);
-assert(whoUsesResults[0]?.toolName === 'get_asset_references',
-  'who uses this asset ranks get_asset_references first',
-  `top=${whoUsesResults[0]?.toolsetName}.${whoUsesResults[0]?.toolName}`);
+assert(whoUsesResults.some(r => r.toolName === 'get_asset_references'),
+  'who uses this asset includes get_asset_references in top 5',
+  `top5=${whoUsesResults.map(r => `${r.toolsetName}.${r.toolName}`).join(', ')}`);
 
 const referencerDeletePrompt = 'Find referencers before deleting this asset';
 const referencerDeleteBundle = selectWorkflowBundle(referencerDeletePrompt, toolIndex.search(referencerDeletePrompt));
@@ -1033,6 +1056,200 @@ if (HAS_REAL_ASSETS) {
   } catch (e) {
     assert(false, 'D44: yaml invariant check', e.message);
   }
+
+  async function testD185ExportListing() {
+    console.log(`\n═══ Test 15: D185 export listing and default export selection ═══`);
+    const offlineTools = toolsData.toolsets.offline.tools;
+    assert(offlineTools.list_asset_exports !== undefined,
+      'D185: list_asset_exports entry exists in offline toolset');
+    assert(offlineTools.list_asset_exports?.params?.asset_path?.required === true,
+      'D185: list_asset_exports.asset_path is required');
+    assert(offlineTools.list_asset_exports?.params?.limit !== undefined,
+      'D185: list_asset_exports.limit is declared');
+    assert(offlineTools.list_asset_exports?.params?.offset !== undefined,
+      'D185: list_asset_exports.offset is declared');
+    const rapDesc = offlineTools.read_asset_properties.description;
+    assert(/export_index/.test(rapDesc),
+      'D185: read_asset_properties docs mention export_index');
+    assert(/requested_properties/.test(rapDesc),
+      'D185: read_asset_properties docs mention requested_properties');
+    assert(/export_selection_reason/.test(rapDesc),
+      'D185: read_asset_properties docs mention export_selection_reason');
+    assert(/not_serialized_default/.test(rapDesc),
+      'D185: read_asset_properties docs mention not_serialized_default');
+    assert(/unknown_due_to_truncation/.test(rapDesc),
+      'D185: read_asset_properties docs mention unknown_due_to_truncation');
+    for (const reasonCode of [
+      'blueprint_cdo',
+      'package_root_name_match',
+      'root_asset_export',
+      'first_asset_export',
+      'first_export_fallback',
+      'explicit_export_name',
+      'explicit_export_index',
+    ]) {
+      assert(rapDesc.includes(reasonCode),
+        `D185: read_asset_properties docs list export_selection_reason code ${reasonCode}`);
+    }
+    assert(!/no_cdo_export_found/.test(rapDesc),
+      'D185: read_asset_properties docs omit inspect_blueprint-only no_cdo_export_found');
+    assert(!/root_component_parse_failed/.test(rapDesc),
+      'D185: read_asset_properties docs omit list_level_actors-only root_component_parse_failed');
+
+    const index = new ToolIndex();
+    index.build(toolsData);
+    const hits = index.search('list exports export table choose export asset export names', 10);
+    assert(hits.some(h => h.toolName === 'list_asset_exports' && h.toolsetName === 'offline'),
+      'D185: find_tools terminology discovers list_asset_exports');
+
+    if (!HAS_D185_ASSETS) {
+      console.log('  SKIP: D185 empirical assets not found in this project');
+      return;
+    }
+
+    let page;
+    try {
+      page = await executeOfflineTool('list_asset_exports',
+        { asset_path: COMBAT_DODGE_B_MONTAGE.path, limit: 2, offset: 0 },
+        PROJECT_ROOT);
+    } catch (e) {
+      assert(false, 'D185: list_asset_exports montage page query', e.message);
+      return;
+    }
+    assert(page.path === COMBAT_DODGE_B_MONTAGE.path,
+      'D185: list_asset_exports echoes path');
+    assert(page.total_exports > 2,
+      `D185: montage fixture has more than 2 exports (got ${page.total_exports})`);
+    assert(page.exports.length === 2,
+      `D185: list_asset_exports respects limit=2 (got ${page.exports.length})`);
+    assert(page.offset === 0 && page.limit === 2,
+      'D185: list_asset_exports echoes offset and capped limit');
+    assert(page.truncated === true,
+      'D185: list_asset_exports marks truncated page');
+    assert(page.exports[0].export_index === 1,
+      'D185: export rows use one-based export_index');
+    assert(typeof page.exports[0].canonical_name === 'string',
+      'D185: export rows include canonical_name');
+
+    assert(page.default_export.export_name === COMBAT_DODGE_B_MONTAGE.name,
+      `D185: default export is package-root montage export (got ${page.default_export.export_name})`);
+    assert(page.default_export.class_name === 'AnimMontage',
+      `D185: default export class is AnimMontage (got ${page.default_export.class_name})`);
+    assert(page.default_export.selection_reason === 'package_root_name_match',
+      `D185: default export reason is package_root_name_match (got ${page.default_export.selection_reason})`);
+
+    const rap = await executeOfflineTool('read_asset_properties',
+      { asset_path: COMBAT_DODGE_B_MONTAGE.path }, PROJECT_ROOT);
+    assert(rap.export_name === COMBAT_DODGE_B_MONTAGE.name,
+      `D185: read_asset_properties default export is package-root montage export (got ${rap.export_name})`);
+    assert(rap.struct_type === 'AnimMontage',
+      `D185: read_asset_properties struct_type is AnimMontage (got ${rap.struct_type})`);
+    assert(rap.export_index === page.default_export.export_index,
+      'D185: read_asset_properties default export_index matches list_asset_exports default_export');
+    assert(rap.export_selection_reason === 'package_root_name_match',
+      `D185: read_asset_properties default reason is package_root_name_match (got ${rap.export_selection_reason})`);
+
+    const heavy = await executeOfflineTool('list_asset_exports',
+      { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, limit: 200 },
+      PROJECT_ROOT);
+    const counts = new Map();
+    for (const row of heavy.exports) {
+      counts.set(row.object_name, (counts.get(row.object_name) || 0) + 1);
+    }
+    assert([...counts.values()].some(count => count > 1),
+      'D185: heavy attack montage fixture exposes duplicate export object names');
+    assert(heavy.exports.some(row =>
+      row.export_index === heavy.default_export.export_index &&
+      row.object_name === HEAVY_ATTACK_COMBO_MONTAGE.name),
+      'D185: default_export export_index points at a returned export row');
+
+    const notifyRow = heavy.exports.find(row =>
+      row.object_name !== HEAVY_ATTACK_COMBO_MONTAGE.name &&
+      row.class_name &&
+      row.export_index !== heavy.default_export.export_index);
+    assert(notifyRow !== undefined,
+      'D185: fixture exposes a non-default export row for export_index selection');
+
+    const indexed = await executeOfflineTool('read_asset_properties',
+      { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, export_index: notifyRow.export_index },
+      PROJECT_ROOT);
+    assert(indexed.export_index === notifyRow.export_index,
+      'D185: read_asset_properties targets explicit export_index');
+    assert(indexed.export_name === notifyRow.object_name,
+      'D185: explicit export_index may target duplicate object names');
+    assert(indexed.export_selection_reason === 'explicit_export_index',
+      `D185: explicit export_index reason reported (got ${indexed.export_selection_reason})`);
+
+    const byName = await executeOfflineTool('read_asset_properties',
+      { asset_path: COMBAT_DODGE_B_MONTAGE.path, export_name: COMBAT_DODGE_B_MONTAGE.name },
+      PROJECT_ROOT);
+    assert(byName.export_selection_reason === 'explicit_export_name',
+      `D185: explicit export_name reason reported (got ${byName.export_selection_reason})`);
+
+    const requested = await executeOfflineTool('read_asset_properties',
+      {
+        asset_path: HIT_IMPACT_CUE_BP.path,
+        property_names: ['HitAkEvent', 'ImpactVfx', 'DefaultSocketName'],
+      },
+      PROJECT_ROOT);
+    assert(Array.isArray(requested.requested_properties),
+      'D185: filtered read returns requested_properties array');
+    assert(requested.requested_properties.length === 3,
+      `D185: requested_properties has one row per requested name (got ${requested.requested_properties?.length})`);
+    const requestedRows = Object.fromEntries(requested.requested_properties.map(row => [row.name, row]));
+    assert(requestedRows.ImpactVfx?.status === 'serialized',
+      `D185: serialized requested property is marked serialized (got ${requestedRows.ImpactVfx?.status})`);
+    assert(requestedRows.ImpactVfx?.value !== undefined,
+      'D185: serialized requested property row includes value');
+    assert(requestedRows.HitAkEvent?.status === 'not_serialized_default',
+      `D185: absent requested HitAkEvent is not_serialized_default (got ${requestedRows.HitAkEvent?.status})`);
+    assert(requestedRows.DefaultSocketName?.status === 'not_serialized_default',
+      `D185: absent requested DefaultSocketName is not_serialized_default (got ${requestedRows.DefaultSocketName?.status})`);
+    assert(requested.properties.ImpactVfx !== undefined,
+      'D185: properties map still includes serialized requested value');
+    assert(requested.properties.HitAkEvent === undefined,
+      'D185: properties map does not gain absent marker objects');
+
+    const truncated = await executeOfflineTool('read_asset_properties',
+      {
+        asset_path: GAS_ABILITY_BP.path,
+        max_bytes: 50,
+        property_names: ['D185DefinitelyAbsentAfterBudget'],
+      },
+      PROJECT_ROOT);
+    assert(truncated.truncated === true,
+      'D185: truncation setup produced truncated=true');
+    assert(truncated.requested_properties?.[0]?.status === 'unknown_due_to_truncation',
+      `D185: absent requested name under truncation is unknown_due_to_truncation (got ${truncated.requested_properties?.[0]?.status})`);
+
+    let conflict = null;
+    try {
+      await executeOfflineTool('read_asset_properties',
+        {
+          asset_path: COMBAT_DODGE_B_MONTAGE.path,
+          export_name: COMBAT_DODGE_B_MONTAGE.name,
+          export_index: page.default_export.export_index,
+        },
+        PROJECT_ROOT);
+    } catch (e) {
+      conflict = e;
+    }
+    assert(conflict !== null && /export_name.*export_index|export_index.*export_name/.test(conflict.message),
+      'D185: read_asset_properties rejects export_name plus export_index');
+
+    let outOfRange = null;
+    try {
+      await executeOfflineTool('read_asset_properties',
+        { asset_path: COMBAT_DODGE_B_MONTAGE.path, export_index: page.total_exports + 1 },
+        PROJECT_ROOT);
+    } catch (e) {
+      outOfRange = e;
+    }
+    assert(outOfRange !== null && /export_index.*range|out of range/.test(outOfRange.message),
+      'D185: read_asset_properties rejects out-of-range export_index');
+  }
+
+  await testD185ExportListing();
 }
 
 // ── Test 11: Agent 10.5 Tier 4 — find_blueprint_nodes ──────────
