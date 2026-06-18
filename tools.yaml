@@ -1546,7 +1546,7 @@ toolsets:
           width:         { type: number, required: false, default: 768 }
           height:        { type: number, required: false, default: 432 }
           return_base64: { type: boolean, required: false, default: true }
-          output_path:   { type: string, required: false }
+          output_path:   { type: string, required: false, description: "Optional disk output; absolute path or relative to Saved/ (.png appended if missing)" }
       get_asset_preview_render:
         status: shipped
         availability_layer: tcp-55558

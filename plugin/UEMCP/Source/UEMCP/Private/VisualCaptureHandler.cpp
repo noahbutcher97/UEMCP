@@ -233,6 +233,10 @@ namespace UEMCP
 
 			if (!OutputFilePath.IsEmpty())
 			{
+				if (!OutputFilePath.EndsWith(TEXT(".png")))
+				{
+					OutputFilePath += TEXT(".png");
+				}
 				if (FPaths::IsRelative(OutputFilePath))
 				{
 					OutputFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir(), OutputFilePath);
