@@ -1931,7 +1931,8 @@ function canonicalNodeName(exportEntry) {
  * instead of parsing the UBlueprint's TArray<ObjectProperty> refs to keep the
  * v1 surface simple; `unknown` is the fallback when no heuristic matches.
  */
-function classifyGraph(name) {
+function classifyGraph(name, className = 'EdGraph') {
+  if (className === 'AnimationGraph') return 'anim_graph';
   if (name === 'EventGraph' || name.startsWith('Ubergraph')) return 'ubergraph';
   if (name === 'UserConstructionScript' || name === 'ConstructionScript') return 'construction_script';
   if (name.endsWith('_DelegateSignature')) return 'delegate_signature';
@@ -1940,9 +1941,20 @@ function classifyGraph(name) {
   return 'function';
 }
 
+const BLUEPRINT_ASSET_EXPORT_CLASSES = new Set([
+  'Blueprint',
+  'AnimBlueprint',
+  'WidgetBlueprint',
+]);
+
+const TOP_LEVEL_BLUEPRINT_GRAPH_CLASSES = new Set([
+  'EdGraph',
+  'AnimationGraph',
+]);
+
 /**
- * Walk the export table and bucket K2Node / EdGraphNode_Comment exports by
- * their containing EdGraph. Returns { graphs, nodesByGraph, commentsByGraph }
+ * Walk the export table and bucket graph-node exports by their containing
+ * top-level graph. Returns { graphs, nodesByGraph, commentsByGraph }
  * keyed by the graph's 1-based FPackageIndex. `ubpIndex` is the UBlueprint's
  * export index — graphs whose outerIndex resolves to it are considered
  * belonging to this BP.
@@ -1950,23 +1962,26 @@ function classifyGraph(name) {
 function indexBlueprintGraphs(ctx) {
   const { exports, imports } = ctx;
 
-  // Find the UBlueprint export — identified by className === 'Blueprint'.
+  // Find the UBlueprint-family export. AnimBlueprint assets serialize their
+  // top-level AnimGraph as class AnimationGraph under the AnimBlueprint export,
+  // not as a plain EdGraph.
   const ubpIdx = exports.findIndex(e =>
-    resolvePackageIndex(e.classIndex, exports, imports, 'objectName') === 'Blueprint');
+    BLUEPRINT_ASSET_EXPORT_CLASSES.has(resolvePackageIndex(e.classIndex, exports, imports, 'objectName')));
   const ubpPackageIndex = ubpIdx >= 0 ? ubpIdx + 1 : null;
 
-  // Build the EdGraph set (exports with className === 'EdGraph').
+  // Build the top-level graph set. Nested animation state/transition graphs
+  // are deliberately left for the deeper AnimGraph readback surface.
   const graphByPackageIndex = new Map();
   const graphs = [];
   for (let i = 0; i < exports.length; i++) {
     const e = exports[i];
     const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
-    if (cls !== 'EdGraph') continue;
+    if (!TOP_LEVEL_BLUEPRINT_GRAPH_CLASSES.has(cls)) continue;
     if (ubpPackageIndex !== null && e.outerIndex !== ubpPackageIndex) continue;
     const graphPi = i + 1;
     const rec = {
       name: e.objectName,
-      graph_type: classifyGraph(e.objectName),
+      graph_type: classifyGraph(e.objectName, cls),
       export_index: graphPi,
       node_count: 0,
       comment_count: 0,
@@ -1977,14 +1992,17 @@ function indexBlueprintGraphs(ctx) {
     graphs.push(rec);
   }
 
-  // Bucket K2Node / EdGraphNode_Comment exports under their outer graph.
+  // Bucket graph-node exports under their outer graph. AnimGraphNode_* counts
+  // make bp_list_graphs honest for AnimBlueprints; deeper semantic decoding
+  // remains D188 scope.
   for (let i = 0; i < exports.length; i++) {
     const e = exports[i];
     const cls = resolvePackageIndex(e.classIndex, exports, imports, 'objectName');
     if (!cls) continue;
     const isK2Node = cls.startsWith('K2Node_');
+    const isAnimGraphNode = cls.startsWith('AnimGraphNode_');
     const isComment = cls === 'EdGraphNode_Comment';
-    if (!isK2Node && !isComment) continue;
+    if (!isK2Node && !isAnimGraphNode && !isComment) continue;
     const rec = graphByPackageIndex.get(e.outerIndex);
     if (!rec) continue;
     const row = { export_index: i + 1, export: e, className: cls };
@@ -2375,10 +2393,11 @@ async function bpListEntryPoints(projectRoot, params) {
  * M-new (D58) pin-block completion: pins[] is populated from S-B-base
  * topology when the node is reachable there (keyed by its Oracle-A
  * NodeGuid under its owning graph). When the node's guid converts and
- * matches a topology entry, `pin_block` moves from `not_available` to
- * `available_fields`. Non-graph-node exports (nodes whose class isn't
- * K2Node_* / EdGraphNode_Comment, or whose pin-block parse returned
- * malformed) still emit pins=[] with `pin_block` in not_available.
+ * matches a topology entry, `pin_block` and `pin_defaults` move from
+ * `not_available` to `available_fields`. Non-graph-node exports (nodes
+ * whose class isn't K2Node_* / EdGraphNode_Comment, or whose pin-block
+ * parse returned malformed) still emit pins=[] with both fields in
+ * not_available.
  */
 async function bpShowNode(projectRoot, params) {
   const assetPath = params.asset_path;
@@ -2451,8 +2470,8 @@ async function bpShowNode(projectRoot, params) {
     diskPath: diskPath.replace(/\\/g, '/'),
     node,
     ...faBetaManifest(
-      pinBlockAvailable ? [] : ['pin_block'],
-      pinBlockAvailable ? ['pin_block'] : [],
+      pinBlockAvailable ? [] : ['pin_block', 'pin_defaults'],
+      pinBlockAvailable ? ['pin_block', 'pin_defaults'] : [],
     ),
   });
 }
@@ -2638,13 +2657,20 @@ function resolveTopologyGraph(topology, assetPath, graphName) {
  * and tag with pin_kind (exec|data) for caller filtering convenience.
  */
 function shapePublicPin(pinId, pin) {
-  return {
+  const out = {
     pin_id: pinId,
     name: pin.name ?? '',
     direction: pin.direction,
     pin_kind: isExecPin(pin) ? 'exec' : 'data',
     linked_to: pin.linked_to,
   };
+  if ('default_value' in pin) out.default_value = pin.default_value;
+  if ('autogenerated_default_value' in pin) {
+    out.autogenerated_default_value = pin.autogenerated_default_value;
+  }
+  if ('default_object' in pin) out.default_object = pin.default_object;
+  if ('default_text_value' in pin) out.default_text_value = pin.default_text_value;
+  return out;
 }
 
 // ── bp_trace_exec ──────────────────────────────────────────────────────────

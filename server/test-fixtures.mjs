@@ -44,6 +44,10 @@ export const GAS_ABILITY_BP = deriveBpNames('/Game/GAS/Abilities/BPGA_Block');
 // one EdGraphNode_Comment.
 export const PLAYER_BP = deriveBpNames('/Game/Blueprints/Character/BP_OSPlayerR');
 
+// AnimBlueprint with a top-level AnimationGraph export. Exercises bp_list_graphs
+// coverage for AnimGraph, whose class is AnimationGraph rather than EdGraph.
+export const ANIM_BLUEPRINT_BP = deriveBpNames('/Game/Animations/Retargeted/StreetFighterAnimation/ABP_Manny');
+
 // Medium-complexity dev map for list_level_actors placed-actor walking and
 // transform decoding.
 export const DEV_TEST_MAP = { path: '/Game/Developers/steve/Steve_TestMap' };
