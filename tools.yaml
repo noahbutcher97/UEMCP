@@ -174,7 +174,8 @@ toolsets:
           unsupported[] is scoped to the filter (plus `__stream__`-wide markers).
         params:
           asset_path:     { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
-          export_name:    { type: string, required: false, description: "Target export objectName. Default: primary CDO (Default__<Name>_C for BPs) or main export for non-BP assets." }
+          export_name:    { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }
+          export_index:   { type: number, required: false, description: "One-based export index from list_asset_exports. Mutually exclusive with export_name and preferred when duplicate export names exist." }
           property_names: { type: array, items: string, required: false, description: "Filter to specific UPROPERTY names; omit for all readable properties." }
           max_bytes:      { type: number, required: false, description: "Response size budget in declared value bytes (default 65536). When exceeded, properties emit size_budget_exceeded markers (capped at 20) and truncated=true." }
       find_blueprint_nodes:

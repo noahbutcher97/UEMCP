@@ -1624,8 +1624,8 @@ async function listLevelActors(projectRoot, params) {
  * Default export:
  *   - For assets whose primary class is a BlueprintGeneratedClass
  *     subclass, pick the `Default__<Name>_C` CDO export.
- *   - Otherwise, the first export with bIsAsset=true, falling back to
- *     the main export at index 0.
+ *   - Otherwise, prefer the package-root export whose object name matches
+ *     the asset path leaf, then fall back through the shared export selector.
  *
  * property_names filter runs AFTER full-stream parse — the stream has to
  * be walked sequentially (FPropertyTag sizes are declared inline), so
@@ -1644,17 +1644,36 @@ async function readAssetProperties(projectRoot, params) {
   // Pick the target export.
   let target = null;
   let exportIndex = -1;
-  if (requestedExportName) {
+  let exportSelectionReason = null;
+  const hasExportIndex = params.export_index !== undefined && params.export_index !== null;
+  if (requestedExportName && hasExportIndex) {
+    throw new Error('Provide only one of export_name or export_index');
+  }
+
+  if (hasExportIndex) {
+    const n = Number(params.export_index);
+    if (!Number.isInteger(n)) {
+      throw new Error('export_index must be an integer');
+    }
+    if (n < 1 || n > exports.length) {
+      throw new Error(`export_index out of range: ${n} (valid 1..${exports.length})`);
+    }
+    exportIndex = n - 1;
+    target = exports[exportIndex];
+    exportSelectionReason = 'explicit_export_index';
+  } else if (requestedExportName) {
     exportIndex = exports.findIndex(e => e.objectName === requestedExportName);
     if (exportIndex < 0) {
       throw new Error(`Export not found: ${requestedExportName}`);
     }
     target = exports[exportIndex];
+    exportSelectionReason = 'explicit_export_name';
   } else {
-    const selection = selectAssetExport(exports, imports, assetPath);
-    if (selection) {
-      exportIndex = selection.index;
-      target = selection.entry;
+    const selected = selectAssetExport(exports, imports, assetPath);
+    if (selected) {
+      exportIndex = selected.index;
+      target = selected.entry;
+      exportSelectionReason = selected.reason;
     }
   }
 
@@ -1689,6 +1708,7 @@ async function readAssetProperties(projectRoot, params) {
     diskPath: diskPath.replace(/\\/g, '/'),
     export_name: target.objectName,
     export_index: exportIndex + 1,
+    export_selection_reason: exportSelectionReason,
     struct_type: structType,
     properties,
     unsupported: dedupeUnsupported(unsupported),

@@ -1119,6 +1119,8 @@ if (HAS_REAL_ASSETS) {
       `D185: read_asset_properties struct_type is AnimMontage (got ${rap.struct_type})`);
     assert(rap.export_index === page.default_export.export_index,
       'D185: read_asset_properties default export_index matches list_asset_exports default_export');
+    assert(rap.export_selection_reason === 'package_root_name_match',
+      `D185: read_asset_properties default reason is package_root_name_match (got ${rap.export_selection_reason})`);
 
     const heavy = await executeOfflineTool('list_asset_exports',
       { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, limit: 200 },
@@ -1133,6 +1135,55 @@ if (HAS_REAL_ASSETS) {
       row.export_index === heavy.default_export.export_index &&
       row.object_name === HEAVY_ATTACK_COMBO_MONTAGE.name),
       'D185: default_export export_index points at a returned export row');
+
+    const notifyRow = heavy.exports.find(row =>
+      row.object_name !== HEAVY_ATTACK_COMBO_MONTAGE.name &&
+      row.class_name &&
+      row.export_index !== heavy.default_export.export_index);
+    assert(notifyRow !== undefined,
+      'D185: fixture exposes a non-default export row for export_index selection');
+
+    const indexed = await executeOfflineTool('read_asset_properties',
+      { asset_path: HEAVY_ATTACK_COMBO_MONTAGE.path, export_index: notifyRow.export_index },
+      PROJECT_ROOT);
+    assert(indexed.export_index === notifyRow.export_index,
+      'D185: read_asset_properties targets explicit export_index');
+    assert(indexed.export_name === notifyRow.object_name,
+      'D185: explicit export_index may target duplicate object names');
+    assert(indexed.export_selection_reason === 'explicit_export_index',
+      `D185: explicit export_index reason reported (got ${indexed.export_selection_reason})`);
+
+    const byName = await executeOfflineTool('read_asset_properties',
+      { asset_path: COMBAT_DODGE_B_MONTAGE.path, export_name: COMBAT_DODGE_B_MONTAGE.name },
+      PROJECT_ROOT);
+    assert(byName.export_selection_reason === 'explicit_export_name',
+      `D185: explicit export_name reason reported (got ${byName.export_selection_reason})`);
+
+    let conflict = null;
+    try {
+      await executeOfflineTool('read_asset_properties',
+        {
+          asset_path: COMBAT_DODGE_B_MONTAGE.path,
+          export_name: COMBAT_DODGE_B_MONTAGE.name,
+          export_index: page.default_export.export_index,
+        },
+        PROJECT_ROOT);
+    } catch (e) {
+      conflict = e;
+    }
+    assert(conflict !== null && /export_name.*export_index|export_index.*export_name/.test(conflict.message),
+      'D185: read_asset_properties rejects export_name plus export_index');
+
+    let outOfRange = null;
+    try {
+      await executeOfflineTool('read_asset_properties',
+        { asset_path: COMBAT_DODGE_B_MONTAGE.path, export_index: page.total_exports + 1 },
+        PROJECT_ROOT);
+    } catch (e) {
+      outOfRange = e;
+    }
+    assert(outOfRange !== null && /export_index.*range|out of range/.test(outOfRange.message),
+      'D185: read_asset_properties rejects out-of-range export_index');
   }
 
   await testD185ExportListing();
