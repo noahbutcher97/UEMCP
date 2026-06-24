@@ -408,7 +408,7 @@
 						},
 						"E19AC80342BFE287AC233AAA5E34F319":
 						{
-							"name": "AsOSPlayer Controller",
+							"name": "AsPC OSBase",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -2278,35 +2278,10 @@
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
-									"node_guid": "4C0F03204A1755219CAB54B57B5B08AA",
-									"pin_id": "17715B9B4B983A161DFF7CA6ADADBDB6"
+									"node_guid": "69C1F44D4A390E49DCC1D1810BCCBAD0",
+									"pin_id": "CAC464D84324ABF0061C89AF2601F223"
 								}
 							]
-						}
-					}
-				},
-				"B7F697B845678204474A56939691D3C3":
-				{
-					"class_name": "K2Node_CallFunction",
-					"pins":
-					{
-						"8DD328964938BA1CCCD3529E20B2FC82":
-						{
-							"name": "execute",
-							"direction": "EGPD_Input",
-							"linked_to": []
-						},
-						"CA9512FE4F697CCB05663EA9A3F095AF":
-						{
-							"name": "then",
-							"direction": "EGPD_Output",
-							"linked_to": []
-						},
-						"596799BC4F2DDD919A17128E988FEA13":
-						{
-							"name": "self",
-							"direction": "EGPD_Input",
-							"linked_to": []
 						}
 					}
 				},
@@ -2321,8 +2296,8 @@
 							"direction": "EGPD_Input",
 							"linked_to": [
 								{
-									"node_guid": "134A6B914C89F5772C2540A3771D5F0F",
-									"pin_id": "CE2A9E134DAD6F90B9CC07981F287256"
+									"node_guid": "69C1F44D4A390E49DCC1D1810BCCBAD0",
+									"pin_id": "07D0C00042C8EBC3CE2EB9BAFCEC0F32"
 								}
 							]
 						},
@@ -2333,6 +2308,41 @@
 							"linked_to": []
 						},
 						"C1B891F147D7BA63CFD134BB78D658B0":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"69C1F44D4A390E49DCC1D1810BCCBAD0":
+				{
+					"class_name": "K2Node_CallParentFunction",
+					"pins":
+					{
+						"CAC464D84324ABF0061C89AF2601F223":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "134A6B914C89F5772C2540A3771D5F0F",
+									"pin_id": "CE2A9E134DAD6F90B9CC07981F287256"
+								}
+							]
+						},
+						"07D0C00042C8EBC3CE2EB9BAFCEC0F32":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "4C0F03204A1755219CAB54B57B5B08AA",
+									"pin_id": "17715B9B4B983A161DFF7CA6ADADBDB6"
+								}
+							]
+						},
+						"40B1887F47D92F59E74F4088452DA380":
 						{
 							"name": "self",
 							"direction": "EGPD_Input",
@@ -8705,6 +8715,10 @@
 								{
 									"node_guid": "6681C2FD4872EC6D24B2CA813BFB1F8C",
 									"pin_id": "6CD06F25470381AC142E06B7F9846AAC"
+								},
+								{
+									"node_guid": "1EF52B9C45F4FAF327FBE5BFABDBED90",
+									"pin_id": "9ECF87FC4BDA3935AA8917AB566A955C"
 								}
 							]
 						},
@@ -9046,6 +9060,36 @@
 						"643915FA4A9840B59A5FD5B853A6D3D3":
 						{
 							"name": "Is Not Valid",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"1EF52B9C45F4FAF327FBE5BFABDBED90":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"9ECF87FC4BDA3935AA8917AB566A955C":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "60183CC34740552CD01CD6822B50AFAD",
+									"pin_id": "DA7C39274BA94BAEAC18FF9BDB542AFF"
+								}
+							]
+						},
+						"D0E576D84F446423683CDA9E5DD4DB1F":
+						{
+							"name": "ComponentIndex",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"821C91C140EA57C52EC3DAB6242A1533":
+						{
+							"name": "ReturnValue",
 							"direction": "EGPD_Output",
 							"linked_to": []
 						}

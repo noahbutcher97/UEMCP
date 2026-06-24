@@ -9,7 +9,7 @@ Format per line: <asset path> — <nodes/edges> — <rationale>.
 Final corpus (6 fixtures)
 -------------------------
 
-/Game/Blueprints/Character/BP_OSPlayerR                 (204 nodes / 596 edges)
+/Game/Blueprints/Character/BP_OSPlayerR                 (205 nodes / 600 edges)
   Primary test target. Main player character with dense event graph,
   multiple function graphs, construction script. Highest edge density in
   the corpus — stresses the hot serialization path and gives S-B-base
@@ -29,7 +29,7 @@ Final corpus (6 fixtures)
   OSPlayerR family. Lets differential tests catch family-specific
   regressions that would otherwise hide behind shared ancestry.
 
-/Game/Blueprints/Level/BP_OSControlPoint                (182 nodes / 330 edges)
+/Game/Blueprints/Level/BP_OSControlPoint                (223 nodes / 398 edges)
   Dense level-placed BP with team logic + control-point state machine.
   Second-highest edge count in the corpus. Uses level-scope UFUNCTIONs
   and events distinct from player BPs.

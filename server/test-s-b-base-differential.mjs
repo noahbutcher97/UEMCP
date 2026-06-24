@@ -31,7 +31,7 @@ const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
 
 const FIXTURES = [
-  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 596 },
+  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
   { name: 'BP_OSPlayerR_Child',  assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
