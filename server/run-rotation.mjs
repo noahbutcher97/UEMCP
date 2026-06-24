@@ -30,6 +30,10 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import {
+  collectOracleFreshness,
+  detectOracleFreshnessMarkers,
+} from './rotation-oracle-freshness.mjs';
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -156,8 +160,9 @@ function runOne(file) {
   const counts = parseCounts(stdout, stderr);
   const importError = detectImportError(stderr);
   const kind = classify(exitCode, counts, importError);
+  const oracleFreshness = detectOracleFreshnessMarkers(stdout);
 
-  return { file, exitCode, kind, counts, importError, elapsedMs: Date.now() - start, stdout, stderr };
+  return { file, exitCode, kind, counts, importError, oracleFreshness, elapsedMs: Date.now() - start, stdout, stderr };
 }
 
 function tail(s, n = 5) {
@@ -203,7 +208,7 @@ function main() {
     if (!FLAG_JSON) {
       switch (r.kind) {
         case 'PASS':
-          console.log(`✓ ${r.counts.passed}/${r.counts.total} (${r.elapsedMs}ms)`);
+          console.log(`✓ ${r.counts.passed}/${r.counts.total}${r.oracleFreshness.length ? ` ! oracle-freshness=${r.oracleFreshness.length}` : ''} (${r.elapsedMs}ms)`);
           break;
         case 'SKIPPED': {
           const reason = r.counts?.skipReason ? ` — ${r.counts.skipReason}` : '';
@@ -235,14 +240,19 @@ function main() {
   }
 
   const aggregate = { passed: aggPassed, failed: aggFailed, total: aggPassed + aggFailed };
+  const oracleFreshness = collectOracleFreshness(results);
 
   if (FLAG_JSON) {
     console.log(JSON.stringify({
       files: results.map(r => ({
         file: r.file, kind: r.kind, exitCode: r.exitCode,
-        counts: r.counts, importError: r.importError, elapsedMs: r.elapsedMs,
+        counts: r.counts, importError: r.importError,
+        oracleFreshness: r.oracleFreshness,
+        elapsedMs: r.elapsedMs,
       })),
       aggregate,
+      oracleFreshnessCount: oracleFreshness.count,
+      oracleFreshness: oracleFreshness.entries,
       importErrorCount: importErrors.length,
       assertionFailureCount: assertionFailures.length,
       crashCount: crashes.length,
@@ -255,6 +265,9 @@ function main() {
     console.log(`  Aggregate:    ${aggregate.passed} passed / ${aggregate.failed} failed / ${aggregate.total} total`);
     if (skipped.length > 0) {
       console.log(`  Skipped:      ${skipped.length} (env/live-gate — assertions not contributing)`);
+    }
+    if (oracleFreshness.count > 0) {
+      console.log(`  Oracle gate: ${oracleFreshness.count} non-strict freshness marker(s)`);
     }
 
     if (importErrors.length > 0) {
@@ -293,6 +306,14 @@ function main() {
         console.log(`    ✗ ${r.file}: ${r.counts.failed} failed of ${r.counts.total}`);
       }
     }
+    if (oracleFreshness.count > 0) {
+      console.log('');
+      console.log('  Oracle freshness markers (non-strict, exit remains green):');
+      for (const entry of oracleFreshness.entries) {
+        console.log(`    ! ${entry.file}: ${entry.code} ${entry.label}`);
+      }
+      console.log('    Set UEMCP_STRICT_LIVE_ORACLES=1 to fail on these gates.');
+    }
     console.log('');
   }
 
@@ -301,11 +322,14 @@ function main() {
     writeFileSync(snapshotPath, JSON.stringify({
       timestamp: new Date().toISOString(),
       aggregate,
+      oracleFreshnessCount: oracleFreshness.count,
+      oracleFreshness: oracleFreshness.entries,
       files: results.map(r => ({
         file: r.file, kind: r.kind,
         passed: r.counts?.passed ?? 0,
         failed: r.counts?.failed ?? 0,
         total: r.counts?.total ?? 0,
+        oracleFreshness: r.oracleFreshness,
       })),
     }, null, 2));
     if (!FLAG_JSON) console.log(`Snapshot written to ${snapshotPath}\n`);

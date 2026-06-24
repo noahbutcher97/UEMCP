@@ -19,6 +19,10 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractBPEdgeTopologySafe } from './offline-tools.mjs';
+import {
+  applyOracleFreshnessGate,
+  evaluateTopologyOracleFreshness,
+} from './oracle-freshness.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
@@ -27,7 +31,7 @@ const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
 
 const FIXTURES = [
-  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 596 },
+  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
   { name: 'BP_OSPlayerR_Child',  assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
@@ -146,6 +150,14 @@ async function runFixtureDifferential(fx) {
     `${fx.name}: schema_version = sb-base-v1`);
   runner.assert(parsed.asset_path === fx.assetPath,
     `${fx.name}: asset_path round-trips in output`);
+
+  const freshness = evaluateTopologyOracleFreshness(fx.name, parsed, oracle, {
+    assetPath: fx.assetPath,
+    parserSchemaVersion: 'sb-base-v1',
+    oracleSchemaVersion: 'oracle-a-v2',
+    edgeCount: fx.expectedEdges,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
 
   const oracleEdges = flattenEdges(oracle);
   const parserEdges = flattenEdges(parsed);

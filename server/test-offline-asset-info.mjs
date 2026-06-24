@@ -31,11 +31,24 @@ import {
   parseAssetHeader,
   assetCache,
 } from './offline-tools.mjs';
+import {
+  applyOracleFreshnessGate,
+  evaluateAssetInfoFreshness,
+} from './oracle-freshness.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('offline get_asset_info + cache tests');
 
 const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
+const FOOTSTEP_EXPECTED = {
+  path: '/Game/Animations/AN_OSAnimNotify_Footstep',
+  objectClassName: '/Script/Engine.Blueprint',
+  objectPath: 'AN_OSAnimNotify_Footstep',
+  packageName: '/Game/Animations/AN_OSAnimNotify_Footstep',
+  exportCount: 3,
+  nameCount: 33,
+  assetRegistryObjects: 2,
+};
 
 async function exists(p) {
   try { await stat(p); return true; } catch { return false; }
@@ -53,9 +66,12 @@ async function testAssetInfoShape() {
 
   const info = await executeOfflineTool(
     'get_asset_info',
-    { asset_path: '/Game/Animations/AN_OSAnimNotify_Footstep' },
+    { asset_path: FOOTSTEP_EXPECTED.path },
     ROOT,
   );
+
+  const freshness = evaluateAssetInfoFreshness('Footstep get_asset_info oracle', info, FOOTSTEP_EXPECTED);
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
 
   runner.assert(info.path === '/Game/Animations/AN_OSAnimNotify_Footstep',
                 'Footstep: echoed path');

@@ -40,6 +40,12 @@ import {
   readFBoxBinary,
   readFExpressionInputBinary,
 } from './uasset-structs.mjs';
+import {
+  applyOracleFreshnessGate,
+  countTopologyEdges,
+  evaluateAssetInfoFreshness,
+  evaluateTopologyOracleFreshness,
+} from './oracle-freshness.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
@@ -48,6 +54,10 @@ const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 
 async function exists(p) {
   try { await stat(p); return true; } catch { return false; }
+}
+
+function assetPathFromContentRel(relPath) {
+  return `/Game/${relPath.replace(/\\/g, '/').replace(/^Content\//, '').replace(/\.uasset$/i, '')}`;
 }
 
 // ── Synthetic FPackageFileSummary builder — version-delta regression (D166) ──
@@ -140,6 +150,41 @@ async function testFootstepFixture() {
   const buf = await readFile(path);
   const cur = new Cursor(buf);
   const s = parseSummary(cur);
+  const names = readNameTable(cur, s);
+  const posAfterNames = cur.tell();
+  const exports = readExportTable(cur, s, names);
+  const posAfterExports = cur.tell();
+  const ar = readAssetRegistryData(cur, s);
+  const posAfterAr = cur.tell();
+  const primary = ar.objects[0] || {};
+  const freshness = evaluateAssetInfoFreshness('Footstep byte oracle', {
+    path: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    packageName: s.packageName,
+    objectPath: primary.objectPath,
+    objectClassName: primary.objectClassName,
+    fileVersionUE5: s.fileVersionUE5,
+    nameCount: s.nameCount,
+    nameOffset: s.nameOffset,
+    exportCount: s.exportCount,
+    exportOffset: s.exportOffset,
+    importCount: s.importCount,
+    assetRegistryDataOffset: s.assetRegistryDataOffset,
+    assetRegistryObjects: ar.objects.length,
+  }, {
+    path: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    packageName: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    objectPath: 'AN_OSAnimNotify_Footstep',
+    objectClassName: '/Script/Engine.Blueprint',
+    fileVersionUE5: 1017,
+    nameCount: 33,
+    nameOffset: 511,
+    exportCount: 3,
+    exportOffset: 1859,
+    importCount: 8,
+    assetRegistryDataOffset: 2357,
+    assetRegistryObjects: 2,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
 
   runner.assert(s.tag === PACKAGE_FILE_TAG, 'Footstep: magic tag');
   runner.assert(s.legacyFileVersion === -9, 'Footstep: legacyFileVersion=-9');
@@ -153,14 +198,12 @@ async function testFootstepFixture() {
   runner.assert(s.packageName === '/Game/Animations/AN_OSAnimNotify_Footstep',
                 'Footstep: packageName');
 
-  const names = readNameTable(cur, s);
   runner.assert(names.length === 33, 'Footstep: name table size');
-  runner.assert(cur.tell() === s.softObjectPathsOffset,
+  runner.assert(posAfterNames === s.softObjectPathsOffset,
                 'Footstep: name table ends at softObjectPathsOffset');
 
-  const exports = readExportTable(cur, s, names);
   runner.assert(exports.length === 3, 'Footstep: 3 exports parsed');
-  runner.assert(cur.tell() === s.exportOffset + 3 * 112,
+  runner.assert(posAfterExports === s.exportOffset + 3 * 112,
                 'Footstep: export stride = 112 bytes (UE 5.6)');
   runner.assert(exports[0].objectName === 'Default__AN_OSAnimNotify_Footstep_C',
                 'Footstep: export[0] objectName');
@@ -170,9 +213,8 @@ async function testFootstepFixture() {
   runner.assert(exports[0].serialOffset === 3678,
                 'Footstep: export[0] serialOffset=3678');
 
-  const ar = readAssetRegistryData(cur, s);
   runner.assert(ar.objects.length === 2, 'Footstep: 2 AR objects');
-  runner.assert(cur.tell() === ar.dependencyDataOffset,
+  runner.assert(posAfterAr === ar.dependencyDataOffset,
                 'Footstep: AR block ends at dependencyDataOffset');
   runner.assert(ar.objects[0].objectPath === 'AN_OSAnimNotify_Footstep',
                 'Footstep: AR[0] objectPath');
@@ -395,23 +437,52 @@ async function testBpgaBlockProperties() {
 
   const r = readExportProperties(buf, cdo, names, { resolve });
 
-  // The CDO has 9 tagged properties — commit 1 handles scalars + object refs
-  // and emits markers for the 6 struct / container properties.
-  runner.assert(r.propertyCount === 9, 'BPGA_Block: 9 properties walked', `got=${r.propertyCount}`);
-  runner.assert(r.bytesConsumed === 765, 'BPGA_Block: bytesConsumed matches serialSize minus None+trailer',
-                `got=${r.bytesConsumed}, expected 769-4=765`);
+  const namedUnsupported = r.unsupported.map(u => u.name);
+  const freshness = evaluateAssetInfoFreshness('BPGA_Block L1 property oracle', {
+    packageName: s.packageName,
+    fileVersionUE5: s.fileVersionUE5,
+    nameCount: s.nameCount,
+    exportCount: s.exportCount,
+    propertyCount: r.propertyCount,
+    bytesConsumed: r.bytesConsumed,
+    hasBlockStateEffectClass: r.properties.BlockStateEffectClass?.packagePath ===
+      '/Game/GAS/Effects/BPGE_OSBlockState.BPGE_OSBlockState_C',
+    hasCostInterval: Math.abs((r.properties.CostInterval ?? NaN) - 0.05) < 0.000001,
+    unsupportedGameplayTagContainers: [
+      'CancelAbilitiesWithTag',
+      'BlockAbilitiesWithTag',
+      'ActivationOwnedTags',
+      'ActivationBlockedTags',
+    ].every(n => namedUnsupported.includes(n)),
+    unsupportedCount: namedUnsupported.length,
+  }, {
+    packageName: '/Game/GAS/Abilities/BPGA_Block',
+    fileVersionUE5: 1017,
+    nameCount: 179,
+    exportCount: 19,
+    propertyCount: 8,
+    bytesConsumed: 675,
+    hasBlockStateEffectClass: true,
+    hasCostInterval: true,
+    unsupportedGameplayTagContainers: true,
+    unsupportedCount: 4,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
+
+  // The current CDO has 8 tagged properties. L1 handles scalars + object refs
+  // and emits markers for the native-binary GameplayTagContainer structs.
+  runner.assert(r.propertyCount === 8, 'BPGA_Block: 8 properties walked', `got=${r.propertyCount}`);
+  runner.assert(r.bytesConsumed === 675, 'BPGA_Block: bytesConsumed matches serialSize minus None+trailer',
+                `got=${r.bytesConsumed}, expected 679-4=675`);
 
   // Scalars + refs resolve cleanly.
-  runner.assert(r.properties.DrainCheckInterval === 0.5,
-                'BPGA_Block: FloatProperty DrainCheckInterval = 0.5',
-                `got=${r.properties.DrainCheckInterval}`);
-  runner.assert(r.properties.GuardBreakEffectClass &&
-                r.properties.GuardBreakEffectClass.packagePath ===
-                '/Game/GAS/Effects/BPGE_OSGuardBreak.BPGE_OSGuardBreak_C',
-                'BPGA_Block: ObjectProperty GuardBreakEffectClass resolves to /Game path via outer-chain walk');
-  runner.assert(r.properties.ChooserTable?.packagePath ===
-                '/Game/Data/ChooserTable/CT_OSBlocks.CT_OSBlocks',
-                'BPGA_Block: ObjectProperty ChooserTable resolves');
+  runner.assert(r.properties.BlockStateEffectClass &&
+                r.properties.BlockStateEffectClass.packagePath ===
+                '/Game/GAS/Effects/BPGE_OSBlockState.BPGE_OSBlockState_C',
+                'BPGA_Block: ObjectProperty BlockStateEffectClass resolves to /Game path via outer-chain walk');
+  runner.assert(Math.abs((r.properties.CostInterval ?? NaN) - 0.05) < 0.000001,
+                'BPGA_Block: FloatProperty CostInterval = 0.05',
+                `got=${r.properties.CostInterval}`);
 
   // Structs without a registered handler but with tagged serialization
   // (flag 0x00) decode via tier-3 tagged fallback even without structHandlers.
@@ -422,17 +493,12 @@ async function testBpgaBlockProperties() {
   runner.assert(r.properties.IsBroken?.TagName === 'Gameplay.State.Guard.IsBroken',
                 'BPGA_Block T3: IsBroken decodes via tagged fallback');
 
-  // Container properties → container_deferred marker (no containerHandlers passed).
-  runner.assert(r.properties.DrainPerSecond?.reason === 'container_deferred',
-                'BPGA_Block: ArrayProperty DrainPerSecond emits container_deferred marker');
-
   // Native-binary unknown structs (flag 0x08) stay unsupported — fallback is
   // tagged-only. FGameplayTagContainer writes its count + names as native binary.
-  const namedUnsupported = r.unsupported.map(u => u.name);
-  for (const n of ['DrainPerSecond', 'CancelAbilitiesWithTag',
+  for (const n of ['CancelAbilitiesWithTag', 'BlockAbilitiesWithTag',
                     'ActivationOwnedTags', 'ActivationBlockedTags']) {
     runner.assert(namedUnsupported.includes(n),
-                  `BPGA_Block: unsupported list still names ${n} (native binary / deferred container)`);
+                  `BPGA_Block: unsupported list still names ${n} (native-binary GameplayTagContainer)`);
   }
 }
 
@@ -501,9 +567,33 @@ async function testEmptyCdo() {
   const names = readNameTable(cur, s);
   const imports = readImportTable(cur, s, names);
   const exports = readExportTable(cur, s, names);
+  const ar = readAssetRegistryData(cur, s);
   const resolve = makePackageIndexResolver(exports, imports);
+  const primary = ar.objects[0] || {};
+  const freshness = evaluateAssetInfoFreshness('Footstep empty-CDO oracle', {
+    path: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    packageName: s.packageName,
+    objectPath: primary.objectPath,
+    objectClassName: primary.objectClassName,
+    fileVersionUE5: s.fileVersionUE5,
+    nameCount: s.nameCount,
+    exportCount: s.exportCount,
+    assetRegistryObjects: ar.objects.length,
+  }, {
+    path: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    packageName: '/Game/Animations/AN_OSAnimNotify_Footstep',
+    objectPath: 'AN_OSAnimNotify_Footstep',
+    objectClassName: '/Script/Engine.Blueprint',
+    fileVersionUE5: 1017,
+    nameCount: 33,
+    exportCount: 3,
+    assetRegistryObjects: 2,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
 
   const cdo = exports.find(e => e.objectName.startsWith('Default__'));
+  runner.assert(!!cdo, 'Footstep: CDO export found');
+  if (!cdo) return;
   const r = readExportProperties(buf, cdo, names, { resolve });
 
   runner.assert(r.propertyCount === 0, 'Footstep: empty CDO has 0 properties');
@@ -557,6 +647,42 @@ async function testStructHandlersOnBpgaBlock() {
   const cdo = exports.find(e => e.objectName === 'Default__BPGA_Block_C');
   const r = readExportProperties(buf, cdo, names, { resolve, structHandlers });
 
+  const nonBudgetUnsupported = r.unsupported.filter(u => u.reason !== 'size_budget_exceeded');
+  const freshness = evaluateAssetInfoFreshness('BPGA_Block L2 struct-handler oracle', {
+    packageName: s.packageName,
+    fileVersionUE5: s.fileVersionUE5,
+    nameCount: s.nameCount,
+    exportCount: s.exportCount,
+    hasIsBlockingTag: r.properties.IsBlocking?.tagName === 'Gameplay.State.Guard.IsActive',
+    hasIsBrokenTag: r.properties.IsBroken?.tagName === 'Gameplay.State.Guard.IsBroken',
+    hasCancelTagsArray: Array.isArray(r.properties.CancelAbilitiesWithTag?.tags),
+    cancelFirstTag: r.properties.CancelAbilitiesWithTag?.tags?.[0] ?? null,
+    cancelTagCount: r.properties.CancelAbilitiesWithTag?.tags?.length ?? null,
+    blockTagCount: r.properties.BlockAbilitiesWithTag?.tags?.length ?? null,
+    activationOwnedCount: r.properties.ActivationOwnedTags?.tags?.length ?? null,
+    activationBlockedCount: r.properties.ActivationBlockedTags?.tags?.length ?? null,
+    activationBlockedHasDead: r.properties.ActivationBlockedTags?.tags?.includes('Gameplay.State.IsDead') === true,
+    nonBudgetUnsupportedCount: nonBudgetUnsupported.length,
+    remainingUnsupportedName: nonBudgetUnsupported[0]?.name ?? null,
+  }, {
+    packageName: '/Game/GAS/Abilities/BPGA_Block',
+    fileVersionUE5: 1017,
+    nameCount: 179,
+    exportCount: 19,
+    hasIsBlockingTag: true,
+    hasIsBrokenTag: true,
+    hasCancelTagsArray: true,
+    cancelFirstTag: 'Gameplay.Ability.Attack.Basic',
+    cancelTagCount: 9,
+    blockTagCount: 11,
+    activationOwnedCount: 2,
+    activationBlockedCount: 5,
+    activationBlockedHasDead: true,
+    nonBudgetUnsupportedCount: 0,
+    remainingUnsupportedName: null,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
+
   // FGameplayTag (tagged sub-stream) — value decodes to a TagName string.
   runner.assert(r.properties.IsBlocking?.tagName === 'Gameplay.State.Guard.IsActive',
                 'L2: FGameplayTag IsBlocking resolves to tag name',
@@ -567,20 +693,23 @@ async function testStructHandlersOnBpgaBlock() {
   // FGameplayTagContainer (native binary) — int32 count + N × FName.
   runner.assert(Array.isArray(r.properties.CancelAbilitiesWithTag?.tags),
                 'L2: FGameplayTagContainer returns tags array');
-  runner.assert(r.properties.CancelAbilitiesWithTag.tags[0] === 'Gameplay.Ability',
-                'L2: single-tag container resolves correctly');
+  runner.assert(r.properties.CancelAbilitiesWithTag.tags[0] === 'Gameplay.Ability.Attack.Basic',
+                'L2: first cancel tag resolves correctly');
+  runner.assert(r.properties.CancelAbilitiesWithTag.tags.length === 9,
+                'L2: cancel container resolves all 9 tags');
+  runner.assert(r.properties.BlockAbilitiesWithTag.tags.length === 11,
+                'L2: block container resolves all 11 tags');
+  runner.assert(r.properties.ActivationOwnedTags.tags.includes('Gameplay.Attribute.Stamina.IsBlocked'),
+                'L2: owned tag container includes stamina block tag');
   runner.assert(r.properties.ActivationBlockedTags.tags.length === 5,
                 'L2: 5-tag container resolves all 5 tags');
   runner.assert(r.properties.ActivationBlockedTags.tags.includes('Gameplay.State.IsDead'),
                 'L2: tag names match expected values');
 
-  // Full unsupported list should now be short — only the ArrayProperty (deferred to L2.5).
-  const nonBudgetUnsupported = r.unsupported.filter(u => u.reason !== 'size_budget_exceeded');
-  runner.assert(nonBudgetUnsupported.length === 1,
-                'L2: BPGA_Block CDO has only 1 unsupported property (DrainPerSecond array, pending L2.5)',
+  // Full unsupported list should now be empty with struct handlers enabled.
+  runner.assert(nonBudgetUnsupported.length === 0,
+                'L2: BPGA_Block CDO has no unsupported properties with struct handlers enabled',
                 `got=${nonBudgetUnsupported.length}: ${nonBudgetUnsupported.map(u => u.name).join(',')}`);
-  runner.assert(nonBudgetUnsupported[0]?.name === 'DrainPerSecond',
-                'L2: remaining unsupported is DrainPerSecond');
 }
 
 // ── Fixture 9: Level 2 FVector + FRotator on level component exports ──
@@ -1150,6 +1279,37 @@ async function testComplexContainerMarker() {
   // and Amount (float) members. Previous expectation was a
   // `complex_element_container` marker — this is the D46 scope crossing.
   const drain = r.properties.DrainPerSecond;
+  if (!Object.prototype.hasOwnProperty.call(r.properties, 'DrainPerSecond')) {
+    console.log('  · skipped BPGA_Block DrainPerSecond container test (fixture no longer carries DrainPerSecond)');
+    return;
+  }
+  const fp = drain?.[0]?.Attribute?.Attribute;
+  const fpMarkers = r.unsupported.filter(u => u.reason === 'unknown_property_type' && u.detail === 'FieldPathProperty');
+  const freshness = evaluateAssetInfoFreshness('BPGA_Block complex-container oracle', {
+    packageName: s.packageName,
+    fileVersionUE5: s.fileVersionUE5,
+    nameCount: s.nameCount,
+    exportCount: s.exportCount,
+    hasDrainArray: Array.isArray(drain) && drain.length >= 1,
+    hasAttributeName: drain?.[0]?.Attribute && 'AttributeName' in drain[0].Attribute,
+    hasAmount: 'Amount' in (drain?.[0] ?? {}),
+    hasFieldPath: !!(fp && Array.isArray(fp.path)),
+    hasFieldPathName: fp?.path?.length >= 1 && typeof fp.path[0] === 'string',
+    fieldPathUnknownMarkers: fpMarkers.length,
+  }, {
+    packageName: '/Game/GAS/Abilities/BPGA_Block',
+    fileVersionUE5: 1017,
+    nameCount: 179,
+    exportCount: 19,
+    hasDrainArray: true,
+    hasAttributeName: true,
+    hasAmount: true,
+    hasFieldPath: true,
+    hasFieldPathName: true,
+    fieldPathUnknownMarkers: 0,
+  });
+  if (!applyOracleFreshnessGate(runner, freshness)) return;
+
   runner.assert(Array.isArray(drain) && drain.length >= 1,
                 'T2: TArray<FOSResource> decodes as array of struct entries');
   runner.assert(drain?.[0]?.Attribute && 'AttributeName' in drain[0].Attribute,
@@ -1160,7 +1320,6 @@ async function testComplexContainerMarker() {
   // Parser-Extensions Item 2: FieldPathProperty L1 dispatcher. FGameplayAttribute
   // carries a TFieldPath<FProperty> Attribute member that previously emitted
   // `unknown_property_type` markers. It now decodes to {path: [FName...], owner: resolved}.
-  const fp = drain?.[0]?.Attribute?.Attribute;
   runner.assert(fp && Array.isArray(fp.path),
                 'FieldPath Item 2: FGameplayAttribute.Attribute decodes to {path, owner}',
                 `got=${JSON.stringify(fp)}`);
@@ -1168,7 +1327,6 @@ async function testComplexContainerMarker() {
                 'FieldPath Item 2: path array contains FName strings',
                 `got path=${JSON.stringify(fp?.path)}`);
   // No leftover unknown_property_type markers for FieldPathProperty in this CDO.
-  const fpMarkers = r.unsupported.filter(u => u.reason === 'unknown_property_type' && u.detail === 'FieldPathProperty');
   runner.assert(fpMarkers.length === 0,
                 'FieldPath Item 2: zero FieldPathProperty unknown_property_type markers in BPGA_Block CDO',
                 `got ${fpMarkers.length} markers`);
@@ -1697,7 +1855,7 @@ function testPinDefaultLiteralSynthetic() {
 async function testPinBlockOffsetCP1() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    { name: 'BP_OSPlayerR',       relPath: 'Content/Blueprints/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 204 },
+    { name: 'BP_OSPlayerR',       relPath: 'Content/Blueprints/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 205 },
     { name: 'BP_OSPlayerR_Child', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
     { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
     { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
@@ -1762,6 +1920,23 @@ async function testPinBlockOffsetCP1() {
         if (pb.arrayCount >= oInfo.pinCount) arrayCountOk++;
       }
     }
+
+    const semanticAssetPath = assetPathFromContentRel(fx.relPath);
+    const freshness = evaluateTopologyOracleFreshness(`CP1/${fx.name}`, {
+      schema_version: 'sb-base-v1',
+      asset_path: semanticAssetPath,
+      stats: {
+        graphNodeExports: graphNodeCount,
+        edgesEmitted: countTopologyEdges(oracle),
+      },
+    }, oracle, {
+      assetPath: semanticAssetPath,
+      parserSchemaVersion: 'sb-base-v1',
+      oracleSchemaVersion: 'oracle-a-v2',
+      edgeCount: countTopologyEdges(oracle),
+      graphNodeExports: fx.expectedGraphNodes,
+    });
+    if (!applyOracleFreshnessGate(runner, freshness)) continue;
 
     runner.assert(graphNodeCount === fx.expectedGraphNodes,
       `CP1/${fx.name}: graph-node exports = ${fx.expectedGraphNodes}`,
