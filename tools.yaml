@@ -72,7 +72,8 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 138 tools) — plus 10 management tools above = 148 total
+# Toolsets (16 toolsets, 139 tools, 10 of which are status: planned/hidden)
+# — plus 10 management tools above = 149 declared total (139 active/callable)
 # ─────────────────────────────────────────────────────────────
 toolsets:
 

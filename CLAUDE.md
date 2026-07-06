@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 148 YAML-declared tools (10 management + 138 across 16 toolsets)
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 149 YAML-declared tools (10 management + 139 toolset-scoped across 16 toolsets); 10 of the toolset-scoped entries are `status: planned` (hidden, not yet registered), leaving 139 active/callable tools
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -26,7 +26,7 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 ## Dynamic Toolset System
 
-148 tools: 10 always-loaded management tools + 138 across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
+149 declared tools: 10 always-loaded management tools + 139 toolset-scoped across 16 dynamic toolsets, of which 10 are `status: planned` (hidden, not yet registered) — 139 active/callable overall. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
@@ -77,15 +77,15 @@ Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP ser
 
 ### Implemented
 - MCP server with stdio transport (`server/server.mjs`)
-- Offline toolset declares 24 tools in `tools.yaml`
+- Offline toolset declares 25 tools in `tools.yaml`
 - `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files). **Multi-version: UE 5.3 / 5.6 / 5.7** — version-gated `EUnrealEngineObjectUE5Version` reads (incl. 5.7's `IMPORT_TYPE_HIERARCHIES` summary field, D166); verified 0 errors across whole 5.7 (338) + 5.3 (1255) projects, header + Level-2.5 decode.
 - ToolIndex, ToolsetManager, ConnectionManager (4-layer; `tcpCommandFn` mock seam for tests)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions
-- Phase 2 TCP toolsets: actors (10), blueprints-write (15), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)
+- Phase 2 TCP toolsets: actors (10), blueprints-write (27), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Conformance oracle research: 36 UnrealMCP C++ contracts at `docs/specs/conformance-oracle-contracts.md`
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **~2050 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 28 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **2734 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 51 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -104,7 +104,9 @@ Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP ser
 ```
 UEMCP/
 ├── CLAUDE.md
+├── AGENTS.md                   ← generic coding-agent guide (structure/build/test conventions; parallels CLAUDE.md)
 ├── tools.yaml                  ← single source of truth for registry
+├── manifest.json               ← plugin version lockstep source (paired with UEMCP.uplugin Version/VersionName)
 ├── .mcp.json.example           ← template Claude config
 ├── setup-uemcp.bat             ← onboarding: Node install + .mcp.json + plugin copy + .uproject deps
 ├── migrate-targets.bat         ← convert legacy .uemcp-targets.txt to JSON profiles
@@ -117,7 +119,9 @@ UEMCP/
 │   ├── server.mjs              ← MCP server entry, management tools
 │   ├── offline-tools.mjs       ← offline tool handlers
 │   ├── uasset-parser.mjs       ← .uasset/.umap binary parser (Level 1+2+2.5, D50)
-│   ├── tcp-tools.mjs           ← TCP tool handlers (actors + blueprints-write + widgets shared module)
+│   ├── actors-tcp-tools.mjs    ← actors toolset TCP handlers
+│   ├── blueprints-write-tcp-tools.mjs ← blueprints-write toolset TCP handlers
+│   ├── widgets-tcp-tools.mjs   ← widgets toolset TCP handlers
 │   ├── tool-index.mjs          ← search + scoring + alias expansion
 │   ├── toolset-manager.mjs     ← enable/disable, SDK handle integration
 │   ├── connection-manager.mjs  ← 4-layer routing, mock seam, ResultCache, MetricsAggregator
@@ -377,7 +381,7 @@ Five hygiene fixes shipped together:
 - **§1 Length-framed wire** (`Content-Length:` LSP/DAP convention) per-port: tcp-55558 framed, tcp-55557 legacy (frozen oracle); auto-detect on incoming
 - **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() uses `WaitForPendingConnection(500ms)` instead of `Sleep(0.05f)`
 - **§3 Event-driven recv** — `ServeOneConnection` uses `Wait(WaitForRead, 50ms)` instead of `Sleep(0.01f)`
-- **§4 Loopback-only bind** — listener on `FIPv4Address::InternalLoopback` (127.0.0.1), not 0.0.0.0; security hardening
+- **§4 Loopback-only bind** — listener on `FIPv4Address::InternalLoopback` (127.0.0.1), not 0.0.0.0; bound in `UEMCPModule.cpp:47-50` (not `MCPServerRunnable.cpp`); security hardening
 - **§5 Timeout reconciliation** — `tcpTimeoutMs` default 5000 → 10000ms; plugin `PerConnectionTimeoutSec` 5.0 → 10.0
 
 **EN-23 metrics aggregator** — `MetricsAggregator` in `connection-manager.mjs` collects per-call timings, cache hits, framed counts. Default-OFF (cheap no-op). Opt-in via `.mcp.json` env: `UEMCP_METRICS_EMIT_EVERY_N=100` (stderr summary) or `UEMCP_METRICS_LOG=<path>` (JSONL append, best-effort). `ConnectionManager.getMetrics()` exposes the data.
@@ -390,7 +394,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **~2050 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 28 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **2734 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 51 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 
@@ -414,17 +418,27 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 
 ### Test Files — Primary Rotation
 
+Individually notable files, plus grouped rows for related suites (kept compact — see D-log for per-milestone provenance rather than duplicating it here):
+
 | File | Purpose |
 |------|---------|
 | `test-phase1.mjs` | Offline tools, ToolIndex, toolset enable/disable, handler fixes, Option C + L3A S-A + EN-2 + W-O autoEnabled |
 | `test-mock-seam.mjs` | Mock seam, cache, error normalization, queue serialization, length-framing, MetricsAggregator |
 | `test-tcp-tools.mjs` | Phase 2 TCP — blueprints-write only post M3-bpw split; name translation, params, caching, port routing |
 | `test-mcp-wire.mjs` | MCP-wire integration; in-process McpServer + FakeTransport; Zod-coerce, D44 invariant, tools/list_changed |
+| `test-rc-wire.mjs` | RC HTTP wire-mock; 11 FULL-RC tools + cross-transport consistency (D74+D76) — runs project-less, not gated on `UNREAL_PROJECT_ROOT` |
 | `test-verify-deploy.mjs` | Q3-A pure-helper: parseTargetsFile, classifyDeployState 9-case matrix, formatAge, normalizePath, extractUprojectFromCommandLine, applyMarkerVerdictOverlay |
 | `test-sync-plugin-helper.mjs` | W-L pure-helper: compareDeployMarker 7 branches, readDeployMarker/writeDeployMarker round-trip, computeIncomingState |
 | `test-anon-namespace-audit.mjs` | W-K Layer 3 — heuristic-regex scan asserting 0 anon-namespace duplicate-symbol collisions across `Private/*.cpp`; `--hook-mode` for pre-commit |
 | `test-plugin-manifest.mjs` | Plugin static validation (no UE build, D164) — `UEMCP.uplugin` JSON + required fields, `manifest.json`↔`.uplugin` VersionName lockstep, `UEMCP.Build.cs` gross structure; runs in hosted CI |
+| `test-m3-actors.mjs`, `test-m3-blueprints-write.mjs`, `test-m3-widgets.mjs` | M3 per-toolset TCP suites mirroring `test-tcp-tools.mjs`'s pattern for the actors/blueprints-write/widgets splits (D96/D97) |
+| `test-m5-animation.mjs`, `test-m5-editor-utility.mjs`, `test-m5-geometry.mjs`, `test-m5-input-pie.mjs`, `test-m5-materials.mjs` | M5 toolset suites — one file per M5 toolset |
+| `test-project-context.mjs`, `test-project-guard.mjs`, `test-project-hygiene.mjs`, `test-project-identity.mjs`, `test-project-server-wire.mjs`, `test-project-targets.mjs`, `test-project-tools.mjs`, `test-editor-processes.mjs` | D177 project-attachment suite — one file per split attachment module (`project-context.mjs` etc.) |
+| `test-live-smoke-harness.mjs`, `test-run-live-smoke.mjs` | D177 reusable live-smoke harness + runner; assertions exercise the harness/runner logic itself (editor optional, unlike live-gated `test-m1-ping.mjs`) |
+| `test-oracle-freshness.mjs`, `test-rotation-oracle-freshness.mjs` | D187 oracle-freshness gate — stale-fixture classifier plus rotation-output surfacing of non-strict freshness counts |
+| `test-blueprint-workflow-variables.mjs`, `test-class-resolution-audit.mjs`, `test-connection-reset.mjs`, `test-mcp-fake-transport.mjs`, `test-migrate-targets.mjs`, `test-new-2-mitigation.mjs`, `test-pie-runtime-tools.mjs`, `test-plugin-get-editor-state-source.mjs`, `test-setup-uemcp-target-profile.mjs`, `test-slash-command-anchors.mjs`, `test-sync-plugin-bat-safety.mjs`, `test-tool-metadata.mjs`, `test-tool-registry-truth.mjs`, `test-tool-requirements.mjs`, `test-verify-deploy-profiles.mjs`, `test-visual-capture-source.mjs` | 16 focused single-topic suites, one area each (see filename) |
 | `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig, resolveProjectRoot |
+| `test-fixtures.mjs` | Shared fixture constants — not a runner. Live-project asset-path constants (BP names, montages, maps) for supplementary-rotation tests; see file header for drift/fix guidance |
 
 ### Test Files — Supplementary Rotation (require UNREAL_PROJECT_ROOT)
 
@@ -436,7 +450,6 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 | `test-inspect-and-level-actors.mjs` | `inspect_blueprint` + `list_level_actors` export-table walking (F2 regression guard) |
 | `test-s-b-base-differential.mjs` | S-B-base pin-block parser differential vs Oracle-A-v2 (6 fixtures, D70) |
 | `test-verb-surface.mjs` | M-new 5 offline traversal verbs + oracle cross-check (3 fixtures, D72) |
-| `test-rc-wire.mjs` | RC HTTP wire-mock; 11 FULL-RC tools + cross-transport consistency (D74+D76) |
 
 **Note**: `set` command must have NO space before `&&` or CMD adds a trailing space to the env var.
 

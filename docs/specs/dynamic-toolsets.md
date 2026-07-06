@@ -5,7 +5,7 @@
 
 ## Why Dynamic Toolsets
 
-With 148 YAML-declared tools across the registry, a static tool list would consume a large share of context in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
+With 149 YAML-declared tools across the registry (139 active/callable; 10 carry `status: planned` and are hidden), a static tool list would consume a large share of context in tool schema overhead alone. Empirical data from the MCP ecosystem shows model tool-selection accuracy degrades beyond ~30 simultaneously visible tools, with hard failures around 46. GitHub's MCP Server hit the same wall at 101 tools and solved it with dynamic toolsets.
 
 UEMCP uses a hybrid of GitHub's explicit toolsets and Speakeasy's progressive disclosure: 10 always-visible management tools + on-demand project-scoped toolsets + keyword search with guarded auto-enable. Claude typically activates 2-3 toolsets per task instead of the full registry.
 
@@ -30,9 +30,9 @@ These are always visible to Claude regardless of which toolsets are enabled:
 
 | Toolset | Tools | Layer | Description |
 |---------|-------|-------|-------------|
-| `offline` | 24 | Offline | Project files, configs, gameplay tags, asset/Blueprint static reads, data sources, plugins |
+| `offline` | 25 | Offline | Project files, configs, gameplay tags, asset/Blueprint static reads, data sources, plugins |
 | `actors` | 10 | TCP:55558 | Spawn, delete, transform, properties, viewport, screenshot |
-| `blueprints-write` | 21 | TCP:55558 | Create BP, add components, nodes, variables, compile |
+| `blueprints-write` | 27 | TCP:55558 | Create BP, add components, nodes, variables, compile |
 | `widgets` | 7 | TCP:55558 | Create UMG widgets, add elements, bind events |
 | `gas` | 4 | TCP:55558 | Create/modify GE, create GA, create AttributeSet |
 | `blueprint-read` | 8 | TCP:55558 | BP introspection (info, variables, functions, components, dispatchers), Widget BP, Niagara |
@@ -41,9 +41,9 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `animation` | 8 | TCP:55558 | Create montage, sections, notifies, anim sequence info, montage full read, blend space, anim curve data |
 | `data-assets` | 6 | TCP:55558 | Create/set/list data assets, curve assets, string tables, struct definitions |
 | `geometry` | 4 | TCP:55558 | Procedural mesh, CSG boolean, UV generation, mesh info |
-| `input-and-pie` | 9 | TCP:55558 | Input actions, mapping contexts, PIE start/stop/status, console commands, runtime PIE reads |
+| `input-and-pie` | 11 | TCP:55558 | Input actions, mapping contexts, PIE start/stop/status, console commands, runtime PIE reads |
 | `visual-capture` | 5 | TCP:55558 | Asset thumbnails, viewport screenshot, asset preview render, editor tab capture, visual summary |
-| `editor-utility` | 7 | TCP:55558 | Editor state, run Python, EUB introspection/run, duplicate/rename/delete assets |
+| `editor-utility` | 8 | TCP:55558 | Editor state, run Python, EUB introspection/run, duplicate/rename/delete assets |
 | `sidecar` | 1 | TCP:55558 | Narrow-sidecar regeneration |
 | `remote-control` | 8 | HTTP:30010 | RC get/set property, call function, list/describe objects, batch, presets, passthrough |
 
@@ -62,7 +62,7 @@ The v2 tool list had overlapping tools that caused confusion. Resolved as follow
 | `create_input_mapping` (#46 old) | `create_input_action` + `create_mapping_context` | Legacy input system tool. Enhanced Input tools in `input-and-pie` supersede it. |
 | `get_project_info_live` (#91 old) | `project_info` (offline) + `get_editor_state` | Redundant — offline `project_info` covers .uproject data, `get_editor_state` covers live editor info. |
 
-This historical deduplication removed 6 redundant tools from the early v2 design: 120 → 114. That paragraph is preserved as design history; the current registry has since grown to 148 YAML-declared tools across 16 toolsets plus management entries, with `tools.yaml` as the current source of truth.
+This historical deduplication removed 6 redundant tools from the early v2 design: 120 → 114. That paragraph is preserved as design history; the current registry has since grown to 149 YAML-declared tools across 16 toolsets plus management entries (139 active/callable), with `tools.yaml` as the current source of truth.
 
 ## ToolIndex — Search Implementation
 
