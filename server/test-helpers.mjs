@@ -4,7 +4,8 @@
 // Injected via config.tcpCommandFn into ConnectionManager.
 
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
+import { readdir } from 'node:fs/promises';
 
 /**
  * FakeTcpResponder — queues canned responses and records all calls.
@@ -221,6 +222,66 @@ const FIXTURE_PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixt
 export function resolveProjectRoot() {
   const env = (process.env.UNREAL_PROJECT_ROOT || '').trim();
   return env || FIXTURE_PROJECT_ROOT;
+}
+
+// Directories that are either not real content (UE's per-user scratch space)
+// or generated mirror trees for actor/object instances — walking into them
+// wastes time and can never contain the hand-authored probe assets tests key
+// off of.
+const SKIPPED_CONTENT_DIRS = new Set(['Developers', '__ExternalActors__', '__ExternalObjects__']);
+
+// Upper bound on directories visited during a findContentAsset() walk. Real
+// projects (post-exclusions) run in the low thousands; this is a generous
+// multiple so a pathological corpus fails fast instead of hanging test
+// startup rather than silently under-searching a normal one.
+const MAX_CONTENT_DIR_VISITS = 20000;
+
+/**
+ * Locate a file by exact name anywhere under `<projectRoot>/Content/`, so
+ * tests can resolve a probe asset's current location instead of hardcoding
+ * a path that goes stale when content gets reorganized.
+ *
+ * Skips Developers/, __ExternalActors__/, __ExternalObjects__/ at any depth
+ * and stops after MAX_CONTENT_DIR_VISITS directories (bounded cost). Returns
+ * the first match found (directory-walk order — callers should only rely on
+ * this for filenames expected to be unique in the project).
+ *
+ * @param {string} projectRoot
+ * @param {string} fileName — e.g. 'BP_OSPlayerR.uasset'
+ * @returns {Promise<{gamePath: string, diskPath: string}|null>} null when
+ *   Content/ is missing or the file isn't found (e.g. the committed fixture,
+ *   which ships no Content/ tree at all).
+ */
+export async function findContentAsset(projectRoot, fileName) {
+  const contentRoot = join(projectRoot, 'Content');
+  let dirVisits = 0;
+
+  async function walk(dir) {
+    if (dirVisits++ >= MAX_CONTENT_DIR_VISITS) return null;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return null; // missing/unreadable — treat as empty
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIPPED_CONTENT_DIRS.has(entry.name)) continue;
+        const found = await walk(join(dir, entry.name));
+        if (found) return found;
+      } else if (entry.name === fileName) {
+        return join(dir, entry.name);
+      }
+    }
+    return null;
+  }
+
+  const diskPath = await walk(contentRoot);
+  if (!diskPath) return null;
+
+  const relFromContent = relative(contentRoot, diskPath).split(sep).join('/');
+  const gamePath = '/Game/' + relFromContent.replace(/\.[^./]+$/, '');
+  return { gamePath, diskPath };
 }
 
 /**

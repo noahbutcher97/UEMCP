@@ -30,13 +30,18 @@ const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
 const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
 
+// assetPath values track wherever each fixture currently lives on disk (see
+// runFixtureDifferential's exists() gate — a stale path just means a clean skip,
+// not a failure, but drifts coverage to zero silently, so keep these current).
 const FIXTURES = [
-  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
-  { name: 'BP_OSPlayerR_Child',  assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
-  { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
-  { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
-  { name: 'TestCharacter',       assetPath: '/Game/Blueprints/Character/TestCharacter',       oracle: 'TestCharacter.oracle.json',       expectedEdges: 24 },
-  { name: 'BP_OSControlPoint',   assetPath: '/Game/Blueprints/Level/BP_OSControlPoint',       oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
+  { name: 'BP_OSPlayerR',        assetPath: '/Game/Actors/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
+  { name: 'BP_OSPlayerR_Child',  assetPath: '/Game/Actors/Character/BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
+  { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Actors/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
+  { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Actors/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
+  // Fixture asset no longer present in the target project (deleted, not moved) — kept as a
+  // documented skip so the oracle JSON + expectedEdges stay discoverable if it returns.
+  { name: 'TestCharacter',       assetPath: '/Game/Blueprints/Character/TestCharacter',   oracle: 'TestCharacter.oracle.json',       expectedEdges: 24 },
+  { name: 'BP_OSControlPoint',   assetPath: '/Game/Actors/Level/BP_OSControlPoint',       oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
 ];
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }

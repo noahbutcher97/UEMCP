@@ -513,7 +513,7 @@ async function testBpgaBlockProperties() {
 // and struct types. Verifies the flag-byte logic (BoolTrue encoding) and
 // exercise the resolver against both export-local and imported refs.
 async function testPlayerCdoProperties() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = join(ROOT, 'Content/Actors/Character/BP_OSPlayerR.uasset');
   if (!(await exists(path))) {
     console.log('  · skipped BP_OSPlayerR property test (no file)');
     return;
@@ -608,7 +608,7 @@ async function testEmptyCdo() {
 
 // ── Size-budget truncation — synthetic budget below stream size ─────
 async function testSizeBudgetTruncation() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = join(ROOT, 'Content/Actors/Character/BP_OSPlayerR.uasset');
   if (!(await exists(path))) {
     console.log('  · skipped size-budget test (no file)');
     return;
@@ -1104,7 +1104,7 @@ function buildTaggedStream(tags, names) {
 // four unknown structs (OSAuraInfo UDS, TimerHandle engine struct,
 // MaterialParameterInfo engine struct, PointerToUberGraphFrame BP-runtime).
 async function testTier3UnknownStructFallback() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = join(ROOT, 'Content/Actors/Character/BP_OSPlayerR.uasset');
   if (!(await exists(path))) { console.log('  · skipped T3 UDS fallback (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -1807,9 +1807,9 @@ function testContainerSyntheticScalars() {
 async function testPinBodyParseCP2() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    ['BP_OSPlayerR_Child',  'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
-    ['BP_OSPlayerR_Child1', 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
-    ['BP_OSPlayerR_Child2', 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', 'BP_OSPlayerR_Child2.oracle.json'],
+    ['BP_OSPlayerR_Child',  'Content/Actors/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
+    ['BP_OSPlayerR_Child1', 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
+    ['BP_OSPlayerR_Child2', 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', 'BP_OSPlayerR_Child2.oracle.json'],
     ['TestCharacter',       'Content/Blueprints/Character/TestCharacter.uasset',       'TestCharacter.oracle.json'],
   ];
 
@@ -1941,12 +1941,12 @@ function testPinDefaultLiteralSynthetic() {
 async function testPinBlockOffsetCP1() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    { name: 'BP_OSPlayerR',       relPath: 'Content/Blueprints/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 205 },
-    { name: 'BP_OSPlayerR_Child', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
-    { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
-    { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 205 },
+    { name: 'BP_OSPlayerR_Child', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
     { name: 'TestCharacter',      relPath: 'Content/Blueprints/Character/TestCharacter.uasset',      oracle: 'TestCharacter.oracle.json',      expectedGraphNodes: 11 },
-    { name: 'BP_OSControlPoint',  relPath: 'Content/Blueprints/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
+    { name: 'BP_OSControlPoint',  relPath: 'Content/Actors/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
   ];
 
   for (const fx of FIXTURES) {
