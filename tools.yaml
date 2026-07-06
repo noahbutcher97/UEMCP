@@ -180,13 +180,27 @@ toolsets:
           unknown_due_to_truncation. unsupported[] is scoped to the filter (plus
           `__stream__`-wide markers). This offline reader reports serialized
           overrides and parser-supported values; it does not prove inherited
-          native or Blueprint class defaults.
+          native or Blueprint class defaults. With include_subobjects=true,
+          read_asset_properties also walks bounded same-package component/subobject
+          exports reachable from the selected export through outer links, serialized
+          object refs, or Blueprint generated-class children. Subobject rows include
+          decode_status (`serialized`, `empty_or_default`, or `present_but_undecoded`)
+          plus decoded properties and unsupported markers. Component collision
+          summaries are emitted only when collision/profile/BodyInstance fields are
+          serialized; absent collision fields mean not_serialized_default, not proof
+          of no collision configuration. Subobject decoded payloads share an aggregate
+          subobject_payload_max_bytes budget equal to max_bytes; rows past that budget
+          return `present_but_undecoded` with `subobject_budget_exhausted` rather than
+          expanding the response unboundedly.
         params:
-          asset_path:     { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
-          export_name:    { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }
-          export_index:   { type: number, required: false, description: "One-based export index from list_asset_exports. Mutually exclusive with export_name and preferred when duplicate export names exist." }
-          property_names: { type: array, items: string, required: false, description: "Filter to specific UPROPERTY names. When non-empty, response includes requested_properties[] with one status row per requested name." }
-          max_bytes:      { type: number, required: false, description: "Response size budget in declared value bytes (default 65536). When exceeded, properties emit size_budget_exceeded markers (capped at 20) and truncated=true." }
+          asset_path:         { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
+          export_name:        { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }
+          export_index:       { type: number, required: false, description: "One-based export index from list_asset_exports. Mutually exclusive with export_name and preferred when duplicate export names exist." }
+          property_names:     { type: array, items: string, required: false, description: "Filter to specific UPROPERTY names. When non-empty, response includes requested_properties[] with one status row per requested name; subobject rows use the same filter." }
+          max_bytes:          { type: number, required: false, description: "Response size budget in declared value bytes per export (default 65536). When exceeded, properties emit size_budget_exceeded markers (capped at 20) and truncated=true." }
+          include_subobjects: { type: boolean, required: false, default: false, description: "When true, include bounded same-package component/subobject exports reachable from the selected export." }
+          subobject_depth:    { type: number, required: false, default: 1, description: "Traversal depth for include_subobjects (default 1, cap 3)." }
+          subobject_limit:    { type: number, required: false, default: 50, description: "Maximum subobject rows returned for include_subobjects (default 50, cap 200)." }
       find_blueprint_nodes:
         description: >-
           Find K2Nodes in a Blueprint by class + member-reference match.

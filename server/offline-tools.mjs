@@ -1367,6 +1367,361 @@ function summarizeSelectedExport(selection, exports, imports) {
   };
 }
 
+const SUBOBJECT_EXCLUDED_CLASS_PATTERNS = [
+  /^Blueprint$/,
+  /^AnimBlueprint$/,
+  /^WidgetBlueprint$/,
+  /BlueprintGeneratedClass$/,
+  /^Function$/,
+  /^EdGraph$/,
+  /^AnimationGraph$/,
+  /^K2Node_/,
+  /^AnimGraphNode_/,
+  /^EdGraphNode_/,
+];
+
+function isSubobjectCandidate(entry, className) {
+  if (!entry || !className) return false;
+  if (entry.bIsAsset) return false;
+  if (SUBOBJECT_EXCLUDED_CLASS_PATTERNS.some(pattern => pattern.test(className))) {
+    return false;
+  }
+  if (className.includes('Component')) return true;
+  if (className === 'SimpleConstructionScript' || className === 'SCS_Node') return true;
+  if (className.includes('GameplayEffect')) return true;
+  return false;
+}
+
+function collectExportRefs(value, out = new Set()) {
+  if (value === null || typeof value !== 'object') return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectExportRefs(item, out);
+    return out;
+  }
+  if (value.kind === 'export' && Number.isInteger(value.packageIndex) && value.packageIndex > 0) {
+    out.add(value.packageIndex - 1);
+  }
+  for (const child of Object.values(value)) {
+    collectExportRefs(child, out);
+  }
+  return out;
+}
+
+function normalizeReasonList(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * Collect same-package subobject exports reachable from a selected export.
+ *
+ * rootExportIndex is zero-based. Returned rows expose one-based export_index
+ * for caller-facing parity with list_asset_exports/read_asset_properties.
+ */
+export function collectSubobjectExportIndexes({
+  exports,
+  imports,
+  rootExportIndex,
+  rootProperties = {},
+  propertiesForExportIndex = null,
+  maxDepth = 1,
+  limit = 50,
+}) {
+  const rows = [];
+  const queued = [];
+  const seen = new Map();
+  const rootEntry = exports[rootExportIndex];
+
+  const pushCandidate = (idx, depth, reason) => {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= exports.length) return;
+    if (idx === rootExportIndex || depth < 1 || depth > maxDepth) return;
+    const entry = exports[idx];
+    const className = resolvePackageIndex(entry.classIndex, exports, imports, 'objectName');
+    if (!isSubobjectCandidate(entry, className)) return;
+
+    const existing = seen.get(idx);
+    if (existing) {
+      for (const r of normalizeReasonList(reason)) {
+        if (!existing.discoveredBy.includes(r)) existing.discoveredBy.push(r);
+      }
+      return;
+    }
+    const rec = { idx, depth, discoveredBy: normalizeReasonList(reason) };
+    seen.set(idx, rec);
+    queued.push(rec);
+  };
+
+  const pushChildren = (parentIdx, depth, reason) => {
+    const parentPackageIndex = parentIdx + 1;
+    for (let i = 0; i < exports.length; i++) {
+      if (exports[i].outerIndex === parentPackageIndex) {
+        pushCandidate(i, depth, reason);
+      }
+    }
+  };
+
+  pushChildren(rootExportIndex, 1, 'outer_child');
+  for (const idx of collectExportRefs(rootProperties)) {
+    pushCandidate(idx, 1, 'property_ref');
+  }
+
+  if (rootEntry?.objectName?.startsWith('Default__')) {
+    const generatedName = rootEntry.objectName.slice('Default__'.length);
+    const generatedIdx = exports.findIndex(e => e.objectName === generatedName);
+    if (generatedIdx >= 0) {
+      pushChildren(generatedIdx, 1, 'generated_class_child');
+    }
+  }
+
+  let truncated = false;
+  for (let cursor = 0; cursor < queued.length; cursor++) {
+    if (rows.length >= limit) {
+      truncated = true;
+      break;
+    }
+    const rec = queued[cursor];
+    const entry = exports[rec.idx];
+    const className = resolvePackageIndex(entry.classIndex, exports, imports, 'objectName');
+    rows.push({
+      export_index: rec.idx + 1,
+      export_name: entry.objectName,
+      canonical_name: canonicalExportName(entry),
+      class_name: className,
+      outer_index: entry.outerIndex,
+      outer_name: resolvePackageIndex(entry.outerIndex, exports, imports, 'objectName'),
+      depth: rec.depth,
+      discovered_by: [...rec.discoveredBy],
+    });
+
+    if (rec.depth < maxDepth) {
+      pushChildren(rec.idx, rec.depth + 1, 'outer_child');
+      if (typeof propertiesForExportIndex === 'function') {
+        let nestedProperties = {};
+        try {
+          nestedProperties = propertiesForExportIndex(rec.idx) || {};
+        } catch {
+          nestedProperties = {};
+        }
+        for (const idx of collectExportRefs(nestedProperties)) {
+          pushCandidate(idx, rec.depth + 1, 'property_ref');
+        }
+      }
+    }
+  }
+  rows.truncated = truncated || queued.length > rows.length;
+  return rows;
+}
+
+function asPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function normalizeNameLike(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'object') {
+    return value.Name ?? value.name ?? value.value ?? value.objectName ?? value.tagName ?? null;
+  }
+  return null;
+}
+
+function normalizeResponseMap(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (value.unsupported === true) return null;
+  if (Array.isArray(value)) {
+    const out = {};
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') continue;
+      const key = normalizeNameLike(entry.key ?? entry.channel ?? entry.name ?? entry.Channel);
+      const response = normalizeNameLike(entry.value ?? entry.response ?? entry.Response);
+      if (key !== null && response !== null) out[key] = response;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  if (Array.isArray(value.ResponseArray)) {
+    return normalizeResponseMap(value.ResponseArray);
+  }
+  const out = {};
+  for (const [key, response] of Object.entries(value)) {
+    if (response && typeof response === 'object' && 'unsupported' in response) continue;
+    out[key] = normalizeNameLike(response) ?? response;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+export function summarizeCollisionProperties(properties = {}) {
+  const body = asPlainObject(properties.BodyInstance);
+  const bodyUnsupported = body?.unsupported === true ? body : null;
+  const bodyProps = bodyUnsupported ? null : body;
+  const out = {};
+
+  const profile = normalizeNameLike(
+    properties.CollisionProfileName ??
+    bodyProps?.CollisionProfileName ??
+    bodyProps?.ProfileName
+  );
+  if (profile !== null) out.profile_name = profile;
+
+  const enabled = normalizeNameLike(
+    properties.CollisionEnabled ??
+    bodyProps?.CollisionEnabled
+  );
+  if (enabled !== null) out.collision_enabled = enabled;
+
+  const objectType = normalizeNameLike(
+    properties.CollisionObjectType ??
+    bodyProps?.ObjectType ??
+    bodyProps?.CollisionObjectType
+  );
+  if (objectType !== null) out.object_type = objectType;
+
+  const overlap = properties.bGenerateOverlapEvents ?? bodyProps?.bGenerateOverlapEvents;
+  if (overlap !== undefined) out.generate_overlap_events = overlap;
+
+  if (bodyProps) {
+    const bodyOut = {};
+    for (const [sourceKey, targetKey] of [
+      ['CollisionEnabled', 'collision_enabled'],
+      ['ObjectType', 'object_type'],
+      ['bUseCCD', 'use_ccd'],
+      ['bNotifyRigidBodyCollision', 'notify_rigid_body_collision'],
+      ['LinearDamping', 'linear_damping'],
+      ['AngularDamping', 'angular_damping'],
+    ]) {
+      if (bodyProps[sourceKey] !== undefined) {
+        bodyOut[targetKey] = normalizeNameLike(bodyProps[sourceKey]) ?? bodyProps[sourceKey];
+      }
+    }
+
+    const responses = normalizeResponseMap(
+      bodyProps.ResponseToChannels ??
+      bodyProps.CollisionResponses?.ResponseToChannels ??
+      bodyProps.CollisionResponses
+    );
+    if (responses) bodyOut.response_to_channels = responses;
+    if (Object.keys(bodyOut).length) out.body_instance = bodyOut;
+  } else if (bodyUnsupported) {
+    out.body_instance_status = bodyUnsupported.reason ?? 'unsupported';
+  }
+
+  const directResponses = normalizeResponseMap(
+    properties.ResponseToChannels ??
+    properties.CollisionResponses?.ResponseToChannels ??
+    properties.CollisionResponses
+  );
+  if (directResponses) {
+    out.response_to_channels = directResponses;
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
+function filterParsedProperties(parsed, filterNames) {
+  if (!filterNames) {
+    return {
+      properties: parsed.properties,
+      propertyCountReturned: parsed.propertyCount,
+      unsupported: parsed.unsupported,
+    };
+  }
+  const properties = {};
+  for (const name of Object.keys(parsed.properties)) {
+    if (filterNames.has(name)) properties[name] = parsed.properties[name];
+  }
+  return {
+    properties,
+    propertyCountReturned: Object.keys(properties).length,
+    unsupported: parsed.unsupported.filter(m =>
+      filterNames.has(m.name) || m.name === '__stream__'
+    ),
+  };
+}
+
+function propertyDecodeStatus(parsed) {
+  if (parsed.propertyCount > 0 || Object.keys(parsed.properties || {}).length > 0) {
+    return 'serialized';
+  }
+  if ((parsed.unsupported || []).some(m => m.name === '__stream__')) {
+    return 'present_but_undecoded';
+  }
+  return 'empty_or_default';
+}
+
+function estimateJsonBytes(value) {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8');
+  } catch {
+    return Infinity;
+  }
+}
+
+function budgetExhaustedRow(row, parsed, unsupported) {
+  return {
+    ...row,
+    decode_status: 'present_but_undecoded',
+    properties: {},
+    unsupported: dedupeUnsupported([
+      ...unsupported,
+      { name: '__stream__', reason: 'subobject_budget_exhausted' },
+    ]),
+    property_count_returned: 0,
+    property_count_total: parsed.propertyCount ?? 0,
+    truncated: true,
+  };
+}
+
+export function buildSubobjectResponseRow(row, parsed, opts = {}) {
+  const {
+    filterNames = null,
+    requestedPropertyNames = null,
+    remainingBytes = Infinity,
+  } = opts;
+  const filtered = filterParsedProperties(parsed, filterNames);
+  const unsupported = dedupeUnsupported(filtered.unsupported);
+
+  if (remainingBytes <= 0) {
+    return {
+      row: budgetExhaustedRow(row, parsed, unsupported),
+      bytesUsed: 0,
+      budgetExhausted: true,
+    };
+  }
+
+  const out = {
+    ...row,
+    decode_status: propertyDecodeStatus(parsed),
+    properties: filtered.properties,
+    unsupported,
+    property_count_returned: filtered.propertyCountReturned,
+    property_count_total: parsed.propertyCount,
+    truncated: parsed.truncated,
+  };
+  if (requestedPropertyNames && requestedPropertyNames.length > 0) {
+    out.requested_properties = buildRequestedPropertyRows(requestedPropertyNames, parsed);
+  }
+  const collision = summarizeCollisionProperties(parsed.properties);
+  if (collision) out.collision = collision;
+
+  const payloadBytes = estimateJsonBytes({
+    properties: out.properties,
+    unsupported: out.unsupported,
+    requested_properties: out.requested_properties,
+    collision: out.collision,
+  });
+  if (payloadBytes > remainingBytes) {
+    return {
+      row: budgetExhaustedRow(row, parsed, unsupported),
+      bytesUsed: 0,
+      budgetExhausted: true,
+    };
+  }
+
+  return {
+    row: out,
+    bytesUsed: payloadBytes,
+    budgetExhausted: false,
+  };
+}
+
 async function listAssetExports(projectRoot, params) {
   const assetPath = params.asset_path;
   const limit = normalizeIntegerParam(params.limit, 'limit', {
@@ -1671,6 +2026,17 @@ async function readAssetProperties(projectRoot, params) {
   const filterNames = requestedPropertyNames && requestedPropertyNames.length
     ? new Set(requestedPropertyNames) : null;
   const maxBytes = params.max_bytes ?? 65_536;
+  const includeSubobjects = params.include_subobjects === true;
+  const subobjectDepth = normalizeIntegerParam(params.subobject_depth, 'subobject_depth', {
+    defaultValue: 1,
+    min: 1,
+    cap: 3,
+  });
+  const subobjectLimit = normalizeIntegerParam(params.subobject_limit, 'subobject_limit', {
+    defaultValue: 50,
+    min: 1,
+    cap: 200,
+  });
 
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
@@ -1717,23 +2083,7 @@ async function readAssetProperties(projectRoot, params) {
   const parsed = readExportProperties(buf, target, names,
     { resolve, structHandlers, containerHandlers, maxBytes });
 
-  let properties = parsed.properties;
-  let propertyCountReturned = parsed.propertyCount;
-  let unsupported = parsed.unsupported;
-  if (filterNames) {
-    properties = {};
-    for (const name of Object.keys(parsed.properties)) {
-      if (filterNames.has(name)) properties[name] = parsed.properties[name];
-    }
-    propertyCountReturned = Object.keys(properties).length;
-    // P2: when a filter is active, scope unsupported[] to the requested names
-    // so callers asking about "A, B" don't see markers for unrelated "C, D".
-    // __stream__ markers (e.g., unexpected_preamble) pass through since they
-    // describe the whole stream, not a specific property.
-    unsupported = unsupported.filter(m =>
-      filterNames.has(m.name) || m.name === '__stream__'
-    );
-  }
+  const filtered = filterParsedProperties(parsed, filterNames);
 
   const result = {
     path: assetPath,
@@ -1742,15 +2092,58 @@ async function readAssetProperties(projectRoot, params) {
     export_index: exportIndex + 1,
     export_selection_reason: exportSelectionReason,
     struct_type: structType,
-    properties,
-    unsupported: dedupeUnsupported(unsupported),
-    property_count_returned: propertyCountReturned,
+    properties: filtered.properties,
+    unsupported: dedupeUnsupported(filtered.unsupported),
+    property_count_returned: filtered.propertyCountReturned,
     property_count_total: parsed.propertyCount,
     truncated: parsed.truncated,
   };
 
   if (requestedPropertyNames && requestedPropertyNames.length > 0) {
     result.requested_properties = buildRequestedPropertyRows(requestedPropertyNames, parsed);
+  }
+
+  if (includeSubobjects) {
+    const parsedSubobjects = new Map();
+    const parseSubobjectExport = (zeroBasedIndex) => {
+      if (!parsedSubobjects.has(zeroBasedIndex)) {
+        parsedSubobjects.set(zeroBasedIndex, readExportProperties(buf, exports[zeroBasedIndex], names,
+          { resolve, structHandlers, containerHandlers, maxBytes }));
+      }
+      return parsedSubobjects.get(zeroBasedIndex);
+    };
+    const subobjectRows = collectSubobjectExportIndexes({
+      exports,
+      imports,
+      rootExportIndex: exportIndex,
+      rootProperties: parsed.properties,
+      propertiesForExportIndex: (zeroBasedIndex) => parseSubobjectExport(zeroBasedIndex).properties,
+      maxDepth: subobjectDepth,
+      limit: subobjectLimit,
+    });
+    result.subobject_depth = subobjectDepth;
+    result.subobject_limit = subobjectLimit;
+    result.subobjects_truncated = Boolean(subobjectRows.truncated);
+    result.subobject_count_returned = subobjectRows.length;
+    result.subobject_payload_max_bytes = maxBytes;
+    let remainingSubobjectBytes = maxBytes;
+    result.subobjects = [];
+    for (const row of subobjectRows) {
+      const subParsed = remainingSubobjectBytes > 0
+        ? parseSubobjectExport(row.export_index - 1)
+        : { properties: {}, unsupported: [], propertyCount: 0, truncated: true };
+      const built = buildSubobjectResponseRow(row, subParsed, {
+        filterNames,
+        requestedPropertyNames,
+        remainingBytes: remainingSubobjectBytes,
+      });
+      remainingSubobjectBytes -= built.bytesUsed;
+      if (built.budgetExhausted) {
+        result.subobjects_truncated = true;
+      }
+      result.subobjects.push(built.row);
+    }
+    result.subobject_payload_bytes_remaining = Math.max(0, remainingSubobjectBytes);
   }
 
   // P7: deterministic top-level key ordering (path info → target → payload →

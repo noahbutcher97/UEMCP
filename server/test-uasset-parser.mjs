@@ -46,6 +46,11 @@ import {
   evaluateAssetInfoFreshness,
   evaluateTopologyOracleFreshness,
 } from './oracle-freshness.mjs';
+import {
+  buildSubobjectResponseRow,
+  collectSubobjectExportIndexes,
+  summarizeCollisionProperties,
+} from './offline-tools.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
@@ -962,6 +967,87 @@ function testTier1TaggedStructs() {
     runner.assert(result?.__unsupported__ === true,
                   'L2 T1: FBodyInstance native binary path emits unsupported marker');
   }
+}
+
+function testD186SubobjectHelpers() {
+  const exports = [
+    { objectName: 'BP_Door_C', classIndex: -1, superIndex: 0, outerIndex: 0, bIsAsset: false },
+    { objectName: 'Default__BP_Door_C', classIndex: -2, superIndex: 0, outerIndex: 0, bIsAsset: false },
+    { objectName: 'DoorCollision', classIndex: -3, superIndex: 0, outerIndex: 1, bIsAsset: false },
+    { objectName: 'IgnoredGraph', classIndex: -4, superIndex: 0, outerIndex: 1, bIsAsset: false },
+    { objectName: 'NestedCueComponent', classIndex: -5, superIndex: 0, outerIndex: 0, bIsAsset: false },
+  ];
+  const imports = [
+    { objectName: 'BlueprintGeneratedClass' },
+    { objectName: 'BlueprintGeneratedClass' },
+    { objectName: 'BoxComponent' },
+    { objectName: 'EdGraph' },
+    { objectName: 'GameplayEffectComponent' },
+  ];
+
+  const parsedRoot = {
+    RootComponent: { kind: 'export', packageIndex: 3, objectName: 'DoorCollision' },
+  };
+  const rows = collectSubobjectExportIndexes({
+    exports,
+    imports,
+    rootExportIndex: 1,
+    rootProperties: parsedRoot,
+    propertiesForExportIndex: (idx) => {
+      if (idx === 2) {
+        return { ComponentTemplate: { kind: 'export', packageIndex: 5, objectName: 'NestedCueComponent' } };
+      }
+      return {};
+    },
+    maxDepth: 2,
+    limit: 10,
+  });
+
+  runner.assert(rows.length === 2,
+    `D186: subobject traversal keeps component exports and excludes graph exports (got ${rows.length})`);
+  runner.assert(rows[0].export_index === 3 && rows[0].depth === 1 && rows[0].discovered_by.includes('property_ref'),
+    'D186: property-ref component is discovered at depth 1');
+  runner.assert(rows[1].export_index === 5 && rows[1].depth === 2 && rows[1].class_name === 'GameplayEffectComponent',
+    'D186: nested component child is discovered within max depth');
+
+  const collision = summarizeCollisionProperties({
+    CollisionProfileName: 'BlockAll',
+    BodyInstance: {
+      CollisionEnabled: 'QueryAndPhysics',
+      ObjectType: 'WorldDynamic',
+      ResponseToChannels: {
+        Pawn: 'ECR_Block',
+        Visibility: 'ECR_Ignore',
+      },
+    },
+  });
+  runner.assert(collision?.profile_name === 'BlockAll',
+    'D186: collision summary exposes serialized profile name');
+  runner.assert(collision?.body_instance?.response_to_channels?.Pawn === 'ECR_Block',
+    'D186: collision summary exposes per-channel body response data when serialized');
+
+  const unsupportedCollision = summarizeCollisionProperties({
+    CollisionResponses: { unsupported: true, reason: 'present_but_undecoded' },
+  });
+  runner.assert(unsupportedCollision === null,
+    'D186: unsupported collision response marker is not mistaken for channel data');
+
+  const oversized = buildSubobjectResponseRow(
+    { export_index: 3, export_name: 'DoorCollision', class_name: 'BoxComponent' },
+    {
+      properties: { Large: 'x'.repeat(128) },
+      unsupported: [],
+      propertyCount: 1,
+      truncated: false,
+    },
+    { remainingBytes: 32 }
+  );
+  runner.assert(oversized.row.decode_status === 'present_but_undecoded',
+    'D186: subobject row suppresses oversized decoded payload');
+  runner.assert(oversized.row.unsupported.some(m => m.reason === 'subobject_budget_exhausted'),
+    'D186: budget-exhausted subobject row carries explicit unsupported marker');
+  runner.assert(oversized.budgetExhausted === true && oversized.bytesUsed === 0,
+    'D186: budget-exhausted subobject row does not consume aggregate payload bytes');
 }
 
 // ── Tagged-stream synthesizers (used by tier 1 + later tests) ──────
@@ -1983,6 +2069,7 @@ async function main() {
   testStructBinaryReaders();
   testStructHandlerRegistry();
   testTier1TaggedStructs();
+  testD186SubobjectHelpers();
   await testTier3UnknownStructFallback();
   testTier3BoundedFallback();
   testContainerSyntheticObjectsAndColors();

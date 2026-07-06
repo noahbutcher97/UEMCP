@@ -107,6 +107,19 @@ function assert(condition, name, detail) {
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 
+console.log('\n═══ Test 0a: D186 read_asset_properties subobject contract ═══');
+{
+  const rap = toolsData.toolsets.offline.tools.read_asset_properties;
+  assert(rap.params.include_subobjects !== undefined,
+    'D186: read_asset_properties.include_subobjects declared in yaml');
+  assert(rap.params.subobject_depth !== undefined,
+    'D186: read_asset_properties.subobject_depth declared in yaml');
+  assert(rap.params.subobject_limit !== undefined,
+    'D186: read_asset_properties.subobject_limit declared in yaml');
+  assert(/present_but_undecoded|subobjects|collision/i.test(rap.description),
+    'D186: read_asset_properties docs mention subobject/collision semantics');
+}
+
 // ── Test 1: Server modules import clean ──────────────────
 console.log('\n═══ Test 1: Module import (smoke test) ═══');
 assert(typeof ToolIndex === 'function', 'ToolIndex class imported');
@@ -1037,6 +1050,14 @@ if (HAS_REAL_ASSETS) {
            'D44: read_asset_properties entry exists in yaml');
     assert(/Level 2 engine structs|engine structs/i.test(offlineTools.read_asset_properties.description),
            'D44: read_asset_properties description calls out engine struct coverage');
+    assert(offlineTools.read_asset_properties.params.include_subobjects !== undefined,
+           'D186: read_asset_properties.include_subobjects declared in yaml');
+    assert(offlineTools.read_asset_properties.params.subobject_depth !== undefined,
+           'D186: read_asset_properties.subobject_depth declared in yaml');
+    assert(offlineTools.read_asset_properties.params.subobject_limit !== undefined,
+           'D186: read_asset_properties.subobject_limit declared in yaml');
+    assert(/present_but_undecoded|subobjects|collision/i.test(offlineTools.read_asset_properties.description),
+           'D186: read_asset_properties docs mention subobject/collision semantics');
     // Params line up with yaml (tools/list and find_tools read from the same source).
     assert(offlineTools.list_level_actors.params.limit !== undefined,
            'D44: list_level_actors.params.limit declared in yaml');
