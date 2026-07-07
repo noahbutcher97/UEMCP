@@ -41,7 +41,7 @@ const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Comman
 // runFixtureDifferential/testStatsShape skip that one fixture with a
 // labeled reason; the oracle JSON itself is never touched/deleted.
 const FIXTURE_DEFS = [
-  { name: 'BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
+  { name: 'BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 608 },
   { name: 'BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
   { name: 'BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },

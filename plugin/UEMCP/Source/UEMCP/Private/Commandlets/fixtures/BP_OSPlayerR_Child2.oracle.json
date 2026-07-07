@@ -1,7 +1,7 @@
 {
 	"schema_version": "oracle-a-v2",
 	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
-	"asset_path": "/Game/Blueprints/Character/BP_OSPlayerR_Child2",
+	"asset_path": "/Game/Actors/Character/BP_OSPlayerR_Child2",
 	"graphs":
 	{
 		"EventGraph":

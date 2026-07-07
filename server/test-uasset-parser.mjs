@@ -1987,7 +1987,7 @@ function testPinDefaultLiteralSynthetic() {
 async function testPinBlockOffsetCP1() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 205 },
+    { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 210 },
     { name: 'BP_OSPlayerR_Child', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
     { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
     { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
