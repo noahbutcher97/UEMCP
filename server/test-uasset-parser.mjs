@@ -71,7 +71,8 @@ function assetPathFromContentRel(relPath) {
 // (fixed in place for this file per D188 Task 1) and would drift again on
 // the next one. Each distinct probe filename is now resolved once here via
 // findContentAsset() — a real content walk that finds the asset wherever
-// it currently lives. When discovery can't find it (fixture-project run
+// it currently lives (except under skipped trees like Developers/ — those
+// probes always use their fallback path). When discovery can't find it (fixture-project run
 // with no Content/ tree at all, or a genuinely-missing asset in a real
 // project) we fall back to the historical relative path, so every
 // existing per-test `exists()` gate below still prints its original
