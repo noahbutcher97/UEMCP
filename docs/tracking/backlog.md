@@ -81,7 +81,7 @@ Test-coverage gaps requiring artificial fixtures in Project A / Project B.
 - **Trigger**: any future fixture drift causing test failures, OR Project B onboarding, OR CI enablement for contributors without target-project access.
 - **Priority**: T-1a immediate-dispatchable (independent of M-enhance file-wise); T-1b/c deferred.
 - **Out of scope**: test-s-b-base-differential.mjs (Oracle-A is inherently commandlet-generated project-specific; acceptable as-is); BP_OSPlayerR sanity references (kept as dev-time specific-knowledge testing per orchestrator guidance).
-- **D188 follow-on**: `test-s-b-base-differential.mjs` and `test-uasset-parser.mjs` still hardcode `/Game/Actors/...` probe paths — migrate to `findContentAsset` discovery when next touched, since they will re-stale on the next content reorg the same way `test-phase1.mjs`/`test-verb-surface.mjs` did before their D188 migration.
+- ~~**D188 follow-on**~~ — SHIPPED 2026-07-07 per D188 Task 6: `test-s-b-base-differential.mjs` and `test-uasset-parser.mjs` now resolve their real-asset probes via `findContentAsset` discovery at startup instead of hardcoded `/Game/Actors/...` paths, matching `test-phase1.mjs`/`test-verb-surface.mjs`'s prior migration.
 
 ### FX-1 — TMap BP CDO micro-fixture
 - **Source**: Agent 10.5 manual tester Item #1 (2026-04-16)
