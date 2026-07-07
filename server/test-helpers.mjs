@@ -255,13 +255,27 @@ const MAX_CONTENT_DIR_VISITS = 20000;
 export async function findContentAsset(projectRoot, fileName) {
   const contentRoot = join(projectRoot, 'Content');
   let dirVisits = 0;
+  let warnedCap = false;
+  let warnedReaddirError = false;
 
   async function walk(dir) {
-    if (dirVisits++ >= MAX_CONTENT_DIR_VISITS) return null;
+    if (dirVisits++ >= MAX_CONTENT_DIR_VISITS) {
+      if (!warnedCap) {
+        warnedCap = true;
+        console.warn(
+          `findContentAsset: hit MAX_CONTENT_DIR_VISITS (${MAX_CONTENT_DIR_VISITS}) while searching for "${fileName}" — search may be incomplete`
+        );
+      }
+      return null;
+    }
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (err && err.code !== 'ENOENT' && !warnedReaddirError) {
+        warnedReaddirError = true;
+        console.warn(`findContentAsset: readdir failed for "${dir}" (${err.code})`);
+      }
       return null; // missing/unreadable — treat as empty
     }
     for (const entry of entries) {
