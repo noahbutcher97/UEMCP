@@ -35,7 +35,7 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
-import { ErrorTcpResponder, resolveProjectRoot } from './test-helpers.mjs';
+import { ErrorTcpResponder, resolveProjectRoot, findContentAsset } from './test-helpers.mjs';
 import {
   GAS_ABILITY_BP, PLAYER_BP, ANIM_BLUEPRINT_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
   HIT_IMPACT_CUE_BP, COMBAT_DODGE_B_MONTAGE, HEAVY_ATTACK_COMBO_MONTAGE,
@@ -54,20 +54,26 @@ const GAS_ABILITY_BP_ISBLOCKING_TAG = 'Gameplay.State.Guard.IsActive';
 
 const PROJECT_ROOT = resolveProjectRoot();
 // The byte-accurate / inspect_blueprint / level-actor / find-nodes blocks need real binary
-// assets, which the text fixture does not ship. Probe one representative asset on disk; when
-// absent (fixture, or any project lacking it) those blocks skip. A real project supplying the
-// asset runs them unchanged. (Phase 2 adds generic assets + their own assertions — see
-// docs/specs/2026-05-23-generic-fixture-project-design.md.)
-const HAS_REAL_ASSETS = await (async () => {
-  try {
-    // GAS_ABILITY_BP.path is a /Game/... path; map to <root>/Content/<rest>.uasset.
-    // Coupled to that constant's /Game/ shape — if its format changes, this probe
-    // silently returns false (asset blocks would skip even on a real project).
-    const rel = GAS_ABILITY_BP.path.replace(/^\/Game\//, 'Content/') + '.uasset';
-    await stat(join(PROJECT_ROOT, rel));
-    return true;
-  } catch { return false; }
-})();
+// assets, which the text fixture does not ship. Discover the probe Blueprint by filename
+// rather than a hardcoded /Game/ path, so a content reorg (folder rename/move) doesn't turn
+// into ENOENT failures — the probe resolves wherever BP_OSPlayerR currently lives. When it
+// isn't found at all (fixture, or any project lacking it) those blocks skip; a real project
+// supplying the asset runs them unchanged. (Phase 2 adds generic assets + their own
+// assertions — see docs/specs/2026-05-23-generic-fixture-project-design.md.)
+const PLAYER_BP_PROBE = await findContentAsset(PROJECT_ROOT, 'BP_OSPlayerR.uasset');
+const HAS_REAL_ASSETS = PLAYER_BP_PROBE !== null;
+// Resolved /Game/ path for every assertion below that used to hardcode
+// PLAYER_BP.path (test-fixtures.mjs's '/Game/Blueprints/Character/BP_OSPlayerR'). Falls back
+// to the static constant when discovery finds nothing so any accidental reference outside a
+// HAS_REAL_ASSETS gate still resolves to a string rather than undefined.
+const PLAYER_BP_PATH = PLAYER_BP_PROBE?.gamePath ?? PLAYER_BP.path;
+// EN-2 corpus-scan root: the discovered probe's containing folder (findContentAsset's
+// gameDir), so the bulk-scan tests exercise wherever Blueprints currently live instead of
+// the stale '/Game/Blueprints' folder name. Falls back to the static BLUEPRINTS_PREFIX
+// constant when discovery finds nothing.
+const PLAYER_BP_SCAN_PREFIX = PLAYER_BP_PROBE
+  ? PLAYER_BP_PROBE.gameDir
+  : BLUEPRINTS_PREFIX;
 
 async function assetPathExists(assetPath, extension = '.uasset') {
   try {
@@ -1281,7 +1287,7 @@ async function testFindBlueprintNodes() {
   // Unfiltered call — returns all skeletal K2Nodes paginated.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP_PATH }, PROJECT_ROOT);
     assert(r.total_skeletal > 0, `T4: BP_OSPlayerR has skeletal K2Nodes (got ${r.total_skeletal})`);
     assert(Array.isArray(r.nodes), 'T4: response includes nodes[] array');
     assert(typeof r.truncated === 'boolean', 'T4: truncated flag present');
@@ -1302,7 +1308,7 @@ async function testFindBlueprintNodes() {
   // node_class filter narrows to just events.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, node_class: 'K2Node_Event' },
+      { asset_path: PLAYER_BP_PATH, node_class: 'K2Node_Event' },
       PROJECT_ROOT);
     assert(r.nodes.every(n => n.node_class === 'K2Node_Event'),
       `T4: node_class filter returns only Events (got ${r.nodes.length} rows)`);
@@ -1321,13 +1327,13 @@ async function testFindBlueprintNodes() {
   // specific member that could drift when the BP is refactored.
   try {
     const unfiltered = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, node_class: 'K2Node_CallFunction' },
+      { asset_path: PLAYER_BP_PATH, node_class: 'K2Node_CallFunction' },
       PROJECT_ROOT);
     const probeMember = unfiltered.nodes.find(n => typeof n.member_name === 'string')?.member_name;
     assert(typeof probeMember === 'string',
       'T4: unfiltered CallFunction scan surfaces at least one named member (bootstrap probe)');
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, member_name: probeMember },
+      { asset_path: PLAYER_BP_PATH, member_name: probeMember },
       PROJECT_ROOT);
     assert(r.total_matched > 0, `T4: member_name filter ('${probeMember}') finds matching calls`);
     assert(r.nodes.every(n => n.member_name === probeMember),
@@ -1340,7 +1346,7 @@ async function testFindBlueprintNodes() {
   // scan (same drift-proofing pattern as member_name above).
   try {
     const unfiltered = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, node_class: 'K2Node_CallFunction' },
+      { asset_path: PLAYER_BP_PATH, node_class: 'K2Node_CallFunction' },
       PROJECT_ROOT);
     const probeFull = unfiltered.nodes.find(n => typeof n.target_class === 'string' && n.target_class.length > 0)?.target_class;
     assert(typeof probeFull === 'string',
@@ -1348,7 +1354,7 @@ async function testFindBlueprintNodes() {
     // Use the suffix (last dotted segment) to exercise the "suffix filter" contract.
     const probeSuffix = probeFull.split('.').pop().split('/').pop();
     const r = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, target_class: probeSuffix },
+      { asset_path: PLAYER_BP_PATH, target_class: probeSuffix },
       PROJECT_ROOT);
     assert(r.total_matched > 0, `T4: target_class suffix filter ('${probeSuffix}') finds matches`);
     assert(r.nodes.every(n => n.target_class?.endsWith(probeSuffix)),
@@ -1360,9 +1366,9 @@ async function testFindBlueprintNodes() {
   // Pagination: limit=5, offset=0 + offset=5 yield disjoint rows.
   try {
     const p1 = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, limit: 5, offset: 0 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP_PATH, limit: 5, offset: 0 }, PROJECT_ROOT);
     const p2 = await executeOfflineTool('find_blueprint_nodes',
-      { asset_path: PLAYER_BP.path, limit: 5, offset: 5 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP_PATH, limit: 5, offset: 5 }, PROJECT_ROOT);
     assert(p1.nodes.length === 5, 'T4 pagination: page 1 has limit=5 rows');
     assert(p1.offset === 0, 'T4 pagination: page 1 offset echoed');
     assert(p2.offset === 5, 'T4 pagination: page 2 offset echoed');
@@ -1446,7 +1452,7 @@ if (HAS_REAL_ASSETS) {
   // refresh) so minor future re-saves don't silently skip this coverage.
   try {
     const full = await executeOfflineTool('read_asset_properties',
-      { asset_path: PLAYER_BP.path, max_bytes: 300 }, PROJECT_ROOT);
+      { asset_path: PLAYER_BP_PATH, max_bytes: 300 }, PROJECT_ROOT);
     const markerNames = full.unsupported.map(m => m.name);
     assert(markerNames.length >= 2,
       `P2 setup: BP_OSPlayerR with max_bytes=300 emits multiple markers (got ${markerNames.length})`);
@@ -1458,7 +1464,7 @@ if (HAS_REAL_ASSETS) {
 
     // Filter for only `keep` — `scopeOut` marker must NOT appear.
     const filtered = await executeOfflineTool('read_asset_properties',
-      { asset_path: PLAYER_BP.path, max_bytes: 300,
+      { asset_path: PLAYER_BP_PATH, max_bytes: 300,
         property_names: [keep] }, PROJECT_ROOT);
     const leaked = filtered.unsupported.find(m => m.name === scopeOut);
     assert(leaked === undefined,
@@ -1581,15 +1587,15 @@ if (HAS_REAL_ASSETS) {
     assert(false, 'EN-2 D44: yaml invariant', e.message);
   }
 
-  // Basic scan: /Game/Blueprints walks many BPs; at least some should match
-  // skeletal K2Nodes when unfiltered.
+  // Basic scan: the discovered probe BP's containing folder (PLAYER_BP_SCAN_PREFIX) walks
+  // several BPs; at least some should match skeletal K2Nodes when unfiltered.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 500 }, PROJECT_ROOT);
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, max_scan: 500 }, PROJECT_ROOT);
     assert(r.total_bps_scanned > 0, `EN-2: total_bps_scanned > 0 (got ${r.total_bps_scanned})`);
     assert(r.total_bps_matched > 0, `EN-2: unfiltered scan finds matched BPs (got ${r.total_bps_matched})`);
     assert(Array.isArray(r.results), 'EN-2: results[] is array');
-    assert(r.path_prefix === '/Game/Blueprints', 'EN-2: path_prefix echoed');
+    assert(r.path_prefix === PLAYER_BP_SCAN_PREFIX, 'EN-2: path_prefix echoed');
     assert(typeof r.scan_truncated === 'boolean', 'EN-2: scan_truncated flag present');
     assert(typeof r.page_truncated === 'boolean', 'EN-2: page_truncated flag present');
     // filter block echoes request filter even when all null
@@ -1614,7 +1620,7 @@ if (HAS_REAL_ASSETS) {
   // name that appears in many BPs. Should match at least 1 BP.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, member_name: 'ReceiveBeginPlay', max_scan: 500 },
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, member_name: 'ReceiveBeginPlay', max_scan: 500 },
       PROJECT_ROOT);
     assert(r.total_bps_matched > 0,
       `EN-2 filter: ReceiveBeginPlay matches some BPs (got ${r.total_bps_matched})`);
@@ -1626,7 +1632,7 @@ if (HAS_REAL_ASSETS) {
   // include_nodes=true surfaces per-BP nodes[]; each node has node_class + export_index.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, node_class: 'K2Node_Event',
         include_nodes: true, max_scan: 500, limit: 5 }, PROJECT_ROOT);
     assert(r.results.length > 0, 'EN-2 include_nodes: some BPs have events');
     const first = r.results[0];
@@ -1647,10 +1653,10 @@ if (HAS_REAL_ASSETS) {
   // Pagination: limit=1 pages yield disjoint BP paths.
   try {
     const p1 = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, node_class: 'K2Node_Event',
         limit: 1, offset: 0, max_scan: 500 }, PROJECT_ROOT);
     const p2 = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, node_class: 'K2Node_Event',
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, node_class: 'K2Node_Event',
         limit: 1, offset: 1, max_scan: 500 }, PROJECT_ROOT);
     assert(p1.offset === 0 && p1.limit === 1, 'EN-2 pagination: page 1 echoes offset/limit');
     assert(p2.offset === 1 && p2.limit === 1, 'EN-2 pagination: page 2 echoes offset/limit');
@@ -1671,7 +1677,7 @@ if (HAS_REAL_ASSETS) {
   // "max_scan means BPs, not files" contract.
   try {
     const r = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 2 }, PROJECT_ROOT);
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, max_scan: 2 }, PROJECT_ROOT);
     assert(r.total_bps_scanned === 2,
       `EN-2 scan cap: max_scan=2 caps BP count (got total_bps_scanned=${r.total_bps_scanned})`);
     assert(r.scan_truncated === true,
@@ -1708,15 +1714,16 @@ if (HAS_REAL_ASSETS) {
     assert(false, 'EN-2: input validation', e.message);
   }
 
-  // Performance spot-check — warm-cache scan under /Game/Blueprints.
-  // Budget: 5s for ~300-500 BP corpus per handoff. Prints actuals.
+  // Performance spot-check — warm-cache scan under the discovered probe's folder.
+  // Budget: 5s even on a small corpus; the real stress case (large /Game/ trees) is
+  // covered by the corpus-wide honesty check above. Prints actuals.
   try {
     // Warm once.
     await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
     const startWarm = Date.now();
     const warm = await executeOfflineTool('find_blueprint_nodes_bulk',
-      { path_prefix: BLUEPRINTS_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
+      { path_prefix: PLAYER_BP_SCAN_PREFIX, max_scan: 1000 }, PROJECT_ROOT);
     const warmMs = Date.now() - startWarm;
     console.log(`  ℹ EN-2 perf: warm scan of ${warm.total_bps_scanned} BPs in ${warmMs}ms (budget 5000ms)`);
     assert(warmMs < 5000,
@@ -1848,7 +1855,7 @@ try {
 if (!HAS_REAL_ASSETS) {
   console.log('  SKIP: real binary assets not found — skipping fixture-backed M-spatial tests');
 } else {
-  const BP = PLAYER_BP.path;
+  const BP = PLAYER_BP_PATH;
 
   // ── bp_list_graphs ─────────────────────────────────────
   try {

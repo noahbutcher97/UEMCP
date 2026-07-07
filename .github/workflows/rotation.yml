@@ -44,6 +44,10 @@ jobs:
         working-directory: server
         run: npm ci
 
+      - name: Lint
+        working-directory: server
+        run: npm run lint
+
       - name: Run test rotation
         working-directory: server
         run: node run-rotation.mjs

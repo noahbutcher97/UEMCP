@@ -51,7 +51,7 @@ import {
   collectSubobjectExportIndexes,
   summarizeCollisionProperties,
 } from './offline-tools.mjs';
-import { TestRunner } from './test-helpers.mjs';
+import { findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
 
@@ -64,6 +64,50 @@ async function exists(p) {
 function assetPathFromContentRel(relPath) {
   return `/Game/${relPath.replace(/\\/g, '/').replace(/^Content\//, '').replace(/\.uasset$/i, '')}`;
 }
+
+// Discovery-first probe resolution (D188 Task 6). The individual fixture
+// functions below used to hardcode `join(ROOT, 'Content/<path>')` for each
+// probe asset; those paths went stale on the project's Content reorg
+// (fixed in place for this file per D188 Task 1) and would drift again on
+// the next one. Each distinct probe filename is now resolved once here via
+// findContentAsset() — a real content walk that finds the asset wherever
+// it currently lives (except under skipped trees like Developers/ — those
+// probes always use their fallback path). When discovery can't find it (fixture-project run
+// with no Content/ tree at all, or a genuinely-missing asset in a real
+// project) we fall back to the historical relative path, so every
+// existing per-test `exists()` gate below still prints its original
+// "no file at <path>" skip line unchanged.
+async function resolveProbe(fileName, fallbackRelPath) {
+  const found = await findContentAsset(ROOT, fileName);
+  return found ? found.diskPath : join(ROOT, fallbackRelPath);
+}
+
+const PROBE = {
+  footstep: await resolveProbe('AN_OSAnimNotify_Footstep.uasset', 'Content/Animations/AN_OSAnimNotify_Footstep.uasset'),
+  steveTestMap: await resolveProbe('Steve_TestMap.umap', 'Content/Developers/steve/Steve_TestMap.umap'),
+  gaSprint: await resolveProbe('GA_Sprint.uasset', 'Content/GAS/Abilities/GA_Sprint.uasset'),
+  dtMutableMeshAssets: await resolveProbe('DT_Mutable_MeshAssets.uasset', 'Content/Art/Character/BaseCharacter/DT_Mutable_MeshAssets.uasset'),
+  bpgaBlock: await resolveProbe('BPGA_Block.uasset', 'Content/GAS/Abilities/BPGA_Block.uasset'),
+  bpOSPlayerR: await resolveProbe('BP_OSPlayerR.uasset', 'Content/Actors/Character/BP_OSPlayerR.uasset'),
+  mainMenuVersion: await resolveProbe('Main_MenuVersion.umap', 'Content/Maps/Non-Deployable/Main_MenuVersion.umap'),
+  stylizedBasic: await resolveProbe('M_StylizedBasic.uasset', 'Content/ImportedAssets/SoStylized/Materials/M_StylizedBasic.uasset'),
+  bpOSPlayerRChild: await resolveProbe('BP_OSPlayerR_Child.uasset', 'Content/Actors/Character/BP_OSPlayerR_Child.uasset'),
+  bpOSPlayerRChild1: await resolveProbe('BP_OSPlayerR_Child1.uasset', 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset'),
+  bpOSPlayerRChild2: await resolveProbe('BP_OSPlayerR_Child2.uasset', 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset'),
+  testCharacter: await resolveProbe('TestCharacter.uasset', 'Content/Blueprints/Character/TestCharacter.uasset'),
+  bpOSControlPoint: await resolveProbe('BP_OSControlPoint.uasset', 'Content/Actors/Level/BP_OSControlPoint.uasset'),
+};
+
+// Fixture-name -> resolved path, for the CP1/CP2 loops below that iterate a
+// small fixture table keyed by fixture name rather than a single probe.
+const PROBE_BY_NAME = {
+  BP_OSPlayerR: PROBE.bpOSPlayerR,
+  BP_OSPlayerR_Child: PROBE.bpOSPlayerRChild,
+  BP_OSPlayerR_Child1: PROBE.bpOSPlayerRChild1,
+  BP_OSPlayerR_Child2: PROBE.bpOSPlayerRChild2,
+  TestCharacter: PROBE.testCharacter,
+  BP_OSControlPoint: PROBE.bpOSControlPoint,
+};
 
 // ── Synthetic FPackageFileSummary builder — version-delta regression (D166) ──
 //
@@ -147,7 +191,7 @@ function testVersionSummaryDelta() {
 
 // ── Fixture 1: Footstep anim-notify Blueprint (hex-dump-verified) ───
 async function testFootstepFixture() {
-  const path = join(ROOT, 'Content/Animations/AN_OSAnimNotify_Footstep.uasset');
+  const path = PROBE.footstep;
   if (!(await exists(path))) {
     console.log('  · skipped Footstep fixture (no file at ' + path + ')');
     return;
@@ -233,7 +277,7 @@ async function testFootstepFixture() {
 
 // ── Fixture 2: large .umap (454 exports) — stride regression ────────
 async function testLevelMap() {
-  const path = join(ROOT, 'Content/Developers/steve/Steve_TestMap.umap');
+  const path = PROBE.steveTestMap;
   if (!(await exists(path))) {
     console.log('  · skipped Steve_TestMap (no file)');
     return;
@@ -261,7 +305,7 @@ async function testLevelMap() {
 
 // ── Fixture 3: GA_Sprint Blueprint — 2 AR entries (BP + BPGC) ───────
 async function testAbilityBlueprint() {
-  const path = join(ROOT, 'Content/GAS/Abilities/GA_Sprint.uasset');
+  const path = PROBE.gaSprint;
   if (!(await exists(path))) {
     console.log('  · skipped GA_Sprint (no file)');
     return;
@@ -288,7 +332,7 @@ async function testAbilityBlueprint() {
 
 // ── Fixture 4: DataTable — simple single-export case ────────────────
 async function testDataTable() {
-  const path = join(ROOT, 'Content/Art/Character/BaseCharacter/DT_Mutable_MeshAssets.uasset');
+  const path = PROBE.dtMutableMeshAssets;
   if (!(await exists(path))) {
     console.log('  · skipped DT_Mutable_MeshAssets (no file)');
     return;
@@ -423,7 +467,7 @@ function testTruncated() {
 // establish the UE 5.6 FPropertyTag layout (post-5.4 FPropertyTypeName +
 // EPropertyTagFlags). See commit 1 of Agent 10 deliverable.
 async function testBpgaBlockProperties() {
-  const path = join(ROOT, 'Content/GAS/Abilities/BPGA_Block.uasset');
+  const path = PROBE.bpgaBlock;
   if (!(await exists(path))) {
     console.log('  · skipped BPGA_Block property test (no file)');
     return;
@@ -513,7 +557,7 @@ async function testBpgaBlockProperties() {
 // and struct types. Verifies the flag-byte logic (BoolTrue encoding) and
 // exercise the resolver against both export-local and imported refs.
 async function testPlayerCdoProperties() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = PROBE.bpOSPlayerR;
   if (!(await exists(path))) {
     console.log('  · skipped BP_OSPlayerR property test (no file)');
     return;
@@ -561,7 +605,7 @@ async function testPlayerCdoProperties() {
 
 // ── Fixture 7: empty CDO — Footstep has only the None terminator ────
 async function testEmptyCdo() {
-  const path = join(ROOT, 'Content/Animations/AN_OSAnimNotify_Footstep.uasset');
+  const path = PROBE.footstep;
   if (!(await exists(path))) {
     console.log('  · skipped Footstep empty-CDO test (no file)');
     return;
@@ -608,7 +652,7 @@ async function testEmptyCdo() {
 
 // ── Size-budget truncation — synthetic budget below stream size ─────
 async function testSizeBudgetTruncation() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = PROBE.bpOSPlayerR;
   if (!(await exists(path))) {
     console.log('  · skipped size-budget test (no file)');
     return;
@@ -639,7 +683,7 @@ async function testSizeBudgetTruncation() {
 //   - FGameplayTagContainer "CancelAbilitiesWithTag" / "ActivationOwnedTags"
 //     / "ActivationBlockedTags" (flag=0x08, native binary: int32 count + N × FName)
 async function testStructHandlersOnBpgaBlock() {
-  const path = join(ROOT, 'Content/GAS/Abilities/BPGA_Block.uasset');
+  const path = PROBE.bpgaBlock;
   if (!(await exists(path))) { console.log('  · skipped BPGA struct handlers (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -724,7 +768,7 @@ async function testStructHandlersOnBpgaBlock() {
 // transform overrides. This test pins specific coordinates so regressions
 // that flip endian or swap field order fail loudly.
 async function testTransformStructsOnLevel() {
-  const path = join(ROOT, 'Content/Maps/Non-Deployable/Main_MenuVersion.umap');
+  const path = PROBE.mainMenuVersion;
   if (!(await exists(path))) { console.log('  · skipped Main_MenuVersion transform test (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -1104,7 +1148,7 @@ function buildTaggedStream(tags, names) {
 // four unknown structs (OSAuraInfo UDS, TimerHandle engine struct,
 // MaterialParameterInfo engine struct, PointerToUberGraphFrame BP-runtime).
 async function testTier3UnknownStructFallback() {
-  const path = join(ROOT, 'Content/Blueprints/Character/BP_OSPlayerR.uasset');
+  const path = PROBE.bpOSPlayerR;
   if (!(await exists(path))) { console.log('  · skipped T3 UDS fallback (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -1346,7 +1390,7 @@ function testContainerSyntheticObjectsAndColors() {
 }
 
 async function testComplexContainerMarker() {
-  const path = join(ROOT, 'Content/GAS/Abilities/BPGA_Block.uasset');
+  const path = PROBE.bpgaBlock;
   if (!(await exists(path))) { console.log('  · skipped complex-container marker test'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -1425,7 +1469,7 @@ async function testComplexContainerMarker() {
 // 2 Color, 3 Scalar, 1 Vector, 1 MaterialAttributes. Previously these emitted
 // `expression_input_native_layout_unknown` markers.
 async function testExpressionInputOnStylizedBasic() {
-  const path = join(ROOT, 'Content/ImportedAssets/SoStylized/Materials/M_StylizedBasic.uasset');
+  const path = PROBE.stylizedBasic;
   if (!(await exists(path))) { console.log('  · skipped M_StylizedBasic expression-input test (no file)'); return; }
   const buf = await readFile(path);
   const cur = new Cursor(buf);
@@ -1807,14 +1851,17 @@ function testContainerSyntheticScalars() {
 async function testPinBodyParseCP2() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    ['BP_OSPlayerR_Child',  'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
-    ['BP_OSPlayerR_Child1', 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
-    ['BP_OSPlayerR_Child2', 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', 'BP_OSPlayerR_Child2.oracle.json'],
+    ['BP_OSPlayerR_Child',  'Content/Actors/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
+    ['BP_OSPlayerR_Child1', 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
+    ['BP_OSPlayerR_Child2', 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', 'BP_OSPlayerR_Child2.oracle.json'],
     ['TestCharacter',       'Content/Blueprints/Character/TestCharacter.uasset',       'TestCharacter.oracle.json'],
   ];
 
   for (const [fxName, relPath, oracleName] of FIXTURES) {
-    const assetPath = join(ROOT, relPath);
+    // Discovery-resolved at startup (D188 Task 6) — PROBE_BY_NAME falls back
+    // to `relPath` internally (via resolveProbe) when discovery can't find
+    // the asset, so the skip below still fires exactly as before.
+    const assetPath = PROBE_BY_NAME[fxName] ?? join(ROOT, relPath);
     const oraclePath = join(FIXTURES_DIR, oracleName);
     if (!(await exists(assetPath)) || !(await exists(oraclePath))) {
       console.log(`  · skipped CP2/${fxName} (missing asset or oracle)`);
@@ -1941,16 +1988,19 @@ function testPinDefaultLiteralSynthetic() {
 async function testPinBlockOffsetCP1() {
   const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
   const FIXTURES = [
-    { name: 'BP_OSPlayerR',       relPath: 'Content/Blueprints/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 205 },
-    { name: 'BP_OSPlayerR_Child', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
-    { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
-    { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Blueprints/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 210 },
+    { name: 'BP_OSPlayerR_Child', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child1', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedGraphNodes: 6 },
+    { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
     { name: 'TestCharacter',      relPath: 'Content/Blueprints/Character/TestCharacter.uasset',      oracle: 'TestCharacter.oracle.json',      expectedGraphNodes: 11 },
-    { name: 'BP_OSControlPoint',  relPath: 'Content/Blueprints/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
+    { name: 'BP_OSControlPoint',  relPath: 'Content/Actors/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
   ];
 
   for (const fx of FIXTURES) {
-    const assetPath = join(ROOT, fx.relPath);
+    // Discovery-resolved at startup (D188 Task 6) — PROBE_BY_NAME falls back
+    // to `fx.relPath` internally (via resolveProbe) when discovery can't
+    // find the asset, so the skip below still fires exactly as before.
+    const assetPath = PROBE_BY_NAME[fx.name] ?? join(ROOT, fx.relPath);
     const oraclePath = join(FIXTURES_DIR, fx.oracle);
     if (!(await exists(assetPath)) || !(await exists(oraclePath))) {
       console.log(`  · skipped CP1/${fx.name} (missing asset or oracle)`);

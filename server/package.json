@@ -6,14 +6,21 @@
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node run-rotation.mjs"
+    "test": "node run-rotation.mjs",
+    "lint": "eslint ."
   },
   "keywords": ["mcp", "unreal-engine", "claude"],
   "license": "UNLICENSED",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "js-yaml": "^4.1.0",
     "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4"
   }
 }

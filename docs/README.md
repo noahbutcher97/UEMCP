@@ -29,7 +29,7 @@ docs/
 2. `specs/architecture.md` — 4-layer model
 3. `specs/dynamic-toolsets.md` — how the tool-surface loads
 4. `../tools.yaml` — tool definitions (single source of truth per D44)
-5. `tracking/risks-and-decisions.md` — D1-D65 decision log (load-bearing context)
+5. `tracking/risks-and-decisions.md` — D1-D188 decision log (load-bearing context)
 
 **Quick reference during work**:
 - `tools.yaml` for tool lookup
@@ -84,5 +84,5 @@ Manual-test deliverables tied to specific milestones. Tracks what humans verifie
 Updated continuously across sessions.
 | File | Covers |
 |---|---|
-| [risks-and-decisions.md](tracking/risks-and-decisions.md) | Decision log D1-D65 + risk table |
+| [risks-and-decisions.md](tracking/risks-and-decisions.md) | Decision log D1-D188 + risk table |
 | [backlog.md](tracking/backlog.md) | In-flight dispatches, queued waves, recently-shipped items, enhancement candidates |

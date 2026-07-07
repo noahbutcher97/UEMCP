@@ -1,7 +1,7 @@
 {
 	"schema_version": "oracle-a-v2",
 	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
-	"asset_path": "/Game/Blueprints/Level/BP_OSControlPoint",
+	"asset_path": "/Game/Actors/Level/BP_OSControlPoint",
 	"graphs":
 	{
 		"EventGraph":
@@ -984,7 +984,7 @@
 						},
 						"E23EF87E44B889944EC2B2920764DA76":
 						{
-							"name": "AsOSGame State Domination",
+							"name": "AsGS OSDomination",
 							"direction": "EGPD_Output",
 							"linked_to": [
 								{
@@ -1329,7 +1329,7 @@
 								}
 							]
 						},
-						"187B87ED4DFAF746CDF50898DBCB2A02":
+						"109D0B37498C6774CED05198BEDA19BD":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -2966,7 +2966,7 @@
 								}
 							]
 						},
-						"C8377CB043150FFEA1287388E3E06B8C":
+						"858DA2984011B0A0E1C721B402777573":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -6287,7 +6287,7 @@
 								}
 							]
 						},
-						"C45CDB8D4615F82534FEB997F8685B5A":
+						"910F97FF444DACE979C60593CA67E959":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -6374,7 +6374,7 @@
 								}
 							]
 						},
-						"C7A45EA7471014FE304275B45C023466":
+						"226EE1414728425B624BA7901707D27C":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -7872,7 +7872,7 @@
 								}
 							]
 						},
-						"D56AA10A4512B39F35492D9552C34418":
+						"6A0AA74F48A1AC394CD4E7B9213F3F61":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",
@@ -8260,7 +8260,7 @@
 								}
 							]
 						},
-						"31E00CF74DD4B9181BC85A801605FB00":
+						"4F469D2E4C079E3685DEDE960F4077D9":
 						{
 							"name": "ErrorTolerance",
 							"direction": "EGPD_Input",

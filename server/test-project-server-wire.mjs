@@ -106,6 +106,32 @@ async function waitForCondition(label, predicate, timeoutMs = 3000) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
+// Tool-visibility flips synchronously mid-batch (ToolsetManager.setToolsetVisibilityBatch
+// flips the SDK handle's `enabled` flag directly), but the notifications/tools/list_changed
+// send is deferred until the whole batch settles (installToolListBatching's withToolListBatch
+// flushes it from a finally block in create-uemcp-server.mjs, after any remaining awaited work
+// such as _enableInitiallyVisibleTools's per-tool availability checks). So a tools/list poll
+// confirming new visibility does not guarantee the notification has already reached the
+// transport outbound queue — draining it synchronously right after is racy (D188). Poll for it
+// instead, with a short settle window to still catch a genuine double-fire regression.
+async function waitForNotifications(transport, method, { timeoutMs = 3000, settleTicks = 5 } = {}) {
+  const collected = [];
+  const deadline = Date.now() + timeoutMs;
+  while (collected.length === 0) {
+    collected.push(...transport.drainNotifications(method));
+    if (collected.length > 0) break;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for a ${method} notification`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  for (let i = 0; i < settleTicks; i++) {
+    await new Promise(resolve => setImmediate(resolve));
+    collected.push(...transport.drainNotifications(method));
+  }
+  return collected;
+}
+
 await runCase('empty capabilities never request roots or elicitation', async () => {
   const root = makeTempRoot();
   try {
@@ -159,7 +185,7 @@ await runCase('one direct project root auto-attaches and emits one tool-list not
       async () => toolNames(await toolsList(transport)).includes('project_info')
     );
 
-    const notifications = transport.drainNotifications('notifications/tools/list_changed');
+    const notifications = await waitForNotifications(transport, 'notifications/tools/list_changed');
     t.assert(notifications.length === 1, `one tools/list_changed notification on auto-attach (got ${notifications.length})`);
 
     const names = toolNames(await toolsList(transport));

@@ -23,21 +23,44 @@ import {
   applyOracleFreshnessGate,
   evaluateTopologyOracleFreshness,
 } from './oracle-freshness.mjs';
-import { TestRunner } from './test-helpers.mjs';
+import { findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
 
 const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
 
-const FIXTURES = [
-  { name: 'BP_OSPlayerR',        assetPath: '/Game/Blueprints/Character/BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 600 },
-  { name: 'BP_OSPlayerR_Child',  assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
-  { name: 'BP_OSPlayerR_Child1', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
-  { name: 'BP_OSPlayerR_Child2', assetPath: '/Game/Blueprints/Character/BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
-  { name: 'TestCharacter',       assetPath: '/Game/Blueprints/Character/TestCharacter',       oracle: 'TestCharacter.oracle.json',       expectedEdges: 24 },
-  { name: 'BP_OSControlPoint',   assetPath: '/Game/Blueprints/Level/BP_OSControlPoint',       oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
+// Oracle pairing (fixture name -> oracle.json) is independent of where the
+// live asset currently sits on disk — `oracle` is a plain filename lookup.
+// `assetPath`/`diskPath` used to be hardcoded here and went stale on the
+// project's Content reorg (D188 Task 1 fixed the immediate break by
+// substituting new paths, but the same drift would recur on the next
+// reorg). D188 Task 6: resolve each probe via findContentAsset() at
+// startup instead. A null diskPath (fixture-project run, or an asset
+// genuinely deleted from the project — TestCharacter) means
+// runFixtureDifferential/testStatsShape skip that one fixture with a
+// labeled reason; the oracle JSON itself is never touched/deleted.
+const FIXTURE_DEFS = [
+  { name: 'BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 608 },
+  { name: 'BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
+  { name: 'BP_OSPlayerR_Child1', oracle: 'BP_OSPlayerR_Child1.oracle.json', expectedEdges: 4 },
+  { name: 'BP_OSPlayerR_Child2', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedEdges: 4 },
+  // Fixture asset no longer present in the target project (deleted, not moved) — kept as a
+  // documented skip so the oracle JSON + expectedEdges stay discoverable if it returns.
+  { name: 'TestCharacter',       oracle: 'TestCharacter.oracle.json',       expectedEdges: 24 },
+  { name: 'BP_OSControlPoint',   oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
 ];
+
+async function resolveFixtures(defs) {
+  const out = [];
+  for (const def of defs) {
+    const found = await findContentAsset(ROOT, `${def.name}.uasset`);
+    out.push({ ...def, assetPath: found?.gamePath ?? null, diskPath: found?.diskPath ?? null });
+  }
+  return out;
+}
+
+const FIXTURES = await resolveFixtures(FIXTURE_DEFS);
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 
@@ -132,12 +155,11 @@ async function runFixtureDifferential(fx) {
     console.log(`  · skipped ${fx.name} (no oracle at ${oraclePath})`);
     return;
   }
-  // Sanity-check disk asset presence; extractBPEdgeTopologySafe will also
-  // return an FA-β envelope if missing, but skipping early keeps the test
-  // log cleaner on fresh machines.
-  const diskPath = join(ROOT, 'Content', fx.assetPath.replace('/Game/', '') + '.uasset');
-  if (!(await exists(diskPath))) {
-    console.log(`  · skipped ${fx.name} (no asset at ${diskPath})`);
+  // Discovery-resolved at startup (D188 Task 6) — a null diskPath means the
+  // asset wasn't found under project Content/ (fixture-project run, or
+  // genuinely absent from a real project). Skip only this fixture's block.
+  if (!fx.diskPath) {
+    console.log(`  ⊘ SKIP ${fx.name}: not found under project Content/ (findContentAsset discovery failed)`);
     return;
   }
 
@@ -202,9 +224,8 @@ async function testEnoentEnvelope() {
 // ── Stats-shape guard ────────────────────────────────────────────
 async function testStatsShape() {
   const sample = FIXTURES[1]; // BP_OSPlayerR_Child — small, fast
-  const diskPath = join(ROOT, 'Content', sample.assetPath.replace('/Game/', '') + '.uasset');
-  if (!(await exists(diskPath))) {
-    console.log('  · skipped stats-shape test (no asset)');
+  if (!sample.diskPath) {
+    console.log(`  ⊘ SKIP stats-shape test: ${sample.name} not found under project Content/`);
     return;
   }
   const r = await extractBPEdgeTopologySafe(ROOT, { asset_path: sample.assetPath });

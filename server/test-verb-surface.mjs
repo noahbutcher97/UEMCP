@@ -19,6 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeOfflineTool } from './offline-tools.mjs';
+import { findContentAsset } from './test-helpers.mjs';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
 if (!PROJECT_ROOT) {
@@ -28,18 +29,51 @@ if (!PROJECT_ROOT) {
 
 let passed = 0;
 let failed = 0;
+let skippedFixtures = 0;
 function assert(condition, name, detail) {
   if (condition) { console.log(`  ✓ ${name}`); passed++; }
   else { console.error(`  ✗ ${name}${detail ? ': ' + detail : ''}`); failed++; }
+}
+// Labeled per-fixture skip (D188 Task 5) — a section whose probe asset
+// wasn't discovered under Content/ prints one clear line instead of letting
+// downstream property access on a missing-asset envelope crash the file.
+function skipFixture(label, reason) {
+  console.log(`  ⊘ SKIP ${label}: ${reason}`);
+  skippedFixtures++;
 }
 
 // Fixture assets. BP_OSPlayerR is the dense topology (900+ edges across
 // several graphs). BP_OSControlPoint has a different graph vocabulary and
 // shared exec patterns. TestCharacter is tiny for fast invariant checks.
-const BP_DENSE = '/Game/Blueprints/Character/BP_OSPlayerR';
-const BP_SECOND = '/Game/Blueprints/Level/BP_OSControlPoint';
-const BP_SMALL = '/Game/Blueprints/Character/TestCharacter';
+//
+// Resolved by discovery (D188 Task 5) rather than hardcoded pre-reorg paths:
+// a content reorg moved BP_OSPlayerR/BP_OSControlPoint elsewhere under
+// Content/ and deleted TestCharacter outright. findContentAsset() returns
+// null against the committed text fixture (no Content/ tree) and any real
+// project missing a probe; the HAS_BP_* gates below skip the sections that
+// need a missing fixture instead of dereferencing a not-found envelope.
+// Falling back to the pre-reorg path when a probe isn't found only matters
+// for the fixture-not-found-with-project-present case (a real project set
+// via UNREAL_PROJECT_ROOT that lacks the probe) — the project-less case
+// exits at the top of this file before any of this runs.
+const BP_DENSE_PROBE = await findContentAsset(PROJECT_ROOT, 'BP_OSPlayerR.uasset');
+const BP_SECOND_PROBE = await findContentAsset(PROJECT_ROOT, 'BP_OSControlPoint.uasset');
+const BP_SMALL_PROBE = await findContentAsset(PROJECT_ROOT, 'TestCharacter.uasset');
+const HAS_BP_DENSE = BP_DENSE_PROBE !== null;
+const HAS_BP_SECOND = BP_SECOND_PROBE !== null;
+const HAS_BP_SMALL = BP_SMALL_PROBE !== null;
+const BP_DENSE = BP_DENSE_PROBE?.gamePath ?? '/Game/Blueprints/Character/BP_OSPlayerR';
+const BP_SECOND = BP_SECOND_PROBE?.gamePath ?? '/Game/Blueprints/Level/BP_OSControlPoint';
+const BP_SMALL = BP_SMALL_PROBE?.gamePath ?? '/Game/Blueprints/Character/TestCharacter';
 const BOGUS = '/Game/Nonexistent/BP_Fake_MNew_Probe';
+
+// D188 Task 7 item 1: skip-reason strings hoisted from ~13 duplicated inline
+// literals so a future fixture-name change only needs updating in one place.
+// The two TestCharacter skip sites are unified on the more detailed wording
+// (records it was deleted, not moved, so a future reorg search doesn't
+// re-litigate the same question).
+const BP_DENSE_SKIP_REASON = 'BP_OSPlayerR not found under project Content/';
+const BP_SMALL_SKIP_REASON = 'TestCharacter not found under project Content/ (deleted from project, not moved — D188)';
 
 const FIX_DIR = join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
 
@@ -116,7 +150,7 @@ const terminal = pickTerminal(eventGraph);
 
 // ── bp_trace_exec happy path ─────────────────────────────────────────
 console.log('\n═══ bp_trace_exec: BP_OSPlayerR happy path ═══');
-{
+if (HAS_BP_DENSE) {
   assert(execSource !== null, 'seed: found an exec source node in oracle EventGraph');
   const r = await executeOfflineTool('bp_trace_exec', {
     asset_path: BP_DENSE,
@@ -141,10 +175,12 @@ console.log('\n═══ bp_trace_exec: BP_OSPlayerR happy path ═══');
     'bp_trace_exec: FA-β manifest advertises pin_block available');
   assert(r.plugin_enhancement_available === false,
     'bp_trace_exec: plugin_enhancement_available=false (offline-primary)');
+} else {
+  skipFixture('bp_trace_exec: BP_OSPlayerR happy path', BP_DENSE_SKIP_REASON);
 }
 
 // bp_trace_exec: max_depth cap
-{
+if (HAS_BP_DENSE) {
   const r = await executeOfflineTool('bp_trace_exec', {
     asset_path: BP_DENSE,
     graph_name: 'EventGraph',
@@ -154,10 +190,12 @@ console.log('\n═══ bp_trace_exec: BP_OSPlayerR happy path ═══');
   assert(r.chain.every(c => c.depth <= 1),
     'bp_trace_exec: max_depth=1 bounds depth strictly');
   assert(r.max_depth === 1, 'bp_trace_exec: max_depth echoed in response');
+} else {
+  skipFixture('bp_trace_exec: max_depth cap', BP_DENSE_SKIP_REASON);
 }
 
 // bp_trace_exec: pin_name filter
-{
+if (HAS_BP_DENSE) {
   // Find an IfThenElse or Branch node to test pin_name filtering.
   const branchEntry = Object.entries(eventGraph.nodes).find(
     ([, n]) => n.class_name === 'K2Node_IfThenElse');
@@ -182,11 +220,13 @@ console.log('\n═══ bp_trace_exec: BP_OSPlayerR happy path ═══');
   } else {
     console.log('  (skipped pin_name filter: no K2Node_IfThenElse in EventGraph)');
   }
+} else {
+  skipFixture('bp_trace_exec: pin_name filter', BP_DENSE_SKIP_REASON);
 }
 
 // bp_trace_exec: graph_not_found + node_not_found
 console.log('\n═══ bp_trace_exec: error envelopes ═══');
-{
+if (HAS_BP_DENSE) {
   const badGraph = await executeOfflineTool('bp_trace_exec', {
     asset_path: BP_DENSE, graph_name: 'NoSuchGraph', start_node_id: execSource.node_guid,
   }, PROJECT_ROOT);
@@ -200,11 +240,13 @@ console.log('\n═══ bp_trace_exec: error envelopes ═══');
   }, PROJECT_ROOT);
   assert(badNode.available === false && badNode.reason === 'node_not_found',
     'bp_trace_exec: unknown node → reason:node_not_found');
+} else {
+  skipFixture('bp_trace_exec: error envelopes', BP_DENSE_SKIP_REASON);
 }
 
 // bp_trace_exec: empty chain (terminal node)
 console.log('\n═══ bp_trace_exec: terminal/empty chain ═══');
-{
+if (HAS_BP_DENSE) {
   if (terminal) {
     const r = await executeOfflineTool('bp_trace_exec', {
       asset_path: BP_DENSE, graph_name: 'EventGraph', start_node_id: terminal.node_guid,
@@ -214,11 +256,13 @@ console.log('\n═══ bp_trace_exec: terminal/empty chain ═══');
   } else {
     console.log('  (skipped terminal: every node in BP_OSPlayerR EventGraph has exec out)');
   }
+} else {
+  skipFixture('bp_trace_exec: terminal/empty chain', BP_DENSE_SKIP_REASON);
 }
 
 // ── bp_trace_data ────────────────────────────────────────────────────
 console.log('\n═══ bp_trace_data: happy path + error envelopes ═══');
-{
+if (HAS_BP_DENSE) {
   assert(dataSource !== null, 'seed: found a data source node in oracle EventGraph');
   const r = await executeOfflineTool('bp_trace_data', {
     asset_path: BP_DENSE, graph_name: 'EventGraph',
@@ -255,11 +299,13 @@ console.log('\n═══ bp_trace_data: happy path + error envelopes ═══')
   }, PROJECT_ROOT);
   assert(rDepth1.sinks.every(s => s.depth <= 1),
     'bp_trace_data: max_depth=1 bounds sink depth');
+} else {
+  skipFixture('bp_trace_data: happy path + error envelopes', BP_DENSE_SKIP_REASON);
 }
 
 // ── bp_neighbors ─────────────────────────────────────────────────────
 console.log('\n═══ bp_neighbors: both/in/out/self-loop ═══');
-{
+if (HAS_BP_DENSE) {
   const r = await executeOfflineTool('bp_neighbors', {
     asset_path: BP_DENSE, graph_name: 'EventGraph',
     node_id: execSource.node_guid,
@@ -318,11 +364,13 @@ console.log('\n═══ bp_neighbors: both/in/out/self-loop ═══');
   }, PROJECT_ROOT);
   assert(badNode.available === false && badNode.reason === 'node_not_found',
     'bp_neighbors: unknown node → reason:node_not_found');
+} else {
+  skipFixture('bp_neighbors: both/in/out/self-loop', BP_DENSE_SKIP_REASON);
 }
 
 // ── bp_show_node pin-block completion ────────────────────────────────
 console.log('\n═══ bp_show_node: M-new pin-block extension ═══');
-{
+if (HAS_BP_DENSE) {
   // Pick any graph-node export — use bp_list_entry_points for a stable seed.
   const ep = await executeOfflineTool('bp_list_entry_points',
     { asset_path: BP_DENSE }, PROJECT_ROOT);
@@ -351,20 +399,30 @@ console.log('\n═══ bp_show_node: M-new pin-block extension ═══');
   assert(!r.not_available.includes('pin_defaults'),
     'bp_show_node: pin_defaults absent from not_available when pin_block resolves');
 
-  const literalNode = await executeOfflineTool('bp_show_node',
-    { asset_path: BP_SMALL, node_id: 'K2Node_AddComponent_0' }, PROJECT_ROOT);
-  const templatePin = literalNode.node.pins.find(p => p.name === 'TemplateName');
-  assert(templatePin?.direction === 'EGPD_Input' && templatePin.linked_to.length === 0,
-    'bp_show_node: literal fixture pin is an unlinked input');
-  assert(templatePin?.default_value === 'NODE_AddSkeletalMeshComponent-0',
-    'bp_show_node: unlinked input pin exposes default_value literal');
-  assert(templatePin?.autogenerated_default_value === 'None',
-    'bp_show_node: unlinked input pin exposes autogenerated_default_value literal');
+  if (HAS_BP_SMALL) {
+    const literalNode = await executeOfflineTool('bp_show_node',
+      { asset_path: BP_SMALL, node_id: 'K2Node_AddComponent_0' }, PROJECT_ROOT);
+    const templatePin = literalNode.node.pins.find(p => p.name === 'TemplateName');
+    assert(templatePin?.direction === 'EGPD_Input' && templatePin.linked_to.length === 0,
+      'bp_show_node: literal fixture pin is an unlinked input');
+    assert(templatePin?.default_value === 'NODE_AddSkeletalMeshComponent-0',
+      'bp_show_node: unlinked input pin exposes default_value literal');
+    assert(templatePin?.autogenerated_default_value === 'None',
+      'bp_show_node: unlinked input pin exposes autogenerated_default_value literal');
+  } else {
+    skipFixture('bp_show_node: literal fixture pin (TestCharacter)', BP_SMALL_SKIP_REASON);
+  }
+} else {
+  // D188 Task 7 item 2: the TestCharacter sub-test above is nested inside
+  // this guard, so when BP_OSPlayerR itself is missing that sub-test would
+  // otherwise vanish silently instead of printing its own skip line.
+  skipFixture('bp_show_node: M-new pin-block extension', BP_DENSE_SKIP_REASON);
+  skipFixture('bp_show_node: literal fixture pin (TestCharacter)', BP_DENSE_SKIP_REASON);
 }
 
 // ── bp_list_entry_points has_no_exec_in precision ────────────────────
 console.log('\n═══ bp_list_entry_points: has_no_exec_in precision ═══');
-{
+if (HAS_BP_DENSE) {
   const r = await executeOfflineTool('bp_list_entry_points',
     { asset_path: BP_DENSE }, PROJECT_ROOT);
   assert(r.entry_points.every(e =>
@@ -376,11 +434,13 @@ console.log('\n═══ bp_list_entry_points: has_no_exec_in precision ══�
     'bp_list_entry_points: exec_connectivity now in available_fields');
   assert(!r.not_available.includes('exec_connectivity'),
     'bp_list_entry_points: exec_connectivity absent from not_available');
+} else {
+  skipFixture('bp_list_entry_points: has_no_exec_in precision', BP_DENSE_SKIP_REASON);
 }
 
 // ── Oracle cross-check: BP_OSPlayerR ─────────────────────────────────
 console.log('\n═══ Oracle-A cross-check: BP_OSPlayerR EventGraph ═══');
-{
+if (HAS_BP_DENSE) {
   // Walk every node in oracle EventGraph, check that bp_neighbors outgoing
   // edges match oracle's linked_to for that node (for at least the seed
   // sample — don't iterate 100s of nodes at test time).
@@ -407,11 +467,13 @@ console.log('\n═══ Oracle-A cross-check: BP_OSPlayerR EventGraph ═══
     assert(allPresent,
       `oracle-xcheck BP_OSPlayerR ${guid.slice(0, 8)}: every oracle edge present in parsed outgoing`);
   }
+} else {
+  skipFixture('Oracle-A cross-check: BP_OSPlayerR EventGraph', BP_DENSE_SKIP_REASON);
 }
 
 // ── Oracle cross-check: BP_OSControlPoint ────────────────────────────
 console.log('\n═══ Oracle-A cross-check: BP_OSControlPoint ═══');
-{
+if (HAS_BP_SECOND) {
   const oracle2 = await loadOracle('BP_OSControlPoint');
   // Prefer EventGraph; fall back to any graph with ≥2 nodes.
   const graphs2 = Object.keys(oracle2.graphs);
@@ -434,11 +496,13 @@ console.log('\n═══ Oracle-A cross-check: BP_OSControlPoint ═══');
     .reduce((n, p) => n + p.linked_to.length, 0);
   assert(r.outgoing.length === oracleOutCount,
     `BP_OSControlPoint seed outgoing edge count matches oracle (${r.outgoing.length} vs ${oracleOutCount})`);
+} else {
+  skipFixture('Oracle-A cross-check: BP_OSControlPoint', 'BP_OSControlPoint not found under project Content/');
 }
 
 // ── Oracle cross-check: TestCharacter (small fixture) ────────────────
 console.log('\n═══ Oracle-A cross-check: TestCharacter (small) ═══');
-{
+if (HAS_BP_SMALL) {
   const oracle3 = await loadOracle('TestCharacter');
   const graphs3 = Object.keys(oracle3.graphs);
   if (graphs3.length === 0) {
@@ -461,11 +525,13 @@ console.log('\n═══ Oracle-A cross-check: TestCharacter (small) ═══')
         'TestCharacter: neighbor counts are numeric');
     }
   }
+} else {
+  skipFixture('Oracle-A cross-check: TestCharacter (small)', BP_SMALL_SKIP_REASON);
 }
 
 // ── Cycle safety (synthetic — ensure visited-set guards infinite loops) ───
 console.log('\n═══ bp_trace_exec: cycle safety invariant ═══');
-{
+if (HAS_BP_DENSE) {
   // Walk from an exec source; even on a graph with cycles, chain length
   // must be ≤ total nodes in the graph (bounded by visited set).
   const graphSize = eventGraphNodeGuids.length;
@@ -477,11 +543,13 @@ console.log('\n═══ bp_trace_exec: cycle safety invariant ═══');
   }, PROJECT_ROOT);
   assert(r.chain.length <= graphSize,
     `bp_trace_exec: chain length ≤ graph node count (${r.chain.length} ≤ ${graphSize})`);
+} else {
+  skipFixture('bp_trace_exec: cycle safety invariant', BP_DENSE_SKIP_REASON);
 }
 
 // ── FA-β invariant: all verbs advertise schema_version + manifest ────
 console.log('\n═══ FA-β manifest shape across all 5 verbs ═══');
-{
+if (HAS_BP_DENSE) {
   const showNode = await executeOfflineTool('bp_show_node',
     { asset_path: BP_DENSE, node_id: '1' }, PROJECT_ROOT);
   assert(typeof showNode.schema_version === 'string',
@@ -508,6 +576,8 @@ console.log('\n═══ FA-β manifest shape across all 5 verbs ═══');
   }, PROJECT_ROOT);
   assert(typeof neighbors.schema_version === 'string',
     'bp_neighbors: schema_version emitted');
+} else {
+  skipFixture('FA-β manifest shape across all 5 verbs', BP_DENSE_SKIP_REASON);
 }
 
 // ── yaml registration ────────────────────────────────────────────────
@@ -539,7 +609,7 @@ function toOracleProbe(raw) {
 }
 
 console.log('\n═══ F-2 input bridge: bp_list_entry_points → trace verbs (no manual reformat) ═══');
-{
+if (HAS_BP_DENSE) {
   const ep = await executeOfflineTool('bp_list_entry_points',
     { asset_path: BP_DENSE }, PROJECT_ROOT);
   // Pick an entry whose graph_name resolves AND whose node has outgoing edges,
@@ -593,10 +663,12 @@ console.log('\n═══ F-2 input bridge: bp_list_entry_points → trace verbs 
     `bp_neighbors accepts M-spatial raw form (was ${neighbors.reason ?? 'OK'})`);
   assert(neighbors.node_id === canonical,
     'bp_neighbors echoes canonical node_id');
+} else {
+  skipFixture('F-2 input bridge: bp_list_entry_points → trace verbs', BP_DENSE_SKIP_REASON);
 }
 
 console.log('\n═══ F-2 input bridge: per-verb dual-format equivalence ═══');
-{
+if (HAS_BP_DENSE) {
   // Use execSource (Oracle-A canonical) and convert to LE-lowercase by reversing
   // the parser-internal canonicalization. This exercises the bridge in the
   // opposite direction (canonical → fake-raw → bridge → canonical).
@@ -656,6 +728,8 @@ console.log('\n═══ F-2 input bridge: per-verb dual-format equivalence ═�
   }, PROJECT_ROOT);
   assert(bogus.available === false && bogus.reason === 'node_not_found',
     'bp_trace_exec bogus 32-hex input still surfaces node_not_found (no false-positive bridging)');
+} else {
+  skipFixture('F-2 input bridge: per-verb dual-format equivalence', BP_DENSE_SKIP_REASON);
 }
 
 // ── F-2 input bridge: SMOKE-FIX regression (D86) ─────────────────────
@@ -674,7 +748,7 @@ console.log('\n═══ F-2 input bridge: per-verb dual-format equivalence ═�
 // `normalizeNodeGuidInput` stops handling any one entry's emitted form, the
 // failure surfaces here regardless of `find()` ordering.
 console.log('\n═══ F-2 input bridge: SMOKE-FIX exhaustive regression (every entry pipes cleanly) ═══');
-{
+if (HAS_BP_DENSE) {
   const ep = await executeOfflineTool('bp_list_entry_points',
     { asset_path: BP_DENSE }, PROJECT_ROOT);
   const eventGraphEntries = ep.entry_points.filter(
@@ -698,6 +772,8 @@ console.log('\n═══ F-2 input bridge: SMOKE-FIX exhaustive regression (ever
     assert(trace.start_node_id !== entry.node_guid,
       `bp_trace_exec normalizes ${label}: raw ≠ canonical (raw=${entry.node_guid}, echoed=${trace.start_node_id})`);
   }
+} else {
+  skipFixture('F-2 input bridge: SMOKE-FIX exhaustive regression', BP_DENSE_SKIP_REASON);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────
@@ -705,4 +781,5 @@ console.log('\n═══ Summary ═══');
 console.log(`  Passed: ${passed}`);
 console.log(`  Failed: ${failed}`);
 console.log(`  Total:  ${passed + failed}`);
+console.log(`  Skipped fixtures: ${skippedFixtures}`);
 process.exit(failed > 0 ? 1 : 0);
