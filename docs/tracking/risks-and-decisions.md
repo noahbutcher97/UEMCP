@@ -94,8 +94,8 @@ All 6 critical APIs confirmed present in UE5.6. No plan changes needed.
 
 ## Decision Log
 
-| # | Decision | Rationale |
-|---|----------|-----------|
+| # | Decision | Rationale / Source |
+|---|----------|---------------------|
 | D1 | Node.js server | Consistency with 3 other MCP servers. Same SDK. Same `zod/v3` import pattern. |
 | D2 | New C++ plugin, not modify existing | Project B team shares existing via P4. Zero disruption. |
 | D3 | Auto-detection via process inspection | 95%+ reliability. No editor dependency. Works even if plugins crashed. |

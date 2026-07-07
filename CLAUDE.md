@@ -26,7 +26,7 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 ## Dynamic Toolset System
 
-149 declared tools: 10 always-loaded management tools + 139 toolset-scoped across 16 dynamic toolsets, of which 10 are `status: planned` (hidden, not yet registered) — 139 active/callable overall. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
+149 declared / 139 active tools (see Project Overview above for the full breakdown) across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control

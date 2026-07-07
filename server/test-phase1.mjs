@@ -67,11 +67,12 @@ const HAS_REAL_ASSETS = PLAYER_BP_PROBE !== null;
 // to the static constant when discovery finds nothing so any accidental reference outside a
 // HAS_REAL_ASSETS gate still resolves to a string rather than undefined.
 const PLAYER_BP_PATH = PLAYER_BP_PROBE?.gamePath ?? PLAYER_BP.path;
-// EN-2 corpus-scan root: the discovered probe's containing folder, so the bulk-scan tests
-// exercise wherever Blueprints currently live instead of the stale '/Game/Blueprints' folder
-// name. Falls back to the static BLUEPRINTS_PREFIX constant when discovery finds nothing.
+// EN-2 corpus-scan root: the discovered probe's containing folder (findContentAsset's
+// gameDir), so the bulk-scan tests exercise wherever Blueprints currently live instead of
+// the stale '/Game/Blueprints' folder name. Falls back to the static BLUEPRINTS_PREFIX
+// constant when discovery finds nothing.
 const PLAYER_BP_SCAN_PREFIX = PLAYER_BP_PROBE
-  ? PLAYER_BP_PROBE.gamePath.slice(0, PLAYER_BP_PROBE.gamePath.lastIndexOf('/'))
+  ? PLAYER_BP_PROBE.gameDir
   : BLUEPRINTS_PREFIX;
 
 async function assetPathExists(assetPath, extension = '.uasset') {

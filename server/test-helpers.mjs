@@ -248,9 +248,12 @@ const MAX_CONTENT_DIR_VISITS = 20000;
  *
  * @param {string} projectRoot
  * @param {string} fileName — e.g. 'BP_OSPlayerR.uasset'
- * @returns {Promise<{gamePath: string, diskPath: string}|null>} null when
+ * @returns {Promise<{gamePath: string, diskPath: string, gameDir: string}|null>} null when
  *   Content/ is missing or the file isn't found (e.g. the committed fixture,
- *   which ships no Content/ tree at all).
+ *   which ships no Content/ tree at all). gameDir is gamePath's parent
+ *   /Game/ directory (no trailing slash) — e.g. corpus-scan callers that
+ *   need "wherever this probe's folder currently is" instead of the file's
+ *   own path.
  */
 export async function findContentAsset(projectRoot, fileName) {
   const contentRoot = join(projectRoot, 'Content');
@@ -295,7 +298,8 @@ export async function findContentAsset(projectRoot, fileName) {
 
   const relFromContent = relative(contentRoot, diskPath).split(sep).join('/');
   const gamePath = '/Game/' + relFromContent.replace(/\.[^./]+$/, '');
-  return { gamePath, diskPath };
+  const gameDir = gamePath.slice(0, gamePath.lastIndexOf('/'));
+  return { gamePath, diskPath, gameDir };
 }
 
 /**
