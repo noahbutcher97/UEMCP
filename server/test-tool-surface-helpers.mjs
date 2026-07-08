@@ -238,6 +238,10 @@ export function collectRequirementMetadataMismatches(toolsData, getToolRequireme
   return mismatches.sort();
 }
 
+export function missingSourceNeedles(source, needles) {
+  return needles.filter(needle => !source.includes(needle));
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const runner = new TestRunner('Tool Surface Helpers');
   process.exit(runner.summary());
