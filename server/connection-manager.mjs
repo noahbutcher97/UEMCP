@@ -621,8 +621,13 @@ function extractWireError(result) {
   return null;
 }
 
+function unknownCommandHint(wireError) {
+  if (wireError.code !== 'UNKNOWN_COMMAND') return '';
+  return ' Next action: call find_tools to locate the public wrapper, or inspect tools.yaml wire_type mappings; do not use raw TCP command names as the primary workflow.';
+}
+
 function makeLayerWireError(layerKey, wireError, wireResponse) {
-  const err = new Error(`${layerKey}: ${wireError.message}`);
+  const err = new Error(`${layerKey}: ${wireError.message}${unknownCommandHint(wireError)}`);
   err.layer = layerKey;
   err.wireError = wireError;
   err.wireResponse = wireResponse;
