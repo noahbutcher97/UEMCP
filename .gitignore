@@ -51,6 +51,9 @@ server/.test-rotation-snapshot.json
 # Local linked worktrees for isolated feature work.
 .worktrees/
 
+# Local superpowers workflow scratch files.
+.superpowers/
+
 # Orchestrator-state snapshots (local-only working memory across sessions;
 # may contain codenames, local paths, sensitive orchestration details).
 docs/tracking/orchestrator-state-*.md
