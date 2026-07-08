@@ -23,6 +23,7 @@
 //
 // Excluded from default rotation:
 //   - test-helpers.mjs / test-fixtures.mjs (libraries; no own assertions)
+//   - test-tool-surface-helpers.mjs (library; exercised through contract gates)
 //   - test-m1-ping.mjs (live-editor-gated per D57; CLAUDE.md §Testing notes it is
 //     "live-editor-gated and excluded from rotation count")
 
@@ -40,6 +41,7 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const EXCLUDED = new Set([
   'test-helpers.mjs',
   'test-fixtures.mjs',
+  'test-tool-surface-helpers.mjs',
   'test-m1-ping.mjs',
 ]);
 

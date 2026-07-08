@@ -1,7 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { TestRunner } from './test-helpers.mjs';
 import { ToolIndex } from './tool-index.mjs';
 
 const DEFAULT_IGNORED_PLUGIN_SOURCE_FRAGMENTS = [
@@ -61,6 +59,21 @@ function ignoredPluginSource(rel, ignoredFragments) {
   return ignoredFragments.some(fragment => rel.includes(fragment));
 }
 
+const PLUGIN_COMMAND_REGISTRATION_PATTERNS = [
+  /\bRegistry\s*\.\s*Register\s*\(\s*TEXT\s*\(\s*"([^"]+)"\s*\)/g,
+  /\bHandlers\s*\.\s*Add\s*\(\s*TEXT\s*\(\s*"([^"]+)"\s*\)/g,
+];
+
+export function collectRegisteredCommandsFromSource(source) {
+  const commands = new Set();
+  for (const pattern of PLUGIN_COMMAND_REGISTRATION_PATTERNS) {
+    for (const match of source.matchAll(pattern)) {
+      commands.add(match[1]);
+    }
+  }
+  return commands;
+}
+
 export async function collectPluginRegisteredCommands({
   privateDir,
   ignoredFragments = DEFAULT_IGNORED_PLUGIN_SOURCE_FRAGMENTS,
@@ -73,11 +86,8 @@ export async function collectPluginRegisteredCommands({
     if (ignoredPluginSource(rel, ignoredFragments)) continue;
 
     const source = await readFile(join(privateDir, rel), 'utf-8');
-    for (const match of source.matchAll(/Registry\.Register\(TEXT\("([^"]+)"\)/g)) {
-      commands.add(match[1]);
-    }
-    for (const match of source.matchAll(/Handlers\.Add\(TEXT\("([^"]+)"\)/g)) {
-      commands.add(match[1]);
+    for (const command of collectRegisteredCommandsFromSource(source)) {
+      commands.add(command);
     }
   }
 
@@ -251,9 +261,4 @@ export function collectRequirementMetadataMismatches(toolsData, getToolRequireme
 
 export function missingSourceNeedles(source, needles) {
   return needles.filter(needle => !source.includes(needle));
-}
-
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const runner = new TestRunner('Tool Surface Helpers');
-  process.exit(runner.summary());
 }

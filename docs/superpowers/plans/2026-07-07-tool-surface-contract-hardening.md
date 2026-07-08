@@ -8,6 +8,16 @@
 
 **Tech Stack:** Node.js ES modules, `js-yaml`, Zod, existing UEMCP `TestRunner`, PowerShell on Windows, Unreal plugin source scanned as text only.
 
+## Post-Review Hardening Amendments
+
+These amendments supersede the literal snippets below where the implementation intentionally tightened the contract during review:
+
+- `hasStructuredExemption` is stricter than the first draft: bare `status: planned` and bare `discoverable: false` are classifications only, not sufficient exemption metadata.
+- Plugin registration scanning is centralized in `collectRegisteredCommandsFromSource`, with fixture coverage for current multiline and spaced `Registry.Register(TEXT(...))` plus `Handlers.Add(TEXT(...))` forms.
+- `server/test-tool-surface-helpers.mjs` is a library only. It is explicitly excluded from `run-rotation.mjs` and does not emit a direct-run `0/0` summary.
+- `server/test-deploy-awareness-source.mjs` proves source wiring only and also checks the separate `verify-deploy.bat` and opt-in `smoke-live.bat` entrypoints remain present. It does not prove target deploy freshness.
+- Historical absolute command examples in this plan remain planning context. The committed test headers use portable `Run from server/: node ...` comments.
+
 ## Global Constraints
 
 - Do not implement AnimGraph semantic readback in this pass.

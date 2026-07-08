@@ -20,6 +20,7 @@ import {
   collectCoveredWireCommands,
   collectNodeToolsMissingYaml,
   collectPluginRegisteredCommands,
+  collectRegisteredCommandsFromSource,
   collectUncoveredPluginCommands,
   collectYamlTools,
   hasStructuredExemption,
@@ -60,6 +61,24 @@ const classification = collectYamlTools(toolsData, {
   groups: LIVE_DEFINITION_GROUPS,
   managementTools: MANAGEMENT_TOOLS,
 });
+
+const parsedFixtureCommands = collectRegisteredCommandsFromSource(`
+  Registry.Register(TEXT("plain_register"), &HandlePlain);
+  Registry.Register(
+    TEXT("multiline_register"),
+    &HandleMultiline);
+  Registry.Register ( TEXT ( "spaced_register" ), &HandleSpaced);
+  Handlers.Add(
+    TEXT("default_handler"),
+    &HandleDefault);
+  Handlers.Add(FName(TEXT("IntProperty")), MoveTemp(Handler));
+`);
+t.assert(
+  names([...parsedFixtureCommands].map(name => ({ name }))).join(', ') ===
+    'default_handler, multiline_register, plain_register, spaced_register',
+  'plugin registration parser covers current Registry.Register and Handlers.Add shapes',
+  names([...parsedFixtureCommands].map(name => ({ name }))).join(', '),
+);
 
 t.assert(
   !hasStructuredExemption({ status: 'planned' }),
