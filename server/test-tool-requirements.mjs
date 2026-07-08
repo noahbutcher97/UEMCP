@@ -7,6 +7,10 @@ import { join } from 'node:path';
 import { load } from 'js-yaml';
 
 import { TestRunner } from './test-helpers.mjs';
+import {
+  collectRequirementMetadataMismatches,
+  isMutationRequirementKind,
+} from './test-tool-surface-helpers.mjs';
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
 
 const t = new TestRunner('Tool Requirement Tests');
@@ -43,5 +47,22 @@ const unknownRc = getToolRequirement('synthetic_rc_read', 'remote-control', {
   transport_layer: 'http-30010',
 });
 t.assert(unknownRc === TOOL_REQUIREMENT_KINDS.RC_READ, `http default is RC_READ (got ${unknownRc})`);
+
+console.log('\n── Aggregate metadata agreement ──');
+
+const metadataMismatches = collectRequirementMetadataMismatches(toolsData, getToolRequirement);
+t.assert(
+  metadataMismatches.length === 0,
+  'YAML mutation metadata agrees with derived requirement kinds',
+  metadataMismatches.join('; '),
+);
+
+t.assert(
+  isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.LIVE_MUTATION) &&
+    isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.RC_MUTATION) &&
+    isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.PYTHON_EXEC) &&
+    !isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.LIVE_READ),
+  'mutation requirement helper recognizes live, RC, and Python mutation-risk kinds',
+);
 
 process.exit(t.summary());
