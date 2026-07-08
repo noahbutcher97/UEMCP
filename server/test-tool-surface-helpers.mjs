@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TestRunner } from './test-helpers.mjs';
+import { ToolIndex } from './tool-index.mjs';
 
 const DEFAULT_IGNORED_PLUGIN_SOURCE_FRAGMENTS = [
   'Tests',
@@ -168,6 +169,16 @@ export function collectUncoveredPluginCommands(
   return [...registeredCommands]
     .filter(command => !coveredCommands.has(command) && !allowInternal.has(command))
     .sort();
+}
+
+export function buildToolIndex(toolsData) {
+  const index = new ToolIndex();
+  index.build(toolsData);
+  return index;
+}
+
+export function topToolNames(index, query, maxResults = 5) {
+  return index.search(query, maxResults).map(row => row.toolName);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
