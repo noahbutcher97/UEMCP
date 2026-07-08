@@ -1,5 +1,5 @@
 // Tool discovery intent tests.
-// Run: cd D:\DevTools\UEMCP\.worktrees\tool-surface-contract-hardening\server && node test-tool-discovery-intents.mjs
+// Run from server/: node test-tool-discovery-intents.mjs
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';

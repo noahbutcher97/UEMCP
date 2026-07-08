@@ -140,12 +140,23 @@ export function names(records) {
   return records.map(r => r.name).sort();
 }
 
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hasOwnerMetadata(def) {
+  return nonEmptyString(def?.owner) ||
+    nonEmptyString(def?.owning_team) ||
+    nonEmptyString(def?.review_owner) ||
+    (Array.isArray(def?.owners) && def.owners.some(nonEmptyString));
+}
+
 export function hasStructuredExemption(def) {
-  return def?.status === 'planned' ||
-    def?.discoverable === false ||
-    typeof def?.replaced_by === 'string' ||
+  return nonEmptyString(def?.replaced_by) ||
     def?.offline_fallback !== undefined ||
-    typeof def?.exemption_reason === 'string';
+    nonEmptyString(def?.exemption_reason) ||
+    nonEmptyString(def?.note) ||
+    hasOwnerMetadata(def);
 }
 
 export function collectNodeToolsMissingYaml(toolsData, groups, { allowMissing = new Set() } = {}) {

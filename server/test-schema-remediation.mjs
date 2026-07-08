@@ -1,5 +1,5 @@
 // Schema remediation and unknown-command guidance tests.
-// Run: cd D:\DevTools\UEMCP\server && node test-schema-remediation.mjs
+// Run from server/: node test-schema-remediation.mjs
 
 import { z } from 'zod';
 
@@ -74,10 +74,26 @@ initMenhanceTools(fakeToolsYaml);
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
 
-  await t.assertRejects(
-    () => cm.send('tcp-55558', 'bogus_wire_command', {}, { skipCache: true }),
-    /find_tools|tools\.yaml|public wrapper/i,
+  let caught;
+  try {
+    await cm.send('tcp-55558', 'bogus_wire_command', {}, { skipCache: true });
+  } catch (err) {
+    caught = err;
+  }
+
+  t.assert(
+    caught instanceof Error,
+    'UNKNOWN_COMMAND rejects with an Error',
+    caught ? String(caught) : 'resolved unexpectedly',
+  );
+  t.assert(
+    /find_tools|tools\.yaml|public wrapper/i.test(caught?.message || ''),
     'UNKNOWN_COMMAND errors include next-action guidance',
+  );
+  t.assert(
+    caught?.code === 'UNKNOWN_COMMAND',
+    'UNKNOWN_COMMAND errors preserve err.code',
+    `got ${JSON.stringify(caught?.code)}`,
   );
 }
 

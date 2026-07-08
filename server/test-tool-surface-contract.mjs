@@ -1,5 +1,5 @@
 // Tool surface contract gate.
-// Run: cd D:\DevTools\UEMCP\.worktrees\tool-surface-contract-hardening\server && node test-tool-surface-contract.mjs
+// Run from server/: node test-tool-surface-contract.mjs
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -60,6 +60,27 @@ const classification = collectYamlTools(toolsData, {
   groups: LIVE_DEFINITION_GROUPS,
   managementTools: MANAGEMENT_TOOLS,
 });
+
+t.assert(
+  !hasStructuredExemption({ status: 'planned' }),
+  'bare planned status is not structured exemption metadata',
+);
+t.assert(
+  !hasStructuredExemption({ discoverable: false }),
+  'bare hidden status is not structured exemption metadata',
+);
+t.assert(
+  hasStructuredExemption({ status: 'planned', note: 'Tracked until callable implementation ships.' }),
+  'planned row with note has structured exemption metadata',
+);
+t.assert(
+  hasStructuredExemption({ discoverable: false, replaced_by: 'read_asset_properties' }),
+  'hidden row with replaced_by has structured exemption metadata',
+);
+t.assert(
+  hasStructuredExemption({ status: 'planned', discoverable: false, offline_fallback: 'read_asset_properties' }),
+  'planned hidden row with offline_fallback has structured exemption metadata',
+);
 
 const missingYamlForNodeDefs = collectNodeToolsMissingYaml(toolsData, LIVE_DEFINITION_GROUPS);
 t.assert(

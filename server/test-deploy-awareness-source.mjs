@@ -1,5 +1,5 @@
 // Deploy-awareness source wiring guard.
-// Run: cd D:\DevTools\UEMCP\.worktrees\tool-surface-contract-hardening\server && node test-deploy-awareness-source.mjs
+// Run from server/: node test-deploy-awareness-source.mjs
 
 import { readFile } from 'node:fs/promises';
 
@@ -43,11 +43,12 @@ const verifyDeployNeedles = [
   'MISSING',
   'NEEDS-SYNC',
   'NEEDS-BUILD',
+  'NEEDS-DEPLOY',
   'ALL-SYNC',
 ];
 t.assert(
   missingSourceNeedles(verifyDeploySource, verifyDeployNeedles).length === 0,
-  'verify-deploy distinguishes missing, sync, build, and fresh states',
+  'verify-deploy distinguishes missing, sync, build, deploy, and fresh states',
   missingSourceNeedles(verifyDeploySource, verifyDeployNeedles).join(', '),
 );
 
