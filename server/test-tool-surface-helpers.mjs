@@ -181,6 +181,63 @@ export function topToolNames(index, query, maxResults = 5) {
   return index.search(query, maxResults).map(row => row.toolName);
 }
 
+export function isMutationRequirementKind(requirement) {
+  return requirement === 'live_mutation' ||
+    requirement === 'rc_mutation' ||
+    requirement === 'python_exec';
+}
+
+function yamlRecordEntries(toolsData) {
+  const records = [];
+  for (const [toolName, def] of Object.entries(toolsData.management?.tools || {})) {
+    records.push({ toolsetName: 'management', toolName, def });
+  }
+  for (const [toolsetName, toolset] of Object.entries(toolsData.toolsets || {})) {
+    for (const [toolName, def] of Object.entries(toolset.tools || {})) {
+      records.push({ toolsetName, toolName, def });
+    }
+  }
+  return records;
+}
+
+function metadataImpliesMutationRisk(def = {}) {
+  return def.mutates_asset === true ||
+    def.mutates_level === true ||
+    def.saves_asset === true ||
+    def.compiles_asset === true;
+}
+
+export function collectRequirementMetadataMismatches(toolsData, getToolRequirement) {
+  const mismatches = [];
+
+  for (const { toolsetName, toolName, def } of yamlRecordEntries(toolsData)) {
+    if (toolName === 'run_python_command') {
+      const requirement = getToolRequirement(toolName, toolsetName, def);
+      if (requirement !== 'python_exec') {
+        mismatches.push(`${toolsetName}.${toolName}: expected python_exec, got ${requirement}`);
+      }
+      continue;
+    }
+
+    if (toolsetName === 'offline') {
+      const requirement = getToolRequirement(toolName, toolsetName, def);
+      if (requirement !== 'offline_read') {
+        mismatches.push(`${toolsetName}.${toolName}: expected offline_read, got ${requirement}`);
+      }
+      continue;
+    }
+
+    if (!metadataImpliesMutationRisk(def)) continue;
+
+    const requirement = getToolRequirement(toolName, toolsetName, def);
+    if (!isMutationRequirementKind(requirement)) {
+      mismatches.push(`${toolsetName}.${toolName}: metadata mutates/saves/compiles but requirement=${requirement}`);
+    }
+  }
+
+  return mismatches.sort();
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const runner = new TestRunner('Tool Surface Helpers');
   process.exit(runner.summary());
