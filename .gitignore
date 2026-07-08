@@ -48,6 +48,9 @@ server/.test-rotation-snapshot.json
 # Sibling AI-tool per-machine config (Codex CLI).
 .codex/
 
+# Local linked worktrees for isolated feature work.
+.worktrees/
+
 # Orchestrator-state snapshots (local-only working memory across sessions;
 # may contain codenames, local paths, sensitive orchestration details).
 docs/tracking/orchestrator-state-*.md
