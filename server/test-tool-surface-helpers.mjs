@@ -139,6 +139,37 @@ export function names(records) {
   return records.map(r => r.name).sort();
 }
 
+export function hasStructuredExemption(def) {
+  return def?.status === 'planned' ||
+    def?.discoverable === false ||
+    typeof def?.replaced_by === 'string' ||
+    def?.offline_fallback !== undefined ||
+    typeof def?.exemption_reason === 'string';
+}
+
+export function collectNodeToolsMissingYaml(toolsData, groups, { allowMissing = new Set() } = {}) {
+  const missing = [];
+  for (const [groupName, defs] of groups) {
+    for (const toolName of Object.keys(defs)) {
+      if (allowMissing.has(toolName)) continue;
+      if (!findYamlToolDef(toolsData, toolName)) {
+        missing.push(`${groupName}.${toolName}`);
+      }
+    }
+  }
+  return missing.sort();
+}
+
+export function collectUncoveredPluginCommands(
+  registeredCommands,
+  coveredCommands,
+  { allowInternal = new Map() } = {},
+) {
+  return [...registeredCommands]
+    .filter(command => !coveredCommands.has(command) && !allowInternal.has(command))
+    .sort();
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const runner = new TestRunner('Tool Surface Helpers');
   process.exit(runner.summary());
