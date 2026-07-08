@@ -5,7 +5,7 @@
 // definition maps. This is intentionally non-editor and does not import
 // server.mjs, because server.mjs starts the MCP stdio server at module load.
 
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { TestRunner } from './test-helpers.mjs';
@@ -65,6 +65,53 @@ function buildCallableToolMap(groups) {
   }
 
   return { map, duplicates };
+}
+
+function findYamlToolDef(toolsData, toolName) {
+  for (const toolset of Object.values(toolsData.toolsets || {})) {
+    const def = toolset.tools?.[toolName];
+    if (def) return def;
+  }
+  return null;
+}
+
+function collectCoveredWireCommands(toolsData, groups) {
+  const covered = new Set(['ping']);
+
+  for (const [, defs] of groups) {
+    for (const [toolName, def] of Object.entries(defs)) {
+      if (def.partialRc?.tcpWireType) {
+        covered.add(def.partialRc.tcpWireType);
+        continue;
+      }
+
+      const yamlDef = findYamlToolDef(toolsData, toolName);
+      covered.add(yamlDef?.wire_type || toolName);
+    }
+  }
+
+  return covered;
+}
+
+async function collectPluginRegisteredCommands() {
+  const privateDir = join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private');
+  const files = await readdir(privateDir, { recursive: true });
+  const commands = new Set();
+
+  for (const rel of files) {
+    if (!rel.endsWith('.cpp')) continue;
+    if (rel.includes('Tests') || rel.endsWith('PropertyHandlerRegistry.cpp')) continue;
+
+    const source = await readFile(join(privateDir, rel), 'utf-8');
+    for (const match of source.matchAll(/Registry\.Register\(TEXT\("([^"]+)"\)/g)) {
+      commands.add(match[1]);
+    }
+    for (const match of source.matchAll(/Handlers\.Add\(TEXT\("([^"]+)"\)/g)) {
+      commands.add(match[1]);
+    }
+  }
+
+  return commands;
 }
 
 function collectYamlTools(toolsData) {
@@ -146,8 +193,12 @@ const runner = new TestRunner('Registry Truthfulness Gate');
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const classification = collectYamlTools(toolsData);
+const registeredPluginCommands = await collectPluginRegisteredCommands();
+const coveredWireCommands = collectCoveredWireCommands(toolsData, LIVE_DEFINITION_GROUPS);
 
 printRegistryReport(classification);
+console.log(`  plugin registered commands: ${registeredPluginCommands.size}`);
+console.log(`  covered wire commands:      ${coveredWireCommands.size}`);
 
 runner.assert(
   classification.duplicateCallableNames.length === 0,
@@ -175,6 +226,16 @@ runner.assert(
   missingNames.length === 0,
   'active live YAML tools all have callable Node definition maps',
   missingNames.join(', '),
+);
+
+const missingWireCoverage = [...registeredPluginCommands]
+  .filter(command => !coveredWireCommands.has(command))
+  .sort();
+
+runner.assert(
+  missingWireCoverage.length === 0,
+  'plugin TCP commands are covered by a Node wrapper, wire_type, partialRc mapping, or ping',
+  missingWireCoverage.join(', '),
 );
 
 process.exit(runner.summary());
