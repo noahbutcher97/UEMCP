@@ -399,12 +399,18 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'get_anim_graph validates UAnimBlueprint class');
   t.assert(graphBlock.includes('GetAllGraphs'),
     'get_anim_graph walks Blueprint-owned graphs');
+  t.assert(graphBlock.includes('SetStringField(TEXT("graph_type")'),
+    'get_anim_graph reports graph_type for every returned graph');
+  t.assert(!source.includes('ClassifyGraphName('),
+    'get_anim_graph does not call offline-only graph classifier helpers from C++');
   t.assert(graphBlock.includes('UAnimGraphNode_StateMachineBase'),
     'get_anim_graph inspects state machine graph nodes');
   t.assert(source.includes('SerializeAnimState') && source.includes('UAnimStateNode'),
     'get_anim_graph serializes states');
   t.assert(source.includes('SerializeAnimTransition') && source.includes('UAnimStateTransitionNode'),
     'get_anim_graph serializes transitions');
+  t.assert(source.includes('Out->SetNumberField(TEXT("transition_count"), TransitionNodes.Num())'),
+    'get_anim_graph transition_count is independent of include_transitions serialization');
   t.assert(graphBlock.includes('UAnimGraphNode_Slot'),
     'get_anim_graph serializes slot nodes');
   t.assert(graphBlock.includes('UAnimGraphNode_LayeredBoneBlend'),

@@ -151,6 +151,46 @@ namespace UEMCP
 			return Value;
 		}
 
+		FString ClassifyAnimBlueprintGraph(const UEdGraph* Graph)
+		{
+			if (!Graph)
+			{
+				return TEXT("unknown");
+			}
+
+			const FString GraphName = Graph->GetName();
+			const FString ClassName = Graph->GetClass()->GetName();
+			if (Graph->IsA(UAnimationStateMachineGraph::StaticClass()))
+			{
+				return TEXT("state_machine");
+			}
+			if (GraphName == TEXT("AnimGraph") || ClassName == TEXT("AnimationGraph"))
+			{
+				return TEXT("anim_graph");
+			}
+			if (ClassName.Contains(TEXT("Transition")))
+			{
+				return TEXT("transition_rule");
+			}
+			if (ClassName.Contains(TEXT("State")))
+			{
+				return TEXT("state");
+			}
+			if (ClassName == TEXT("EdGraph"))
+			{
+				if (GraphName == TEXT("EventGraph"))
+				{
+					return TEXT("event_graph");
+				}
+				if (GraphName == TEXT("ConstructionScript"))
+				{
+					return TEXT("construction_script");
+				}
+				return TEXT("ed_graph");
+			}
+			return TEXT("graph");
+		}
+
 		void SetGraphNameOrNull(const TSharedPtr<FJsonObject>& Out, const TCHAR* FieldName, const UEdGraph* Graph)
 		{
 			if (Graph)
@@ -266,6 +306,7 @@ namespace UEMCP
 
 			TArray<TSharedPtr<FJsonValue>> States;
 			TArray<TSharedPtr<FJsonValue>> Transitions;
+			TArray<UAnimStateTransitionNode*> TransitionNodes;
 			if (MachineGraph)
 			{
 				TArray<UAnimStateNode*> StateNodes;
@@ -276,10 +317,9 @@ namespace UEMCP
 					States.Add(MakeShared<FJsonValueObject>(SerializeAnimState(State)));
 				}
 
+				MachineGraph->GetNodesOfClass<UAnimStateTransitionNode>(TransitionNodes);
 				if (bIncludeTransitions)
 				{
-					TArray<UAnimStateTransitionNode*> TransitionNodes;
-					MachineGraph->GetNodesOfClass<UAnimStateTransitionNode>(TransitionNodes);
 					Transitions.Reserve(TransitionNodes.Num());
 					for (const UAnimStateTransitionNode* Transition : TransitionNodes)
 					{
@@ -290,7 +330,7 @@ namespace UEMCP
 			Out->SetArrayField(TEXT("states"), States);
 			Out->SetArrayField(TEXT("transitions"), Transitions);
 			Out->SetNumberField(TEXT("state_count"), States.Num());
-			Out->SetNumberField(TEXT("transition_count"), Transitions.Num());
+			Out->SetNumberField(TEXT("transition_count"), TransitionNodes.Num());
 			return Out;
 		}
 
@@ -737,6 +777,7 @@ namespace UEMCP
 				TSharedPtr<FJsonObject> GraphJson = MakeShared<FJsonObject>();
 				GraphJson->SetStringField(TEXT("name"), Graph->GetName());
 				GraphJson->SetStringField(TEXT("class"), Graph->GetClass()->GetPathName());
+				GraphJson->SetStringField(TEXT("graph_type"), ClassifyAnimBlueprintGraph(Graph));
 				GraphJson->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
 				GraphJson->SetNumberField(TEXT("state_machine_count"), StateMachineCount);
 				GraphJson->SetNumberField(TEXT("slot_node_count"), SlotNodeCount);

@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 
 const SKIP_LITERALS = new Set([
   'engine', 'ue5', 'unrealprojects', 'unrealengine', 'plugins', 'source',
@@ -10,6 +11,23 @@ const SKIP_LITERALS = new Set([
 ]);
 
 const VERSION_PATTERN = /^\d+(\.\d+)*$/;
+
+export function resolveGitInfoPath(repoRoot, relPath) {
+  const fallback = join(repoRoot || '', '.git', relPath || '');
+  if (!repoRoot || !relPath) return fallback;
+
+  try {
+    const out = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--git-path', relPath], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (out) return isAbsolute(out) ? out : join(repoRoot, out);
+  } catch {
+    // Non-git test fixtures and fresh directories use the historical fallback.
+  }
+
+  return fallback;
+}
 
 export function registerProjectCodenames({
   projectRoot,
@@ -26,7 +44,7 @@ export function registerProjectCodenames({
   if (parts.length >= 1) candidates.push(parts[parts.length - 1]);
   if (parts.length >= 2) candidates.push(parts[parts.length - 2]);
 
-  const targetsPath = join(repoRoot, '.git', 'info', 'known-test-targets.txt');
+  const targetsPath = resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt');
   const existing = new Set();
   if (existsSync(targetsPath)) {
     try {

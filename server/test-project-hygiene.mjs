@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { registerProjectCodenames } from './project-hygiene.mjs';
+import { registerProjectCodenames, resolveGitInfoPath } from './project-hygiene.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('Project Hygiene Tests');
@@ -88,10 +88,23 @@ function cleanup(dir) {
 {
   const preCommit = readFileSync(join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const prePush = readFileSync(join(repoRoot, '.githooks', 'pre-push'), 'utf8');
+  const setupBat = readFileSync(join(repoRoot, 'setup-uemcp.bat'), 'utf8');
+  const syncBat = readFileSync(join(repoRoot, 'sync-plugin.bat'), 'utf8');
   for (const [name, source] of [['pre-commit', preCommit], ['pre-push', prePush]]) {
     t.assert(source.includes('git rev-parse --git-path "$rel"'), `${name} resolves hook info files through git-path`);
     t.assert(source.includes('git rev-parse --git-common-dir'), `${name} falls back to the common git dir for linked worktrees`);
     t.assert(!source.includes('tokens=".git/info/forbidden-tokens"'), `${name} does not hard-code forbidden-tokens under literal .git`);
+  }
+  for (const [name, source] of [['setup-uemcp.bat', setupBat], ['sync-plugin.bat', syncBat]]) {
+    t.assert(source.includes('rev-parse --git-path info/forbidden-tokens'), `${name} resolves forbidden-tokens through git-path`);
+    t.assert(source.includes('if not defined TOKENS_PATH set "TOKENS_PATH=%UEMCP_PATH%\\.git\\info\\forbidden-tokens"'), `${name} keeps a non-git fallback for forbidden-tokens`);
+  }
+  t.assert(resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/').includes('/.git/info/known-test-targets.txt'),
+    'project hygiene resolves known-test-targets through git info path');
+  if (/^gitdir:/i.test(readFileSync(join(repoRoot, '.git'), 'utf8'))) {
+    const resolved = resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/');
+    const literalWorktreePath = join(repoRoot, '.git', 'info', 'known-test-targets.txt').replace(/\\/g, '/');
+    t.assert(resolved !== literalWorktreePath, 'project hygiene does not write known-test-targets under a linked-worktree .git file');
   }
   t.assert(
     preCommit.includes('known_targets="$(resolve_git_info_file "info/known-test-targets.txt")"'),
