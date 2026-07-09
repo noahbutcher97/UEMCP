@@ -2,7 +2,7 @@
 //
 // Run: cd server && node test-project-hygiene.mjs
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,7 +101,8 @@ function cleanup(dir) {
   }
   t.assert(resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/').includes('/.git/info/known-test-targets.txt'),
     'project hygiene resolves known-test-targets through git info path');
-  if (/^gitdir:/i.test(readFileSync(join(repoRoot, '.git'), 'utf8'))) {
+  const dotGitPath = join(repoRoot, '.git');
+  if (statSync(dotGitPath).isFile() && /^gitdir:/i.test(readFileSync(dotGitPath, 'utf8'))) {
     const resolved = resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/');
     const literalWorktreePath = join(repoRoot, '.git', 'info', 'known-test-targets.txt').replace(/\\/g, '/');
     t.assert(resolved !== literalWorktreePath, 'project hygiene does not write known-test-targets under a linked-worktree .git file');
