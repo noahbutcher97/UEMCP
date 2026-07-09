@@ -357,5 +357,66 @@ console.log('\n── Group 9: D183 Montage/Sequence Read Handler Source Guard �
     'get_anim_sequence_info is registered on the live TCP command registry');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Group 10: D187 AnimGraph readback source guard
+// ═══════════════════════════════════════════════════════════════
+
+console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
+
+{
+  const source = readFileSync(
+    new URL('../plugin/UEMCP/Source/UEMCP/Private/AnimationHandlers.cpp', import.meta.url),
+    'utf8'
+  );
+  const buildSource = readFileSync(
+    new URL('../plugin/UEMCP/Source/UEMCP/UEMCP.Build.cs', import.meta.url),
+    'utf8'
+  );
+
+  const start = source.indexOf('void HandleGetAnimGraph');
+  const end = source.indexOf('void RegisterAnimationHandlers', start);
+  const graphBlock = start >= 0 && end > start ? source.slice(start, end) : '';
+
+  t.assert(source.includes('#include "Animation/AnimBlueprint.h"'),
+    'get_anim_graph includes UAnimBlueprint header');
+  t.assert(source.includes('#include "AnimGraphNode_StateMachineBase.h"'),
+    'get_anim_graph includes state machine graph node header');
+  t.assert(source.includes('#include "AnimStateNode.h"'),
+    'get_anim_graph includes state node header');
+  t.assert(source.includes('#include "AnimStateTransitionNode.h"'),
+    'get_anim_graph includes transition node header');
+  t.assert(source.includes('#include "AnimGraphNode_Slot.h"'),
+    'get_anim_graph includes slot node header');
+  t.assert(source.includes('#include "AnimGraphNode_LayeredBoneBlend.h"'),
+    'get_anim_graph includes layered bone blend node header');
+
+  t.assert(buildSource.includes('"AnimGraph"'), 'Build.cs depends on AnimGraph');
+  t.assert(buildSource.includes('"AnimGraphRuntime"'), 'Build.cs depends on AnimGraphRuntime');
+
+  t.assert(graphBlock.includes('LoadObject<UObject>'),
+    'get_anim_graph loads the asset instance from disk');
+  t.assert(graphBlock.includes('Cast<UAnimBlueprint>'),
+    'get_anim_graph validates UAnimBlueprint class');
+  t.assert(graphBlock.includes('GetAllGraphs'),
+    'get_anim_graph walks Blueprint-owned graphs');
+  t.assert(graphBlock.includes('UAnimGraphNode_StateMachineBase'),
+    'get_anim_graph inspects state machine graph nodes');
+  t.assert(source.includes('SerializeAnimState') && source.includes('UAnimStateNode'),
+    'get_anim_graph serializes states');
+  t.assert(source.includes('SerializeAnimTransition') && source.includes('UAnimStateTransitionNode'),
+    'get_anim_graph serializes transitions');
+  t.assert(graphBlock.includes('UAnimGraphNode_Slot'),
+    'get_anim_graph serializes slot nodes');
+  t.assert(graphBlock.includes('UAnimGraphNode_LayeredBoneBlend'),
+    'get_anim_graph serializes layered bone blend nodes');
+  t.assert(graphBlock.includes('unsupported_runtime_fields'),
+    'get_anim_graph explicitly marks runtime-only data unsupported');
+  t.assert(!/run_python_command|IPythonScriptPlugin|FPythonCommand/i.test(graphBlock),
+    'get_anim_graph does not use Python execution');
+
+  t.assert(/Registry\.Register\(TEXT\("get_anim_graph"\),\s*&HandleGetAnimGraph\)/.test(source),
+    'get_anim_graph is registered on the live TCP command registry');
+}
+
 // ── Done ───────────────────────────────────────────────────────
 process.exit(t.summary());

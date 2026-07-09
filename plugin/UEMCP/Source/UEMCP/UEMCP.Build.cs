@@ -36,6 +36,8 @@ public class UEMCP : ModuleRules
 			"Slate",
 			"SlateCore",
 			"EditorScriptingUtilities",
+			"AnimGraph",        // UAnimGraphNode_* editor nodes and state-machine graph types
+			"AnimGraphRuntime", // FAnimNode_Slot / FAnimNode_LayeredBoneBlend payload structs
 			"BlueprintGraph",
 			"Kismet",
 			"GameplayTags",

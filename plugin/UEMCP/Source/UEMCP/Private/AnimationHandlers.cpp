@@ -7,6 +7,8 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimBlueprintGeneratedClass.h"
 #include "Animation/AnimCurveTypes.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
@@ -14,6 +16,14 @@
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/Skeleton.h"
+#include "AnimationStateMachineGraph.h"
+#include "AnimGraphNode_LayeredBoneBlend.h"
+#include "AnimGraphNode_Slot.h"
+#include "AnimGraphNode_StateMachineBase.h"
+#include "AnimStateNode.h"
+#include "AnimStateTransitionNode.h"
+#include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
 #include "Misc/FrameRate.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
@@ -128,6 +138,201 @@ namespace UEMCP
 			Out.Add(MakeShared<FJsonValueString>(TEXT("runtime_instance_state")));
 			Out.Add(MakeShared<FJsonValueString>(TEXT("evaluated_pose")));
 			Out.Add(MakeShared<FJsonValueString>(TEXT("runtime_blend_weights")));
+			return Out;
+		}
+
+		bool GetOptionalBool(const TSharedPtr<FJsonObject>& Params, const TCHAR* FieldName, bool DefaultValue)
+		{
+			bool Value = DefaultValue;
+			if (Params.IsValid())
+			{
+				Params->TryGetBoolField(FieldName, Value);
+			}
+			return Value;
+		}
+
+		void SetGraphNameOrNull(const TSharedPtr<FJsonObject>& Out, const TCHAR* FieldName, const UEdGraph* Graph)
+		{
+			if (Graph)
+			{
+				Out->SetStringField(FieldName, Graph->GetName());
+			}
+			else
+			{
+				Out->SetField(FieldName, MakeShared<FJsonValueNull>());
+			}
+		}
+
+		TSharedPtr<FJsonObject> SerializeEditorGraphNode(const UEdGraphNode* Node, const TCHAR* Kind)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetStringField(TEXT("kind"), Kind);
+			if (!Node)
+			{
+				Out->SetBoolField(TEXT("valid"), false);
+				return Out;
+			}
+			Out->SetBoolField(TEXT("valid"), true);
+			Out->SetStringField(TEXT("class"), Node->GetClass()->GetPathName());
+			Out->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+			Out->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+			Out->SetNumberField(TEXT("x"), Node->NodePosX);
+			Out->SetNumberField(TEXT("y"), Node->NodePosY);
+			SetGraphNameOrNull(Out, TEXT("graph_name"), Node->GetGraph());
+			return Out;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> SerializeGraphNodeSummaries(const UEdGraph* Graph)
+		{
+			TArray<TSharedPtr<FJsonValue>> Out;
+			if (!Graph)
+			{
+				return Out;
+			}
+			Out.Reserve(Graph->Nodes.Num());
+			for (const UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (!Node)
+				{
+					continue;
+				}
+				Out.Add(MakeShared<FJsonValueObject>(SerializeEditorGraphNode(Node, TEXT("graph_node"))));
+			}
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimState(const UAnimStateNode* State)
+		{
+			TSharedPtr<FJsonObject> Out = SerializeEditorGraphNode(State, TEXT("state"));
+			if (!State)
+			{
+				return Out;
+			}
+			Out->SetStringField(TEXT("name"), State->GetStateName());
+			Out->SetNumberField(TEXT("state_type"), static_cast<int32>(State->StateType.GetValue()));
+			Out->SetBoolField(TEXT("always_reset_on_entry"), State->bAlwaysResetOnEntry);
+			SetGraphNameOrNull(Out, TEXT("bound_graph"), State->GetBoundGraph());
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimTransition(const UAnimStateTransitionNode* Transition)
+		{
+			TSharedPtr<FJsonObject> Out = SerializeEditorGraphNode(Transition, TEXT("transition"));
+			if (!Transition)
+			{
+				return Out;
+			}
+			Out->SetStringField(TEXT("name"), Transition->GetStateName());
+			if (const UAnimStateNodeBase* Previous = Transition->GetPreviousState())
+			{
+				Out->SetStringField(TEXT("previous_state"), Previous->GetStateName());
+			}
+			else
+			{
+				Out->SetField(TEXT("previous_state"), MakeShared<FJsonValueNull>());
+			}
+			if (const UAnimStateNodeBase* Next = Transition->GetNextState())
+			{
+				Out->SetStringField(TEXT("next_state"), Next->GetStateName());
+			}
+			else
+			{
+				Out->SetField(TEXT("next_state"), MakeShared<FJsonValueNull>());
+			}
+			Out->SetNumberField(TEXT("priority_order"), Transition->PriorityOrder);
+			Out->SetNumberField(TEXT("crossfade_duration"), Transition->CrossfadeDuration);
+			Out->SetNumberField(TEXT("blend_mode"), static_cast<int32>(Transition->BlendMode));
+			Out->SetNumberField(TEXT("logic_type"), static_cast<int32>(Transition->LogicType.GetValue()));
+			Out->SetBoolField(TEXT("bidirectional"), Transition->Bidirectional);
+			Out->SetBoolField(TEXT("disabled"), Transition->bDisabled);
+			Out->SetBoolField(TEXT("automatic_rule_based_on_sequence_player"), Transition->bAutomaticRuleBasedOnSequencePlayerInState);
+			Out->SetNumberField(TEXT("automatic_rule_trigger_time"), Transition->AutomaticRuleTriggerTime);
+			Out->SetStringField(TEXT("sync_group_name_to_require_valid_markers_rule"), Transition->SyncGroupNameToRequireValidMarkersRule.ToString());
+			SetGraphNameOrNull(Out, TEXT("rule_graph"), Transition->GetBoundGraph());
+			SetGraphNameOrNull(Out, TEXT("custom_transition_graph"), Transition->GetCustomTransitionGraph());
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeStateMachineNode(UAnimGraphNode_StateMachineBase* MachineNode, bool bIncludeTransitions)
+		{
+			TSharedPtr<FJsonObject> Out = SerializeEditorGraphNode(MachineNode, TEXT("state_machine"));
+			if (!MachineNode)
+			{
+				return Out;
+			}
+			Out->SetStringField(TEXT("name"), MachineNode->GetStateMachineName());
+			UAnimationStateMachineGraph* MachineGraph = MachineNode->EditorStateMachineGraph;
+			SetGraphNameOrNull(Out, TEXT("state_machine_graph"), MachineGraph);
+
+			TArray<TSharedPtr<FJsonValue>> States;
+			TArray<TSharedPtr<FJsonValue>> Transitions;
+			if (MachineGraph)
+			{
+				TArray<UAnimStateNode*> StateNodes;
+				MachineGraph->GetNodesOfClass<UAnimStateNode>(StateNodes);
+				States.Reserve(StateNodes.Num());
+				for (const UAnimStateNode* State : StateNodes)
+				{
+					States.Add(MakeShared<FJsonValueObject>(SerializeAnimState(State)));
+				}
+
+				if (bIncludeTransitions)
+				{
+					TArray<UAnimStateTransitionNode*> TransitionNodes;
+					MachineGraph->GetNodesOfClass<UAnimStateTransitionNode>(TransitionNodes);
+					Transitions.Reserve(TransitionNodes.Num());
+					for (const UAnimStateTransitionNode* Transition : TransitionNodes)
+					{
+						Transitions.Add(MakeShared<FJsonValueObject>(SerializeAnimTransition(Transition)));
+					}
+				}
+			}
+			Out->SetArrayField(TEXT("states"), States);
+			Out->SetArrayField(TEXT("transitions"), Transitions);
+			Out->SetNumberField(TEXT("state_count"), States.Num());
+			Out->SetNumberField(TEXT("transition_count"), Transitions.Num());
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeSlotNode(const UAnimGraphNode_Slot* SlotNode)
+		{
+			TSharedPtr<FJsonObject> Out = SerializeEditorGraphNode(SlotNode, TEXT("slot"));
+			if (!SlotNode)
+			{
+				return Out;
+			}
+			Out->SetStringField(TEXT("slot_name"), SlotNode->Node.SlotName.ToString());
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeLayeredBlendNode(const UAnimGraphNode_LayeredBoneBlend* LayeredNode)
+		{
+			TSharedPtr<FJsonObject> Out = SerializeEditorGraphNode(LayeredNode, TEXT("layered_bone_blend"));
+			if (!LayeredNode)
+			{
+				return Out;
+			}
+			Out->SetNumberField(TEXT("blend_mode"), static_cast<int32>(LayeredNode->Node.BlendMode));
+			Out->SetNumberField(TEXT("blend_pose_count"), LayeredNode->Node.BlendPoses.Num());
+			Out->SetNumberField(TEXT("layer_setup_count"), LayeredNode->Node.LayerSetup.Num());
+			Out->SetBoolField(TEXT("mesh_space_rotation_blend"), LayeredNode->Node.bMeshSpaceRotationBlend);
+			Out->SetBoolField(TEXT("mesh_space_scale_blend"), LayeredNode->Node.bMeshSpaceScaleBlend);
+			Out->SetBoolField(TEXT("blend_root_motion_based_on_root_bone"), LayeredNode->Node.bBlendRootMotionBasedOnRootBone);
+
+			TArray<TSharedPtr<FJsonValue>> BranchFilters;
+			for (int32 PoseIndex = 0; PoseIndex < LayeredNode->Node.LayerSetup.Num(); ++PoseIndex)
+			{
+				const FInputBlendPose& Pose = LayeredNode->Node.LayerSetup[PoseIndex];
+				for (const FBranchFilter& Filter : Pose.BranchFilters)
+				{
+					TSharedPtr<FJsonObject> FilterJson = MakeShared<FJsonObject>();
+					FilterJson->SetNumberField(TEXT("pose_index"), PoseIndex);
+					FilterJson->SetStringField(TEXT("bone_name"), Filter.BoneName.ToString());
+					FilterJson->SetNumberField(TEXT("blend_depth"), Filter.BlendDepth);
+					BranchFilters.Add(MakeShared<FJsonValueObject>(FilterJson));
+				}
+			}
+			Out->SetArrayField(TEXT("branch_filters"), BranchFilters);
 			return Out;
 		}
 
@@ -458,7 +663,111 @@ namespace UEMCP
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
-		// 4. get_montage_full — read a UAnimMontage asset instance
+		// 4. get_anim_graph — read static UAnimBlueprint graph topology
+		// ═══════════════════════════════════════════════════════════════════════
+
+		void HandleGetAnimGraph(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString AssetPath;
+			if (!RequireAssetPath(Params, TEXT("get_anim_graph"), AssetPath, OutResponse))
+			{
+				return;
+			}
+
+			const bool bIncludeTransitions = GetOptionalBool(Params, TEXT("include_transitions"), true);
+			const bool bIncludeNodeProperties = GetOptionalBool(Params, TEXT("include_node_properties"), false);
+
+			const FString ObjectPath = UEMCP::ToObjectPath(AssetPath);
+			UObject* Asset = LoadObject<UObject>(nullptr, *ObjectPath);
+			if (!Asset)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Asset not found at '%s'"), *AssetPath),
+					TEXT("ANIM_BLUEPRINT_NOT_FOUND"));
+				return;
+			}
+
+			UAnimBlueprint* AnimBlueprint = Cast<UAnimBlueprint>(Asset);
+			if (!AnimBlueprint)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Asset '%s' is not a UAnimBlueprint"), *AssetPath),
+					TEXT("NOT_ANIM_BLUEPRINT"));
+				return;
+			}
+
+			TArray<UEdGraph*> AllGraphs;
+			AnimBlueprint->GetAllGraphs(AllGraphs);
+
+			TArray<TSharedPtr<FJsonValue>> Graphs;
+			TArray<TSharedPtr<FJsonValue>> StateMachines;
+			TArray<TSharedPtr<FJsonValue>> SlotNodes;
+			TArray<TSharedPtr<FJsonValue>> LayeredBlendNodes;
+
+			for (UEdGraph* Graph : AllGraphs)
+			{
+				if (!Graph)
+				{
+					continue;
+				}
+
+				int32 StateMachineCount = 0;
+				int32 SlotNodeCount = 0;
+				int32 LayeredBlendNodeCount = 0;
+
+				for (UEdGraphNode* Node : Graph->Nodes)
+				{
+					if (UAnimGraphNode_StateMachineBase* MachineNode = Cast<UAnimGraphNode_StateMachineBase>(Node))
+					{
+						StateMachineCount++;
+						StateMachines.Add(MakeShared<FJsonValueObject>(SerializeStateMachineNode(MachineNode, bIncludeTransitions)));
+					}
+					if (const UAnimGraphNode_Slot* SlotNode = Cast<UAnimGraphNode_Slot>(Node))
+					{
+						SlotNodeCount++;
+						SlotNodes.Add(MakeShared<FJsonValueObject>(SerializeSlotNode(SlotNode)));
+					}
+					if (const UAnimGraphNode_LayeredBoneBlend* LayeredNode = Cast<UAnimGraphNode_LayeredBoneBlend>(Node))
+					{
+						LayeredBlendNodeCount++;
+						LayeredBlendNodes.Add(MakeShared<FJsonValueObject>(SerializeLayeredBlendNode(LayeredNode)));
+					}
+				}
+
+				TSharedPtr<FJsonObject> GraphJson = MakeShared<FJsonObject>();
+				GraphJson->SetStringField(TEXT("name"), Graph->GetName());
+				GraphJson->SetStringField(TEXT("class"), Graph->GetClass()->GetPathName());
+				GraphJson->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
+				GraphJson->SetNumberField(TEXT("state_machine_count"), StateMachineCount);
+				GraphJson->SetNumberField(TEXT("slot_node_count"), SlotNodeCount);
+				GraphJson->SetNumberField(TEXT("layered_blend_node_count"), LayeredBlendNodeCount);
+				if (bIncludeNodeProperties)
+				{
+					GraphJson->SetArrayField(TEXT("nodes"), SerializeGraphNodeSummaries(Graph));
+				}
+				Graphs.Add(MakeShared<FJsonValueObject>(GraphJson));
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("asset_path"), AssetPath);
+			Result->SetStringField(TEXT("object_path"), AnimBlueprint->GetPathName());
+			Result->SetStringField(TEXT("asset_class"), AnimBlueprint->GetClass()->GetPathName());
+			SetObjectPathOrNull(Result, TEXT("target_skeleton"), AnimBlueprint->TargetSkeleton);
+			Result->SetNumberField(TEXT("graph_count"), Graphs.Num());
+			Result->SetNumberField(TEXT("state_machine_count"), StateMachines.Num());
+			Result->SetNumberField(TEXT("slot_node_count"), SlotNodes.Num());
+			Result->SetNumberField(TEXT("layered_blend_node_count"), LayeredBlendNodes.Num());
+			Result->SetArrayField(TEXT("graphs"), Graphs);
+			Result->SetArrayField(TEXT("state_machines"), StateMachines);
+			Result->SetArrayField(TEXT("slot_nodes"), SlotNodes);
+			Result->SetArrayField(TEXT("layered_blend_nodes"), LayeredBlendNodes);
+			Result->SetArrayField(TEXT("unsupported_runtime_fields"), SerializeRuntimeUnsupportedFields());
+
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		// 5. get_montage_full — read a UAnimMontage asset instance
 		// ═══════════════════════════════════════════════════════════════════════
 
 		void HandleGetMontageFull(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
@@ -558,7 +867,7 @@ namespace UEMCP
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
-		// 5. get_anim_sequence_info — read a UAnimSequence asset instance
+		// 6. get_anim_sequence_info — read a UAnimSequence asset instance
 		// ═══════════════════════════════════════════════════════════════════════
 
 		void HandleGetAnimSequenceInfo(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
@@ -645,6 +954,7 @@ namespace UEMCP
 		Registry.Register(TEXT("create_montage"),      &HandleCreateMontage);
 		Registry.Register(TEXT("add_montage_section"), &HandleAddMontageSection);
 		Registry.Register(TEXT("add_montage_notify"),  &HandleAddMontageNotify);
+		Registry.Register(TEXT("get_anim_graph"),      &HandleGetAnimGraph);
 		Registry.Register(TEXT("get_montage_full"),    &HandleGetMontageFull);
 		Registry.Register(TEXT("get_anim_sequence_info"), &HandleGetAnimSequenceInfo);
 		// get_audio_asset_info: SUPERSEDED-as-offline per D101 (v) decision.
