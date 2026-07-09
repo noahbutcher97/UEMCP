@@ -11,6 +11,7 @@ const runner = new TestRunner('run-live-smoke');
 const discovered = discoverLiveSmokeScripts();
 runner.assert(discovered.includes('live-smoke-blueprint-timer-mover.mjs'), 'discovers timer-mover smoke');
 runner.assert(discovered.includes('live-smoke-d147-blueprint-pie.mjs'), 'discovers D147 smoke');
+runner.assert(discovered.includes('live-smoke-animation-readback.mjs'), 'discovers animation readback smoke');
 runner.assert(!discovered.includes('live-smoke-harness.mjs'), 'does not discover harness as smoke');
 runner.assert(!discovered.includes('run-live-smoke.mjs'), 'does not discover runner as smoke');
 
