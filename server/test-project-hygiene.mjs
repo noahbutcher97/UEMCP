@@ -4,12 +4,15 @@
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { registerProjectCodenames } from './project-hygiene.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('Project Hygiene Tests');
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function makeTempRoot() {
   return mkdtempSync(join(tmpdir(), 'uemcp-project-hygiene-'));
@@ -80,6 +83,20 @@ function cleanup(dir) {
   } finally {
     cleanup(root);
   }
+}
+
+{
+  const preCommit = readFileSync(join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
+  const prePush = readFileSync(join(repoRoot, '.githooks', 'pre-push'), 'utf8');
+  for (const [name, source] of [['pre-commit', preCommit], ['pre-push', prePush]]) {
+    t.assert(source.includes('git rev-parse --git-path "$rel"'), `${name} resolves hook info files through git-path`);
+    t.assert(source.includes('git rev-parse --git-common-dir'), `${name} falls back to the common git dir for linked worktrees`);
+    t.assert(!source.includes('tokens=".git/info/forbidden-tokens"'), `${name} does not hard-code forbidden-tokens under literal .git`);
+  }
+  t.assert(
+    preCommit.includes('known_targets="$(resolve_git_info_file "info/known-test-targets.txt")"'),
+    'pre-commit resolves known-test-targets through the same git info helper'
+  );
 }
 
 process.exit(t.summary());
