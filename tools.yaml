@@ -1124,6 +1124,26 @@ toolsets:
         description: AnimSequence metadata — duration, frame count, rate, skeleton, notify tracks, curves, sync markers.
         params:
           asset_path: { type: string, required: true }
+      # full_tcp: loads UAnimBlueprint asset instance; returns static AnimGraph topology.
+      # offline_pair: bp_list_graphs remains useful for top-level graph presence without editor.
+      get_anim_graph:
+        initially_visible: true
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: bp_list_graphs
+        aliases: ["AnimGraph state machine", "animation blueprint graph", "animation state machine", "slot node", "layered bone blend"]
+        description: AnimBlueprint static graph read — graphs, state machines, states, transitions, slot nodes, and layered bone blend nodes.
+        params:
+          asset_path: { type: string, required: true }
+          include_transitions: { type: boolean, required: false }
+          include_node_properties: { type: boolean, required: false }
       # reduced_scope: runtime interpolation evaluation; sample points + blend axes shipped offline
       # displaced_by: read_asset_properties
       get_blend_space:

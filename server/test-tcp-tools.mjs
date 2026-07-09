@@ -744,13 +744,15 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       'get_datatable_contents', 'get_string_table', 'list_data_asset_types',
     ];
     for (const name of expectedPartial) {
-      t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
-      t.assert(MENHANCE_SCHEMAS[name].partialRc !== undefined,
+      const def = MENHANCE_SCHEMAS[name];
+      t.assert(def !== undefined, `MENHANCE_SCHEMAS has ${name}`);
+      t.assert(def?.partialRc !== undefined,
         `${name} declares partialRc dispatch config`);
     }
-    for (const name of ['get_montage_full', 'get_anim_sequence_info']) {
-      t.assert(MENHANCE_SCHEMAS[name] !== undefined, `MENHANCE_SCHEMAS has ${name}`);
-      t.assert(MENHANCE_SCHEMAS[name].partialRc === undefined,
+    for (const name of ['get_montage_full', 'get_anim_sequence_info', 'get_anim_graph']) {
+      const def = MENHANCE_SCHEMAS[name];
+      t.assert(def !== undefined, `MENHANCE_SCHEMAS has ${name}`);
+      t.assert(def !== undefined && def.partialRc === undefined,
         `${name} dispatches to its asset-instance TCP handler, not reflection_walk`);
     }
   }
@@ -893,6 +895,16 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       status: 'success',
       result: { asset_path: '/Game/Anim/S', duration_seconds: 1.0 },
     });
+    fake.on('get_anim_graph', {
+      status: 'success',
+      result: {
+        asset_path: '/Game/Anim/ABP_Test',
+        graphs: [{ name: 'AnimGraph', graph_type: 'anim_graph', node_count: 3 }],
+        state_machines: [{ name: 'Locomotion', states: [], transitions: [] }],
+        slot_nodes: [{ graph_name: 'AnimGraph', slot_name: 'DefaultSlot' }],
+        layered_blend_nodes: [],
+      },
+    });
     const montage = await executeMenhanceTool('get_montage_full', { asset_path: '/Game/Anim/M' }, cm);
     const seq = await executeMenhanceTool('get_anim_sequence_info', { asset_path: '/Game/Anim/S' }, cm);
     t.assert(Array.isArray(montage.result?.sections), 'get_montage_full pass-through from dedicated handler');
@@ -901,6 +913,26 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       'get_montage_full dispatches to get_montage_full wire type');
     t.assert(fake.lastCall('get_anim_sequence_info')?.params?.asset_path === '/Game/Anim/S',
       'get_anim_sequence_info dispatches to get_anim_sequence_info wire type');
+    if (MENHANCE_SCHEMAS.get_anim_graph) {
+      const graph = await executeMenhanceTool('get_anim_graph', {
+        asset_path: '/Game/Anim/ABP_Test',
+        include_transitions: true,
+        include_node_properties: true,
+      }, cm);
+      t.assert(graph.result?.state_machines?.[0]?.name === 'Locomotion',
+        'get_anim_graph pass-through from dedicated handler');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.asset_path === '/Game/Anim/ABP_Test',
+        'get_anim_graph dispatches to get_anim_graph wire type');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_transitions === true,
+        'get_anim_graph forwards include_transitions');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_node_properties === true,
+        'get_anim_graph forwards include_node_properties');
+    } else {
+      t.assert(false, 'get_anim_graph pass-through from dedicated handler', 'schema missing');
+      t.assert(false, 'get_anim_graph dispatches to get_anim_graph wire type', 'schema missing');
+      t.assert(false, 'get_anim_graph forwards include_transitions', 'schema missing');
+      t.assert(false, 'get_anim_graph forwards include_node_properties', 'schema missing');
+    }
 
     // Remaining generic animation reflection tools still use reflection_walk.
     for (const tool of ['get_blend_space', 'get_anim_curve_data']) {

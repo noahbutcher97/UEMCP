@@ -355,7 +355,7 @@ const TOOLSET_TIPS = {
 
   'animation': {
     core: [
-      'get_montage_full and get_anim_sequence_info are full tcp-55558 asset-instance reads - they load UAnimMontage/UAnimSequence and return sections, notifies, slot tracks, skeleton, frame-rate/source-model data, curves, and sync markers where serialized. get_blend_space and get_anim_curve_data remain reflection-backed reads; pair with read_asset_properties (offline) for batch file-level inspection.',
+      'get_montage_full, get_anim_sequence_info, and get_anim_graph are full tcp-55558 asset-instance reads - they load UAnimMontage/UAnimSequence/UAnimBlueprint and return montage sections, notifies, slot tracks, sequence skeleton/rate data, and static AnimGraph topology where serialized. get_blend_space and get_anim_curve_data remain reflection-backed reads; pair with read_asset_properties (offline) for batch file-level inspection.',
       'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55558 (UEMCP plugin, M5-anim+mat per D105). create_montage emits a single DefaultSlot (D119 NEW-1 fix); section_name in add_montage_section must not collide with existing sections - API silently overwrites.',
     ].join(' '),
     workflows: [

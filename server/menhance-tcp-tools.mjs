@@ -12,9 +12,10 @@
 //   get_asset_references           — asset-registry
 //
 // The original PARTIAL-RC family ships below. D183 promotes
-// get_montage_full/get_anim_sequence_info to dedicated asset-instance TCP
-// readers; remaining partialRc entries still dispatch through plugin helpers
-// such as reflection_walk for fields outside RC's SanitizeMetadata allowlist.
+// get_montage_full/get_anim_sequence_info and D187 promotes get_anim_graph
+// to dedicated asset-instance TCP readers; remaining partialRc entries still
+// dispatch through plugin helpers such as reflection_walk for fields outside
+// RC's SanitizeMetadata allowlist.
 //
 // Convention matches tcp-tools.mjs: {description, schema, isReadOp} per tool,
 // wire_type translation via tools.yaml, ConnectionManager.send dispatching.
@@ -281,6 +282,16 @@ export const MENHANCE_SCHEMAS = {
     description: 'AnimSequence metadata — skeleton, duration, frame count/rate, notifies, curves, sync markers from the UAnimSequence asset instance',
     schema: {
       asset_path: z.string().describe('/Game/... UAnimSequence path'),
+    },
+    isReadOp: true,
+  },
+
+  get_anim_graph: {
+    description: 'AnimBlueprint static graph read — graphs, state machines, states, transitions, slot nodes, and layered bone blend nodes from the UAnimBlueprint editor asset',
+    schema: {
+      asset_path: z.string().describe('/Game/... UAnimBlueprint path'),
+      include_transitions: z.boolean().optional().describe('Include transition metadata and rule/custom graph names; default true in the plugin'),
+      include_node_properties: z.boolean().optional().describe('Include per-graph node summaries; default false'),
     },
     isReadOp: true,
   },

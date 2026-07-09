@@ -22,7 +22,12 @@ function toolDef(toolsetName, toolName) {
 }
 
 function assertRequirement(toolsetName, toolName, expected) {
-  const actual = getToolRequirement(toolName, toolsetName, toolDef(toolsetName, toolName));
+  const def = toolDef(toolsetName, toolName);
+  t.assert(def !== undefined, `${toolsetName}.${toolName} exists in tools.yaml`);
+  if (def === undefined) {
+    return;
+  }
+  const actual = getToolRequirement(toolName, toolsetName, def);
   t.assert(actual === expected, `${toolsetName}.${toolName} -> ${expected}`, `got ${actual}`);
 }
 
@@ -35,6 +40,7 @@ assertRequirement('remote-control', 'rc_get_property', TOOL_REQUIREMENT_KINDS.RC
 assertRequirement('remote-control', 'rc_set_property', TOOL_REQUIREMENT_KINDS.RC_MUTATION);
 assertRequirement('editor-utility', 'run_python_command', TOOL_REQUIREMENT_KINDS.PYTHON_EXEC);
 assertRequirement('editor-utility', 'delete_asset_safe', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
+assertRequirement('animation', 'get_anim_graph', TOOL_REQUIREMENT_KINDS.LIVE_READ);
 
 const unknownRead = getToolRequirement('synthetic_read', 'actors', {
   availability_layer: 'tcp-55558',

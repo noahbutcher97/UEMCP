@@ -41,13 +41,8 @@ assertTopIncludes('list exports choose export', 'list_asset_exports');
 
 const animGraphNames = topToolNames(index, 'AnimGraph state machine slot layered blend', 8);
 t.assert(
-  animGraphNames.includes('bp_list_graphs') || animGraphNames.includes('get_anim_sequence_info'),
-  'AnimGraph intent currently routes to partial graph/animation surfaces',
-  `got ${animGraphNames.join(', ')}`,
-);
-t.assert(
-  !animGraphNames.includes('get_anim_graph'),
-  'AnimGraph semantic readback remains an explicit known gap until animation.get_anim_graph ships',
+  animGraphNames.includes('get_anim_graph'),
+  'AnimGraph semantic readback routes to get_anim_graph',
   `got ${animGraphNames.join(', ')}`,
 );
 
