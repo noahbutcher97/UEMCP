@@ -424,6 +424,16 @@ The third pass added source-backed corrections from UE 5.6 headers, UEMCP source
 - **Cross-field validation:** current Menhance validation strips unknown params by default and has a field-only schema table. The `include_pin_defaults` dependency needs targeted preflight/refinement; it is not expressible by adding one more field to the current schema object alone.
 - **Graph-scoped node IDs:** existing offline code and tests already document that node GUIDs are scoped by graph. The AnimGraph response must keep that invariant explicit.
 
+### Pre-Implementation Verification Sweep
+
+This sweep was run before implementation planning to test the highest-risk assumptions against installed engine headers and a live project asset.
+
+- **Cross-version header probe:** UE 5.3, UE 5.6, and UE 5.7 installed headers all expose the required graph, node, pin, Blueprint, AnimBlueprint, state-machine, state, and transition APIs checked by this spec: `UEdGraphPin` IDs/types/defaults/links/subpins, `UEdGraphNode` pins/GUID/position/title/graph access, `UEdGraph` nodes/subgraphs/graph GUID/child traversal, `UBlueprint::GetAllGraphs`, `UAnimBlueprint : UBlueprint`, `UAnimGraphNode_StateMachineBase::EditorStateMachineGraph`, state bound graphs, and transition bound/custom graphs.
+- **Live asset shape probe:** a framed `tcp-55558` call through the repo Node dispatch layer successfully read `/Game/Actors/Character/ABP_DroppedCharacter` in an open UE 5.6 project editor. The current response, before pin topology, reported 78 graphs, 440 graph nodes, 8 state machines, 26 states, 35 transitions, 1 slot node, 3 layered blend nodes, and 3 unsupported runtime fields.
+- **Baseline payload size:** the current `get_anim_graph` response for that asset with `include_transitions: true` and `include_node_properties: true` serialized to 141,032 UTF-8 JSON bytes before any pin topology is added. This supports keeping `include_pin_topology` default false, but it does not justify a new tool or filters before measuring the actual C++ topology payload.
+- **Python boundary:** gated `run_python_command` can load the same AnimBlueprint and exposes `get_animation_graphs`, but it is not a reliable topology source. It returned 68 animation graphs and 151 sampled `AnimGraphNode_Base` nodes, while the C++ live tool saw 78 graphs and 440 total nodes. Unreal Python also blocked `AnimationGraph.nodes` as protected and did not expose pins on sampled nodes. Implementation planning should not route full topology through Python or use Python for authoritative payload sizing.
+- **Implementation planning consequence:** the implementation plan must add C++-side live-smoke measurement of `pin_topology.pin_count`, `link_entry_count`, `edge_count`, dropped counters, and total response byte size for `/Game/Actors/Character/ABP_DroppedCharacter`. Treat payload filters such as `graph_filter` or `max_nodes` as follow-ons unless this measured topology payload proves they are needed.
+
 ### Discoverability And Usability Audit
 
 The most usable public surface is an opt-in expansion of `get_anim_graph`, not a separate raw graph or Python dispatch tool:
@@ -447,7 +457,7 @@ Mitigation: Cross-check against graph references already reached by state machin
 
 Severity: Medium.
 
-Mitigation: Keep `include_pin_topology` default false. Add response counts plus `complete` and `truncated`. No silent truncation is allowed. Consider `graph_filter` or `max_nodes` as a follow-on only if real assets exceed practical payload limits.
+Mitigation: Keep `include_pin_topology` default false. Add response counts plus `complete` and `truncated`. No silent truncation is allowed. The current live-project baseline is 141,032 bytes before pin topology for 78 graphs and 440 nodes, so implementation must measure the actual C++ topology payload before adding filters or splitting the tool. Consider `graph_filter` or `max_nodes` as a follow-on only if real assets exceed practical payload limits.
 
 ### Finding 3: Two node shapes could confuse callers.
 
@@ -549,15 +559,17 @@ These are intentionally not part of this slice:
 Spec-phase verification:
 
 - Web research audit records official API evidence for `UEdGraphPin`, `UEdGraphNode`, `UBlueprint`, `UAnimBlueprint`, AnimGraph node inheritance, and state machine graph semantics.
-- Engine header audit records UE 5.6 API evidence for graph, node, pin, Blueprint, and AnimGraph-specific graph-reference APIs.
+- Engine header audit records UE 5.3, UE 5.6, and UE 5.7 API evidence for graph, node, pin, Blueprint, and AnimGraph-specific graph-reference APIs.
 - Repository API audit records local source support and implementation seams.
 - Adversarial audit records graph coverage, payload, ID format, graph key, graph GUID, cross-graph link, subpin, validation, read-purity, and scope risks.
+- Live pre-plan probe records current `get_anim_graph` shape and baseline payload size on `/Game/Actors/Character/ABP_DroppedCharacter`, and records that Python is not an authoritative route for complete node/pin topology.
 
 Implementation-phase verification:
 
 - Focused JS tests for schema/dispatch.
 - Focused source tests for C++ topology traversal.
 - Focused source tests for graph key generation, graph GUID/schema metadata, linked-to target graph identity, subpin recursion, no duplicate child graph counting, no silent truncation, and read-only purity.
+- Live smoke records `pin_topology.pin_count`, `link_entry_count`, `edge_count`, dropped counters, and total response byte size for the configured smoke AnimBlueprint.
 - `node test-m5-animation.mjs`.
 - `node test-tcp-tools.mjs`.
 - `node test-tool-discovery-intents.mjs`.
