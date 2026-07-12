@@ -7,7 +7,6 @@
 import {
   ConnectionManager,
   MetricsAggregator,
-  _FRAMED_PORTS,
   _detectResponseFraming,
 } from './connection-manager.mjs';
 import {
@@ -610,9 +609,6 @@ console.log('\n── Test 17: E-1 §1 length-framing detection ──');
     t.assert(r.bodyLen === 5, 'case-insensitive bodyLen parsed');
   }
 
-  t.assert(_FRAMED_PORTS.has(55558), 'tcp-55558 receives framed requests');
-  t.assert(_FRAMED_PORTS.size === 1, `only active TCP port is framed (got ${[..._FRAMED_PORTS].join(',')})`);
-
   // Defense: a JSON payload that contains "Content-Length:" mid-body must NOT
   // false-positive — sniff inspects only byte 0.
   {
@@ -782,8 +778,6 @@ console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
       sock.end(reply);
     });
 
-    // Inject this port into FRAMED_PORTS so the JS side frames the request.
-    _FRAMED_PORTS.add(port);
     try {
       const config = {
         projectRoot: '/fake/project',
@@ -796,14 +790,13 @@ console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
       const result = await conn.send('tcp-55558', 'roundtrip', { x: 1 }, { skipCache: true });
       t.assert(result && result.echoed === true, 'framed roundtrip parses framed reply');
       t.assert(captured.req != null, 'server received bytes');
-      t.assert(captured.req.startsWith('Content-Length:'), 'request was length-framed (per FRAMED_PORTS)');
+      t.assert(captured.req.startsWith('Content-Length:'), 'request was length-framed');
       // The body after the header terminator must be the JSON payload.
       const splitIdx = captured.req.indexOf('\r\n\r\n');
       const body = captured.req.slice(splitIdx + 4);
       t.assert(body.includes('"type":"roundtrip"'), 'framed body contains type field');
       t.assert(body.includes('"x":1'), 'framed body contains params');
     } finally {
-      _FRAMED_PORTS.delete(port);
       server.close();
     }
   }

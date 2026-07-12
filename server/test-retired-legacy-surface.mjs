@@ -50,10 +50,16 @@ const RETIRED_PATTERNS = [
   { name: 'UnrealMCP', pattern: /\bUnrealMCP\b/ },
 ];
 
-function isRetirementNegativeAssertion(relativePath, line) {
+function isRetirementNegativeAssertion(relativePath, line, retiredName) {
+  const negativeAssertionLines = [
+    "isLayerAvailable('tcp-55557', true)",
+    "'retired tcp-55557 layer is not available'",
+  ];
+  const exemptPatterns = new Set(['tcp-55557', 'legacy-port-55557']);
+
   return relativePath === 'server/test-mock-seam.mjs'
-    && (line.includes("isLayerAvailable('tcp-55557', true)")
-      || line.includes("'retired tcp-55557 layer is not available'"));
+    && exemptPatterns.has(retiredName)
+    && negativeAssertionLines.some(assertion => line.includes(assertion));
 }
 
 function walk(path) {
@@ -81,7 +87,7 @@ for (const file of files) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     for (const retired of RETIRED_PATTERNS) {
-      if (isRetirementNegativeAssertion(rel, lines[i])) continue;
+      if (isRetirementNegativeAssertion(rel, lines[i], retired.name)) continue;
       if (retired.pattern.test(lines[i])) {
         hits.push(`${rel}:${i + 1}: ${retired.name}: ${lines[i].trim()}`);
       }

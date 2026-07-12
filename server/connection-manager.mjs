@@ -32,13 +32,6 @@ const ACTIVE_LAYER_KEYS = Object.freeze(['offline', 'tcp-55558', 'http-30010']);
 // ── TCP Client (connect-per-command) ────────────────────────
 
 /**
- * UEMCP TCP requests are length-framed on tcp-55558. Incoming response framing
- * is auto-detected so local test fixtures and older deployed UEMCP builds that
- * emit plain JSON still parse cleanly during upgrade windows.
- */
-const FRAMED_PORTS = new Set([55558]);
-
-/**
  * Detect length-framed response. Sniffs first bytes for "Content-Length:" prefix
  * (case-insensitive). When framed, returns { framed: true, headerLen, bodyLen }.
  * When unframed (legacy parse-loop path), returns { framed: false }.
@@ -224,9 +217,8 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
   });
 }
 
-// E-1 §1: export framing helpers so unit tests can validate framing detection
-// without intercepting node:net. Underscore prefix marks test-only contract.
-export { FRAMED_PORTS as _FRAMED_PORTS, _detectResponseFraming };
+// E-1 §1: export the framing detector for focused response-parser tests.
+export { _detectResponseFraming };
 
 // ── HTTP Client (Remote Control, connect-per-request) ──────
 
