@@ -37,19 +37,19 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 │  │  Auto-enable: find_tools enables matching toolsets automatically.   │  │
 │  └────────────────────────────┬────────────────────────────────────────┘  │
 │                               │                                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐   │
-│  │ TCP Layer    │  │ HTTP Layer   │  │ Offline    │                    │
-│  │ (port 55558) │  │ (port 30010) │  │ Layer      │                    │
-│  │              │  │              │  │            │                    │
-│  │ UEMCP plugin │  │ Remote Ctrl  │  │ No editor  │                    │
-│  │              │  │ API proxy    │  │ needed     │                    │
-│  │ actors       │  │ remote-      │  │ offline    │                    │
-│  │ blueprints-  │  │ control      │  │            │                    │
-│  │   write      │  │              │  │            │                    │
-│  │ widgets      │  │              │  │            │                    │
-│  │ gas/material │  │              │  │            │                    │
-│  │ + 10 more    │  │              │  │            │                    │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │
+│  │ TCP Layer    │  │ HTTP Layer   │  │ Offline      │                   │
+│  │ (port 55558) │  │ (port 30010) │  │ Layer        │                   │
+│  │              │  │              │  │              │                   │
+│  │ UEMCP plugin │  │ Remote Ctrl  │  │ No editor    │                   │
+│  │              │  │ API proxy    │  │ needed       │                   │
+│  │ actors       │  │ remote-      │  │ offline      │                   │
+│  │ blueprints-  │  │ control      │  │              │                   │
+│  │   write      │  │              │  │              │                   │
+│  │ widgets      │  │              │  │              │                   │
+│  │ gas/material │  │              │  │              │                   │
+│  │ + 10 more    │  │              │  │              │                   │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                   │
 │         │                 │                  │                         │
 │  ┌──────┴─────────────────┴──────────────────┴────────────────────────┐  │
 │  │                    ProjectContext + Connection Manager            │   │

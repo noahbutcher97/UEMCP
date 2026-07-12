@@ -838,6 +838,15 @@ export class ConnectionManager {
    * @returns {Promise<object>}
    */
   async send(layerKey, type, params = {}, opts = {}) {
+    if (layerKey !== 'tcp-55558' && layerKey !== 'http-30010') {
+      throw new Error(`Unknown layer: ${layerKey}`);
+    }
+    if (layerKey === 'http-30010') {
+      throw new Error(
+        `send() does not dispatch HTTP — use sendHttp(method, path, body, opts) or the tool-layer rc-url-translator helper`
+      );
+    }
+
     // Check cache first (read-ops only — write-ops should set skipCache)
     if (!opts.skipCache) {
       const cached = this._cache.get(type, params);
@@ -862,24 +871,13 @@ export class ConnectionManager {
       // (config.tcpCommandFn) ignores extra args so test fixtures don't break.
       const metrics = this._metrics.isEnabled() ? this._metrics : null;
 
-      if (layerKey === 'tcp-55558') {
-        result = await tcpFn(
-          this.config.tcpPortCustom,
-          type,
-          params,
-          timeoutMs,
-          metrics
-        );
-      } else if (layerKey === 'http-30010') {
-        // D66 HYBRID: HTTP dispatch via `type` encoding {method, path} and params as body.
-        // Tool handlers should prefer sendHttp() directly — this branch only exists
-        // so the mock-seam wiring pattern (isLayerAvailable/probe) stays uniform.
-        throw new Error(
-          `send() does not dispatch HTTP — use sendHttp(method, path, body, opts) or the tool-layer rc-url-translator helper`
-        );
-      } else {
-        throw new Error(`Unknown layer: ${layerKey}`);
-      }
+      result = await tcpFn(
+        this.config.tcpPortCustom,
+        type,
+        params,
+        timeoutMs,
+        metrics
+      );
 
       // Normalize error responses — P0-1 (audit 2026-04-12). Three formats exist on the
       // wire; the bridge catches two and leaks the third as a success-wrapped payload.

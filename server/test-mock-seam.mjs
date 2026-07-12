@@ -884,6 +884,34 @@ console.log('\n── Test 25: Active layer probe excludes retired layer ──'
   t.assert(Object.hasOwn(activeStatus, 'http-30010'), 'active status includes http-30010');
 }
 
+// ── Test 26: retired dispatch cannot be satisfied from read cache ──
+console.log('\n── Test 26: retired dispatch rejects before cache lookup ──');
+
+{
+  const fake = new FakeTcpResponder().on('list_actors', { status: 'success', actors: ['Cube'] });
+  const { config } = createTestConfig('/fake/project', fake);
+  const conn = new ConnectionManager(config);
+  const params = { level: 'PersistentLevel' };
+  const retiredTcpLayer = ['tcp', ['555', '57'].join('')].join('-');
+
+  await conn.send('tcp-55558', 'list_actors', params);
+  t.assert(fake.calls.length === 1, 'active read populated cache with one wire call');
+
+  await t.assertRejects(
+    () => conn.send(retiredTcpLayer, 'list_actors', params),
+    /Unknown layer/,
+    'retired dispatch rejects instead of returning active-layer cache entry'
+  );
+  t.assert(fake.calls.length === 1, 'retired dispatch did not hit TCP wire');
+
+  await t.assertRejects(
+    () => conn.send('http-30010', 'list_actors', params),
+    /send\(\) does not dispatch HTTP/,
+    'HTTP send rejects instead of returning active-layer cache entry'
+  );
+  t.assert(fake.calls.length === 1, 'HTTP send did not hit TCP wire');
+}
+
 // ── Summary ─────────────────────────────────────────────────
 const failures = t.summary();
 process.exit(failures > 0 ? 1 : 0);

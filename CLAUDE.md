@@ -101,7 +101,7 @@ UEMCP/
 │   ├── widgets-tcp-tools.mjs   ← widgets toolset TCP handlers
 │   ├── tool-index.mjs          ← search + scoring + alias expansion
 │   ├── toolset-manager.mjs     ← enable/disable, SDK handle integration
-│   ├── connection-manager.mjs  ← 4-layer routing, mock seam, ResultCache, MetricsAggregator
+│   ├── connection-manager.mjs  ← active routing, mock seam, ResultCache, MetricsAggregator
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
 │   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
@@ -463,4 +463,4 @@ In Cowork mode (Claude Desktop), config lives in `claude_desktop_config.json` an
 
 **Quick reference**: `tools.yaml` → `docs/specs/dynamic-toolsets.md` → `docs/tracking/risks-and-decisions.md`
 
-**Phase 2 (TCP client)**: `docs/specs/conformance-oracle-contracts.md` → `docs/specs/tcp-protocol.md` → `docs/plans/testing-strategy.md` (Tests 9-13 + Lessons Learned)
+**Archival Phase 2 reference**: `docs/specs/conformance-oracle-contracts.md` -> `docs/specs/tcp-protocol.md` -> `docs/plans/testing-strategy.md` (Tests 9-13 + Lessons Learned; not current runtime guidance)
