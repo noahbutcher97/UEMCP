@@ -456,7 +456,6 @@ const tcpDown = new ErrorTcpResponder('connection_refused');
 
 const config = {
   projectRoot: PROJECT_ROOT,
-  tcpPortExisting: 55557,
   tcpPortCustom: 55558,
   httpPort: 30010,
   tcpTimeoutMs: 5000,
@@ -485,7 +484,7 @@ const applyResult = await toolsetMgr.applyProjectContext({
 assert(applyResult.enabled.includes('offline') || toolsetMgr.getEnabledNames().includes('offline'),
   'Phase5: ProjectContext attachment enables offline');
 
-// Enable actors — should fail (tcp-55557 unavailable, editor not running)
+// Enable live tools — should fail when the editor is not running.
 const enableResult1 = await toolsetMgr.enable(['actors']);
 assert(enableResult1.unavailable.includes('actors'),
   'actors correctly reported unavailable (no editor)');
@@ -567,7 +566,7 @@ assert(woResult_e.unavailable.length === 1 && !woResult_e.unavailable.includes('
   'W-O: summary.unavailable is a defensive copy of result.unavailable');
 
 // (f) Integration check against actual autoEnable() in the layer-unavailable case.
-//     Test 5 already wired tcpDown, so 'actors' (tcp-55557) and 'gas' (tcp-55558)
+//     Test 5 already wired tcpDown for the active TCP layer.
 //     are both genuinely unavailable. This bridges the pure-function tests above
 //     to actual autoEnable() behavior — proving find_tools' wiring would
 //     correctly populate `unavailable` rather than masking the failure as success.

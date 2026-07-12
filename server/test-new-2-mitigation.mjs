@@ -20,7 +20,6 @@ const t = new TestRunner('NEW-2 Mitigation');
 
 const baseConfig = {
   projectRoot: '/fake/project',
-  tcpPortExisting: 55557,
   tcpPortCustom: 55558,
   rcPort: 30010,
   tcpTimeoutMs: 5000,

@@ -374,7 +374,6 @@ console.log('\n── Group 10: Transport Errors ──');
   const errRefused = new ErrorTcpResponder('connection_refused');
   const config = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errRefused.handler(),

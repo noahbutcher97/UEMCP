@@ -274,7 +274,6 @@ console.log('\n── Group 9: Transport Errors ──');
   const errTimeout = new ErrorTcpResponder('timeout');
   const config = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errTimeout.handler(),

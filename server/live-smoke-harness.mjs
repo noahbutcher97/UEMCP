@@ -74,7 +74,6 @@ export function createLiveSmokeConnectionManager(projectRoot, env = process.env,
   return new ConnectionManager({
     projectRoot,
     projectName: env.UNREAL_PROJECT_NAME || '',
-    tcpPortExisting: parseEnvInt(env, 'UNREAL_TCP_PORT_EXISTING', 55557),
     tcpPortCustom: parseEnvInt(env, 'UNREAL_TCP_PORT_CUSTOM', 55558),
     tcpTimeoutMs: parseEnvInt(env, 'UNREAL_TCP_TIMEOUT_MS', 30000),
     rcPort: parseEnvInt(env, 'UNREAL_RC_PORT', 30010),

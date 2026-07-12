@@ -92,7 +92,6 @@ function createConfig(env = {}) {
   return {
     projectRoot: '',
     projectName: env.UNREAL_PROJECT_NAME || '',
-    tcpPortExisting: parseInt(env.UNREAL_TCP_PORT_EXISTING || '55557', 10),
     tcpPortCustom: parseInt(env.UNREAL_TCP_PORT_CUSTOM || '55558', 10),
     tcpTimeoutMs: parseInt(env.UNREAL_TCP_TIMEOUT_MS || '10000', 10),
     rcPort: parseInt(env.UNREAL_RC_PORT || '30010', 10),

@@ -4,7 +4,7 @@
 // test-tcp-tools.mjs widgets-section coverage (which got removed when M3
 // flipped the layer) plus adds:
 //   - Port routing → 55558 (oracle retirement, D23)
-//   - Conformance shape parity vs canned oracle TCP:55557 fixtures
+//   - Historical conformance-shape fixtures retained only to prove UEMCP response normalization.
 //   - Regression coverage for the 2 previously-broken handlers — wire-shape
 //     assertions that match the FIXED behavior, not the oracle's bug
 //   - P0-9 / P0-10 defense-in-depth Zod validation
@@ -208,7 +208,7 @@ console.log('\n── Group 4: P0-7 Path Normalization ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Group 5: Conformance shape parity — oracle TCP:55557 fixtures
+// Group 5: Historical conformance-shape response fixtures
 // ═══════════════════════════════════════════════════════════════
 //
 // The fixtures here represent canned oracle responses. The TCP:55558
@@ -521,7 +521,6 @@ console.log('\n── Group 11: Transport Errors ──');
   const errTimeout = new ErrorTcpResponder('timeout');
   const config1 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errTimeout.handler(),
@@ -539,7 +538,6 @@ console.log('\n── Group 11: Transport Errors ──');
   const errRefused = new ErrorTcpResponder('connection_refused');
   const config2 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errRefused.handler(),

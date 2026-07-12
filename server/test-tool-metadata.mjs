@@ -11,7 +11,7 @@ import { load } from 'js-yaml';
 import { TestRunner } from './test-helpers.mjs';
 
 const ALLOWED_STATUS = new Set(['shipped', 'planned', 'deprecated', 'hidden']);
-const ALLOWED_LAYERS = new Set(['offline', 'tcp-55557', 'tcp-55558', 'http-30010']);
+const ALLOWED_LAYERS = new Set(['offline', 'tcp-55558', 'http-30010']);
 const REQUIRED_FIELDS = [
   'status',
   'availability_layer',

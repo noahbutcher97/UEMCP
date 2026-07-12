@@ -243,7 +243,7 @@ export class ToolsetManager {
    */
   isProjectScopedToolset(name) {
     const layer = TOOLSET_LAYERS[name];
-    return layer === 'offline' || layer === 'tcp-55557' || layer === 'tcp-55558' || layer === 'http-30010';
+    return layer === 'offline' || layer === 'tcp-55558' || layer === 'http-30010';
   }
 
   /**
@@ -364,7 +364,6 @@ export class ToolsetManager {
     const layer = TOOLSET_LAYERS[name];
     if (!layer) return false;
     if (layer === 'offline') return await this.connectionManager.isLayerAvailable('offline');
-    if (layer === 'tcp-55557') return await this.connectionManager.isLayerAvailable('tcp-55557');
     if (layer === 'tcp-55558') return await this.connectionManager.isLayerAvailable('tcp-55558');
     if (layer === 'http-30010') return await this.connectionManager.isLayerAvailable('http-30010');
     return false;
@@ -431,9 +430,6 @@ export class ToolsetManager {
 
     if (layer === 'offline') {
       return layerInfo.error || 'No project attached or project path not readable. Fix: use attach_project, select a .uemcp-targets entry, or use explicit UEMCP_PROJECT_ATTACH_MODE=env compatibility mode.';
-    }
-    if (layer === 'tcp-55557') {
-      return layerInfo.error || 'Unreal Editor not running or UnrealMCP plugin not loaded. Fix: open the project in Unreal Editor and enable UnrealMCP in Edit → Plugins.';
     }
     if (layer === 'tcp-55558') {
       return layerInfo.error || 'Unreal Editor not running or UEMCP plugin not installed. Fix: build and enable the UEMCP C++ plugin (see Phase 3 docs).';
