@@ -441,6 +441,8 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     source.includes('Transition->GetBoundGraph()') &&
     source.includes('Transition->GetCustomTransitionGraph()'),
   'pin topology cross-checks state machine, state, transition, and custom transition graph references');
+  t.assert(/for\s*\(\s*UEdGraph\*\s+SubGraph\s*:\s*Graph->SubGraphs\s*\)\s*\{\s*AddAnimGraphTopologyGraph\(Collection,\s*SubGraph,\s*TEXT\("referenced_graph"\),\s*true\);\s*\}/s.test(source),
+    'pin topology recursively adds direct SubGraphs through the shared referenced-graph collector');
   t.assert(graphBlock.includes('include_pin_topology'),
     'get_anim_graph reads include_pin_topology');
   t.assert(graphBlock.includes('include_pin_defaults'),

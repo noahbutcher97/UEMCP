@@ -1000,6 +1000,7 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       const topologyGraphs = Object.values(topology?.graphs || {});
       const topologyNodes = topologyGraphs.flatMap((entry) => Object.values(entry.nodes || {}));
       const topologyPins = topologyNodes.flatMap((entry) => Object.values(entry.pins || {}));
+      const topologyLinks = topologyPins.flatMap((entry) => entry.linked_to || []);
       t.assert(topology?.schema_version === 'anim-uedgraph-pin-topology-v1' &&
         topology?.id_format === 'digits' && topology?.complete === true && topology?.truncated === false,
       'get_anim_graph returns topology schema metadata and completeness flags');
@@ -1007,13 +1008,17 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         topology?.node_count === topologyNodes.length && topology?.pin_count === topologyPins.length,
       'get_anim_graph topology counts match serialized maps');
       t.assert(topologyGraphs.every((entry) =>
-        ['name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes'].every((field) => field in entry)),
+        ['graph_key', 'graph_guid', 'name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes'].every((field) => field in entry) &&
+        Array.isArray(entry.sources)),
       'get_anim_graph topology graph entries expose the required contract');
       t.assert(topologyNodes.every((entry) => entry.pins && entry.pin_count === Object.keys(entry.pins).length),
         'get_anim_graph topology nodes expose nested pins with consistent counts');
       t.assert(topologyPins.every((entry) =>
-        ['is_subpin', 'parent_pin_id', 'subpin_ids', 'linked_to', 'pin_type'].every((field) => field in entry)),
+        ['pin_id', 'name', 'direction', 'pin_category', 'pin_subcategory', 'pin_type', 'is_subpin', 'parent_pin_id', 'subpin_ids', 'linked_to'].every((field) => field in entry) &&
+        Array.isArray(entry.linked_to)),
       'get_anim_graph topology pins expose split-pin and type contract fields');
+      t.assert(topology?.link_entry_count === topologyLinks.length,
+        'get_anim_graph topology link_entry_count matches serialized linked_to entries');
       t.assert(topologyPins.every((entry) => !('defaults' in entry)),
         'get_anim_graph omits pin defaults from the default topology payload');
       t.assert(topologyPins.flatMap((entry) => entry.linked_to).every((endpoint) =>

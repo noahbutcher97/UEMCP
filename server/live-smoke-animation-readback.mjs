@@ -90,10 +90,12 @@ if (result.pin_topology.graph_count !== topologyGraphs.length) {
 }
 let serializedNodeCount = 0;
 let serializedPinCount = 0;
+let serializedLinkEntryCount = 0;
 for (const graph of topologyGraphs) {
-  for (const field of ['name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes']) {
+  for (const field of ['graph_key', 'graph_guid', 'name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes']) {
     if (!(field in graph)) throw new Error(`pin_topology graph missing ${field}`);
   }
+  if (!Array.isArray(graph.sources)) throw new Error(`pin_topology graph ${graph.graph_key} sources is not an array`);
   const nodes = Object.values(graph.nodes);
   if (graph.node_count !== nodes.length) throw new Error(`pin_topology graph ${graph.graph_key} node_count mismatch`);
   serializedNodeCount += nodes.length;
@@ -103,7 +105,9 @@ for (const graph of topologyGraphs) {
     if (node.pin_count !== pins.length) throw new Error(`pin_topology node ${node.node_guid} pin_count mismatch`);
     serializedPinCount += pins.length;
     for (const pin of pins) {
-      for (const endpoint of pin.linked_to || []) {
+      if (!Array.isArray(pin.linked_to)) throw new Error(`pin_topology pin ${pin.pin_id} linked_to is not an array`);
+      serializedLinkEntryCount += pin.linked_to.length;
+      for (const endpoint of pin.linked_to) {
         for (const field of ['graph_key', 'node_guid', 'pin_id']) {
           if (typeof endpoint[field] !== 'string' || !endpoint[field]) throw new Error(`pin_topology link endpoint missing ${field}`);
         }
@@ -113,4 +117,7 @@ for (const graph of topologyGraphs) {
 }
 if (result.pin_topology.node_count !== serializedNodeCount || result.pin_topology.pin_count !== serializedPinCount) {
   throw new Error('get_anim_graph pin_topology aggregate count mismatch');
+}
+if (result.pin_topology.link_entry_count !== serializedLinkEntryCount) {
+  throw new Error('get_anim_graph pin_topology link_entry_count mismatch');
 }

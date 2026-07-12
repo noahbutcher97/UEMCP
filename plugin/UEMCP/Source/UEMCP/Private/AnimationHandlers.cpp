@@ -375,6 +375,11 @@ namespace UEMCP
 			for (int32 GraphIndex = 0; GraphIndex < Collection.Graphs.Num(); ++GraphIndex)
 			{
 				UEdGraph* Graph = Collection.Graphs[GraphIndex];
+				for (UEdGraph* SubGraph : Graph->SubGraphs)
+				{
+					AddAnimGraphTopologyGraph(Collection, SubGraph, TEXT("referenced_graph"), true);
+				}
+
 				TArray<UAnimGraphNode_StateMachineBase*> MachineNodes;
 				Graph->GetNodesOfClass<UAnimGraphNode_StateMachineBase>(MachineNodes);
 				for (UAnimGraphNode_StateMachineBase* MachineNode : MachineNodes)
