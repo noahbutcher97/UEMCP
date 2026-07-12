@@ -52,7 +52,7 @@ docs/
 | [tool-surface.md](specs/tool-surface.md) | Tool count summary, toolset registry |
 | [blueprint-introspection.md](specs/blueprint-introspection.md) | Graph serialization design, visual capture |
 | [configuration.md](specs/configuration.md) | `.mcp.json` config, env vars, ConnectionManager |
-| [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | All 36 UnrealMCP command contracts (Phase 2 reference) |
+| [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | Archival Phase 2 conformance reference; not a current setup or runtime guide |
 | [tcp-protocol.md](specs/tcp-protocol.md) | Wire format, command/response schema |
 | [phase3-plugin-design-inputs.md](specs/phase3-plugin-design-inputs.md) | Phase 3 plugin-layer design inputs (P0 helpers, envelope) |
 

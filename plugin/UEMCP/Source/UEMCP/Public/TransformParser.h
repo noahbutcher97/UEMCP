@@ -10,7 +10,7 @@
  *
  * Accepted formats (all optional — missing fields default to identity):
  *   "location": [x, y, z]                (FVector)
- *   "rotation": [pitch, yaw, roll]       (FRotator, matches legacy 55557 convention)
+ *   "rotation": [pitch, yaw, roll]       (FRotator)
  *   "scale":    [x, y, z]                (FVector)
  *
  * Malformed fields (wrong type, wrong length, non-numeric elements) fail the

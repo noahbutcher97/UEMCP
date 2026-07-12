@@ -47,7 +47,7 @@ const RETIRED_PATTERNS = [
   { name: 'tcp-55557', pattern: /\btcp-55557\b/i },
   { name: 'legacy-port-55557', pattern: /\b55557\b/ },
   { name: 'unreal-mcp-main', pattern: /\bunreal-mcp-main\b/i },
-  { name: 'UnrealMCP', pattern: /\bUnrealMCP\b/ },
+  { name: 'UnrealMCP', pattern: /UnrealMCP/ },
 ];
 
 function isRetirementNegativeAssertion(relativePath, line, retiredName) {
@@ -98,7 +98,7 @@ for (const file of files) {
 const t = new TestRunner('Retired Legacy Surface Gate');
 t.assert(
   hits.length === 0,
-  'current-facing surfaces do not mention retired UnrealMCP/tcp-55557 identifiers',
+  'current-facing surfaces do not mention retired bridge identifiers',
   hits.join('\n')
 );
 

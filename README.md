@@ -87,17 +87,16 @@ Ctrl+C to stop. Server talks MCP over stdio; use a client like Claude Code's `.m
 
 ---
 
-## Architecture — 4 layers
+## Architecture — Active Runtime Layers
 
 ```
-Claude ↔ MCP server (stdio) ↔ four layers:
-  Layer 1  Offline     — disk reads (Source/, Config/, .uproject bytes)
-  Layer 2  TCP:55558   — custom UEMCP C++ plugin (this repo)
-  Layer 3  HTTP:30010  — Remote Control API
-  Layer 4  Historical  — TCP:55557 UnrealMCP conformance references only
+Claude ↔ MCP server (stdio) ↔ active runtime layers:
+  offline      — project-file reads after attachment
+  tcp-55558    — UEMCP editor plugin commands
+  http-30010   — Unreal Remote Control HTTP
 ```
 
-`tools.yaml` is the registry source of truth. The current registry exposes 10 always-loaded management tools plus project-scoped dynamic toolsets. Project-scoped tools stay hidden or blocked until a session project is attached. Active toolset layers are `offline`, `tcp-55558`, and `http-30010`; `tcp-55557` remains only in historical/conformance documentation.
+`tools.yaml` is the registry source of truth. The current registry exposes 10 always-loaded management tools plus project-scoped dynamic toolsets. Project-scoped tools stay hidden or blocked until a session project is attached. Dated conformance-oracle documents are archival provenance only; they are not setup or runtime guidance.
 
 ---
 

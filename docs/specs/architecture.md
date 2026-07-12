@@ -13,8 +13,6 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 6. Fragile connection with no graceful degradation
 
 ### Constraints
-- **Existing UnrealMCP C++ plugin**: Shared via Perforce with the Project B team. **Do not modify.**
-- **Existing Python MCP server**: May be tracked in Perforce for Project B. **Leave in place.** New server runs alongside.
 - **One editor at a time**: Typical usage. Auto-detection handles rare simultaneous case.
 
 ---
@@ -40,20 +38,20 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 │  └────────────────────────────┬────────────────────────────────────────┘  │
 │                               │                                           │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐   │
-│  │ TCP Layer    │  │ HTTP Layer   │  │ Offline    │  │ Historical  │   │
-│  │ (port 55558) │  │ (port 30010) │  │ Layer      │  │ References  │   │
-│  │              │  │              │  │            │  │             │   │
-│  │ UEMCP plugin │  │ Remote Ctrl  │  │ No editor  │  │ TCP:55557   │   │
-│  │              │  │ API proxy    │  │ needed     │  │ oracle docs │   │
-│  │ actors       │  │ remote-      │  │ offline    │  │ only        │   │
-│  │ blueprints-  │  │ control      │  │            │  │             │   │
-│  │   write      │  │              │  │            │  │             │   │
-│  │ widgets      │  │              │  │            │  │             │   │
-│  │ gas/material │  │              │  │            │  │             │   │
-│  │ + 10 more    │  │              │  │            │  │             │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘   │
-│         │                 │                  │                │          │
-│  ┌──────┴─────────────────┴──────────────────┴────────────────┴──────┐   │
+│  │ TCP Layer    │  │ HTTP Layer   │  │ Offline    │                    │
+│  │ (port 55558) │  │ (port 30010) │  │ Layer      │                    │
+│  │              │  │              │  │            │                    │
+│  │ UEMCP plugin │  │ Remote Ctrl  │  │ No editor  │                    │
+│  │              │  │ API proxy    │  │ needed     │                    │
+│  │ actors       │  │ remote-      │  │ offline    │                    │
+│  │ blueprints-  │  │ control      │  │            │                    │
+│  │   write      │  │              │  │            │                    │
+│  │ widgets      │  │              │  │            │                    │
+│  │ gas/material │  │              │  │            │                    │
+│  │ + 10 more    │  │              │  │            │                    │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                    │
+│         │                 │                  │                         │
+│  ┌──────┴─────────────────┴──────────────────┴────────────────────────┐  │
 │  │                    ProjectContext + Connection Manager            │   │
 │  │  - ProjectContext owns session-local .uproject attachment         │   │
 │  │  - ConnectionManager owns transport/cache health for attachment   │   │
@@ -87,15 +85,12 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 - **TCP:55558** (UEMCP plugin): editor-backed live reads/writes, Blueprint/widget/actor tools, GAS assets, materials, animations, PIE, data assets
 - **HTTP:30010** (Remote Control API): Reflection-based property/function access on any UObject
 - **Offline**: Project file analysis — always works, no editor needed
-- **TCP:55557**: historical Phase 2 conformance-oracle references only; not an active layer in `tools.yaml`
 
 **D3: Session-local project attachment** — ProjectContext attaches from MCP workspace roots only when the workspace topology is unambiguous. Ambiguous workspaces start management-only and require `attach_project`. Process inspection and plugin handshake are readiness checks, not attachment authority.
 
-**D4: Two C++ plugins coexist** — Existing UnrealMCP stays untouched (team-safe). New custom plugin adds capabilities on a separate port. Both can run simultaneously without conflict.
+**D4: UEMCP owns the editor-side TCP bridge** — Current editor communication uses the UEMCP plugin on TCP:55558; Remote Control remains on HTTP:30010. Historical conformance-oracle documents are archival only and do not describe deploy requirements.
 
 **D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` declares 10 discovery/management tools plus dynamic project-scoped toolsets. Claude discovers tools via `find_tools` or `enable_toolset`; both block project-scoped toolsets until ProjectContext has an attached project. `tools/list` response only includes management tools plus active toolset tools.
-
-**D6: Leave old Python servers in place** — `unreal-mcp-main/` directories stay. They don't conflict with the new centralized server (different MCP server name in `.mcp.json`). Can be cleaned up later with team coordination.
 
 ---
 

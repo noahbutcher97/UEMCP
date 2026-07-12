@@ -10,7 +10,7 @@ class FSocket;
 /**
  * TCP accept loop for UEMCP on port 55558.
  *
- * Connect-per-command protocol (no persistent connection — matches 55557 wire format):
+ * Connect-per-command protocol (no persistent connection):
  *   1. Accept client on the listener socket (non-blocking poll).
  *   2. Read bytes into an accumulator until a full JSON object parses.
  *   3. Extract 'type' + 'params', dispatch via FMCPCommandRegistry.

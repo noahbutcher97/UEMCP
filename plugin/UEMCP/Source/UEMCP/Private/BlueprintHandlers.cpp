@@ -158,9 +158,9 @@ namespace UEMCP
 
 		// ── Graph helpers ────────────────────────────────────────────────────────
 		//
-		// Mirror UnrealMCPCommonUtils::FindOrCreateEventGraph + ConnectGraphNodes
-		// + FindPin. Local copies — the oracle helpers live in a separate plugin
-		// we don't link against. Behavior preserved 1:1 modulo style.
+		// Mirror the shared graph-helper behavior for FindOrCreateEventGraph,
+		// ConnectGraphNodes, and FindPin. These local helpers avoid a dependency on
+		// another plugin while preserving the established behavior modulo style.
 
 		UEdGraph* FindOrCreateEventGraph(UBlueprint* Blueprint)
 		{
@@ -3376,8 +3376,7 @@ namespace UEMCP
 
 	void RegisterBlueprintHandlers(FMCPCommandRegistry& Registry)
 	{
-		// Wire-type strings match the conformance oracle (TCP:55557) so migrated
-		// callers see only port + envelope changes — no rename churn.
+		// Stable wire-type strings avoid rename churn for callers.
 		Registry.Register(TEXT("create_blueprint"),                              &HandleCreateBlueprint);
 		Registry.Register(TEXT("add_component_to_blueprint"),                    &HandleAddComponentToBlueprint);
 		Registry.Register(TEXT("set_component_property"),                        &HandleSetComponentProperty);

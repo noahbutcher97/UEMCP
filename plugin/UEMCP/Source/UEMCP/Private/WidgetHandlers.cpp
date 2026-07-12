@@ -477,7 +477,7 @@ namespace UEMCP
 		// 5. set_text_block_binding — FIXED
 		// ═══════════════════════════════════════════════════════════════════════
 		//
-		// Oracle bug (UnrealMCPUMGCommands.cpp:528-534): connected EntryThenPin (exec)
+		// The prior helper implementation connected EntryThenPin (exec)
 		// to GetVarOutPin (data) — invalid K2 schema connection. Even if the function
 		// graph compiled, no FDelegateEditorBinding was added to WidgetBlueprint->Bindings,
 		// so UMG had no record of the binding to invoke at runtime.
@@ -653,7 +653,7 @@ namespace UEMCP
 		// 6. add_widget_to_viewport — FIXED
 		// ═══════════════════════════════════════════════════════════════════════
 		//
-		// Oracle bug (UnrealMCPUMGCommands.cpp:198-237): the handler returned the widget
+		// The prior helper implementation returned the widget
 		// class path with a "use Blueprint nodes instead" note, but never created a
 		// widget instance and never called AddToViewport. Misleading success — caller
 		// thinks the widget is on screen; nothing happens.
@@ -823,10 +823,9 @@ namespace UEMCP
 
 	void RegisterWidgetHandlers(FMCPCommandRegistry& Registry)
 	{
-		// Wire-type strings match the conformance oracle (TCP:55557) exactly so
-		// migrated callers see only port + envelope changes — no rename churn.
+		// Stable wire-type strings avoid rename churn for callers.
 		// The 2 previously-broken handlers ship CORRECTED behavior under the same
-		// type strings (oracle parity is response-shape, not bug-replication).
+		// type strings.
 		Registry.Register(TEXT("create_umg_widget_blueprint"),     &HandleCreateUmgWidgetBlueprint);
 		Registry.Register(TEXT("add_text_block_to_widget"),        &HandleAddTextBlockToWidget);
 		Registry.Register(TEXT("add_button_to_widget"),            &HandleAddButtonToWidget);

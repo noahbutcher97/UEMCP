@@ -1,17 +1,12 @@
-// Blueprints-write toolset TCP handlers — M3 (D23 oracle retirement).
+// Blueprints-write toolset TCP handlers.
 //
-// Blueprints-write tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
-// legacy blueprints-write section of tcp-tools.mjs, which routed to the
-// conformance oracle (UnrealMCP plugin BlueprintCommands + BlueprintNodeCommands,
-// TCP:55557).
+// Blueprints-write tools dispatch to the UEMCP custom plugin on TCP:55558.
 //
-// Per conformance-oracle-contracts.md §8.1, the toolset already absorbed the
-// 6 BlueprintNodeCommands "orphans" (function_node, variable, self_reference,
+// The toolset includes six graph-authoring commands (function_node, variable, self_reference,
 // component_reference, connect_nodes, find_nodes) — total 15 endpoints, NOT 21
 // as the M3 handoff prose suggested.
 //
-// Wire-shape parity preserved against the oracle (per docs/specs/conformance-
-// oracle-contracts.md §2 + §3) — only the port + P0-1 envelope differ. Wire-
+// Wire-type strings remain stable, while the P0-1 envelope provides structured errors. Wire-
 // type strings unchanged so migrated callers see no rename churn.
 //
 // Convention matches actors-tcp-tools.mjs (M3-actors precedent):

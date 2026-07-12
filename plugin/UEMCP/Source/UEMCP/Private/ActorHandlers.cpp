@@ -707,8 +707,7 @@ namespace UEMCP
 
 	void RegisterActorHandlers(FMCPCommandRegistry& Registry)
 	{
-		// Wire-type strings match the conformance oracle (TCP:55557) so migrated
-		// callers see only port + envelope changes — no rename churn.
+		// Stable wire-type strings avoid rename churn for callers.
 		Registry.Register(TEXT("get_actors_in_level"),  &HandleGetActorsInLevel);
 		Registry.Register(TEXT("find_actors_by_name"),  &HandleFindActorsByName);
 		Registry.Register(TEXT("spawn_actor"),          &HandleSpawnActor);

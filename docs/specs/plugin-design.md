@@ -11,7 +11,7 @@
 | **Remote Control API** | Enable | HTTP reflection access to all UPROPERTYs and UFUNCTIONs. Core of HTTP layer. Endpoints on port 30010. |
 | **Remote Control Components** | Enable | `URemoteControlComponent` — attach to actors to selectively expose properties/functions without global presets. Enables granular per-actor remote access. |
 | **Remote Control Web Interface** | Enable | Bundles the HTTP/WebSocket server for the RC API. May be required for HTTP endpoints to work. Also provides a debug UI at `localhost:6000` for inspecting exposed properties. |
-| **Editor Scripting Utilities** | Already enabled | Required by existing UnrealMCP plugin. Provides `UEditorAssetLibrary`, `UEditorLevelLibrary`. |
+| **Editor Scripting Utilities** | Already enabled | Provides `UEditorAssetLibrary`, `UEditorLevelLibrary` for editor automation. |
 
 ### Recommended Enable (Both Projects)
 
@@ -67,10 +67,9 @@
 
 ### Why a Separate Plugin
 
-1. **Perforce safety**: Existing UnrealMCP is team-shared. Zero risk of merge conflicts.
-2. **Independent iteration**: We can add/modify commands without coordinating with the Project B team.
-3. **Separate port**: Both plugins run simultaneously without conflict.
-4. **Additive**: If we ever distribute to the team, it's a clean addition, not a modification.
+1. **Independent iteration**: UEMCP owns its editor command handlers and release cadence.
+2. **Focused transport**: The plugin serves editor commands on TCP:55558.
+3. **Clear deployment**: Target projects receive the UEMCP plugin as the supported editor bridge.
 
 ### Command Handlers (New Plugin)
 
@@ -186,7 +185,7 @@
 | `capture_active_editor_tab` | FWidgetRenderer::DrawWidget on active editor panel → PNG. |
 | `get_asset_visual_summary` | Combines text JSON + inline image in one MCP response. |
 
-### Improvements Over Existing UnrealMCP (Actor Tools)
+### UEMCP Actor Tool Behavior
 
 These improvements apply to all actor-targeting commands reimplemented on TCP:55558:
 

@@ -5,11 +5,10 @@
 #include "Dom/JsonObject.h"
 
 /**
- * M3-widgets: 7 widgets-toolset handlers reimplemented on TCP:55558.
+ * Widgets-toolset handlers on TCP:55558.
  *
- * Replaces the conformance oracle (UnrealMCP plugin, TCP:55557) per D23.
- * Wire-shape parity preserved against oracle responses for the 5 working
- * handlers; the 2 previously-broken handlers (set_text_block_binding,
+ * Stable response field names and types support existing callers. The two
+ * previously broken handlers (set_text_block_binding,
  * add_widget_to_viewport) ship CORRECTED behavior here — the rebuild is
  * the right time to land the fix.
  *

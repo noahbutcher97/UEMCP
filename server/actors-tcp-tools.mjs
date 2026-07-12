@@ -1,12 +1,8 @@
-// Actors toolset TCP handlers — M3 (D23 oracle retirement).
+// Actors toolset TCP handlers.
 //
-// 10 tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
-// legacy actors section of tcp-tools.mjs, which routed to the conformance
-// oracle (UnrealMCP plugin, TCP:55557).
+// 10 tools dispatch to the UEMCP custom plugin on TCP:55558.
 //
-// Wire-shape parity preserved against the oracle (per docs/specs/conformance-
-// oracle-contracts.md §1) — only the port + P0-1 envelope differ. Wire-type
-// strings unchanged so migrated callers see no rename churn.
+// Wire-type strings remain stable so callers see no rename churn.
 //
 // Convention matches menhance-tcp-tools.mjs (M-enhance precedent):
 // {description, schema, isReadOp} per tool, wire_type translation via
