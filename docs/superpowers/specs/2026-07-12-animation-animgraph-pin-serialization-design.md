@@ -544,7 +544,8 @@ These are intentionally not part of this slice:
 - AnimGraph node authoring or rewiring.
 - Schema-compatible `connect_anim_graph_nodes`.
 - Offline `.uasset` parser parity for AnimGraph pin topology.
-- Sidecar generation for AnimGraph topology.
+- Sidecar generation or commandlet generation for AnimGraph topology.
+- Generic headless MCP execution. This slice may be designed so its C++ serializer can be reused by a future commandlet, but it must not introduce a one-shot `UEMCPCommandlet`, `headless_capable` routing metadata, long-lived headless service, or generic command dispatcher.
 - Inherited parent AnimBlueprint graph traversal and external linked anim layer asset traversal, unless those graphs are owned by the requested asset and exposed through its graph set.
 - Control Rig, StateTree, Sequencer, linked asset, or external graph serialization from nodes referenced by the AnimBlueprint.
 - Special rendering metadata for split pins beyond ID, parent, and child relationships.
@@ -553,6 +554,14 @@ These are intentionally not part of this slice:
 - Runtime pose, evaluated state, blend weights, active state, or PIE instance data.
 - Visual screenshot/canvas capture of the graph editor.
 - Detailed node property decoding beyond existing semantic buckets and safe pin metadata.
+
+### Generic Headless MCP Follow-On
+
+The right follow-on is a separate generic headless MCP execution layer with parity expectations comparable to the existing offline, TCP, and Remote Control layers.
+
+That follow-on should start from the already-recorded D175 direction: the MCP server launches a one-shot `UnrealEditor-Cmd.exe -run=UEMCPCommandlet` executor, passes a JSON request, dispatches only allowlisted `headless_capable` handlers, writes a JSON response, and exits. It must preserve the current commandlet gate that suppresses the live TCP listener inside commandlet processes. Removing the gate or making commandlets bind `tcp-55558` is not acceptable because it reintroduces port contention, readiness ambiguity, and lifecycle ambiguity.
+
+The headless layer should define its own transport contract, tool metadata, save/compile postconditions, DDC and source-control flags, timeout/crash handling, response envelope parity, and tests. Good first candidates are asset-scoped editor operations that do not require viewport UI, PIE, or active editor state. PIE/runtime tools, viewport capture, active UI state, and level mutation should remain out of scope until their load/save semantics are specified.
 
 ## Verification Gates
 
