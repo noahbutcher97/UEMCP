@@ -34,7 +34,7 @@ The repo already has graph-edge conventions elsewhere:
 - `EdgeOnlyBPSerializer.cpp` and the S-B offline parser use the Oracle-A-v2 shape: `graphs -> nodes -> pins -> linked_to`.
 - `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/README.md` documents the edge-only oracle and edge cases.
 
-The new AnimGraph shape should align with those contracts instead of inventing a separate graph model.
+The new AnimGraph shape must align with those contracts instead of inventing a separate graph model.
 
 ## Design Decision
 
@@ -67,15 +67,22 @@ When `include_pin_topology` is true, add a sibling object:
 {
   "pin_topology": {
     "schema_version": "anim-uedgraph-pin-topology-v1",
+    "id_format": "digits",
+    "complete": true,
+    "truncated": false,
     "graph_count": 3,
     "node_count": 42,
     "pin_count": 180,
+    "link_entry_count": 182,
     "edge_count": 91,
     "graphs": {
       "AnimGraph": {
+        "graph_key": "AnimGraph",
         "name": "AnimGraph",
+        "path": "/Game/Characters/ABP_Example.ABP_Example:AnimGraph",
         "graph_type": "anim_graph",
         "class_name": "AnimationGraph",
+        "sources": ["get_all_graphs"],
         "nodes": {
           "<node_guid>": {
             "node_guid": "<node_guid>",
@@ -96,8 +103,15 @@ When `include_pin_topology` is true, add a sibling object:
                   "container": "pose"
                 },
                 "linked_to": [
-                  { "node_guid": "<target_node_guid>", "pin_id": "<target_pin_id>" }
-                ]
+                  {
+                    "graph_key": "AnimGraph",
+                    "node_guid": "<target_node_guid>",
+                    "pin_id": "<target_pin_id>"
+                  }
+                ],
+                "is_subpin": false,
+                "parent_pin_id": null,
+                "subpin_ids": []
               }
             }
           }
@@ -107,8 +121,12 @@ When `include_pin_topology` is true, add a sibling object:
     "dropped": {
       "null_nodes": 0,
       "null_pins": 0,
+      "null_linked_pins": 0,
       "dangling_links": 0,
-      "orphaned_pins": 0
+      "orphaned_pins": 0,
+      "duplicate_graph_keys": 0,
+      "duplicate_node_guids": 0,
+      "duplicate_pin_ids": 0
     }
   }
 }
@@ -116,13 +134,20 @@ When `include_pin_topology` is true, add a sibling object:
 
 Shape rules:
 
-- `pin_topology.graphs` is an object keyed by stable graph key, matching the existing Oracle-style graph map.
+- `pin_topology.graphs` is an object keyed by collision-safe graph key, matching the existing Oracle-style graph map.
+- Graph key must not be raw graph name alone unless uniqueness has been proven for the response. Prefer a path-like key derived from `UEdGraph::GetPathName()` or a deterministic parent-chain key. Preserve display name separately in `name`.
+- Graph entries include `graph_key`, `name`, `path`, `class_name`, `graph_type`, and `sources[]`.
 - `nodes` is an object keyed by `UEdGraphNode::NodeGuid`.
 - `pins` is an object keyed by `UEdGraphPin::PinId`.
-- `linked_to[]` entries use target `node_guid` and target `pin_id`.
+- `linked_to[]` entries use target `graph_key`, target `node_guid`, and target `pin_id`.
 - Pin directions use Unreal enum strings: `EGPD_Input`, `EGPD_Output`, or `EGPD_Unknown`.
-- Node GUIDs and pin IDs should use one explicit format consistently across the topology object. Prefer `EGuidFormats::Digits` for Oracle parity unless implementation proves hyphenated IDs are needed for compatibility with existing `get_anim_graph` summaries. If the implementation keeps summary IDs hyphenated, topology IDs still need a clear `id_format` field.
-- The topology object may include graph metadata, node title, node class, and node position because these are part of visual graph serialization.
+- Node GUIDs and pin IDs must use one explicit format consistently across the topology object. Prefer `EGuidFormats::Digits` for Oracle parity unless implementation proves hyphenated IDs are needed for compatibility with existing `get_anim_graph` summaries. If the implementation keeps summary IDs hyphenated, topology IDs still need a clear `id_format` field.
+- `id_format` is required and applies to node GUIDs, pin IDs, and linked-to targets inside `pin_topology`.
+- Serialize top-level pins and recursive `SubPins` into the same `pins` map. Subpins include `is_subpin: true`, `parent_pin_id`, and an empty or populated `subpin_ids` array.
+- Parent pins include `subpin_ids[]` when split pins are present.
+- `link_entry_count` counts every serialized `linked_to[]` entry. `edge_count` counts unique visual connections after canonicalizing reciprocal pin links. The per-pin `linked_to[]` arrays remain authoritative.
+- `complete` and `truncated` are required. The implementation must not silently truncate. If a defensive cap is introduced during implementation, the response must either fail with a structured error or set `complete: false`, `truncated: true`, and include omitted counts.
+- The topology object includes graph metadata, node title, node class, and node position because these are part of visual graph serialization.
 - The topology object must not duplicate the entire existing semantic arrays unless needed for usability. Semantic arrays remain as current siblings.
 
 ### Graph Coverage
@@ -136,7 +161,15 @@ Use `UAnimBlueprint::GetAllGraphs` as the primary graph collection source becaus
 - custom transition graphs where present
 - function/event-style graphs owned by the AnimBlueprint
 
-If a graph is present in a state or transition object but absent from `GetAllGraphs`, the implementation should add it explicitly and record the source as `referenced_graph`. It must not silently omit referenced bound graphs.
+If a graph is present in a state or transition object but absent from `GetAllGraphs`, the implementation must add it explicitly and record the source as `referenced_graph`. It must not silently omit referenced bound graphs.
+
+Graph collection must be cycle-safe and duplicate-safe:
+
+- Use a visited set keyed by graph path or object identity before serialization.
+- Preserve all collection sources on a graph via `sources[]`; do not overwrite the first source when the same graph is reached from multiple paths.
+- Recurse `UEdGraph::SubGraphs` for collapsed, composite, or nested editor graph content when present, using the same visited set.
+- If two graph objects would produce the same graph key, emit a deterministic suffix and increment `duplicate_graph_keys`; do not overwrite an existing graph entry.
+- This slice serializes graphs owned by the requested AnimBlueprint asset. Inherited parent AnimBlueprint graphs, linked anim layer assets, Control Rig graphs, and external assets referenced by nodes are follow-ons unless Unreal exposes the `UEdGraph` object as part of the requested asset's graph set.
 
 ### Edge Direction And Deduplication
 
@@ -148,7 +181,15 @@ Rationale:
 - Existing repo oracles and offline topology use `linked_to[]` on pins.
 - Keeping per-pin links preserves self-loops and unusual graph state without inventing semantics.
 
-Optionally add a derived `edges[]` convenience array in the same graph entry only if implementation can do so without ambiguity. If added, it must be explicitly derived and non-authoritative. The authoritative source remains `pins[pin_id].linked_to[]`.
+`LinkedTo` can be reciprocal: both connected pins may list each other. The response must make this explicit:
+
+- `link_entry_count` is the raw total across every serialized `linked_to[]` array.
+- `edge_count` is a derived unique visual connection count.
+- A unique edge key must include both endpoint graph keys, node GUIDs, and pin IDs, canonicalized so reciprocal entries collapse to one edge.
+- Self-loops remain valid and count as one unique edge.
+- If one side of a connection exists without a reciprocal link, serialize what Unreal exposes and count one unique edge.
+
+Do not add a derived `edges[]` convenience array unless implementation can do so without ambiguity. If added, it must be explicitly derived and non-authoritative. The authoritative source remains `pins[pin_id].linked_to[]`.
 
 ### Compatibility
 
@@ -178,51 +219,79 @@ Expected metadata:
 - `mutates_level: false`
 - `saves_asset: false`
 - `compiles_asset: false`
-- `offline_fallback` should mention existing offline graph tools as partial, not equivalent.
+- `offline_fallback` must mention existing offline graph tools as partial, not equivalent.
+
+Also update generated/discovery text that names animation readback, including `server/create-uemcp-server.mjs`, so users discover pin topology through `get_anim_graph` instead of guessing at raw TCP, Python, or sidecar routes.
+
+Validation behavior:
+
+- Unknown params must follow the existing tool schema policy; do not add broad aliases.
+- `include_pin_defaults: true` with `include_pin_topology: false` must fail validation or return a clear structured error. It must not silently imply topology, and it must not produce defaults in the lightweight response.
+- The Node wrapper must forward both new params exactly and preserve existing params.
 
 ### Requirement 2: Shared Editor Graph Serializer
 
-Create or extract a local C++ helper for serializing `UEdGraph` node/pin topology. The helper can live in `AnimationHandlers.cpp` for this implementation if kept small, but the implementation plan should consider a private shared helper because Blueprint, material graph, and AnimGraph code already repeat this pattern.
+Create or extract a local C++ helper for serializing `UEdGraph` node/pin topology. The helper can live in `AnimationHandlers.cpp` for this implementation if kept small, but the implementation plan must explicitly decide whether to keep it local or move it to a private shared helper because Blueprint, material graph, and AnimGraph code already repeat this pattern.
 
 Minimum helper responsibilities:
 
-- serialize node identity, class, title, and visual position;
-- serialize pin ID, name, direction, category, subcategory, type summary, and link count;
-- serialize `linked_to[]` by resolving linked pin owner node GUID plus linked pin ID;
-- count null nodes, null pins, dangling links, and orphaned pins;
-- optionally include default string/object/text fields when `include_pin_defaults` is true.
+- serialize collision-safe graph identity, path, class, type, sources, and visited status;
+- serialize node identity, class, title, visual position, owning graph key, and duplicate-GUID diagnostics;
+- serialize pin ID, name, direction, category, subcategory, type summary, link count, orphan flag, subpin metadata, and duplicate-pin diagnostics;
+- serialize recursive `SubPins` into the same pin map with parent/child relationships preserved;
+- serialize `linked_to[]` by resolving linked pin owner graph key, owner node GUID, and linked pin ID;
+- use null-safe owner lookup before reading owner graph or node GUID; do not depend on unchecked owner access unless a preceding check proves it safe;
+- count null nodes, null pins, null linked pins, dangling links, orphaned pins, duplicate graph keys, duplicate node GUIDs, and duplicate pin IDs;
+- compute both `link_entry_count` and `edge_count`;
+- include default string/object/text fields when `include_pin_defaults` is true.
 
 Do not reuse the existing `BlueprintHandlers.cpp` helper directly unless it is first moved to a neutral private helper without introducing Blueprint write dependencies into animation reads.
 
+Default value rules:
+
+- Include only serializable editor-safe pin defaults: string default, object path, text value, autogenerated default, and a human-readable display default if available without mutation.
+- Do not serialize raw object data, property bags, or resolved asset contents.
+- If default strings are capped for payload safety, include a truncation marker and omitted character count. Do not silently cut values.
+
 ### Requirement 3: AnimGraph Integration
 
-`HandleGetAnimGraph` should build the new topology only when `include_pin_topology` is true.
+`HandleGetAnimGraph` must build the new topology only when `include_pin_topology` is true.
 
 The response must:
 
 - include every graph walked for the existing `graphs[]` summary;
 - include every graph reached from state machine, state, transition rule, and custom transition references;
+- include `UEdGraph::SubGraphs` reachable from those graphs;
 - keep existing semantic arrays intact;
+- include `pin_topology.id_format`;
+- include `pin_topology.complete` and `pin_topology.truncated`;
+- include `pin_topology.link_entry_count` and `pin_topology.edge_count`;
 - include `pin_topology.dropped` counters;
 - include `pin_topology.schema_version`;
 - include `unsupported_runtime_fields` unchanged.
+
+The implementation must not call `AllocateDefaultPins`, `Modify`, save, compile, or otherwise normalize the asset while reading. It must snapshot existing editor graph objects only.
 
 ### Requirement 4: Source-Only Tests
 
 Add tests that fail before implementation and pass after:
 
 - Node schema forwards `include_pin_topology` and `include_pin_defaults`.
+- Node schema rejects or clearly errors on `include_pin_defaults` without `include_pin_topology`.
 - Fake TCP response with `pin_topology` round-trips unchanged.
-- `test-m5-animation.mjs` source guard proves `HandleGetAnimGraph` reads `UEdGraphPin`, `LinkedTo`, `PinId`, `PinName`, `PinType`, and owner node GUID.
+- Fake TCP response includes `graph_key` on linked-to entries and verifies callers can disambiguate graph-scoped node IDs.
+- `test-m5-animation.mjs` source guard proves `HandleGetAnimGraph` reads `UEdGraphPin`, `LinkedTo`, `PinId`, `PinName`, `PinType`, `SubPins`, `ParentPin`, and owner node GUID.
 - Source guard proves topology generation is gated by `include_pin_topology`.
 - Source guard proves no Python execution, no save, no compile, and no PIE dependency.
+- Source guard proves no pin allocation or mutation calls are introduced in the topology read path.
+- Source guard proves graph traversal uses a visited set and includes `UEdGraph::SubGraphs` or explicitly records why subgraphs are absent.
 - Source guard proves current semantic arrays remain present.
 
 ### Requirement 5: Live Smoke Extension
 
 Extend `server/live-smoke-animation-readback.mjs` behind the existing opt-in live smoke path.
 
-The live smoke should call `get_anim_graph` with:
+The live smoke must call `get_anim_graph` with:
 
 ```js
 {
@@ -233,14 +302,18 @@ The live smoke should call `get_anim_graph` with:
 }
 ```
 
-It should assert:
+It must assert:
 
 - `pin_topology.schema_version` exists;
+- `pin_topology.id_format` exists;
 - `pin_topology.graphs` is an object;
 - at least one graph exists;
 - graph entries contain `nodes`;
 - if nodes exist, node entries contain `pins`;
+- if pin links exist, each linked-to entry contains `graph_key`, `node_guid`, and `pin_id`;
+- `link_entry_count` is a number;
 - `edge_count` is a number;
+- `complete === true` and `truncated === false` for the smoke asset;
 - existing `graphs[]`, `state_machines[]`, `slot_nodes[]`, and `layered_blend_nodes[]` remain arrays.
 
 The live smoke must stay skipped unless the live smoke env gates are set.
@@ -290,6 +363,19 @@ Local source confirms the required APIs already compile in this repo baseline:
 
 API audit conclusion: implementation risk is not API availability. The real risks are graph coverage, stable response shape, payload size, and avoiding duplicate helper drift.
 
+### Second-Pass Gap Audit
+
+The first spec pass had the right direction but left several contracts underspecified. This pass closes them before implementation planning:
+
+- **Graph identity:** raw graph names are not enough. Graph keys must be collision-safe, and graph entries must preserve display name and path separately.
+- **Link target identity:** target `node_guid` and `pin_id` are insufficient across multiple graphs. Every `linked_to[]` entry must include target `graph_key`.
+- **Reciprocal links:** `UEdGraphPin::LinkedTo` can expose both sides of the same visual connection. The response now distinguishes raw `link_entry_count` from derived unique `edge_count`.
+- **Subpins:** because the goal is full pin-level topology, recursive `SubPins` are now in scope for v1, with parent/child metadata.
+- **Coverage:** graph traversal must include referenced graphs and `UEdGraph::SubGraphs`, with a visited set and no silent overwrites.
+- **Completeness:** no silent truncation. The response must explicitly report `complete` and `truncated`.
+- **Read purity:** topology readback must not allocate default pins, normalize nodes, compile, save, or call mutation APIs.
+- **Discovery:** `tools.yaml`, the Node schema, and generated/discovery text must all advertise the new opt-in topology route.
+
 ### Discoverability And Usability Audit
 
 The most usable public surface is an opt-in expansion of `get_anim_graph`, not a separate raw graph or Python dispatch tool:
@@ -307,13 +393,13 @@ The most usable public surface is an opt-in expansion of `get_anim_graph`, not a
 
 Severity: High.
 
-Mitigation: Cross-check against graph references already reached by state machines, states, transitions, and custom transitions. Add source tests requiring traversal from those objects. If implementation finds missing bound graphs, append them to the topology graph set with a `source` marker.
+Mitigation: Cross-check against graph references already reached by state machines, states, transitions, custom transitions, and `UEdGraph::SubGraphs`. Add source tests requiring traversal from those objects. If implementation finds missing bound graphs, append them to the topology graph set with a `sources[]` marker.
 
 ### Finding 2: The topology payload could become too large for MCP/stdout use.
 
 Severity: Medium.
 
-Mitigation: Keep `include_pin_topology` default false. Add response counts. Consider `graph_filter` or `max_nodes` as a follow-on only if real assets exceed practical payload limits.
+Mitigation: Keep `include_pin_topology` default false. Add response counts plus `complete` and `truncated`. No silent truncation is allowed. Consider `graph_filter` or `max_nodes` as a follow-on only if real assets exceed practical payload limits.
 
 ### Finding 3: Two node shapes could confuse callers.
 
@@ -331,7 +417,7 @@ Mitigation: Pick one explicit topology ID format, document it in `schema_version
 
 Severity: Medium.
 
-Mitigation: Count dropped/orphaned/subpin cases. Do not claim split-pin completeness unless implementation explicitly serializes subpins and live proof covers them.
+Mitigation: Serialize recursive `SubPins` into the pin map and include parent/child metadata. Count orphaned pins and null linked pins separately. Do not claim rendering-layout fidelity for split pins unless a later visual capture slice proves it.
 
 ### Finding 6: It could drift into AnimGraph authoring.
 
@@ -351,6 +437,30 @@ Severity: Medium.
 
 Mitigation: Static tests prove wiring and source contract only. Live smoke and deploy verification remain required for plugin C++ proof.
 
+### Finding 9: Graph-name collisions could silently overwrite topology.
+
+Severity: High.
+
+Mitigation: Use collision-safe graph keys and deterministic suffixing when needed. Emit `duplicate_graph_keys` diagnostics. Never use display name alone as an object-map key unless the response proves uniqueness.
+
+### Finding 10: Cross-graph links could become ambiguous.
+
+Severity: Medium.
+
+Mitigation: Include `graph_key` in every `linked_to[]` entry. If a linked pin's owner graph cannot be resolved into the serialized graph set, count it as a dangling link rather than emitting an ambiguous partial edge.
+
+### Finding 11: Readback code could accidentally mutate or normalize the asset.
+
+Severity: High.
+
+Mitigation: Ban `Modify`, `AllocateDefaultPins`, compile, save, schema connection, and pin-breaking/linking calls in the topology read path. Source tests must check for these calls around the implementation.
+
+### Finding 12: Public docs may be newer than the target engine headers.
+
+Severity: Medium.
+
+Mitigation: Treat Epic web docs as model evidence only. The implementation gate is compilation against the target Unreal version used by deployed projects, followed by live smoke.
+
 ## Follow-On Boundaries
 
 These are intentionally not part of this slice:
@@ -359,7 +469,9 @@ These are intentionally not part of this slice:
 - Schema-compatible `connect_anim_graph_nodes`.
 - Offline `.uasset` parser parity for AnimGraph pin topology.
 - Sidecar generation for AnimGraph topology.
-- Subpin-complete serialization if the first implementation only counts them.
+- Inherited parent AnimBlueprint graph traversal and external linked anim layer asset traversal, unless those graphs are owned by the requested asset and exposed through its graph set.
+- Control Rig, StateTree, Sequencer, linked asset, or external graph serialization from nodes referenced by the AnimBlueprint.
+- Special rendering metadata for split pins beyond ID, parent, and child relationships.
 - Payload filtering such as `graph_filter`, `node_class_filter`, or `max_nodes`.
 - Derived convenience `edges[]` if the primary per-pin contract is enough.
 - Runtime pose, evaluated state, blend weights, active state, or PIE instance data.
@@ -372,12 +484,13 @@ Spec-phase verification:
 
 - Web research audit records official API evidence for `UEdGraphPin`, `UEdGraphNode`, `UBlueprint`, `UAnimBlueprint`, AnimGraph node inheritance, and state machine graph semantics.
 - Source/API audit records local source support and implementation seams.
-- Adversarial audit records graph coverage, payload, ID format, and scope risks.
+- Adversarial audit records graph coverage, payload, ID format, graph key, cross-graph link, subpin, read-purity, and scope risks.
 
 Implementation-phase verification:
 
 - Focused JS tests for schema/dispatch.
 - Focused source tests for C++ topology traversal.
+- Focused source tests for graph key generation, linked-to target graph identity, subpin recursion, no silent truncation, and read-only purity.
 - `node test-m5-animation.mjs`.
 - `node test-tcp-tools.mjs`.
 - `node test-tool-discovery-intents.mjs`.
@@ -390,12 +503,14 @@ Implementation-phase verification:
 - `get_anim_graph` accepts `include_pin_topology` and `include_pin_defaults`.
 - Existing default `get_anim_graph` response remains backward-compatible.
 - `pin_topology` uses a documented schema version.
-- `pin_topology.graphs` serializes graph entries by stable graph key.
+- `pin_topology` emits `id_format`, `complete`, `truncated`, `link_entry_count`, and `edge_count`.
+- `pin_topology.graphs` serializes graph entries by collision-safe graph key.
+- Graph entries include graph key, display name, path, class, type, and sources.
 - Each graph entry serializes nodes keyed by node GUID.
 - Each node entry serializes pins keyed by pin ID.
-- Each pin entry serializes direction, name, type summary, and `linked_to[]`.
-- Link targets include target node GUID and target pin ID.
+- Each pin entry serializes direction, name, type summary, subpin metadata, and `linked_to[]`.
+- Link targets include target graph key, target node GUID, and target pin ID.
 - Visual node metadata includes class, title, and position.
-- Dropped/dangling/orphan counters are emitted.
-- Implementation remains read-only: no compile, save, mutation, PIE, Python, or generic raw dispatch.
+- Dropped/dangling/orphan/duplicate counters are emitted.
+- Implementation remains read-only: no compile, save, mutation, pin allocation, PIE, Python, or generic raw dispatch.
 - Static and live verification boundaries are documented and enforced.
