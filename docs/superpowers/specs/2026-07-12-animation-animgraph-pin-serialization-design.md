@@ -78,13 +78,16 @@ When `include_pin_topology` is true, add a sibling object:
     "graphs": {
       "AnimGraph": {
         "graph_key": "AnimGraph",
+        "graph_guid": "<graph_guid>",
         "name": "AnimGraph",
         "path": "/Game/Characters/ABP_Example.ABP_Example:AnimGraph",
         "graph_type": "anim_graph",
         "class_name": "AnimationGraph",
+        "schema_class": "AnimationGraphSchema",
         "sources": ["get_all_graphs"],
         "nodes": {
           "<node_guid>": {
+            "graph_key": "AnimGraph",
             "node_guid": "<node_guid>",
             "class_name": "AnimGraphNode_Slot",
             "title": "DefaultSlot",
@@ -136,8 +139,10 @@ Shape rules:
 
 - `pin_topology.graphs` is an object keyed by collision-safe graph key, matching the existing Oracle-style graph map.
 - Graph key must not be raw graph name alone unless uniqueness has been proven for the response. Prefer a path-like key derived from `UEdGraph::GetPathName()` or a deterministic parent-chain key. Preserve display name separately in `name`.
-- Graph entries include `graph_key`, `name`, `path`, `class_name`, `graph_type`, and `sources[]`.
-- `nodes` is an object keyed by `UEdGraphNode::NodeGuid`.
+- Graph entries include `graph_key`, `graph_guid`, `name`, `path`, `class_name`, `schema_class`, `graph_type`, and `sources[]`.
+- `graph_guid` is serialized when `UEdGraph::GraphGuid` is valid; otherwise emit `null`. It is metadata, not the map key. Use `graph_key` for map identity because path/context is still needed for collision handling and external references.
+- `nodes` is an object keyed by `UEdGraphNode::NodeGuid` within its graph scope. Node GUIDs are not treated as globally unique across the whole AnimBlueprint.
+- Node entries include their owning `graph_key` so a node object remains self-contained when copied out of the graph map.
 - `pins` is an object keyed by `UEdGraphPin::PinId`.
 - `linked_to[]` entries use target `graph_key`, target `node_guid`, and target `pin_id`.
 - Pin directions use Unreal enum strings: `EGPD_Input`, `EGPD_Output`, or `EGPD_Unknown`.
@@ -152,7 +157,9 @@ Shape rules:
 
 ### Graph Coverage
 
-Use `UAnimBlueprint::GetAllGraphs` as the primary graph collection source because the existing implementation already uses it and it includes Blueprint-owned graphs. The implementation must verify that this covers:
+Use `UAnimBlueprint::GetAllGraphs` as the primary graph collection source because the existing implementation already uses it and UE 5.6 source verifies that `UBlueprint::GetAllGraphs` adds Blueprint-owned graphs plus child graphs. Specifically, UE 5.6 adds function graphs, macro graphs, ubergraph pages, delegate signature graphs, implemented interface graphs, and extension graphs, and calls `UEdGraph::GetAllChildrenGraphs` for each graph source.
+
+The implementation must verify that the resulting serialized set covers:
 
 - root AnimGraph
 - state machine graphs
@@ -167,7 +174,8 @@ Graph collection must be cycle-safe and duplicate-safe:
 
 - Use a visited set keyed by graph path or object identity before serialization.
 - Preserve all collection sources on a graph via `sources[]`; do not overwrite the first source when the same graph is reached from multiple paths.
-- Recurse `UEdGraph::SubGraphs` for collapsed, composite, or nested editor graph content when present, using the same visited set.
+- Treat `GetAllGraphs` output as a seed that may already contain `UEdGraph::SubGraphs`. Do not double-count child graphs if both the parent recursion and the seed output reach them.
+- If an explicit fallback recursion over `UEdGraph::SubGraphs` is still used, it must share the same visited set as the seed graph walk.
 - If two graph objects would produce the same graph key, emit a deterministic suffix and increment `duplicate_graph_keys`; do not overwrite an existing graph entry.
 - This slice serializes graphs owned by the requested AnimBlueprint asset. Inherited parent AnimBlueprint graphs, linked anim layer assets, Control Rig graphs, and external assets referenced by nodes are follow-ons unless Unreal exposes the `UEdGraph` object as part of the requested asset's graph set.
 
@@ -225,8 +233,10 @@ Also update generated/discovery text that names animation readback, including `s
 
 Validation behavior:
 
-- Unknown params must follow the existing tool schema policy; do not add broad aliases.
-- `include_pin_defaults: true` with `include_pin_topology: false` must fail validation or return a clear structured error. It must not silently imply topology, and it must not produce defaults in the lightweight response.
+- Unknown params must follow the existing tool schema policy; do not add broad aliases or a global strict-unknown change in this slice.
+- Current Node validation uses `z.object(def.schema).parse(args)`, which strips unknown params by default. The implementation must not accidentally represent that behavior as strict rejection in docs or tests.
+- `include_pin_defaults: true` with `include_pin_topology: false` must fail validation or return a clear structured error. Because the current schema table is field-only and cannot express cross-field refinement by itself, implement this as a tool-specific preflight after parse or by extending the Menhance schema executor to support custom refinements.
+- The dependency error must not silently imply topology, and it must not produce defaults in the lightweight response.
 - The Node wrapper must forward both new params exactly and preserve existing params.
 
 ### Requirement 2: Shared Editor Graph Serializer
@@ -278,13 +288,15 @@ Add tests that fail before implementation and pass after:
 
 - Node schema forwards `include_pin_topology` and `include_pin_defaults`.
 - Node schema rejects or clearly errors on `include_pin_defaults` without `include_pin_topology`.
+- Node schema tests document the current unknown-param behavior: unknown params are stripped by the existing Menhance Zod wrapper, not rejected.
 - Fake TCP response with `pin_topology` round-trips unchanged.
 - Fake TCP response includes `graph_key` on linked-to entries and verifies callers can disambiguate graph-scoped node IDs.
 - `test-m5-animation.mjs` source guard proves `HandleGetAnimGraph` reads `UEdGraphPin`, `LinkedTo`, `PinId`, `PinName`, `PinType`, `SubPins`, `ParentPin`, and owner node GUID.
+- Source guard proves graph entries serialize `GraphGuid` and schema class when available.
 - Source guard proves topology generation is gated by `include_pin_topology`.
 - Source guard proves no Python execution, no save, no compile, and no PIE dependency.
 - Source guard proves no pin allocation or mutation calls are introduced in the topology read path.
-- Source guard proves graph traversal uses a visited set and includes `UEdGraph::SubGraphs` or explicitly records why subgraphs are absent.
+- Source guard proves graph traversal uses a visited set and does not double-count `UEdGraph::SubGraphs` already included by `GetAllGraphs`.
 - Source guard proves current semantic arrays remain present.
 
 ### Requirement 5: Live Smoke Extension
@@ -308,6 +320,7 @@ It must assert:
 - `pin_topology.id_format` exists;
 - `pin_topology.graphs` is an object;
 - at least one graph exists;
+- graph entries contain `graph_key`, `graph_guid`, `name`, `path`, `class_name`, `schema_class`, and `sources[]`;
 - graph entries contain `nodes`;
 - if nodes exist, node entries contain `pins`;
 - if pin links exist, each linked-to entry contains `graph_key`, `node_guid`, and `pin_id`;
@@ -340,17 +353,38 @@ Official Epic API documentation supports the core data model. These public docs 
 
 - `UEdGraphPin` exposes `Direction`, `LinkedTo`, `PinId`, `PinName`, `PinType`, default values, `ParentPin`, and `SubPins`, which are exactly the fields and boundaries this design serializes or counts. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEdGraphPin>
 - `UEdGraphPin::HasAnyConnections` is documented in terms of the `LinkedTo` array and subpins. This supports treating `LinkedTo` as the authoritative edge source while explicitly counting subpin/orphan boundaries. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEdGraphPin>
-- `UEdGraphNode` exposes `NodeGuid`, `NodePosX`, `NodePosY`, and `Pins`. This supports including node GUID and visual position in a visual graph serialization response. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEdGraphNode>
+- `UEdGraphNode` exposes `NodeGuid`, `NodePosX`, `NodePosY`, `Pins`, and graph accessors. This supports including node GUID, owning graph, and visual position in a visual graph serialization response. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEdGraphNode>
+- `UEdGraph` exposes `Nodes`, `SubGraphs`, `GraphGuid`, and graph schema access. This supports graph-level identity, child graph coverage, and graph schema metadata. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UEdGraph>
 - `UBlueprint::GetAllGraphs` returns all graphs in a Blueprint. This supports the existing `get_anim_graph` graph collection strategy, with explicit verification for bound graph references. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UBlueprint>
+- `UBlueprintExtension` can contribute graphs through `GetAllGraphs`; UE 5.6 source shows `UBlueprint::GetAllGraphs` includes extension graphs. This matters for completeness and duplicate-safe traversal. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UBlueprintExtension>
 - `UAnimBlueprint` is a specialized Blueprint whose graphs control a skeletal mesh animation and derives from `UBlueprint`. This supports extending a Blueprint graph serializer pattern to AnimBlueprint editor graphs. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UAnimBlueprint>
 - `UAnimGraphNode_Base` derives through `UEdGraphNode` and is the base class for editor animation graph nodes that generate or consume animation pose. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimGraphNode_Base>
 - `UAnimGraphNode_StateMachineBase` derives through `UEdGraphNode` and owns an editor state machine graph. This supports walking state machine graph references, not just summary node counts. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimGraphNode_StateMachineBase>
+- `UAnimationStateMachineGraph` derives from `UEdGraph`, so state-machine contents can be serialized through the same graph/node/pin model. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimationStateMachineGraph>
+- `UAnimStateNodeBase` derives from `UEdGraphNode` and exposes `GetBoundGraph`; `UAnimStateNode` has a bound animation graph for the state. Sources: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimStateNodeBase>, <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimStateNode>
+- `UAnimStateTransitionNode` derives from `UAnimStateNodeBase`, exposes a transition rule `BoundGraph`, and exposes `GetCustomTransitionGraph`. This supports explicit traversal of transition rule and custom transition graphs. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/AnimGraph/UAnimStateTransitionNode>
 - Epic's state machine docs describe state machines as AnimBlueprint systems with states, transitions, and subgraphs inside the Anim Graph. This supports requiring state and transition bound graphs, not just root AnimGraph nodes. Source: <https://dev.epicgames.com/documentation/unreal-engine/state-machines-in-unreal-engine>
 - `FEdGraphUtilities::CloneGraph` documentation explicitly mentions deep copies of graphs including nodes, pins, and their links. This reinforces that nodes, pins, and links are the natural unit of editor graph fidelity. Source: <https://dev.epicgames.com/documentation/unreal-engine/API/Editor/UnrealEd/FEdGraphUtilities>
 
 Research conclusion: the recommended design follows the Unreal editor graph model. A per-pin `linked_to[]` topology is more faithful and more discoverable than raw command dispatch, Python probes, or counts-only summaries.
 
-### API Audit
+### Engine Header API Audit
+
+This pass verified the installed UE 5.6 headers under `C:/Program Files/Epic Games/UE_5.6/Engine/Source`, which is the implementation authority for the target engine.
+
+- `Runtime/Engine/Classes/EdGraph/EdGraphPin.h` confirms `UEdGraphPin` exposes `PinId`, `PinName`, `Direction`, `PinType`, `DefaultValue`, `AutogeneratedDefaultValue`, `DefaultObject`, `DefaultTextValue`, `LinkedTo`, `SubPins`, `ParentPin`, `bOrphanedPin`, `GetOwningNode`, `GetOwningNodeUnchecked`, `HasAnyConnections`, `SerializeAsOwningNode`, and `SerializePinArray`.
+- `Runtime/Engine/Classes/EdGraph/EdGraphNode.h` confirms `UEdGraphNode` exposes `Pins`, `NodePosX`, `NodePosY`, `NodeWidth`, `NodeHeight`, `NodeComment`, `NodeGuid`, `GetAllPins`, `GetGraph`, `GetNodeTitle`, `GetSchema`, and `AllocateDefaultPins`.
+- `Runtime/Engine/Classes/EdGraph/EdGraph.h` confirms `UEdGraph` exposes `Schema`, `Nodes`, `SubGraphs`, `GraphGuid`, `GetNodesOfClass`, and `GetAllChildrenGraphs`.
+- `Runtime/Engine/Private/EdGraph/EdGraph.cpp` confirms `GraphGuid` is initialized in `PostInitProperties` for non-template graphs and `GetAllChildrenGraphs` recursively walks `SubGraphs`.
+- `Runtime/Engine/Classes/Engine/Blueprint.h` and `Runtime/Engine/Private/Blueprint.cpp` confirm `UBlueprint::GetAllGraphs` adds function graphs, macro graphs, ubergraph pages, delegate signature graphs, implemented interface graphs, extension graphs, and each graph's child graphs.
+- `Runtime/Engine/Classes/Animation/AnimBlueprint.h` confirms `UAnimBlueprint` derives from `UBlueprint`.
+- `Editor/AnimGraph/Public/AnimGraphNode_Base.h` confirms `UAnimGraphNode_Base` derives from `UK2Node`, so normal editor graph node/pin traversal applies to animation graph nodes.
+- `Editor/AnimGraph/Public/AnimGraphNode_StateMachineBase.h` confirms state machine nodes expose `EditorStateMachineGraph`.
+- `Editor/AnimGraph/Public/AnimStateNode.h`, `AnimStateConduitNode.h`, `AnimStateTransitionNode.h`, and `AnimStateNodeBase.h` confirm state, conduit, and transition nodes expose bound graphs; transition nodes also expose `CustomTransitionGraph`.
+
+Engine header conclusion: the proposed fields and graph-reference walk are available in the target engine. The spec must guard against over-traversal because `GetAllGraphs` already includes child graphs in UE 5.6.
+
+### Repository API Audit
 
 Local source confirms the required APIs already compile in this repo baseline:
 
@@ -360,6 +394,9 @@ Local source confirms the required APIs already compile in this repo baseline:
 - `GraphTraversalHandlers.cpp` already serializes material graph `UEdGraphNode` pins and `linked_to[]`.
 - `EdgeOnlyBPSerializer.cpp` walks `UEdGraphNode::Pins` and serializes `Pin->LinkedTo` into Oracle-A-v2 graph maps.
 - `server/uasset-parser.mjs` and `offline-tools.mjs` already consume the same `graphs -> nodes -> pins -> linked_to` shape for offline Blueprint edge topology.
+- `server/offline-tools.mjs` and `server/test-verb-surface.mjs` explicitly preserve the D70 invariant that node GUIDs are graph-scoped; they do not treat node GUIDs as unique across sibling graphs.
+- `server/menhance-tcp-tools.mjs` validates Menhance tool args with `z.object(def.schema).parse(args)`. A live Node probe confirmed this strips unknown params by default, so this slice must not claim strict unknown-param rejection unless the executor policy changes deliberately.
+- `server/create-uemcp-server.mjs`, `tools.yaml`, `server/test-tcp-tools.mjs`, and `server/live-smoke-animation-readback.mjs` are all discoverability/dispatch surfaces that currently mention lightweight `get_anim_graph` only.
 
 API audit conclusion: implementation risk is not API availability. The real risks are graph coverage, stable response shape, payload size, and avoiding duplicate helper drift.
 
@@ -375,6 +412,17 @@ The first spec pass had the right direction but left several contracts underspec
 - **Completeness:** no silent truncation. The response must explicitly report `complete` and `truncated`.
 - **Read purity:** topology readback must not allocate default pins, normalize nodes, compile, save, or call mutation APIs.
 - **Discovery:** `tools.yaml`, the Node schema, and generated/discovery text must all advertise the new opt-in topology route.
+
+### Deep Verification Pass
+
+The third pass added source-backed corrections from UE 5.6 headers, UEMCP source, and current Node validation behavior:
+
+- **Graph GUID and schema metadata:** `UEdGraph` exposes `GraphGuid` and `Schema`, so graph entries must carry `graph_guid` and `schema_class` in addition to the collision-safe `graph_key`.
+- **GraphGuid is not enough:** use `graph_guid` as metadata only. The map key still needs graph path/context because repo history already treats node GUIDs as graph-scoped and graph identity must survive duplicate names.
+- **Child graph duplication:** UE 5.6 `UBlueprint::GetAllGraphs` already calls `GetAllChildrenGraphs`. The implementation must use a visited set and avoid double-counting when adding referenced graphs or fallback subgraph recursion.
+- **Extension graphs:** UE 5.6 `UBlueprint::GetAllGraphs` also includes `UBlueprintExtension` graphs. Do not replace it with a hand-built list of only AnimGraph/state-machine graphs.
+- **Cross-field validation:** current Menhance validation strips unknown params by default and has a field-only schema table. The `include_pin_defaults` dependency needs targeted preflight/refinement; it is not expressible by adding one more field to the current schema object alone.
+- **Graph-scoped node IDs:** existing offline code and tests already document that node GUIDs are scoped by graph. The AnimGraph response must keep that invariant explicit.
 
 ### Discoverability And Usability Audit
 
@@ -461,6 +509,24 @@ Severity: Medium.
 
 Mitigation: Treat Epic web docs as model evidence only. The implementation gate is compilation against the target Unreal version used by deployed projects, followed by live smoke.
 
+### Finding 13: `GetAllGraphs` plus manual subgraph recursion could double-count child graphs.
+
+Severity: High.
+
+Mitigation: Treat `GetAllGraphs` as the primary seed because UE 5.6 source shows it already calls `GetAllChildrenGraphs`. Any referenced-graph or subgraph fallback must share the visited set and update `sources[]` on existing entries instead of appending duplicates.
+
+### Finding 14: `GraphGuid` could be mistaken for the complete graph identity.
+
+Severity: Medium.
+
+Mitigation: Serialize `graph_guid` for diagnostics and cross-reference support, but keep `graph_key` as the map key and include graph path/context. Do not use raw display name or `GraphGuid` alone as the public identity.
+
+### Finding 15: Current Node validation cannot express cross-field dependency in the field-only schema table.
+
+Severity: Medium.
+
+Mitigation: Implement `include_pin_defaults` dependency through tool-specific preflight after parse or extend the Menhance schema executor deliberately. Tests must reflect current unknown-param stripping rather than inventing strict rejection.
+
 ## Follow-On Boundaries
 
 These are intentionally not part of this slice:
@@ -483,14 +549,15 @@ These are intentionally not part of this slice:
 Spec-phase verification:
 
 - Web research audit records official API evidence for `UEdGraphPin`, `UEdGraphNode`, `UBlueprint`, `UAnimBlueprint`, AnimGraph node inheritance, and state machine graph semantics.
-- Source/API audit records local source support and implementation seams.
-- Adversarial audit records graph coverage, payload, ID format, graph key, cross-graph link, subpin, read-purity, and scope risks.
+- Engine header audit records UE 5.6 API evidence for graph, node, pin, Blueprint, and AnimGraph-specific graph-reference APIs.
+- Repository API audit records local source support and implementation seams.
+- Adversarial audit records graph coverage, payload, ID format, graph key, graph GUID, cross-graph link, subpin, validation, read-purity, and scope risks.
 
 Implementation-phase verification:
 
 - Focused JS tests for schema/dispatch.
 - Focused source tests for C++ topology traversal.
-- Focused source tests for graph key generation, linked-to target graph identity, subpin recursion, no silent truncation, and read-only purity.
+- Focused source tests for graph key generation, graph GUID/schema metadata, linked-to target graph identity, subpin recursion, no duplicate child graph counting, no silent truncation, and read-only purity.
 - `node test-m5-animation.mjs`.
 - `node test-tcp-tools.mjs`.
 - `node test-tool-discovery-intents.mjs`.
@@ -505,9 +572,9 @@ Implementation-phase verification:
 - `pin_topology` uses a documented schema version.
 - `pin_topology` emits `id_format`, `complete`, `truncated`, `link_entry_count`, and `edge_count`.
 - `pin_topology.graphs` serializes graph entries by collision-safe graph key.
-- Graph entries include graph key, display name, path, class, type, and sources.
+- Graph entries include graph key, graph GUID or null, display name, path, class, schema class, type, and sources.
 - Each graph entry serializes nodes keyed by node GUID.
-- Each node entry serializes pins keyed by pin ID.
+- Each node entry includes owning graph key and serializes pins keyed by pin ID.
 - Each pin entry serializes direction, name, type summary, subpin metadata, and `linked_to[]`.
 - Link targets include target graph key, target node GUID, and target pin ID.
 - Visual node metadata includes class, title, and position.
