@@ -432,6 +432,15 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'get_anim_graph serializes UEdGraphPin fields');
   t.assert(source.includes('BuildAnimGraphTopologyIndex'),
     'get_anim_graph builds a graph-key index before link serialization');
+  t.assert(source.includes('CollectAnimGraphTopologyGraphs') &&
+    source.includes('TEXT("get_all_graphs")') &&
+    source.includes('TEXT("referenced_graph")'),
+  'pin topology preserves GetAllGraphs provenance and cross-checks referenced graphs');
+  t.assert(source.includes('EditorStateMachineGraph') &&
+    source.includes('State->GetBoundGraph()') &&
+    source.includes('Transition->GetBoundGraph()') &&
+    source.includes('Transition->GetCustomTransitionGraph()'),
+  'pin topology cross-checks state machine, state, transition, and custom transition graph references');
   t.assert(graphBlock.includes('include_pin_topology'),
     'get_anim_graph reads include_pin_topology');
   t.assert(graphBlock.includes('include_pin_defaults'),
@@ -454,6 +463,10 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'pin topology reports invalid node and pin GUIDs');
   t.assert(source.includes('duplicate_node_key_count') && source.includes('duplicate_pin_key_count'),
     'pin topology reports node and pin key collisions');
+  t.assert(source.includes('null_referenced_graph_count') &&
+    source.includes('null_linked_pin_count') &&
+    source.includes('null_linked_owner_count'),
+  'pin topology reports null referenced graphs, linked pins, and linked owners');
   t.assert(source.includes('HasAnimGraphTopologyLosses') &&
     source.includes('Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));'),
   'pin topology marks complete false for every recorded topology loss');
@@ -472,19 +485,31 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
   t.assert(topologyBlock.includes('!LinkedNodeKey || !LinkedPinKey') &&
     topologyBlock.includes('++Index.DanglingLinkCount'),
   'unserialized link endpoints are counted as dangling');
-  t.assert(topologyBlock.includes('Index.NodeGraphs.Find(LinkedNode)') &&
-    topologyBlock.includes('Index.PinNodes.Find(LinkedPin)') &&
-    topologyBlock.includes('*IndexedNodeGraph != LinkedGraph') &&
-    topologyBlock.includes('*IndexedPinNode != LinkedNode'),
+  t.assert(topologyBlock.includes('Index.PinNodes.Find(LinkedPin)') &&
+    topologyBlock.includes('Index.NodeGraphs.Find(LinkedNode)') &&
+    topologyBlock.includes('Index.GraphKeys.Find(LinkedGraph)'),
   'pin topology validates link endpoint graph and node membership');
+  t.assert(topologyBlock.includes('IndexAnimGraphPinRecursive') &&
+    topologyBlock.includes('SerializeAnimGraphPinRecursive') &&
+    topologyBlock.includes('Pin->SubPins'),
+  'pin topology recursively indexes and serializes split pins');
+  t.assert(topologyBlock.includes('SetBoolField(TEXT("is_subpin")') &&
+    topologyBlock.includes('SetArrayField(TEXT("subpin_ids")'),
+  'pin topology emits documented split-pin fields');
+  t.assert(topologyBlock.includes('SetStringField(TEXT("name")') &&
+    topologyBlock.includes('SetStringField(TEXT("class_name")') &&
+    topologyBlock.includes('SetStringField(TEXT("schema_class")'),
+  'pin topology graph entries emit documented identity and schema fields');
+  t.assert(!topologyBlock.includes('GetOwningNodeUnchecked'),
+    'pin topology resolves pin owners exclusively through indexed membership');
   t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
     'pin topology serializer remains read-only and does not normalize or mutate graph state');
 
   const pinTopologyAttachments = [
-    ...graphBlock.matchAll(/Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AllGraphs,\s*bIncludePinDefaults\)\);/g)
+    ...graphBlock.matchAll(/Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AnimBlueprint,\s*bIncludePinDefaults\)\);/g)
   ];
   t.assert(pinTopologyAttachments.length === 1 &&
-    /if\s*\(\s*bIncludePinTopology\s*\)\s*\{\s*Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AllGraphs,\s*bIncludePinDefaults\)\);\s*\}/s.test(graphBlock),
+    /if\s*\(\s*bIncludePinTopology\s*\)\s*\{\s*Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AnimBlueprint,\s*bIncludePinDefaults\)\);\s*\}/s.test(graphBlock),
   'get_anim_graph attaches pin_topology exactly once inside the include_pin_topology gate');
 
   t.assert(/Registry\.Register\(TEXT\("get_anim_graph"\),\s*&HandleGetAnimGraph\)/.test(source),

@@ -72,9 +72,45 @@ if (result.pin_topology.schema_version !== 'anim-uedgraph-pin-topology-v1') {
 if (result.pin_topology.id_format !== 'digits') {
   throw new Error(`unexpected pin_topology id_format ${result.pin_topology.id_format}`);
 }
+if (result.pin_topology.complete !== true) {
+  throw new Error(`pin_topology should report complete=true: ${JSON.stringify(result.pin_topology.dropped || {})}`);
+}
 if (result.pin_topology.truncated !== false) {
   throw new Error('pin_topology should report truncated=false in this slice');
 }
 if (!result.pin_topology.graphs || typeof result.pin_topology.graphs !== 'object') {
   throw new Error('get_anim_graph pin_topology.graphs missing');
+}
+const topologyGraphs = Object.values(result.pin_topology.graphs);
+if (topologyGraphs.length === 0) {
+  throw new Error('get_anim_graph pin_topology.graphs is empty');
+}
+if (result.pin_topology.graph_count !== topologyGraphs.length) {
+  throw new Error('get_anim_graph pin_topology.graph_count does not match graphs map');
+}
+let serializedNodeCount = 0;
+let serializedPinCount = 0;
+for (const graph of topologyGraphs) {
+  for (const field of ['name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes']) {
+    if (!(field in graph)) throw new Error(`pin_topology graph missing ${field}`);
+  }
+  const nodes = Object.values(graph.nodes);
+  if (graph.node_count !== nodes.length) throw new Error(`pin_topology graph ${graph.graph_key} node_count mismatch`);
+  serializedNodeCount += nodes.length;
+  for (const node of nodes) {
+    if (!node.pins || typeof node.pins !== 'object') throw new Error(`pin_topology node ${node.node_guid} missing pins map`);
+    const pins = Object.values(node.pins);
+    if (node.pin_count !== pins.length) throw new Error(`pin_topology node ${node.node_guid} pin_count mismatch`);
+    serializedPinCount += pins.length;
+    for (const pin of pins) {
+      for (const endpoint of pin.linked_to || []) {
+        for (const field of ['graph_key', 'node_guid', 'pin_id']) {
+          if (typeof endpoint[field] !== 'string' || !endpoint[field]) throw new Error(`pin_topology link endpoint missing ${field}`);
+        }
+      }
+    }
+  }
+}
+if (result.pin_topology.node_count !== serializedNodeCount || result.pin_topology.pin_count !== serializedPinCount) {
+  throw new Error('get_anim_graph pin_topology aggregate count mismatch');
 }

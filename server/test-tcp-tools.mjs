@@ -911,6 +911,72 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         state_machines: [{ name: 'Locomotion', states: [], transitions: [] }],
         slot_nodes: [{ graph_name: 'AnimGraph', slot_name: 'DefaultSlot' }],
         layered_blend_nodes: [],
+        pin_topology: {
+          schema_version: 'anim-uedgraph-pin-topology-v1',
+          id_format: 'digits',
+          complete: true,
+          truncated: false,
+          graph_count: 1,
+          node_count: 1,
+          pin_count: 2,
+          link_entry_count: 1,
+          edge_count: 1,
+          graphs: {
+            AnimGraph: {
+              graph_key: 'AnimGraph',
+              graph_guid: '11111111111111111111111111111111',
+              name: 'AnimGraph',
+              path: '/Game/Anim/ABP_Test.ABP_Test:AnimGraph',
+              class_name: 'AnimationGraph',
+              schema_class: 'AnimationGraphSchema',
+              graph_type: 'anim_graph',
+              sources: ['get_all_graphs'],
+              node_count: 1,
+              nodes: {
+                aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {
+                  graph_key: 'AnimGraph',
+                  node_guid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  class_name: 'AnimGraphNode_Root',
+                  title: 'Output Pose',
+                  x: 0,
+                  y: 0,
+                  pin_count: 2,
+                  pins: {
+                    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: {
+                      pin_id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                      name: 'Result',
+                      direction: 'EGPD_Input',
+                      pin_category: 'pose',
+                      pin_subcategory: '',
+                      pin_type: { category: 'pose', subcategory: '', container: 'None' },
+                      linked_to: [{
+                        graph_key: 'AnimGraph',
+                        node_guid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        pin_id: 'cccccccccccccccccccccccccccccccc',
+                      }],
+                      is_subpin: false,
+                      parent_pin_id: null,
+                      subpin_ids: [],
+                    },
+                    cccccccccccccccccccccccccccccccc: {
+                      pin_id: 'cccccccccccccccccccccccccccccccc',
+                      name: 'Source',
+                      direction: 'EGPD_Output',
+                      pin_category: 'pose',
+                      pin_subcategory: '',
+                      pin_type: { category: 'pose', subcategory: '', container: 'None' },
+                      linked_to: [],
+                      is_subpin: false,
+                      parent_pin_id: null,
+                      subpin_ids: [],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          dropped: {},
+        },
       },
     });
     const montage = await executeMenhanceTool('get_montage_full', { asset_path: '/Game/Anim/M' }, cm);
@@ -927,10 +993,32 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         include_transitions: true,
         include_node_properties: true,
         include_pin_topology: true,
-        include_pin_defaults: true,
       }, cm);
       t.assert(graph.result?.state_machines?.[0]?.name === 'Locomotion',
         'get_anim_graph pass-through from dedicated handler');
+      const topology = graph.result?.pin_topology;
+      const topologyGraphs = Object.values(topology?.graphs || {});
+      const topologyNodes = topologyGraphs.flatMap((entry) => Object.values(entry.nodes || {}));
+      const topologyPins = topologyNodes.flatMap((entry) => Object.values(entry.pins || {}));
+      t.assert(topology?.schema_version === 'anim-uedgraph-pin-topology-v1' &&
+        topology?.id_format === 'digits' && topology?.complete === true && topology?.truncated === false,
+      'get_anim_graph returns topology schema metadata and completeness flags');
+      t.assert(topology?.graph_count === topologyGraphs.length &&
+        topology?.node_count === topologyNodes.length && topology?.pin_count === topologyPins.length,
+      'get_anim_graph topology counts match serialized maps');
+      t.assert(topologyGraphs.every((entry) =>
+        ['name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes'].every((field) => field in entry)),
+      'get_anim_graph topology graph entries expose the required contract');
+      t.assert(topologyNodes.every((entry) => entry.pins && entry.pin_count === Object.keys(entry.pins).length),
+        'get_anim_graph topology nodes expose nested pins with consistent counts');
+      t.assert(topologyPins.every((entry) =>
+        ['is_subpin', 'parent_pin_id', 'subpin_ids', 'linked_to', 'pin_type'].every((field) => field in entry)),
+      'get_anim_graph topology pins expose split-pin and type contract fields');
+      t.assert(topologyPins.every((entry) => !('defaults' in entry)),
+        'get_anim_graph omits pin defaults from the default topology payload');
+      t.assert(topologyPins.flatMap((entry) => entry.linked_to).every((endpoint) =>
+        ['graph_key', 'node_guid', 'pin_id'].every((field) => typeof endpoint[field] === 'string' && endpoint[field].length > 0)),
+      'get_anim_graph topology links use graph-scoped endpoint identities');
       t.assert(fake.lastCall('get_anim_graph')?.params?.asset_path === '/Game/Anim/ABP_Test',
         'get_anim_graph dispatches to get_anim_graph wire type');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_transitions === true,
@@ -939,6 +1027,11 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         'get_anim_graph forwards include_node_properties');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_topology === true,
         'get_anim_graph forwards include_pin_topology');
+      await executeMenhanceTool('get_anim_graph', {
+        asset_path: '/Game/Anim/ABP_Test',
+        include_pin_topology: true,
+        include_pin_defaults: true,
+      }, cm);
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_defaults === true,
         'get_anim_graph forwards include_pin_defaults');
     } else {
