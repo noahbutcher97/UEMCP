@@ -24,6 +24,8 @@
 #include "AnimStateTransitionNode.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
+#include "EdGraph/EdGraphSchema.h"
 #include "Misc/FrameRate.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
@@ -201,6 +203,375 @@ namespace UEMCP
 			{
 				Out->SetField(FieldName, MakeShared<FJsonValueNull>());
 			}
+		}
+
+		struct FAnimGraphTopologyIndex
+		{
+			TArray<UEdGraph*> Graphs;
+			TMap<const UEdGraph*, FString> GraphKeys;
+			int32 DroppedNullGraphCount = 0;
+			int32 DuplicateGraphKeyCount = 0;
+			int32 NodeCount = 0;
+			int32 PinCount = 0;
+			int32 LinkEntryCount = 0;
+			int32 DanglingLinkCount = 0;
+			int32 OrphanPinCount = 0;
+			TSet<FString> UniqueEdges;
+		};
+
+		FString GuidToDigits(const FGuid& Guid)
+		{
+			return Guid.ToString(EGuidFormats::Digits);
+		}
+
+		const TCHAR* AnimGraphPinDirectionToString(EEdGraphPinDirection Direction)
+		{
+			switch (Direction)
+			{
+				case EGPD_Input: return TEXT("EGPD_Input");
+				case EGPD_Output: return TEXT("EGPD_Output");
+				default: return TEXT("EGPD_Unknown");
+			}
+		}
+
+		const TCHAR* PinContainerToString(EPinContainerType ContainerType)
+		{
+			switch (ContainerType)
+			{
+				case EPinContainerType::None: return TEXT("None");
+				case EPinContainerType::Array: return TEXT("Array");
+				case EPinContainerType::Set: return TEXT("Set");
+				case EPinContainerType::Map: return TEXT("Map");
+				default: return TEXT("Unknown");
+			}
+		}
+
+		void SetStringOrNull(const TSharedPtr<FJsonObject>& Out, const TCHAR* FieldName, const FString& Value)
+		{
+			if (Value.IsEmpty())
+			{
+				Out->SetField(FieldName, MakeShared<FJsonValueNull>());
+			}
+			else
+			{
+				Out->SetStringField(FieldName, Value);
+			}
+		}
+
+		void SetObjectPathOrNullField(const TSharedPtr<FJsonObject>& Out, const TCHAR* FieldName, const UObject* Object)
+		{
+			if (Object)
+			{
+				Out->SetStringField(FieldName, Object->GetPathName());
+			}
+			else
+			{
+				Out->SetField(FieldName, MakeShared<FJsonValueNull>());
+			}
+		}
+
+		TSharedPtr<FJsonObject> SerializeTerminalType(const FEdGraphTerminalType& TerminalType)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetStringField(TEXT("category"), TerminalType.TerminalCategory.ToString());
+			Out->SetStringField(TEXT("subcategory"), TerminalType.TerminalSubCategory.ToString());
+			SetObjectPathOrNullField(Out, TEXT("subcategory_object"), TerminalType.TerminalSubCategoryObject.Get());
+			Out->SetBoolField(TEXT("is_const"), TerminalType.bTerminalIsConst);
+			Out->SetBoolField(TEXT("is_weak_pointer"), TerminalType.bTerminalIsWeakPointer);
+			Out->SetBoolField(TEXT("is_uobject_wrapper"), TerminalType.bTerminalIsUObjectWrapper);
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimGraphPinType(const FEdGraphPinType& PinType)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			Out->SetStringField(TEXT("category"), PinType.PinCategory.ToString());
+			Out->SetStringField(TEXT("subcategory"), PinType.PinSubCategory.ToString());
+			SetObjectPathOrNullField(Out, TEXT("subcategory_object"), PinType.PinSubCategoryObject.Get());
+			Out->SetStringField(TEXT("container"), PinContainerToString(PinType.ContainerType));
+			Out->SetBoolField(TEXT("is_reference"), PinType.bIsReference);
+			Out->SetBoolField(TEXT("is_const"), PinType.bIsConst);
+			Out->SetBoolField(TEXT("is_weak_pointer"), PinType.bIsWeakPointer);
+			Out->SetBoolField(TEXT("is_uobject_wrapper"), PinType.bIsUObjectWrapper);
+			if (PinType.ContainerType == EPinContainerType::Map)
+			{
+				Out->SetObjectField(TEXT("value_terminal_type"), SerializeTerminalType(PinType.PinValueType));
+			}
+			return Out;
+		}
+
+		FString MakeGraphBaseKey(const UEdGraph* Graph)
+		{
+			if (!Graph)
+			{
+				return TEXT("Graph");
+			}
+			FString Base = Graph->GetName();
+			if (Base.IsEmpty())
+			{
+				Base = TEXT("Graph");
+			}
+			return Base;
+		}
+
+		FAnimGraphTopologyIndex BuildAnimGraphTopologyIndex(const TArray<UEdGraph*>& AllGraphs)
+		{
+			FAnimGraphTopologyIndex Index;
+			TSet<const UEdGraph*> SeenGraphs;
+			TMap<FString, int32> KeyUseCounts;
+
+			for (UEdGraph* Graph : AllGraphs)
+			{
+				if (!Graph)
+				{
+					++Index.DroppedNullGraphCount;
+					continue;
+				}
+				if (SeenGraphs.Contains(Graph))
+				{
+					continue;
+				}
+				SeenGraphs.Add(Graph);
+
+				const FString BaseKey = MakeGraphBaseKey(Graph);
+				int32& UseCount = KeyUseCounts.FindOrAdd(BaseKey);
+				FString GraphKey = BaseKey;
+				if (UseCount > 0)
+				{
+					GraphKey = FString::Printf(TEXT("%s#%d"), *BaseKey, UseCount + 1);
+					++Index.DuplicateGraphKeyCount;
+				}
+				++UseCount;
+
+				Index.Graphs.Add(Graph);
+				Index.GraphKeys.Add(Graph, GraphKey);
+			}
+
+			return Index;
+		}
+
+		FString MakeEndpointKey(const FString& GraphKey, const FGuid& NodeGuid, const FGuid& PinId)
+		{
+			return FString::Printf(TEXT("%s:%s:%s"),
+				*GraphKey,
+				*GuidToDigits(NodeGuid),
+				*GuidToDigits(PinId));
+		}
+
+		void AddUniqueEdge(FAnimGraphTopologyIndex& Index, const FString& A, const FString& B)
+		{
+			if (A.Compare(B) <= 0)
+			{
+				Index.UniqueEdges.Add(A + TEXT("<->") + B);
+			}
+			else
+			{
+				Index.UniqueEdges.Add(B + TEXT("<->") + A);
+			}
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimGraphPin(const UEdGraphPin* Pin, const FString& OwningGraphKey, FAnimGraphTopologyIndex& Index, bool bIncludePinDefaults)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			if (!Pin)
+			{
+				return Out;
+			}
+
+			const UEdGraphNode* OwningNode = Pin->GetOwningNodeUnchecked();
+			Out->SetStringField(TEXT("pin_id"), GuidToDigits(Pin->PinId));
+			Out->SetStringField(TEXT("name"), Pin->PinName.ToString());
+			Out->SetStringField(TEXT("direction"), AnimGraphPinDirectionToString(Pin->Direction));
+			Out->SetObjectField(TEXT("type"), SerializeAnimGraphPinType(Pin->PinType));
+			Out->SetNumberField(TEXT("link_count"), Pin->LinkedTo.Num());
+
+			if (Pin->ParentPin)
+			{
+				Out->SetStringField(TEXT("parent_pin_id"), GuidToDigits(Pin->ParentPin->PinId));
+			}
+			else
+			{
+				Out->SetField(TEXT("parent_pin_id"), MakeShared<FJsonValueNull>());
+			}
+
+			TArray<TSharedPtr<FJsonValue>> SubPinIds;
+			SubPinIds.Reserve(Pin->SubPins.Num());
+			for (const UEdGraphPin* SubPin : Pin->SubPins)
+			{
+				if (SubPin)
+				{
+					SubPinIds.Add(MakeShared<FJsonValueString>(GuidToDigits(SubPin->PinId)));
+				}
+			}
+			Out->SetArrayField(TEXT("sub_pin_ids"), SubPinIds);
+
+#if WITH_EDITORONLY_DATA
+			const bool bOrphaned = Pin->bOrphanedPin != 0;
+			Out->SetBoolField(TEXT("orphaned"), bOrphaned);
+			if (bOrphaned)
+			{
+				++Index.OrphanPinCount;
+			}
+#else
+			Out->SetBoolField(TEXT("orphaned"), false);
+#endif
+
+			if (bIncludePinDefaults)
+			{
+				TSharedPtr<FJsonObject> Defaults = MakeShared<FJsonObject>();
+				Defaults->SetStringField(TEXT("default_value"), Pin->DefaultValue);
+				Defaults->SetStringField(TEXT("autogenerated_default_value"), Pin->AutogeneratedDefaultValue);
+				SetObjectPathOrNullField(Defaults, TEXT("default_object"), Pin->DefaultObject.Get());
+				Defaults->SetStringField(TEXT("default_text_value"), Pin->DefaultTextValue.ToString());
+				Out->SetObjectField(TEXT("defaults"), Defaults);
+			}
+
+			TArray<TSharedPtr<FJsonValue>> LinkedTo;
+			LinkedTo.Reserve(Pin->LinkedTo.Num());
+			for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			{
+				const UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
+				const UEdGraph* LinkedGraph = LinkedNode ? LinkedNode->GetGraph() : nullptr;
+				const FString* LinkedGraphKey = LinkedGraph ? Index.GraphKeys.Find(LinkedGraph) : nullptr;
+				if (!LinkedPin || !LinkedNode || !LinkedGraphKey)
+				{
+					++Index.DanglingLinkCount;
+					continue;
+				}
+
+				TSharedPtr<FJsonObject> LinkJson = MakeShared<FJsonObject>();
+				LinkJson->SetStringField(TEXT("graph_key"), *LinkedGraphKey);
+				LinkJson->SetStringField(TEXT("node_guid"), GuidToDigits(LinkedNode->NodeGuid));
+				LinkJson->SetStringField(TEXT("pin_id"), GuidToDigits(LinkedPin->PinId));
+				LinkJson->SetStringField(TEXT("pin_name"), LinkedPin->PinName.ToString());
+				LinkedTo.Add(MakeShared<FJsonValueObject>(LinkJson));
+
+				++Index.LinkEntryCount;
+				if (OwningNode)
+				{
+					AddUniqueEdge(
+						Index,
+						MakeEndpointKey(OwningGraphKey, OwningNode->NodeGuid, Pin->PinId),
+						MakeEndpointKey(*LinkedGraphKey, LinkedNode->NodeGuid, LinkedPin->PinId));
+				}
+			}
+			Out->SetArrayField(TEXT("linked_to"), LinkedTo);
+
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimGraphTopologyNode(const UEdGraphNode* Node, const FString& GraphKey, FAnimGraphTopologyIndex& Index, bool bIncludePinDefaults)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			if (!Node)
+			{
+				return Out;
+			}
+
+			Out->SetStringField(TEXT("node_guid"), GuidToDigits(Node->NodeGuid));
+			Out->SetStringField(TEXT("graph_key"), GraphKey);
+			Out->SetStringField(TEXT("class"), Node->GetClass()->GetPathName());
+			Out->SetStringField(TEXT("class_name"), Node->GetClass()->GetName());
+			Out->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+			Out->SetNumberField(TEXT("x"), Node->NodePosX);
+			Out->SetNumberField(TEXT("y"), Node->NodePosY);
+
+			TSharedPtr<FJsonObject> Pins = MakeShared<FJsonObject>();
+			for (const UEdGraphPin* Pin : Node->Pins)
+			{
+				if (!Pin)
+				{
+					continue;
+				}
+				++Index.PinCount;
+				Pins->SetObjectField(GuidToDigits(Pin->PinId), SerializeAnimGraphPin(Pin, GraphKey, Index, bIncludePinDefaults));
+			}
+			Out->SetObjectField(TEXT("pins"), Pins);
+			Out->SetNumberField(TEXT("pin_count"), Node->Pins.Num());
+
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimGraphTopologyGraph(UEdGraph* Graph, const FString& GraphKey, FAnimGraphTopologyIndex& Index, bool bIncludePinDefaults)
+		{
+			TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+			if (!Graph)
+			{
+				return Out;
+			}
+
+			Out->SetStringField(TEXT("graph_key"), GraphKey);
+			Out->SetStringField(TEXT("display_name"), Graph->GetName());
+			Out->SetStringField(TEXT("path"), Graph->GetPathName());
+			Out->SetStringField(TEXT("class"), Graph->GetClass()->GetPathName());
+			Out->SetStringField(TEXT("graph_type"), ClassifyAnimBlueprintGraph(Graph));
+			if (Graph->GraphGuid.IsValid())
+			{
+				Out->SetStringField(TEXT("graph_guid"), GuidToDigits(Graph->GraphGuid));
+			}
+			else
+			{
+				Out->SetField(TEXT("graph_guid"), MakeShared<FJsonValueNull>());
+			}
+			const UEdGraphSchema* Schema = Graph->GetSchema();
+			SetObjectPathOrNullField(Out, TEXT("schema_class"), Schema ? Schema->GetClass() : nullptr);
+
+			TArray<TSharedPtr<FJsonValue>> Sources;
+			Sources.Add(MakeShared<FJsonValueString>(TEXT("UAnimBlueprint::GetAllGraphs")));
+			Out->SetArrayField(TEXT("sources"), Sources);
+
+			TSharedPtr<FJsonObject> Nodes = MakeShared<FJsonObject>();
+			for (const UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (!Node)
+				{
+					continue;
+				}
+				++Index.NodeCount;
+				Nodes->SetObjectField(GuidToDigits(Node->NodeGuid), SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
+			}
+			Out->SetObjectField(TEXT("nodes"), Nodes);
+			Out->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
+
+			return Out;
+		}
+
+		TSharedPtr<FJsonObject> SerializeAnimGraphPinTopology(const TArray<UEdGraph*>& AllGraphs, bool bIncludePinDefaults)
+		{
+			FAnimGraphTopologyIndex Index = BuildAnimGraphTopologyIndex(AllGraphs);
+
+			TSharedPtr<FJsonObject> Graphs = MakeShared<FJsonObject>();
+			for (UEdGraph* Graph : Index.Graphs)
+			{
+				const FString* GraphKey = Index.GraphKeys.Find(Graph);
+				if (!GraphKey)
+				{
+					++Index.DanglingLinkCount;
+					continue;
+				}
+				Graphs->SetObjectField(*GraphKey, SerializeAnimGraphTopologyGraph(Graph, *GraphKey, Index, bIncludePinDefaults));
+			}
+
+			TSharedPtr<FJsonObject> Dropped = MakeShared<FJsonObject>();
+			Dropped->SetNumberField(TEXT("null_graph_count"), Index.DroppedNullGraphCount);
+			Dropped->SetNumberField(TEXT("dangling_link_count"), Index.DanglingLinkCount);
+			Dropped->SetNumberField(TEXT("orphan_pin_count"), Index.OrphanPinCount);
+			Dropped->SetNumberField(TEXT("duplicate_graph_key_count"), Index.DuplicateGraphKeyCount);
+
+			TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+			Root->SetStringField(TEXT("schema_version"), TEXT("anim-uedgraph-pin-topology-v1"));
+			Root->SetStringField(TEXT("id_format"), TEXT("digits"));
+			Root->SetBoolField(TEXT("complete"), Index.DanglingLinkCount == 0 && Index.DroppedNullGraphCount == 0);
+			Root->SetBoolField(TEXT("truncated"), false);
+			Root->SetBoolField(TEXT("includes_pin_defaults"), bIncludePinDefaults);
+			Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num());
+			Root->SetNumberField(TEXT("node_count"), Index.NodeCount);
+			Root->SetNumberField(TEXT("pin_count"), Index.PinCount);
+			Root->SetNumberField(TEXT("link_entry_count"), Index.LinkEntryCount);
+			Root->SetNumberField(TEXT("edge_count"), Index.UniqueEdges.Num());
+			Root->SetObjectField(TEXT("dropped"), Dropped);
+			Root->SetObjectField(TEXT("graphs"), Graphs);
+			return Root;
 		}
 
 		TSharedPtr<FJsonObject> SerializeEditorGraphNode(const UEdGraphNode* Node, const TCHAR* Kind)
@@ -716,6 +1087,15 @@ namespace UEMCP
 
 			const bool bIncludeTransitions = GetOptionalBool(Params, TEXT("include_transitions"), true);
 			const bool bIncludeNodeProperties = GetOptionalBool(Params, TEXT("include_node_properties"), false);
+			const bool bIncludePinTopology = GetOptionalBool(Params, TEXT("include_pin_topology"), false);
+			const bool bIncludePinDefaults = GetOptionalBool(Params, TEXT("include_pin_defaults"), false);
+			if (bIncludePinDefaults && !bIncludePinTopology)
+			{
+				BuildErrorResponse(OutResponse,
+					TEXT("get_anim_graph include_pin_defaults requires include_pin_topology=true"),
+					TEXT("PIN_DEFAULTS_REQUIRE_TOPOLOGY"));
+				return;
+			}
 
 			const FString ObjectPath = UEMCP::ToObjectPath(AssetPath);
 			UObject* Asset = LoadObject<UObject>(nullptr, *ObjectPath);
@@ -802,6 +1182,10 @@ namespace UEMCP
 			Result->SetArrayField(TEXT("state_machines"), StateMachines);
 			Result->SetArrayField(TEXT("slot_nodes"), SlotNodes);
 			Result->SetArrayField(TEXT("layered_blend_nodes"), LayeredBlendNodes);
+			if (bIncludePinTopology)
+			{
+				Result->SetObjectField(TEXT("pin_topology"), SerializeAnimGraphPinTopology(AllGraphs, bIncludePinDefaults));
+			}
 			Result->SetArrayField(TEXT("unsupported_runtime_fields"), SerializeRuntimeUnsupportedFields());
 
 			BuildSuccessResponse(OutResponse, Result);

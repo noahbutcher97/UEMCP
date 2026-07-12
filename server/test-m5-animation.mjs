@@ -420,6 +420,43 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
   t.assert(!/run_python_command|IPythonScriptPlugin|FPythonCommand/i.test(graphBlock),
     'get_anim_graph does not use Python execution');
 
+  t.assert(source.includes('#include "EdGraph/EdGraphPin.h"'),
+    'get_anim_graph includes UEdGraphPin header for pin topology');
+  t.assert(source.includes('#include "EdGraph/EdGraphSchema.h"'),
+    'get_anim_graph includes UEdGraphSchema header for schema metadata');
+  t.assert(source.includes('SerializeAnimGraphPinTopology'),
+    'get_anim_graph has a dedicated pin topology serializer');
+  t.assert(source.includes('SerializeAnimGraphTopologyNode'),
+    'get_anim_graph serializes topology nodes separately from summary nodes');
+  t.assert(source.includes('SerializeAnimGraphPin('),
+    'get_anim_graph serializes UEdGraphPin fields');
+  t.assert(source.includes('BuildAnimGraphTopologyIndex'),
+    'get_anim_graph builds a graph-key index before link serialization');
+  t.assert(graphBlock.includes('include_pin_topology'),
+    'get_anim_graph reads include_pin_topology');
+  t.assert(graphBlock.includes('include_pin_defaults'),
+    'get_anim_graph reads include_pin_defaults');
+  t.assert(graphBlock.includes('PIN_DEFAULTS_REQUIRE_TOPOLOGY'),
+    'get_anim_graph rejects pin defaults without topology at C++ layer');
+  t.assert(graphBlock.includes('SetObjectField(TEXT("pin_topology")'),
+    'get_anim_graph attaches pin_topology only when requested');
+  t.assert(source.includes('EGuidFormats::Digits'),
+    'pin topology uses explicit digits GUID format');
+  t.assert(source.includes('SetBoolField(TEXT("truncated"), false)'),
+    'pin topology explicitly reports non-truncated payloads');
+  t.assert(source.includes('dangling_link_count'),
+    'pin topology reports dangling link count');
+  t.assert(source.includes('duplicate_graph_key_count'),
+    'pin topology reports duplicate graph-key count');
+
+  const topologyStart = source.indexOf('struct FAnimGraphTopologyIndex');
+  const topologyEnd = source.indexOf('TSharedPtr<FJsonObject> SerializeEditorGraphNode', topologyStart);
+  const topologyBlock = topologyStart >= 0 && topologyEnd > topologyStart
+    ? source.slice(topologyStart, topologyEnd)
+    : '';
+  t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
+    'pin topology serializer remains read-only and does not normalize or mutate graph state');
+
   t.assert(/Registry\.Register\(TEXT\("get_anim_graph"\),\s*&HandleGetAnimGraph\)/.test(source),
     'get_anim_graph is registered on the live TCP command registry');
 }
