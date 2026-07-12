@@ -7,17 +7,14 @@
 /**
  * Blueprints-write handlers on TCP:55558.
  *
- * Replaces the conformance oracle (UnrealMCP plugin BlueprintCommands +
- * BlueprintNodeCommands, TCP:55557) per D23. Wire-shape parity preserved
- * for migrated callers — only the response envelope is upgraded to P0-1
- * (every error now carries a structured `code`).
+ * Stable response field names and types support existing callers. Every error
+ * carries the P0-1 structured `code` field.
  *
- * Per conformance-oracle-contracts.md §8.1, the 6 BlueprintNodeCommands
- * "orphans" (function_node, variable, self_reference, component_reference,
+ * The six graph-authoring commands (function_node, variable, self_reference, component_reference,
  * connect_nodes, find_nodes) were already absorbed into the blueprints-write
  * toolset, giving 15 total endpoints — NOT 21 as the M3 handoff prose
  * suggested. The orphan-handler "dispatch shape" is one named handler per
- * command type (mirrors oracle + M3-actors precedent), not a single
+ * command type, not a single
  * dispatched-by-node-type handler.
  *
  * Handlers shipped (matching tools.yaml `blueprints-write:` toolset):

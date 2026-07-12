@@ -60,7 +60,7 @@ namespace UEMCP
 		{
 			return false;
 		}
-		// [pitch, yaw, roll] — matches legacy 55557 convention (see tcp-protocol.md / P0-4).
+		// [pitch, yaw, roll] is the UEMCP rotation array order.
 		OutRot = FRotator(Values[0], Values[1], Values[2]);
 		return true;
 	}

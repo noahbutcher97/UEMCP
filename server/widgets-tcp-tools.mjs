@@ -1,15 +1,10 @@
-// Widgets toolset TCP handlers — M3 (D23 oracle retirement).
+// Widgets toolset TCP handlers.
 //
-// 7 tools dispatching to the UEMCP custom plugin on TCP:55558. Replaces the
-// legacy widgets section of tcp-tools.mjs, which routed to the conformance
-// oracle (UnrealMCP plugin, TCP:55557).
+// 7 tools dispatch to the UEMCP custom plugin on TCP:55558.
 //
-// Wire-shape parity preserved against the oracle for the 5 working handlers
-// (per docs/specs/conformance-oracle-contracts.md §4); the 2 previously-
-// broken handlers (set_text_block_binding, add_widget_to_viewport) ship
-// CORRECTED behavior — their oracle responses don't match the new shape
-// because the rebuild fixes the bug. See plugin/.../WidgetHandlers.cpp
-// for the bug-fix details.
+// The toolset keeps stable command names. The previously broken
+// set_text_block_binding and add_widget_to_viewport handlers use corrected
+// response behavior. See plugin/.../WidgetHandlers.cpp for details.
 //
 // Convention matches actors-tcp-tools.mjs (M3-actors precedent, D93):
 // {description, schema, isReadOp} per tool, wire_type translation via

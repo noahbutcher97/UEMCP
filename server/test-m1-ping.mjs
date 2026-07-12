@@ -194,7 +194,6 @@ async function main() {
     const cm = new ConnectionManager({
       projectRoot: process.env.UNREAL_PROJECT_ROOT || '',
       tcpPortCustom: PORT,
-      tcpPortExisting: 55557,
       tcpTimeoutMs: READ_TIMEOUT_MS,
     });
     const cmResp = await cm.send('tcp-55558', 'ping', {}, { skipCache: true });

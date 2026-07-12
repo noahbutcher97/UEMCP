@@ -26,7 +26,7 @@ docs/
 
 **New contributor / agent onboarding**:
 1. `../CLAUDE.md` — current project state, test baseline, in-flight dispatches, design rules
-2. `specs/architecture.md` — 4-layer model
+2. `specs/architecture.md` — current transport model
 3. `specs/dynamic-toolsets.md` — how the tool-surface loads
 4. `../tools.yaml` — tool definitions (single source of truth per D44)
 5. `tracking/risks-and-decisions.md` — D1-D188 decision log (load-bearing context)
@@ -46,14 +46,14 @@ docs/
 ### specs/ — system design
 | File | Covers |
 |---|---|
-| [architecture.md](specs/architecture.md) | 4-layer architecture, auto-detection chain, caching |
+| [architecture.md](specs/architecture.md) | Current transport architecture, auto-detection chain, caching |
 | [plugin-design.md](specs/plugin-design.md) | Custom C++ plugin design, TCP protocol, command routing |
 | [dynamic-toolsets.md](specs/dynamic-toolsets.md) | Always-loaded tools, ToolIndex scoring, alias expansion |
 | [tool-surface.md](specs/tool-surface.md) | Tool count summary, toolset registry |
 | [blueprint-introspection.md](specs/blueprint-introspection.md) | Graph serialization design, visual capture |
 | [configuration.md](specs/configuration.md) | `.mcp.json` config, env vars, ConnectionManager |
-| [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | All 36 UnrealMCP command contracts (Phase 2 reference) |
-| [tcp-protocol.md](specs/tcp-protocol.md) | Wire format, command/response schema |
+| [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | Archival Phase 2 conformance reference; not a current setup or runtime guide |
+| [tcp-protocol.md](specs/tcp-protocol.md) | Archival retired-bridge wire-format reference; not a current setup or runtime guide |
 | [phase3-plugin-design-inputs.md](specs/phase3-plugin-design-inputs.md) | Phase 3 plugin-layer design inputs (P0 helpers, envelope) |
 
 ### plans/ — implementation

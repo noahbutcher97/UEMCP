@@ -12,17 +12,16 @@ This file provides guidance to Claude when working with code in this repository.
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
-## Architecture — 4-Layer Connection Model
+## Architecture — Active Runtime Layers
 
 ```
-Claude ↔ MCP Server (stdio) ↔ 4 layers:
-  Layer 1: Offline     — disk reads (Source/, Config/, .uproject)
-  Layer 2: TCP:55558   — custom UEMCP C++ plugin (editor/live tools)
-  Layer 3: HTTP:30010  — Remote Control API (RC primitives + delegates)
-  Layer 4: Historical  — TCP:55557 UnrealMCP conformance references only
+Claude ↔ MCP Server (stdio) ↔ active runtime layers:
+  offline      — project-file reads after attachment
+  tcp-55558    — UEMCP editor plugin commands
+  http-30010   — Unreal Remote Control HTTP
 ```
 
-**Current port ownership**: `tools.yaml` has no active `tcp-55557` toolsets. Active editor tools route through `tcp-55558`; RC primitives and RC-backed semantic delegates use `http-30010`. Older D-log references to `tcp-55557` are historical context for the Phase 2 oracle.
+`tools.yaml` defines active toolset ownership. Dated conformance-oracle documents are archival provenance only; they are not setup or runtime guidance.
 
 ## Dynamic Toolset System
 
@@ -35,20 +34,9 @@ Claude ↔ MCP Server (stdio) ↔ 4 layers:
 
 **ToolIndex search** (`tool-index.mjs`): 6-tier weighted scoring — FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases from tools.yaml `aliases:` + hardcoded supplements.
 
-## TCP Wire Protocol (Historical Conformance Oracle — TCP:55557)
+## TCP Wire Protocol
 
-The old UnrealMCP plugin was the Phase 2 conformance oracle. **Do not infer current routing from this** — active editor tools use TCP:55558.
-
-- **Connect → Send → Read → Close** per command (no persistent connection)
-- **Request format**: `{"type": "<command_name>", "params": {...}}` — field is `type`, NOT `command`
-- **No newline terminator** on request
-- **Response**: JSON object, parsed by accumulating chunks until valid JSON. No length framing on the legacy port.
-- **Error responses**: Two formats — `{"status": "error", "error": "msg"}` and `{"success": false, "message": "msg"}`. ConnectionManager normalizes both.
-- **Serialized per-layer**: CommandQueue ensures one in-flight command per TCP layer
-- **Health check**: `ping` command, 3s timeout, results cached for 30s
-- **Read-op caching**: ResultCache (SHA-256 keyed, 5min TTL). Write-ops set `skipCache: true`.
-
-The UEMCP plugin on TCP:55558 owns the active TCP editor surface and adds length-framed wire (`Content-Length: <bytes>\r\n\r\n<body>`); see D140 / `connection-manager.mjs _FRAMED_PORTS` for per-port routing.
+The UEMCP plugin on TCP:55558 owns the active TCP editor surface and uses a length-framed wire format (`Content-Length: <bytes>\r\n\r\n<body>`). Requests carry `type` and `params`; the connection manager serializes commands per layer, performs health checks, and caches eligible read operations.
 
 ## Sibling MCP Servers
 
@@ -62,29 +50,18 @@ UEMCP follows conventions from `~/.claude/mcp-servers/`:
 
 All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP follows.
 
-## Existing UnrealMCP C++ Plugin Structure
-
-The conformance oracle at `<PROJECT_ROOT>\Plugins\UnrealMCP\`:
-
-- `MCPServerRunnable` — `FRunnable`-based TCP listener on 55557
-- Command files (the pattern we replicate/improve on 55558): `UnrealMCPBlueprintCommands.cpp`, `UnrealMCPEditorCommands.cpp`, `UnrealMCPActorCommands.cpp`, `UnrealMCPUMGCommands.cpp`
-- Each registers handlers keyed by the JSON `type` field
-- **Known issues** fixed in our reimplementation: no error normalization, limited introspection, no batch support
-
-Also at `<PROJECT_ROOT>\Plugins\`: `unreal-mcp-main` (third-party Python MCP server, not used in production) and `NodeToCode-main` (separate BP-to-code tool, not part of UEMCP).
-
 ## Current State
 
 ### Implemented
 - MCP server with stdio transport (`server/server.mjs`)
 - Offline toolset declares 25 tools in `tools.yaml`
 - `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files). **Multi-version: UE 5.3 / 5.6 / 5.7** — version-gated `EUnrealEngineObjectUE5Version` reads (incl. 5.7's `IMPORT_TYPE_HIERARCHIES` summary field, D166); verified 0 errors across whole 5.7 (338) + 5.3 (1255) projects, header + Level-2.5 decode.
-- ToolIndex, ToolsetManager, ConnectionManager (4-layer; `tcpCommandFn` mock seam for tests)
+- ToolIndex, ToolsetManager, ConnectionManager (active-layer routing; `tcpCommandFn` mock seam for tests)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions
 - Phase 2 TCP toolsets: actors (10), blueprints-write (27), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
-- Conformance oracle research: 36 UnrealMCP C++ contracts at `docs/specs/conformance-oracle-contracts.md`
+- Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
 - Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **2734 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 51 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
@@ -124,7 +101,7 @@ UEMCP/
 │   ├── widgets-tcp-tools.mjs   ← widgets toolset TCP handlers
 │   ├── tool-index.mjs          ← search + scoring + alias expansion
 │   ├── toolset-manager.mjs     ← enable/disable, SDK handle integration
-│   ├── connection-manager.mjs  ← 4-layer routing, mock seam, ResultCache, MetricsAggregator
+│   ├── connection-manager.mjs  ← active routing, mock seam, ResultCache, MetricsAggregator
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
 │   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
@@ -378,7 +355,7 @@ The bust is **broad** (clears all read entries; TCP + RC share `_cache`), not pe
 ### E-1 connection-layer hygiene + EN-23 metrics (D140)
 
 Five hygiene fixes shipped together:
-- **§1 Length-framed wire** (`Content-Length:` LSP/DAP convention) per-port: tcp-55558 framed, tcp-55557 legacy (frozen oracle); auto-detect on incoming
+- **§1 Length-framed wire** (`Content-Length:` LSP/DAP convention) for the UEMCP TCP transport; auto-detect on incoming
 - **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() uses `WaitForPendingConnection(500ms)` instead of `Sleep(0.05f)`
 - **§3 Event-driven recv** — `ServeOneConnection` uses `Wait(WaitForRead, 50ms)` instead of `Sleep(0.01f)`
 - **§4 Loopback-only bind** — listener on `FIPv4Address::InternalLoopback` (127.0.0.1), not 0.0.0.0; bound in `UEMCPModule.cpp:47-50` (not `MCPServerRunnable.cpp`); security hardening
@@ -478,8 +455,6 @@ In Cowork mode (Claude Desktop), config lives in `claude_desktop_config.json` an
 
 - **Project A**: primary target (combat game) — Perforce
 - **Project B**: secondary target (BreakOut-style) — separate Perforce depot
-- **Existing UnrealMCP**: `<PROJECT_ROOT>\Plugins\UnrealMCP\` (TCP:55557) — conformance oracle, deprecated post-Phase 3
-- **unreal-mcp-main**: third-party Python MCP server, not used in production
 - **NodeToCode-main**: BP-to-code plugin, not part of UEMCP
 
 ## Documentation Reading Order
@@ -488,4 +463,4 @@ In Cowork mode (Claude Desktop), config lives in `claude_desktop_config.json` an
 
 **Quick reference**: `tools.yaml` → `docs/specs/dynamic-toolsets.md` → `docs/tracking/risks-and-decisions.md`
 
-**Phase 2 (TCP client)**: `docs/specs/conformance-oracle-contracts.md` → `docs/specs/tcp-protocol.md` → `docs/plans/testing-strategy.md` (Tests 9-13 + Lessons Learned)
+**Archival Phase 2 reference**: `docs/specs/conformance-oracle-contracts.md` -> `docs/specs/tcp-protocol.md` -> `docs/plans/testing-strategy.md` (Tests 9-13 + Lessons Learned; not current runtime guidance)

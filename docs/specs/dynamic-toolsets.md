@@ -47,7 +47,7 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `sidecar` | 1 | TCP:55558 | Narrow-sidecar regeneration |
 | `remote-control` | 8 | HTTP:30010 | RC get/set property, call function, list/describe objects, batch, presets, passthrough |
 
-**Subtotals from `tools.yaml`**: 10 always-loaded management tools plus dynamic project-scoped toolsets. Layer totals are derived from `tools.yaml`; do not hardcode counts outside registry truthfulness tests. There are no active TCP:55557 toolsets in the current registry.
+**Subtotals from `tools.yaml`**: 10 always-loaded management tools plus dynamic project-scoped toolsets. Layer totals are derived from `tools.yaml`; do not hardcode counts outside registry truthfulness tests.
 
 ## Tool Deduplication (Audit Fixes)
 

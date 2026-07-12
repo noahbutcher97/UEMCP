@@ -4,7 +4,7 @@
 // test-m3-actors.mjs structure (Groups 1-11) adapted to the BP-write surface:
 //   - Port routing → 55558 (oracle retirement, D23)
 //   - Wire-type translation via tools.yaml
-//   - Conformance shape parity vs canned oracle TCP:55557 fixtures
+//   - Historical conformance-shape fixtures retained only to prove UEMCP response normalization.
 //   - P0-1 error propagation (with code field)
 //   - P0-9 / P0-10 defense-in-depth Zod validation
 //   - Caching: read ops cached (find_nodes only), write ops skipCache
@@ -420,10 +420,10 @@ console.log('\n── Group 3: Wire-type Translation ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Group 4: Conformance shape parity — oracle TCP:55557 fixtures
+// Group 4: Historical conformance-shape response fixtures
 // ═══════════════════════════════════════════════════════════════
 //
-// The fixtures here represent canned oracle responses from TCP:55557.
+// Historical conformance-shape fixtures retained only to prove UEMCP response normalization.
 // The TCP:55558 implementation must produce wire-equivalent responses
 // modulo the P0-1 envelope (which adds `code` to error responses).
 
@@ -968,7 +968,6 @@ console.log('\n── Group 10: Transport Errors ──');
   const errTimeout = new ErrorTcpResponder('timeout');
   const config1 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errTimeout.handler(),
@@ -986,7 +985,6 @@ console.log('\n── Group 10: Transport Errors ──');
   const errRefused = new ErrorTcpResponder('connection_refused');
   const config2 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errRefused.handler(),

@@ -90,7 +90,7 @@ namespace UEMCP
 		//
 		// Asset-creation handlers must persist via SavePackage so the .uasset lands on
 		// disk before the response goes back. Without this the asset only lives in
-		// memory until editor exit — surveyed-as-broken pattern in legacy UnrealMCP.
+		// memory until editor exit, which would leave the created asset unavailable on disk.
 
 		bool SaveAssetPackage(UPackage* Package, FString& OutErrorMessage)
 		{

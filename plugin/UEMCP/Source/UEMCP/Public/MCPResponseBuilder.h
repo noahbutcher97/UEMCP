@@ -13,8 +13,7 @@
  *                   (D144) for handlers that need to surface structured
  *                   context (allowed_values, matched_paths, etc.) to clients.
  *
- * Breaking change vs. legacy UnrealMCP (port 55557) which used three coexisting
- * shapes. Clients on port 55558 can key off `status` alone. See
+ * Clients on port 55558 can key off `status` alone. See
  * docs/specs/phase3-plugin-design-inputs.md P0-1.
  */
 namespace UEMCP

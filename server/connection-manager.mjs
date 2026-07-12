@@ -1,8 +1,7 @@
-// ConnectionManager — manages connections to all 4 layers
+// ConnectionManager — manages connections to current UEMCP layers
 //
 // Layers:
 //   offline    — always available if projectRoot is set
-//   tcp-55557  — existing UnrealMCP plugin (Phase 2)
 //   tcp-55558  — new UEMCP plugin (Phase 3 / M1)
 //   http-30010 — Remote Control API (D66 HYBRID — activated inside M-enhance)
 //
@@ -31,23 +30,6 @@ const LayerStatus = {
 const ACTIVE_LAYER_KEYS = Object.freeze(['offline', 'tcp-55558', 'http-30010']);
 
 // ── TCP Client (connect-per-command) ────────────────────────
-
-/**
- * The custom UEMCP plugin port. Length-framing is OUTGOING only on this port —
- * the frozen UnrealMCP oracle on tcp-55557 (D23) cannot accept Content-Length
- * headers because its parse-loop will choke on the leading 'C'. Per-port routing
- * preserves oracle compatibility while letting the new plugin benefit from
- * unambiguous framing. Incoming response framing is auto-detected on either port
- * (so the new plugin's framed responses work transparently from 55558).
- *
- * This constant is hardcoded rather than threaded from config because tcpCommand
- * is module-scoped (test seams replace it wholesale via _tcpCommandFn) and the
- * port mapping is not user-configurable in a meaningful way — 55557 is the
- * oracle's fixed port and 55558 is UEMCP's. If a future deployment needs a
- * different layout, the per-port routing can be threaded as an explicit
- * parameter; YAGNI for now.
- */
-const FRAMED_PORTS = new Set([55558]);
 
 /**
  * Detect length-framed response. Sniffs first bytes for "Content-Length:" prefix
@@ -87,14 +69,12 @@ function _detectResponseFraming(buf) {
 }
 
 /**
- * Send a single command over TCP, following the existing plugin's protocol.
+ * Send a single command over TCP using the UEMCP protocol.
  * Opens socket → sends JSON → reads until valid JSON → closes socket.
  *
- * E-1 §1: outgoing length-framing applies only on FRAMED_PORTS (55558 — UEMCP
- * custom plugin). The frozen UnrealMCP oracle on 55557 (D23) stays unframed.
- * Incoming response framing is auto-detected on EITHER port — the new plugin's
- * framed responses parse via the framed path; legacy unframed responses parse
- * via the JSON-parse-completion path.
+ * E-1 §1: outgoing requests are length-framed. Incoming response framing is
+ * auto-detected so older deployed UEMCP builds
+ * that emit plain JSON continue to parse during upgrade windows.
  *
  * E-1 §6 (EN-23): if `metrics` is provided, per-phase timings are recorded.
  *
@@ -155,15 +135,10 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
     socket.on('connect', () => {
       tConnected = process.hrtime.bigint();
       const body = JSON.stringify({ type, params: params || {} });
-      if (FRAMED_PORTS.has(port)) {
-        // E-1 §1: emit Content-Length-framed request to the UEMCP custom plugin.
-        const bodyBuf = Buffer.from(body, 'utf-8');
-        const headerBuf = Buffer.from(`Content-Length: ${bodyBuf.length}\r\n\r\n`, 'utf-8');
-        socket.write(Buffer.concat([headerBuf, bodyBuf]));
-      } else {
-        // Legacy oracle path (tcp-55557): no framing, no newline terminator.
-        socket.write(body);
-      }
+      // E-1 §1: emit Content-Length-framed request to the UEMCP plugin.
+      const bodyBuf = Buffer.from(body, 'utf-8');
+      const headerBuf = Buffer.from(`Content-Length: ${bodyBuf.length}\r\n\r\n`, 'utf-8');
+      socket.write(Buffer.concat([headerBuf, bodyBuf]));
       tSent = process.hrtime.bigint();
     });
 
@@ -242,9 +217,8 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
   });
 }
 
-// E-1 §1: export framing helpers so unit tests can validate framing detection
-// without intercepting node:net. Underscore prefix marks test-only contract.
-export { FRAMED_PORTS as _FRAMED_PORTS, _detectResponseFraming };
+// E-1 §1: export the framing detector for focused response-parser tests.
+export { _detectResponseFraming };
 
 // ── HTTP Client (Remote Control, connect-per-request) ──────
 
@@ -529,9 +503,8 @@ class CommandQueue {
 // ── Wire-error extraction (P0-1) ────────────────────────────
 
 /**
- * Normalize the three error-response formats produced by the frozen UnrealMCP
- * plugin (D23: deprecated post-Phase 3, no C++ fixes). Returns the error
- * error metadata if the response indicates failure, or null if it represents success.
+ * Normalize the supported error-response formats. Returns error metadata if
+ * the response indicates failure, or null if it represents success.
  *
  * Format 1 — Bridge envelope:   { status: "error", error|message: "..." }
  * Format 2 — CommonUtils flag:  { success: false, error|message: "..." }
@@ -668,7 +641,6 @@ export class ConnectionManager {
     /** @type {Record<string, {status: string, lastCheck: number, error?: string}>} */
     this.layers = {
       'offline':    { status: LayerStatus.UNKNOWN, lastCheck: 0 },
-      'tcp-55557':  { status: LayerStatus.UNKNOWN, lastCheck: 0 },
       'tcp-55558':  { status: LayerStatus.UNKNOWN, lastCheck: 0 },
       'http-30010': { status: LayerStatus.UNKNOWN, lastCheck: 0 },
     };
@@ -833,8 +805,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Force-probe only current active UEMCP layers. The retired UnrealMCP oracle
-   * remains available for historical tests but is not part of normal health.
+   * Force-probe only current active UEMCP layers.
    */
   async probeActiveLayers() {
     await Promise.all(ACTIVE_LAYER_KEYS.map(layerKey => this.isLayerAvailable(layerKey, true)));
@@ -858,7 +829,7 @@ export class ConnectionManager {
 
   /**
    * Send a command to the appropriate layer.
-   * @param {string} layerKey  — 'tcp-55557', 'tcp-55558', 'http-30010'
+   * @param {string} layerKey  — 'tcp-55558', 'http-30010'
    * @param {string} type      — command name
    * @param {object} params    — command parameters
    * @param {object} [opts]
@@ -867,6 +838,15 @@ export class ConnectionManager {
    * @returns {Promise<object>}
    */
   async send(layerKey, type, params = {}, opts = {}) {
+    if (layerKey !== 'tcp-55558' && layerKey !== 'http-30010') {
+      throw new Error(`Unknown layer: ${layerKey}`);
+    }
+    if (layerKey === 'http-30010') {
+      throw new Error(
+        `send() does not dispatch HTTP — use sendHttp(method, path, body, opts) or the tool-layer rc-url-translator helper`
+      );
+    }
+
     // Check cache first (read-ops only — write-ops should set skipCache)
     if (!opts.skipCache) {
       const cached = this._cache.get(type, params);
@@ -891,36 +871,16 @@ export class ConnectionManager {
       // (config.tcpCommandFn) ignores extra args so test fixtures don't break.
       const metrics = this._metrics.isEnabled() ? this._metrics : null;
 
-      if (layerKey === 'tcp-55557') {
-        result = await tcpFn(
-          this.config.tcpPortExisting,
-          type,
-          params,
-          timeoutMs,
-          metrics
-        );
-      } else if (layerKey === 'tcp-55558') {
-        result = await tcpFn(
-          this.config.tcpPortCustom,
-          type,
-          params,
-          timeoutMs,
-          metrics
-        );
-      } else if (layerKey === 'http-30010') {
-        // D66 HYBRID: HTTP dispatch via `type` encoding {method, path} and params as body.
-        // Tool handlers should prefer sendHttp() directly — this branch only exists
-        // so the mock-seam wiring pattern (isLayerAvailable/probe) stays uniform.
-        throw new Error(
-          `send() does not dispatch HTTP — use sendHttp(method, path, body, opts) or the tool-layer rc-url-translator helper`
-        );
-      } else {
-        throw new Error(`Unknown layer: ${layerKey}`);
-      }
+      result = await tcpFn(
+        this.config.tcpPortCustom,
+        type,
+        params,
+        timeoutMs,
+        metrics
+      );
 
       // Normalize error responses — P0-1 (audit 2026-04-12). Three formats exist on the
-      // wire; Bridge catches two, leaks the third as a success-wrapped payload. We defend
-      // here because the plugin is frozen (D23: UnrealMCP deprecated post-Phase 3).
+      // wire; the bridge catches two and leaks the third as a success-wrapped payload.
       //
       //   Format 1 (Bridge envelope): { status: "error", error|message: "msg" }
       //     → handler signaled error, Bridge rewrapped; direct status check
@@ -1313,14 +1273,6 @@ export class ConnectionManager {
       }
 
       const tcpFn = this._tcpCommandFn || tcpCommand;
-
-      if (layerKey === 'tcp-55557') {
-        await tcpFn(this.config.tcpPortExisting, 'ping', {}, 3000);
-        layer.status = LayerStatus.AVAILABLE;
-        layer.lastCheck = Date.now();
-        layer.error = undefined;
-        return true;
-      }
 
       if (layerKey === 'tcp-55558') {
         await tcpFn(this.config.tcpPortCustom, 'ping', {}, 3000);

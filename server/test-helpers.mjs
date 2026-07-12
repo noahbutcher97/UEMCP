@@ -16,9 +16,9 @@ import { readdir } from 'node:fs/promises';
  *   fake.on('ping', { status: 'success' });
  *
  *   const connMgr = new ConnectionManager({ ...config, tcpCommandFn: fake.handler() });
- *   await connMgr.send('tcp-55557', 'list_actors', {});
+ *   await connMgr.send('tcp-55558', 'list_actors', {});
  *
- *   console.log(fake.calls);  // [{ port: 55557, type: 'list_actors', params: {}, ts: ... }]
+ *   console.log(fake.calls);  // [{ port: 55558, type: 'list_actors', params: {}, ts: ... }]
  */
 export class FakeTcpResponder {
   constructor() {
@@ -111,7 +111,7 @@ export class FakeTcpResponder {
  * ErrorTcpResponder — simulates TCP failure modes.
  *
  * Usage:
- *   const errResp = new ErrorTcpResponder('timeout', 55557);
+ *   const errResp = new ErrorTcpResponder('timeout', 55558);
  *   const connMgr = new ConnectionManager({ ...config, tcpCommandFn: errResp.handler() });
  */
 export class ErrorTcpResponder {
@@ -312,7 +312,6 @@ export function createTestConfig(projectRoot, fakeResponder) {
   const fake = fakeResponder || new FakeTcpResponder().on('ping', { status: 'success' });
   const config = {
     projectRoot,
-    tcpPortExisting: 55557,
     tcpPortCustom: 55558,
     httpPort: 30010,  // legacy alias — kept so existing tests don't churn
     rcPort: 30010,    // canonical (D66) — matches server.mjs

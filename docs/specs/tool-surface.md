@@ -17,9 +17,9 @@ See `tools.yaml` for the complete registry. Summary:
 
 Tool counts are derived from `tools.yaml` — never hardcode them in documentation.
 
-## Historical Notes on Existing Plugin Tools
+## Toolset Notes
 
-The old UnrealMCP plugin on TCP:55557 is preserved only as conformance-oracle history. Active toolset membership and layer assignment come from `tools.yaml`.
+Active toolset membership and layer assignment come from `tools.yaml`.
 
 > **Note**: `blueprints-write` now includes graph-targeted node authoring plus `add_variable_assignment`, bringing the toolset to 21 tools. If selection quality degrades, split the graph-authoring subset into a narrower Blueprint graph toolset rather than exposing all Blueprint writes by default.
 
@@ -35,4 +35,4 @@ The old UnrealMCP plugin on TCP:55557 is preserved only as conformance-oracle hi
 | `add_widget_to_viewport` | Show widget in game viewport |
 | `add_input_action_node` | Add input action event node (shared with blueprint editing) |
 
-**Not carried forward to UEMCP**: `create_input_mapping` (legacy input system — handler still exists in UnrealMCP source but superseded by `create_input_action` + `creat
+**Input mapping**: `create_input_mapping` is superseded by `create_input_action` and `create_input_mapping_context`.

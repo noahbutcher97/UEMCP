@@ -46,7 +46,6 @@ t.assert(assetCache.indexDirty === false, 'offline cache indexDirty reset');
 {
   const conn = new ConnectionManager({
     projectRoot: '',
-    tcpPortExisting: 55557,
     tcpPortCustom: 55558,
     tcpTimeoutMs: 5000,
     rcPort: 30010,
@@ -89,7 +88,6 @@ t.assert(assetCache.indexDirty === false, 'offline cache indexDirty reset');
     const project = writeProject(join(root, 'OfflineProject'), 'OfflineProject');
     const conn = new ConnectionManager({
       projectRoot: '',
-      tcpPortExisting: 55557,
       tcpPortCustom: 55558,
       tcpTimeoutMs: 5000,
       rcPort: 30010,

@@ -20,7 +20,6 @@ const t = new TestRunner('RC Wire Mock');
 
 const baseConfig = {
   projectRoot: '/fake/project',
-  tcpPortExisting: 55557,
   tcpPortCustom: 55558,
   httpPort: 30010,
   rcPort: 30010,

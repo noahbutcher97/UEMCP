@@ -5,12 +5,10 @@
 #include "Dom/JsonObject.h"
 
 /**
- * M3-actors: 10 actor-toolset handlers reimplemented on TCP:55558.
+ * Actor-toolset handlers on TCP:55558.
  *
- * Replaces the conformance oracle (UnrealMCP plugin, TCP:55557) per D23.
- * Wire-shape parity preserved for migrated callers (same `result` field
- * names/types) — the only client-visible delta is the P0-1 envelope
- * (every error now carries a structured `code`).
+ * Stable response field names and types support existing callers. Every error
+ * carries the P0-1 structured `code` field.
  *
  * Handlers shipped (matching tools.yaml `actors:` toolset):
  *   - get_actors_in_level    (List all actors in level)

@@ -455,7 +455,7 @@ console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
   const cm = new ConnectionManager(config);
 
   await t.assertRejects(
-    () => cm.send('tcp-55557', 'some_cmd', {}, { skipCache: true }),
+    () => cm.send('tcp-55558', 'some_cmd', {}, { skipCache: true }),
     'Level not loaded',
     'Format 1 (status:error) with message field throws correctly'
   );
@@ -471,7 +471,7 @@ console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
   const cm = new ConnectionManager(config);
 
   await t.assertRejects(
-    () => cm.send('tcp-55557', 'some_umg_command', {}, { skipCache: true }),
+    () => cm.send('tcp-55558', 'some_umg_command', {}, { skipCache: true }),
     'Raw ad-hoc escape',
     'Raw single-key {error} (no envelope) detected as wire error'
   );
@@ -487,7 +487,7 @@ console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
   const cm = new ConnectionManager(config);
 
   await t.assertRejects(
-    () => cm.send('tcp-55557', 'some_cmd', {}, { skipCache: true }),
+    () => cm.send('tcp-55558', 'some_cmd', {}, { skipCache: true }),
     'Sibling-error leak',
     'Success envelope with sibling error field detected as wire error'
   );
@@ -506,7 +506,7 @@ console.log('\n── Group 22: P0-1 Expanded Error Coverage ──');
   const { config } = createTestConfig('D:/FakeProject', fake);
   const cm = new ConnectionManager(config);
 
-  const r = await cm.send('tcp-55557', 'some_cmd', {}, { skipCache: true });
+  const r = await cm.send('tcp-55558', 'some_cmd', {}, { skipCache: true });
   t.assert(r.status === 'success',
     'Multi-key result with error field is not treated as ad-hoc error');
 }

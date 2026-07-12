@@ -4,7 +4,7 @@
 // test-tcp-tools.mjs actors-section coverage (which got removed when M3
 // flipped the layer) plus adds:
 //   - Port routing → 55558 (oracle retirement, D23)
-//   - Conformance shape parity vs canned oracle TCP:55557 fixtures
+//   - Historical conformance-shape fixtures retained only to prove UEMCP response normalization.
 //   - P0-9 / P0-10 defense-in-depth Zod validation
 //   - Identity wire-type fallback on tools without explicit translation
 //
@@ -197,10 +197,10 @@ console.log('\n── Group 4: Param Stripping ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Group 5: Conformance shape parity — oracle TCP:55557 fixtures
+// Group 5: Historical conformance-shape response fixtures
 // ═══════════════════════════════════════════════════════════════
 //
-// The fixtures here represent canned oracle responses from TCP:55557.
+// Historical conformance-shape fixtures retained only to prove UEMCP response normalization.
 // The TCP:55558 implementation must produce wire-equivalent responses
 // modulo the P0-1 envelope (which adds `code` to error responses).
 
@@ -475,7 +475,6 @@ console.log('\n── Group 10: Transport Errors ──');
   const errTimeout = new ErrorTcpResponder('timeout');
   const config1 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errTimeout.handler(),
@@ -493,7 +492,6 @@ console.log('\n── Group 10: Transport Errors ──');
   const errRefused = new ErrorTcpResponder('connection_refused');
   const config2 = {
     projectRoot: 'D:/FakeProject',
-    tcpPortExisting: 55557,
     tcpPortCustom:   55558,
     tcpTimeoutMs:    5000,
     tcpCommandFn:    errRefused.handler(),
