@@ -20,6 +20,16 @@ const call = createLiveSmokeCall({
     state_machine_count: result.state_machine_count,
     slot_node_count: result.slot_node_count,
     layered_blend_node_count: result.layered_blend_node_count,
+    pin_topology: result.pin_topology ? {
+      graph_count: result.pin_topology.graph_count,
+      node_count: result.pin_topology.node_count,
+      pin_count: result.pin_topology.pin_count,
+      link_entry_count: result.pin_topology.link_entry_count,
+      edge_count: result.pin_topology.edge_count,
+      complete: result.pin_topology.complete,
+      truncated: result.pin_topology.truncated,
+      bytes: Buffer.byteLength(JSON.stringify(result.pin_topology), 'utf8'),
+    } : null,
   }),
 });
 
@@ -27,6 +37,7 @@ const result = await call('get_anim_graph', () => executeMenhanceTool('get_anim_
   asset_path: assetPath,
   include_transitions: true,
   include_node_properties: true,
+  include_pin_topology: true,
 }, smoke.cm));
 
 if (result.asset_path !== assetPath) {
@@ -46,4 +57,24 @@ if (!Array.isArray(result.layered_blend_nodes)) {
 }
 if (!Array.isArray(result.unsupported_runtime_fields)) {
   throw new Error('get_anim_graph did not return unsupported_runtime_fields[]');
+}
+if (!result.pin_topology || typeof result.pin_topology !== 'object') {
+  throw new Error('get_anim_graph did not return pin_topology');
+}
+for (const field of ['graph_count', 'node_count', 'pin_count', 'link_entry_count', 'edge_count']) {
+  if (typeof result.pin_topology[field] !== 'number') {
+    throw new Error(`get_anim_graph pin_topology.${field} is not numeric`);
+  }
+}
+if (result.pin_topology.schema_version !== 'anim-uedgraph-pin-topology-v1') {
+  throw new Error(`unexpected pin_topology schema_version ${result.pin_topology.schema_version}`);
+}
+if (result.pin_topology.id_format !== 'digits') {
+  throw new Error(`unexpected pin_topology id_format ${result.pin_topology.id_format}`);
+}
+if (result.pin_topology.truncated !== false) {
+  throw new Error('pin_topology should report truncated=false in this slice');
+}
+if (!result.pin_topology.graphs || typeof result.pin_topology.graphs !== 'object') {
+  throw new Error('get_anim_graph pin_topology.graphs missing');
 }
