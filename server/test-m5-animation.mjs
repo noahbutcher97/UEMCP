@@ -460,9 +460,23 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
 
   const topologyStart = source.indexOf('struct FAnimGraphTopologyIndex');
   const topologyEnd = source.indexOf('TSharedPtr<FJsonObject> SerializeEditorGraphNode', topologyStart);
+  t.assert(topologyStart >= 0 && topologyEnd > topologyStart,
+    'pin topology serializer guard boundaries are valid');
   const topologyBlock = topologyStart >= 0 && topologyEnd > topologyStart
     ? source.slice(topologyStart, topologyEnd)
     : '';
+  t.assert(topologyBlock.includes('BuildAnimGraphTopologyEntryIndex') &&
+    topologyBlock.includes('Index.NodeKeys.Find(LinkedNode)') &&
+    topologyBlock.includes('Index.PinKeys.Find(LinkedPin)'),
+  'pin topology validates linked node and pin membership before emitting endpoints');
+  t.assert(topologyBlock.includes('!LinkedNodeKey || !LinkedPinKey') &&
+    topologyBlock.includes('++Index.DanglingLinkCount'),
+  'unserialized link endpoints are counted as dangling');
+  t.assert(topologyBlock.includes('Index.NodeGraphs.Find(LinkedNode)') &&
+    topologyBlock.includes('Index.PinNodes.Find(LinkedPin)') &&
+    topologyBlock.includes('*IndexedNodeGraph != LinkedGraph') &&
+    topologyBlock.includes('*IndexedPinNode != LinkedNode'),
+  'pin topology validates link endpoint graph and node membership');
   t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
     'pin topology serializer remains read-only and does not normalize or mutate graph state');
 

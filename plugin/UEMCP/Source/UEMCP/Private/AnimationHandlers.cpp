@@ -209,6 +209,10 @@ namespace UEMCP
 		{
 			TArray<UEdGraph*> Graphs;
 			TMap<const UEdGraph*, FString> GraphKeys;
+			TMap<const UEdGraphNode*, FString> NodeKeys;
+			TMap<const UEdGraphPin*, FString> PinKeys;
+			TMap<const UEdGraphNode*, const UEdGraph*> NodeGraphs;
+			TMap<const UEdGraphPin*, const UEdGraphNode*> PinNodes;
 			int32 DroppedNullGraphCount = 0;
 			int32 DroppedNullNodeCount = 0;
 			int32 DroppedNullPinCount = 0;
@@ -356,6 +360,60 @@ namespace UEMCP
 			return Index;
 		}
 
+		void BuildAnimGraphTopologyEntryIndex(FAnimGraphTopologyIndex& Index)
+		{
+			for (const UEdGraph* Graph : Index.Graphs)
+			{
+				TSet<FString> GraphNodeKeys;
+				for (const UEdGraphNode* Node : Graph->Nodes)
+				{
+					if (!Node)
+					{
+						++Index.DroppedNullNodeCount;
+						continue;
+					}
+					if (!Node->NodeGuid.IsValid())
+					{
+						++Index.InvalidNodeGuidCount;
+						continue;
+					}
+					const FString NodeKey = GuidToDigits(Node->NodeGuid);
+					if (GraphNodeKeys.Contains(NodeKey))
+					{
+						++Index.DuplicateNodeKeyCount;
+						continue;
+					}
+					GraphNodeKeys.Add(NodeKey);
+					Index.NodeKeys.Add(Node, NodeKey);
+					Index.NodeGraphs.Add(Node, Graph);
+
+					TSet<FString> NodePinKeys;
+					for (const UEdGraphPin* Pin : Node->Pins)
+					{
+						if (!Pin)
+						{
+							++Index.DroppedNullPinCount;
+							continue;
+						}
+						if (!Pin->PinId.IsValid())
+						{
+							++Index.InvalidPinGuidCount;
+							continue;
+						}
+						const FString PinKey = GuidToDigits(Pin->PinId);
+						if (NodePinKeys.Contains(PinKey))
+						{
+							++Index.DuplicatePinKeyCount;
+							continue;
+						}
+						NodePinKeys.Add(PinKey);
+						Index.PinKeys.Add(Pin, PinKey);
+						Index.PinNodes.Add(Pin, Node);
+					}
+				}
+			}
+		}
+
 		bool HasAnimGraphTopologyLosses(const FAnimGraphTopologyIndex& Index)
 		{
 			return Index.DroppedNullGraphCount > 0 ||
@@ -455,7 +513,13 @@ namespace UEMCP
 				const UEdGraphNode* LinkedNode = LinkedPin ? LinkedPin->GetOwningNodeUnchecked() : nullptr;
 				const UEdGraph* LinkedGraph = LinkedNode ? LinkedNode->GetGraph() : nullptr;
 				const FString* LinkedGraphKey = LinkedGraph ? Index.GraphKeys.Find(LinkedGraph) : nullptr;
-				if (!LinkedPin || !LinkedNode || !LinkedGraphKey)
+				const FString* LinkedNodeKey = LinkedNode ? Index.NodeKeys.Find(LinkedNode) : nullptr;
+				const FString* LinkedPinKey = LinkedPin ? Index.PinKeys.Find(LinkedPin) : nullptr;
+				const UEdGraph** IndexedNodeGraph = LinkedNode ? Index.NodeGraphs.Find(LinkedNode) : nullptr;
+				const UEdGraphNode** IndexedPinNode = LinkedPin ? Index.PinNodes.Find(LinkedPin) : nullptr;
+				if (!LinkedPin || !LinkedNode || !LinkedGraphKey || !LinkedNodeKey || !LinkedPinKey ||
+					!IndexedNodeGraph || *IndexedNodeGraph != LinkedGraph ||
+					!IndexedPinNode || *IndexedPinNode != LinkedNode)
 				{
 					++Index.DanglingLinkCount;
 					continue;
@@ -463,8 +527,8 @@ namespace UEMCP
 
 				TSharedPtr<FJsonObject> LinkJson = MakeShared<FJsonObject>();
 				LinkJson->SetStringField(TEXT("graph_key"), *LinkedGraphKey);
-				LinkJson->SetStringField(TEXT("node_guid"), GuidToDigits(LinkedNode->NodeGuid));
-				LinkJson->SetStringField(TEXT("pin_id"), GuidToDigits(LinkedPin->PinId));
+				LinkJson->SetStringField(TEXT("node_guid"), *LinkedNodeKey);
+				LinkJson->SetStringField(TEXT("pin_id"), *LinkedPinKey);
 				LinkJson->SetStringField(TEXT("pin_name"), LinkedPin->PinName.ToString());
 				LinkedTo.Add(MakeShared<FJsonValueObject>(LinkJson));
 
@@ -499,28 +563,15 @@ namespace UEMCP
 			Out->SetNumberField(TEXT("y"), Node->NodePosY);
 
 			TSharedPtr<FJsonObject> Pins = MakeShared<FJsonObject>();
-			TSet<FString> PinKeys;
 			for (const UEdGraphPin* Pin : Node->Pins)
 			{
-				if (!Pin)
+				const FString* PinKey = Pin ? Index.PinKeys.Find(Pin) : nullptr;
+				if (!PinKey)
 				{
-					++Index.DroppedNullPinCount;
 					continue;
 				}
-				if (!Pin->PinId.IsValid())
-				{
-					++Index.InvalidPinGuidCount;
-					continue;
-				}
-				const FString PinKey = GuidToDigits(Pin->PinId);
-				if (PinKeys.Contains(PinKey))
-				{
-					++Index.DuplicatePinKeyCount;
-					continue;
-				}
-				PinKeys.Add(PinKey);
 				++Index.PinCount;
-				Pins->SetObjectField(PinKey, SerializeAnimGraphPin(Pin, GraphKey, Index, bIncludePinDefaults));
+				Pins->SetObjectField(*PinKey, SerializeAnimGraphPin(Pin, GraphKey, Index, bIncludePinDefaults));
 			}
 			Out->SetObjectField(TEXT("pins"), Pins);
 			Out->SetNumberField(TEXT("pin_count"), Node->Pins.Num());
@@ -557,28 +608,15 @@ namespace UEMCP
 			Out->SetArrayField(TEXT("sources"), Sources);
 
 			TSharedPtr<FJsonObject> Nodes = MakeShared<FJsonObject>();
-			TSet<FString> NodeKeys;
 			for (const UEdGraphNode* Node : Graph->Nodes)
 			{
-				if (!Node)
+				const FString* NodeKey = Node ? Index.NodeKeys.Find(Node) : nullptr;
+				if (!NodeKey)
 				{
-					++Index.DroppedNullNodeCount;
 					continue;
 				}
-				if (!Node->NodeGuid.IsValid())
-				{
-					++Index.InvalidNodeGuidCount;
-					continue;
-				}
-				const FString NodeKey = GuidToDigits(Node->NodeGuid);
-				if (NodeKeys.Contains(NodeKey))
-				{
-					++Index.DuplicateNodeKeyCount;
-					continue;
-				}
-				NodeKeys.Add(NodeKey);
 				++Index.NodeCount;
-				Nodes->SetObjectField(NodeKey, SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
+				Nodes->SetObjectField(*NodeKey, SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
 			}
 			Out->SetObjectField(TEXT("nodes"), Nodes);
 			Out->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
@@ -589,6 +627,7 @@ namespace UEMCP
 		TSharedPtr<FJsonObject> SerializeAnimGraphPinTopology(const TArray<UEdGraph*>& AllGraphs, bool bIncludePinDefaults)
 		{
 			FAnimGraphTopologyIndex Index = BuildAnimGraphTopologyIndex(AllGraphs);
+			BuildAnimGraphTopologyEntryIndex(Index);
 
 			TSharedPtr<FJsonObject> Graphs = MakeShared<FJsonObject>();
 			for (UEdGraph* Graph : Index.Graphs)
