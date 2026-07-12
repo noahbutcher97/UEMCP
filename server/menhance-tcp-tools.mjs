@@ -287,11 +287,13 @@ export const MENHANCE_SCHEMAS = {
   },
 
   get_anim_graph: {
-    description: 'AnimBlueprint static graph read — graphs, state machines, states, transitions, slot nodes, and layered bone blend nodes from the UAnimBlueprint editor asset',
+    description: 'AnimBlueprint static graph read - graphs, state machines, states, transitions, slot nodes, layered bone blend nodes, and optional visual pin topology from the UAnimBlueprint editor asset',
     schema: {
       asset_path: z.string().describe('/Game/... UAnimBlueprint path'),
       include_transitions: z.boolean().optional().describe('Include transition metadata and rule/custom graph names; default true in the plugin'),
       include_node_properties: z.boolean().optional().describe('Include per-graph node summaries; default false'),
+      include_pin_topology: z.boolean().optional().describe('Include full UEdGraph node/pin/LinkedTo visual topology; default false'),
+      include_pin_defaults: z.boolean().optional().describe('Include safe UEdGraphPin default fields; requires include_pin_topology=true'),
     },
     isReadOp: true,
   },
@@ -647,6 +649,17 @@ async function waitForPIEActorStable(validated, connectionManager) {
   }
 }
 
+function applyToolSpecificValidation(toolName, validated) {
+  if (
+    toolName === 'get_anim_graph'
+    && validated.include_pin_defaults === true
+    && validated.include_pin_topology !== true
+  ) {
+    throw new Error('get_anim_graph: include_pin_defaults requires include_pin_topology=true');
+  }
+  return validated;
+}
+
 /**
  * Dispatch an M-enhance TCP tool call.
  *
@@ -666,7 +679,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
   const def = MENHANCE_SCHEMAS[toolName];
   if (!def) throw new Error(`menhance-tcp-tools: unknown tool "${toolName}"`);
 
-  const validated = z.object(def.schema).parse(args);
+  const validated = applyToolSpecificValidation(toolName, z.object(def.schema).parse(args));
 
   if (toolName === 'sample_pie_actor_state') {
     return samplePIEActorState(validated, connectionManager);

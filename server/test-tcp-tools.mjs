@@ -717,6 +717,14 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       /Invalid|enum/i,
       'W-B: start_pie rejects unknown mode at Zod layer (no silent fallthrough to viewport)'
     );
+    await t.assertRejects(
+      () => executeMenhanceTool('get_anim_graph', {
+        asset_path: '/Game/Anim/ABP_Test',
+        include_pin_defaults: true,
+      }, cm),
+      /include_pin_defaults.*include_pin_topology/i,
+      'get_anim_graph rejects include_pin_defaults without include_pin_topology'
+    );
   }
 
   // ── Wire-type map identity fallback ───────────────────────────
@@ -918,6 +926,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         asset_path: '/Game/Anim/ABP_Test',
         include_transitions: true,
         include_node_properties: true,
+        include_pin_topology: true,
+        include_pin_defaults: true,
       }, cm);
       t.assert(graph.result?.state_machines?.[0]?.name === 'Locomotion',
         'get_anim_graph pass-through from dedicated handler');
@@ -927,6 +937,10 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         'get_anim_graph forwards include_transitions');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_node_properties === true,
         'get_anim_graph forwards include_node_properties');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_topology === true,
+        'get_anim_graph forwards include_pin_topology');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_defaults === true,
+        'get_anim_graph forwards include_pin_defaults');
     } else {
       t.assert(false, 'get_anim_graph pass-through from dedicated handler', 'schema missing');
       t.assert(false, 'get_anim_graph dispatches to get_anim_graph wire type', 'schema missing');

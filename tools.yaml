@@ -1139,11 +1139,13 @@ toolsets:
         compiles_asset: false
         offline_fallback: bp_list_graphs
         aliases: ["AnimGraph state machine", "animation blueprint graph", "animation state machine", "slot node", "layered bone blend"]
-        description: AnimBlueprint static graph read — graphs, state machines, states, transitions, slot nodes, and layered bone blend nodes.
+        description: AnimBlueprint static graph read - graphs, state machines, states, transitions, slot nodes, layered bone blend nodes, and optional full visual pin topology.
         params:
           asset_path: { type: string, required: true }
           include_transitions: { type: boolean, required: false }
           include_node_properties: { type: boolean, required: false }
+          include_pin_topology: { type: boolean, required: false }
+          include_pin_defaults: { type: boolean, required: false }
       # reduced_scope: runtime interpolation evaluation; sample points + blend axes shipped offline
       # displaced_by: read_asset_properties
       get_blend_space:
