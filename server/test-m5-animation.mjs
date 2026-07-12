@@ -448,6 +448,15 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'pin topology reports dangling link count');
   t.assert(source.includes('duplicate_graph_key_count'),
     'pin topology reports duplicate graph-key count');
+  t.assert(source.includes('null_node_count') && source.includes('null_pin_count'),
+    'pin topology reports omitted null nodes and pins');
+  t.assert(source.includes('invalid_node_guid_count') && source.includes('invalid_pin_guid_count'),
+    'pin topology reports invalid node and pin GUIDs');
+  t.assert(source.includes('duplicate_node_key_count') && source.includes('duplicate_pin_key_count'),
+    'pin topology reports node and pin key collisions');
+  t.assert(source.includes('HasAnimGraphTopologyLosses') &&
+    source.includes('Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));'),
+  'pin topology marks complete false for every recorded topology loss');
 
   const topologyStart = source.indexOf('struct FAnimGraphTopologyIndex');
   const topologyEnd = source.indexOf('TSharedPtr<FJsonObject> SerializeEditorGraphNode', topologyStart);
@@ -456,6 +465,13 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     : '';
   t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
     'pin topology serializer remains read-only and does not normalize or mutate graph state');
+
+  const pinTopologyAttachments = [
+    ...graphBlock.matchAll(/Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AllGraphs,\s*bIncludePinDefaults\)\);/g)
+  ];
+  t.assert(pinTopologyAttachments.length === 1 &&
+    /if\s*\(\s*bIncludePinTopology\s*\)\s*\{\s*Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AllGraphs,\s*bIncludePinDefaults\)\);\s*\}/s.test(graphBlock),
+  'get_anim_graph attaches pin_topology exactly once inside the include_pin_topology gate');
 
   t.assert(/Registry\.Register\(TEXT\("get_anim_graph"\),\s*&HandleGetAnimGraph\)/.test(source),
     'get_anim_graph is registered on the live TCP command registry');

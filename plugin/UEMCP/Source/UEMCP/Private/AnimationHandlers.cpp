@@ -210,7 +210,13 @@ namespace UEMCP
 			TArray<UEdGraph*> Graphs;
 			TMap<const UEdGraph*, FString> GraphKeys;
 			int32 DroppedNullGraphCount = 0;
+			int32 DroppedNullNodeCount = 0;
+			int32 DroppedNullPinCount = 0;
 			int32 DuplicateGraphKeyCount = 0;
+			int32 DuplicateNodeKeyCount = 0;
+			int32 DuplicatePinKeyCount = 0;
+			int32 InvalidNodeGuidCount = 0;
+			int32 InvalidPinGuidCount = 0;
 			int32 NodeCount = 0;
 			int32 PinCount = 0;
 			int32 LinkEntryCount = 0;
@@ -350,6 +356,18 @@ namespace UEMCP
 			return Index;
 		}
 
+		bool HasAnimGraphTopologyLosses(const FAnimGraphTopologyIndex& Index)
+		{
+			return Index.DroppedNullGraphCount > 0 ||
+				Index.DroppedNullNodeCount > 0 ||
+				Index.DroppedNullPinCount > 0 ||
+				Index.DuplicateNodeKeyCount > 0 ||
+				Index.DuplicatePinKeyCount > 0 ||
+				Index.InvalidNodeGuidCount > 0 ||
+				Index.InvalidPinGuidCount > 0 ||
+				Index.DanglingLinkCount > 0;
+		}
+
 		FString MakeEndpointKey(const FString& GraphKey, const FGuid& NodeGuid, const FGuid& PinId)
 		{
 			return FString::Printf(TEXT("%s:%s:%s"),
@@ -401,6 +419,10 @@ namespace UEMCP
 				if (SubPin)
 				{
 					SubPinIds.Add(MakeShared<FJsonValueString>(GuidToDigits(SubPin->PinId)));
+				}
+				else
+				{
+					++Index.DroppedNullPinCount;
 				}
 			}
 			Out->SetArrayField(TEXT("sub_pin_ids"), SubPinIds);
@@ -477,14 +499,28 @@ namespace UEMCP
 			Out->SetNumberField(TEXT("y"), Node->NodePosY);
 
 			TSharedPtr<FJsonObject> Pins = MakeShared<FJsonObject>();
+			TSet<FString> PinKeys;
 			for (const UEdGraphPin* Pin : Node->Pins)
 			{
 				if (!Pin)
 				{
+					++Index.DroppedNullPinCount;
 					continue;
 				}
+				if (!Pin->PinId.IsValid())
+				{
+					++Index.InvalidPinGuidCount;
+					continue;
+				}
+				const FString PinKey = GuidToDigits(Pin->PinId);
+				if (PinKeys.Contains(PinKey))
+				{
+					++Index.DuplicatePinKeyCount;
+					continue;
+				}
+				PinKeys.Add(PinKey);
 				++Index.PinCount;
-				Pins->SetObjectField(GuidToDigits(Pin->PinId), SerializeAnimGraphPin(Pin, GraphKey, Index, bIncludePinDefaults));
+				Pins->SetObjectField(PinKey, SerializeAnimGraphPin(Pin, GraphKey, Index, bIncludePinDefaults));
 			}
 			Out->SetObjectField(TEXT("pins"), Pins);
 			Out->SetNumberField(TEXT("pin_count"), Node->Pins.Num());
@@ -521,14 +557,28 @@ namespace UEMCP
 			Out->SetArrayField(TEXT("sources"), Sources);
 
 			TSharedPtr<FJsonObject> Nodes = MakeShared<FJsonObject>();
+			TSet<FString> NodeKeys;
 			for (const UEdGraphNode* Node : Graph->Nodes)
 			{
 				if (!Node)
 				{
+					++Index.DroppedNullNodeCount;
 					continue;
 				}
+				if (!Node->NodeGuid.IsValid())
+				{
+					++Index.InvalidNodeGuidCount;
+					continue;
+				}
+				const FString NodeKey = GuidToDigits(Node->NodeGuid);
+				if (NodeKeys.Contains(NodeKey))
+				{
+					++Index.DuplicateNodeKeyCount;
+					continue;
+				}
+				NodeKeys.Add(NodeKey);
 				++Index.NodeCount;
-				Nodes->SetObjectField(GuidToDigits(Node->NodeGuid), SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
+				Nodes->SetObjectField(NodeKey, SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
 			}
 			Out->SetObjectField(TEXT("nodes"), Nodes);
 			Out->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
@@ -554,14 +604,20 @@ namespace UEMCP
 
 			TSharedPtr<FJsonObject> Dropped = MakeShared<FJsonObject>();
 			Dropped->SetNumberField(TEXT("null_graph_count"), Index.DroppedNullGraphCount);
+			Dropped->SetNumberField(TEXT("null_node_count"), Index.DroppedNullNodeCount);
+			Dropped->SetNumberField(TEXT("null_pin_count"), Index.DroppedNullPinCount);
 			Dropped->SetNumberField(TEXT("dangling_link_count"), Index.DanglingLinkCount);
 			Dropped->SetNumberField(TEXT("orphan_pin_count"), Index.OrphanPinCount);
 			Dropped->SetNumberField(TEXT("duplicate_graph_key_count"), Index.DuplicateGraphKeyCount);
+			Dropped->SetNumberField(TEXT("duplicate_node_key_count"), Index.DuplicateNodeKeyCount);
+			Dropped->SetNumberField(TEXT("duplicate_pin_key_count"), Index.DuplicatePinKeyCount);
+			Dropped->SetNumberField(TEXT("invalid_node_guid_count"), Index.InvalidNodeGuidCount);
+			Dropped->SetNumberField(TEXT("invalid_pin_guid_count"), Index.InvalidPinGuidCount);
 
 			TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
 			Root->SetStringField(TEXT("schema_version"), TEXT("anim-uedgraph-pin-topology-v1"));
 			Root->SetStringField(TEXT("id_format"), TEXT("digits"));
-			Root->SetBoolField(TEXT("complete"), Index.DanglingLinkCount == 0 && Index.DroppedNullGraphCount == 0);
+			Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));
 			Root->SetBoolField(TEXT("truncated"), false);
 			Root->SetBoolField(TEXT("includes_pin_defaults"), bIncludePinDefaults);
 			Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num());
