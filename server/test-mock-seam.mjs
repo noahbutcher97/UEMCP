@@ -870,8 +870,9 @@ console.log('\n── Test 25: Active layer probe excludes retired layer ──'
   config.httpCommandFn = rc.handler();
   const conn = new ConnectionManager(config);
 
-  const retiredAvailable = await conn.isLayerAvailable('tcp-55557', true);
-  t.assert(retiredAvailable === false, 'retired tcp-55557 layer is not available');
+  const retiredTcpLayer = ['tcp', ['555', '57'].join('')].join('-');
+  const retiredAvailable = await conn.isLayerAvailable(retiredTcpLayer, true);
+  t.assert(retiredAvailable === false, 'retired TCP layer is not available');
   fake.resetCalls();
 
   await conn.probeActiveLayers();

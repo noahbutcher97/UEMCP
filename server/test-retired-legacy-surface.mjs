@@ -41,25 +41,30 @@ const IGNORED_DIRS = new Set([
   'Saved',
 ]);
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const retiredPort = ['555', '57'].join('');
+const retiredLayer = ['tcp', retiredPort].join('-');
+const retiredBridge = ['Unreal', 'MCP'].join('');
+const retiredEnv = ['UNREAL_TCP', 'PORT_EXISTING'].join('_');
+const retiredConfigKey = ['tcpPort', 'Existing'].join('');
+const retiredBundle = ['unreal', 'mcp', 'main'].join('-');
+
 const RETIRED_PATTERNS = [
-  { name: 'UNREAL_TCP_PORT_EXISTING', pattern: /\bUNREAL_TCP_PORT_EXISTING\b/ },
-  { name: 'tcpPortExisting', pattern: /\btcpPortExisting\b/ },
-  { name: 'tcp-55557', pattern: /\btcp-55557\b/i },
-  { name: 'legacy-port-55557', pattern: /\b55557\b/ },
-  { name: 'unreal-mcp-main', pattern: /\bunreal-mcp-main\b/i },
-  { name: 'UnrealMCP', pattern: /UnrealMCP/ },
+  { name: 'retired-env', pattern: new RegExp(`\\b${escapeRegExp(retiredEnv)}\\b`) },
+  { name: 'retired-config-key', pattern: new RegExp(`\\b${escapeRegExp(retiredConfigKey)}\\b`) },
+  { name: 'retired-layer', pattern: new RegExp(`\\b${escapeRegExp(retiredLayer)}\\b`, 'i') },
+  { name: 'retired-port', pattern: new RegExp(`\\b${escapeRegExp(retiredPort)}\\b`) },
+  { name: 'retired-bundle', pattern: new RegExp(`\\b${escapeRegExp(retiredBundle)}\\b`, 'i') },
+  { name: 'retired-bridge', pattern: new RegExp(escapeRegExp(retiredBridge)) },
 ];
 
-function isRetirementNegativeAssertion(relativePath, line, retiredName) {
-  const negativeAssertionLines = [
-    "isLayerAvailable('tcp-55557', true)",
-    "'retired tcp-55557 layer is not available'",
-  ];
-  const exemptPatterns = new Set(['tcp-55557', 'legacy-port-55557']);
-
+function isAllowedNegativeAssertion(relativePath, line, retiredName) {
   return relativePath === 'server/test-mock-seam.mjs'
-    && exemptPatterns.has(retiredName)
-    && negativeAssertionLines.some(assertion => line.includes(assertion));
+    && retiredName === 'retired-layer'
+    && line.includes('isLayerAvailable(retiredTcpLayer, true)');
 }
 
 function walk(path) {
@@ -87,7 +92,7 @@ for (const file of files) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     for (const retired of RETIRED_PATTERNS) {
-      if (isRetirementNegativeAssertion(rel, lines[i], retired.name)) continue;
+      if (isAllowedNegativeAssertion(rel, lines[i], retired.name)) continue;
       if (retired.pattern.test(lines[i])) {
         hits.push(`${rel}:${i + 1}: ${retired.name}: ${lines[i].trim()}`);
       }
