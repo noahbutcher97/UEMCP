@@ -211,8 +211,16 @@ const casesById = new Map(cases.map((caseData) => [caseData.id, caseData]));
 const requestHugeLength = casesById.get('request-huge-length');
 runner.assert(requestHugeLength?.data_ascii === 'Content-Length: 8388609\r\n\r\n',
   'request-huge-length declares the default 8 MiB limit plus one byte');
+runner.assert(JSON.stringify(requestHugeLength?.targets) === JSON.stringify(['request']),
+  'request-huge-length targets requests only');
+runner.assert(JSON.stringify(requestHugeLength?.chunk_plans) === JSON.stringify([[27]]),
+  'request-huge-length consumes the exact declaration in one chunk');
 runner.assert(requestHugeLength?.expected?.declared_body_length === 8388609,
   'request-huge-length expected declaration is 8388609');
+runner.assert(requestHugeLength?.expected?.status === 'too_large'
+  && requestHugeLength.expected.framing === 'framed'
+  && requestHugeLength.expected.reason_code === 'body_too_large',
+  'request-huge-length has the exact terminal contract');
 runner.assert(!Object.hasOwn(requestHugeLength ?? {}, 'policy'),
   'request-huge-length uses the production default body limit');
 
@@ -224,6 +232,14 @@ runner.assert(headerCapBytes.length === 512,
   'header-cap-no-terminator is exactly the default 512-byte header cap');
 runner.assert(!headerCapBytes.includes(Buffer.from('\r\n\r\n', 'ascii')),
   'header-cap-no-terminator omits the header terminator');
+runner.assert(JSON.stringify(headerCapNoTerminator?.targets) === JSON.stringify(['request', 'response']),
+  'header-cap-no-terminator targets requests and responses');
+runner.assert(JSON.stringify(headerCapNoTerminator?.chunk_plans) === JSON.stringify([[512]]),
+  'header-cap-no-terminator consumes the exact cap in one chunk');
+runner.assert(headerCapNoTerminator?.expected?.status === 'malformed'
+  && headerCapNoTerminator.expected.framing === 'framed'
+  && headerCapNoTerminator.expected.reason_code === 'header_too_large',
+  'header-cap-no-terminator has the exact terminal contract');
 runner.assert(!Object.hasOwn(headerCapNoTerminator ?? {}, 'policy'),
   'header-cap-no-terminator uses the production default header cap');
 
