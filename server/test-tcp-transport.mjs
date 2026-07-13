@@ -293,15 +293,28 @@ function caughtError(fn) {
   return null;
 }
 
+const byteAtATimeFixtureIds = new Set(['framed-basic']);
+
 function responsePlans(caseData, bytes) {
-  const plans = [{ name: 'whole-buffer', lengths: [bytes.length] }];
+  const plans = [{ category: 'whole', name: 'whole-buffer', lengths: [bytes.length] }];
   for (const [index, lengths] of caseData.chunk_plans.entries()) {
-    plans.push({ name: `explicit-${index}`, lengths });
+    plans.push({ category: 'explicit', name: `explicit-${index}`, lengths });
   }
   if (caseData.all_split_points) {
     for (let split = 1; split < bytes.length; split++) {
-      plans.push({ name: `split-${split}`, lengths: [split, bytes.length - split] });
+      plans.push({
+        category: 'generatedSplit',
+        name: `split-${split}`,
+        lengths: [split, bytes.length - split],
+      });
     }
+  }
+  if (byteAtATimeFixtureIds.has(caseData.id)) {
+    plans.push({
+      category: 'byteAtATime',
+      name: 'byte-at-a-time',
+      lengths: Array.from({ length: bytes.length }, () => 1),
+    });
   }
   return plans;
 }
@@ -336,8 +349,24 @@ runner.assert(TCP_MAX_HEADER_BYTES === 512,
 runner.assert(TCP_MAX_REQUEST_BODY_BYTES === 8 * 1024 * 1024,
   'production request body cap is exactly 8 MiB');
 
-let responseFixtureRuns = 0;
-for (const caseData of cases.filter((entry) => entry.targets.includes('response'))) {
+const responseCases = cases.filter((entry) => entry.targets.includes('response'));
+const expectedResponsePlanCounts = {
+  whole: responseCases.length,
+  explicit: responseCases.reduce((count, entry) => count + entry.chunk_plans.length, 0),
+  generatedSplit: responseCases.reduce((count, entry) => {
+    const bytes = caseBytesById.get(entry.id);
+    return count + (entry.all_split_points ? bytes.length - 1 : 0);
+  }, 0),
+  byteAtATime: responseCases.filter((entry) => byteAtATimeFixtureIds.has(entry.id)).length,
+};
+const actualResponsePlanCounts = {
+  whole: 0,
+  explicit: 0,
+  generatedSplit: 0,
+  byteAtATime: 0,
+};
+
+for (const caseData of responseCases) {
   const bytes = caseBytesById.get(caseData.id);
   for (const plan of responsePlans(caseData, bytes)) {
     const decoder = new TcpResponseDecoder({
@@ -351,11 +380,27 @@ for (const caseData of cases.filter((entry) => entry.targets.includes('response'
     runner.assert(Object.isFrozen(snapshot), `${label}: snapshot is immutable`);
     runner.assert(!Object.hasOwn(snapshot, 'body') && !Object.hasOwn(snapshot, 'bodyText'),
       `${label}: snapshot contains no body text`);
-    responseFixtureRuns++;
+    actualResponsePlanCounts[plan.category]++;
   }
 }
-runner.assert(responseFixtureRuns > cases.filter((entry) => entry.targets.includes('response')).length,
-  'response fixtures execute whole-buffer, explicit, and generated split plans');
+for (const category of Object.keys(expectedResponsePlanCounts)) {
+  runner.assert(actualResponsePlanCounts[category] === expectedResponsePlanCounts[category],
+    `response fixtures execute the exact derived ${category} plan count`,
+    `expected ${expectedResponsePlanCounts[category]}, got ${actualResponsePlanCounts[category]}`);
+}
+runner.assert(sameJson(actualResponsePlanCounts, {
+  whole: 42,
+  explicit: 42,
+  generatedSplit: 145,
+  byteAtATime: 1,
+}), 'response fixture execution categories remain independently counted');
+runner.assert(responsePlans(
+  casesById.get('framed-basic'),
+  caseBytesById.get('framed-basic'),
+).some((plan) => plan.category === 'byteAtATime'
+  && plan.lengths.length === caseBytesById.get('framed-basic').length
+  && plan.lengths.every((length) => length === 1)),
+'framed-basic persistently covers prefix, terminator, and body one byte at a time');
 
 {
   const decoder = new TcpResponseDecoder();
@@ -392,6 +437,37 @@ runner.assert(responseFixtureRuns > cases.filter((entry) => entry.targets.includ
   runner.assert(sameJson(decoder.debugStatsForTests(), {
     legacyBytesScanned: 11, bodyAssemblyCount: 1, jsonParseCount: 1,
   }), 'complete legacy candidate scans, assembles, and parses exactly once');
+}
+
+{
+  const decoder = new TcpResponseDecoder();
+  const complete = decoder.consume(Buffer.from(
+    '{"nested":{"items":[{"value":1},2]}}',
+    'ascii',
+  ));
+  const assignmentError = caughtError(() => {
+    complete.value.nested.items[0].value = 99;
+  });
+  const arrayError = caughtError(() => {
+    complete.value.nested.items.push(3);
+  });
+  const observedAgain = decoder.snapshot();
+  const observedThird = decoder.snapshot();
+  runner.assert(Object.isFrozen(complete.value)
+    && Object.isFrozen(complete.value.nested)
+    && Object.isFrozen(complete.value.nested.items)
+    && Object.isFrozen(complete.value.nested.items[0])
+    && assignmentError instanceof TypeError
+    && arrayError instanceof TypeError
+    && observedAgain.value.nested.items.length === 2
+    && observedAgain.value.nested.items[0].value === 1
+    && observedThird.value === observedAgain.value
+    && sameJson(observedAgain.value, {
+      nested: { items: [{ value: 1 }, 2] },
+    })
+    && sameJson(observedThird.value, {
+      nested: { items: [{ value: 1 }, 2] },
+    }), 'complete snapshots recursively freeze JSON values across repeated observations');
 }
 
 {
@@ -441,15 +517,42 @@ runner.assert(responseFixtureRuns > cases.filter((entry) => entry.targets.includ
   const decoder = new TcpResponseDecoder();
   runner.assert(header.length === TCP_MAX_HEADER_BYTES,
     'generated terminated header is exactly the 512-byte cap');
-  runner.assert(decoder.consume(header.subarray(0, header.length - 1)).status === 'pending',
-    'header remains pending one byte before the 512-byte terminated boundary');
-  const headerComplete = decoder.consume(header.subarray(header.length - 1));
+  let terminatedPendingThrough511 = true;
+  let headerComplete;
+  for (let index = 0; index < header.length; index++) {
+    const snapshot = decoder.consume(header.subarray(index, index + 1));
+    if (index < header.length - 1 && snapshot.status !== 'pending') {
+      terminatedPendingThrough511 = false;
+    }
+    if (index === header.length - 1) headerComplete = snapshot;
+  }
+  runner.assert(terminatedPendingThrough511,
+    'terminated header remains pending through byte 511 when consumed byte at a time');
   runner.assert(headerComplete.status === 'pending'
     && headerComplete.framing === 'framed'
     && headerComplete.declaredBodyLength === 2,
-  'terminated header exactly at 512 bytes is accepted');
-  runner.assert(decoder.consume(Buffer.from('{}', 'ascii')).status === 'complete',
-    'body completes after an exactly-at-cap framed header');
+  'terminated header byte 512 is accepted without header_too_large');
+  runner.assert(decoder.consume(Buffer.from('{', 'ascii')).status === 'pending'
+    && decoder.consume(Buffer.from('}', 'ascii')).status === 'complete',
+  'body completes byte at a time after an exactly-at-cap framed header');
+
+  const unterminatedDecoder = new TcpResponseDecoder();
+  let unterminatedPendingThrough511 = true;
+  let unterminatedTerminal;
+  for (let index = 0; index < headerCapBytes.length; index++) {
+    const snapshot = unterminatedDecoder.consume(headerCapBytes.subarray(index, index + 1));
+    if (index < headerCapBytes.length - 1 && snapshot.status !== 'pending') {
+      unterminatedPendingThrough511 = false;
+    }
+    if (index === headerCapBytes.length - 1) unterminatedTerminal = snapshot;
+  }
+  runner.assert(unterminatedPendingThrough511,
+    'unterminated header remains pending through byte 511 when consumed byte at a time');
+  runner.assert(unterminatedTerminal.status === 'malformed'
+    && unterminatedTerminal.framing === 'framed'
+    && unterminatedTerminal.reasonCode === 'header_too_large'
+    && unterminatedTerminal.bytesReceived === TCP_MAX_HEADER_BYTES,
+  'unterminated header becomes header_too_large exactly at byte 512');
 }
 
 {
@@ -504,6 +607,55 @@ runner.assert(responseFixtureRuns > cases.filter((entry) => entry.targets.includ
 }
 
 {
+  const secretMarker = 'UEMCP_SECRET_PAYLOAD_SENTINEL';
+  let snapshot;
+  const consumeError = caughtError(() => {
+    const decoder = new TcpResponseDecoder({
+      parseJson() {
+        throw new Error(`injected parser failure: ${secretMarker}`);
+      },
+    });
+    snapshot = decoder.consume(Buffer.from('{"safe":true}', 'ascii'));
+  });
+  runner.assert(consumeError === null
+    && snapshot.status === 'malformed'
+    && snapshot.reasonCode === 'invalid_json'
+    && !JSON.stringify(snapshot).includes(secretMarker),
+  'injected parser error text is consumed into a marker-free invalid_json snapshot');
+
+  const malformedDecoder = new TcpResponseDecoder();
+  let malformedSnapshot;
+  const malformedConsumeError = caughtError(() => {
+    malformedSnapshot = malformedDecoder.consume(Buffer.from(
+      `{"secret":"${secretMarker}",}`,
+      'ascii',
+    ));
+  });
+  const postTerminalError = caughtError(() => malformedDecoder.consume(Buffer.alloc(0)));
+  runner.assert(malformedConsumeError === null
+    && malformedSnapshot.status === 'malformed'
+    && malformedSnapshot.reasonCode === 'invalid_json'
+    && !JSON.stringify(malformedSnapshot).includes(secretMarker)
+    && postTerminalError instanceof Error
+    && !postTerminalError.message.includes(secretMarker),
+  'malformed payload diagnostics and terminal errors retain no secret marker');
+}
+
+{
+  const nonJsonValue = new Date(0);
+  const decoder = new TcpResponseDecoder({
+    parseJson() {
+      return { nested: nonJsonValue };
+    },
+  });
+  const snapshot = decoder.consume(Buffer.from('{}', 'ascii'));
+  runner.assert(snapshot.status === 'malformed'
+    && snapshot.reasonCode === 'invalid_json'
+    && !Object.isFrozen(nonJsonValue),
+  'injected non-JSON objects are rejected without freezing arbitrary instances');
+}
+
+{
   let injectedParseCount = 0;
   const decoder = new TcpResponseDecoder({ parseJson() { injectedParseCount++; } });
   const snapshot = decoder.consume(caseBytesById.get('utf8-overlong'));
@@ -515,12 +667,39 @@ runner.assert(responseFixtureRuns > cases.filter((entry) => entry.targets.includ
 }
 
 {
-  const decoder = new TcpResponseDecoder();
-  const snapshot = decoder.consume(Buffer.from(
+  const declaration = Buffer.from(
     `Content-Length: ${Number.MAX_SAFE_INTEGER}\r\n\r\n`,
     'ascii',
-  ));
-  runner.assert(snapshot.status === 'pending'
+  );
+  const originalAlloc = Buffer.alloc;
+  const originalAllocUnsafe = Buffer.allocUnsafe;
+  const directAllocations = [];
+  let allocationError = null;
+  let decoder;
+  let snapshot;
+  try {
+    Buffer.alloc = function instrumentedAlloc(size, ...args) {
+      directAllocations.push({ method: 'alloc', size });
+      if (size > TCP_MAX_HEADER_BYTES) throw new Error(`unexpected direct allocation: ${size}`);
+      return Reflect.apply(originalAlloc, Buffer, [size, ...args]);
+    };
+    Buffer.allocUnsafe = function instrumentedAllocUnsafe(size, ...args) {
+      directAllocations.push({ method: 'allocUnsafe', size });
+      if (size > TCP_MAX_HEADER_BYTES) throw new Error(`unexpected direct allocation: ${size}`);
+      return Reflect.apply(originalAllocUnsafe, Buffer, [size, ...args]);
+    };
+    decoder = new TcpResponseDecoder();
+    snapshot = decoder.consume(declaration);
+  } catch (error) {
+    allocationError = error;
+  } finally {
+    Buffer.alloc = originalAlloc;
+    Buffer.allocUnsafe = originalAllocUnsafe;
+  }
+  runner.assert(allocationError === null
+    && sameJson(directAllocations, [{ method: 'alloc', size: TCP_MAX_HEADER_BYTES }]),
+  'max-safe declaration directly requests only the fixed 512-byte scratch allocation');
+  runner.assert(snapshot?.status === 'pending'
     && snapshot.declaredBodyLength === Number.MAX_SAFE_INTEGER,
   'safe response declarations remain uncapped and pending without body bytes');
   runner.assert(sameJson(decoder.debugStatsForTests(), {
@@ -662,17 +841,22 @@ for (const eofCase of eofCases) {
 }
 
 const transportSource = await readFile(transportUrl, 'utf8');
-const transportDiagnosticSource = transportSource.split('\n')
-  .filter((line) => /throw|super\(/.test(line))
-  .join('\n');
-runner.assert(/Buffer\.alloc\(TCP_MAX_HEADER_BYTES\)/.test(transportSource),
-  'decoder uses one fixed-capacity 512-byte header scratch Buffer');
-runner.assert(!/Buffer\.alloc(?:Unsafe)?\([^)]*(?:declaredBodyLength|bodyLength)/.test(transportSource),
-  'decoder never allocates from a declared response length');
-runner.assert(!/(?:body|chunk|params|request)\.(?:slice|subarray)\([^)]*\)\.toString/.test(transportDiagnosticSource)
-  && !/\$\{[^}]*(?:body|chunk|params|request)[^}]*\}/.test(transportDiagnosticSource),
-  'transport diagnostics contain no payload slicing or interpolation');
+const fixedHeaderAllocations = transportSource.match(/Buffer\.alloc\(TCP_MAX_HEADER_BYTES\)/g) ?? [];
+runner.assert(fixedHeaderAllocations.length === 1,
+  'source contains exactly one direct fixed-header Buffer.alloc expression');
+const directDeclaredLengthAllocations = [...transportSource.matchAll(
+  /Buffer\.(?:alloc|allocUnsafe)\(([^)]*)\)/g,
+)].filter((match) => /declaredBodyLength/.test(match[1]));
+runner.assert(directDeclaredLengthAllocations.length === 0,
+  'source has no direct Buffer.alloc call whose argument names declaredBodyLength');
+const sameLineDiagnosticPreviews = transportSource.split('\n').filter((line) => {
+  return /throw|super\(/.test(line)
+    && (/(?:body|chunk|params|request)\.(?:slice|subarray)\(/.test(line)
+      || /\$\{[^}]*(?:body|chunk|params|request)[^}]*\}/.test(line));
+});
+runner.assert(sameLineDiagnosticPreviews.length === 0,
+  'single-line throw/super expressions contain no direct payload preview expression');
 runner.assert(!/\bconsole\.(?:log|warn|error)|process\.stderr\.write/.test(transportSource),
-  'transport helpers do not own warning or payload logging');
+  'source contains no direct console warning/error or process.stderr.write call');
 
 process.exit(runner.summary());

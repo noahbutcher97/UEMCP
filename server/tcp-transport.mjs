@@ -158,6 +158,40 @@ function immutableSnapshot(status, framing, bytesReceived, declaredBodyLength, t
   });
 }
 
+function isJsonValue(value, seen = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || seen.has(value)) return false;
+
+  const isArray = Array.isArray(value);
+  const prototype = Object.getPrototypeOf(value);
+  if (!isArray && prototype !== Object.prototype && prototype !== null) return false;
+
+  seen.add(value);
+  if (isArray) {
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || keys.at(-1) !== 'length') return false;
+    for (let index = 0; index < value.length; index++) {
+      if (keys[index] !== String(index) || !isJsonValue(value[index], seen)) return false;
+    }
+    return true;
+  }
+
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+    if (!isJsonValue(descriptor.value, seen)) return false;
+  }
+  return true;
+}
+
+function freezeJsonValue(value) {
+  if (value === null || typeof value !== 'object') return;
+  for (const child of Object.values(value)) freezeJsonValue(child);
+  Object.freeze(value);
+}
+
 function isPartialBom(prefix, bodyBytes) {
   return (bodyBytes === 1 && prefix[0] === UTF8_BOM[0])
     || (bodyBytes === 2 && prefix[0] === UTF8_BOM[0] && prefix[1] === UTF8_BOM[1]);
@@ -521,6 +555,11 @@ export class TcpResponseDecoder {
       this._setMalformed('root_not_object');
       return;
     }
+    if (!isJsonValue(value)) {
+      this._setMalformed('invalid_json');
+      return;
+    }
+    freezeJsonValue(value);
     this._setComplete(value);
   }
 }
