@@ -16,6 +16,11 @@ import net from 'node:net';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { PROJECT_ERROR_CODES } from './project-errors.mjs';
+import {
+  encodeTcpRequest,
+  TcpResponseDecoder,
+  TcpTransportError,
+} from './tcp-transport.mjs';
 
 // ── Layer status ────────────────────────────────────────────
 
@@ -32,45 +37,8 @@ const ACTIVE_LAYER_KEYS = Object.freeze(['offline', 'tcp-55558', 'http-30010']);
 // ── TCP Client (connect-per-command) ────────────────────────
 
 /**
- * Detect length-framed response. Sniffs first bytes for "Content-Length:" prefix
- * (case-insensitive). When framed, returns { framed: true, headerLen, bodyLen }.
- * When unframed (legacy parse-loop path), returns { framed: false }.
- * Used for backwards-compat: an old plugin still emitting unframed JSON parses
- * via the legacy path; a new plugin with framing parses via the framed path.
- *
- * @param {Buffer} buf - accumulated bytes
- * @returns {{framed: true, headerLen: number, bodyLen: number} | {framed: false} | {framed: 'pending'}}
- */
-function _detectResponseFraming(buf) {
-  if (buf.length < 'Content-Length:'.length) {
-    return { framed: 'pending' };  // not enough bytes to decide
-  }
-  const prefix = buf.slice(0, 'Content-Length:'.length).toString('utf-8').toLowerCase();
-  if (!prefix.startsWith('content-length:')) {
-    return { framed: false };
-  }
-  // Search for "\r\n\r\n" terminator within first 512 bytes.
-  const headerSearch = buf.slice(0, Math.min(buf.length, 512)).toString('utf-8');
-  const terminatorIdx = headerSearch.indexOf('\r\n\r\n');
-  if (terminatorIdx === -1) {
-    return { framed: 'pending' };  // header not yet complete
-  }
-  const headerBlock = headerSearch.slice(0, terminatorIdx);
-  const colonIdx = headerBlock.indexOf(':');
-  if (colonIdx === -1) {
-    return { framed: false };  // malformed; fall back to legacy parse
-  }
-  const lenStr = headerBlock.slice(colonIdx + 1).trim();
-  const bodyLen = parseInt(lenStr, 10);
-  if (!Number.isFinite(bodyLen) || bodyLen < 0) {
-    return { framed: false };
-  }
-  return { framed: true, headerLen: terminatorIdx + 4, bodyLen };
-}
-
-/**
  * Send a single command over TCP using the UEMCP protocol.
- * Opens socket → sends JSON → reads until valid JSON → closes socket.
+ * Opens socket → sends framed JSON → decodes one strict JSON object → closes socket.
  *
  * E-1 §1: outgoing requests are length-framed. Incoming response framing is
  * auto-detected so older deployed UEMCP builds
@@ -86,25 +54,56 @@ function _detectResponseFraming(buf) {
  * @returns {Promise<object>} parsed JSON response
  */
 function tcpCommand(port, type, params, timeoutMs, metrics = null) {
+  const request = encodeTcpRequest(type, params || {}, { port });
+
   return new Promise((resolve, reject) => {
     const t0 = process.hrtime.bigint();
     let tConnected = 0n;
     let tSent = 0n;
     let tFirstByte = 0n;
     let tParsed = 0n;
-
-    const socket = net.createConnection({ port, host: '127.0.0.1' });
-    /** @type {Buffer[]} */
-    const chunks = [];
+    const decoder = new TcpResponseDecoder();
     let totalBytes = 0;
     let settled = false;
-    /** @type {{framed: boolean | 'pending', headerLen?: number, bodyLen?: number}} */
-    let framing = { framed: 'pending' };
+    let socket = null;
+    let socketClosed = false;
+    let absoluteTimer = null;
 
-    const finish = (err, result) => {
-      if (settled) return;
-      settled = true;
+    const decoderDetails = (snapshot, extra = {}) => ({
+      direction: 'response',
+      framing: snapshot.framing,
+      bytesReceived: snapshot.bytesReceived,
+      declaredBodyLength: snapshot.declaredBodyLength,
+      ...extra,
+    });
+
+    const onCleanupError = () => {};
+    const onCleanupClose = () => {
+      socketClosed = true;
+      socket?.off('error', onCleanupError);
+      socket?.off('close', onCleanupClose);
+    };
+
+    const cleanup = () => {
+      clearTimeout(absoluteTimer);
+      if (!socket) return;
+      socket.setTimeout(0);
+      socket.off('connect', onConnect);
+      socket.off('data', onData);
+      socket.off('end', onEnd);
+      socket.off('close', onClose);
+      socket.off('timeout', onInactivityTimeout);
+      socket.off('error', onSocketError);
+      if (socketClosed) return;
+      socket.on('error', onCleanupError);
+      socket.once('close', onCleanupClose);
       socket.destroy();
+    };
+
+    const settle = (err, result) => {
+      if (settled) return false;
+      settled = true;
+      cleanup();
 
       // E-1 §6 (EN-23): emit metrics if a sink was provided. Done at finish time
       // so timeouts / errors get recorded too (with whichever phase timings are valid).
@@ -116,7 +115,7 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
           type,
           ok: !err,
           err: err ? err.message : null,
-          framed: framing.framed === true,
+          framed: decoder.snapshot().framing === 'framed',
           bytes: totalBytes,
           connect_ms: ns(t0, tConnected),
           send_ms: ns(tConnected, tSent),
@@ -128,97 +127,120 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
 
       if (err) reject(err);
       else resolve(result);
+      return true;
     };
 
-    socket.setTimeout(timeoutMs);
-
-    socket.on('connect', () => {
-      tConnected = process.hrtime.bigint();
-      const body = JSON.stringify({ type, params: params || {} });
-      // E-1 §1: emit Content-Length-framed request to the UEMCP plugin.
-      const bodyBuf = Buffer.from(body, 'utf-8');
-      const headerBuf = Buffer.from(`Content-Length: ${bodyBuf.length}\r\n\r\n`, 'utf-8');
-      socket.write(Buffer.concat([headerBuf, bodyBuf]));
-      tSent = process.hrtime.bigint();
-    });
-
-    socket.on('data', (chunk) => {
-      if (tFirstByte === 0n) tFirstByte = process.hrtime.bigint();
-      chunks.push(chunk);
-      totalBytes += chunk.length;
-      const buf = Buffer.concat(chunks);
-
-      if (framing.framed === 'pending') {
-        framing = _detectResponseFraming(buf);
+    const settleDecoderTerminal = (snapshot) => {
+      if (snapshot.status === 'complete') {
+        tParsed = process.hrtime.bigint();
+        settle(null, snapshot.value);
+        return true;
       }
+      if (snapshot.status === 'malformed') {
+        settle(new TcpTransportError('MALFORMED_RESPONSE', port, decoderDetails(snapshot, {
+          parserCategory: snapshot.reasonCode,
+        })));
+        return true;
+      }
+      return false;
+    };
 
-      if (framing.framed === true) {
-        // Framed path: wait until we have header + full body, then parse body only.
-        if (buf.length >= framing.headerLen + framing.bodyLen) {
-          const body = buf.slice(framing.headerLen, framing.headerLen + framing.bodyLen).toString('utf-8');
-          try {
-            const parsed = JSON.parse(body);
-            tParsed = process.hrtime.bigint();
-            finish(null, parsed);
-          } catch (e) {
-            finish(new Error(`TCP:${port} — invalid JSON in framed body (Content-Length=${framing.bodyLen}): ${body.slice(0, 200)}`));
-          }
-        }
-        // else: keep reading.
+    const settleFromEof = () => {
+      if (settled) return;
+      const beforeFinish = decoder.snapshot();
+      if (settleDecoderTerminal(beforeFinish)) return;
+      const terminal = decoder.finish();
+      const code = terminal.reasonCode === 'no_response'
+        ? 'NO_RESPONSE'
+        : 'INCOMPLETE_RESPONSE';
+      settle(new TcpTransportError(code, port, decoderDetails(terminal, {
+        parserCategory: terminal.reasonCode,
+      })));
+    };
+
+    const onConnect = () => {
+      if (settled) return;
+      tConnected = process.hrtime.bigint();
+      try {
+        socket.write(request.frame, (error) => {
+          if (!error || settled) return;
+          settle(new TcpTransportError('SOCKET_ERROR', port, decoderDetails(decoder.snapshot(), {
+            nativeCode: error.code,
+          })));
+        });
+        tSent = process.hrtime.bigint();
+      } catch (error) {
+        settle(new TcpTransportError('SOCKET_ERROR', port, decoderDetails(decoder.snapshot(), {
+          nativeCode: error?.code,
+        })));
+      }
+    };
+
+    const onData = (chunk) => {
+      if (settled) return;
+      if (tFirstByte === 0n) tFirstByte = process.hrtime.bigint();
+      totalBytes += chunk.length;
+      try {
+        settleDecoderTerminal(decoder.consume(chunk));
+      } catch {
+        settle(new TcpTransportError('MALFORMED_RESPONSE', port, decoderDetails(decoder.snapshot(), {
+          parserCategory: 'decoder_failure',
+        })));
+      }
+    };
+
+    const onEnd = () => settleFromEof();
+
+    const onClose = (hadError) => {
+      if (settled) return;
+      socketClosed = true;
+      if (hadError) {
+        settle(new TcpTransportError('SOCKET_ERROR', port, decoderDetails(decoder.snapshot())));
         return;
       }
+      settleFromEof();
+    };
 
-      if (framing.framed === false) {
-        // Legacy path: try to parse whatever's accumulated.
-        const raw = buf.toString('utf-8');
-        try {
-          const parsed = JSON.parse(raw);
-          tParsed = process.hrtime.bigint();
-          finish(null, parsed);
-        } catch {
-          // Incomplete JSON, keep reading
-        }
-      }
-      // framing === 'pending' — keep reading until we can decide.
-    });
+    const onInactivityTimeout = () => {
+      if (settleDecoderTerminal(decoder.snapshot())) return;
+      settle(new TcpTransportError('RESPONSE_TIMEOUT', port, decoderDetails(decoder.snapshot(), {
+        timeoutMs,
+        timeoutKind: 'inactivity',
+      })));
+    };
 
-    socket.on('end', () => {
-      if (!settled) {
-        const buf = Buffer.concat(chunks);
-        if (buf.length === 0) {
-          finish(new Error(`TCP:${port} — connection closed with no response`));
-          return;
-        }
-        // If still pending or framed but incomplete, treat as malformed.
-        if (framing.framed === true && buf.length < framing.headerLen + framing.bodyLen) {
-          finish(new Error(`TCP:${port} — connection closed with incomplete framed body (got ${buf.length}, expected ${framing.headerLen + framing.bodyLen})`));
-          return;
-        }
-        // Last-resort parse for legacy/unknown shape.
-        const raw = framing.framed === true
-          ? buf.slice(framing.headerLen, framing.headerLen + framing.bodyLen).toString('utf-8')
-          : buf.toString('utf-8');
-        try {
-          tParsed = process.hrtime.bigint();
-          finish(null, JSON.parse(raw));
-        } catch {
-          finish(new Error(`TCP:${port} — invalid JSON response: ${raw.slice(0, 200)}`));
-        }
-      }
-    });
+    const onSocketError = (error) => {
+      if (settleDecoderTerminal(decoder.snapshot())) return;
+      settle(new TcpTransportError('SOCKET_ERROR', port, decoderDetails(decoder.snapshot(), {
+        nativeCode: error?.code,
+      })));
+    };
 
-    socket.on('timeout', () => {
-      finish(new Error(`TCP:${port} — timeout after ${timeoutMs}ms`));
-    });
+    const onAbsoluteTimeout = () => {
+      if (settleDecoderTerminal(decoder.snapshot())) return;
+      settle(new TcpTransportError('RESPONSE_TIMEOUT', port, decoderDetails(decoder.snapshot(), {
+        timeoutMs,
+        timeoutKind: 'absolute',
+      })));
+    };
 
-    socket.on('error', (err) => {
-      finish(new Error(`TCP:${port} — ${err.message}`));
-    });
+    absoluteTimer = setTimeout(onAbsoluteTimeout, timeoutMs);
+    try {
+      socket = net.createConnection({ port, host: '127.0.0.1' });
+      socket.setTimeout(timeoutMs);
+      socket.on('connect', onConnect);
+      socket.on('data', onData);
+      socket.on('end', onEnd);
+      socket.on('close', onClose);
+      socket.on('timeout', onInactivityTimeout);
+      socket.on('error', onSocketError);
+    } catch (error) {
+      settle(new TcpTransportError('SOCKET_ERROR', port, decoderDetails(decoder.snapshot(), {
+        nativeCode: error?.code,
+      })));
+    }
   });
 }
-
-// E-1 §1: export the framing detector for focused response-parser tests.
-export { _detectResponseFraming };
 
 // ── HTTP Client (Remote Control, connect-per-request) ──────
 

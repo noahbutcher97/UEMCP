@@ -1,5 +1,7 @@
+import net from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { types } from 'node:util';
+import { ConnectionManager } from './connection-manager.mjs';
 import { TestRunner } from './test-helpers.mjs';
 import {
   TCP_MAX_HEADER_BYTES,
@@ -11,6 +13,7 @@ import {
 
 const fixtureUrl = new URL('../plugin/UEMCP/Resources/Tests/tcp-transport-cases.json', import.meta.url);
 const transportUrl = new URL('./tcp-transport.mjs', import.meta.url);
+const connectionManagerUrl = new URL('./connection-manager.mjs', import.meta.url);
 const runner = new TestRunner('TCP transport contract and Node decoder');
 
 const requiredCaseIds = [
@@ -292,6 +295,134 @@ function caughtError(fn) {
     return error;
   }
   return null;
+}
+
+async function caughtAsync(fn) {
+  try {
+    await fn();
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function bounded(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} exceeded ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function startTcpServer(onConnection) {
+  const sockets = new Set();
+  const handlerErrors = [];
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    Promise.resolve()
+      .then(() => onConnection(socket))
+      .catch((error) => {
+        handlerErrors.push(error);
+        socket.destroy();
+      });
+  });
+  await bounded(new Promise((resolve, reject) => {
+    const onListenError = (error) => reject(error);
+    server.once('error', onListenError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onListenError);
+      resolve();
+    });
+  }), 1000, 'server listen');
+
+  return {
+    server,
+    port: server.address().port,
+    handlerErrors,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await bounded(new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      }), 1000, 'server close');
+    },
+  };
+}
+
+async function writeChunks(socket, chunks, { delayMs = 0, end = true } = {}) {
+  for (const chunk of chunks) {
+    if (socket.destroyed) return;
+    if (!socket.write(chunk)) {
+      await bounded(new Promise((resolve, reject) => {
+        const cleanup = () => {
+          socket.off('drain', onDrain);
+          socket.off('close', onClose);
+          socket.off('error', onError);
+        };
+        const onDrain = () => { cleanup(); resolve(); };
+        const onClose = () => { cleanup(); resolve(); };
+        const onError = (error) => { cleanup(); reject(error); };
+        socket.once('drain', onDrain);
+        socket.once('close', onClose);
+        socket.once('error', onError);
+      }), 1000, 'socket drain');
+    }
+    if (delayMs > 0) await delay(delayMs);
+  }
+  if (end && !socket.destroyed) socket.end();
+}
+
+function connectionManagerFor(port, timeoutMs = 500, metricsEmitEveryN = 0) {
+  return new ConnectionManager({
+    projectRoot: '/generic/test/project',
+    tcpPortCustom: port,
+    httpPort: 30010,
+    tcpTimeoutMs: timeoutMs,
+    metricsEmitEveryN,
+  });
+}
+
+async function exchangeResponse(chunks, {
+  delayMs = 0,
+  timeoutMs = 500,
+  type = 'lifecycle_probe',
+  metricsEmitEveryN = 0,
+} = {}) {
+  const fixture = await startTcpServer((socket) => {
+    socket.once('data', () => writeChunks(socket, chunks, { delayMs }));
+  });
+  const manager = connectionManagerFor(fixture.port, timeoutMs, metricsEmitEveryN);
+  try {
+    const result = await bounded(
+      manager.send('tcp-55558', type, {}, { skipCache: true }),
+      Math.max(1500, timeoutMs * 5),
+      `${type} exchange`,
+    );
+    return { result, error: null, manager, handlerErrors: fixture.handlerErrors };
+  } catch (error) {
+    return { result: null, error, manager, handlerErrors: fixture.handlerErrors };
+  } finally {
+    await fixture.close();
+  }
+}
+
+function frameForBody(body) {
+  const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
+  return Buffer.concat([
+    Buffer.from(`Content-Length: ${bodyBuffer.length}\r\n\r\n`, 'ascii'),
+    bodyBuffer,
+  ]);
 }
 
 function captureContainerStates(containers) {
@@ -1604,7 +1735,410 @@ for (const eofCase of eofCases) {
   'typed transport details reject revoked proxies without throwing or retaining marker text');
 }
 
+const lifecycleFailures = [];
+
+{
+  const type = 'sized';
+  const limit = TCP_MAX_REQUEST_BODY_BYTES;
+  const baseBytes = Buffer.byteLength(JSON.stringify({ type, params: { padding: '' } }));
+  const exactPadding = 'x'.repeat(limit - baseBytes);
+  let connectionCount = 0;
+  let declaredBodyLength = null;
+  let receivedBodyLength = 0;
+  let requestBody = null;
+  const fixture = await startTcpServer((socket) => {
+    connectionCount++;
+    const chunks = [];
+    let buffered = Buffer.alloc(0);
+    let bodyOffset = null;
+    socket.on('data', (chunk) => {
+      chunks.push(chunk);
+      buffered = Buffer.concat(chunks);
+      if (bodyOffset === null) {
+        const terminator = buffered.indexOf('\r\n\r\n');
+        if (terminator === -1) return;
+        const header = buffered.subarray(0, terminator).toString('ascii');
+        const match = /^Content-Length: ([0-9]+)$/.exec(header);
+        if (!match) {
+          socket.destroy();
+          return;
+        }
+        declaredBodyLength = Number(match[1]);
+        bodyOffset = terminator + 4;
+      }
+      receivedBodyLength = buffered.length - bodyOffset;
+      if (receivedBodyLength >= declaredBodyLength) {
+        requestBody = buffered.subarray(bodyOffset, bodyOffset + declaredBodyLength);
+        socket.end(frameForBody('{"status":"success","accepted":true}'));
+      }
+    });
+  });
+  try {
+    const manager = connectionManagerFor(fixture.port, 3000);
+    const result = await bounded(manager.send(
+      'tcp-55558',
+      type,
+      { padding: exactPadding },
+      { skipCache: true },
+    ), 5000, 'exact-limit request');
+    runner.assert(result?.accepted === true,
+      'exact 8 MiB request resolves through the production TCP path');
+    runner.assert(connectionCount === 1
+      && declaredBodyLength === limit
+      && receivedBodyLength === limit
+      && requestBody?.length === limit,
+    'exact 8 MiB request connects and writes one complete declared body');
+    runner.assert(requestBody?.subarray(0, 32).toString('ascii').startsWith('{"type":"sized"')
+      && requestBody?.subarray(-4).toString('ascii') === 'x"}}',
+    'exact-limit wire body retains the expected generic serialized envelope');
+  } finally {
+    await fixture.close();
+  }
+
+  let overLimitConnections = 0;
+  const overLimitFixture = await startTcpServer((socket) => {
+    overLimitConnections++;
+    socket.destroy();
+  });
+  let overLimitError;
+  try {
+    const manager = connectionManagerFor(overLimitFixture.port, 250);
+    overLimitError = await caughtAsync(() => bounded(manager.send(
+      'tcp-55558',
+      type,
+      { padding: 'x'.repeat(limit + 1 - baseBytes) },
+      { skipCache: true },
+    ), 1000, 'over-limit request'));
+    await delay(50);
+  } finally {
+    await overLimitFixture.close();
+  }
+  lifecycleFailures.push(['over-limit request', 'REQUEST_TOO_LARGE', overLimitError]);
+  runner.assert(overLimitError?.code === 'REQUEST_TOO_LARGE'
+    && overLimitError.details?.bodyBytes === limit + 1,
+  '8 MiB plus one maps to REQUEST_TOO_LARGE with exact byte metadata');
+  runner.assert(overLimitConnections === 0,
+    'over-limit preflight creates zero TCP connections');
+}
+
+{
+  const framedBody = JSON.stringify({ status: 'success', value: '\ud83d\ude00', nested: { ok: true } });
+  const framedBytes = frameForBody(framedBody);
+  const framed = await exchangeResponse(
+    [...framedBytes].map((byte) => Buffer.from([byte])),
+    { delayMs: 1, timeoutMs: 3000, type: 'fragmented_framed' },
+  );
+  runner.assert(framed.error === null
+    && framed.result?.value === '\ud83d\ude00'
+    && framed.handlerErrors.length === 0,
+  'fragmented framed response completes across prefix, header, UTF-8, and body splits');
+
+  const legacyBody = Buffer.from('{"status":"success","text":"}\\\"{","items":[{"ok":true}]}', 'utf8');
+  const legacy = await exchangeResponse(
+    [...legacyBody].map((byte) => Buffer.from([byte])),
+    { delayMs: 1, timeoutMs: 3000, type: 'fragmented_legacy' },
+  );
+  runner.assert(legacy.error === null
+    && legacy.result?.items?.[0]?.ok === true
+    && legacy.handlerErrors.length === 0,
+  'fragmented legacy response completes across delimiter, string, and escape splits');
+}
+
+{
+  const noResponse = await exchangeResponse([], { type: 'no_response' });
+  lifecycleFailures.push(['empty close', 'NO_RESPONSE', noResponse.error]);
+  runner.assert(noResponse.error?.code === 'NO_RESPONSE'
+    && noResponse.error.details?.bytesReceived === 0,
+  'clean close with zero response bytes maps to NO_RESPONSE');
+
+  const incompleteCases = [
+    ['prefix', Buffer.from('Cont', 'ascii'), 'undecided'],
+    ['header', Buffer.from('Content-Length: 20\r\n', 'ascii'), 'framed'],
+    ['framed body', Buffer.from('Content-Length: 20\r\n\r\n{"status":', 'ascii'), 'framed'],
+    ['legacy object', Buffer.from('{"status":', 'ascii'), 'legacy'],
+    ['partial BOM', Buffer.from([0xef, 0xbb]), 'legacy'],
+    ['legacy UTF-8', Buffer.concat([Buffer.from('{"value":"', 'ascii'), Buffer.from([0xe2])]), 'legacy'],
+    ['framed UTF-8', Buffer.concat([
+      Buffer.from('Content-Length: 20\r\n\r\n{"value":"', 'ascii'),
+      Buffer.from([0xe2]),
+    ]), 'framed'],
+  ];
+  for (const [name, bytes, framing] of incompleteCases) {
+    const exchange = await exchangeResponse([bytes], { type: `incomplete_${name.replace(' ', '_')}` });
+    lifecycleFailures.push([`incomplete ${name}`, 'INCOMPLETE_RESPONSE', exchange.error]);
+    runner.assert(exchange.error?.code === 'INCOMPLETE_RESPONSE'
+      && exchange.error.details?.framing === framing
+      && exchange.error.details?.bytesReceived === bytes.length,
+    `close during ${name} maps to INCOMPLETE_RESPONSE with progress`);
+  }
+}
+
+{
+  const malformedCases = [
+    ['header', Buffer.from('Content-Length: +2\r\n\r\n{}', 'ascii'), 'invalid_content_length'],
+    ['UTF-8', frameForBody(Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0xc0, 0xaf, 0x7d])), 'invalid_utf8'],
+    ['JSON', Buffer.from('{"status":"UEMCP_SECRET_PAYLOAD_SENTINEL",}', 'ascii'), 'invalid_json'],
+    ['root array', Buffer.from('[1,2,3]', 'ascii'), 'root_not_object'],
+    ['root scalar', Buffer.from('true', 'ascii'), 'root_not_object'],
+    ['trailing bytes', Buffer.from('Content-Length: 2\r\n\r\n{}x', 'ascii'), 'trailing_bytes'],
+  ];
+  for (const [name, bytes, parserCategory] of malformedCases) {
+    const exchange = await exchangeResponse([bytes], { type: `malformed_${name.replace(' ', '_')}` });
+    lifecycleFailures.push([`malformed ${name}`, 'MALFORMED_RESPONSE', exchange.error]);
+    runner.assert(exchange.error?.code === 'MALFORMED_RESPONSE'
+      && exchange.error.details?.parserCategory === parserCategory,
+    `malformed ${name} maps to MALFORMED_RESPONSE/${parserCategory}`);
+  }
+}
+
+{
+  const resetFixture = await startTcpServer((socket) => {
+    socket.once('data', () => {
+      if (typeof socket.resetAndDestroy === 'function') socket.resetAndDestroy();
+      else socket.destroy();
+    });
+  });
+  let resetError;
+  try {
+    resetError = await caughtAsync(() => bounded(
+      connectionManagerFor(resetFixture.port, 500).send(
+        'tcp-55558', 'reset_probe', {}, { skipCache: true },
+      ),
+      1500,
+      'reset response',
+    ));
+  } finally {
+    await resetFixture.close();
+  }
+  lifecycleFailures.push(['reset', 'SOCKET_ERROR', resetError]);
+  runner.assert(resetError?.code === 'SOCKET_ERROR'
+    && resetError.details?.nativeCode === 'ECONNRESET',
+  'peer reset maps to SOCKET_ERROR and preserves ECONNRESET');
+
+  const refusedReservation = await startTcpServer(() => {});
+  const refusedPort = refusedReservation.port;
+  await refusedReservation.close();
+  const refusedError = await caughtAsync(() => bounded(
+    connectionManagerFor(refusedPort, 500).send(
+      'tcp-55558', 'refusal_probe', {}, { skipCache: true },
+    ),
+    1500,
+    'connection refusal',
+  ));
+  lifecycleFailures.push(['refusal', 'SOCKET_ERROR', refusedError]);
+  runner.assert(refusedError?.code === 'SOCKET_ERROR'
+    && refusedError.details?.nativeCode === 'ECONNREFUSED'
+    && !refusedError.message.includes('ECONNREFUSED'),
+  'connection refusal keeps ECONNREFUSED only in sanitized details');
+
+  const writeFixture = await startTcpServer(() => {});
+  const originalWrite = net.Socket.prototype.write;
+  let writeError;
+  try {
+    net.Socket.prototype.write = function injectedWriteFailure(chunk, ...args) {
+      if (this.remotePort === writeFixture.port && Buffer.isBuffer(chunk)) {
+        const callback = args.find((arg) => typeof arg === 'function');
+        const error = new Error('UEMCP_SECRET_WRITE_FAILURE');
+        error.code = 'EPIPE';
+        if (callback) queueMicrotask(() => callback(error));
+        return true;
+      }
+      return originalWrite.call(this, chunk, ...args);
+    };
+    writeError = await caughtAsync(() => bounded(
+      connectionManagerFor(writeFixture.port, 150).send(
+        'tcp-55558', 'write_failure_probe', {}, { skipCache: true },
+      ),
+      1000,
+      'request write failure',
+    ));
+  } finally {
+    net.Socket.prototype.write = originalWrite;
+    await writeFixture.close();
+  }
+  lifecycleFailures.push(['write failure', 'SOCKET_ERROR', writeError]);
+  runner.assert(writeError?.code === 'SOCKET_ERROR'
+    && writeError.details?.nativeCode === 'EPIPE'
+    && !writeError.message.includes('EPIPE')
+    && !writeError.message.includes('UEMCP_SECRET_WRITE_FAILURE'),
+  'request-write failure maps to SOCKET_ERROR with native code only in details');
+}
+
+{
+  const timeoutMs = 120;
+  const fixture = await startTcpServer((socket) => {
+    socket.once('data', () => {
+      socket.write('{');
+      const interval = setInterval(() => {
+        if (!socket.destroyed) socket.write(' ');
+      }, 25);
+      const stop = setTimeout(() => {
+        clearInterval(interval);
+        if (!socket.destroyed) socket.end();
+      }, 400);
+      socket.once('close', () => {
+        clearInterval(interval);
+        clearTimeout(stop);
+      });
+    });
+  });
+  const startedAt = Date.now();
+  let timeoutError;
+  try {
+    timeoutError = await caughtAsync(() => bounded(
+      connectionManagerFor(fixture.port, timeoutMs).send(
+        'tcp-55558', 'trickle_probe', {}, { skipCache: true },
+      ),
+      1000,
+      'absolute response deadline',
+    ));
+  } finally {
+    await fixture.close();
+  }
+  const elapsedMs = Date.now() - startedAt;
+  lifecycleFailures.push(['trickle timeout', 'RESPONSE_TIMEOUT', timeoutError]);
+  runner.assert(timeoutError?.code === 'RESPONSE_TIMEOUT'
+    && timeoutError.details?.timeoutMs === timeoutMs
+    && timeoutError.details?.timeoutKind === 'absolute',
+  'one-byte trickle maps to absolute RESPONSE_TIMEOUT');
+  runner.assert(elapsedMs >= timeoutMs - 25 && elapsedMs < 300,
+    'trickle cannot extend the absolute caller deadline', `elapsed ${elapsedMs}ms`);
+}
+
+{
+  const base64Shape = 'A'.repeat(4 * 1024 * 1024);
+  const largeBody = Buffer.from(JSON.stringify({
+    status: 'success',
+    topology: { nodes: [{ id: 1, pins: ['In', 'Out'] }] },
+    capture: { mime: 'image/png', base64: base64Shape },
+  }), 'utf8');
+  const largeFrame = frameForBody(largeBody);
+  const chunks = [];
+  for (let offset = 0; offset < largeFrame.length; offset += 4096) {
+    chunks.push(largeFrame.subarray(offset, Math.min(offset + 4096, largeFrame.length)));
+  }
+  const exchange = await exchangeResponse(chunks, {
+    timeoutMs: 5000,
+    type: 'large_topology_response',
+  });
+  runner.assert(exchange.error === null
+    && exchange.result?.topology?.nodes?.[0]?.pins?.[1] === 'Out'
+    && exchange.result?.capture?.base64?.length === base64Shape.length,
+  '4 MiB topology/base64-shaped framed response remains uncapped');
+  runner.assert(chunks.length > 1000 && chunks.slice(0, -1).every((chunk) => chunk.length === 4096),
+    'large response fixture writes 4096-byte fragments');
+}
+
+{
+  const delayed = await startTcpServer((socket) => {
+    socket.once('data', async () => {
+      await delay(35);
+      await writeChunks(socket, [frameForBody('{"status":"success","timed":true}')]);
+    });
+  });
+  let successManager;
+  try {
+    successManager = connectionManagerFor(delayed.port, 500, 100);
+    await bounded(successManager.send(
+      'tcp-55558', 'delayed_metrics', {}, { skipCache: true },
+    ), 1500, 'delayed metrics success');
+  } finally {
+    await delayed.close();
+  }
+  const successMetric = successManager.getMetrics()._window.at(-1);
+  runner.assert(successMetric?.ok === true
+    && Number.isFinite(successMetric.total_ms)
+    && successMetric.total_ms >= 20
+    && Number.isFinite(successMetric.response_ms),
+  'delayed success preserves finite elapsed timing metrics');
+
+  const marker = 'UEMCP_SECRET_METRIC_PAYLOAD';
+  const malformed = await exchangeResponse(
+    [Buffer.from(`{"status":"${marker}",}`, 'ascii')],
+    { type: 'malformed_metrics', metricsEmitEveryN: 100 },
+  );
+  const failureMetric = malformed.manager.getMetrics()._window.at(-1);
+  lifecycleFailures.push(['metric malformed', 'MALFORMED_RESPONSE', malformed.error]);
+  runner.assert(failureMetric?.ok === false
+    && Number.isFinite(failureMetric.total_ms)
+    && failureMetric.err === malformed.error?.message
+    && !JSON.stringify(failureMetric).includes(marker),
+  'failure metrics retain accounting and only the sanitized transport error');
+}
+
+{
+  const originalParse = JSON.parse;
+  let parseCount = 0;
+  let exchange;
+  JSON.parse = function countedJsonParse(...args) {
+    parseCount++;
+    return originalParse(...args);
+  };
+  try {
+    const body = Buffer.from('{"status":"success","once":{"nested":true}}', 'ascii');
+    exchange = await exchangeResponse(
+      [...body].map((byte) => Buffer.from([byte])),
+      { delayMs: 1, timeoutMs: 3000, type: 'single_parse_probe' },
+    );
+  } finally {
+    JSON.parse = originalParse;
+  }
+  runner.assert(exchange.error === null && exchange.result?.once?.nested === true,
+    'fragmented parser-count response resolves successfully');
+  runner.assert(parseCount === 1,
+    'production response intake invokes JSON.parse exactly once', `got ${parseCount}`);
+}
+
+{
+  const allowedDetailKeys = new Set([
+    'direction',
+    'framing',
+    'bytesReceived',
+    'declaredBodyLength',
+    'bodyBytes',
+    'maxBodyBytes',
+    'timeoutMs',
+    'timeoutKind',
+    'parserCategory',
+    'nativeCode',
+  ]);
+  for (const [name, expectedCode, error] of lifecycleFailures) {
+    const serialized = JSON.stringify(error?.details ?? {});
+    runner.assert(error instanceof Error
+      && error.code === expectedCode
+      && /^TCP:\d+ /.test(error.message)
+      && !error.message.includes('UEMCP_SECRET')
+      && !serialized.includes('UEMCP_SECRET')
+      && Object.keys(error.details ?? {}).every((key) => allowedDetailKeys.has(key)),
+    `${name} preserves Error identity, exact code, port context, and payload-free details`,
+    error ? `${error.name}/${error.code}: ${error.message}` : 'no error');
+  }
+}
+
 const transportSource = await readFile(transportUrl, 'utf8');
+const connectionManagerSource = await readFile(connectionManagerUrl, 'utf8');
+const tcpCommandSource = connectionManagerSource.slice(
+  connectionManagerSource.indexOf('function tcpCommand('),
+  connectionManagerSource.indexOf('// ── HTTP Client'),
+);
+const dataHandlerMatch = /const onData = \(chunk\) => \{([\s\S]*?)\n\s*\};/.exec(tcpCommandSource);
+runner.assert(dataHandlerMatch?.[1]?.includes('decoder.consume(chunk)'),
+  'source guard: production data handler delegates each chunk to one decoder');
+runner.assert(dataHandlerMatch !== null
+  && !/Buffer\.concat|JSON\.parse/.test(dataHandlerMatch[1]),
+'source guard: production data handler does no whole-body concat or parse work');
+runner.assert(!connectionManagerSource.includes('_detectResponseFraming'),
+  'source guard: duplicate response framing parser export/use is retired');
+const preflightIndex = tcpCommandSource.indexOf('encodeTcpRequest(');
+const promiseIndex = tcpCommandSource.indexOf('new Promise(');
+const createConnectionIndex = tcpCommandSource.indexOf('net.createConnection(');
+runner.assert(preflightIndex >= 0
+  && preflightIndex < promiseIndex
+  && promiseIndex < createConnectionIndex,
+'source guard: request preflight precedes Promise and socket construction');
+runner.assert(tcpCommandSource.includes('new TcpResponseDecoder(')
+  && tcpCommandSource.includes('socket.setTimeout(timeoutMs)'),
+'source guard: one incremental decoder and inactivity backstop are wired');
 const fixedHeaderAllocations = transportSource.match(/Buffer\.alloc\(TCP_MAX_HEADER_BYTES\)/g) ?? [];
 runner.assert(fixedHeaderAllocations.length === 1,
   'source contains exactly one direct fixed-header Buffer.alloc expression');
