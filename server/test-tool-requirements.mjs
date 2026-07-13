@@ -42,6 +42,15 @@ assertRequirement('editor-utility', 'run_python_command', TOOL_REQUIREMENT_KINDS
 assertRequirement('editor-utility', 'delete_asset_safe', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
 assertRequirement('animation', 'get_anim_graph', TOOL_REQUIREMENT_KINDS.LIVE_READ);
 
+const animGraphDef = toolDef('animation', 'get_anim_graph');
+t.assert(
+  animGraphDef.offline_fallback === 'bp_list_graphs' &&
+    animGraphDef.offline_fallback_scope === 'partial' &&
+    /pin topology/i.test(animGraphDef.offline_fallback_note || '') &&
+    /linked_to/i.test(animGraphDef.offline_fallback_note || ''),
+  'get_anim_graph marks bp_list_graphs as a partial offline fallback',
+);
+
 const unknownRead = getToolRequirement('synthetic_read', 'actors', {
   availability_layer: 'tcp-55558',
   transport_layer: 'tcp-55558',

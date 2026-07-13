@@ -4,6 +4,8 @@
 //
 // Run: cd D:\DevTools\UEMCP\server && node test-mock-seam.mjs
 
+import { readFileSync } from 'node:fs';
+
 import {
   ConnectionManager,
   MetricsAggregator,
@@ -801,6 +803,30 @@ console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
     }
   }
 
+}
+
+// ── Test 22c: C++ framed response uses send-all loop ─────────
+console.log('\n── Test 22c: C++ framed response uses send-all loop ──');
+
+{
+  const source = readFileSync(
+    new URL('../plugin/UEMCP/Source/UEMCP/Private/MCPServerRunnable.cpp', import.meta.url),
+    'utf8'
+  );
+
+  t.assert(source.includes('bool SendAll('), 'C++ TCP server defines SendAll helper');
+  t.assert(/while\s*\(\s*TotalSent\s*<\s*Bytes\.Num\(\)/.test(source),
+    'SendAll loops until the full response buffer is written');
+  t.assert(source.includes('Bytes.GetData() + TotalSent'),
+    'SendAll advances the buffer pointer after partial sends');
+  t.assert(source.includes('WaitForWrite'),
+    'SendAll waits for socket write readiness under backpressure');
+  t.assert(source.includes('if (!SocketSubsystem)'),
+    'SendAll guards the socket-subsystem error path');
+  t.assert(source.includes('SendAll(ClientSocket, Framed, PerConnectionTimeoutSec)'),
+    'framed TCP responses are sent through SendAll');
+  t.assert(!source.includes('ClientSocket->Send(Framed.GetData(), Framed.Num(), BytesSent)'),
+    'framed TCP responses do not rely on a single non-blocking Send');
 }
 
 // ── Test 22: E-1 §6 metrics off — getMetrics still works ────

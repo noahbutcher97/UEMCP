@@ -98,6 +98,59 @@ namespace
 		OutBodyLen = FCString::Atoi(*LenStr);
 		OutBodyOffset = TerminatorIdx + 4;  // past the "\r\n\r\n" terminator (4 bytes)
 	}
+
+	bool SendAll(FSocket* ClientSocket, const TArray<uint8>& Bytes, double TimeoutSec)
+	{
+		if (!ClientSocket)
+		{
+			return false;
+		}
+
+		int32 TotalSent = 0;
+		const double StartTime = FPlatformTime::Seconds();
+		while (TotalSent < Bytes.Num() && (FPlatformTime::Seconds() - StartTime) < TimeoutSec)
+		{
+			int32 BytesSent = 0;
+			const int32 Remaining = Bytes.Num() - TotalSent;
+			const bool bSent = ClientSocket->Send(Bytes.GetData() + TotalSent, Remaining, BytesSent);
+			if (bSent && BytesSent > 0)
+			{
+				TotalSent += BytesSent;
+				continue;
+			}
+
+			if (!bSent)
+			{
+				ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+				if (!SocketSubsystem)
+				{
+					UEMCP_WARN("send failed after %d/%d bytes: socket subsystem unavailable", TotalSent, Bytes.Num());
+					return false;
+				}
+				const ESocketErrors Err = SocketSubsystem->GetLastErrorCode();
+				if (Err != SE_EWOULDBLOCK && Err != SE_EINTR)
+				{
+					UEMCP_WARN("send failed after %d/%d bytes: socket error %d", TotalSent, Bytes.Num(), static_cast<int32>(Err));
+					return false;
+				}
+			}
+			else if (ClientSocket->GetConnectionState() != SCS_Connected)
+			{
+				UEMCP_WARN("send stopped after %d/%d bytes: socket disconnected", TotalSent, Bytes.Num());
+				return false;
+			}
+
+			ClientSocket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromMilliseconds(50));
+		}
+
+		if (TotalSent < Bytes.Num())
+		{
+			const double ElapsedMs = (FPlatformTime::Seconds() - StartTime) * 1000.0;
+			UEMCP_WARN("send timed out after %d/%d bytes (elapsedMs=%.1f)", TotalSent, Bytes.Num(), ElapsedMs);
+			return false;
+		}
+		return true;
+	}
 }
 
 FMCPServerRunnable::FMCPServerRunnable(FSocket* InListenerSocket)
@@ -147,16 +200,10 @@ uint32 FMCPServerRunnable::Run()
 				// backlog fix in UEMCPModule.cpp targets the actual empirical RST class
 				// (kernel rejects 6th+ concurrent SYN during burst, observed clustering
 				// on calls #0-#9 then steady-state per docs/testing/d140-livefire-2026-05-06.md).
-				// Defense-in-depth `Wait(WaitForWrite)` was considered but DEFERRED:
-				// `Wait(WaitForWrite)` calls `select()` with the write mask — it returns
-				// when the socket's send buffer has room for more writes, NOT when the
-				// buffer has drained to the network. After a successful Send() the socket
-				// is almost always immediately writable, so the call returns within
-				// microseconds without flushing anything. The actual "drain before close"
-				// idiom is `SetLingerSettings(true, smallTimeout)` (kernel waits for
-				// FIN+ACK). If post-deploy bench still shows non-zero error rate after
-				// the §1 fix lands, a follow-on adds SetLingerSettings backed by
-				// empirical evidence rather than speculative comment-claim.
+				// Response writes use SendAll() below to handle non-blocking partial sends
+				// and WaitForWrite only as backpressure readiness. It is not treated as a
+				// post-send drain guarantee; if a future benchmark proves close-before-drain
+				// failures, that should be addressed with a separate linger-backed fix.
 				if (ISocketSubsystem* Sub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
 				{
 					Sub->DestroySocket(ClientSocket);
@@ -373,13 +420,12 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket)
 	Framed.Append(reinterpret_cast<const uint8*>(HeaderUtf8.Get()), HeaderLen);
 	Framed.Append(reinterpret_cast<const uint8*>(BodyUtf8.Get()), BodyLen);
 
-	int32 BytesSent = 0;
-	if (!ClientSocket->Send(Framed.GetData(), Framed.Num(), BytesSent))
+	if (!SendAll(ClientSocket, Framed, PerConnectionTimeoutSec))
 	{
 		UEMCP_WARN("failed to send response");
 	}
 	else
 	{
-		UEMCP_VERBOSE("sent %d bytes (framed: %d header + %d body)", BytesSent, HeaderLen, BodyLen);
+		UEMCP_VERBOSE("sent %d bytes (framed: %d header + %d body)", Framed.Num(), HeaderLen, BodyLen);
 	}
 }

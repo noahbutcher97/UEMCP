@@ -103,7 +103,7 @@ When `include_pin_topology` is true, add a sibling object:
                 "pin_type": {
                   "category": "pose",
                   "subcategory": "",
-                  "container": "pose"
+                  "container": "None"
                 },
                 "linked_to": [
                   {

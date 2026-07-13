@@ -443,6 +443,8 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
   'pin topology cross-checks state machine, state, transition, and custom transition graph references');
   t.assert(/for\s*\(\s*UEdGraph\*\s+SubGraph\s*:\s*Graph->SubGraphs\s*\)\s*\{\s*AddAnimGraphTopologyGraph\(Collection,\s*SubGraph,\s*TEXT\("referenced_graph"\),\s*true\);\s*\}/s.test(source),
     'pin topology recursively adds direct SubGraphs through the shared referenced-graph collector');
+  t.assert(source.includes('for (int32 GraphIndex = 0; GraphIndex < Collection.Graphs.Num(); ++GraphIndex)'),
+    'pin topology walks a growing graph collection so newly discovered referenced graphs are scanned');
   t.assert(graphBlock.includes('include_pin_topology'),
     'get_anim_graph reads include_pin_topology');
   t.assert(graphBlock.includes('include_pin_defaults'),
@@ -465,6 +467,17 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'pin topology reports invalid node and pin GUIDs');
   t.assert(source.includes('duplicate_node_key_count') && source.includes('duplicate_pin_key_count'),
     'pin topology reports node and pin key collisions');
+  t.assert([
+    'null_nodes',
+    'null_pins',
+    'null_linked_pins',
+    'dangling_links',
+    'orphaned_pins',
+    'duplicate_graph_keys',
+    'duplicate_node_guids',
+    'duplicate_pin_ids',
+  ].every((field) => source.includes(`TEXT("${field}")`)),
+  'pin topology reports documented v1 dropped counter aliases');
   t.assert(source.includes('null_referenced_graph_count') &&
     source.includes('null_linked_pin_count') &&
     source.includes('null_linked_owner_count'),

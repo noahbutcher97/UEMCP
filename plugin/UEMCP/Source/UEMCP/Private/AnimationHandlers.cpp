@@ -831,6 +831,14 @@ namespace UEMCP
 			Dropped->SetNumberField(TEXT("duplicate_pin_key_count"), Index.DuplicatePinKeyCount);
 			Dropped->SetNumberField(TEXT("invalid_node_guid_count"), Index.InvalidNodeGuidCount);
 			Dropped->SetNumberField(TEXT("invalid_pin_guid_count"), Index.InvalidPinGuidCount);
+			Dropped->SetNumberField(TEXT("null_nodes"), Index.DroppedNullNodeCount);
+			Dropped->SetNumberField(TEXT("null_pins"), Index.DroppedNullPinCount);
+			Dropped->SetNumberField(TEXT("null_linked_pins"), Index.NullLinkedPinCount);
+			Dropped->SetNumberField(TEXT("dangling_links"), Index.DanglingLinkCount);
+			Dropped->SetNumberField(TEXT("orphaned_pins"), Index.OrphanPinCount);
+			Dropped->SetNumberField(TEXT("duplicate_graph_keys"), Index.DuplicateGraphKeyCount);
+			Dropped->SetNumberField(TEXT("duplicate_node_guids"), Index.DuplicateNodeKeyCount);
+			Dropped->SetNumberField(TEXT("duplicate_pin_ids"), Index.DuplicatePinKeyCount);
 
 			TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
 			Root->SetStringField(TEXT("schema_version"), TEXT("anim-uedgraph-pin-topology-v1"));

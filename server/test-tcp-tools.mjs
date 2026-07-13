@@ -58,6 +58,9 @@ const fakeToolsYaml = {
 initBlueprintsWriteTools(fakeToolsYaml);
 
 const t = new TestRunner('Phase 2 — TCP Tools (blueprints-write)');
+const GUID_RE = /^[0-9a-f]{32}$/i;
+const endpointKey = (graphKey, nodeGuid, pinId) => JSON.stringify([graphKey, nodeGuid, pinId]);
+const canonicalEdgeKey = (a, b) => a <= b ? `${a}<->${b}` : `${b}<->${a}`;
 
 // ═══════════════════════════════════════════════════════════════
 // Group 12: Blueprints-write — tool definitions
@@ -975,7 +978,26 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
               },
             },
           },
-          dropped: {},
+          dropped: {
+            null_node_count: 0,
+            null_pin_count: 0,
+            null_linked_pin_count: 0,
+            dangling_link_count: 0,
+            orphan_pin_count: 0,
+            duplicate_graph_key_count: 0,
+            duplicate_node_key_count: 0,
+            duplicate_pin_key_count: 0,
+            invalid_node_guid_count: 0,
+            invalid_pin_guid_count: 0,
+            null_nodes: 0,
+            null_pins: 0,
+            null_linked_pins: 0,
+            dangling_links: 0,
+            orphaned_pins: 0,
+            duplicate_graph_keys: 0,
+            duplicate_node_guids: 0,
+            duplicate_pin_ids: 0,
+          },
         },
       },
     });
@@ -993,14 +1015,32 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         include_transitions: true,
         include_node_properties: true,
         include_pin_topology: true,
+        unknown_sentinel: 'strip-me',
       }, cm);
       t.assert(graph.result?.state_machines?.[0]?.name === 'Locomotion',
         'get_anim_graph pass-through from dedicated handler');
       const topology = graph.result?.pin_topology;
-      const topologyGraphs = Object.values(topology?.graphs || {});
-      const topologyNodes = topologyGraphs.flatMap((entry) => Object.values(entry.nodes || {}));
-      const topologyPins = topologyNodes.flatMap((entry) => Object.values(entry.pins || {}));
+      const topologyGraphEntries = Object.entries(topology?.graphs || {});
+      const topologyGraphs = topologyGraphEntries.map((entry) => entry[1]);
+      const topologyNodeEntries = topologyGraphEntries.flatMap(([graphKey, graphEntry]) =>
+        Object.entries(graphEntry.nodes || {}).map(([nodeKey, nodeEntry]) => ({ graphKey, graphEntry, nodeKey, nodeEntry })));
+      const topologyNodes = topologyNodeEntries.map((entry) => entry.nodeEntry);
+      const topologyPinEntries = topologyNodeEntries.flatMap(({ graphKey, nodeEntry }) =>
+        Object.entries(nodeEntry.pins || {}).map(([pinKey, pinEntry]) => ({ graphKey, nodeEntry, pinKey, pinEntry })));
+      const topologyPins = topologyPinEntries.map((entry) => entry.pinEntry);
       const topologyLinks = topologyPins.flatMap((entry) => entry.linked_to || []);
+      const topologyEndpointKeys = new Set(topologyPinEntries.map(({ graphKey, nodeEntry, pinEntry }) =>
+        endpointKey(graphKey, nodeEntry.node_guid, pinEntry.pin_id)));
+      const topologyEdges = new Set();
+      for (const { graphKey, nodeEntry, pinEntry } of topologyPinEntries) {
+        const source = endpointKey(graphKey, nodeEntry.node_guid, pinEntry.pin_id);
+        for (const endpoint of pinEntry.linked_to || []) {
+          const target = endpointKey(endpoint.graph_key, endpoint.node_guid, endpoint.pin_id);
+          if (topologyEndpointKeys.has(target)) {
+            topologyEdges.add(canonicalEdgeKey(source, target));
+          }
+        }
+      }
       t.assert(topology?.schema_version === 'anim-uedgraph-pin-topology-v1' &&
         topology?.id_format === 'digits' && topology?.complete === true && topology?.truncated === false,
       'get_anim_graph returns topology schema metadata and completeness flags');
@@ -1011,19 +1051,47 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         ['graph_key', 'graph_guid', 'name', 'path', 'class_name', 'schema_class', 'graph_type', 'sources', 'nodes'].every((field) => field in entry) &&
         Array.isArray(entry.sources)),
       'get_anim_graph topology graph entries expose the required contract');
-      t.assert(topologyNodes.every((entry) => entry.pins && entry.pin_count === Object.keys(entry.pins).length),
-        'get_anim_graph topology nodes expose nested pins with consistent counts');
+      t.assert(topologyGraphEntries.every(([graphKey, entry]) =>
+        graphKey === entry.graph_key && (entry.graph_guid === null || GUID_RE.test(entry.graph_guid))),
+      'get_anim_graph topology graph map keys match serialized graph identity');
+      t.assert(topologyNodeEntries.every(({ graphKey, nodeKey, nodeEntry }) =>
+        nodeKey === nodeEntry.node_guid &&
+        GUID_RE.test(nodeEntry.node_guid) &&
+        nodeEntry.graph_key === graphKey &&
+        typeof nodeEntry.class_name === 'string' &&
+        typeof nodeEntry.title === 'string' &&
+        typeof nodeEntry.x === 'number' &&
+        typeof nodeEntry.y === 'number' &&
+        nodeEntry.pins &&
+        nodeEntry.pin_count === Object.keys(nodeEntry.pins).length),
+      'get_anim_graph topology nodes expose identity, position, and nested pins with consistent counts');
       t.assert(topologyPins.every((entry) =>
         ['pin_id', 'name', 'direction', 'pin_category', 'pin_subcategory', 'pin_type', 'is_subpin', 'parent_pin_id', 'subpin_ids', 'linked_to'].every((field) => field in entry) &&
+        GUID_RE.test(entry.pin_id) &&
+        typeof entry.pin_type === 'object' &&
+        typeof entry.is_subpin === 'boolean' &&
+        Array.isArray(entry.subpin_ids) &&
         Array.isArray(entry.linked_to)),
       'get_anim_graph topology pins expose split-pin and type contract fields');
+      t.assert(topologyPinEntries.every(({ nodeEntry, pinEntry }) =>
+        (pinEntry.parent_pin_id === null || nodeEntry.pins[pinEntry.parent_pin_id]) &&
+        pinEntry.subpin_ids.every((subpinId) => nodeEntry.pins[subpinId]?.parent_pin_id === pinEntry.pin_id)),
+      'get_anim_graph topology split-pin parent and child references resolve locally');
       t.assert(topology?.link_entry_count === topologyLinks.length,
         'get_anim_graph topology link_entry_count matches serialized linked_to entries');
+      t.assert(topologyLinks.every((endpoint) =>
+        topologyEndpointKeys.has(endpointKey(endpoint.graph_key, endpoint.node_guid, endpoint.pin_id))),
+      'get_anim_graph topology linked_to endpoints resolve to serialized pins');
+      t.assert(topology?.edge_count === topologyEdges.size,
+        'get_anim_graph topology edge_count matches recomputed canonical edges');
       t.assert(topologyPins.every((entry) => !('defaults' in entry)),
         'get_anim_graph omits pin defaults from the default topology payload');
       t.assert(topologyPins.flatMap((entry) => entry.linked_to).every((endpoint) =>
         ['graph_key', 'node_guid', 'pin_id'].every((field) => typeof endpoint[field] === 'string' && endpoint[field].length > 0)),
       'get_anim_graph topology links use graph-scoped endpoint identities');
+      t.assert(['null_nodes', 'null_pins', 'null_linked_pins', 'dangling_links', 'orphaned_pins', 'duplicate_graph_keys', 'duplicate_node_guids', 'duplicate_pin_ids']
+        .every((field) => typeof topology?.dropped?.[field] === 'number'),
+      'get_anim_graph topology dropped object exposes documented v1 counters');
       t.assert(fake.lastCall('get_anim_graph')?.params?.asset_path === '/Game/Anim/ABP_Test',
         'get_anim_graph dispatches to get_anim_graph wire type');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_transitions === true,
@@ -1032,6 +1100,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         'get_anim_graph forwards include_node_properties');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_topology === true,
         'get_anim_graph forwards include_pin_topology');
+      t.assert(!('unknown_sentinel' in fake.lastCall('get_anim_graph')?.params),
+        'get_anim_graph strips unknown schema parameters before TCP dispatch');
       await executeMenhanceTool('get_anim_graph', {
         asset_path: '/Game/Anim/ABP_Test',
         include_pin_topology: true,
