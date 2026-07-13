@@ -70,6 +70,12 @@ const allowedReasonCodes = new Set([
   'invalid_json',
   'mismatched_delimiter',
 ]);
+const requiredAllSplitPointIds = new Set([
+  'framed-basic',
+  'framed-bom-multibyte',
+  'legacy-nested-escaped',
+  'legacy-bom-multibyte',
+]);
 
 const canonicalBase64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -185,6 +191,10 @@ for (const caseData of cases) {
   if (Object.hasOwn(caseData, 'all_split_points')) {
     runner.assert(typeof caseData.all_split_points === 'boolean',
       `${caseData.id}: all_split_points is boolean when present`);
+  }
+  if (requiredAllSplitPointIds.has(caseData.id)) {
+    runner.assert(caseData.all_split_points === true,
+      `${caseData.id}: all_split_points is true for the mandated exhaustive-split fixture`);
   }
   if (Object.hasOwn(caseData, 'policy')) {
     runner.assert(isValidPolicy(caseData.policy),
