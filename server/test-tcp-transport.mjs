@@ -293,6 +293,27 @@ function caughtError(fn) {
   return null;
 }
 
+const deepJsonDepth = 5000;
+
+function deepJsonText(depth) {
+  return `{"deep":${'['.repeat(depth)}0${']'.repeat(depth)}}`;
+}
+
+function inspectDeepJsonValue(value, depth) {
+  let current = value.deep;
+  const inspectedContainers = [value, current];
+  for (let level = 0; level < depth; level++) {
+    if (level === Math.floor(depth / 2) || level === depth - 1) {
+      inspectedContainers.push(current);
+    }
+    current = current[0];
+  }
+  return {
+    inspectedContainersFrozen: inspectedContainers.every((container) => Object.isFrozen(container)),
+    leaf: current,
+  };
+}
+
 const byteAtATimeFixtureIds = new Set(['framed-basic']);
 
 function responsePlans(caseData, bytes) {
@@ -468,6 +489,78 @@ runner.assert(responsePlans(
     && sameJson(observedThird.value, {
       nested: { items: [{ value: 1 }, 2] },
     }), 'complete snapshots recursively freeze JSON values across repeated observations');
+}
+
+{
+  const text = deepJsonText(deepJsonDepth);
+  const body = Buffer.from(text, 'ascii');
+  const framed = Buffer.concat([
+    Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'),
+    body,
+  ]);
+
+  for (const [framing, bytes] of [['framed', framed], ['legacy', body]]) {
+    let directValue;
+    const directParseError = caughtError(() => {
+      directValue = JSON.parse(text);
+    });
+    const directInspection = directParseError === null
+      ? inspectDeepJsonValue(directValue, deepJsonDepth)
+      : null;
+    runner.assert(directParseError === null && directInspection?.leaf === 0,
+      `${framing} depth-5000 control succeeds with direct JSON.parse`);
+
+    const decoder = new TcpResponseDecoder();
+    let complete;
+    const decoderError = caughtError(() => {
+      complete = decoder.consume(bytes);
+    });
+    runner.assert(decoderError === null && complete?.status === 'complete',
+      `${framing} depth-5000 decoder completes without recursive stack overflow`);
+
+    const repeated = decoder.snapshot();
+    const inspection = complete?.status === 'complete'
+      ? inspectDeepJsonValue(complete.value, deepJsonDepth)
+      : null;
+    const repeatedInspection = repeated.status === 'complete'
+      ? inspectDeepJsonValue(repeated.value, deepJsonDepth)
+      : null;
+    runner.assert(inspection?.leaf === 0
+      && inspection.inspectedContainersFrozen
+      && repeatedInspection?.leaf === 0
+      && repeatedInspection.inspectedContainersFrozen
+      && repeated === complete
+      && repeated.value === complete.value
+      && sameJson(decoder.debugStatsForTests(), {
+        legacyBytesScanned: framing === 'legacy' ? body.length : 0,
+        bodyAssemblyCount: 1,
+        jsonParseCount: 1,
+      }), `${framing} depth-5000 result is deeply frozen, stable, assembled once, and parsed once`);
+  }
+}
+
+{
+  const cyclicValue = {};
+  cyclicValue.self = cyclicValue;
+  const decoder = new TcpResponseDecoder({
+    parseJson() {
+      return cyclicValue;
+    },
+  });
+  let snapshot;
+  const consumeError = caughtError(() => {
+    snapshot = decoder.consume(Buffer.from('{}', 'ascii'));
+  });
+  runner.assert(consumeError === null
+    && snapshot.status === 'malformed'
+    && snapshot.reasonCode === 'invalid_json'
+    && decoder.snapshot() === snapshot
+    && !Object.isFrozen(cyclicValue)
+    && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 2,
+      bodyAssemblyCount: 1,
+      jsonParseCount: 1,
+    }), 'cyclic injected parser output terminates as invalid_json without freezing parser-owned objects');
 }
 
 {
