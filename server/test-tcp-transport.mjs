@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { types } from 'node:util';
 import { TestRunner } from './test-helpers.mjs';
 import {
   TCP_MAX_HEADER_BYTES,
@@ -314,6 +315,29 @@ function inspectDeepJsonValue(value, depth) {
   };
 }
 
+function assertInjectedParserGraphRejected(description, marker, graph) {
+  const decoder = new TcpResponseDecoder({
+    parseJson() {
+      return graph.parsedValue;
+    },
+  });
+  let snapshot;
+  const consumeError = caughtError(() => {
+    snapshot = decoder.consume(Buffer.from('{}', 'ascii'));
+  });
+  const snapshotText = JSON.stringify(snapshot ?? null);
+  runner.assert(consumeError === null
+    && snapshot?.status === 'malformed'
+    && snapshot.reasonCode === 'invalid_json'
+    && !snapshotText.includes(marker)
+    && graph.unchanged()
+    && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 2,
+      bodyAssemblyCount: 1,
+      jsonParseCount: 1,
+    }), description);
+}
+
 const byteAtATimeFixtureIds = new Set(['framed-basic']);
 
 function responsePlans(caseData, bytes) {
@@ -561,6 +585,203 @@ runner.assert(responsePlans(
       bodyAssemblyCount: 1,
       jsonParseCount: 1,
     }), 'cyclic injected parser output terminates as invalid_json without freezing parser-owned objects');
+}
+
+{
+  const proxyCases = [
+    {
+      name: 'ownKeys-throwing proxy',
+      build(marker) {
+        const child = { value: marker };
+        const target = { child };
+        let trapCalls = 0;
+        const candidate = new Proxy(target, {
+          ownKeys() {
+            trapCalls++;
+            throw new Error(`ownKeys trap: ${marker}`);
+          },
+        });
+        const root = { candidate };
+        return {
+          parsedValue: root,
+          unchanged: () => trapCalls === 0
+            && root.candidate === candidate
+            && target.child === child
+            && child.value === marker
+            && !Object.isFrozen(root)
+            && !Object.isFrozen(target)
+            && !Object.isFrozen(child),
+        };
+      },
+    },
+    {
+      name: 'getPrototypeOf-throwing proxy',
+      build(marker) {
+        const child = { value: marker };
+        const target = { child };
+        let trapCalls = 0;
+        const candidate = new Proxy(target, {
+          getPrototypeOf() {
+            trapCalls++;
+            throw new Error(`getPrototypeOf trap: ${marker}`);
+          },
+        });
+        const root = { candidate };
+        return {
+          parsedValue: root,
+          unchanged: () => trapCalls === 0
+            && target.child === child
+            && child.value === marker
+            && !Object.isFrozen(root)
+            && !Object.isFrozen(target)
+            && !Object.isFrozen(child),
+        };
+      },
+    },
+    {
+      name: 'descriptor-throwing proxy',
+      build(marker) {
+        const child = { value: marker };
+        const target = { child };
+        let trapCalls = 0;
+        const candidate = new Proxy(target, {
+          getOwnPropertyDescriptor() {
+            trapCalls++;
+            throw new Error(`descriptor trap: ${marker}`);
+          },
+        });
+        const root = { candidate };
+        return {
+          parsedValue: root,
+          unchanged: () => trapCalls === 0
+            && target.child === child
+            && child.value === marker
+            && !Object.isFrozen(root)
+            && !Object.isFrozen(target)
+            && !Object.isFrozen(child),
+        };
+      },
+    },
+    {
+      name: 'freeze-throwing proxy',
+      build(marker) {
+        const child = { value: marker };
+        const sibling = { value: 'unchanged' };
+        const target = { child };
+        let trapCalls = 0;
+        const candidate = new Proxy(target, {
+          preventExtensions() {
+            trapCalls++;
+            throw new Error(`freeze trap: ${marker}`);
+          },
+        });
+        const root = { candidate, sibling };
+        return {
+          parsedValue: root,
+          unchanged: () => trapCalls === 0
+            && target.child === child
+            && child.value === marker
+            && sibling.value === 'unchanged'
+            && !Object.isFrozen(root)
+            && !Object.isFrozen(target)
+            && !Object.isFrozen(child)
+            && !Object.isFrozen(sibling),
+        };
+      },
+    },
+    {
+      name: 'revoked array proxy',
+      build(marker) {
+        const child = { value: marker };
+        const target = [child];
+        const revocable = Proxy.revocable(target, {});
+        revocable.revoke();
+        return {
+          parsedValue: revocable.proxy,
+          proxyDetectedAfterRevocation: types.isProxy(revocable.proxy),
+          unchanged: () => target[0] === child
+            && child.value === marker
+            && !Object.isFrozen(target)
+            && !Object.isFrozen(child),
+        };
+      },
+    },
+  ];
+
+  for (const caseData of proxyCases) {
+    const marker = `UEMCP_${caseData.name.replaceAll(/[^A-Za-z]/g, '_')}_SECRET`;
+    const graph = caseData.build(marker);
+    if (Object.hasOwn(graph, 'proxyDetectedAfterRevocation')) {
+      runner.assert(graph.proxyDetectedAfterRevocation,
+        'node:util types.isProxy identifies a revoked proxy without invoking its traps');
+    }
+    assertInjectedParserGraphRejected(
+      `injected ${caseData.name} returns marker-free invalid_json without traps or mutation`,
+      marker,
+      graph,
+    );
+  }
+}
+
+{
+  class JsonArraySubclass extends Array {}
+  const marker = 'UEMCP_ARRAY_SUBCLASS_SECRET';
+  const child = { value: marker };
+  const candidate = new JsonArraySubclass(child);
+  const root = { candidate };
+  assertInjectedParserGraphRejected(
+    'injected array subclass is rejected without freezing or exposing parser-owned data',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => root.candidate === candidate
+        && candidate[0] === child
+        && child.value === marker
+        && !Object.isFrozen(root)
+        && !Object.isFrozen(candidate)
+        && !Object.isFrozen(child),
+    },
+  );
+}
+
+{
+  const marker = 'UEMCP_CUSTOM_ARRAY_PROTOTYPE_SECRET';
+  const child = { value: marker };
+  const candidate = [child];
+  const customPrototype = Object.create(Array.prototype);
+  Object.setPrototypeOf(candidate, customPrototype);
+  const root = { candidate };
+  assertInjectedParserGraphRejected(
+    'injected array with a custom prototype is rejected without freezing parser-owned data',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => Object.getPrototypeOf(candidate) === customPrototype
+        && candidate[0] === child
+        && child.value === marker
+        && !Object.isFrozen(root)
+        && !Object.isFrozen(candidate)
+        && !Object.isFrozen(child),
+    },
+  );
+}
+
+{
+  const marker = 'UEMCP_SHARED_CHILD_SECRET';
+  const sharedChild = { value: marker };
+  const root = { left: sharedChild, right: sharedChild };
+  assertInjectedParserGraphRejected(
+    'injected acyclic shared reference is rejected without freezing parser-owned data',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => root.left === sharedChild
+        && root.right === sharedChild
+        && sharedChild.value === marker
+        && !Object.isFrozen(root)
+        && !Object.isFrozen(sharedChild),
+    },
+  );
 }
 
 {

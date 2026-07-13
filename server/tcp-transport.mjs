@@ -1,4 +1,5 @@
 import { isUtf8 } from 'node:buffer';
+import { types } from 'node:util';
 
 export const TCP_MAX_HEADER_BYTES = 512;
 export const TCP_MAX_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
@@ -170,17 +171,33 @@ function validateAndFreezeJsonValue(root) {
       if (!Number.isFinite(value)) return false;
       continue;
     }
-    if (typeof value !== 'object' || seen.has(value)) return false;
+    if (typeof value !== 'object' || types.isProxy(value) || seen.has(value)) return false;
 
-    const isArray = Array.isArray(value);
-    const prototype = Object.getPrototypeOf(value);
-    if (!isArray && prototype !== Object.prototype && prototype !== null) return false;
+    let isArray;
+    let prototype;
+    let keys;
+    try {
+      isArray = Array.isArray(value);
+      prototype = Object.getPrototypeOf(value);
+      keys = Reflect.ownKeys(value);
+    } catch {
+      return false;
+    }
+    if (isArray) {
+      if (prototype !== Array.prototype) return false;
+    } else if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
 
     seen.add(value);
     containers.push(value);
-    const keys = Reflect.ownKeys(value);
     if (isArray) {
-      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+      let lengthDescriptor;
+      try {
+        lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+      } catch {
+        return false;
+      }
       const length = lengthDescriptor?.value;
       if (!Number.isSafeInteger(length)
         || length < 0
@@ -190,7 +207,12 @@ function validateAndFreezeJsonValue(root) {
       }
       for (let index = length - 1; index >= 0; index--) {
         if (keys[index] !== String(index)) return false;
-        const descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
+        let descriptor;
+        try {
+          descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
+        } catch {
+          return false;
+        }
         if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
         work.push(descriptor.value);
       }
@@ -200,14 +222,23 @@ function validateAndFreezeJsonValue(root) {
     for (let index = keys.length - 1; index >= 0; index--) {
       const key = keys[index];
       if (typeof key !== 'string') return false;
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      let descriptor;
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(value, key);
+      } catch {
+        return false;
+      }
       if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
       work.push(descriptor.value);
     }
   }
 
-  for (let index = containers.length - 1; index >= 0; index--) {
-    Object.freeze(containers[index]);
+  try {
+    for (let index = containers.length - 1; index >= 0; index--) {
+      Object.freeze(containers[index]);
+    }
+  } catch {
+    return false;
   }
   return true;
 }
@@ -571,7 +602,22 @@ export class TcpResponseDecoder {
       this._setMalformed('invalid_json');
       return;
     }
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    if (value === null || typeof value !== 'object') {
+      this._setMalformed('root_not_object');
+      return;
+    }
+    if (types.isProxy(value)) {
+      this._setMalformed('invalid_json');
+      return;
+    }
+    let rootIsArray;
+    try {
+      rootIsArray = Array.isArray(value);
+    } catch {
+      this._setMalformed('invalid_json');
+      return;
+    }
+    if (rootIsArray) {
       this._setMalformed('root_not_object');
       return;
     }
