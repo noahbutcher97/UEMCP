@@ -29,11 +29,37 @@ function isSafeDetailValue(value) {
 
 function safeDetails(details) {
   const result = {};
-  if (details !== null && typeof details === 'object' && !Array.isArray(details)) {
-    for (const field of SAFE_DETAIL_FIELDS) {
-      if (Object.hasOwn(details, field) && isSafeDetailValue(details[field])) {
-        result[field] = details[field];
-      }
+  if (details === null || typeof details !== 'object' || types.isProxy(details)) {
+    return Object.freeze(result);
+  }
+
+  let isArray;
+  try {
+    isArray = Array.isArray(details);
+  } catch {
+    return Object.freeze(result);
+  }
+  if (isArray) return Object.freeze(result);
+
+  for (const field of SAFE_DETAIL_FIELDS) {
+    let descriptor;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(details, field);
+    } catch {
+      return Object.freeze({});
+    }
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) continue;
+    const value = descriptor.value;
+    if (!isSafeDetailValue(value)) continue;
+    try {
+      Object.defineProperty(result, field, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    } catch {
+      return Object.freeze({});
     }
   }
   return Object.freeze(result);
@@ -159,88 +185,143 @@ function immutableSnapshot(status, framing, bytesReceived, declaredBodyLength, t
   });
 }
 
-function validateAndFreezeJsonValue(root) {
-  const containers = [];
+function isKnownJsonExotic(value) {
+  return types.isAnyArrayBuffer(value)
+    || types.isArgumentsObject(value)
+    || types.isBoxedPrimitive(value)
+    || types.isCryptoKey(value)
+    || types.isDataView(value)
+    || types.isDate(value)
+    || types.isExternal(value)
+    || types.isGeneratorObject(value)
+    || types.isKeyObject(value)
+    || types.isMap(value)
+    || types.isMapIterator(value)
+    || types.isModuleNamespaceObject(value)
+    || types.isNativeError(value)
+    || types.isPromise(value)
+    || types.isRegExp(value)
+    || types.isSet(value)
+    || types.isSetIterator(value)
+    || types.isTypedArray(value)
+    || types.isWeakMap(value)
+    || types.isWeakSet(value);
+}
+
+function defineJsonDataProperty(target, key, value) {
+  try {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function cloneAndFreezeJsonValue(root) {
+  const clonedContainers = [];
   const seen = new Set();
-  const work = [root];
+  const work = [{ value: root, parent: null, key: null }];
+  let clonedRoot = null;
 
   while (work.length > 0) {
-    const value = work.pop();
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) return false;
+    const { value, parent, key } = work.pop();
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+      if (parent === null || !defineJsonDataProperty(parent, key, value)) return null;
       continue;
     }
-    if (typeof value !== 'object' || types.isProxy(value) || seen.has(value)) return false;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)
+        || parent === null
+        || !defineJsonDataProperty(parent, key, value)) {
+        return null;
+      }
+      continue;
+    }
+    if (typeof value !== 'object' || types.isProxy(value) || seen.has(value)) return null;
 
     let isArray;
     let prototype;
     let keys;
     try {
+      if (isKnownJsonExotic(value)) return null;
       isArray = Array.isArray(value);
       prototype = Object.getPrototypeOf(value);
       keys = Reflect.ownKeys(value);
     } catch {
-      return false;
+      return null;
     }
     if (isArray) {
-      if (prototype !== Array.prototype) return false;
+      if (prototype !== Array.prototype) return null;
     } else if (prototype !== Object.prototype && prototype !== null) {
-      return false;
+      return null;
     }
 
     seen.add(value);
-    containers.push(value);
+    const clone = isArray ? [] : {};
+    clonedContainers.push(clone);
+    if (parent === null) {
+      clonedRoot = clone;
+    } else if (!defineJsonDataProperty(parent, key, clone)) {
+      return null;
+    }
+
     if (isArray) {
       let lengthDescriptor;
       try {
         lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
       } catch {
-        return false;
+        return null;
       }
       const length = lengthDescriptor?.value;
-      if (!Number.isSafeInteger(length)
+      if (!lengthDescriptor
+        || !Object.hasOwn(lengthDescriptor, 'value')
+        || !Number.isSafeInteger(length)
         || length < 0
         || keys.length !== length + 1
         || keys[length] !== 'length') {
-        return false;
+        return null;
       }
       for (let index = length - 1; index >= 0; index--) {
-        if (keys[index] !== String(index)) return false;
+        if (keys[index] !== String(index)) return null;
         let descriptor;
         try {
           descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
         } catch {
-          return false;
+          return null;
         }
-        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
-        work.push(descriptor.value);
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+        work.push({ value: descriptor.value, parent: clone, key: keys[index] });
       }
       continue;
     }
 
     for (let index = keys.length - 1; index >= 0; index--) {
       const key = keys[index];
-      if (typeof key !== 'string') return false;
+      if (typeof key !== 'string') return null;
       let descriptor;
       try {
         descriptor = Object.getOwnPropertyDescriptor(value, key);
       } catch {
-        return false;
+        return null;
       }
-      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
-      work.push(descriptor.value);
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      work.push({ value: descriptor.value, parent: clone, key });
     }
   }
 
   try {
-    for (let index = containers.length - 1; index >= 0; index--) {
-      Object.freeze(containers[index]);
+    for (let index = clonedContainers.length - 1; index >= 0; index--) {
+      Object.freeze(clonedContainers[index]);
     }
   } catch {
-    return false;
+    return null;
   }
-  return true;
+  return clonedRoot;
 }
 
 function isPartialBom(prefix, bodyBytes) {
@@ -621,10 +702,11 @@ export class TcpResponseDecoder {
       this._setMalformed('root_not_object');
       return;
     }
-    if (!validateAndFreezeJsonValue(value)) {
+    const clonedValue = cloneAndFreezeJsonValue(value);
+    if (clonedValue === null) {
       this._setMalformed('invalid_json');
       return;
     }
-    this._setComplete(value);
+    this._setComplete(clonedValue);
   }
 }

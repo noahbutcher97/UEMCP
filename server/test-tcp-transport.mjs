@@ -294,6 +294,21 @@ function caughtError(fn) {
   return null;
 }
 
+function captureContainerStates(containers) {
+  return containers.map((container) => ({
+    container,
+    frozen: Object.isFrozen(container),
+    extensible: Object.isExtensible(container),
+  }));
+}
+
+function containerStatesUnchanged(states) {
+  return states.every(({ container, frozen, extensible }) => {
+    return Object.isFrozen(container) === frozen
+      && Object.isExtensible(container) === extensible;
+  });
+}
+
 const deepJsonDepth = 5000;
 
 function deepJsonText(depth) {
@@ -301,16 +316,26 @@ function deepJsonText(depth) {
 }
 
 function inspectDeepJsonValue(value, depth) {
-  let current = value.deep;
-  const inspectedContainers = [value, current];
-  for (let level = 0; level < depth; level++) {
-    if (level === Math.floor(depth / 2) || level === depth - 1) {
-      inspectedContainers.push(current);
+  let current = value;
+  let visitedContainerCount = 0;
+  let frozenContainerCount = 0;
+  let plainContainerCount = 0;
+  for (let level = 0; level <= depth; level++) {
+    visitedContainerCount++;
+    if (Object.isFrozen(current)) {
+      frozenContainerCount++;
     }
-    current = current[0];
+    if (level === 0
+      ? !Array.isArray(current) && Object.getPrototypeOf(current) === Object.prototype
+      : Array.isArray(current) && Object.getPrototypeOf(current) === Array.prototype) {
+      plainContainerCount++;
+    }
+    current = level === 0 ? current.deep : current[0];
   }
   return {
-    inspectedContainersFrozen: inspectedContainers.every((container) => Object.isFrozen(container)),
+    visitedContainerCount,
+    frozenContainerCount,
+    plainContainerCount,
     leaf: current,
   };
 }
@@ -531,7 +556,11 @@ runner.assert(responsePlans(
     const directInspection = directParseError === null
       ? inspectDeepJsonValue(directValue, deepJsonDepth)
       : null;
-    runner.assert(directParseError === null && directInspection?.leaf === 0,
+    runner.assert(directParseError === null
+      && directInspection?.leaf === 0
+      && directInspection.visitedContainerCount === deepJsonDepth + 1
+      && directInspection.frozenContainerCount === 0
+      && directInspection.plainContainerCount === deepJsonDepth + 1,
       `${framing} depth-5000 control succeeds with direct JSON.parse`);
 
     const decoder = new TcpResponseDecoder();
@@ -550,16 +579,285 @@ runner.assert(responsePlans(
       ? inspectDeepJsonValue(repeated.value, deepJsonDepth)
       : null;
     runner.assert(inspection?.leaf === 0
-      && inspection.inspectedContainersFrozen
+      && inspection.visitedContainerCount === deepJsonDepth + 1
+      && inspection.frozenContainerCount === deepJsonDepth + 1
+      && inspection.plainContainerCount === deepJsonDepth + 1
       && repeatedInspection?.leaf === 0
-      && repeatedInspection.inspectedContainersFrozen
+      && repeatedInspection.visitedContainerCount === deepJsonDepth + 1
+      && repeatedInspection.frozenContainerCount === deepJsonDepth + 1
+      && repeatedInspection.plainContainerCount === deepJsonDepth + 1
       && repeated === complete
       && repeated.value === complete.value
       && sameJson(decoder.debugStatsForTests(), {
         legacyBytesScanned: framing === 'legacy' ? body.length : 0,
         bodyAssemblyCount: 1,
         jsonParseCount: 1,
-      }), `${framing} depth-5000 result is deeply frozen, stable, assembled once, and parsed once`);
+      }), `${framing} depth-5000 result visits and freezes exactly 5,001 plain containers`);
+  }
+}
+
+{
+  const parserLeaf = Object.create(null);
+  parserLeaf.value = 1;
+  const parserItems = [parserLeaf];
+  const parserProtoValue = { inherited: false };
+  const parserRoot = { nested: parserItems };
+  Object.defineProperty(parserRoot, '__proto__', {
+    value: parserProtoValue,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  const parserStates = captureContainerStates([
+    parserRoot,
+    parserItems,
+    parserLeaf,
+    parserProtoValue,
+  ]);
+  const decoder = new TcpResponseDecoder({
+    parseJson() {
+      return parserRoot;
+    },
+  });
+  const complete = decoder.consume(Buffer.from('{}', 'ascii'));
+  const publishedProtoDescriptor = complete.status === 'complete'
+    ? Object.getOwnPropertyDescriptor(complete.value, '__proto__')
+    : null;
+  const publishedContainers = complete.status === 'complete'
+    ? [
+      complete.value,
+      complete.value.nested,
+      complete.value.nested[0],
+      publishedProtoDescriptor?.value,
+    ]
+    : [];
+  runner.assert(complete.status === 'complete'
+    && complete.value !== parserRoot
+    && complete.value.nested !== parserItems
+    && complete.value.nested[0] !== parserLeaf
+    && publishedProtoDescriptor?.value !== parserProtoValue
+    && publishedProtoDescriptor?.enumerable === true
+    && publishedProtoDescriptor.value.inherited === false
+    && Object.getPrototypeOf(complete.value) === Object.prototype
+    && Object.getPrototypeOf(complete.value.nested) === Array.prototype
+    && Object.getPrototypeOf(complete.value.nested[0]) === Object.prototype
+    && publishedContainers.every((container) => Object.isFrozen(container))
+    && containerStatesUnchanged(parserStates)
+    && decoder.snapshot() === complete
+    && decoder.snapshot().value === complete.value
+    && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 2,
+      bodyAssemblyCount: 1,
+      jsonParseCount: 1,
+    }), 'injected JSON-safe output publishes a fresh deeply frozen ordinary clone');
+}
+
+{
+  const marker = 'UEMCP_PROTOTYPE_RESET_MAP_MARKER';
+  const candidate = new Map([['entry', marker]]);
+  candidate.visible = 'safe';
+  Object.setPrototypeOf(candidate, Object.prototype);
+  const root = { bad: candidate };
+  const states = captureContainerStates([root, candidate]);
+  assertInjectedParserGraphRejected(
+    'prototype-reset Map is rejected without mutating parser-owned containers',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => containerStatesUnchanged(states)
+        && root.bad === candidate
+        && candidate.visible === 'safe',
+    },
+  );
+}
+
+{
+  const marker = 'UEMCP_PROTOTYPE_RESET_DATE_MARKER';
+  const candidate = new Date(0);
+  candidate.visible = marker;
+  Object.setPrototypeOf(candidate, Object.prototype);
+  const root = { bad: candidate };
+  const states = captureContainerStates([root, candidate]);
+  assertInjectedParserGraphRejected(
+    'prototype-reset Date is rejected without mutating parser-owned containers',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => containerStatesUnchanged(states)
+        && root.bad === candidate
+        && candidate.visible === marker,
+    },
+  );
+}
+
+{
+  const marker = 'UEMCP_PROTOTYPE_RESET_TYPED_ARRAY_MARKER';
+  const bad = new Uint8Array([1, 2]);
+  bad.visible = marker;
+  Object.setPrototypeOf(bad, Object.prototype);
+  const good = { value: 'unchanged' };
+  const root = { bad, good };
+  const states = captureContainerStates([root, bad, good]);
+  assertInjectedParserGraphRejected(
+    'nonempty prototype-reset typed array rejects the whole bad-good graph without partial freezing',
+    marker,
+    {
+      parsedValue: root,
+      unchanged: () => containerStatesUnchanged(states)
+        && root.bad === bad
+        && root.good === good
+        && good.value === 'unchanged'
+        && bad[0] === 1
+        && bad[1] === 2
+        && bad.visible === marker,
+    },
+  );
+}
+
+{
+  const marker = 'UEMCP_PRIVATE_STATE_MARKER';
+  class PrivateStateCarrier {
+    #hidden;
+
+    constructor(hidden) {
+      this.#hidden = hidden;
+      this.visible = 'safe';
+    }
+
+    reveal() {
+      return this.#hidden;
+    }
+  }
+
+  const candidate = new PrivateStateCarrier(marker);
+  Object.setPrototypeOf(candidate, Object.prototype);
+  const root = { candidate };
+  const states = captureContainerStates([root, candidate]);
+  const decoder = new TcpResponseDecoder({
+    parseJson() {
+      return root;
+    },
+  });
+  const complete = decoder.consume(Buffer.from('{}', 'ascii'));
+  const hiddenStateRead = complete.status === 'complete'
+    ? caughtError(() => PrivateStateCarrier.prototype.reveal.call(complete.value.candidate))
+    : null;
+  runner.assert(complete.status === 'complete'
+    && complete.value !== root
+    && complete.value.candidate !== candidate
+    && Object.getPrototypeOf(complete.value) === Object.prototype
+    && Object.getPrototypeOf(complete.value.candidate) === Object.prototype
+    && Reflect.ownKeys(complete.value.candidate).length === 1
+    && complete.value.candidate.visible === 'safe'
+    && Object.isFrozen(complete.value)
+    && Object.isFrozen(complete.value.candidate)
+    && hiddenStateRead instanceof TypeError
+    && PrivateStateCarrier.prototype.reveal.call(candidate) === marker
+    && !JSON.stringify(complete).includes(marker)
+    && containerStatesUnchanged(states)
+    && decoder.snapshot() === complete
+    && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 2,
+      bodyAssemblyCount: 1,
+      jsonParseCount: 1,
+    }), 'prototype-reset private-state instance publishes only a fresh plain JSON clone');
+}
+
+{
+  const rejectedShapeCases = [
+    {
+      name: 'enumerable accessor',
+      build(marker) {
+        let getterCalls = 0;
+        const root = {};
+        Object.defineProperty(root, 'bad', {
+          enumerable: true,
+          get() {
+            getterCalls++;
+            return marker;
+          },
+        });
+        const states = captureContainerStates([root]);
+        return {
+          parsedValue: root,
+          unchanged: () => getterCalls === 0 && containerStatesUnchanged(states),
+        };
+      },
+    },
+    {
+      name: 'symbol-keyed property',
+      build(marker) {
+        const key = Symbol(marker);
+        const root = { visible: 'safe' };
+        root[key] = marker;
+        const states = captureContainerStates([root]);
+        return {
+          parsedValue: root,
+          unchanged: () => root[key] === marker && containerStatesUnchanged(states),
+        };
+      },
+    },
+    {
+      name: 'non-enumerable data property',
+      build(marker) {
+        const root = {};
+        Object.defineProperty(root, 'bad', { value: marker });
+        const states = captureContainerStates([root]);
+        return {
+          parsedValue: root,
+          unchanged: () => root.bad === marker && containerStatesUnchanged(states),
+        };
+      },
+    },
+    {
+      name: 'sparse array',
+      build(marker) {
+        const child = { value: marker };
+        const sparse = new Array(2);
+        sparse[1] = child;
+        const root = { sparse };
+        const states = captureContainerStates([root, sparse, child]);
+        return {
+          parsedValue: root,
+          unchanged: () => !(0 in sparse)
+            && sparse[1] === child
+            && child.value === marker
+            && containerStatesUnchanged(states),
+        };
+      },
+    },
+  ];
+
+  for (const { name, build } of rejectedShapeCases) {
+    const marker = `UEMCP_${name.replaceAll(/[^A-Za-z]/g, '_')}_MARKER`;
+    assertInjectedParserGraphRejected(
+      `injected ${name} is rejected without access or parser-graph mutation`,
+      marker,
+      build(marker),
+    );
+  }
+
+  const rejectedPrimitiveCases = [
+    ['NaN', Number.NaN],
+    ['positive infinity', Number.POSITIVE_INFINITY],
+    ['undefined', undefined],
+    ['function', function invalidJsonFunction() {}],
+    ['bigint', 1n],
+  ];
+  for (const [name, bad] of rejectedPrimitiveCases) {
+    const marker = `UEMCP_${name.replaceAll(/[^A-Za-z]/g, '_')}_MARKER`;
+    const root = { marker, bad };
+    const states = captureContainerStates([root]);
+    assertInjectedParserGraphRejected(
+      `injected ${name} value is rejected without parser-graph mutation`,
+      marker,
+      {
+        parsedValue: root,
+        unchanged: () => root.marker === marker
+          && Object.is(root.bad, bad)
+          && containerStatesUnchanged(states),
+      },
+    );
   }
 }
 
@@ -1152,6 +1450,158 @@ for (const eofCase of eofCases) {
   runner.assert(!error.message.includes('UEMCP_SECRET_PAYLOAD_SENTINEL')
     && !JSON.stringify(error.details).includes('UEMCP_SECRET_PAYLOAD_SENTINEL'),
   'typed transport errors never retain arbitrary payload details');
+}
+
+{
+  const allowedFields = [
+    'direction',
+    'framing',
+    'bytesReceived',
+    'declaredBodyLength',
+    'bodyBytes',
+    'maxBodyBytes',
+    'timeoutMs',
+    'timeoutKind',
+    'parserCategory',
+    'nativeCode',
+  ];
+  const suppliedDetails = {
+    direction: 'response',
+    framing: 'framed',
+    bytesReceived: 12,
+    declaredBodyLength: 20,
+    bodyBytes: 8,
+    maxBodyBytes: 32,
+    timeoutMs: 10000,
+    timeoutKind: 'absolute',
+    parserCategory: 'invalid_json',
+    nativeCode: 'ECONNRESET',
+  };
+  const descriptorReads = [];
+  const originalGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+  let error;
+  let constructionError;
+  try {
+    Object.getOwnPropertyDescriptor = function instrumentedDescriptor(target, key) {
+      if (target === suppliedDetails) {
+        descriptorReads.push(key);
+      }
+      return originalGetOwnPropertyDescriptor(target, key);
+    };
+    constructionError = caughtError(() => {
+      error = new TcpTransportError('SOCKET_ERROR', 55558, suppliedDetails);
+    });
+  } finally {
+    Object.getOwnPropertyDescriptor = originalGetOwnPropertyDescriptor;
+  }
+  runner.assert(constructionError === null
+    && sameJson(descriptorReads, allowedFields)
+    && sameJson(error.details, suppliedDetails),
+  'typed transport details inspect each allowlisted own descriptor exactly once');
+}
+
+{
+  const marker = 'UEMCP_THROWING_DETAIL_GETTER_MARKER';
+  let getterCalls = 0;
+  const suppliedDetails = {};
+  Object.defineProperty(suppliedDetails, 'nativeCode', {
+    enumerable: true,
+    get() {
+      getterCalls++;
+      throw new Error(marker);
+    },
+  });
+  let error;
+  const constructionError = caughtError(() => {
+    error = new TcpTransportError('SOCKET_ERROR', 55558, suppliedDetails);
+  });
+  runner.assert(constructionError === null
+    && getterCalls === 0
+    && sameJson(error.details, {})
+    && !error.message.includes(marker)
+    && !JSON.stringify(error.details).includes(marker),
+  'typed transport details skip throwing accessors without invoking or retaining them');
+}
+
+{
+  const marker = 'UEMCP_STATEFUL_DETAIL_GETTER_MARKER';
+  const mutableInjection = { marker };
+  let getterCalls = 0;
+  const suppliedDetails = {};
+  Object.defineProperty(suppliedDetails, 'nativeCode', {
+    enumerable: true,
+    get() {
+      getterCalls++;
+      return getterCalls === 1 ? 'ECONNRESET' : mutableInjection;
+    },
+  });
+  const error = new TcpTransportError('SOCKET_ERROR', 55558, suppliedDetails);
+  runner.assert(getterCalls === 0
+    && sameJson(error.details, {})
+    && Object.isExtensible(mutableInjection)
+    && !Object.isFrozen(mutableInjection)
+    && !error.message.includes(marker)
+    && !JSON.stringify(error.details).includes(marker),
+  'typed transport details cannot admit mutable data through a stateful accessor');
+}
+
+{
+  const marker = 'UEMCP_UNSAFE_DETAIL_DATA_MARKER';
+  const mutableValue = { marker };
+  const suppliedDetails = {
+    nativeCode: mutableValue,
+    bytesReceived: Number.NaN,
+    declaredBodyLength: Number.POSITIVE_INFINITY,
+    timeoutMs: 1n,
+  };
+  const error = new TcpTransportError('SOCKET_ERROR', 55558, suppliedDetails);
+  runner.assert(sameJson(error.details, {})
+    && Object.isExtensible(mutableValue)
+    && !Object.isFrozen(mutableValue)
+    && !error.message.includes(marker)
+    && !JSON.stringify(error.details).includes(marker),
+  'typed transport details reject unsafe allowlisted data values without retaining references');
+}
+
+{
+  const marker = 'UEMCP_DETAIL_PROXY_MARKER';
+  let trapCalls = 0;
+  const target = { nativeCode: marker };
+  const suppliedDetails = new Proxy(target, {
+    getOwnPropertyDescriptor() {
+      trapCalls++;
+      throw new Error(marker);
+    },
+  });
+  let error;
+  const constructionError = caughtError(() => {
+    error = new TcpTransportError('SOCKET_ERROR', 55558, suppliedDetails);
+  });
+  runner.assert(constructionError === null
+    && trapCalls === 0
+    && sameJson(error.details, {})
+    && target.nativeCode === marker
+    && Object.isExtensible(target)
+    && !error.message.includes(marker),
+  'typed transport details reject proxies before invoking descriptor traps');
+}
+
+{
+  const marker = 'UEMCP_REVOKED_DETAIL_PROXY_MARKER';
+  const target = { nativeCode: marker };
+  const revocable = Proxy.revocable(target, {});
+  revocable.revoke();
+  let error;
+  const constructionError = caughtError(() => {
+    error = new TcpTransportError('SOCKET_ERROR', 55558, revocable.proxy);
+  });
+  runner.assert(types.isProxy(revocable.proxy)
+    && constructionError === null
+    && sameJson(error.details, {})
+    && target.nativeCode === marker
+    && Object.isExtensible(target)
+    && !error.message.includes(marker),
+  'typed transport details reject revoked proxies without throwing or retaining marker text');
 }
 
 const transportSource = await readFile(transportUrl, 'utf8');
