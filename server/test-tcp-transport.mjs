@@ -11,6 +11,7 @@ const requiredCaseIds = [
   'framed-colon-in-extra-value',
   'framed-bom-multibyte',
   'legacy-bom-multibyte',
+  'bom-valid-object',
   'legacy-basic',
   'legacy-leading-trailing-whitespace',
   'legacy-nested-escaped',
@@ -70,15 +71,54 @@ const allowedReasonCodes = new Set([
   'mismatched_delimiter',
 ]);
 
+const canonicalBase64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function isAsciiString(value) {
+  if (typeof value !== 'string') return false;
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) > 0x7f) return false;
+  }
+  return true;
+}
+
+function decodeCanonicalBase64(value) {
+  if (typeof value !== 'string'
+    || value.length === 0
+    || value.length % 4 !== 0
+    || !canonicalBase64Pattern.test(value)) {
+    return null;
+  }
+
+  const bytes = Buffer.from(value, 'base64');
+  return bytes.toString('base64') === value ? bytes : null;
+}
+
+function isValidPolicy(policy) {
+  if (policy === null || typeof policy !== 'object' || Array.isArray(policy)) return false;
+  const keys = Object.keys(policy);
+  return keys.length > 0
+    && keys.every((key) => key === 'max_header_bytes' || key === 'max_body_bytes')
+    && Object.values(policy).every((value) => Number.isSafeInteger(value) && value > 0);
+}
+
 function decodedBytes(caseData) {
   const hasAscii = Object.hasOwn(caseData, 'data_ascii');
   const hasBase64 = Object.hasOwn(caseData, 'data_base64');
   runner.assert(hasAscii !== hasBase64, `${caseData.id}: exactly one encoding is present`);
   if (hasAscii === hasBase64) return null;
 
-  const bytes = hasAscii
-    ? Buffer.from(caseData.data_ascii, 'ascii')
-    : Buffer.from(caseData.data_base64, 'base64');
+  let bytes;
+  if (hasAscii) {
+    const validAscii = isAsciiString(caseData.data_ascii);
+    runner.assert(validAscii, `${caseData.id}: data_ascii is an ASCII string`);
+    if (!validAscii) return null;
+    bytes = Buffer.from(caseData.data_ascii, 'ascii');
+  } else {
+    bytes = decodeCanonicalBase64(caseData.data_base64);
+    runner.assert(bytes !== null, `${caseData.id}: data_base64 is canonical valid base64`);
+    if (bytes === null) return null;
+  }
+
   runner.assert(bytes.length > 0, `${caseData.id}: decoded bytes are non-empty`);
   return bytes;
 }
@@ -99,6 +139,15 @@ function validateChunkPlans(caseData, bytes) {
     }
   }
 }
+
+runner.assert(!isAsciiString('non-ASCII: \u0080'),
+  'ASCII validator rejects non-ASCII code units');
+runner.assert(decodeCanonicalBase64('A===') === null,
+  'base64 validator rejects malformed syntax and padding');
+runner.assert(decodeCanonicalBase64('ZE==') === null,
+  'base64 validator rejects noncanonical pad bits');
+runner.assert(!isValidPolicy({}),
+  'policy validator rejects an empty policy object');
 
 const fixtureText = await readFile(fixtureUrl, 'utf8');
 let fixture;
@@ -138,12 +187,8 @@ for (const caseData of cases) {
       `${caseData.id}: all_split_points is boolean when present`);
   }
   if (Object.hasOwn(caseData, 'policy')) {
-    const policy = caseData.policy;
-    const validPolicy = policy !== null
-      && typeof policy === 'object'
-      && Object.keys(policy).every((key) => key === 'max_header_bytes' || key === 'max_body_bytes')
-      && Object.values(policy).every((value) => Number.isSafeInteger(value) && value > 0);
-    runner.assert(validPolicy, `${caseData.id}: policy contains positive supported limits`);
+    runner.assert(isValidPolicy(caseData.policy),
+      `${caseData.id}: policy contains at least one positive supported limit`);
   }
   if (Object.hasOwn(expected, 'reason_code')) {
     runner.assert(allowedReasonCodes.has(expected.reason_code), `${caseData.id}: reason_code is allowed`);
@@ -161,5 +206,42 @@ const actualIds = new Set(ids);
 for (const id of requiredCaseIds) {
   runner.assert(actualIds.has(id), `required case exists: ${id}`);
 }
+
+const casesById = new Map(cases.map((caseData) => [caseData.id, caseData]));
+const requestHugeLength = casesById.get('request-huge-length');
+runner.assert(requestHugeLength?.data_ascii === 'Content-Length: 8388609\r\n\r\n',
+  'request-huge-length declares the default 8 MiB limit plus one byte');
+runner.assert(requestHugeLength?.expected?.declared_body_length === 8388609,
+  'request-huge-length expected declaration is 8388609');
+runner.assert(!Object.hasOwn(requestHugeLength ?? {}, 'policy'),
+  'request-huge-length uses the production default body limit');
+
+const headerCapNoTerminator = casesById.get('header-cap-no-terminator');
+const headerCapBytes = typeof headerCapNoTerminator?.data_ascii === 'string'
+  ? Buffer.from(headerCapNoTerminator.data_ascii, 'ascii')
+  : Buffer.alloc(0);
+runner.assert(headerCapBytes.length === 512,
+  'header-cap-no-terminator is exactly the default 512-byte header cap');
+runner.assert(!headerCapBytes.includes(Buffer.from('\r\n\r\n', 'ascii')),
+  'header-cap-no-terminator omits the header terminator');
+runner.assert(!Object.hasOwn(headerCapNoTerminator ?? {}, 'policy'),
+  'header-cap-no-terminator uses the production default header cap');
+
+const bomValidObject = casesById.get('bom-valid-object');
+runner.assert(bomValidObject?.data_base64 === '77u/e30=',
+  'bom-valid-object uses the exact leading-BOM object vector');
+runner.assert(Array.isArray(bomValidObject?.targets)
+  && bomValidObject.targets.length === 2
+  && bomValidObject.targets[0] === 'request'
+  && bomValidObject.targets[1] === 'response',
+  'bom-valid-object targets request and response');
+const bomValidJson = bomValidObject?.expected?.json;
+runner.assert(bomValidObject?.expected?.status === 'complete'
+  && bomValidObject.expected.framing === 'legacy'
+  && bomValidJson !== null
+  && typeof bomValidJson === 'object'
+  && !Array.isArray(bomValidJson)
+  && Object.keys(bomValidJson).length === 0,
+  'bom-valid-object completes as a legacy object');
 
 process.exit(runner.summary());
