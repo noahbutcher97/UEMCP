@@ -16,6 +16,8 @@ const skippedGate = evaluateLiveSmokeGate({});
 runner.assert(skippedGate.shouldRun === false, 'missing UEMCP_LIVE_SMOKE does not run');
 runner.assert(skippedGate.skipped === true, 'missing UEMCP_LIVE_SMOKE is a skip');
 runner.assert(/UEMCP_LIVE_SMOKE/.test(skippedGate.reason), 'missing UEMCP_LIVE_SMOKE explains skip');
+runner.assert(/live editor access/i.test(skippedGate.reason) && !/mutations/i.test(skippedGate.reason),
+  'live opt-in describes editor access without claiming every smoke mutates');
 
 const missingProjectRoot = evaluateLiveSmokeGate({ UEMCP_LIVE_SMOKE: '1' });
 runner.assert(missingProjectRoot.shouldRun === false, 'live gate requires project root');

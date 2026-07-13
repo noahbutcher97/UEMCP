@@ -218,7 +218,13 @@ namespace UEMCP
 			int32 DroppedNullGraphCount = 0;
 			int32 DroppedNullReferencedGraphCount = 0;
 			int32 DroppedNullNodeCount = 0;
+			int32 NullNodeGraphCount = 0;
+			int32 MismatchedNodeGraphCount = 0;
 			int32 DroppedNullPinCount = 0;
+			int32 NullPinOwnerCount = 0;
+			int32 MismatchedPinOwnerCount = 0;
+			int32 DanglingParentPinCount = 0;
+			int32 DanglingSubPinCount = 0;
 			int32 DuplicateGraphKeyCount = 0;
 			int32 DuplicateNodeKeyCount = 0;
 			int32 DuplicatePinKeyCount = 0;
@@ -429,7 +435,7 @@ namespace UEMCP
 			Index.DroppedNullGraphCount = Collection.DroppedNullGraphCount;
 			Index.DroppedNullReferencedGraphCount = Collection.DroppedNullReferencedGraphCount;
 			TSet<const UEdGraph*> SeenGraphs;
-			TMap<FString, int32> KeyUseCounts;
+			TSet<FString> UsedGraphKeys;
 
 			for (UEdGraph* Graph : Collection.Graphs)
 			{
@@ -445,14 +451,17 @@ namespace UEMCP
 				SeenGraphs.Add(Graph);
 
 				const FString BaseKey = MakeGraphBaseKey(Graph);
-				int32& UseCount = KeyUseCounts.FindOrAdd(BaseKey);
 				FString GraphKey = BaseKey;
-				if (UseCount > 0)
+				int32 Suffix = 2;
+				while (UsedGraphKeys.Contains(GraphKey))
 				{
-					GraphKey = FString::Printf(TEXT("%s#%d"), *BaseKey, UseCount + 1);
+					GraphKey = FString::Printf(TEXT("%s#%d"), *BaseKey, Suffix++);
+				}
+				if (GraphKey != BaseKey)
+				{
 					++Index.DuplicateGraphKeyCount;
 				}
-				++UseCount;
+				UsedGraphKeys.Add(GraphKey);
 
 				Index.Graphs.Add(Graph);
 				Index.GraphKeys.Add(Graph, GraphKey);
@@ -478,6 +487,17 @@ namespace UEMCP
 				return;
 			}
 			SeenPins.Add(Pin);
+			const UEdGraphNode* ActualOwner = Pin->GetOwningNodeUnchecked();
+			if (!ActualOwner)
+			{
+				++Index.NullPinOwnerCount;
+				return;
+			}
+			if (ActualOwner != Node)
+			{
+				++Index.MismatchedPinOwnerCount;
+				return;
+			}
 			if (!Pin->PinId.IsValid())
 			{
 				++Index.InvalidPinGuidCount;
@@ -512,6 +532,17 @@ namespace UEMCP
 						++Index.DroppedNullNodeCount;
 						continue;
 					}
+					const UEdGraph* ActualGraph = Node->GetGraph();
+					if (!ActualGraph)
+					{
+						++Index.NullNodeGraphCount;
+						continue;
+					}
+					if (ActualGraph != Graph)
+					{
+						++Index.MismatchedNodeGraphCount;
+						continue;
+					}
 					if (!Node->NodeGuid.IsValid())
 					{
 						++Index.InvalidNodeGuidCount;
@@ -542,7 +573,13 @@ namespace UEMCP
 			return Index.DroppedNullGraphCount > 0 ||
 				Index.DroppedNullReferencedGraphCount > 0 ||
 				Index.DroppedNullNodeCount > 0 ||
+				Index.NullNodeGraphCount > 0 ||
+				Index.MismatchedNodeGraphCount > 0 ||
 				Index.DroppedNullPinCount > 0 ||
+				Index.NullPinOwnerCount > 0 ||
+				Index.MismatchedPinOwnerCount > 0 ||
+				Index.DanglingParentPinCount > 0 ||
+				Index.DanglingSubPinCount > 0 ||
 				Index.DuplicateNodeKeyCount > 0 ||
 				Index.DuplicatePinKeyCount > 0 ||
 				Index.InvalidNodeGuidCount > 0 ||
@@ -560,16 +597,16 @@ namespace UEMCP
 				*GuidToDigits(PinId));
 		}
 
+		FString MakeCanonicalEdgeKey(const FString& A, const FString& B)
+		{
+			const FString& First = A.Compare(B) <= 0 ? A : B;
+			const FString& Second = A.Compare(B) <= 0 ? B : A;
+			return FString::Printf(TEXT("%d:%s%d:%s"), First.Len(), *First, Second.Len(), *Second);
+		}
+
 		void AddUniqueEdge(FAnimGraphTopologyIndex& Index, const FString& A, const FString& B)
 		{
-			if (A.Compare(B) <= 0)
-			{
-				Index.UniqueEdges.Add(A + TEXT("<->") + B);
-			}
-			else
-			{
-				Index.UniqueEdges.Add(B + TEXT("<->") + A);
-			}
+			Index.UniqueEdges.Add(MakeCanonicalEdgeKey(A, B));
 		}
 
 		TSharedPtr<FJsonObject> SerializeAnimGraphPin(const UEdGraphPin* Pin, const FString& OwningGraphKey, FAnimGraphTopologyIndex& Index, bool bIncludePinDefaults)
@@ -589,24 +626,51 @@ namespace UEMCP
 			Out->SetStringField(TEXT("pin_subcategory"), Pin->PinType.PinSubCategory.ToString());
 			Out->SetObjectField(TEXT("pin_type"), SerializeAnimGraphPinType(Pin->PinType));
 			Out->SetObjectField(TEXT("type"), SerializeAnimGraphPinType(Pin->PinType));
-			Out->SetBoolField(TEXT("is_subpin"), Pin->ParentPin != nullptr);
 
+			bool bIsSerializedSubPin = false;
 			if (Pin->ParentPin)
 			{
-				Out->SetStringField(TEXT("parent_pin_id"), GuidToDigits(Pin->ParentPin->PinId));
+				bool bParentReferencesPin = false;
+				for (const UEdGraphPin* ParentSubPin : Pin->ParentPin->SubPins)
+				{
+					if (ParentSubPin == Pin)
+					{
+						bParentReferencesPin = true;
+						break;
+					}
+				}
+				const FString* ParentPinKey = Index.PinKeys.Find(Pin->ParentPin);
+				const UEdGraphNode* const* ParentNode = Index.PinNodes.Find(Pin->ParentPin);
+				if (bParentReferencesPin && ParentPinKey && ParentNode && *ParentNode == OwningNode)
+				{
+					bIsSerializedSubPin = true;
+					Out->SetStringField(TEXT("parent_pin_id"), *ParentPinKey);
+				}
+				else
+				{
+					++Index.DanglingParentPinCount;
+					Out->SetField(TEXT("parent_pin_id"), MakeShared<FJsonValueNull>());
+				}
 			}
 			else
 			{
 				Out->SetField(TEXT("parent_pin_id"), MakeShared<FJsonValueNull>());
 			}
+			Out->SetBoolField(TEXT("is_subpin"), bIsSerializedSubPin);
 
 			TArray<TSharedPtr<FJsonValue>> SubPinIds;
 			SubPinIds.Reserve(Pin->SubPins.Num());
 			for (const UEdGraphPin* SubPin : Pin->SubPins)
 			{
-				if (const FString* SubPinKey = SubPin ? Index.PinKeys.Find(SubPin) : nullptr)
+				const FString* SubPinKey = SubPin ? Index.PinKeys.Find(SubPin) : nullptr;
+				const UEdGraphNode* const* SubPinNode = SubPin ? Index.PinNodes.Find(SubPin) : nullptr;
+				if (SubPin && SubPin->ParentPin == Pin && SubPinKey && SubPinNode && *SubPinNode == OwningNode)
 				{
 					SubPinIds.Add(MakeShared<FJsonValueString>(*SubPinKey));
+				}
+				else if (SubPin)
+				{
+					++Index.DanglingSubPinCount;
 				}
 			}
 			Out->SetArrayField(TEXT("subpin_ids"), SubPinIds);
@@ -642,11 +706,16 @@ namespace UEMCP
 					++Index.NullLinkedPinCount;
 					continue;
 				}
-				const UEdGraphNode* const* IndexedLinkedNode = Index.PinNodes.Find(LinkedPin);
-				const UEdGraphNode* LinkedNode = IndexedLinkedNode ? *IndexedLinkedNode : nullptr;
+				const UEdGraphNode* LinkedNode = LinkedPin->GetOwningNodeUnchecked();
 				if (!LinkedNode)
 				{
 					++Index.NullLinkedOwnerCount;
+					continue;
+				}
+				const UEdGraphNode* const* IndexedLinkedNode = Index.PinNodes.Find(LinkedPin);
+				if (!IndexedLinkedNode || *IndexedLinkedNode != LinkedNode)
+				{
+					++Index.DanglingLinkCount;
 					continue;
 				}
 				const UEdGraph* const* IndexedLinkedGraph = Index.NodeGraphs.Find(LinkedNode);
@@ -783,13 +852,19 @@ namespace UEMCP
 			Out->SetArrayField(TEXT("sources"), Sources);
 
 			TSharedPtr<FJsonObject> Nodes = MakeShared<FJsonObject>();
+			TSet<const UEdGraphNode*> SerializedNodes;
 			for (const UEdGraphNode* Node : Graph->Nodes)
 			{
+				if (!Node || SerializedNodes.Contains(Node))
+				{
+					continue;
+				}
 				const FString* NodeKey = Node ? Index.NodeKeys.Find(Node) : nullptr;
 				if (!NodeKey)
 				{
 					continue;
 				}
+				SerializedNodes.Add(Node);
 				++Index.NodeCount;
 				Nodes->SetObjectField(*NodeKey, SerializeAnimGraphTopologyNode(Node, GraphKey, Index, bIncludePinDefaults));
 			}
@@ -821,7 +896,13 @@ namespace UEMCP
 			Dropped->SetNumberField(TEXT("null_graph_count"), Index.DroppedNullGraphCount);
 			Dropped->SetNumberField(TEXT("null_referenced_graph_count"), Index.DroppedNullReferencedGraphCount);
 			Dropped->SetNumberField(TEXT("null_node_count"), Index.DroppedNullNodeCount);
+			Dropped->SetNumberField(TEXT("null_node_graph_count"), Index.NullNodeGraphCount);
+			Dropped->SetNumberField(TEXT("mismatched_node_graph_count"), Index.MismatchedNodeGraphCount);
 			Dropped->SetNumberField(TEXT("null_pin_count"), Index.DroppedNullPinCount);
+			Dropped->SetNumberField(TEXT("null_pin_owner_count"), Index.NullPinOwnerCount);
+			Dropped->SetNumberField(TEXT("mismatched_pin_owner_count"), Index.MismatchedPinOwnerCount);
+			Dropped->SetNumberField(TEXT("dangling_parent_pin_count"), Index.DanglingParentPinCount);
+			Dropped->SetNumberField(TEXT("dangling_subpin_count"), Index.DanglingSubPinCount);
 			Dropped->SetNumberField(TEXT("dangling_link_count"), Index.DanglingLinkCount);
 			Dropped->SetNumberField(TEXT("null_linked_pin_count"), Index.NullLinkedPinCount);
 			Dropped->SetNumberField(TEXT("null_linked_owner_count"), Index.NullLinkedOwnerCount);
@@ -846,7 +927,7 @@ namespace UEMCP
 			Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));
 			Root->SetBoolField(TEXT("truncated"), false);
 			Root->SetBoolField(TEXT("includes_pin_defaults"), bIncludePinDefaults);
-			Root->SetNumberField(TEXT("graph_count"), Graphs->Values.Num());
+			Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num());
 			Root->SetNumberField(TEXT("node_count"), Index.NodeCount);
 			Root->SetNumberField(TEXT("pin_count"), Index.PinCount);
 			Root->SetNumberField(TEXT("link_entry_count"), Index.LinkEntryCount);

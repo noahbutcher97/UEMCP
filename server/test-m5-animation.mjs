@@ -461,6 +461,10 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'pin topology reports dangling link count');
   t.assert(source.includes('duplicate_graph_key_count'),
     'pin topology reports duplicate graph-key count');
+  t.assert(source.includes('TSet<FString> UsedGraphKeys') &&
+    source.includes('while (UsedGraphKeys.Contains(GraphKey))') &&
+    source.includes('UsedGraphKeys.Add(GraphKey)'),
+  'pin topology reserves final graph keys globally so generated suffixes cannot collide with real graph names');
   t.assert(source.includes('null_node_count') && source.includes('null_pin_count'),
     'pin topology reports omitted null nodes and pins');
   t.assert(source.includes('invalid_node_guid_count') && source.includes('invalid_pin_guid_count'),
@@ -482,6 +486,14 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     source.includes('null_linked_pin_count') &&
     source.includes('null_linked_owner_count'),
   'pin topology reports null referenced graphs, linked pins, and linked owners');
+  t.assert(source.includes('dangling_parent_pin_count') &&
+    source.includes('dangling_subpin_count') &&
+    source.includes('mismatched_pin_owner_count'),
+  'pin topology reports unresolved split-pin relationships and mismatched pin ownership');
+  t.assert(source.includes('null_node_graph_count') &&
+    source.includes('mismatched_node_graph_count') &&
+    source.includes('Node->GetGraph()'),
+  'pin topology reports null or mismatched node graph ownership');
   t.assert(source.includes('HasAnimGraphTopologyLosses') &&
     source.includes('Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));'),
   'pin topology marks complete false for every recorded topology loss');
@@ -508,6 +520,9 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     topologyBlock.includes('SerializeAnimGraphPinRecursive') &&
     topologyBlock.includes('Pin->SubPins'),
   'pin topology recursively indexes and serializes split pins');
+  t.assert(topologyBlock.includes('SubPin->ParentPin == Pin') &&
+    topologyBlock.includes('ParentSubPin == Pin'),
+  'pin topology emits split-pin relationships only when parent and child references agree');
   t.assert(topologyBlock.includes('SetBoolField(TEXT("is_subpin")') &&
     topologyBlock.includes('SetArrayField(TEXT("subpin_ids")'),
   'pin topology emits documented split-pin fields');
@@ -515,8 +530,18 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     topologyBlock.includes('SetStringField(TEXT("class_name")') &&
     topologyBlock.includes('SetStringField(TEXT("schema_class")'),
   'pin topology graph entries emit documented identity and schema fields');
-  t.assert(!topologyBlock.includes('GetOwningNodeUnchecked'),
-    'pin topology resolves pin owners exclusively through indexed membership');
+  t.assert(topologyBlock.includes('GetOwningNodeUnchecked') &&
+    /GetOwningNodeUnchecked\(\);\s*if\s*\(\s*!LinkedNode\s*\)/s.test(topologyBlock),
+  'pin topology reads linked owners through the nullable API and checks them before dereference');
+  t.assert(topologyBlock.includes('TSet<const UEdGraphNode*> SerializedNodes') &&
+    topologyBlock.includes('SerializedNodes.Contains(Node)'),
+  'pin topology serializes each indexed node pointer at most once');
+  t.assert(source.includes('Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num())'),
+    'pin topology graph_count is independent of the JSON map and exposes accidental key overwrite');
+  t.assert(source.includes('MakeCanonicalEdgeKey') &&
+    source.includes('First.Len()') && source.includes('Second.Len()') &&
+    !topologyBlock.includes('A + TEXT("<->") + B'),
+  'pin topology uses length-prefixed canonical edge keys instead of a valid-name delimiter');
   t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
     'pin topology serializer remains read-only and does not normalize or mutate graph state');
 

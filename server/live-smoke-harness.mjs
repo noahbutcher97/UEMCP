@@ -31,7 +31,7 @@ export function evaluateLiveSmokeGate(env = process.env) {
       shouldRun: false,
       skipped: true,
       exitCode: 0,
-      reason: 'set UEMCP_LIVE_SMOKE=1 to allow live editor mutations',
+      reason: 'set UEMCP_LIVE_SMOKE=1 to allow explicit live editor access',
     };
   }
 

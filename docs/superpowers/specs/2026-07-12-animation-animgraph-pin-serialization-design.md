@@ -150,8 +150,12 @@ Shape rules:
 - `id_format` is required and applies to node GUIDs, pin IDs, and linked-to targets inside `pin_topology`.
 - Serialize top-level pins and recursive `SubPins` into the same `pins` map. Subpins include `is_subpin: true`, `parent_pin_id`, and an empty or populated `subpin_ids` array.
 - Parent pins include `subpin_ids[]` when split pins are present.
+- Every emitted `parent_pin_id` and `subpin_ids[]` entry resolves within the owning node. Unresolvable hierarchy references are omitted, counted, and force `complete: false`.
 - `link_entry_count` counts every serialized `linked_to[]` entry. `edge_count` counts unique visual connections after canonicalizing reciprocal pin links. The per-pin `linked_to[]` arrays remain authoritative.
 - `complete` and `truncated` are required. The implementation must not silently truncate. If a defensive cap is introduced during implementation, the response must either fail with a structured error or set `complete: false`, `truncated: true`, and include omitted counts.
+- Canonical loss counters include null or mismatched pin ownership and unresolved parent/subpin relationships in addition to null nodes/pins and dangling links. Documented compatibility aliases must equal their canonical counters.
+- The canonical loss-counter fields are `null_graph_count`, `null_referenced_graph_count`, `null_node_count`, `null_node_graph_count`, `mismatched_node_graph_count`, `null_pin_count`, `null_pin_owner_count`, `mismatched_pin_owner_count`, `dangling_parent_pin_count`, `dangling_subpin_count`, `null_linked_pin_count`, `null_linked_owner_count`, `dangling_link_count`, `duplicate_node_key_count`, `duplicate_pin_key_count`, `invalid_node_guid_count`, and `invalid_pin_guid_count`. Any nonzero canonical loss counter requires `complete: false`.
+- `orphan_pin_count` and `duplicate_graph_key_count` are diagnostics rather than serialization losses: orphan pins are still serialized, and graph-key collisions are resolved with globally reserved deterministic suffixes.
 - The topology object includes graph metadata, node title, node class, and node position because these are part of visual graph serialization.
 - The topology object must not duplicate the entire existing semantic arrays unless needed for usability. Semantic arrays remain as current siblings.
 
@@ -326,10 +330,11 @@ It must assert:
 - if pin links exist, each linked-to entry contains `graph_key`, `node_guid`, and `pin_id`;
 - `link_entry_count` is a number;
 - `edge_count` is a number;
-- `complete === true` and `truncated === false` for the smoke asset;
+- `truncated === false` for this slice;
+- `complete` agrees with the canonical serialization-loss counters. `complete: false` is valid only when at least one emitted loss counter explains it;
 - existing `graphs[]`, `state_machines[]`, `slot_nodes[]`, and `layered_blend_nodes[]` remain arrays.
 
-The live smoke must stay skipped unless the live smoke env gates are set.
+The live smoke must stay skipped unless the live smoke env gates are set. Fake TCP tests and live smoke must use one shared topology validator so schema and invariant checks cannot drift independently.
 
 ### Requirement 6: Deployment Visibility
 

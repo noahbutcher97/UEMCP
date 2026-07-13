@@ -28,6 +28,9 @@
 - `tools.yaml`: add the two public optional params and sharpen the `get_anim_graph` description.
 - `server/menhance-tcp-tools.mjs`: add Zod params and tool-specific cross-field validation.
 - `server/test-tcp-tools.mjs`: prove params are accepted, forwarded, cached as a read, and invalid default-only calls fail before TCP.
+- `server/anim-graph-topology-validation.mjs`: centralize topology shape, count, identity, reference, completeness, and dropped-counter validation for tests and live smoke.
+- `server/test-animation-topology-validation.mjs`: exercise the shared validator with complete, explained-incomplete, unresolved-reference, and defaults-contract fixtures.
+- `server/test-helpers.mjs`: provide the shared synthetic AnimGraph topology fixture.
 - `server/create-uemcp-server.mjs`: update animation toolset guidance so users discover pin topology through `get_anim_graph`.
 - `plugin/UEMCP/Source/UEMCP/Private/AnimationHandlers.cpp`: add read-only pin-topology helpers and attach the topology object only when requested.
 - `server/test-m5-animation.mjs`: add source guards for the new C++ read path, payload contract, and non-mutation requirements.
@@ -386,7 +389,7 @@ Add this block immediately after the helpers from Step 4:
 		{
 			FAnimGraphTopologyIndex Index;
 			TSet<const UEdGraph*> SeenGraphs;
-			TMap<FString, int32> KeyUseCounts;
+			TSet<FString> UsedGraphKeys;
 
 			for (UEdGraph* Graph : AllGraphs)
 			{
@@ -402,14 +405,17 @@ Add this block immediately after the helpers from Step 4:
 				SeenGraphs.Add(Graph);
 
 				const FString BaseKey = MakeGraphBaseKey(Graph);
-				int32& UseCount = KeyUseCounts.FindOrAdd(BaseKey);
 				FString GraphKey = BaseKey;
-				if (UseCount > 0)
+				int32 Suffix = 2;
+				while (UsedGraphKeys.Contains(GraphKey))
 				{
-					GraphKey = FString::Printf(TEXT("%s#%d"), *BaseKey, UseCount + 1);
+					GraphKey = FString::Printf(TEXT("%s#%d"), *BaseKey, Suffix++);
+				}
+				if (GraphKey != BaseKey)
+				{
 					++Index.DuplicateGraphKeyCount;
 				}
-				++UseCount;
+				UsedGraphKeys.Add(GraphKey);
 
 				Index.Graphs.Add(Graph);
 				Index.GraphKeys.Add(Graph, GraphKey);
@@ -477,6 +483,7 @@ Add this block after Step 5:
 					SubPinIds.Add(MakeShared<FJsonValueString>(GuidToDigits(SubPin->PinId)));
 				}
 			}
+			Out->SetArrayField(TEXT("subpin_ids"), SubPinIds);
 			Out->SetArrayField(TEXT("sub_pin_ids"), SubPinIds);
 
 #if WITH_EDITORONLY_DATA
@@ -641,7 +648,7 @@ Add this block after Step 6:
 			TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
 			Root->SetStringField(TEXT("schema_version"), TEXT("anim-uedgraph-pin-topology-v1"));
 			Root->SetStringField(TEXT("id_format"), TEXT("digits"));
-			Root->SetBoolField(TEXT("complete"), Index.DanglingLinkCount == 0 && Index.DroppedNullGraphCount == 0);
+			Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));
 			Root->SetBoolField(TEXT("truncated"), false);
 			Root->SetBoolField(TEXT("includes_pin_defaults"), bIncludePinDefaults);
 			Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num());
@@ -723,16 +730,10 @@ summarize: (_label, result) => ({
   state_machine_count: result.state_machine_count,
   slot_node_count: result.slot_node_count,
   layered_blend_node_count: result.layered_blend_node_count,
-  pin_topology: result.pin_topology ? {
-    graph_count: result.pin_topology.graph_count,
-    node_count: result.pin_topology.node_count,
-    pin_count: result.pin_topology.pin_count,
-    link_entry_count: result.pin_topology.link_entry_count,
-    edge_count: result.pin_topology.edge_count,
-    complete: result.pin_topology.complete,
-    truncated: result.pin_topology.truncated,
-    bytes: Buffer.byteLength(JSON.stringify(result.pin_topology), 'utf8'),
-  } : null,
+  pin_topology: validateAnimGraphPinTopology(result.pin_topology, {
+    requireNonEmpty: true,
+    expectedIncludesPinDefaults: false,
+  }),
 }),
 ```
 
@@ -892,10 +893,12 @@ This plan intentionally closes the following brittleness points before implement
 - **Node-only validation is insufficient.** The dependency between `include_pin_defaults` and `include_pin_topology` is enforced in both Node and C++, so raw TCP callers cannot bypass it.
 - **Existing response shape stays stable.** `pin_topology` is a sibling object and is absent by default. The current `graphs[].nodes` summary array remains unchanged.
 - **Graph identity is collision-safe.** Graph keys are generated with deterministic suffixes and `duplicate_graph_key_count` is emitted.
+- **Final graph keys are globally reserved.** Generated suffixes cannot collide with a real graph name such as `Foo#2` and overwrite a prior JSON map entry.
 - **GUID format is explicit.** Topology IDs use `EGuidFormats::Digits` and declare `id_format: "digits"`, while older summary fields can remain hyphenated for compatibility.
 - **Cross-graph links are not ambiguous.** Link targets include `graph_key`, `node_guid`, `pin_id`, and `pin_name`.
-- **Split pins are represented without deep decoding.** Pins include `parent_pin_id` and `sub_pin_ids`; the serializer does not invent synthetic split-pin edges.
+- **Split pins are represented without deep decoding.** Pins include `parent_pin_id` and canonical `subpin_ids`; `sub_pin_ids` remains a compatibility alias. The serializer does not invent synthetic split-pin edges.
 - **Payload risk is measured, not guessed.** Live smoke reports serialized topology byte size and count fields.
+- **Topology validation has one implementation.** Fake TCP and live smoke share the same fixture-backed validator for IDs, counts, references, edges, defaults, dropped aliases, and explained incompleteness.
 - **Read purity has a guard.** Source tests scan the topology serializer block for mutation and normalization calls.
 - **No silent partials.** The response includes `complete`, `truncated:false`, and dropped/dangling counters.
 - **Headless scope stays separate.** This plan does not add sidecars, commandlets, generic `UEMCPCommandlet`, `headless_capable`, or a generic dispatcher.
