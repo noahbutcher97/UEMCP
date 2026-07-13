@@ -54,10 +54,11 @@ const ACTIVE_LAYER_KEYS = Object.freeze(['offline', 'tcp-55558', 'http-30010']);
  * @returns {Promise<object>} parsed JSON response
  */
 function tcpCommand(port, type, params, timeoutMs, metrics = null) {
+  const t0 = process.hrtime.bigint();
   const request = encodeTcpRequest(type, params || {}, { port });
+  const tEncoded = process.hrtime.bigint();
 
   return new Promise((resolve, reject) => {
-    const t0 = process.hrtime.bigint();
     let tConnected = 0n;
     let tSent = 0n;
     let tFirstByte = 0n;
@@ -110,6 +111,9 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
       if (metrics && typeof metrics.record === 'function') {
         const tEnd = process.hrtime.bigint();
         const ns = (a, b) => (a && b ? Number(b - a) / 1e6 : null);  // ns→ms
+        const sendMs = tConnected && tSent
+          ? ns(t0, tEncoded) + ns(tConnected, tSent)
+          : null;
         metrics.record({
           port,
           type,
@@ -117,8 +121,8 @@ function tcpCommand(port, type, params, timeoutMs, metrics = null) {
           err: err ? err.message : null,
           framed: decoder.snapshot().framing === 'framed',
           bytes: totalBytes,
-          connect_ms: ns(t0, tConnected),
-          send_ms: ns(tConnected, tSent),
+          connect_ms: ns(tEncoded, tConnected),
+          send_ms: sendMs,
           first_byte_ms: ns(tSent, tFirstByte),
           response_ms: ns(tFirstByte, tParsed),
           total_ms: ns(t0, tEnd),

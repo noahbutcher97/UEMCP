@@ -288,6 +288,19 @@ function sameJson(actual, expected) {
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
+function isRecursivelyFrozenJson(value) {
+  const pending = [value];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === null || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    if (!Object.isFrozen(current)) return false;
+    for (const child of Object.values(current)) pending.push(child);
+  }
+  return true;
+}
+
 function caughtError(fn) {
   try {
     fn();
@@ -423,6 +436,45 @@ function frameForBody(body) {
     Buffer.from(`Content-Length: ${bodyBuffer.length}\r\n\r\n`, 'ascii'),
     bodyBuffer,
   ]);
+}
+
+async function withClientSocketIntercept(port, configureSocket, run) {
+  const originalCreateConnection = net.createConnection;
+  let clientSocket = null;
+  net.createConnection = function interceptedCreateConnection(options, ...args) {
+    const socket = originalCreateConnection.call(this, options, ...args);
+    if (options?.port === port && options?.host === '127.0.0.1') {
+      clientSocket = socket;
+      configureSocket(socket);
+    }
+    return socket;
+  };
+  try {
+    return await run(() => clientSocket);
+  } finally {
+    net.createConnection = originalCreateConnection;
+  }
+}
+
+function deferSocketDestroy(socket, delayMs) {
+  const originalDestroy = socket.destroy.bind(socket);
+  let deferredDestroyPromise = null;
+  socket.destroy = function deferredSocketDestroy(...args) {
+    if (deferredDestroyPromise === null) {
+      deferredDestroyPromise = new Promise((resolve) => {
+        setTimeout(() => {
+          originalDestroy(...args);
+          resolve();
+        }, delayMs);
+      });
+    }
+    return socket;
+  };
+  return () => deferredDestroyPromise ?? Promise.resolve();
+}
+
+function commandMetrics(manager, type) {
+  return manager.getMetrics()._window.filter((entry) => entry.type === type);
 }
 
 function captureContainerStates(containers) {
@@ -1743,32 +1795,67 @@ const lifecycleFailures = [];
   const baseBytes = Buffer.byteLength(JSON.stringify({ type, params: { padding: '' } }));
   const exactPadding = 'x'.repeat(limit - baseBytes);
   let connectionCount = 0;
+  let boundedBodyAssemblyCount = 0;
   let declaredBodyLength = null;
   let receivedBodyLength = 0;
   let requestBody = null;
   const fixture = await startTcpServer((socket) => {
     connectionCount++;
-    const chunks = [];
-    let buffered = Buffer.alloc(0);
-    let bodyOffset = null;
+    const headerScratch = Buffer.alloc(TCP_MAX_HEADER_BYTES);
+    const terminator = Buffer.from('\r\n\r\n', 'ascii');
+    let headerBytes = 0;
+    let terminatorBytes = 0;
+    let bodyBuffer = null;
+    let responseSent = false;
     socket.on('data', (chunk) => {
-      chunks.push(chunk);
-      buffered = Buffer.concat(chunks);
-      if (bodyOffset === null) {
-        const terminator = buffered.indexOf('\r\n\r\n');
-        if (terminator === -1) return;
-        const header = buffered.subarray(0, terminator).toString('ascii');
-        const match = /^Content-Length: ([0-9]+)$/.exec(header);
-        if (!match) {
-          socket.destroy();
-          return;
+      let offset = 0;
+      if (bodyBuffer === null) {
+        while (offset < chunk.length && bodyBuffer === null) {
+          if (headerBytes === headerScratch.length) {
+            socket.destroy();
+            return;
+          }
+          const byte = chunk[offset];
+          offset++;
+          headerScratch[headerBytes] = byte;
+          headerBytes++;
+          if (byte === terminator[terminatorBytes]) {
+            terminatorBytes++;
+          } else {
+            terminatorBytes = byte === terminator[0] ? 1 : 0;
+          }
+          if (terminatorBytes !== terminator.length) continue;
+
+          const header = headerScratch.subarray(0, headerBytes - terminator.length).toString('ascii');
+          const match = /^Content-Length: ([0-9]+)$/.exec(header);
+          if (!match) {
+            socket.destroy();
+            return;
+          }
+          declaredBodyLength = Number(match[1]);
+          if (!Number.isSafeInteger(declaredBodyLength)
+            || declaredBodyLength < 0
+            || declaredBodyLength > TCP_MAX_REQUEST_BODY_BYTES) {
+            socket.destroy();
+            return;
+          }
+          bodyBuffer = Buffer.allocUnsafe(declaredBodyLength);
+          boundedBodyAssemblyCount++;
         }
-        declaredBodyLength = Number(match[1]);
-        bodyOffset = terminator + 4;
       }
-      receivedBodyLength = buffered.length - bodyOffset;
-      if (receivedBodyLength >= declaredBodyLength) {
-        requestBody = buffered.subarray(bodyOffset, bodyOffset + declaredBodyLength);
+      if (bodyBuffer === null) return;
+
+      const remaining = declaredBodyLength - receivedBodyLength;
+      const bytesToCopy = Math.min(remaining, chunk.length - offset);
+      chunk.copy(bodyBuffer, receivedBodyLength, offset, offset + bytesToCopy);
+      receivedBodyLength += bytesToCopy;
+      if (offset + bytesToCopy !== chunk.length) {
+        socket.destroy();
+        return;
+      }
+      if (!responseSent && receivedBodyLength === declaredBodyLength) {
+        responseSent = true;
+        requestBody = bodyBuffer;
         socket.end(frameForBody('{"status":"success","accepted":true}'));
       }
     });
@@ -1791,6 +1878,8 @@ const lifecycleFailures = [];
     runner.assert(requestBody?.subarray(0, 32).toString('ascii').startsWith('{"type":"sized"')
       && requestBody?.subarray(-4).toString('ascii') === 'x"}}',
     'exact-limit wire body retains the expected generic serialized envelope');
+    runner.assert(boundedBodyAssemblyCount === 1,
+      'exact-limit fixture uses one bounded body assembly for all data events');
   } finally {
     await fixture.close();
   }
@@ -2006,25 +2095,270 @@ const lifecycleFailures = [];
 }
 
 {
+  const type = 'inactivity_timeout_race';
+  const fixture = await startTcpServer((socket) => {
+    socket.once('data', () => {});
+  });
+  let clientSocket = null;
+  let manager;
+  let timeoutError;
+  try {
+    await withClientSocketIntercept(fixture.port, (socket) => {
+      clientSocket = socket;
+      const originalSetTimeout = socket.setTimeout.bind(socket);
+      socket.setTimeout = function injectedInactivityTimeout(timeout, ...args) {
+        return originalSetTimeout(timeout > 0 ? 15 : timeout, ...args);
+      };
+    }, async () => {
+      manager = connectionManagerFor(fixture.port, 250, 100);
+      timeoutError = await caughtAsync(() => bounded(manager.send(
+        'tcp-55558', type, {}, { skipCache: true },
+      ), 1000, 'inactivity timeout race'));
+    });
+    await delay(30);
+  } finally {
+    await fixture.close();
+  }
+  lifecycleFailures.push(['inactivity timeout', 'RESPONSE_TIMEOUT', timeoutError]);
+  runner.assert(timeoutError?.code === 'RESPONSE_TIMEOUT'
+    && timeoutError.details?.timeoutKind === 'inactivity',
+  'socket inactivity event maps to RESPONSE_TIMEOUT/inactivity');
+  runner.assert(clientSocket?.destroyed === true
+    && commandMetrics(manager, type).length === 1,
+  'inactivity timeout settles once, destroys its socket, and records one metric');
+}
+
+{
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  process.on('warning', onWarning);
+  try {
+    for (let iteration = 0; iteration < 3; iteration++) {
+      const timeoutMs = 60;
+      const type = `absolute_terminal_race_${iteration}`;
+      let serverSocket = null;
+      let trickleInterval = null;
+      const fixture = await startTcpServer((socket) => {
+        serverSocket = socket;
+        socket.once('data', () => {
+          socket.write('{');
+          trickleInterval = setInterval(() => {
+            if (!socket.destroyed) socket.write(' ');
+          }, 8);
+          socket.once('close', () => {
+            clearInterval(trickleInterval);
+          });
+        });
+      });
+      let clientSocket = null;
+      let clientClosePromise = null;
+      let waitForDeferredDestroy = () => Promise.resolve();
+      let manager;
+      let timeoutError;
+      try {
+        await withClientSocketIntercept(fixture.port, (socket) => {
+          clientSocket = socket;
+          clientClosePromise = new Promise((resolve) => socket.once('close', resolve));
+          waitForDeferredDestroy = deferSocketDestroy(socket, 45);
+        }, async () => {
+          manager = connectionManagerFor(fixture.port, timeoutMs, 100);
+          timeoutError = await caughtAsync(() => bounded(manager.send(
+            'tcp-55558', type, {}, { skipCache: true },
+          ), 1000, `absolute terminal race ${iteration}`));
+        });
+        clearInterval(trickleInterval);
+        if (serverSocket && !serverSocket.destroyed) {
+          if (typeof serverSocket.resetAndDestroy === 'function') serverSocket.resetAndDestroy();
+          else serverSocket.destroy();
+        }
+        await bounded(Promise.all([
+          clientClosePromise,
+          waitForDeferredDestroy(),
+        ]), 500, `absolute race cleanup ${iteration}`);
+      } finally {
+        clearInterval(trickleInterval);
+        await fixture.close();
+      }
+      lifecycleFailures.push([type, 'RESPONSE_TIMEOUT', timeoutError]);
+      runner.assert(timeoutError?.code === 'RESPONSE_TIMEOUT'
+        && timeoutError.details?.timeoutKind === 'absolute'
+        && commandMetrics(manager, type).length === 1,
+      `absolute timeout wins trickle/reset race exactly once [${iteration}]`);
+      runner.assert(clientSocket?.destroyed === true
+        && clientSocket.listenerCount('timeout') === 0
+        && clientSocket.listenerCount('error') === 0,
+      `absolute timeout race cleans client listeners [${iteration}]`);
+    }
+  } finally {
+    process.off('warning', onWarning);
+  }
+  runner.assert(warnings.length === 0,
+    'repeated absolute timeout races emit no process warnings');
+}
+
+{
+  const scenarios = [
+    {
+      name: 'malformed',
+      response: frameForBody('{"status":}'),
+      expectedCode: 'MALFORMED_RESPONSE',
+    },
+    {
+      name: 'complete',
+      response: frameForBody('{"status":"success","winner":{"deep":true}}'),
+      expectedCode: null,
+    },
+  ];
+  for (const scenario of scenarios) {
+    for (let iteration = 0; iteration < 3; iteration++) {
+      const type = `${scenario.name}_decoder_race_${iteration}`;
+      let serverSocket = null;
+      const fixture = await startTcpServer((socket) => {
+        serverSocket = socket;
+        socket.once('data', () => {
+          socket.write(scenario.response);
+        });
+      });
+      let manager;
+      let clientClosePromise = null;
+      let waitForDeferredDestroy = () => Promise.resolve();
+      let result = null;
+      let commandError = null;
+      try {
+        await withClientSocketIntercept(fixture.port, (socket) => {
+          clientClosePromise = new Promise((resolve) => socket.once('close', resolve));
+          waitForDeferredDestroy = deferSocketDestroy(socket, 40);
+        }, async () => {
+          manager = connectionManagerFor(fixture.port, 300, 100);
+          try {
+            result = await bounded(manager.send(
+              'tcp-55558', type, {}, { skipCache: true },
+            ), 1000, `${scenario.name} decoder race ${iteration}`);
+          } catch (error) {
+            commandError = error;
+          }
+        });
+        if (serverSocket && !serverSocket.destroyed) {
+          if (typeof serverSocket.resetAndDestroy === 'function') serverSocket.resetAndDestroy();
+          else serverSocket.destroy();
+        }
+        await bounded(Promise.all([
+          clientClosePromise,
+          waitForDeferredDestroy(),
+        ]), 500, `${scenario.name} race cleanup ${iteration}`);
+      } finally {
+        await fixture.close();
+      }
+      const metrics = commandMetrics(manager, type);
+      if (scenario.expectedCode) {
+        lifecycleFailures.push([type, scenario.expectedCode, commandError]);
+        runner.assert(commandError?.code === scenario.expectedCode
+          && metrics.length === 1 && metrics[0].ok === false,
+        `malformed decoder result survives later reset/close [${iteration}]`);
+      } else {
+        runner.assert(commandError === null
+          && result?.winner?.deep === true
+          && isRecursivelyFrozenJson(result)
+          && metrics.length === 1 && metrics[0].ok === true,
+        `complete decoder result survives later reset/close [${iteration}]`);
+      }
+    }
+  }
+}
+
+{
+  const type = 'late_error_after_timeout_cleanup';
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  const fixture = await startTcpServer((socket) => {
+    socket.once('data', () => {});
+  });
+  process.on('warning', onWarning);
+  let clientSocket = null;
+  let clientClosePromise = null;
+  let waitForDeferredDestroy = () => Promise.resolve();
+  let manager;
+  let timeoutError;
+  let lateEmitError = null;
+  try {
+    await withClientSocketIntercept(fixture.port, (socket) => {
+      clientSocket = socket;
+      clientClosePromise = new Promise((resolve) => socket.once('close', resolve));
+      waitForDeferredDestroy = deferSocketDestroy(socket, 50);
+    }, async () => {
+      manager = connectionManagerFor(fixture.port, 35, 100);
+      timeoutError = await caughtAsync(() => bounded(manager.send(
+        'tcp-55558', type, {}, { skipCache: true },
+      ), 1000, 'late socket error cleanup'));
+      const lateError = new Error('UEMCP_SECRET_LATE_SOCKET_ERROR');
+      lateError.code = 'ECONNRESET';
+      lateEmitError = caughtError(() => clientSocket.emit('error', lateError));
+    });
+    await bounded(Promise.all([
+      clientClosePromise,
+      waitForDeferredDestroy(),
+    ]), 500, 'late error cleanup');
+  } finally {
+    process.off('warning', onWarning);
+    await fixture.close();
+  }
+  lifecycleFailures.push(['late socket error timeout', 'RESPONSE_TIMEOUT', timeoutError]);
+  const activeHandles = typeof process._getActiveHandles === 'function'
+    ? process._getActiveHandles()
+    : [];
+  runner.assert(timeoutError?.code === 'RESPONSE_TIMEOUT'
+    && timeoutError.details?.timeoutKind === 'absolute'
+    && lateEmitError === null
+    && warnings.length === 0,
+  'late socket error after timeout cleanup is absorbed without warning or throw');
+  runner.assert(commandMetrics(manager, type).length === 1
+    && clientSocket?.destroyed === true
+    && clientSocket.timeout === 0
+    && clientSocket.listenerCount('connect') === 0
+    && clientSocket.listenerCount('data') === 0
+    && clientSocket.listenerCount('timeout') === 0
+    && clientSocket.listenerCount('error') === 0
+    && clientSocket.listenerCount('close') === 0
+    && !activeHandles.includes(clientSocket),
+  'timeout cleanup leaves one metric and no client timer, listener, or active handle');
+}
+
+{
   const base64Shape = 'A'.repeat(4 * 1024 * 1024);
-  const largeBody = Buffer.from(JSON.stringify({
+  const expectedResult = {
     status: 'success',
     topology: { nodes: [{ id: 1, pins: ['In', 'Out'] }] },
     capture: { mime: 'image/png', base64: base64Shape },
-  }), 'utf8');
+  };
+  const largeBody = Buffer.from(JSON.stringify(expectedResult), 'utf8');
   const largeFrame = frameForBody(largeBody);
   const chunks = [];
   for (let offset = 0; offset < largeFrame.length; offset += 4096) {
     chunks.push(largeFrame.subarray(offset, Math.min(offset + 4096, largeFrame.length)));
   }
-  const exchange = await exchangeResponse(chunks, {
-    timeoutMs: 5000,
-    type: 'large_topology_response',
-  });
+  const originalParse = JSON.parse;
+  let parseCount = 0;
+  let exchange;
+  JSON.parse = function countedLargeResponseParse(...args) {
+    parseCount++;
+    return originalParse(...args);
+  };
+  try {
+    exchange = await exchangeResponse(chunks, {
+      timeoutMs: 5000,
+      type: 'large_topology_response',
+    });
+  } finally {
+    JSON.parse = originalParse;
+  }
   runner.assert(exchange.error === null
-    && exchange.result?.topology?.nodes?.[0]?.pins?.[1] === 'Out'
-    && exchange.result?.capture?.base64?.length === base64Shape.length,
+    && sameJson(exchange.result, expectedResult),
   '4 MiB topology/base64-shaped framed response remains uncapped');
+  runner.assert(parseCount === 1,
+    '4 MiB response command invokes its authoritative JSON parser exactly once',
+    `got ${parseCount}`);
+  runner.assert(isRecursivelyFrozenJson(exchange.result),
+    '4 MiB response publishes one recursively frozen deep result');
   runner.assert(chunks.length > 1000 && chunks.slice(0, -1).every((chunk) => chunk.length === 4096),
     'large response fixture writes 4096-byte fragments');
 }
@@ -2067,26 +2401,49 @@ const lifecycleFailures = [];
 }
 
 {
-  const originalParse = JSON.parse;
-  let parseCount = 0;
-  let exchange;
-  JSON.parse = function countedJsonParse(...args) {
-    parseCount++;
-    return originalParse(...args);
-  };
+  const type = 'preflight_metrics_clock';
+  const fixture = await startTcpServer((socket) => {
+    socket.once('data', () => {
+      socket.end(frameForBody('{"status":"success","timed":true}'));
+    });
+  });
+  const originalNow = process.hrtime.bigint;
+  const samples = [100, 107, 120, 125, 130, 135, 140]
+    .map((milliseconds) => BigInt(milliseconds) * 1_000_000n);
+  let sampleIndex = 0;
+  let manager;
+  let result;
   try {
-    const body = Buffer.from('{"status":"success","once":{"nested":true}}', 'ascii');
-    exchange = await exchangeResponse(
-      [...body].map((byte) => Buffer.from([byte])),
-      { delayMs: 1, timeoutMs: 3000, type: 'single_parse_probe' },
-    );
+    process.hrtime.bigint = function deterministicTransportClock() {
+      const sample = samples[sampleIndex];
+      sampleIndex++;
+      if (sample === undefined) throw new Error('transport clock sampled too often');
+      return sample;
+    };
+    manager = connectionManagerFor(fixture.port, 500, 100);
+    result = await bounded(manager.send(
+      'tcp-55558', type, { generic: true }, { skipCache: true },
+    ), 1500, 'preflight metrics clock');
   } finally {
-    JSON.parse = originalParse;
+    process.hrtime.bigint = originalNow;
+    await fixture.close();
   }
-  runner.assert(exchange.error === null && exchange.result?.once?.nested === true,
-    'fragmented parser-count response resolves successfully');
-  runner.assert(parseCount === 1,
-    'production response intake invokes JSON.parse exactly once', `got ${parseCount}`);
+  const [metric] = commandMetrics(manager, type);
+  runner.assert(result?.timed === true && sampleIndex === samples.length,
+    'transport timing samples preflight, wire phases, parse, and settlement exactly once');
+  runner.assert(sameJson({
+    connect_ms: metric?.connect_ms,
+    send_ms: metric?.send_ms,
+    first_byte_ms: metric?.first_byte_ms,
+    response_ms: metric?.response_ms,
+    total_ms: metric?.total_ms,
+  }, {
+    connect_ms: 13,
+    send_ms: 12,
+    first_byte_ms: 5,
+    response_ms: 5,
+    total_ms: 40,
+  }), 'timing metrics include 7 ms preflight cost in send_ms and total_ms');
 }
 
 {
@@ -2130,15 +2487,29 @@ runner.assert(dataHandlerMatch !== null
 runner.assert(!connectionManagerSource.includes('_detectResponseFraming'),
   'source guard: duplicate response framing parser export/use is retired');
 const preflightIndex = tcpCommandSource.indexOf('encodeTcpRequest(');
+const metricsStartIndex = tcpCommandSource.indexOf('const t0 =');
 const promiseIndex = tcpCommandSource.indexOf('new Promise(');
 const createConnectionIndex = tcpCommandSource.indexOf('net.createConnection(');
 runner.assert(preflightIndex >= 0
   && preflightIndex < promiseIndex
   && promiseIndex < createConnectionIndex,
 'source guard: request preflight precedes Promise and socket construction');
+runner.assert(metricsStartIndex >= 0 && metricsStartIndex < preflightIndex,
+  'source guard: metrics timing starts before request preflight');
 runner.assert(tcpCommandSource.includes('new TcpResponseDecoder(')
   && tcpCommandSource.includes('socket.setTimeout(timeoutMs)'),
 'source guard: one incremental decoder and inactivity backstop are wired');
+const focusedTestSource = await readFile(new URL(import.meta.url), 'utf8');
+const exactLimitFixtureStart = focusedTestSource.indexOf('const lifecycleFailures = [];');
+const exactLimitFixtureEnd = focusedTestSource.indexOf('const framedBody =', exactLimitFixtureStart);
+const exactLimitFixtureSource = focusedTestSource.slice(
+  exactLimitFixtureStart,
+  exactLimitFixtureEnd,
+);
+runner.assert(exactLimitFixtureStart >= 0
+  && exactLimitFixtureEnd > exactLimitFixtureStart
+  && !exactLimitFixtureSource.includes('Buffer.concat(chunks)'),
+'source guard: exact-limit server fixture does no per-chunk whole-buffer reconstruction');
 const fixedHeaderAllocations = transportSource.match(/Buffer\.alloc\(TCP_MAX_HEADER_BYTES\)/g) ?? [];
 runner.assert(fixedHeaderAllocations.length === 1,
   'source contains exactly one direct fixed-header Buffer.alloc expression');
