@@ -2,7 +2,7 @@
 
 ## Status
 
-Second-pass revision awaiting approval. The earlier server receive/request boundary is expanded to the matching Node response-intake surface because source verification found the same framing, UTF-8, and repeated-parse weaknesses in both directions. This document remains a pre-implementation specification. Production code must not change until the revised boundary is reviewed and approved.
+Third-pass verification revision awaiting approval. The earlier server receive/request boundary is expanded to the matching Node response-intake surface because source verification found the same framing, UTF-8, and repeated-parse weaknesses in both directions. Pre-planning linkage, fixture-packaging, timeout, and platform questions are now resolved below. This document remains a pre-implementation specification. Production code must not change until the revised boundary is reviewed and approved.
 
 ## Problem
 
@@ -293,7 +293,7 @@ Add one compact language-neutral corpus at:
 
 `plugin/UEMCP/Resources/Tests/tcp-transport-cases.json`
 
-Keeping the fixture under the plugin base directory makes it available to synced-project C++ tests through `IPluginManager::FindPlugin("UEMCP")->GetBaseDir()` and to Node tests through a repository-relative URL. `sync-plugin.bat` already copies the complete plugin tree while excluding only `Binaries` and `Intermediate`, so this location survives normal project sync. The implementation plan must still verify that any packaged-plugin test path retains `Resources/Tests`; if it does not, place the fixture in the nearest plugin directory retained by all supported deployment paths and document that decision.
+Keeping the fixture under the plugin base directory makes it available to synced-project C++ tests through `IPluginManager::FindPlugin("UEMCP")->GetBaseDir()` and to Node tests through a repository-relative URL. `sync-plugin.bat` copies the complete plugin tree while excluding only `Binaries` and `Intermediate`. Installed UE 5.3, 5.6, and 5.7 `BuildPluginCommand.Automation.cs` each explicitly include `/Resources/...` in the package filter. This location therefore survives both normal target sync and the supported packaged-plugin path; no fallback relocation is required.
 
 Each case describes encoded input bytes, chunk boundaries, optional small policy overrides, and expected decoder state or terminal result. Use ASCII strings for readable cases and base64 for arbitrary bytes. Small per-case limits exercise boundary behavior without checking an 8 MiB fixture into source; separate constant tests prove the production request limit is exactly 8 MiB.
 
@@ -310,6 +310,37 @@ The shared corpus covers:
 - exact framed body completion, incomplete body, and already-buffered trailing bytes.
 
 Runtime-specific socket outcomes, clocks, logs, metrics, and production-limit constants remain in native tests. Shared vectors cover only deterministic byte-decoder policy.
+
+## Pre-Planning Verification Resolutions
+
+### Windows Socket Linkage
+
+Do not add `ws2_32.lib` to `UEMCP.Build.cs`. Installed UE 5.3, 5.6, and 5.7 `UEBuildWindows.cs` each add `ws2_32.lib` to the Windows link environment globally. Keep `WinSock2.h` inside the private `.cpp` under `#if PLATFORM_WINDOWS`, wrapped by `Windows/AllowWindowsPlatformTypes.h`, `THIRD_PARTY_INCLUDES_START/END`, and `Windows/HideWindowsPlatformTypes.h`, matching the engine's `IcmpWindows.cpp` pattern. The POSIX branch includes `<cerrno>` only under its platform guard. All three Win64 builds remain required, but library ownership and include shape are resolved.
+
+### Fixture Deployment
+
+Use `plugin/UEMCP/Resources/Tests/tcp-transport-cases.json` without a packaging fallback. Source verification proves normal sync and each supported engine's `BuildPlugin` filter retain the complete `Resources` subtree. Native tests must fail loudly if `IPluginManager` cannot resolve the installed fixture; that is a test or deployment defect, not a reason to search alternate paths silently.
+
+### Response Timeout Headroom
+
+Keep the existing 10-second default and all existing evidence-based per-tool overrides unchanged. Do not add an AnimGraph or visual-capture override in this slice.
+
+Evidence:
+
+- The live `/Game/Actors/Character/ABP_DroppedCharacter` pre-topology response was 141,032 UTF-8 JSON bytes and completed under the current 10-second default.
+- A disposable localhost probe through the current, still-quadratic Node parser completed framed responses of 1 MiB in 8.41 ms, 4 MiB in 46.65 ms, 16 MiB in 569.13 ms, and 32 MiB in 2,266.07 ms.
+- The proposed decoder removes repeated whole-buffer concatenation and parsing, so response decoding should improve rather than consume the remaining deadline headroom.
+
+The absolute deadline integration test and live AnimGraph smoke remain regression gates, not open timeout-policy decisions. A future override requires a measured legitimate command exceeding 10 seconds.
+
+### Platform Proof Boundary
+
+`UEMCP.uplugin` declares Win64, Mac, and Linux support, but this checkout has only Windows UE 5.3/5.6/5.7 installations and the repository's sole CI workflow runs Node rotation on `windows-latest` without building Unreal. Therefore:
+
+- Win64 compile and runtime verification are required for this slice.
+- Mac/Linux source branches must remain fully guarded and POSIX-correct.
+- Mac/Linux compile/runtime status is explicitly **declared but unverified**, not an unresolved implementation choice and not a blocker to implementation planning.
+- Promoting Mac/Linux to a verified release guarantee requires an Unreal-capable host or CI lane and remains a follow-on infrastructure decision.
 
 ## Test Strategy
 
@@ -404,9 +435,9 @@ This is a plugin C++ and Node transport behavior change. Implementation must:
 - update the current TCP wire description in `CLAUDE.md` and `docs/specs/architecture.md` with the shared header/UTF-8 contract, request-size preflight, response compatibility, idle timeout, and total timeout; do not rewrite the archival port-55557 `docs/specs/tcp-protocol.md` as though it described UEMCP;
 - run `npm test` from `server/`;
 - build and run focused UEMCP automation tests against a synced project with the editor closed;
-- verify the shared fixture survives `sync-plugin.bat` and any plugin packaging path used by the test lane;
+- verify the shared fixture loads through `IPluginManager` after `sync-plugin.bat`; source verification already proves the supported `BuildPlugin` filters include `/Resources/...`;
 - compile the transport change on the supported local UE 5.3, 5.6, and 5.7 Win64 baselines; keep Windows and POSIX includes fully platform-guarded, and record Mac/Linux runtime verification as unavailable unless those hosts are actually exercised;
-- keep direct Winsock symbols behind the Windows shim and add `ws2_32.lib` to `UEMCP.Build.cs` only if link verification proves the explicit dependency is required;
+- keep direct Winsock symbols behind the Windows shim and do not add a redundant `ws2_32.lib` entry to `UEMCP.Build.cs`; UBT already owns that Windows system-library dependency on all three supported engine baselines;
 - sync, rebuild, relaunch, run `verify-deploy.bat`, and execute the transport plus AnimGraph live smokes.
 
 ## Adversarial Audit
@@ -463,7 +494,7 @@ Mitigation: Enforce `timeoutMs` as an absolute deadline from connection initiati
 
 Severity: Medium.
 
-Mitigation: Preserve existing per-tool timeout overrides, measure the live AnimGraph smoke plus large synthetic topology/base64 response tests, and raise only an affected explicit override if evidence shows the default is insufficient. Do not revert to activity-reset semantics.
+Mitigation: Keep the existing 10-second default and evidence-based overrides. Current live and synthetic evidence provides substantial headroom, so add no speculative override. Retain the absolute-deadline and live AnimGraph regression tests; a future override requires a measured legitimate overrun. Do not revert to activity-reset semantics.
 
 ### Error Responses Can Cause Secondary Noise
 
@@ -511,7 +542,7 @@ Mitigation: Remove body previews from TCP parser errors and exclude raw TCP wire
 
 Severity: Medium.
 
-Mitigation: Isolate platform headers and calls in one guarded translation unit, verify all local Win64 engine baselines, and add an explicit Winsock system library only if direct symbol linkage requires it. Record unexercised Mac/Linux runtime proof honestly.
+Mitigation: Isolate platform headers and calls in one guarded translation unit and verify all local Win64 engine baselines. UBT already links `ws2_32.lib` globally, so do not duplicate it in the module. Record Mac/Linux as declared but unverified until an Unreal-capable host or CI lane exists.
 
 ### Shutdown Can Be Misreported As Client Failure
 
@@ -535,6 +566,7 @@ Mitigation: Put parser and classifier behavior in compiled C++ automation tests 
 - Reuse of the contract-fixture pattern for other incremental intake surfaces, including Remote Control HTTP, if profiling or fault injection exposes equivalent drift.
 - A separate Remote Control HTTP error-body/redaction audit. `httpCommand` intentionally surfaces bounded non-2xx bodies and also previews invalid-JSON bodies, so changing that diagnostic contract requires HTTP-specific usability and sensitivity tests rather than an incidental TCP edit.
 - A generic headless MCP execution layer with transport parity after the live TCP contract is stable.
+- Unreal-capable Mac/Linux CI or dedicated hosts if cross-platform compile/runtime verification becomes a release guarantee rather than a declared support target.
 - Authentication and bind-address policy if UEMCP is ever exposed beyond localhost.
 
 ## Evidence And References
@@ -544,6 +576,10 @@ Mitigation: Put parser and classifier behavior in compiled C++ automation tests 
 - `server/connection-manager.mjs`, `_detectResponseFraming` and `tcpCommand`, contain permissive response-length parsing, per-chunk `Buffer.concat`, repeated legacy `JSON.parse`, replacement-tolerant UTF-8 conversion, body previews in errors, and no outgoing request-size preflight.
 - `server/package.json` requires Node 22 or newer, so the implementation can use the official `node:buffer` `isUtf8` validator without widening the runtime baseline.
 - `sync-plugin.bat` copies the full plugin tree and excludes only `Binaries` and `Intermediate`, so a plugin `Resources/Tests` fixture is retained by normal target sync.
+- Installed UE 5.3, 5.6, and 5.7 `Engine/Source/Programs/AutomationTool/Scripts/BuildPluginCommand.Automation.cs` include `Filter.Include("/Resources/...")`, proving the shared fixture path is retained by supported plugin packaging.
+- Installed UE 5.3, 5.6, and 5.7 `Engine/Source/Programs/UnrealBuildTool/Platform/Windows/UEBuildWindows.cs` add `ws2_32.lib` to every Windows link environment, so UEMCP does not need a duplicate module rule.
+- `.github/workflows/rotation.yml` is Windows-only and explicitly does not build the Unreal plugin; no local Mac/Linux Unreal installation or CI proof lane exists.
+- The prior live AnimGraph probe serialized 141,032 UTF-8 JSON bytes before pin topology under the 10-second default. A 2026-07-13 disposable localhost probe through current `ConnectionManager` measured 1/4/16/32 MiB framed responses at 8.41/46.65/569.13/2,266.07 ms respectively.
 - UE 5.6 `Runtime/Sockets/Private/BSDSockets/SocketsBSD.cpp`, `FSocketBSD::Recv`, confirms stream EOF returns false and native `would block` is normalized to true/zero.
 - Installed UE 5.3, 5.6, and 5.7 `FSocketBSD::Recv` implementations use the same EOF, retry, and byte-normalization logic, so the receive classifier addresses the repo's full local engine baseline rather than one version only.
 - UE 5.6 `Runtime/Sockets/Public/Sockets.h`, `FSocket::Recv`, documents that true/zero can mean no data and false means closed or unrecoverable error.
