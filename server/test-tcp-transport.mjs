@@ -2572,17 +2572,14 @@ const receiveBranchesEnd = nativePolicySource.indexOf('#endif', fallbackReceiveS
 const windowsReceiveSource = nativePolicySource.slice(windowsReceiveStart, unixReceiveStart);
 const unixReceiveSource = nativePolicySource.slice(unixReceiveStart, fallbackReceiveStart);
 const fallbackReceiveSource = nativePolicySource.slice(fallbackReceiveStart, receiveBranchesEnd);
-const hasOneReceiveCall = (source) => (
-  (source.match(/\bSocket->Recv\s*\(/g) ?? []).length === 1
-);
 runner.assert(receiveFunctionStart >= 0
   && windowsReceiveStart > receiveFunctionStart
   && unixReceiveStart > windowsReceiveStart
   && fallbackReceiveStart > unixReceiveStart
   && receiveBranchesEnd > fallbackReceiveStart
-  && hasOneReceiveCall(windowsReceiveSource)
-  && hasOneReceiveCall(unixReceiveSource)
-  && hasOneReceiveCall(fallbackReceiveSource),
+  && countDirectRecvMemberCalls(windowsReceiveSource) === 1
+  && countDirectRecvMemberCalls(unixReceiveSource) === 1
+  && countDirectRecvMemberCalls(fallbackReceiveSource) === 1,
 'source guard: each platform branch contains exactly one receive call');
 runner.assert(windowsReceiveSource.indexOf('WSASetLastError(0)')
     < windowsReceiveSource.indexOf('Socket->Recv(')
@@ -2610,12 +2607,13 @@ const retiredRunnableSymbols = [
 runner.assert(retiredRunnableSymbols.every((symbol) => !nativeRunnableSource.includes(symbol)),
   'source guard: runnable retires accumulator parser helpers and coordination flags');
 
-const isCppIdentifierChar = (char) => (
-  typeof char === 'string' && /^[A-Za-z0-9_]$/.test(char)
-);
-const isCppDecimalDigit = (char) => (
-  typeof char === 'string' && /^[0-9]$/.test(char)
-);
+function isCppIdentifierChar(char) {
+  return typeof char === 'string' && /^[A-Za-z0-9_]$/.test(char);
+}
+
+function isCppDecimalDigit(char) {
+  return typeof char === 'string' && /^[0-9]$/.test(char);
+}
 
 function cppRawStringEnd(source, startIndex) {
   const match = source.slice(startIndex).match(/^(?:u8|u|U|L)?R"([^\s()\\]{0,16})\(/);
@@ -2732,6 +2730,37 @@ function maskCppNonCode(source) {
   return masked.join('');
 }
 
+function cppCodeView(source) {
+  const initiallyMasked = maskCppNonCode(source);
+  const normalizedChars = [];
+  const normalizedToOriginal = [];
+
+  let index = 0;
+  while (index < initiallyMasked.length) {
+    if (initiallyMasked[index] === '\\') {
+      if (initiallyMasked[index + 1] === '\r'
+        && initiallyMasked[index + 2] === '\n') {
+        index += 3;
+        continue;
+      }
+      if (initiallyMasked[index + 1] === '\n'
+        || initiallyMasked[index + 1] === '\r') {
+        index += 2;
+        continue;
+      }
+    }
+
+    normalizedChars.push(initiallyMasked[index]);
+    normalizedToOriginal.push(index);
+    index += 1;
+  }
+
+  return {
+    code: maskCppNonCode(normalizedChars.join('')),
+    normalizedToOriginal,
+  };
+}
+
 const cppMaskFixture = [
   'VisibleBefore(); // HiddenLineToken',
   '/* HiddenBlockToken */',
@@ -2742,8 +2771,10 @@ const cppMaskFixture = [
   "const int Character = 'HiddenCharacterToken';",
   'VisibleAfter();',
 ].join('\n');
-const maskedCppFixture = maskCppNonCode(cppMaskFixture);
+const cppMaskCodeView = cppCodeView(cppMaskFixture);
+const maskedCppFixture = cppMaskCodeView.code;
 runner.assert(maskedCppFixture.length === cppMaskFixture.length
+  && maskedCppFixture.length === cppMaskCodeView.normalizedToOriginal.length
   && maskedCppFixture.indexOf('VisibleBefore') === cppMaskFixture.indexOf('VisibleBefore')
   && maskedCppFixture.indexOf('VisibleAfterNumber')
     === cppMaskFixture.indexOf('VisibleAfterNumber')
@@ -2755,19 +2786,32 @@ runner.assert(maskedCppFixture.length === cppMaskFixture.length
     'HiddenRawToken',
     'HiddenCharacterToken',
   ].every((token) => !maskedCppFixture.includes(token)),
-'source guard scanner: masking preserves code positions and removes comments/literals');
+'source guard scanner: code view preserves surviving positions and removes comments/literals');
 
-function hasDirectRecvMemberCall(source) {
-  const codeOnly = maskCppNonCode(source);
-  return /(?:->|\.)\s*Recv\s*\(/.test(codeOnly);
+function countDirectRecvMemberCalls(source) {
+  const { code } = cppCodeView(source);
+  const directMemberCall = /(?:->|\.)\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*)\s*::\s*)*Recv\s*\(/g;
+  return (code.match(directMemberCall) ?? []).length;
 }
 
-runner.assert(!hasDirectRecvMemberCall(nativeRunnableSource),
-  'source guard: MCPServerRunnable code-only tokens contain no direct arrow/dot member call to Recv');
+function hasDirectRecvMemberCall(source) {
+  return countDirectRecvMemberCalls(source) > 0;
+}
+
+runner.assert(countDirectRecvMemberCalls(nativeRunnableSource) === 0,
+  'source guard: MCPServerRunnable normalized code contains no direct qualified/unqualified arrow/dot Recv call');
 runner.assert(hasDirectRecvMemberCall('ClientSocket -> Recv(Buffer, BufferSize, BytesRead);'),
   'source guard mutation: direct arrow Recv member call is detected');
 runner.assert(hasDirectRecvMemberCall('(*ClientSocket) . Recv(Buffer, BufferSize, BytesRead);'),
   'source guard mutation: direct dot Recv member call is detected');
+runner.assert(hasDirectRecvMemberCall(
+  'ClientSocket -> FSocket::Recv(Buffer, BufferSize, BytesRead);',
+), 'source guard mutation: qualified direct arrow Recv member call is detected');
+const recvSpliceFixtures = ['\n', '\r\n', '\r'].map((lineEnding) => (
+  `ClientSocket->Re\\${lineEnding}cv(Buffer, BufferSize, BytesRead);`
+));
+runner.assert(recvSpliceFixtures.every(hasDirectRecvMemberCall),
+  'source guard mutation: LF/CRLF/CR-spliced direct Recv member calls are detected');
 runner.assert(!hasDirectRecvMemberCall(`
   // ClientSocket->Recv(Buffer, BufferSize, BytesRead);
   /* (*ClientSocket).Recv(Buffer, BufferSize, BytesRead); */
@@ -2777,6 +2821,24 @@ runner.assert(!hasDirectRecvMemberCall(`
   const TCHAR* DotExample = TEXT(R"tag((*ClientSocket).Recv(Buffer, BufferSize, BytesRead))tag");
   const int MultiCharacterExample = '->Recv(';
 `), 'source guard mutation: literal-only Recv examples are ignored');
+const twoReceiveCallFixture = `
+  Socket->Recv(Buffer, BufferSize, BytesRead);
+  (*Socket).Recv(Buffer, BufferSize, BytesRead);
+`;
+runner.assert(countDirectRecvMemberCalls(twoReceiveCallFixture) === 2,
+  'source guard mutation: Task 4 receive matcher counts arrow plus dot calls as two');
+const nonCodeReceiveFixture = `
+  // Socket->Recv(Buffer, BufferSize, BytesRead);
+  const TCHAR* Example = TEXT("Socket->Recv(Buffer, BufferSize, BytesRead)");
+`;
+runner.assert(countDirectRecvMemberCalls(nonCodeReceiveFixture) === 0,
+  'source guard mutation: Task 4 receive matcher counts comment/literal calls as zero');
+const spliceFormedCommentFixture = [
+  '/\\',
+  '/ Socket->Recv(Buffer, BufferSize, BytesRead);',
+].join('\n');
+runner.assert(!hasDirectRecvMemberCall(spliceFormedCommentFixture),
+  'source guard mutation: splice-formed comments hide direct Recv text');
 runner.assert(!nativeRunnableSource.includes('failed to send response'),
   'source guard: caller-level generic response-send warning is retired');
 runner.assert((nativeRunnableSource.match(/\bReadOneRequest\s*\(/g) ?? []).length === 1
@@ -2865,11 +2927,24 @@ runner.assert(requiredIntakeEvents.every((event) => (
 ).length === 1),
 'source guard: each centralized intake outcome owns exactly one event token');
 
+function isDirectLogMacroDefinition(code, macroStart) {
+  let logicalLineStart = macroStart;
+  while (logicalLineStart > 0
+    && code[logicalLineStart - 1] !== '\n'
+    && code[logicalLineStart - 1] !== '\r') {
+    logicalLineStart -= 1;
+  }
+  const beforeMacroName = code.slice(logicalLineStart, macroStart);
+  return /^\s*#\s*define\s+$/.test(beforeMacroName);
+}
+
 function extractBalancedLogInvocations(source) {
-  const codeOnly = maskCppNonCode(source);
+  const codeView = cppCodeView(source);
+  const codeOnly = codeView.code;
   const invocations = [];
   const starts = [...codeOnly.matchAll(/\bUEMCP_(?:LOG|WARN|ERROR|VERBOSE)\s*\(/g)];
   for (const start of starts) {
+    if (isDirectLogMacroDefinition(codeOnly, start.index)) continue;
     const openIndex = codeOnly.indexOf('(', start.index);
     let depth = 0;
     let endIndex = -1;
@@ -2884,10 +2959,15 @@ function extractBalancedLogInvocations(source) {
         }
       }
     }
+    const complete = endIndex > openIndex;
+    const originalStart = codeView.normalizedToOriginal[start.index];
+    const originalEnd = complete
+      ? codeView.normalizedToOriginal[endIndex - 1] + 1
+      : originalStart;
     invocations.push({
-      complete: endIndex > openIndex,
-      code: endIndex > openIndex ? codeOnly.slice(start.index, endIndex) : '',
-      source: endIndex > openIndex ? source.slice(start.index, endIndex) : '',
+      complete,
+      code: complete ? codeOnly.slice(start.index, endIndex) : '',
+      source: complete ? source.slice(originalStart, originalEnd) : '',
     });
   }
   return invocations;
@@ -2924,6 +3004,40 @@ const pseudoLogInvocations = extractBalancedLogInvocations(`
 `);
 runner.assert(pseudoLogInvocations.length === 0,
   'source guard mutation: comment/literal pseudo-log macros are ignored');
+
+const splicedPayloadLogFixtures = ['\n', '\r\n', '\r'].map((lineEnding) => (
+  `UEMCP_\\${lineEnding}WARN("payload=%s", *SerializedResponse);`
+));
+const splicedPayloadLogInvocations = splicedPayloadLogFixtures.flatMap(
+  extractBalancedLogInvocations,
+);
+runner.assert(splicedPayloadLogInvocations.length === 3
+  && splicedPayloadLogInvocations.every(invocationDirectlyReferencesPayload)
+  && splicedPayloadLogInvocations.every((invocation, index) => (
+    invocation.source === splicedPayloadLogFixtures[index].slice(0, -1)
+  )),
+'source guard mutation: spliced payload logs are discovered and map to original source');
+
+const directLogMacroDefinitionFixtures = [
+  '#define UEMCP_WARN(Format, ...) UE_LOG(LogUEMCP, Warning, Format, ##__VA_ARGS__)',
+  '#define UEMCP_LOG(Format, ...) UE_LOG(LogUEMCP, Log, Format, ##__VA_ARGS__)',
+  ...['\n', '\r\n', '\r'].map((lineEnding) => (
+    `#define UEMCP_\\${lineEnding}VERBOSE(Format, ...) UE_LOG(LogUEMCP, Verbose, Format)`
+  )),
+];
+const directLogMacroDefinitions = directLogMacroDefinitionFixtures.flatMap(
+  extractBalancedLogInvocations,
+);
+runner.assert(directLogMacroDefinitions.length === 0,
+  'source guard mutation: direct logical-line UEMCP log macro definition names are ignored');
+
+const replacementBodyLogInvocations = [
+  '#define FORWARD_PAYLOAD() UEMCP_WARN("payload=%s", *SerializedResponse)',
+  '#define UEMCP_LOG(...) UEMCP_WARN("payload=%s", *SerializedResponse)',
+].flatMap(extractBalancedLogInvocations);
+runner.assert(replacementBodyLogInvocations.length === 2
+  && replacementBodyLogInvocations.every(invocationDirectlyReferencesPayload),
+'source guard mutation: UEMCP log calls in another macro replacement body are inspected');
 
 const directPayloadLogInvocations = [
   '*SerializedResponse',
