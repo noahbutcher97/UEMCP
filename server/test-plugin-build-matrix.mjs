@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -60,6 +61,7 @@ if (scriptSource.length > 0) {
   'matrix helper revalidates and adopts its leased physical output path before staging');
 
   const testRoot = await mkdtemp(join(tmpdir(), 'uemcp-build-matrix-test-'));
+  const testRootAlias = `${testRoot}-alias`;
   try {
     const epicRoot = join(testRoot, 'Epic Games');
     const pluginPath = join(testRoot, 'Plugin Source', 'UEMCP.uplugin');
@@ -144,6 +146,7 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       await writeFile(batchPath, fakeBatch, 'utf8');
       await writeFile(join(dirname(batchPath), 'fake-uat.mjs'), fakeUat, 'utf8');
     }
+    await symlink(testRoot, testRootAlias, 'junction');
 
     const deceptiveTargetArgument = spawnSync(
       process.execPath,
@@ -182,7 +185,7 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       UEMCP_FAKE_WRITE_FILTER: '1',
     };
 
-    const successOutput = join(testRoot, 'success output');
+    const successOutput = join(testRootAlias, 'success output');
     const success = spawnSync('powershell.exe', [...baseArgs, '-OutputRoot', successOutput], {
       encoding: 'utf8',
       env: baseEnv,
@@ -196,16 +199,20 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       'matrix helper invokes requested engines in declared order',
       JSON.stringify(successInvocations));
     const successArguments = await readJsonLinesIfPresent(argumentLog);
+    const physicalSuccessOutput = await realpath(successOutput);
+    const physicalStagedPlugins = await Promise.all(
+      successArguments.map((record) => realpath(record.plugin)),
+    );
     t.assert(successArguments.length === versions.length
-      && successArguments.every((record) => {
-        const stagedRelativePath = relative(successOutput, record.plugin);
+      && physicalStagedPlugins.every((plugin) => {
+        const stagedRelativePath = relative(physicalSuccessOutput, plugin);
         return stagedRelativePath !== ''
           && stagedRelativePath !== '..'
           && !stagedRelativePath.startsWith(`..${sep}`)
           && !isAbsolute(stagedRelativePath);
       }),
     'matrix helper invokes UAT with per-run plugin sources staged under its output root',
-    JSON.stringify(successArguments));
+    JSON.stringify({ physicalSuccessOutput, physicalStagedPlugins, successArguments }));
     t.assert(successArguments[0]?.outputLockHeld === true,
       'matrix helper holds a no-delete-share lease on its output root during UAT');
     let results = [];
@@ -419,6 +426,7 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
     t.assert(await readFile(ownedFilter, 'utf8') === ownedFilterContent,
       'matrix helper preserves a source filter even when it contains Unreal boilerplate markers');
   } finally {
+    await rm(testRootAlias, { recursive: true, force: true });
     await rm(testRoot, { recursive: true, force: true });
   }
 }
