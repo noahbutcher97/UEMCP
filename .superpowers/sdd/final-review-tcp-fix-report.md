@@ -354,3 +354,59 @@ Both exit code `0`; the target was already up to date.
 ```
 
 Exit code: `0`; found `7` tests; `7 passed / 0 failed`.
+
+## Closure: Shared Fixture And Erratum Truthfulness
+
+### Scope
+
+- Files: `plugin/UEMCP/Resources/Tests/tcp-transport-cases.json`, `plugin/UEMCP/Source/UEMCP/Private/Tests/MCPServerTransportPolicyTests.cpp`, `server/test-tcp-transport.mjs`, `docs/superpowers/specs/2026-07-13-tcp-receive-and-intake-hardening-design.md`, `docs/superpowers/plans/2026-07-13-tcp-receive-and-intake-hardening.md`, and this report.
+- Restored shared `json-invalid-object` to the known platform differential `{"x":}`.
+- Preserved `{"x":tru}` as `json-parser-invalid-object` rather than hiding the differential.
+- Added request/response legacy fixtures, all `malformed` / `invalid_json`, for `json-raw-nul-in-string` (exact base64 `eyJ4IjoiYQBiIn0=`), `json-case-variant-literal` (`{"x":True}`), and `json-array-trailing-comma` (`{"x":[1,]}`).
+- Updated the Node exact payload/source contracts and response count to `46`; updated the C++ required-ID set and derived shared-fixture counts to `50` request cases, `245` parity executions, `25` legacy byte proofs, and `270` total native decoder executions.
+- Existing explicit framed tests continue to cover the restored missing-value case, parser-invalid object, all 32 raw and all 32 escaped C0 controls, case-variant literals, and trailing commas. No production parser implementation changed in this closure.
+- Appended a clearly post-approval erratum to the approved hardening specification and plan. It records the UE 5.3/5.6/5.7 permissive forms, the lack of a portable strict parser, the bounded lexical compatibility guard, the one-`FJsonSerializer::Deserialize` invariant, and that the guard is not the retired full grammar parser.
+
+Focused closure commit: `5544d044ecb0a30966e8b9ffa657321e06b1e4ef`
+
+### RED Evidence
+
+Before changing the fixture or approved documents, the new source-contract expectations were added and run:
+
+```powershell
+node server/test-tcp-transport.mjs
+```
+
+Exit code: `1`. The test reported the four missing fixture IDs, stale `json-invalid-object` payload/length, missing post-approval errata, stale response count, and stale legacy scan count. It then stopped at the expected absent-fixture error: `TypeError [ERR_INVALID_ARG_TYPE] ... Received undefined` from the newly fixture-backed framed parser-invalid test.
+
+### GREEN Evidence
+
+```powershell
+node server/test-tcp-transport.mjs
+```
+
+Exit code: `0`; `2237 passed / 0 failed / 2237 total`.
+
+```powershell
+npm test
+```
+
+Exit code: `0`; `60` files, `5166 passed / 0 failed / 5166 total`; `4` documented environment/live-gated skips.
+
+```powershell
+.\sync-plugin.bat "<selected .uproject>" -y
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" <selected editor target> Win64 Development "-project=<selected .uproject>" -WaitMutex
+```
+
+Both exit code `0`; the selected editor target rebuilt the plugin module.
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<selected .uproject>" "-ExecCmds=Automation RunTests UEMCP.Transport.;Quit" -unattended -nop4 -nosplash -NullRHI -NoSound -stdout -FullStdOutLogOutput "-AbsLog=<temporary log>"
+```
+
+Exit code: `0`; found `7` tests and all `7` completed with `Success`. `SharedFixtures` reported `fixture_request_cases=50`, `parity_total=245`, and `total_decoder_executions=270`.
+
+### Closure Concerns
+
+- The selected-target commandlet emitted unrelated invalid-workspace source-control diagnostics while all seven selected tests passed.
+- Mac and Linux compile/runtime verification remains unrun.
