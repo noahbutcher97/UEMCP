@@ -278,11 +278,11 @@ export function assertNoDelayedTcpEvents(segment, probeId) {
   return true;
 }
 
-function scanJsonObjectCandidates(message) {
+function scanJsonCompositeCandidates(message) {
   const candidates = [];
   let candidateStart = -1;
   let contextStart = 0;
-  let depth = 0;
+  const delimiterStack = [];
   let inString = false;
   let escaped = false;
   for (let index = 0; index < message.length; index += 1) {
@@ -295,12 +295,19 @@ function scanJsonObjectCandidates(message) {
     }
     if (char === '"') {
       inString = true;
-    } else if (char === '{') {
-      if (depth === 0) candidateStart = index;
-      depth += 1;
-    } else if (char === '}' && depth > 0) {
-      depth -= 1;
-      if (depth === 0 && candidateStart >= 0) {
+    } else if (char === '{' || char === '[') {
+      if (delimiterStack.length === 0) candidateStart = index;
+      delimiterStack.push(char);
+    } else if ((char === '}' || char === ']') && delimiterStack.length > 0) {
+      const expectedOpening = char === '}' ? '{' : '[';
+      if (delimiterStack.at(-1) !== expectedOpening) {
+        delimiterStack.length = 0;
+        candidateStart = -1;
+        contextStart = index + 1;
+        continue;
+      }
+      delimiterStack.pop();
+      if (delimiterStack.length === 0 && candidateStart >= 0) {
         const source = message.slice(candidateStart, index + 1);
         let value = null;
         try {
@@ -362,7 +369,7 @@ function hasExplicitPayloadContext(prefix) {
 }
 
 function hasRawEnvelopeCandidate(message) {
-  for (const candidate of scanJsonObjectCandidates(message)) {
+  for (const candidate of scanJsonCompositeCandidates(message)) {
     if (!isJsonObject(candidate.value) && !Array.isArray(candidate.value)) continue;
     if (anyJsonObject(candidate.value, isLiveRequestShape)) return true;
     if (anyJsonObject(candidate.value, isCanonicalResponseShape)) return true;

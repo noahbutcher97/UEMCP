@@ -3729,11 +3729,13 @@ runner.assert(liveTcpSmokeSource.includes('UEMCP_SECRET_PAYLOAD_SENTINEL')
   && liveTcpSmokeSource.includes('assertNoPayloadLeak')
   && liveTcpSmokeSource.includes('for (const segment of segments)'),
 'live fault smoke checks every appended segment for sentinel and raw previews');
-runner.assert(liveTcpSmokeSource.includes('function scanJsonObjectCandidates(')
-  && liveTcpSmokeSource.includes('for (const candidate of scanJsonObjectCandidates(message))')
+runner.assert(liveTcpSmokeSource.includes('function scanJsonCompositeCandidates(')
+  && liveTcpSmokeSource.includes('const delimiterStack = [];')
+  && liveTcpSmokeSource.includes('for (const candidate of scanJsonCompositeCandidates(message))')
+  && !liveTcpSmokeSource.includes('function scanJsonObjectCandidates(')
   && !liveTcpSmokeSource.includes('function parseJsonObjectCandidate(')
   && !liveTcpSmokeSource.includes("const start = message.indexOf('{');"),
-'live fault payload classifier scans every balanced JSON object instead of stopping at the first');
+'live fault payload classifier preserves assignment context across balanced JSON composites');
 runner.assert((liveTcpSmokeSource.match(/resetAndDestroy\(\)/g) ?? []).length >= 2,
   'live fault smoke resets the partial request and first AnimGraph response chunk');
 const closePeerSourceStart = liveTcpSmokeSource.indexOf('function closePeer(');
@@ -4289,6 +4291,10 @@ if (liveTcpSmokeModule !== null) {
     type: 'counter',
     note: 'quoted "{not an object}" and escaped \\ path',
   });
+  const escapedCompositeMetrics = JSON.stringify([
+    { type: 'counter', note: 'quoted "] }" and "{ [" with escaped \\ path' },
+    { status: 'healthy', value: 1 },
+  ]);
   try {
     nestedMetricsAcceptance = assertNoPayloadLeak([
       'LogUEMCP: Display: metrics={"status":"ready","queue_depth":0}',
@@ -4297,6 +4303,13 @@ if (liveTcpSmokeModule !== null) {
       'LogUEMCP: Display: health={"status":"error","error_count":2,"message_count":0}',
       'LogUEMCP: Display: metrics={"status":"success","result_count":4}',
       `LogUEMCP: Display: metrics=${escapedBraceMetrics}`,
+      'LogUEMCP: Display: metrics=[{"type":"counter"},{"status":"healthy"}]',
+      'LogUEMCP: Display: metrics={"groups":[[{"type":"counter"}],'
+        + '{"health":{"status":"healthy","value":1}}]}',
+      `LogUEMCP: Display: metrics=${escapedCompositeMetrics}`,
+      'LogUEMCP: Display: metrics=[{"type":"counter"}] '
+        + 'health={"status":"healthy"} counters=[{"type":"counter"}]',
+      'LogUEMCP: Display: raw=[{"kind":"metadata"}] metrics=[{"type":"counter"}]',
     ]);
   } catch (error) {
     nestedMetricsAcceptance = error;
@@ -4436,6 +4449,43 @@ if (liveTcpSmokeModule !== null) {
     runner.assert(rejection instanceof Error
       && /raw|preview|content|payload/i.test(rejection.message),
     `live fault leak helper rejects UEMCP framing or JSON envelope ${index + 1}`);
+  }
+
+  const inheritedPayloadCompositeLeaks = [
+    'LogUEMCP: Warning: raw=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: data=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: request=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: response=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: body=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: payload=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: content=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: preview=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: raw=[[{"kind":"metadata"}],'
+      + '[{"nested":{"type":"counter"}}]]',
+    'LogUEMCP: Warning: data=[{"metadata":{"kind":"diagnostic"}},'
+      + '{"nested":{"status":"healthy","message":"wire body"}}]',
+    'LogUEMCP: Warning: metrics=[{"type":"counter"},{"type":"ping"}]',
+    'LogUEMCP: Warning: metrics=[{"type":"counter"},'
+      + '{"status":"error","error":"bad"}]',
+    `LogUEMCP: Warning: raw=${JSON.stringify([
+      { kind: 'metadata', note: 'quoted "] }" and "{ [" with escaped \\ path' },
+      { type: 'counter' },
+    ])}`,
+    'LogUEMCP: Warning: metrics=[{"type":"counter"},{"status":"healthy"}] '
+      + 'raw=[{"kind":"metadata"},{"type":"counter"}]',
+    'LogUEMCP: Warning: health=[{"status":"healthy"}] '
+      + 'metrics=[{"type":"counter"},{"status":"error","message":"bad"}]',
+  ];
+  for (const [index, leakLine] of inheritedPayloadCompositeLeaks.entries()) {
+    let rejection = null;
+    try {
+      assertNoPayloadLeak?.([leakLine]);
+    } catch (error) {
+      rejection = error;
+    }
+    runner.assert(rejection instanceof Error
+      && /raw|preview|content|payload/i.test(rejection.message),
+    `live fault leak helper preserves inherited composite context ${index + 1}`);
   }
 
   const oversizedProbeBytes = buildOversizedDeclarationProbeBytes?.();
