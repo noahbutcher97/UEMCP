@@ -1479,6 +1479,83 @@ runner.assert(responsePlans(
 }
 
 {
+  for (let control = 0; control <= 0x1f; control++) {
+    let injectedParseCount = 0;
+    const decoder = new TcpResponseDecoder({
+      parseJson(text) {
+        injectedParseCount++;
+        return JSON.parse(text);
+      },
+    });
+    const body = Buffer.concat([
+      Buffer.from('{"x":"before', 'ascii'),
+      Buffer.from([control]),
+      Buffer.from('after"}', 'ascii'),
+    ]);
+    const snapshot = decoder.consume(frameForBody(body));
+    const label = `raw C0 U+${control.toString(16).padStart(4, '0')} in string`;
+    runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
+      && sameJson(decoder.debugStatsForTests(), {
+        legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
+      }), `Node ${label} is invalid JSON and parses once`);
+  }
+
+  for (let control = 0; control <= 0x1f; control++) {
+    let injectedParseCount = 0;
+    const decoder = new TcpResponseDecoder({
+      parseJson(text) {
+        injectedParseCount++;
+        return JSON.parse(text);
+      },
+    });
+    const body = `{"x":"\\u${control.toString(16).padStart(4, '0')}"}`;
+    const snapshot = decoder.consume(frameForBody(body));
+    const label = `escaped C0 U+${control.toString(16).padStart(4, '0')} in string`;
+    runner.assert(snapshot.status === 'complete' && snapshot.value?.x.length === 1
+      && snapshot.value.x.charCodeAt(0) === control && injectedParseCount === 1
+      && sameJson(decoder.debugStatsForTests(), {
+        legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
+      }), `Node ${label} completes and parses once`);
+  }
+
+  const compatibilityGuardCases = [
+    ['missing object value', '{"x":}'],
+    ['capitalized true', '{"x":True}'],
+    ['capitalized false', '{"x":False}'],
+    ['capitalized null', '{"x":Null}'],
+    ['object trailing comma', '{"x":1,}'],
+    ['array trailing comma', '{"x":[1,]}'],
+  ];
+  for (const [label, body] of compatibilityGuardCases) {
+    let injectedParseCount = 0;
+    const decoder = new TcpResponseDecoder({
+      parseJson(text) {
+        injectedParseCount++;
+        return JSON.parse(text);
+      },
+    });
+    const snapshot = decoder.consume(frameForBody(body));
+    runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
+      && sameJson(decoder.debugStatsForTests(), {
+        legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
+      }), `Node compatibility guard ${label} is invalid JSON and parses once`);
+  }
+
+  let injectedParseCount = 0;
+  const decoder = new TcpResponseDecoder({
+    parseJson(text) {
+      injectedParseCount++;
+      return JSON.parse(text);
+    },
+  });
+  const snapshot = decoder.consume(frameForBody('{"x":1E3}'));
+  runner.assert(snapshot.status === 'complete' && snapshot.value?.x === 1000
+    && injectedParseCount === 1 && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
+    }), 'Node uppercase exponent remains valid JSON and parses once');
+}
+
+{
   const secretMarker = 'UEMCP_SECRET_PAYLOAD_SENTINEL';
   let snapshot;
   const consumeError = caughtError(() => {
@@ -2822,9 +2899,18 @@ const scalarWrapperIndex = finalizationSource.indexOf(
 );
 const scalarWrapperReserveIndex = finalizationSource.indexOf('ScalarWrapper.Reserve(JsonText.Len() + 2);');
 const scalarWrapperAppendIndex = finalizationSource.indexOf('ScalarWrapper.Append(JsonText);');
+const compatibilityGuardDefinitionIndex = nativePolicySource.indexOf(
+  'bool HasNodeJsonCompatibilityViolation(',
+);
+const compatibilityGuardUseIndex = finalizationSource.indexOf(
+  'const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset);',
+);
 const parserStreamIndex = finalizationSource.indexOf('FMemoryReader JsonStream(JsonTextBytes);');
 const deserializeIndex = finalizationSource.indexOf('FJsonSerializer::Deserialize');
 const parserStreamEndIndex = finalizationSource.indexOf('JsonStream.AtEnd()', deserializeIndex);
+const invalidJsonClassificationIndex = finalizationSource.indexOf(
+  'if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot || bHasNodeJsonCompatibilityViolation)',
+);
 const scalarClassificationIndex = finalizationSource.indexOf('if (bScalarCandidate)', deserializeIndex);
 const retiredStrictJsonSymbols = [
   'ValidateStrictJsonDocument',
@@ -2848,13 +2934,17 @@ runner.assert(finalizationStart >= 0
   && scalarWrapperIndex > scalarCandidateIndex
   && scalarWrapperReserveIndex > scalarWrapperIndex
   && scalarWrapperAppendIndex > scalarWrapperReserveIndex
+  && compatibilityGuardDefinitionIndex >= 0
+  && compatibilityGuardUseIndex > scalarCandidateIndex
+  && compatibilityGuardUseIndex < scalarWrapperIndex
   && parserStreamIndex > scalarWrapperAppendIndex
   && deserializeIndex > parserStreamIndex
   && parserStreamEndIndex > deserializeIndex
+  && invalidJsonClassificationIndex > deserializeIndex
   && scalarClassificationIndex > deserializeIndex
   && !finalizationSource.includes('FString::Printf(TEXT("[%s]"), *JsonText)')
   && retiredStrictJsonSymbols.every((symbol) => !nativePolicySource.includes(symbol)),
-'source guard: finalization has one authoritative Unreal parse with length-aware scalar wrapper classification');
+'source guard: finalization has one authoritative Unreal parse with a bounded Node compatibility guard');
 
 const retiredRunnableSymbols = [
   'TryParseAccumulated',

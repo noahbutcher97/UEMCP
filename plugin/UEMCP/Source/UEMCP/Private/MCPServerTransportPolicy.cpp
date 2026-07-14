@@ -388,6 +388,60 @@ FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
 	return {};
 }
 
+bool HasNodeJsonCompatibilityViolation(const TArray<uint8>& Body, int32 StartOffset)
+{
+	// Unreal's JSON reader deliberately accepts a few extensions. This byte-level
+	// compatibility guard covers only the known Node JSON.parse differences; it
+	// never validates ordinary JSON syntax or builds a second parsed representation.
+	bool bInString = false;
+	bool bEscaped = false;
+	uint8 PreviousSignificant = 0;
+	for (int32 Index = StartOffset; Index < Body.Num(); ++Index)
+	{
+		const uint8 Byte = Body[Index];
+		if (bInString)
+		{
+			if (bEscaped)
+			{
+				bEscaped = false;
+			}
+			else if (Byte == '\\')
+			{
+				bEscaped = true;
+			}
+			else if (Byte == '"')
+			{
+				bInString = false;
+				PreviousSignificant = Byte;
+			}
+			else if (Byte <= 0x1f)
+			{
+				return true;
+			}
+			continue;
+		}
+
+		if (Byte == '"')
+		{
+			bInString = true;
+			continue;
+		}
+		if (IsJsonWhitespace(Byte))
+		{
+			continue;
+		}
+		if (((Byte >= 'A' && Byte <= 'Z')
+			&& !(Byte == 'E' && PreviousSignificant >= '0' && PreviousSignificant <= '9'))
+			|| (Byte == '}' && PreviousSignificant == ':')
+			|| ((Byte == '}' || Byte == ']') && PreviousSignificant == ','))
+		{
+			return true;
+		}
+		PreviousSignificant = Byte;
+	}
+	return false;
+}
+
 bool HasNonFiniteJsonNumber(const TSharedPtr<FJsonValue>& RootValue)
 {
 	if (!RootValue.IsValid())
@@ -1094,6 +1148,7 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(*BoundaryError);
 			return;
 		}
+		const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset);
 
 		FString JsonText;
 		const int32 JsonBytes = Body.Num() - BodyOffset;
@@ -1123,7 +1178,7 @@ struct FMCPRequestDecoder::FImpl
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(&JsonStream);
 		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid() && JsonStream.AtEnd();
 		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
-		if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot)
+		if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot || bHasNodeJsonCompatibilityViolation)
 		{
 			SetMalformed(TEXT("invalid_json"));
 			return;

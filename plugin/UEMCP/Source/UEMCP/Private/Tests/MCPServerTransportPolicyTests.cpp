@@ -1670,6 +1670,92 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 			Decoder.GetJsonParseCountForTests(), 1);
 	}
 
+	for (const bool bFramed : {false, true})
+	{
+		for (int32 Control = 0; Control <= 0x1f; ++Control)
+		{
+			TArray<uint8> Body = MakeAsciiBytes(TEXT("{\"x\":\"before"));
+			Body.Add(static_cast<uint8>(Control));
+			Body.Append(MakeAsciiBytes(TEXT("after\"}")));
+			TArray<uint8> Request;
+			if (bFramed)
+			{
+				Request = MakeFramingHeader(Body.Num());
+			}
+			Request.Append(Body);
+
+			FMCPRequestDecoder Decoder;
+			const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+			const FString Label = FString::Printf(TEXT("%s raw C0 U+%04X in string"),
+				bFramed ? TEXT("framed") : TEXT("legacy"), Control);
+			TestTrue(*FString::Printf(TEXT("%s is rejected as invalid_json"), *Label),
+				Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("invalid_json"));
+			TestEqual(*FString::Printf(TEXT("%s parses exactly once"), *Label),
+				Decoder.GetJsonParseCountForTests(), 1);
+		}
+
+		for (int32 Control = 0; Control <= 0x1f; ++Control)
+		{
+			const FString JsonText = FString::Printf(TEXT("{\"x\":\"\\u%04X\"}"), Control);
+			const TArray<uint8> Body = MakeAsciiBytes(JsonText);
+			TArray<uint8> Request;
+			if (bFramed)
+			{
+				Request = MakeFramingHeader(Body.Num());
+			}
+			Request.Append(Body);
+
+			FMCPRequestDecoder Decoder;
+			const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+			const FString Label = FString::Printf(TEXT("%s escaped C0 U+%04X in string"),
+				bFramed ? TEXT("framed") : TEXT("legacy"), Control);
+			TestTrue(*FString::Printf(TEXT("%s completes"), *Label),
+				Snapshot.Status == EMCPDecodeStatus::Complete && Snapshot.Object.IsValid());
+			TestEqual(*FString::Printf(TEXT("%s parses exactly once"), *Label),
+				Decoder.GetJsonParseCountForTests(), 1);
+			if (Snapshot.Object.IsValid())
+			{
+				const FString Value = Snapshot.Object->GetStringField(TEXT("x"));
+				TestTrue(*FString::Printf(TEXT("%s materializes one code unit"), *Label), Value.Len() == 1);
+				if (Value.Len() == 1)
+				{
+					TestEqual(*FString::Printf(TEXT("%s materializes its escaped code unit"), *Label),
+						static_cast<uint16>(Value[0]), static_cast<uint16>(Control));
+				}
+			}
+		}
+	}
+
+	for (const TPair<const TCHAR*, const TCHAR*>& CompatibilityGuardCase : {
+		TPair<const TCHAR*, const TCHAR*>(TEXT("missing object value"), TEXT("{\"x\":}")),
+		TPair<const TCHAR*, const TCHAR*>(TEXT("capitalized true"), TEXT("{\"x\":True}")),
+		TPair<const TCHAR*, const TCHAR*>(TEXT("capitalized false"), TEXT("{\"x\":False}")),
+		TPair<const TCHAR*, const TCHAR*>(TEXT("capitalized null"), TEXT("{\"x\":Null}")),
+		TPair<const TCHAR*, const TCHAR*>(TEXT("object trailing comma"), TEXT("{\"x\":1,}")),
+		TPair<const TCHAR*, const TCHAR*>(TEXT("array trailing comma"), TEXT("{\"x\":[1,]}"))})
+	{
+		const TArray<uint8> Body = MakeAsciiBytes(CompatibilityGuardCase.Value);
+		TArray<uint8> Request = MakeFramingHeader(Body.Num());
+		Request.Append(Body);
+		FMCPRequestDecoder Decoder;
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+		TestTrue(*FString::Printf(TEXT("compatibility guard %s is rejected as invalid_json"), CompatibilityGuardCase.Key),
+			Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("invalid_json"));
+		TestEqual(*FString::Printf(TEXT("compatibility guard %s parses exactly once"), CompatibilityGuardCase.Key),
+			Decoder.GetJsonParseCountForTests(), 1);
+	}
+
+	{
+		const TArray<uint8> Body = MakeAsciiBytes(TEXT("{\"x\":1E3}"));
+		TArray<uint8> Request = MakeFramingHeader(Body.Num());
+		Request.Append(Body);
+		FMCPRequestDecoder Decoder;
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+		TestTrue(TEXT("uppercase exponent remains valid JSON"),
+			Snapshot.Status == EMCPDecodeStatus::Complete && Snapshot.Object.IsValid());
+		TestEqual(TEXT("uppercase exponent parses exactly once"), Decoder.GetJsonParseCountForTests(), 1);
+	}
+
 	{
 		FMCPRequestDecoder Decoder;
 		TArray<uint8> Request = MakeAsciiBytes(TEXT("Content-Length: 9223372036854775808\r\n\r\n"));
