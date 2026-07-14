@@ -4807,7 +4807,9 @@ if (liveTcpSmokeModule !== null) {
 
     const orderedEvents = [];
     const orderedSocket = createOrderedResetSocket(orderedEvents);
-    const orderedObservation = await resetPeerAfterFinalRequestByte(
+    let releaseOrderedFinalTurn;
+    const orderedFinalTurn = new Promise((resolve) => { releaseOrderedFinalTurn = resolve; });
+    const orderedObservationPromise = resetPeerAfterFinalRequestByte(
       55558,
       resetBarrierRequest,
       {
@@ -4817,9 +4819,20 @@ if (liveTcpSmokeModule !== null) {
           queueMicrotask(() => orderedSocket.emit('connect'));
           return orderedSocket;
         },
-        wait: async (delayMs) => { orderedEvents.push(`wait:${delayMs}`); },
+        wait: (delayMs) => {
+          orderedEvents.push(`wait:${delayMs}`);
+          return delayMs === 0 ? orderedFinalTurn : Promise.resolve();
+        },
       },
     );
+    await new Promise((resolve) => setImmediate(resolve));
+    runner.assert(orderedEvents.at(-1) === 'wait:0'
+      && orderedSocket.writes.length === 2
+      && orderedSocket.resetCount === 0
+      && orderedSocket.destroyCount === 0,
+    'AnimGraph reset helper holds the reset until the final timer turn settles');
+    releaseOrderedFinalTurn();
+    const orderedObservation = await orderedObservationPromise;
     const expectedOrderedEvents = [
       'connect:127.0.0.1:55558',
       'no-delay:true',
@@ -4871,6 +4884,43 @@ if (liveTcpSmokeModule !== null) {
       && earlyDataSocket.writes.length === 1
       && earlyDataSocket.writes[0].equals(resetBarrier.prefix),
     'AnimGraph reset helper settles once and cannot continue after pre-reset response data');
+
+    const finalTurnDataEvents = [];
+    const finalTurnDataSocket = createOrderedResetSocket(finalTurnDataEvents);
+    let releaseFinalTurnData;
+    const finalTurnDataWait = new Promise((resolve) => { releaseFinalTurnData = resolve; });
+    const finalTurnDataPromise = resetPeerAfterFinalRequestByte(
+      55558,
+      resetBarrierRequest,
+      {
+        timeoutMs: 1000,
+        connect: () => {
+          queueMicrotask(() => finalTurnDataSocket.emit('connect'));
+          return finalTurnDataSocket;
+        },
+        wait: (delayMs) => (delayMs === 0 ? finalTurnDataWait : Promise.resolve()),
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    runner.assert(finalTurnDataSocket.writes.length === 2
+      && Buffer.concat(finalTurnDataSocket.writes).equals(resetBarrierRequest)
+      && finalTurnDataSocket.resetCount === 0,
+    'AnimGraph reset helper exposes the post-final-byte window before reset');
+    finalTurnDataSocket.emit('data', Buffer.alloc(4));
+    await runner.assertRejects(
+      () => finalTurnDataPromise,
+      /response began before reset barrier completed.*4 bytes/i,
+      'AnimGraph reset helper rejects response data during the final timer turn',
+    );
+    releaseFinalTurnData();
+    await new Promise((resolve) => setImmediate(resolve));
+    finalTurnDataSocket.emit('end');
+    finalTurnDataSocket.emit('close');
+    finalTurnDataSocket.emit('error', new Error('late final-turn socket error'));
+    runner.assert(finalTurnDataSocket.destroyCount === 1
+      && finalTurnDataSocket.resetCount === 0
+      && finalTurnDataSocket.writes.length === 2,
+    'AnimGraph reset helper settles once after final-turn response data');
 
     const timeoutEvents = [];
     const timeoutSocket = createOrderedResetSocket(timeoutEvents);
