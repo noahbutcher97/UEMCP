@@ -258,7 +258,6 @@ bool HasOnlyAllowedTargets(const TArray<TSharedPtr<FJsonValue>>& Targets, bool& 
 		return false;
 	}
 
-	TSet<FString> SeenTargets;
 	for (const TSharedPtr<FJsonValue>& TargetValue : Targets)
 	{
 		if (!TargetValue.IsValid() || TargetValue->Type != EJson::String)
@@ -266,15 +265,34 @@ bool HasOnlyAllowedTargets(const TArray<TSharedPtr<FJsonValue>>& Targets, bool& 
 			return false;
 		}
 		const FString Target = TargetValue->AsString();
-		if ((Target != TEXT("request") && Target != TEXT("response")) || SeenTargets.Contains(Target))
+		if (Target != TEXT("request") && Target != TEXT("response"))
 		{
 			return false;
 		}
-		SeenTargets.Add(Target);
 		bTargetsRequest |= Target == TEXT("request");
 	}
 	return true;
 }
+
+enum class EFixtureSchemaError : uint8
+{
+	None,
+	Id,
+	Targets,
+	EncodingPresence,
+	EncodingType,
+	EncodedBytes,
+	AllSplitPoints,
+	PolicyType,
+	PolicyShape,
+	PolicyValue,
+	ChunkPlans,
+	ExpectedShape,
+	StatusOrFraming,
+	DeclaredBodyLength,
+	ReasonCode,
+	ExpectedJson
+};
 
 bool TryValidateFixtureRoot(const TSharedPtr<FJsonObject>& Root, FString& OutError)
 {
@@ -308,59 +326,68 @@ bool TryParseFixtureCase(
 	const TSharedPtr<FJsonObject>& CaseObject,
 	FTransportFixtureCase& OutCase,
 	bool& bOutTargetsRequest,
-	FString& OutError)
+	FString& OutError,
+	EFixtureSchemaError* OutErrorCode = nullptr)
 {
-	auto Fail = [&OutError](FString Error)
+	if (OutErrorCode != nullptr)
 	{
+		*OutErrorCode = EFixtureSchemaError::None;
+	}
+	auto Fail = [&OutError, OutErrorCode](EFixtureSchemaError ErrorCode, FString Error)
+	{
+		if (OutErrorCode != nullptr)
+		{
+			*OutErrorCode = ErrorCode;
+		}
 		OutError = MoveTemp(Error);
 		return false;
 	};
 
 	if (!CaseObject.IsValid() || !CaseObject->HasTypedField<EJson::String>(TEXT("id")))
 	{
-		return Fail(TEXT("TCP transport fixture case is missing a string id"));
+		return Fail(EFixtureSchemaError::Id, TEXT("TCP transport fixture case is missing a string id"));
 	}
 
 	FTransportFixtureCase Parsed;
 	Parsed.Id = CaseObject->GetStringField(TEXT("id"));
 	if (Parsed.Id.IsEmpty())
 	{
-		return Fail(TEXT("TCP transport fixture id is empty"));
+		return Fail(EFixtureSchemaError::Id, TEXT("TCP transport fixture id is empty"));
 	}
 
 	if (!CaseObject->HasTypedField<EJson::Array>(TEXT("targets")))
 	{
-		return Fail(FString::Printf(TEXT("%s: targets must be an array"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::Targets, FString::Printf(TEXT("%s: targets must be an array"), *Parsed.Id));
 	}
 	if (!HasOnlyAllowedTargets(CaseObject->GetArrayField(TEXT("targets")), bOutTargetsRequest))
 	{
-		return Fail(FString::Printf(TEXT("%s: targets must be unique request/response strings"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::Targets, FString::Printf(TEXT("%s: targets must be nonempty request/response strings"), *Parsed.Id));
 	}
 
 	const bool bHasAscii = CaseObject->HasField(TEXT("data_ascii"));
 	const bool bHasBase64 = CaseObject->HasField(TEXT("data_base64"));
 	if (bHasAscii == bHasBase64)
 	{
-		return Fail(FString::Printf(TEXT("%s: exactly one data encoding is required"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::EncodingPresence, FString::Printf(TEXT("%s: exactly one data encoding is required"), *Parsed.Id));
 	}
 	if ((bHasAscii && !CaseObject->HasTypedField<EJson::String>(TEXT("data_ascii")))
 		|| (bHasBase64 && !CaseObject->HasTypedField<EJson::String>(TEXT("data_base64"))))
 	{
-		return Fail(FString::Printf(TEXT("%s: the present data encoding must be a string"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::EncodingType, FString::Printf(TEXT("%s: the present data encoding must be a string"), *Parsed.Id));
 	}
 	const bool bDecoded = bHasAscii
 		? DecodeAscii(CaseObject->GetStringField(TEXT("data_ascii")), Parsed.Data)
 		: DecodeCanonicalBase64(CaseObject->GetStringField(TEXT("data_base64")), Parsed.Data);
 	if (!bDecoded || Parsed.Data.IsEmpty())
 	{
-		return Fail(FString::Printf(TEXT("%s: encoded bytes are invalid or empty"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::EncodedBytes, FString::Printf(TEXT("%s: encoded bytes are invalid or empty"), *Parsed.Id));
 	}
 
 	if (CaseObject->HasField(TEXT("all_split_points")))
 	{
 		if (!CaseObject->HasTypedField<EJson::Boolean>(TEXT("all_split_points")))
 		{
-			return Fail(FString::Printf(TEXT("%s: all_split_points must be boolean"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::AllSplitPoints, FString::Printf(TEXT("%s: all_split_points must be boolean"), *Parsed.Id));
 		}
 		Parsed.bAllSplitPoints = CaseObject->GetBoolField(TEXT("all_split_points"));
 	}
@@ -369,22 +396,22 @@ bool TryParseFixtureCase(
 	{
 		if (!CaseObject->HasTypedField<EJson::Object>(TEXT("policy")))
 		{
-			return Fail(FString::Printf(TEXT("%s: policy must be an object"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::PolicyType, FString::Printf(TEXT("%s: policy must be an object"), *Parsed.Id));
 		}
 		const TSharedPtr<FJsonObject> Policy = CaseObject->GetObjectField(TEXT("policy"));
 		if (Policy->Values.IsEmpty())
 		{
-			return Fail(FString::Printf(TEXT("%s: policy must contain at least one supported limit"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::PolicyShape, FString::Printf(TEXT("%s: policy must contain at least one supported limit"), *Parsed.Id));
 		}
 		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Policy->Values)
 		{
 			if (Pair.Key != TEXT("max_header_bytes") && Pair.Key != TEXT("max_body_bytes"))
 			{
-				return Fail(FString::Printf(TEXT("%s: policy contains unsupported key %s"), *Parsed.Id, *Pair.Key));
+				return Fail(EFixtureSchemaError::PolicyShape, FString::Printf(TEXT("%s: policy contains unsupported key %s"), *Parsed.Id, *Pair.Key));
 			}
 			if (!Pair.Value.IsValid() || Pair.Value->Type != EJson::Number)
 			{
-				return Fail(FString::Printf(TEXT("%s: policy limit %s must be numeric"), *Parsed.Id, *Pair.Key));
+				return Fail(EFixtureSchemaError::PolicyValue, FString::Printf(TEXT("%s: policy limit %s must be numeric"), *Parsed.Id, *Pair.Key));
 			}
 
 			const double Value = Pair.Value->AsNumber();
@@ -392,7 +419,7 @@ bool TryParseFixtureCase(
 			{
 				if (!IsWholePositiveInt32(Value))
 				{
-					return Fail(FString::Printf(TEXT("%s: max_header_bytes must be a positive JS-safe int32"), *Parsed.Id));
+					return Fail(EFixtureSchemaError::PolicyValue, FString::Printf(TEXT("%s: max_header_bytes must be a positive JS-safe int32"), *Parsed.Id));
 				}
 				Parsed.Policy.MaxHeader = static_cast<int32>(Value);
 			}
@@ -400,7 +427,7 @@ bool TryParseFixtureCase(
 			{
 				if (!IsWholePositiveInt64(Value))
 				{
-					return Fail(FString::Printf(TEXT("%s: max_body_bytes must be a positive JS-safe int64"), *Parsed.Id));
+					return Fail(EFixtureSchemaError::PolicyValue, FString::Printf(TEXT("%s: max_body_bytes must be a positive JS-safe int64"), *Parsed.Id));
 				}
 				Parsed.Policy.MaxBody = static_cast<int64>(Value);
 			}
@@ -409,7 +436,7 @@ bool TryParseFixtureCase(
 
 	if (!CaseObject->HasTypedField<EJson::Array>(TEXT("chunk_plans")))
 	{
-		return Fail(FString::Printf(TEXT("%s: chunk_plans must be an array"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ChunkPlans, FString::Printf(TEXT("%s: chunk_plans must be an array"), *Parsed.Id));
 	}
 	bool bChunkPlansValid = !CaseObject->GetArrayField(TEXT("chunk_plans")).IsEmpty();
 	for (const TSharedPtr<FJsonValue>& PlanValue : CaseObject->GetArrayField(TEXT("chunk_plans")))
@@ -447,12 +474,12 @@ bool TryParseFixtureCase(
 	}
 	if (!bChunkPlansValid)
 	{
-		return Fail(FString::Printf(TEXT("%s: every chunk plan must contain positive integers totaling the input"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ChunkPlans, FString::Printf(TEXT("%s: every chunk plan must contain positive integers totaling the input"), *Parsed.Id));
 	}
 
 	if (!CaseObject->HasTypedField<EJson::Object>(TEXT("expected")))
 	{
-		return Fail(FString::Printf(TEXT("%s: expected must be an object"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ExpectedShape, FString::Printf(TEXT("%s: expected must be an object"), *Parsed.Id));
 	}
 	const TSharedPtr<FJsonObject> Expected = CaseObject->GetObjectField(TEXT("expected"));
 	FString StatusText;
@@ -462,19 +489,19 @@ bool TryParseFixtureCase(
 		|| !Expected->TryGetStringField(TEXT("framing"), FramingText)
 		|| !TryParseFraming(FramingText, Parsed.ExpectedFraming))
 	{
-		return Fail(FString::Printf(TEXT("%s: expected status/framing is invalid"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::StatusOrFraming, FString::Printf(TEXT("%s: expected status/framing is invalid"), *Parsed.Id));
 	}
 
 	if (Expected->HasField(TEXT("declared_body_length")))
 	{
 		if (!Expected->HasTypedField<EJson::Number>(TEXT("declared_body_length")))
 		{
-			return Fail(FString::Printf(TEXT("%s: declared_body_length must be numeric"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::DeclaredBodyLength, FString::Printf(TEXT("%s: declared_body_length must be numeric"), *Parsed.Id));
 		}
 		const double Value = Expected->GetNumberField(TEXT("declared_body_length"));
 		if (!IsWholeNonNegativeInt64(Value))
 		{
-			return Fail(FString::Printf(TEXT("%s: declared_body_length must be a non-negative JS-safe integer"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::DeclaredBodyLength, FString::Printf(TEXT("%s: declared_body_length must be a non-negative JS-safe integer"), *Parsed.Id));
 		}
 		Parsed.ExpectedDeclaredBodyLength = static_cast<int64>(Value);
 	}
@@ -490,7 +517,7 @@ bool TryParseFixtureCase(
 	const bool bHasReason = Expected->HasField(TEXT("reason_code"));
 	if (bHasReason && !Expected->HasTypedField<EJson::String>(TEXT("reason_code")))
 	{
-		return Fail(FString::Printf(TEXT("%s: reason_code must be a string when present"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ReasonCode, FString::Printf(TEXT("%s: reason_code must be a string when present"), *Parsed.Id));
 	}
 	if (bHasReason)
 	{
@@ -498,20 +525,20 @@ bool TryParseFixtureCase(
 	}
 	if (bRequiresReason != bHasReason || (bHasReason && !AllowedReasons.Contains(Parsed.ExpectedReason)))
 	{
-		return Fail(FString::Printf(TEXT("%s: terminal reason_code does not match the fixture schema"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ReasonCode, FString::Printf(TEXT("%s: terminal reason_code does not match the fixture schema"), *Parsed.Id));
 	}
 
 	if (Parsed.ExpectedStatus == EMCPDecodeStatus::Complete)
 	{
 		if (!Expected->HasTypedField<EJson::Object>(TEXT("json")))
 		{
-			return Fail(FString::Printf(TEXT("%s: complete cases require an object json field"), *Parsed.Id));
+			return Fail(EFixtureSchemaError::ExpectedJson, FString::Printf(TEXT("%s: complete cases require an object json field"), *Parsed.Id));
 		}
 		Parsed.ExpectedObject = Expected->GetObjectField(TEXT("json"));
 	}
 	else if (Expected->HasField(TEXT("json")))
 	{
-		return Fail(FString::Printf(TEXT("%s: non-complete cases must omit json"), *Parsed.Id));
+		return Fail(EFixtureSchemaError::ExpectedJson, FString::Printf(TEXT("%s: non-complete cases must omit json"), *Parsed.Id));
 	}
 
 	OutCase = MoveTemp(Parsed);
@@ -839,13 +866,21 @@ TArray<uint8> MakePaddingBody(int32 TotalBytes)
 	return Body;
 }
 
-void SetSingleChunkPlan(FJsonObject& CaseObject, double ChunkLength)
+void SetChunkPlan(FJsonObject& CaseObject, const TArray<double>& ChunkLengths)
 {
 	TArray<TSharedPtr<FJsonValue>> Plan;
-	Plan.Add(MakeShared<FJsonValueNumber>(ChunkLength));
+	for (const double ChunkLength : ChunkLengths)
+	{
+		Plan.Add(MakeShared<FJsonValueNumber>(ChunkLength));
+	}
 	TArray<TSharedPtr<FJsonValue>> Plans;
 	Plans.Add(MakeShared<FJsonValueArray>(MoveTemp(Plan)));
 	CaseObject.SetArrayField(TEXT("chunk_plans"), MoveTemp(Plans));
+}
+
+void SetSingleChunkPlan(FJsonObject& CaseObject, double ChunkLength)
+{
+	SetChunkPlan(CaseObject, {ChunkLength});
 }
 
 TSharedPtr<FJsonObject> MakeValidFixtureSchemaCase()
@@ -867,31 +902,42 @@ TSharedPtr<FJsonObject> MakeValidFixtureSchemaCase()
 void AssertFixtureCaseRejected(
 	FAutomationTestBase& Test,
 	const TCHAR* Name,
+	EFixtureSchemaError ExpectedErrorCode,
+	int32& RejectionCount,
 	TFunctionRef<void(FJsonObject&)> Mutate)
 {
+	++RejectionCount;
 	TSharedPtr<FJsonObject> CaseObject = MakeValidFixtureSchemaCase();
 	Mutate(*CaseObject);
 	FTransportFixtureCase Parsed;
 	bool bTargetsRequest = false;
 	FString Error;
-	const bool bAccepted = TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error);
+	EFixtureSchemaError ErrorCode = EFixtureSchemaError::None;
+	const bool bAccepted = TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error, &ErrorCode);
 	Test.TestFalse(Name, bAccepted);
 	Test.TestFalse(*FString::Printf(TEXT("%s reports a schema error"), Name), Error.IsEmpty());
+	Test.TestTrue(*FString::Printf(TEXT("%s reports the intended schema error category"), Name),
+		ErrorCode == ExpectedErrorCode);
 }
 
 void AssertFixtureCaseAccepted(
 	FAutomationTestBase& Test,
 	const TCHAR* Name,
+	int32& AcceptanceCount,
 	TFunctionRef<void(FJsonObject&)> Mutate)
 {
+	++AcceptanceCount;
 	TSharedPtr<FJsonObject> CaseObject = MakeValidFixtureSchemaCase();
 	Mutate(*CaseObject);
 	FTransportFixtureCase Parsed;
 	bool bTargetsRequest = false;
 	FString Error;
-	Test.TestTrue(Name, TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error));
+	EFixtureSchemaError ErrorCode = EFixtureSchemaError::None;
+	Test.TestTrue(Name, TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error, &ErrorCode));
 	Test.TestTrue(*FString::Printf(TEXT("%s targets requests"), Name), bTargetsRequest);
 	Test.TestTrue(*FString::Printf(TEXT("%s has no schema error"), Name), Error.IsEmpty());
+	Test.TestTrue(*FString::Printf(TEXT("%s has no schema error category"), Name),
+		ErrorCode == EFixtureSchemaError::None);
 }
 
 TArray<uint8> MakeDeepNestedJsonBody(int32 Depth)
@@ -1009,133 +1055,157 @@ bool FUEMCPTransportFixtureSchemaTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Transport::Tests;
 
-	AssertFixtureCaseAccepted(*this, TEXT("baseline fixture schema case is accepted"), [](FJsonObject&) {});
-	AssertFixtureCaseAccepted(*this, TEXT("canonical base64 encoding is accepted"), [](FJsonObject& CaseObject)
+	int32 AcceptanceCount = 0;
+	int32 RejectionCount = 0;
+	int32 RootRejectionCount = 0;
+	auto Accept = [this, &AcceptanceCount](
+		const TCHAR* Name,
+		TFunctionRef<void(FJsonObject&)> Mutate)
+	{
+		AssertFixtureCaseAccepted(*this, Name, AcceptanceCount, Mutate);
+	};
+	auto Reject = [this, &RejectionCount](
+		const TCHAR* Name,
+		EFixtureSchemaError ExpectedErrorCode,
+		TFunctionRef<void(FJsonObject&)> Mutate)
+	{
+		AssertFixtureCaseRejected(*this, Name, ExpectedErrorCode, RejectionCount, Mutate);
+	};
+
+	Accept(TEXT("baseline fixture schema case is accepted"), [](FJsonObject&) {});
+	Accept(TEXT("duplicate request targets are accepted"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetArrayField(TEXT("targets"), {
+			MakeShared<FJsonValueString>(TEXT("request")),
+			MakeShared<FJsonValueString>(TEXT("request"))
+		});
+	});
+	Accept(TEXT("canonical base64 encoding is accepted"), [](FJsonObject& CaseObject)
 	{
 		CaseObject.RemoveField(TEXT("data_ascii"));
 		CaseObject.SetStringField(TEXT("data_base64"), TEXT("e30="));
 	});
-	AssertFixtureCaseAccepted(*this, TEXT("JS-safe max body above int32 is accepted"), [](FJsonObject& CaseObject)
+	Accept(TEXT("JS-safe max body above int32 is accepted"), [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_body_bytes"), 4294967296.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
 
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed second encoding is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed second encoding is rejected"), EFixtureSchemaError::EncodingPresence, [](FJsonObject& CaseObject)
 	{
 		CaseObject.SetNumberField(TEXT("data_base64"), 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed sole encoding is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed sole encoding is rejected"), EFixtureSchemaError::EncodingType, [](FJsonObject& CaseObject)
 	{
 		CaseObject.SetNumberField(TEXT("data_ascii"), 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("malformed base64 padding is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("malformed base64 padding is rejected"), EFixtureSchemaError::EncodedBytes, [](FJsonObject& CaseObject)
 	{
 		CaseObject.RemoveField(TEXT("data_ascii"));
 		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZA==="));
 		SetSingleChunkPlan(CaseObject, 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("base64 whitespace is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("base64 whitespace is rejected"), EFixtureSchemaError::EncodedBytes, [](FJsonObject& CaseObject)
 	{
 		CaseObject.RemoveField(TEXT("data_ascii"));
 		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZA== "));
 		SetSingleChunkPlan(CaseObject, 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("noncanonical base64 pad bits are rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("noncanonical base64 pad bits are rejected"), EFixtureSchemaError::EncodedBytes, [](FJsonObject& CaseObject)
 	{
 		CaseObject.RemoveField(TEXT("data_ascii"));
 		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZE=="));
 		SetSingleChunkPlan(CaseObject, 1.0);
 	});
 
-	AssertFixtureCaseRejected(*this, TEXT("empty policy is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("empty policy is rejected"), EFixtureSchemaError::PolicyShape, [](FJsonObject& CaseObject)
 	{
 		CaseObject.SetObjectField(TEXT("policy"), MakeShared<FJsonObject>());
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed policy object is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed policy object is rejected"), EFixtureSchemaError::PolicyType, [](FJsonObject& CaseObject)
 	{
 		CaseObject.SetStringField(TEXT("policy"), TEXT("default"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("unknown-only policy is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("unknown-only policy is rejected"), EFixtureSchemaError::PolicyShape, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("unknown_limit"), 1.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("mixed unknown policy is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("mixed unknown policy is rejected"), EFixtureSchemaError::PolicyShape, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_header_bytes"), 512.0);
 		Policy->SetNumberField(TEXT("unknown_limit"), 1.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed policy field is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed policy field is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetStringField(TEXT("max_header_bytes"), TEXT("512"));
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("zero policy field is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("zero policy field is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_body_bytes"), 0.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("fractional policy field is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("fractional policy field is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_header_bytes"), 1.5);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("unsafe policy field is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("unsafe policy field is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_body_bytes"), 9007199254740992.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("header policy outside int32 is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("header policy outside int32 is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_header_bytes"), 2147483648.0);
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("non-finite policy field is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("non-finite policy field is rejected"), EFixtureSchemaError::PolicyValue, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
 		Policy->SetNumberField(TEXT("max_body_bytes"), std::numeric_limits<double>::infinity());
 		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
 	});
 
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed reason on complete is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed reason on complete is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("reason_code"), 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("string reason on complete is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("string reason on complete is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("reason_code"), TEXT("invalid_json"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed reason on pending is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed reason on pending is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
 		Expected->SetStringField(TEXT("status"), TEXT("pending"));
 		Expected->RemoveField(TEXT("json"));
 		Expected->SetNumberField(TEXT("reason_code"), 1.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("string reason on pending is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("string reason on pending is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
 		Expected->SetStringField(TEXT("status"), TEXT("pending"));
 		Expected->RemoveField(TEXT("json"));
 		Expected->SetStringField(TEXT("reason_code"), TEXT("invalid_json"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("terminal status without reason is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("terminal status without reason is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
 		Expected->SetStringField(TEXT("status"), TEXT("malformed"));
 		Expected->RemoveField(TEXT("json"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed terminal reason is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed terminal reason is rejected"), EFixtureSchemaError::ReasonCode, [](FJsonObject& CaseObject)
 	{
 		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
 		Expected->SetStringField(TEXT("status"), TEXT("malformed"));
@@ -1143,41 +1213,42 @@ bool FUEMCPTransportFixtureSchemaTest::RunTest(const FString& Parameters)
 		Expected->SetNumberField(TEXT("reason_code"), 1.0);
 	});
 
-	AssertFixtureCaseRejected(*this, TEXT("fractional chunk length is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("fractional chunk length is rejected"), EFixtureSchemaError::ChunkPlans, [](FJsonObject& CaseObject)
 	{
-		SetSingleChunkPlan(CaseObject, 1.5);
+		SetChunkPlan(CaseObject, {1.5, 1.0});
 	});
-	AssertFixtureCaseRejected(*this, TEXT("unsafe chunk length is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("unsafe chunk length is rejected"), EFixtureSchemaError::ChunkPlans, [](FJsonObject& CaseObject)
 	{
 		SetSingleChunkPlan(CaseObject, 9007199254740992.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed all_split_points is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed all_split_points is rejected"), EFixtureSchemaError::AllSplitPoints, [](FJsonObject& CaseObject)
 	{
 		CaseObject.SetStringField(TEXT("all_split_points"), TEXT("true"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed declared length is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed declared length is rejected"), EFixtureSchemaError::DeclaredBodyLength, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("declared_body_length"), TEXT("2"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("wrong-typed complete json is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("wrong-typed complete json is rejected"), EFixtureSchemaError::ExpectedJson, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("json"), TEXT("{}"));
 	});
-	AssertFixtureCaseRejected(*this, TEXT("fractional declared length is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("fractional declared length is rejected"), EFixtureSchemaError::DeclaredBodyLength, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 1.5);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("unsafe declared length is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("unsafe declared length is rejected"), EFixtureSchemaError::DeclaredBodyLength, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 9007199254740992.0);
 	});
-	AssertFixtureCaseRejected(*this, TEXT("int64 rounding hazard is rejected"), [](FJsonObject& CaseObject)
+	Reject(TEXT("int64 rounding hazard is rejected"), EFixtureSchemaError::DeclaredBodyLength, [](FJsonObject& CaseObject)
 	{
 		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 9223372036854775808.0);
 	});
 
-	auto AssertRootRejected = [this](const TCHAR* Name, double Version)
+	auto AssertRootRejected = [this, &RootRejectionCount](const TCHAR* Name, double Version)
 	{
+		++RootRejectionCount;
 		TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
 		Root->SetNumberField(TEXT("version"), Version);
 		Root->SetArrayField(TEXT("cases"), {});
@@ -1189,7 +1260,11 @@ bool FUEMCPTransportFixtureSchemaTest::RunTest(const FString& Parameters)
 	AssertRootRejected(TEXT("unsafe fixture version is rejected"), 9007199254740992.0);
 	AssertRootRejected(TEXT("non-finite fixture version is rejected"), std::numeric_limits<double>::infinity());
 
-	AddInfo(TEXT("fixture_schema_negative_cases=30 fixture_schema_positive_cases=3 root_numeric_negative_cases=3"));
+	TestEqual(TEXT("fixture schema executes the exact negative mutation count"), RejectionCount, 29);
+	TestEqual(TEXT("fixture schema executes the exact positive control count"), AcceptanceCount, 4);
+	TestEqual(TEXT("fixture schema executes the exact root numeric rejection count"), RootRejectionCount, 3);
+	AddInfo(FString::Printf(TEXT("fixture_schema_negative_cases=%d fixture_schema_positive_cases=%d root_numeric_negative_cases=%d"),
+		RejectionCount, AcceptanceCount, RootRejectionCount));
 	return true;
 }
 
