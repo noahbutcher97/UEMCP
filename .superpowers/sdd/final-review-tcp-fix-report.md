@@ -161,6 +161,85 @@ Focused deployed automation:
 
 Exit code: `0`; found `7` tests; `7 passed / 0 failed`.
 
+## Follow-up: Bounded JSON.parse Compatibility Guard
+
+### Scope and Source Audit
+
+The deployed reader accepts several inputs that Node `JSON.parse` rejects. The corrective policy remains one authoritative Unreal parse per complete parser-eligible candidate; it adds no DOM parser, grammar parser, second deserialize, or error-string matching.
+
+- Installed 5.3, 5.6, and 5.7 `FJsonSerializer` exposes only `None` and `StoreNumbersAsStrings`; there is no reusable strict-mode flag.
+- Their installed `JsonReader` sources share the permissive paths: raw C0 bytes append inside `ParseStringToken`, literal handling accepts case variants, `ReadNextObjectValue` accepts a close after a colon, and `ReadNextArrayValue` accepts a close after a comma.
+- The 5.3 installation has no RapidJSON source; 5.6 and 5.7 do. Switching parser implementations would therefore be nonportable and would require vendoring, which is outside this correction.
+- The installed number FSM and RFC whitespace handling are otherwise strict. The existing non-finite DOM rejection remains in place. Uppercase `E` remains valid in number exponents and is explicitly covered.
+
+### Correction
+
+- Added `HasNodeJsonCompatibilityViolation`, a bounded byte-level scan that tracks only string escaping and the previous significant punctuation byte.
+- It marks as incompatible only raw U+0000 through U+001F inside an unescaped string, case-variant literal letters outside strings (while preserving numeric `E` exponents), a close immediately after an object-value colon, and a comma immediately before either closer.
+- The scan result is retained until after the single `FJsonSerializer::Deserialize` and truthful `JsonParseCount` increment. It then contributes to `invalid_json`; the platform parser still decides normal JSON validity and materializes the DOM.
+- Added C++ and Node regressions for every raw and escaped C0 byte, missing object value, capitalized `true`/`false`/`null`, object and array trailing commas, and valid `1E3`. The Node source contract still requires exactly one deserialize and one counter increment, and rejects the retired handwritten-parser symbols.
+
+Production and test commit: `95d54bd2e7ea92db49f821d88c51fd0bef824390`
+
+### RED Evidence
+
+The first compiled reproduction was intentionally run on the older 5.6 project path. It is non-gating evidence only; it had the temporary test source deployed before the approved target was selected.
+
+```powershell
+UnrealEditor-Cmd.exe <older non-gating .uproject> '-ExecCmds=Automation RunTests UEMCP.Transport.DecoderBoundaries;Quit' ...
+```
+
+Exit code: `-1`; the one decoder test failed. All 64 raw C0-in-string assertions (U+0000 through U+001F in both legacy and framed bodies) completed instead of `invalid_json`. `{"x":}`, capitalized `True`/`False`/`Null`, and `{"x":[1,]}` also completed. Their exact-one-parse assertions did not fail. `{"x":1,}` was already rejected by the platform parser, but remains covered by the bounded guard.
+
+The first approved-target full run after adding the guard also produced useful RED evidence:
+
+```powershell
+UnrealEditor-Cmd.exe <approved .uproject> '-ExecCmds=Automation RunTests UEMCP.Transport.;Quit' ...
+```
+
+Exit code: `-1`; valid escaped/nested string fixtures and exact-limit object fixtures became `invalid_json`. The scan had retained the preceding colon after a string value. The correction records the closing quote as the previous significant token; the deployed regression run below confirms the fix.
+
+### GREEN Evidence
+
+Focused Node source and decoder suite:
+
+```powershell
+node server/test-tcp-transport.mjs
+```
+
+Exit code: `0`; `2139 passed / 0 failed / 2139 total`.
+
+Approved-target deployment and build:
+
+```powershell
+.\sync-plugin.bat "<approved .uproject>" -y
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" <approved editor target> Win64 Development "-Project=<approved .uproject>" -WaitMutex -NoHotReload
+```
+
+Exit code: `0`; `UnrealEditor-UEMCP.dll` rebuilt successfully. The unrelated 5.3 editor remained running and untouched.
+
+Approved-target deployed automation:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<approved .uproject>" '-ExecCmds=Automation RunTests UEMCP.Transport.;Quit' -unattended -nop4 -NoSourceControl -nosplash -NullRHI -NoSound '-ddc=InstalledNoZenLocalFallback' -stdout -log
+```
+
+Exit code: `0`; found `7` tests; `7 passed / 0 failed`.
+
+Full Node rotation:
+
+```powershell
+npm test
+```
+
+Exit code: `0`; `60` files, `5068 passed / 0 failed / 5068 total`; `4` documented environment/live-gated skips.
+
+### Residual Concerns
+
+- The guard deliberately covers the installed cross-version extension set established by the audit, not general JSON grammar. A future engine reader extension needs a new differential reproduction and bounded guard amendment before treating Node parity as complete.
+- The commandlet emitted unrelated invalid-workspace source-control diagnostics despite `-nop4 -NoSourceControl`; all seven transport tests completed successfully.
+- Mac and Linux compile/runtime verification remains unrun.
+
 Full Node rotation:
 
 ```powershell
