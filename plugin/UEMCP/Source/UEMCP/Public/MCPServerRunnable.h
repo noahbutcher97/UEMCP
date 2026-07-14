@@ -12,10 +12,11 @@ class FSocket;
  *
  * Connect-per-command protocol (no persistent connection):
  *   1. Accept one client and capture a monotonic acceptance timestamp.
- *   2. Read one strict Content-Length-framed or legacy JSON object with bounded
- *      header/body sizes and independent idle/total receive deadlines.
- *   3. Map the typed intake result once, then dispatch valid 'type' + 'params'.
- *   4. Serialize and send one Content-Length-framed UTF-8 response.
+ *   2. Perform typed strict request intake for one Content-Length-framed or
+ *      legacy JSON object, with bounded header/body sizes and independent
+ *      idle/total receive deadlines.
+ *   3. Dispatch valid 'type' + 'params' only from a complete intake result.
+ *   4. Serialize and send one strict UTF-8, Content-Length-framed response.
  *   5. Close the client socket and return to the accept loop.
  *
  * Rejected active requests attempt a structured error response.

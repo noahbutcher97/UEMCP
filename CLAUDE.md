@@ -34,9 +34,17 @@ Claude ↔ MCP Server (stdio) ↔ active runtime layers:
 
 **ToolIndex search** (`tool-index.mjs`): 6-tier weighted scoring — FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases from tools.yaml `aliases:` + hardcoded supplements.
 
-## TCP Wire Protocol
+## TCP Wire Protocol — Current Contract
 
-The UEMCP plugin on TCP:55558 owns the active TCP editor surface and uses a length-framed wire format (`Content-Length: <bytes>\r\n\r\n<body>`). Requests carry `type` and `params`; the connection manager serializes commands per layer, performs health checks, and caches eligible read operations.
+This section and `docs/specs/architecture.md` describe the current runtime contract. `docs/specs/tcp-protocol.md` is an archival design snapshot, not current setup or runtime guidance.
+
+- **Requests** — Node serializes `{ type, params }` as strict UTF-8 and sends `Content-Length: <bytes>\r\n\r\n<body>`. The plugin maps one typed intake result, accepts the framed form plus legacy unframed JSON for legacy compatibility, and dispatches only complete JSON objects. Node preflight and native intake enforce the same 8 MiB request limit. Framed request intake and framed response decode each enforce a 512-byte header limit.
+- **Deadlines** — Server request intake starts at accept and enforces an independent 2-second idle deadline and 10-second total deadline. The Node response path uses the caller's `timeoutMs` as both a socket-inactivity backstop and an absolute Node deadline, so response trickle cannot extend the call indefinitely.
+- **Responses** — The plugin emits one strict UTF-8, `Content-Length`-framed JSON response. The Node decoder accepts that current form and legacy unframed JSON during upgrade windows. The protocol imposes no response cap; large responses remain governed by the caller deadline, available memory, and the plugin's framed send deadline.
+- **Errors and logs** — Active malformed, oversized, or timed-out request intake attempts a structured response with `MALFORMED_REQUEST`, `REQUEST_TOO_LARGE`, or `REQUEST_TIMEOUT`. Peer close, receive failure, and server shutdown do not attempt a response. Node transport failures use stable `TcpTransportError.code` values: `REQUEST_TOO_LARGE`, `MALFORMED_RESPONSE`, `NO_RESPONSE`, `INCOMPLETE_RESPONSE`, `RESPONSE_TIMEOUT`, and `SOCKET_ERROR`. Transport logs contain structural metadata (event, framing, byte counts, elapsed time, reason, and socket code where applicable), never raw request/response bodies, params, JSON envelopes, or payload previews.
+- **Fixtures and platform proof** — `plugin/UEMCP/Resources/Tests/tcp-transport-cases.json` is the shared Node/native conformance fixture. The plugin descriptor declares Win64, Mac, and Linux, but current runtime evidence is Win64-only runtime proof; Mac/Linux support is declared-unverified until those platforms are built and exercised.
+
+The connection manager serializes commands per layer, performs health checks, and caches eligible read operations.
 
 ## Sibling MCP Servers
 

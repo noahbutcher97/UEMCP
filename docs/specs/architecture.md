@@ -90,6 +90,16 @@ Two identical copies of a third-party Unreal MCP server exist across the two tar
 
 **D4: UEMCP owns the editor-side TCP bridge** — Current editor communication uses the UEMCP plugin on TCP:55558; Remote Control remains on HTTP:30010. Historical conformance-oracle documents are archival only and do not describe deploy requirements.
 
+### Current TCP:55558 Contract
+
+This document and `CLAUDE.md` are the current contract sources. [`tcp-protocol.md`](tcp-protocol.md) is an archival design snapshot and is not current runtime guidance.
+
+- **Request path** — Node sends `{ type, params }` as a strict UTF-8 `Content-Length: <bytes>\r\n\r\n<body>` frame. The plugin produces one typed intake result and retains legacy compatibility for unframed JSON requests. Node request preflight and native request intake enforce the same 8 MiB request limit. Framed request intake and framed response decode enforce a 512-byte header limit.
+- **Time bounds** — Native intake measures from socket acceptance and applies an independent 2-second idle deadline and 10-second total deadline. Node combines its socket-inactivity timeout with an absolute Node deadline based on the caller's `timeoutMs`; trickling response bytes cannot keep the call alive beyond that absolute bound.
+- **Response path** — The plugin sends one strict UTF-8, `Content-Length`-framed JSON response. Node accepts the framed response and retains legacy compatibility for unframed responses during deployment upgrades. There is no response cap in the wire contract; the caller deadline, memory, and framed-send deadline remain the practical bounds.
+- **Error and log policy** — Rejected active intake attempts structured `MALFORMED_REQUEST`, `REQUEST_TOO_LARGE`, or `REQUEST_TIMEOUT` responses. Peer close, receive failure, and server shutdown are no-response outcomes. Stable Node `TcpTransportError.code` values are `REQUEST_TOO_LARGE`, `MALFORMED_RESPONSE`, `NO_RESPONSE`, `INCOMPLETE_RESPONSE`, `RESPONSE_TIMEOUT`, and `SOCKET_ERROR`. Native transport logs record only structural event/framing/byte/timing/reason/socket metadata and must not include raw bodies, params, JSON envelopes, or payload previews.
+- **Shared proof surface** — Node and native contract tests share `plugin/UEMCP/Resources/Tests/tcp-transport-cases.json`. The descriptor declares Win64, Mac, and Linux, while the present evidence boundary is Win64-only runtime proof. Mac/Linux remain declared-unverified until each platform is built and exercised.
+
 **D5: Dynamic toolsets with progressive disclosure** — `tools.yaml` declares 10 discovery/management tools plus dynamic project-scoped toolsets. Claude discovers tools via `find_tools` or `enable_toolset`; both block project-scoped toolsets until ProjectContext has an attached project. `tools/list` response only includes management tools plus active toolset tools.
 
 ---

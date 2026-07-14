@@ -15,6 +15,8 @@ import {
 const fixtureUrl = new URL('../plugin/UEMCP/Resources/Tests/tcp-transport-cases.json', import.meta.url);
 const transportUrl = new URL('./tcp-transport.mjs', import.meta.url);
 const connectionManagerUrl = new URL('./connection-manager.mjs', import.meta.url);
+const claudeDocUrl = new URL('../CLAUDE.md', import.meta.url);
+const architectureDocUrl = new URL('../docs/specs/architecture.md', import.meta.url);
 const nativePolicySourceUrl = new URL(
   '../plugin/UEMCP/Source/UEMCP/Private/MCPServerTransportPolicy.cpp',
   import.meta.url,
@@ -2492,6 +2494,27 @@ const connectionManagerSource = await readFile(connectionManagerUrl, 'utf8');
 const nativePolicySource = await readFile(nativePolicySourceUrl, 'utf8');
 const nativePolicyHeader = await readFile(nativePolicyHeaderUrl, 'utf8');
 const nativeRunnableSource = await readFile(nativeRunnableSourceUrl, 'utf8');
+const currentTransportDocs = [
+  ['CLAUDE.md', await readFile(claudeDocUrl, 'utf8')],
+  ['docs/specs/architecture.md', await readFile(architectureDocUrl, 'utf8')],
+];
+const requiredCurrentTransportContract = [
+  'strict UTF-8',
+  '512-byte header',
+  '8 MiB request limit',
+  '2-second idle',
+  '10-second total',
+  'absolute Node deadline',
+  'legacy compatibility',
+  'no response cap',
+  'Win64-only runtime proof',
+];
+for (const [docName, source] of currentTransportDocs) {
+  for (const contractText of requiredCurrentTransportContract) {
+    runner.assert(source.includes(contractText),
+      `${docName} current TCP contract names ${contractText}`);
+  }
+}
 const tcpCommandSource = connectionManagerSource.slice(
   connectionManagerSource.indexOf('function tcpCommand('),
   connectionManagerSource.indexOf('// ── HTTP Client'),
