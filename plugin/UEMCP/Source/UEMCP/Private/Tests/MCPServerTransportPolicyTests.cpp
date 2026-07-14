@@ -2,6 +2,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include <limits>
+
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -54,16 +56,27 @@ const TSet<FString>& RequiredAllSplitPointIds()
 	return Ids;
 }
 
-bool IsWholePositiveNumber(double Value)
+constexpr double MaxJavaScriptSafeInteger = 9007199254740991.0;
+
+bool IsJavaScriptSafeInteger(double Value)
 {
-	return FMath::IsFinite(Value) && Value > 0.0 && Value <= static_cast<double>(MAX_int32)
+	return FMath::IsFinite(Value) && FMath::Abs(Value) <= MaxJavaScriptSafeInteger
 		&& FMath::FloorToDouble(Value) == Value;
 }
 
-bool IsWholeNonNegativeNumber(double Value)
+bool IsWholePositiveInt32(double Value)
 {
-	return FMath::IsFinite(Value) && Value >= 0.0 && Value <= static_cast<double>(MAX_int64)
-		&& FMath::FloorToDouble(Value) == Value;
+	return IsJavaScriptSafeInteger(Value) && Value > 0.0 && Value <= static_cast<double>(MAX_int32);
+}
+
+bool IsWholePositiveInt64(double Value)
+{
+	return IsJavaScriptSafeInteger(Value) && Value > 0.0 && Value <= static_cast<double>(MAX_int64);
+}
+
+bool IsWholeNonNegativeInt64(double Value)
+{
+	return IsJavaScriptSafeInteger(Value) && Value >= 0.0 && Value <= static_cast<double>(MAX_int64);
 }
 
 bool DecodeAscii(const FString& Encoded, TArray<uint8>& OutBytes)
@@ -78,6 +91,56 @@ bool DecodeAscii(const FString& Encoded, TArray<uint8>& OutBytes)
 		OutBytes.Add(static_cast<uint8>(Character));
 	}
 	return true;
+}
+
+bool DecodeCanonicalBase64(const FString& Encoded, TArray<uint8>& OutBytes)
+{
+	OutBytes.Reset();
+	if (Encoded.IsEmpty() || Encoded.Len() % 4 != 0)
+	{
+		return false;
+	}
+
+	int32 Padding = 0;
+	if (Encoded.EndsWith(TEXT("==")))
+	{
+		Padding = 2;
+	}
+	else if (Encoded.EndsWith(TEXT("=")))
+	{
+		Padding = 1;
+	}
+	const int32 PayloadLength = Encoded.Len() - Padding;
+	if ((Padding == 0 && PayloadLength % 4 != 0)
+		|| (Padding == 1 && PayloadLength % 4 != 3)
+		|| (Padding == 2 && PayloadLength % 4 != 2))
+	{
+		return false;
+	}
+
+	for (int32 Index = 0; Index < PayloadLength; ++Index)
+	{
+		const TCHAR Character = Encoded[Index];
+		const bool bInAlphabet = (Character >= 'A' && Character <= 'Z')
+			|| (Character >= 'a' && Character <= 'z')
+			|| (Character >= '0' && Character <= '9')
+			|| Character == '+' || Character == '/';
+		if (!bInAlphabet)
+		{
+			return false;
+		}
+	}
+	for (int32 Index = PayloadLength; Index < Encoded.Len(); ++Index)
+	{
+		if (Encoded[Index] != '=')
+		{
+			return false;
+		}
+	}
+
+	return FBase64::Decode(Encoded, OutBytes)
+		&& !OutBytes.IsEmpty()
+		&& FBase64::Encode(OutBytes) == Encoded;
 }
 
 bool JsonValuesEqual(const TSharedPtr<FJsonValue>& Left, const TSharedPtr<FJsonValue>& Right);
@@ -213,6 +276,249 @@ bool HasOnlyAllowedTargets(const TArray<TSharedPtr<FJsonValue>>& Targets, bool& 
 	return true;
 }
 
+bool TryValidateFixtureRoot(const TSharedPtr<FJsonObject>& Root, FString& OutError)
+{
+	if (!Root.IsValid())
+	{
+		OutError = TEXT("TCP transport fixture root must be an object");
+		return false;
+	}
+	if (!Root->HasTypedField<EJson::Number>(TEXT("version")))
+	{
+		OutError = TEXT("TCP transport fixture schema version must be numeric");
+		return false;
+	}
+	const double Version = Root->GetNumberField(TEXT("version"));
+	if (!IsJavaScriptSafeInteger(Version) || Version != 1.0)
+	{
+		OutError = TEXT("TCP transport fixture schema version must be exactly 1");
+		return false;
+	}
+	if (!Root->HasTypedField<EJson::Array>(TEXT("cases")))
+	{
+		OutError = TEXT("TCP transport fixture requires a cases array");
+		return false;
+	}
+
+	OutError.Reset();
+	return true;
+}
+
+bool TryParseFixtureCase(
+	const TSharedPtr<FJsonObject>& CaseObject,
+	FTransportFixtureCase& OutCase,
+	bool& bOutTargetsRequest,
+	FString& OutError)
+{
+	auto Fail = [&OutError](FString Error)
+	{
+		OutError = MoveTemp(Error);
+		return false;
+	};
+
+	if (!CaseObject.IsValid() || !CaseObject->HasTypedField<EJson::String>(TEXT("id")))
+	{
+		return Fail(TEXT("TCP transport fixture case is missing a string id"));
+	}
+
+	FTransportFixtureCase Parsed;
+	Parsed.Id = CaseObject->GetStringField(TEXT("id"));
+	if (Parsed.Id.IsEmpty())
+	{
+		return Fail(TEXT("TCP transport fixture id is empty"));
+	}
+
+	if (!CaseObject->HasTypedField<EJson::Array>(TEXT("targets")))
+	{
+		return Fail(FString::Printf(TEXT("%s: targets must be an array"), *Parsed.Id));
+	}
+	if (!HasOnlyAllowedTargets(CaseObject->GetArrayField(TEXT("targets")), bOutTargetsRequest))
+	{
+		return Fail(FString::Printf(TEXT("%s: targets must be unique request/response strings"), *Parsed.Id));
+	}
+
+	const bool bHasAscii = CaseObject->HasField(TEXT("data_ascii"));
+	const bool bHasBase64 = CaseObject->HasField(TEXT("data_base64"));
+	if (bHasAscii == bHasBase64)
+	{
+		return Fail(FString::Printf(TEXT("%s: exactly one data encoding is required"), *Parsed.Id));
+	}
+	if ((bHasAscii && !CaseObject->HasTypedField<EJson::String>(TEXT("data_ascii")))
+		|| (bHasBase64 && !CaseObject->HasTypedField<EJson::String>(TEXT("data_base64"))))
+	{
+		return Fail(FString::Printf(TEXT("%s: the present data encoding must be a string"), *Parsed.Id));
+	}
+	const bool bDecoded = bHasAscii
+		? DecodeAscii(CaseObject->GetStringField(TEXT("data_ascii")), Parsed.Data)
+		: DecodeCanonicalBase64(CaseObject->GetStringField(TEXT("data_base64")), Parsed.Data);
+	if (!bDecoded || Parsed.Data.IsEmpty())
+	{
+		return Fail(FString::Printf(TEXT("%s: encoded bytes are invalid or empty"), *Parsed.Id));
+	}
+
+	if (CaseObject->HasField(TEXT("all_split_points")))
+	{
+		if (!CaseObject->HasTypedField<EJson::Boolean>(TEXT("all_split_points")))
+		{
+			return Fail(FString::Printf(TEXT("%s: all_split_points must be boolean"), *Parsed.Id));
+		}
+		Parsed.bAllSplitPoints = CaseObject->GetBoolField(TEXT("all_split_points"));
+	}
+
+	if (CaseObject->HasField(TEXT("policy")))
+	{
+		if (!CaseObject->HasTypedField<EJson::Object>(TEXT("policy")))
+		{
+			return Fail(FString::Printf(TEXT("%s: policy must be an object"), *Parsed.Id));
+		}
+		const TSharedPtr<FJsonObject> Policy = CaseObject->GetObjectField(TEXT("policy"));
+		if (Policy->Values.IsEmpty())
+		{
+			return Fail(FString::Printf(TEXT("%s: policy must contain at least one supported limit"), *Parsed.Id));
+		}
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Policy->Values)
+		{
+			if (Pair.Key != TEXT("max_header_bytes") && Pair.Key != TEXT("max_body_bytes"))
+			{
+				return Fail(FString::Printf(TEXT("%s: policy contains unsupported key %s"), *Parsed.Id, *Pair.Key));
+			}
+			if (!Pair.Value.IsValid() || Pair.Value->Type != EJson::Number)
+			{
+				return Fail(FString::Printf(TEXT("%s: policy limit %s must be numeric"), *Parsed.Id, *Pair.Key));
+			}
+
+			const double Value = Pair.Value->AsNumber();
+			if (Pair.Key == TEXT("max_header_bytes"))
+			{
+				if (!IsWholePositiveInt32(Value))
+				{
+					return Fail(FString::Printf(TEXT("%s: max_header_bytes must be a positive JS-safe int32"), *Parsed.Id));
+				}
+				Parsed.Policy.MaxHeader = static_cast<int32>(Value);
+			}
+			else
+			{
+				if (!IsWholePositiveInt64(Value))
+				{
+					return Fail(FString::Printf(TEXT("%s: max_body_bytes must be a positive JS-safe int64"), *Parsed.Id));
+				}
+				Parsed.Policy.MaxBody = static_cast<int64>(Value);
+			}
+		}
+	}
+
+	if (!CaseObject->HasTypedField<EJson::Array>(TEXT("chunk_plans")))
+	{
+		return Fail(FString::Printf(TEXT("%s: chunk_plans must be an array"), *Parsed.Id));
+	}
+	bool bChunkPlansValid = !CaseObject->GetArrayField(TEXT("chunk_plans")).IsEmpty();
+	for (const TSharedPtr<FJsonValue>& PlanValue : CaseObject->GetArrayField(TEXT("chunk_plans")))
+	{
+		if (!PlanValue.IsValid() || PlanValue->Type != EJson::Array || PlanValue->AsArray().IsEmpty())
+		{
+			bChunkPlansValid = false;
+			break;
+		}
+		TArray<int32> Plan;
+		int64 PlanTotal = 0;
+		for (const TSharedPtr<FJsonValue>& SizeValue : PlanValue->AsArray())
+		{
+			if (!SizeValue.IsValid() || SizeValue->Type != EJson::Number
+				|| !IsWholePositiveInt32(SizeValue->AsNumber()))
+			{
+				bChunkPlansValid = false;
+				break;
+			}
+			const int32 ChunkSize = static_cast<int32>(SizeValue->AsNumber());
+			if (PlanTotal > static_cast<int64>(Parsed.Data.Num()) - ChunkSize)
+			{
+				bChunkPlansValid = false;
+				break;
+			}
+			Plan.Add(ChunkSize);
+			PlanTotal += ChunkSize;
+		}
+		if (!bChunkPlansValid || PlanTotal != Parsed.Data.Num())
+		{
+			bChunkPlansValid = false;
+			break;
+		}
+		Parsed.ChunkPlans.Add(MoveTemp(Plan));
+	}
+	if (!bChunkPlansValid)
+	{
+		return Fail(FString::Printf(TEXT("%s: every chunk plan must contain positive integers totaling the input"), *Parsed.Id));
+	}
+
+	if (!CaseObject->HasTypedField<EJson::Object>(TEXT("expected")))
+	{
+		return Fail(FString::Printf(TEXT("%s: expected must be an object"), *Parsed.Id));
+	}
+	const TSharedPtr<FJsonObject> Expected = CaseObject->GetObjectField(TEXT("expected"));
+	FString StatusText;
+	FString FramingText;
+	if (!Expected->TryGetStringField(TEXT("status"), StatusText)
+		|| !TryParseStatus(StatusText, Parsed.ExpectedStatus)
+		|| !Expected->TryGetStringField(TEXT("framing"), FramingText)
+		|| !TryParseFraming(FramingText, Parsed.ExpectedFraming))
+	{
+		return Fail(FString::Printf(TEXT("%s: expected status/framing is invalid"), *Parsed.Id));
+	}
+
+	if (Expected->HasField(TEXT("declared_body_length")))
+	{
+		if (!Expected->HasTypedField<EJson::Number>(TEXT("declared_body_length")))
+		{
+			return Fail(FString::Printf(TEXT("%s: declared_body_length must be numeric"), *Parsed.Id));
+		}
+		const double Value = Expected->GetNumberField(TEXT("declared_body_length"));
+		if (!IsWholeNonNegativeInt64(Value))
+		{
+			return Fail(FString::Printf(TEXT("%s: declared_body_length must be a non-negative JS-safe integer"), *Parsed.Id));
+		}
+		Parsed.ExpectedDeclaredBodyLength = static_cast<int64>(Value);
+	}
+
+	const TSet<FString> AllowedReasons = {
+		TEXT("invalid_header"), TEXT("header_too_large"), TEXT("invalid_content_length"),
+		TEXT("content_length_overflow"), TEXT("body_too_large"), TEXT("trailing_bytes"),
+		TEXT("invalid_utf8"), TEXT("invalid_bom"), TEXT("root_not_object"),
+		TEXT("invalid_json"), TEXT("mismatched_delimiter")
+	};
+	const bool bRequiresReason = Parsed.ExpectedStatus == EMCPDecodeStatus::Malformed
+		|| Parsed.ExpectedStatus == EMCPDecodeStatus::TooLarge;
+	const bool bHasReason = Expected->HasField(TEXT("reason_code"));
+	if (bHasReason && !Expected->HasTypedField<EJson::String>(TEXT("reason_code")))
+	{
+		return Fail(FString::Printf(TEXT("%s: reason_code must be a string when present"), *Parsed.Id));
+	}
+	if (bHasReason)
+	{
+		Parsed.ExpectedReason = Expected->GetStringField(TEXT("reason_code"));
+	}
+	if (bRequiresReason != bHasReason || (bHasReason && !AllowedReasons.Contains(Parsed.ExpectedReason)))
+	{
+		return Fail(FString::Printf(TEXT("%s: terminal reason_code does not match the fixture schema"), *Parsed.Id));
+	}
+
+	if (Parsed.ExpectedStatus == EMCPDecodeStatus::Complete)
+	{
+		if (!Expected->HasTypedField<EJson::Object>(TEXT("json")))
+		{
+			return Fail(FString::Printf(TEXT("%s: complete cases require an object json field"), *Parsed.Id));
+		}
+		Parsed.ExpectedObject = Expected->GetObjectField(TEXT("json"));
+	}
+	else if (Expected->HasField(TEXT("json")))
+	{
+		return Fail(FString::Printf(TEXT("%s: non-complete cases must omit json"), *Parsed.Id));
+	}
+
+	OutCase = MoveTemp(Parsed);
+	OutError.Reset();
+	return true;
+}
+
 bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixtureCase>& OutCases, FString& OutPath)
 {
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UEMCP"));
@@ -238,23 +544,13 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 		return false;
 	}
 
-	if (!Root->HasTypedField<EJson::Number>(TEXT("version")) || Root->GetNumberField(TEXT("version")) != 1.0)
+	FString RootError;
+	if (!TryValidateFixtureRoot(Root, RootError))
 	{
-		Test.AddError(TEXT("TCP transport fixture schema version must be exactly 1"));
-		return false;
-	}
-	if (!Root->HasTypedField<EJson::Array>(TEXT("cases")))
-	{
-		Test.AddError(TEXT("TCP transport fixture requires a cases array"));
+		Test.AddError(RootError);
 		return false;
 	}
 
-	const TSet<FString> AllowedReasons = {
-		TEXT("invalid_header"), TEXT("header_too_large"), TEXT("invalid_content_length"),
-		TEXT("content_length_overflow"), TEXT("body_too_large"), TEXT("trailing_bytes"),
-		TEXT("invalid_utf8"), TEXT("invalid_bom"), TEXT("root_not_object"),
-		TEXT("invalid_json"), TEXT("mismatched_delimiter")
-	};
 	TSet<FString> SeenIds;
 	TSet<FString> SeenRequestIds;
 	TSet<FString> SeenAllSplitPointIds;
@@ -266,195 +562,20 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 			continue;
 		}
 		const TSharedPtr<FJsonObject> CaseObject = CaseValue->AsObject();
-		if (!CaseObject->HasTypedField<EJson::String>(TEXT("id")))
+		FTransportFixtureCase Parsed;
+		bool bTargetsRequest = false;
+		FString ParseError;
+		if (!TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, ParseError))
 		{
-			Test.AddError(TEXT("TCP transport fixture case is missing a string id"));
+			Test.AddError(ParseError);
 			continue;
 		}
-
-		FTransportFixtureCase Parsed;
-		Parsed.Id = CaseObject->GetStringField(TEXT("id"));
-		if (Parsed.Id.IsEmpty() || SeenIds.Contains(Parsed.Id))
+		if (SeenIds.Contains(Parsed.Id))
 		{
-			Test.AddError(FString::Printf(TEXT("TCP transport fixture id is empty or duplicated: %s"), *Parsed.Id));
+			Test.AddError(FString::Printf(TEXT("TCP transport fixture id is duplicated: %s"), *Parsed.Id));
 			continue;
 		}
 		SeenIds.Add(Parsed.Id);
-
-		if (!CaseObject->HasTypedField<EJson::Array>(TEXT("targets")))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: targets must be an array"), *Parsed.Id));
-			continue;
-		}
-		bool bTargetsRequest = false;
-		if (!HasOnlyAllowedTargets(CaseObject->GetArrayField(TEXT("targets")), bTargetsRequest))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: targets must be unique request/response strings"), *Parsed.Id));
-			continue;
-		}
-
-		const bool bHasAscii = CaseObject->HasTypedField<EJson::String>(TEXT("data_ascii"));
-		const bool bHasBase64 = CaseObject->HasTypedField<EJson::String>(TEXT("data_base64"));
-		if (bHasAscii == bHasBase64)
-		{
-			Test.AddError(FString::Printf(TEXT("%s: exactly one data encoding is required"), *Parsed.Id));
-			continue;
-		}
-		const bool bDecoded = bHasAscii
-			? DecodeAscii(CaseObject->GetStringField(TEXT("data_ascii")), Parsed.Data)
-			: FBase64::Decode(CaseObject->GetStringField(TEXT("data_base64")), Parsed.Data);
-		if (!bDecoded || Parsed.Data.IsEmpty())
-		{
-			Test.AddError(FString::Printf(TEXT("%s: encoded bytes are invalid or empty"), *Parsed.Id));
-			continue;
-		}
-
-		if (CaseObject->HasField(TEXT("all_split_points")))
-		{
-			if (!CaseObject->HasTypedField<EJson::Boolean>(TEXT("all_split_points")))
-			{
-				Test.AddError(FString::Printf(TEXT("%s: all_split_points must be boolean"), *Parsed.Id));
-				continue;
-			}
-			Parsed.bAllSplitPoints = CaseObject->GetBoolField(TEXT("all_split_points"));
-		}
-
-		if (CaseObject->HasField(TEXT("policy")))
-		{
-			if (!CaseObject->HasTypedField<EJson::Object>(TEXT("policy")))
-			{
-				Test.AddError(FString::Printf(TEXT("%s: policy must be an object"), *Parsed.Id));
-				continue;
-			}
-			const TSharedPtr<FJsonObject> Policy = CaseObject->GetObjectField(TEXT("policy"));
-			if (Policy->HasField(TEXT("max_header_bytes")))
-			{
-				if (!Policy->HasTypedField<EJson::Number>(TEXT("max_header_bytes")))
-				{
-					Test.AddError(FString::Printf(TEXT("%s: max_header_bytes must be numeric"), *Parsed.Id));
-					continue;
-				}
-				const double Value = Policy->GetNumberField(TEXT("max_header_bytes"));
-				if (!IsWholePositiveNumber(Value))
-				{
-					Test.AddError(FString::Printf(TEXT("%s: max_header_bytes must be a positive integer"), *Parsed.Id));
-					continue;
-				}
-				Parsed.Policy.MaxHeader = static_cast<int32>(Value);
-			}
-			if (Policy->HasField(TEXT("max_body_bytes")))
-			{
-				if (!Policy->HasTypedField<EJson::Number>(TEXT("max_body_bytes")))
-				{
-					Test.AddError(FString::Printf(TEXT("%s: max_body_bytes must be numeric"), *Parsed.Id));
-					continue;
-				}
-				const double Value = Policy->GetNumberField(TEXT("max_body_bytes"));
-				if (!IsWholePositiveNumber(Value))
-				{
-					Test.AddError(FString::Printf(TEXT("%s: max_body_bytes must be a positive integer"), *Parsed.Id));
-					continue;
-				}
-				Parsed.Policy.MaxBody = static_cast<int64>(Value);
-			}
-		}
-
-		if (!CaseObject->HasTypedField<EJson::Array>(TEXT("chunk_plans")))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: chunk_plans must be an array"), *Parsed.Id));
-			continue;
-		}
-		bool bChunkPlansValid = !CaseObject->GetArrayField(TEXT("chunk_plans")).IsEmpty();
-		for (const TSharedPtr<FJsonValue>& PlanValue : CaseObject->GetArrayField(TEXT("chunk_plans")))
-		{
-			if (!PlanValue.IsValid() || PlanValue->Type != EJson::Array || PlanValue->AsArray().IsEmpty())
-			{
-				bChunkPlansValid = false;
-				break;
-			}
-			TArray<int32> Plan;
-			int64 PlanTotal = 0;
-			for (const TSharedPtr<FJsonValue>& SizeValue : PlanValue->AsArray())
-			{
-				if (!SizeValue.IsValid() || SizeValue->Type != EJson::Number
-					|| !IsWholePositiveNumber(SizeValue->AsNumber()))
-				{
-					bChunkPlansValid = false;
-					break;
-				}
-				const int32 ChunkSize = static_cast<int32>(SizeValue->AsNumber());
-				Plan.Add(ChunkSize);
-				PlanTotal += ChunkSize;
-			}
-			if (!bChunkPlansValid || PlanTotal != Parsed.Data.Num())
-			{
-				bChunkPlansValid = false;
-				break;
-			}
-			Parsed.ChunkPlans.Add(MoveTemp(Plan));
-		}
-		if (!bChunkPlansValid)
-		{
-			Test.AddError(FString::Printf(TEXT("%s: every chunk plan must contain positive integers totaling the input"), *Parsed.Id));
-			continue;
-		}
-
-		if (!CaseObject->HasTypedField<EJson::Object>(TEXT("expected")))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: expected must be an object"), *Parsed.Id));
-			continue;
-		}
-		const TSharedPtr<FJsonObject> Expected = CaseObject->GetObjectField(TEXT("expected"));
-		FString StatusText;
-		FString FramingText;
-		if (!Expected->TryGetStringField(TEXT("status"), StatusText)
-			|| !TryParseStatus(StatusText, Parsed.ExpectedStatus)
-			|| !Expected->TryGetStringField(TEXT("framing"), FramingText)
-			|| !TryParseFraming(FramingText, Parsed.ExpectedFraming))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: expected status/framing is invalid"), *Parsed.Id));
-			continue;
-		}
-
-		if (Expected->HasField(TEXT("declared_body_length")))
-		{
-			if (!Expected->HasTypedField<EJson::Number>(TEXT("declared_body_length")))
-			{
-				Test.AddError(FString::Printf(TEXT("%s: declared_body_length must be numeric"), *Parsed.Id));
-				continue;
-			}
-			const double Value = Expected->GetNumberField(TEXT("declared_body_length"));
-			if (!IsWholeNonNegativeNumber(Value))
-			{
-				Test.AddError(FString::Printf(TEXT("%s: declared_body_length must be a non-negative integer"), *Parsed.Id));
-				continue;
-			}
-			Parsed.ExpectedDeclaredBodyLength = static_cast<int64>(Value);
-		}
-
-		const bool bRequiresReason = Parsed.ExpectedStatus == EMCPDecodeStatus::Malformed
-			|| Parsed.ExpectedStatus == EMCPDecodeStatus::TooLarge;
-		const bool bHasReason = Expected->TryGetStringField(TEXT("reason_code"), Parsed.ExpectedReason);
-		if (bRequiresReason != bHasReason || (bHasReason && !AllowedReasons.Contains(Parsed.ExpectedReason)))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: terminal reason_code does not match the fixture schema"), *Parsed.Id));
-			continue;
-		}
-
-		if (Parsed.ExpectedStatus == EMCPDecodeStatus::Complete)
-		{
-			if (!Expected->HasTypedField<EJson::Object>(TEXT("json")))
-			{
-				Test.AddError(FString::Printf(TEXT("%s: complete cases require an object json field"), *Parsed.Id));
-				continue;
-			}
-			Parsed.ExpectedObject = Expected->GetObjectField(TEXT("json"));
-		}
-		else if (Expected->HasField(TEXT("json")))
-		{
-			Test.AddError(FString::Printf(TEXT("%s: non-complete cases must omit json"), *Parsed.Id));
-			continue;
-		}
 
 		if (bTargetsRequest)
 		{
@@ -718,6 +839,79 @@ TArray<uint8> MakePaddingBody(int32 TotalBytes)
 	return Body;
 }
 
+void SetSingleChunkPlan(FJsonObject& CaseObject, double ChunkLength)
+{
+	TArray<TSharedPtr<FJsonValue>> Plan;
+	Plan.Add(MakeShared<FJsonValueNumber>(ChunkLength));
+	TArray<TSharedPtr<FJsonValue>> Plans;
+	Plans.Add(MakeShared<FJsonValueArray>(MoveTemp(Plan)));
+	CaseObject.SetArrayField(TEXT("chunk_plans"), MoveTemp(Plans));
+}
+
+TSharedPtr<FJsonObject> MakeValidFixtureSchemaCase()
+{
+	TSharedPtr<FJsonObject> CaseObject = MakeShared<FJsonObject>();
+	CaseObject->SetStringField(TEXT("id"), TEXT("fixture-schema-self-test"));
+	CaseObject->SetArrayField(TEXT("targets"), {MakeShared<FJsonValueString>(TEXT("request"))});
+	CaseObject->SetStringField(TEXT("data_ascii"), TEXT("{}"));
+	SetSingleChunkPlan(*CaseObject, 2.0);
+
+	TSharedPtr<FJsonObject> Expected = MakeShared<FJsonObject>();
+	Expected->SetStringField(TEXT("status"), TEXT("complete"));
+	Expected->SetStringField(TEXT("framing"), TEXT("legacy"));
+	Expected->SetObjectField(TEXT("json"), MakeShared<FJsonObject>());
+	CaseObject->SetObjectField(TEXT("expected"), MoveTemp(Expected));
+	return CaseObject;
+}
+
+void AssertFixtureCaseRejected(
+	FAutomationTestBase& Test,
+	const TCHAR* Name,
+	TFunctionRef<void(FJsonObject&)> Mutate)
+{
+	TSharedPtr<FJsonObject> CaseObject = MakeValidFixtureSchemaCase();
+	Mutate(*CaseObject);
+	FTransportFixtureCase Parsed;
+	bool bTargetsRequest = false;
+	FString Error;
+	const bool bAccepted = TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error);
+	Test.TestFalse(Name, bAccepted);
+	Test.TestFalse(*FString::Printf(TEXT("%s reports a schema error"), Name), Error.IsEmpty());
+}
+
+void AssertFixtureCaseAccepted(
+	FAutomationTestBase& Test,
+	const TCHAR* Name,
+	TFunctionRef<void(FJsonObject&)> Mutate)
+{
+	TSharedPtr<FJsonObject> CaseObject = MakeValidFixtureSchemaCase();
+	Mutate(*CaseObject);
+	FTransportFixtureCase Parsed;
+	bool bTargetsRequest = false;
+	FString Error;
+	Test.TestTrue(Name, TryParseFixtureCase(CaseObject, Parsed, bTargetsRequest, Error));
+	Test.TestTrue(*FString::Printf(TEXT("%s targets requests"), Name), bTargetsRequest);
+	Test.TestTrue(*FString::Printf(TEXT("%s has no schema error"), Name), Error.IsEmpty());
+}
+
+TArray<uint8> MakeDeepNestedJsonBody(int32 Depth)
+{
+	FString Json;
+	Json.Reserve(Depth * 6 + 16);
+	Json += TEXT("{\"root\":");
+	for (int32 Index = 0; Index < Depth; ++Index)
+	{
+		Json += Index % 2 == 0 ? TEXT("{\"v\":") : TEXT("[");
+	}
+	Json += TEXT("0");
+	for (int32 Index = Depth - 1; Index >= 0; --Index)
+	{
+		Json += Index % 2 == 0 ? TEXT("}") : TEXT("]");
+	}
+	Json += TEXT("}");
+	return MakeAsciiBytes(Json);
+}
+
 void ConsumeInBoundedChunks(FMCPRequestDecoder& Decoder, const TArray<uint8>& Bytes, int32 BytesToConsume)
 {
 	constexpr int32 ChunkBytes = 64 * 1024;
@@ -803,6 +997,199 @@ bool FUEMCPReceiveClassifierTest::RunTest(const FString& Parameters)
 	TestAction(TEXT("negative bytes with hard error are a socket error"),
 		false, -1, SE_ECONNRESET, EMCPReceiveAction::SocketError);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPTransportFixtureSchemaTest,
+	"UEMCP.Transport.FixtureSchema",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPTransportFixtureSchemaTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Transport::Tests;
+
+	AssertFixtureCaseAccepted(*this, TEXT("baseline fixture schema case is accepted"), [](FJsonObject&) {});
+	AssertFixtureCaseAccepted(*this, TEXT("canonical base64 encoding is accepted"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.RemoveField(TEXT("data_ascii"));
+		CaseObject.SetStringField(TEXT("data_base64"), TEXT("e30="));
+	});
+	AssertFixtureCaseAccepted(*this, TEXT("JS-safe max body above int32 is accepted"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_body_bytes"), 4294967296.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed second encoding is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetNumberField(TEXT("data_base64"), 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed sole encoding is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetNumberField(TEXT("data_ascii"), 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("malformed base64 padding is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.RemoveField(TEXT("data_ascii"));
+		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZA==="));
+		SetSingleChunkPlan(CaseObject, 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("base64 whitespace is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.RemoveField(TEXT("data_ascii"));
+		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZA== "));
+		SetSingleChunkPlan(CaseObject, 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("noncanonical base64 pad bits are rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.RemoveField(TEXT("data_ascii"));
+		CaseObject.SetStringField(TEXT("data_base64"), TEXT("ZE=="));
+		SetSingleChunkPlan(CaseObject, 1.0);
+	});
+
+	AssertFixtureCaseRejected(*this, TEXT("empty policy is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetObjectField(TEXT("policy"), MakeShared<FJsonObject>());
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed policy object is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetStringField(TEXT("policy"), TEXT("default"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("unknown-only policy is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("unknown_limit"), 1.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("mixed unknown policy is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_header_bytes"), 512.0);
+		Policy->SetNumberField(TEXT("unknown_limit"), 1.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed policy field is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetStringField(TEXT("max_header_bytes"), TEXT("512"));
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("zero policy field is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_body_bytes"), 0.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("fractional policy field is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_header_bytes"), 1.5);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("unsafe policy field is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_body_bytes"), 9007199254740992.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("header policy outside int32 is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_header_bytes"), 2147483648.0);
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("non-finite policy field is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Policy = MakeShared<FJsonObject>();
+		Policy->SetNumberField(TEXT("max_body_bytes"), std::numeric_limits<double>::infinity());
+		CaseObject.SetObjectField(TEXT("policy"), MoveTemp(Policy));
+	});
+
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed reason on complete is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("reason_code"), 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("string reason on complete is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("reason_code"), TEXT("invalid_json"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed reason on pending is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
+		Expected->SetStringField(TEXT("status"), TEXT("pending"));
+		Expected->RemoveField(TEXT("json"));
+		Expected->SetNumberField(TEXT("reason_code"), 1.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("string reason on pending is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
+		Expected->SetStringField(TEXT("status"), TEXT("pending"));
+		Expected->RemoveField(TEXT("json"));
+		Expected->SetStringField(TEXT("reason_code"), TEXT("invalid_json"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("terminal status without reason is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
+		Expected->SetStringField(TEXT("status"), TEXT("malformed"));
+		Expected->RemoveField(TEXT("json"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed terminal reason is rejected"), [](FJsonObject& CaseObject)
+	{
+		TSharedPtr<FJsonObject> Expected = CaseObject.GetObjectField(TEXT("expected"));
+		Expected->SetStringField(TEXT("status"), TEXT("malformed"));
+		Expected->RemoveField(TEXT("json"));
+		Expected->SetNumberField(TEXT("reason_code"), 1.0);
+	});
+
+	AssertFixtureCaseRejected(*this, TEXT("fractional chunk length is rejected"), [](FJsonObject& CaseObject)
+	{
+		SetSingleChunkPlan(CaseObject, 1.5);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("unsafe chunk length is rejected"), [](FJsonObject& CaseObject)
+	{
+		SetSingleChunkPlan(CaseObject, 9007199254740992.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed all_split_points is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.SetStringField(TEXT("all_split_points"), TEXT("true"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed declared length is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("declared_body_length"), TEXT("2"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("wrong-typed complete json is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetStringField(TEXT("json"), TEXT("{}"));
+	});
+	AssertFixtureCaseRejected(*this, TEXT("fractional declared length is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 1.5);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("unsafe declared length is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 9007199254740992.0);
+	});
+	AssertFixtureCaseRejected(*this, TEXT("int64 rounding hazard is rejected"), [](FJsonObject& CaseObject)
+	{
+		CaseObject.GetObjectField(TEXT("expected"))->SetNumberField(TEXT("declared_body_length"), 9223372036854775808.0);
+	});
+
+	auto AssertRootRejected = [this](const TCHAR* Name, double Version)
+	{
+		TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("version"), Version);
+		Root->SetArrayField(TEXT("cases"), {});
+		FString Error;
+		TestFalse(Name, TryValidateFixtureRoot(Root, Error));
+		TestFalse(*FString::Printf(TEXT("%s reports a schema error"), Name), Error.IsEmpty());
+	};
+	AssertRootRejected(TEXT("fractional fixture version is rejected"), 1.5);
+	AssertRootRejected(TEXT("unsafe fixture version is rejected"), 9007199254740992.0);
+	AssertRootRejected(TEXT("non-finite fixture version is rejected"), std::numeric_limits<double>::infinity());
+
+	AddInfo(TEXT("fixture_schema_negative_cases=30 fixture_schema_positive_cases=3 root_numeric_negative_cases=3"));
 	return true;
 }
 
@@ -937,6 +1324,84 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 		{
 			AssertCompleteInvalidJsonRejected(*this, StrictCase.Name, StrictCase.Body);
 		}
+	}
+
+#if PLATFORM_WINDOWS
+	{
+		struct FSurrogateEscapeCase
+		{
+			const TCHAR* Name;
+			const TCHAR* Body;
+			TArray<uint16> ExpectedCodeUnits;
+		};
+		const TArray<FSurrogateEscapeCase> EscapeCases = {
+			{TEXT("paired-surrogate-escape"), TEXT("{\"x\":\"\\uD83D\\uDE00\"}"), {0xd83d, 0xde00}},
+			{TEXT("lone-surrogate-escape"), TEXT("{\"x\":\"\\uD800\"}"), {0xd800}}
+		};
+		for (const FSurrogateEscapeCase& EscapeCase : EscapeCases)
+		{
+			const TArray<uint8> Body = MakeAsciiBytes(EscapeCase.Body);
+			for (const bool bFramed : {false, true})
+			{
+				TArray<uint8> Request;
+				if (bFramed)
+				{
+					Request = MakeFramingHeader(Body.Num());
+				}
+				Request.Append(Body);
+				const FString Label = FString::Printf(TEXT("%s/%s"), EscapeCase.Name,
+					bFramed ? TEXT("framed") : TEXT("legacy"));
+
+				TSharedPtr<FJsonObject> RetainedObject;
+				int32 ParseCount = 0;
+				{
+					FMCPRequestDecoder Decoder;
+					const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+					TestTrue(*FString::Printf(TEXT("%s completes with an object"), *Label),
+						Snapshot.Status == EMCPDecodeStatus::Complete && Snapshot.Object.IsValid());
+					RetainedObject = Snapshot.Object;
+					ParseCount = Decoder.GetJsonParseCountForTests();
+				}
+				TestEqual(*FString::Printf(TEXT("%s parses exactly once"), *Label), ParseCount, 1);
+				TestTrue(*FString::Printf(TEXT("%s object survives decoder destruction"), *Label),
+					RetainedObject.IsValid());
+				if (RetainedObject.IsValid())
+				{
+					const FString Value = RetainedObject->GetStringField(TEXT("x"));
+					TestEqual(*FString::Printf(TEXT("%s TCHAR length"), *Label),
+						Value.Len(), EscapeCase.ExpectedCodeUnits.Num());
+					for (int32 Index = 0; Index < FMath::Min(Value.Len(), EscapeCase.ExpectedCodeUnits.Num()); ++Index)
+					{
+						TestEqual(*FString::Printf(TEXT("%s TCHAR code unit %d"), *Label, Index),
+							static_cast<uint16>(Value[Index]), EscapeCase.ExpectedCodeUnits[Index]);
+					}
+				}
+				RetainedObject.Reset();
+				TestFalse(*FString::Printf(TEXT("%s retained object releases cleanly"), *Label),
+					RetainedObject.IsValid());
+			}
+		}
+	}
+#endif
+
+	{
+		constexpr int32 DeepJsonDepth = 5000;
+		const TArray<uint8> Body = MakeDeepNestedJsonBody(DeepJsonDepth);
+		TSharedPtr<FJsonObject> RetainedObject;
+		int32 ParseCount = 0;
+		{
+			FMCPRequestDecoder Decoder;
+			const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Body.GetData(), Body.Num());
+			TestTrue(TEXT("depth-5000 alternating object/array JSON completes"),
+				Snapshot.Status == EMCPDecodeStatus::Complete && Snapshot.Object.IsValid());
+			RetainedObject = Snapshot.Object;
+			ParseCount = Decoder.GetJsonParseCountForTests();
+		}
+		TestEqual(TEXT("depth-5000 JSON parses exactly once"), ParseCount, 1);
+		TestTrue(TEXT("depth-5000 JSON object survives decoder destruction"), RetainedObject.IsValid());
+		RetainedObject.Reset();
+		TestFalse(TEXT("depth-5000 JSON object graph releases cleanly"), RetainedObject.IsValid());
+		AddInfo(FString::Printf(TEXT("deep_json_depth=%d deep_json_bytes=%d"), DeepJsonDepth, Body.Num()));
 	}
 
 	{
