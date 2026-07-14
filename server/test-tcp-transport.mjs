@@ -2572,6 +2572,17 @@ const receiveBranchesEnd = nativePolicySource.indexOf('#endif', fallbackReceiveS
 const windowsReceiveSource = nativePolicySource.slice(windowsReceiveStart, unixReceiveStart);
 const unixReceiveSource = nativePolicySource.slice(unixReceiveStart, fallbackReceiveStart);
 const fallbackReceiveSource = nativePolicySource.slice(fallbackReceiveStart, receiveBranchesEnd);
+function hasClearRecvCaptureOrdering(source, clearToken, captureToken) {
+  const receiveMatches = findDirectRecvMemberCalls(source);
+  const clearPositions = findExactCodePositions(receiveMatches.code, clearToken);
+  const capturePositions = findExactCodePositions(receiveMatches.code, captureToken);
+  return clearPositions.length === 1
+    && receiveMatches.count === 1
+    && capturePositions.length === 1
+    && clearPositions[0] < receiveMatches.positions[0]
+    && receiveMatches.positions[0] < capturePositions[0];
+}
+
 runner.assert(receiveFunctionStart >= 0
   && windowsReceiveStart > receiveFunctionStart
   && unixReceiveStart > windowsReceiveStart
@@ -2581,14 +2592,15 @@ runner.assert(receiveFunctionStart >= 0
   && countDirectRecvMemberCalls(unixReceiveSource) === 1
   && countDirectRecvMemberCalls(fallbackReceiveSource) === 1,
 'source guard: each platform branch contains exactly one receive call');
-runner.assert(windowsReceiveSource.indexOf('WSASetLastError(0)')
-    < windowsReceiveSource.indexOf('Socket->Recv(')
-  && windowsReceiveSource.indexOf('Socket->Recv(')
-    < windowsReceiveSource.indexOf('WSAGetLastError()')
-  && unixReceiveSource.indexOf('errno = 0')
-    < unixReceiveSource.indexOf('Socket->Recv(')
-  && unixReceiveSource.indexOf('Socket->Recv(')
-    < unixReceiveSource.indexOf('const int32 NativeErrorCode = errno'),
+runner.assert(hasClearRecvCaptureOrdering(
+  windowsReceiveSource,
+  'WSASetLastError(0)',
+  'WSAGetLastError()',
+) && hasClearRecvCaptureOrdering(
+  unixReceiveSource,
+  'errno = 0',
+  'const int32 NativeErrorCode = errno',
+),
 'source guard: native error clear, receive, and capture ordering is explicit');
 runner.assert(!nativePolicySource.includes('GetConnectionState'),
   'source guard: receive classification never uses GetConnectionState');
@@ -2615,14 +2627,86 @@ function isCppDecimalDigit(char) {
   return typeof char === 'string' && /^[0-9]$/.test(char);
 }
 
+function cppPhase2SpliceLength(source, startIndex) {
+  if (source[startIndex] !== '\\') return 0;
+  if (source[startIndex + 1] === '\r' && source[startIndex + 2] === '\n') return 3;
+  if (source[startIndex + 1] === '\n' || source[startIndex + 1] === '\r') return 2;
+  return 0;
+}
+
+function cppPreviousLogicalIndex(source, startIndex) {
+  let cursor = startIndex;
+  while (cursor > 0) {
+    if (source[cursor - 1] === '\n') {
+      if (cursor >= 3 && source[cursor - 2] === '\r' && source[cursor - 3] === '\\') {
+        cursor -= 3;
+        continue;
+      }
+      if (cursor >= 2 && source[cursor - 2] === '\\') {
+        cursor -= 2;
+        continue;
+      }
+    } else if (source[cursor - 1] === '\r'
+      && cursor >= 2
+      && source[cursor - 2] === '\\') {
+      cursor -= 2;
+      continue;
+    }
+    return cursor - 1;
+  }
+  return -1;
+}
+
 function cppRawStringEnd(source, startIndex) {
-  const match = source.slice(startIndex).match(/^(?:u8|u|U|L)?R"([^\s()\\]{0,16})\(/);
-  if (!match || (startIndex > 0 && isCppIdentifierChar(source[startIndex - 1]))) {
+  const previousLogicalIndex = cppPreviousLogicalIndex(source, startIndex);
+  if (previousLogicalIndex >= 0 && isCppIdentifierChar(source[previousLogicalIndex])) {
     return -1;
   }
 
-  const closingToken = `)${match[1]}"`;
-  const contentStart = startIndex + match[0].length;
+  const logicalChars = [];
+  const logicalToOriginal = [];
+  let originalIndex = startIndex;
+  const readLogicalChar = () => {
+    while (originalIndex < source.length) {
+      const spliceLength = cppPhase2SpliceLength(source, originalIndex);
+      if (spliceLength > 0) {
+        originalIndex += spliceLength;
+        continue;
+      }
+      logicalChars.push(source[originalIndex]);
+      logicalToOriginal.push(originalIndex);
+      originalIndex += 1;
+      return logicalChars[logicalChars.length - 1];
+    }
+    return null;
+  };
+
+  const first = readLogicalChar();
+  if (first === 'u') {
+    const second = readLogicalChar();
+    if (second === '8') {
+      if (readLogicalChar() !== 'R') return -1;
+    } else if (second !== 'R') {
+      return -1;
+    }
+  } else if (first === 'U' || first === 'L') {
+    if (readLogicalChar() !== 'R') return -1;
+  } else if (first !== 'R') {
+    return -1;
+  }
+
+  if (readLogicalChar() !== '"') return -1;
+  const delimiterStart = logicalChars.length;
+  while (true) {
+    const char = readLogicalChar();
+    if (char === null) return -1;
+    if (char === '(') break;
+    if (logicalChars.length - delimiterStart > 16 || /[\s()\\]/.test(char)) return -1;
+  }
+
+  const delimiter = logicalChars.slice(delimiterStart, -1).join('');
+  const closingToken = `)${delimiter}"`;
+  const contentStart = logicalToOriginal[logicalToOriginal.length - 1] + 1;
   const closingIndex = source.indexOf(closingToken, contentStart);
   return closingIndex >= 0 ? closingIndex + closingToken.length : source.length;
 }
@@ -2737,17 +2821,10 @@ function cppCodeView(source) {
 
   let index = 0;
   while (index < initiallyMasked.length) {
-    if (initiallyMasked[index] === '\\') {
-      if (initiallyMasked[index + 1] === '\r'
-        && initiallyMasked[index + 2] === '\n') {
-        index += 3;
-        continue;
-      }
-      if (initiallyMasked[index + 1] === '\n'
-        || initiallyMasked[index + 1] === '\r') {
-        index += 2;
-        continue;
-      }
+    const spliceLength = cppPhase2SpliceLength(initiallyMasked, index);
+    if (spliceLength > 0) {
+      index += spliceLength;
+      continue;
     }
 
     normalizedChars.push(initiallyMasked[index]);
@@ -2788,15 +2865,40 @@ runner.assert(maskedCppFixture.length === cppMaskFixture.length
   ].every((token) => !maskedCppFixture.includes(token)),
 'source guard scanner: code view preserves surviving positions and removes comments/literals');
 
-function countDirectRecvMemberCalls(source) {
-  const { code } = cppCodeView(source);
+function findDirectRecvMemberCalls(source) {
+  const codeView = cppCodeView(source);
   const directMemberCall = /(?:->|\.)\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*)\s*::\s*)*Recv\s*\(/g;
-  return (code.match(directMemberCall) ?? []).length;
+  const positions = [...codeView.code.matchAll(directMemberCall)].map((match) => (
+    match.index + match[0].lastIndexOf('Recv')
+  ));
+  return {
+    code: codeView.code,
+    count: positions.length,
+    positions,
+  };
+}
+
+function findExactCodePositions(code, token) {
+  const positions = [];
+  let searchIndex = 0;
+  while (searchIndex <= code.length - token.length) {
+    const position = code.indexOf(token, searchIndex);
+    if (position < 0) break;
+    positions.push(position);
+    searchIndex = position + Math.max(1, token.length);
+  }
+  return positions;
+}
+
+function countDirectRecvMemberCalls(source) {
+  return findDirectRecvMemberCalls(source).count;
 }
 
 function hasDirectRecvMemberCall(source) {
   return countDirectRecvMemberCalls(source) > 0;
 }
+
+const cppPhase2Splice = (lineEnding) => `\\${lineEnding}`;
 
 runner.assert(countDirectRecvMemberCalls(nativeRunnableSource) === 0,
   'source guard: MCPServerRunnable normalized code contains no direct qualified/unqualified arrow/dot Recv call');
@@ -2839,6 +2941,30 @@ const spliceFormedCommentFixture = [
 ].join('\n');
 runner.assert(!hasDirectRecvMemberCall(spliceFormedCommentFixture),
   'source guard mutation: splice-formed comments hide direct Recv text');
+const spliceFormedRawReceiveFixture = (
+  `R${cppPhase2Splice('\n')}"tag(" harmless)tag"; Socket->Recv(Buffer, BufferSize, BytesRead);`
+);
+runner.assert(countDirectRecvMemberCalls(spliceFormedRawReceiveFixture) === 1,
+  'source guard mutation: splice-formed raw literal hides harmless text before one real Recv');
+const commentSpoofedReceiveOrderingFixture = [
+  'WSASetLastError(0);',
+  '// Socket->Recv(Buffer, BufferSize, BytesRead);',
+  'const int32 NativeErrorCode = WSAGetLastError();',
+  'Attempt.bSucceeded = Socket->FSocket::Recv(Buffer, BufferSize, BytesRead);',
+].join('\n');
+runner.assert(!hasClearRecvCaptureOrdering(
+  commentSpoofedReceiveOrderingFixture,
+  'WSASetLastError(0)',
+  'WSAGetLastError()',
+), 'source guard mutation: comment-spoofed Recv cannot hide actual receive after capture');
+const qualifiedSplicedOrderingFixtures = ['\n', '\r\n', '\r'].map((lineEnding) => ([
+  'errno = 0;',
+  `Attempt.bSucceeded = Socket->FSocket::Re${cppPhase2Splice(lineEnding)}cv(Buffer, BufferSize, BytesRead);`,
+  'const int32 NativeErrorCode = errno;',
+].join('\n')));
+runner.assert(qualifiedSplicedOrderingFixtures.every((source) => (
+  hasClearRecvCaptureOrdering(source, 'errno = 0', 'const int32 NativeErrorCode = errno')
+)), 'source guard mutation: qualified LF/CRLF/CR-spliced Recv orders between clear and capture');
 runner.assert(!nativeRunnableSource.includes('failed to send response'),
   'source guard: caller-level generic response-send warning is retired');
 runner.assert((nativeRunnableSource.match(/\bReadOneRequest\s*\(/g) ?? []).length === 1
@@ -3004,6 +3130,23 @@ const pseudoLogInvocations = extractBalancedLogInvocations(`
 `);
 runner.assert(pseudoLogInvocations.length === 0,
   'source guard mutation: comment/literal pseudo-log macros are ignored');
+
+const spliceFormedRawLogFixture = (
+  `R${cppPhase2Splice('\n')}"tag(" UEMCP_WARN("%s", *SerializedResponse))tag";`
+);
+runner.assert(extractBalancedLogInvocations(spliceFormedRawLogFixture).length === 0,
+  'source guard mutation: splice-formed raw literal hides payload-shaped log text');
+
+const encodedSpliceRawLiteralFixtures = [
+  `u${cppPhase2Splice('\n')}8R${cppPhase2Splice('\r')}"tag(" Socket->Recv(Buffer, BufferSize, BytesRead); UEMCP_WARN("%s", *SerializedResponse))tag";`,
+  `u${cppPhase2Splice('\r\n')}R"tag(" Socket->Recv(Buffer, BufferSize, BytesRead); UEMCP_WARN("%s", *SerializedResponse))tag";`,
+  `U${cppPhase2Splice('\r')}R"tag(" Socket->Recv(Buffer, BufferSize, BytesRead); UEMCP_WARN("%s", *SerializedResponse))tag";`,
+  `L${cppPhase2Splice('\n')}R"tag(" Socket->Recv(Buffer, BufferSize, BytesRead); UEMCP_WARN("%s", *SerializedResponse))tag";`,
+];
+runner.assert(encodedSpliceRawLiteralFixtures.every((source) => (
+  countDirectRecvMemberCalls(source) === 0
+  && extractBalancedLogInvocations(source).length === 0
+)), 'source guard mutation: spliced u8R/uR/UR/LR raw prefixes keep contents non-code');
 
 const splicedPayloadLogFixtures = ['\n', '\r\n', '\r'].map((lineEnding) => (
   `UEMCP_\\${lineEnding}WARN("payload=%s", *SerializedResponse);`
