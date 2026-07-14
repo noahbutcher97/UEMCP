@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { readFile } from 'node:fs/promises';
-import { types } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { ConnectionManager } from './connection-manager.mjs';
 import { discoverLiveSmokeScripts } from './run-live-smoke.mjs';
 import { TestRunner } from './test-helpers.mjs';
@@ -3575,6 +3575,10 @@ const expectedLiveFaultProbeContracts = [
 ];
 const expectedLiveFaultProbeIds = expectedLiveFaultProbeContracts.map((probe) => probe.id);
 
+function probeContractsEqual(actual, expected) {
+  return isDeepStrictEqual(actual, expected);
+}
+
 let liveTcpSmokeSource = '';
 let liveTcpSmokeModule = null;
 let liveTcpSmokeLoadError = null;
@@ -3624,7 +3628,8 @@ runner.assert(createLogCursorSourceStart >= 0
   && createLogCursorSource.includes('async function createLogCursor(logPath)')
   && createLogCursorSource.includes('const initialStat = await fileHandle.stat()')
   && createLogCursorSource.includes('const afterAnchorStat = await fileHandle.stat()')
-  && createLogCursorSource.includes('cursor.observedSize = Math.max(')
+  && createLogCursorSource.includes('observeLogHighWater(cursor, afterAnchorStat)')
+  && createLogCursorSource.includes('observeLogHighWater(cursor, afterPathStat)')
   && liveTcpSmokeSource.includes('const cursor = await createLogCursor(logPath);'),
 'live fault smoke records offset, anchor, and observed high-water from one opened log handle');
 runner.assert(expectedLiveFaultProbeIds.every((probeId) => liveTcpSmokeSource.includes(probeId)),
@@ -3638,10 +3643,12 @@ runner.assert(liveTcpSmokeSource.includes('beforeSegment')
   && liveTcpSmokeSource.includes('extractTcpEventLines'),
 'live fault smoke separates stabilized before/after probe log segments');
 runner.assert(liveTcpSmokeSource.includes('assertNoDelayedTcpEvents(beforeSegment, probe.id)')
-  && liveTcpSmokeSource.includes('assertNoPayloadLeak([beforeSegment, afterSegment])')
+  && liveTcpSmokeSource.includes('assertNoPayloadLeak([beforeSegment])')
+  && liveTcpSmokeSource.includes('assertNoPayloadLeak([afterSegment])')
+  && liveTcpSmokeSource.includes('assertNoPayloadLeak([finalSegment])')
   && liveTcpSmokeSource.includes('assertNoTokenlessTransportWarnings(beforeSegment')
   && liveTcpSmokeSource.includes('assertNoTokenlessTransportWarnings(afterSegment'),
-'live fault smoke rejects delayed prior events and leak-checks each captured probe segment');
+'live fault smoke immediately leak-checks every committed probe and final-tail segment');
 runner.assert(liveTcpSmokeSource.includes("assertNoDelayedTcpEvents(finalSegment, 'final tail')")
   && liveTcpSmokeSource.includes("assertNoTokenlessTransportWarnings(finalSegment, 'final tail')"),
 'live fault smoke rejects delayed exact events and tokenless transport warnings in the final tail');
@@ -3656,15 +3663,22 @@ const stableSegmentSource = liveTcpSmokeSource.slice(
 );
 runner.assert(stableSegmentSourceStart >= 0
   && stableSegmentSourceEnd > stableSegmentSourceStart
-  && stableSegmentSource.includes('transportEvidenceFingerprint(preview)')
+  && stableSegmentSource.includes('await ingestAppendedLogBytes(logPath, cursor, currentStat)')
+  && stableSegmentSource.includes('transportEvidenceFingerprint(cursor.pendingText)')
+  && stableSegmentSource.includes('commitPendingLogSegment(logPath, cursor)')
+  && !stableSegmentSource.includes('previewCursor')
   && !stableSegmentSource.includes('previousSize')
   && !stableSegmentSource.includes('previousMtimeMs'),
-'live fault smoke stabilizes on transport evidence rather than total log metadata');
+'live fault smoke persists high-water and pending evidence while stabilizing without suffix rereads');
 runner.assert(liveTcpSmokeSource.includes("new TextDecoder('utf-8', { fatal: true })")
-  && liveTcpSmokeSource.includes('while (bytesRead < byteCount)')
+  && liveTcpSmokeSource.includes('const LOG_READ_CHUNK_BYTES = 64 * 1024;')
+  && liveTcpSmokeSource.includes('const LOG_SEGMENT_MAX_BYTES = 4 * 1024 * 1024;')
+  && liveTcpSmokeSource.includes('Buffer.allocUnsafe(LOG_READ_CHUNK_BYTES)')
+  && liveTcpSmokeSource.includes('appendDecodedLogBytes(cursor,')
+  && !liveTcpSmokeSource.includes('Buffer.alloc(byteCount)')
   && liveTcpSmokeSource.includes('const afterReadStat = await stat(logPath)')
   && liveTcpSmokeSource.includes('validateLogContinuation(cursor, afterReadStat)'),
-'live fault smoke strictly decodes complete appended bytes and revalidates log identity after reads');
+'live fault smoke incrementally consumes bounded chunks with strict UTF-8 and post-read identity checks');
 runner.assert(liveTcpSmokeSource.includes('UEMCP_SECRET_PAYLOAD_SENTINEL')
   && liveTcpSmokeSource.includes('assertNoPayloadLeak')
   && liveTcpSmokeSource.includes('for (const segment of segments)'),
@@ -3728,6 +3742,9 @@ const requiredLiveSmokeHelpers = [
   'decodeCompleteUtf8Prefix',
   'buildOversizedDeclarationProbeBytes',
   'assertIncompleteFirstResponseChunk',
+  'observeLogHighWater',
+  'appendDecodedLogBytes',
+  'commitLogEvidence',
 ];
 runner.assert(liveTcpSmokeModule !== null && requiredLiveSmokeHelpers.every(
   (name) => liveTcpSmokeModule[name] !== undefined,
@@ -3749,10 +3766,18 @@ if (liveTcpSmokeModule !== null) {
     decodeCompleteUtf8Prefix,
     buildOversizedDeclarationProbeBytes,
     assertIncompleteFirstResponseChunk,
+    observeLogHighWater,
+    appendDecodedLogBytes,
+    commitLogEvidence,
   } = liveTcpSmokeModule;
 
-  runner.assert(JSON.stringify(TCP_FAULT_PROBES) === JSON.stringify(expectedLiveFaultProbeContracts),
+  runner.assert(probeContractsEqual(TCP_FAULT_PROBES, expectedLiveFaultProbeContracts),
     'live fault helper independently pins probe order, event ownership, warning counts, and reset metadata');
+  const reorderedProbeContracts = expectedLiveFaultProbeContracts.map((probe) => (
+    Object.fromEntries(Object.entries(probe).reverse())
+  ));
+  runner.assert(probeContractsEqual(TCP_FAULT_PROBES, reorderedProbeContracts),
+    'live fault probe contract comparison ignores object property insertion order');
 
   const derivedLogPath = resolveProjectLogPath('D:/GenericProject', ['GenericProject.uproject']);
   runner.assert(derivedLogPath.replaceAll('\\', '/').endsWith('/Saved/Logs/GenericProject.log'),
@@ -3813,6 +3838,26 @@ if (liveTcpSmokeModule !== null) {
     /truncat|size|regress/i,
     'live fault log helper rejects size regression below its observed high-water mark',
   );
+  const persistentObservationCursor = {
+    dev: 7,
+    ino: 11,
+    birthtimeMs: 100,
+    mtimeMs: 200,
+    offset: 16,
+    readOffset: 16,
+    observedSize: 16,
+  };
+  runner.assert(observeLogHighWater?.(persistentObservationCursor, {
+    dev: 7, ino: 11, birthtimeMs: 100, mtimeMs: 201, size: 48,
+  }) === persistentObservationCursor && persistentObservationCursor.observedSize === 48,
+  'live fault preview observation persists the file-size high-water on the shared cursor');
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => observeLogHighWater?.(persistentObservationCursor, {
+      dev: 7, ino: 11, birthtimeMs: 100, mtimeMs: 202, size: 32,
+    })),
+    /high-water|regress|truncat/i,
+    'live fault persistent preview high-water rejects later truncate and regrow below 48 bytes',
+  );
   const stableAnchor = Buffer.from('stable original log tail', 'utf8');
   runner.assert(assertMatchingLogAnchor?.(stableAnchor, Buffer.from(stableAnchor)) === true,
     'live fault log helper accepts an unchanged original-tail byte anchor');
@@ -3838,6 +3883,135 @@ if (liveTcpSmokeModule !== null) {
     )),
     /encoded data|utf-?8|decode/i,
     'live fault log decoder rejects malformed UTF-8 instead of hiding it as an incomplete tail',
+  );
+
+  const streamingCursor = {
+    offset: 100,
+    readOffset: 100,
+    pendingByteCount: 0,
+    pendingText: '',
+    pendingUtf8: Buffer.alloc(0),
+  };
+  const utf8LinePrefix = Buffer.concat([
+    Buffer.from('LogUEMCP: Display: value=', 'ascii'),
+    Buffer.from([0xe2, 0x82]),
+  ]);
+  runner.assert(appendDecodedLogBytes?.(streamingCursor, utf8LinePrefix, {
+    maxSegmentBytes: 128,
+  }) === streamingCursor
+    && streamingCursor.readOffset === 100 + utf8LinePrefix.length
+    && streamingCursor.pendingByteCount === utf8LinePrefix.length
+    && streamingCursor.pendingUtf8.equals(Buffer.from([0xe2, 0x82]))
+    && streamingCursor.pendingText === 'LogUEMCP: Display: value=',
+  'live fault bounded intake retains a split UTF-8 suffix without skipping read bytes');
+  const utf8LineSuffix = Buffer.from([0xac, 0x0a]);
+  runner.assert(appendDecodedLogBytes?.(streamingCursor, utf8LineSuffix, {
+    maxSegmentBytes: 128,
+  }) === streamingCursor
+    && streamingCursor.pendingUtf8.length === 0
+    && streamingCursor.pendingText.endsWith('value=€\n')
+    && streamingCursor.pendingByteCount === utf8LinePrefix.length + utf8LineSuffix.length,
+  'live fault bounded intake completes strict UTF-8 across chunks and retains the full line');
+
+  const boundedCursor = {
+    offset: 0,
+    readOffset: 0,
+    pendingByteCount: 0,
+    pendingText: '',
+    pendingUtf8: Buffer.alloc(0),
+  };
+  appendDecodedLogBytes?.(boundedCursor, Buffer.from('1234', 'ascii'), { maxSegmentBytes: 4 });
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => appendDecodedLogBytes?.(
+      boundedCursor, Buffer.from('5', 'ascii'), { maxSegmentBytes: 4 },
+    )),
+    /bounded|limit|maximum|segment/i,
+    'live fault bounded intake fails explicitly before an appended segment exceeds its byte cap',
+  );
+  runner.assert(boundedCursor.readOffset === 4 && boundedCursor.pendingByteCount === 4,
+    'live fault bounded intake does not advance or skip the rejected overflow byte');
+
+  const malformedStreamingCursor = {
+    offset: 0,
+    readOffset: 0,
+    pendingByteCount: 0,
+    pendingText: '',
+    pendingUtf8: Buffer.alloc(0),
+  };
+  appendDecodedLogBytes?.(malformedStreamingCursor, Buffer.from([0xe2]), {
+    maxSegmentBytes: 8,
+  });
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => appendDecodedLogBytes?.(
+      malformedStreamingCursor, Buffer.from('x', 'ascii'), { maxSegmentBytes: 8 },
+    )),
+    /encoding|utf-8|invalid/i,
+    'live fault bounded intake rejects malformed UTF-8 across a chunk boundary',
+  );
+  runner.assert(malformedStreamingCursor.readOffset === 1
+    && malformedStreamingCursor.pendingByteCount === 1
+    && malformedStreamingCursor.pendingText === ''
+    && malformedStreamingCursor.pendingUtf8.equals(Buffer.from([0xe2])),
+  'live fault malformed UTF-8 rejection preserves the uncommitted cursor without skipping bytes');
+
+  const committedBoundary = streamingCursor.readOffset;
+  const committedAnchor = Buffer.alloc(Math.min(256, committedBoundary), 0x61);
+  const committedText = commitLogEvidence?.(streamingCursor, {
+    boundaryOffset: committedBoundary,
+    mtimeMs: 205,
+    anchorOffset: committedBoundary - committedAnchor.length,
+    anchorBytes: committedAnchor,
+  });
+  runner.assert(committedText?.endsWith('value=€\n')
+    && streamingCursor.offset === committedBoundary
+    && streamingCursor.readOffset === committedBoundary
+    && streamingCursor.anchorOffset === committedBoundary - committedAnchor.length
+    && streamingCursor.anchorBytes.equals(committedAnchor)
+    && streamingCursor.pendingByteCount === 0
+    && streamingCursor.pendingText === ''
+    && streamingCursor.pendingUtf8.length === 0,
+  'live fault commit rolls the integrity anchor to the committed cursor boundary and clears evidence');
+
+  const observedTailCursor = {
+    offset: 0,
+    readOffset: 5,
+    observedSize: 8,
+    pendingByteCount: 5,
+    pendingText: 'line\n',
+    pendingUtf8: Buffer.alloc(0),
+  };
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => commitLogEvidence?.(observedTailCursor, {
+      boundaryOffset: 5,
+      mtimeMs: 1,
+      anchorOffset: 0,
+      anchorBytes: Buffer.alloc(5),
+    })),
+    /high-water|observed|uninspected/i,
+    'live fault commit rejects a boundary that would leave observed log bytes uninspected',
+  );
+  runner.assert(observedTailCursor.offset === 0
+    && observedTailCursor.readOffset === 5
+    && observedTailCursor.pendingByteCount === 5
+    && observedTailCursor.pendingText === 'line\n',
+  'live fault rejected commit preserves all pending evidence for the next bounded intake');
+
+  const incompleteLineCursor = {
+    offset: 0,
+    readOffset: 7,
+    pendingByteCount: 7,
+    pendingText: 'partial',
+    pendingUtf8: Buffer.alloc(0),
+  };
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => commitLogEvidence?.(incompleteLineCursor, {
+      boundaryOffset: 7,
+      mtimeMs: 1,
+      anchorOffset: 0,
+      anchorBytes: Buffer.alloc(7),
+    })),
+    /complete log line|newline|incomplete/i,
+    'live fault commit fails explicitly instead of splitting an uninspected log line',
   );
 
   const eventLines = extractTcpEventLines([
@@ -4030,6 +4204,8 @@ if (liveTcpSmokeModule !== null) {
       'LogHttp: Display: Content-Length: 128',
       'LogBlueprint: Display: response={"status":"success"}',
       'LogTemp: Display: request_preview={"type":"ping"}',
+      'LogHttp: Warning: {"type":"ping"}',
+      'LogBlueprint: Warning: {"status":"error","message":"bad"}',
     ]);
   } catch (error) {
     unrelatedLeakAcceptance = error;
@@ -4116,7 +4292,9 @@ if (liveTcpSmokeModule !== null) {
   }
   for (const [index, leakLine] of [
     'LogUEMCP: Warning: rejected envelope {"type":"ping","params":{}}',
+    'LogUEMCP: Warning: {"type":"ping"}',
     'LogUEMCP: Warning: {"status":"error","code":"MALFORMED_REQUEST"}',
+    'LogUEMCP: Warning: {"status":"error","message":"bad"}',
     'LogUEMCP: Warning: response_json={"status":"success","result":{"graph_count":1}}',
   ].entries()) {
     let rejection = null;
