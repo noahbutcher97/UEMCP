@@ -1078,6 +1078,13 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(TEXT("invalid_bom"));
 			return;
 		}
+		if (RootOffset >= Body.Num())
+		{
+			SetMalformed(TEXT("invalid_json"));
+			return;
+		}
+		const uint8 RootToken = Body[RootOffset];
+		const bool bScalarCandidate = RootToken != '{' && RootToken != '[';
 		if (!Private::IsStrictUtf8(Body.GetData(), Body.Num()))
 		{
 			SetMalformed(TEXT("invalid_utf8"));
@@ -1098,9 +1105,12 @@ struct FMCPRequestDecoder::FImpl
 			const FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Body.GetData() + BodyOffset), JsonBytes);
 			JsonText = FString(Converter.Length(), Converter.Get());
 		}
+		const FString TextToParse = bScalarCandidate
+			? FString::Printf(TEXT("[%s]"), *JsonText)
+			: JsonText;
 		++JsonParseCount;
 		TSharedPtr<FJsonValue> RootValue;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(TextToParse);
 		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid();
 		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
 		if (!bUnrealParsed || bHasNonFiniteNumber)
@@ -1108,14 +1118,30 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(TEXT("invalid_json"));
 			return;
 		}
-		if (RootValue->Type != EJson::Object || !RootValue->AsObject().IsValid())
+		if (bScalarCandidate)
+		{
+			if (RootValue->Type != EJson::Array || RootValue->AsArray().Num() != 1)
+			{
+				SetMalformed(TEXT("invalid_json"));
+				return;
+			}
+			SetMalformed(TEXT("root_not_object"));
+			return;
+		}
+		if (RootToken == '[')
 		{
 			SetMalformed(TEXT("root_not_object"));
 			return;
 		}
+		const TSharedPtr<FJsonObject> RootObject = RootValue->AsObject();
+		if (!RootObject.IsValid())
+		{
+			SetMalformed(TEXT("invalid_json"));
+			return;
+		}
 
 		Snapshot.Status = EMCPDecodeStatus::Complete;
-		Snapshot.Object = RootValue->AsObject();
+		Snapshot.Object = RootObject;
 		Snapshot.ReasonCode.Reset();
 	}
 

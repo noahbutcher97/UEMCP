@@ -1441,7 +1441,7 @@ runner.assert(responsePlans(
   runner.assert(snapshot.reasonCode === 'invalid_json',
     'completed invalid JSON candidate is classified accurately');
   runner.assert(injectedParseCount === 1 && sameJson(decoder.debugStatsForTests(), {
-    legacyBytesScanned: 6, bodyAssemblyCount: 1, jsonParseCount: 1,
+    legacyBytesScanned: 9, bodyAssemblyCount: 1, jsonParseCount: 1,
   }), 'completed invalid JSON candidate assembles and parses exactly once');
 }
 
@@ -1453,7 +1453,7 @@ runner.assert(responsePlans(
       return JSON.parse(text);
     },
   });
-  const snapshot = decoder.consume(Buffer.from('Content-Length: 6\r\n\r\n{"x":}', 'ascii'));
+  const snapshot = decoder.consume(Buffer.from('Content-Length: 9\r\n\r\n{"x":tru}', 'ascii'));
   runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
     && sameJson(decoder.debugStatsForTests(), {
       legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
@@ -2790,6 +2790,17 @@ runner.assert(!nativePolicySource.includes('GetConnectionState'),
 const finalizationStart = nativePolicySource.indexOf('\n\tvoid FinalizeBody()');
 const finalizationEnd = nativePolicySource.indexOf('\n\tFMCPDecoderPolicy Policy;', finalizationStart);
 const finalizationSource = nativePolicySource.slice(finalizationStart, finalizationEnd);
+const rootTokenIndex = finalizationSource.indexOf(
+  "const uint8 RootToken = Body[RootOffset];",
+);
+const scalarCandidateIndex = finalizationSource.indexOf(
+  "const bool bScalarCandidate = RootToken != '{' && RootToken != '[';",
+);
+const scalarWrapperIndex = finalizationSource.indexOf(
+  'const FString TextToParse = bScalarCandidate',
+);
+const deserializeIndex = finalizationSource.indexOf('FJsonSerializer::Deserialize');
+const scalarClassificationIndex = finalizationSource.indexOf('if (bScalarCandidate)');
 const retiredStrictJsonSymbols = [
   'ValidateStrictJsonDocument',
   'EStrictJsonRootKind',
@@ -2806,8 +2817,13 @@ runner.assert(finalizationStart >= 0
   && finalizationEnd > finalizationStart
   && (finalizationSource.match(/FJsonSerializer::Deserialize/g) ?? []).length === 1
   && (finalizationSource.match(/\+\+JsonParseCount/g) ?? []).length === 1
+  && rootTokenIndex >= 0
+  && scalarCandidateIndex > rootTokenIndex
+  && scalarWrapperIndex > scalarCandidateIndex
+  && deserializeIndex > scalarWrapperIndex
+  && scalarClassificationIndex > deserializeIndex
   && retiredStrictJsonSymbols.every((symbol) => !nativePolicySource.includes(symbol)),
-'source guard: finalization has one authoritative Unreal parse and no handwritten JSON grammar');
+'source guard: finalization has one authoritative Unreal parse with scalar wrapper classification');
 
 const retiredRunnableSymbols = [
   'TryParseAccumulated',

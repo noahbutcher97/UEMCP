@@ -1608,7 +1608,7 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 
 	{
 		FMCPRequestDecoder Decoder;
-		TArray<uint8> Request = MakeAsciiBytes(TEXT("Content-Length: 6\r\n\r\n{\"x\":}"));
+		TArray<uint8> Request = MakeAsciiBytes(TEXT("Content-Length: 9\r\n\r\n{\"x\":tru}"));
 		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
 		TestTrue(TEXT("complete invalid framed object is malformed invalid_json"),
 			Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("invalid_json"));
@@ -1631,6 +1631,16 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("complete framed scalar is rejected as root_not_object"),
 			Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("root_not_object"));
 		TestEqual(TEXT("complete framed scalar invokes the object parser exactly once"),
+			Decoder.GetJsonParseCountForTests(), 1);
+	}
+
+	{
+		FMCPRequestDecoder Decoder;
+		TArray<uint8> Request = MakeAsciiBytes(TEXT("Content-Length: 3\r\n\r\ntru"));
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+		TestTrue(TEXT("malformed framed scalar-like text is rejected as invalid_json"),
+			Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("invalid_json"));
+		TestEqual(TEXT("malformed framed scalar-like text parses exactly once"),
 			Decoder.GetJsonParseCountForTests(), 1);
 	}
 
