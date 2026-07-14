@@ -3729,6 +3729,11 @@ runner.assert(liveTcpSmokeSource.includes('UEMCP_SECRET_PAYLOAD_SENTINEL')
   && liveTcpSmokeSource.includes('assertNoPayloadLeak')
   && liveTcpSmokeSource.includes('for (const segment of segments)'),
 'live fault smoke checks every appended segment for sentinel and raw previews');
+runner.assert(liveTcpSmokeSource.includes('function scanJsonObjectCandidates(')
+  && liveTcpSmokeSource.includes('for (const candidate of scanJsonObjectCandidates(message))')
+  && !liveTcpSmokeSource.includes('function parseJsonObjectCandidate(')
+  && !liveTcpSmokeSource.includes("const start = message.indexOf('{');"),
+'live fault payload classifier scans every balanced JSON object instead of stopping at the first');
 runner.assert((liveTcpSmokeSource.match(/resetAndDestroy\(\)/g) ?? []).length >= 2,
   'live fault smoke resets the partial request and first AnimGraph response chunk');
 const closePeerSourceStart = liveTcpSmokeSource.indexOf('function closePeer(');
@@ -4280,10 +4285,18 @@ if (liveTcpSmokeModule !== null) {
       + 'body_bytes=100 payload_bytes=100',
   ]) === true, 'live fault leak helper permits response byte, status, and code metadata');
   let nestedMetricsAcceptance = null;
+  const escapedBraceMetrics = JSON.stringify({
+    type: 'counter',
+    note: 'quoted "{not an object}" and escaped \\ path',
+  });
   try {
     nestedMetricsAcceptance = assertNoPayloadLeak([
       'LogUEMCP: Display: metrics={"status":"ready","queue_depth":0}',
       'LogUEMCP: Display: metrics={"type":"counter","value":1}',
+      'LogUEMCP: Display: health={"status":"healthy","message":"ok"}',
+      'LogUEMCP: Display: health={"status":"error","error_count":2,"message_count":0}',
+      'LogUEMCP: Display: metrics={"status":"success","result_count":4}',
+      `LogUEMCP: Display: metrics=${escapedBraceMetrics}`,
     ]);
   } catch (error) {
     nestedMetricsAcceptance = error;
@@ -4404,6 +4417,14 @@ if (liveTcpSmokeModule !== null) {
     'LogUEMCP: Warning: Content-Length: 15 metrics={"type":"counter"}',
     'LogUEMCP: Warning: diagnostics envelope {"type":"ping"}',
     'LogUEMCP: Warning: request metadata={"type":"ping"}',
+    'LogUEMCP: Warning: raw={"type":"counter"}',
+    'LogUEMCP: Warning: data={"status":"healthy","message":"wire body"}',
+    'LogUEMCP: Warning: content={"type":"counter"}',
+    'LogUEMCP: Warning: metrics={"type":"ping"}',
+    'LogUEMCP: Warning: metrics={"type":"get_anim_graph"}',
+    'LogUEMCP: Warning: metrics={"type":"counter","params":{}}',
+    `LogUEMCP: Warning: metrics=${escapedBraceMetrics} next={"type":"ping"}`,
+    'LogUEMCP: Warning: metrics={"type":"counter"} data={"status":"healthy","message":"wire body"}',
     'LogUEMCP: Warning: response_json={"status":"success","result":{"graph_count":1}}',
   ].entries()) {
     let rejection = null;

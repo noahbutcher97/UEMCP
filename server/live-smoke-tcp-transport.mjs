@@ -278,14 +278,14 @@ export function assertNoDelayedTcpEvents(segment, probeId) {
   return true;
 }
 
-function parseJsonObjectCandidate(message) {
-  const start = message.indexOf('{');
-  if (start < 0) return null;
-
+function scanJsonObjectCandidates(message) {
+  const candidates = [];
+  let candidateStart = -1;
+  let contextStart = 0;
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let index = start; index < message.length; index += 1) {
+  for (let index = 0; index < message.length; index += 1) {
     const char = message[index];
     if (inString) {
       if (escaped) escaped = false;
@@ -296,52 +296,80 @@ function parseJsonObjectCandidate(message) {
     if (char === '"') {
       inString = true;
     } else if (char === '{') {
+      if (depth === 0) candidateStart = index;
       depth += 1;
-    } else if (char === '}') {
+    } else if (char === '}' && depth > 0) {
       depth -= 1;
-      if (depth === 0) {
-        const source = message.slice(start, index + 1);
+      if (depth === 0 && candidateStart >= 0) {
+        const source = message.slice(candidateStart, index + 1);
+        let value = null;
         try {
-          const value = JSON.parse(source);
-          return { prefix: message.slice(0, start), value };
+          value = JSON.parse(source);
         } catch {
-          return { prefix: message.slice(0, start), value: null };
+          value = null;
         }
+        candidates.push({
+          prefix: message.slice(contextStart, candidateStart),
+          value,
+        });
+        contextStart = index + 1;
+        candidateStart = -1;
       }
     }
   }
-  return { prefix: message.slice(0, start), value: null };
+  return candidates;
 }
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-function isEnvelopeObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  if (hasOwn(value, 'type')) return true;
-  return hasOwn(value, 'status')
+function isJsonObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function anyJsonObject(value, predicate) {
+  if (Array.isArray(value)) return value.some((entry) => anyJsonObject(entry, predicate));
+  if (!isJsonObject(value)) return false;
+  if (predicate(value)) return true;
+  return Object.values(value).some((entry) => anyJsonObject(entry, predicate));
+}
+
+function isLiveRequestShape(value) {
+  if (hasOwn(value, 'params')) return true;
+  if (typeof value.type !== 'string') return false;
+  const requestType = value.type.toLowerCase();
+  return requestType === 'ping' || requestType === 'get_anim_graph';
+}
+
+function isCanonicalResponseShape(value) {
+  if (typeof value.status !== 'string') return false;
+  const status = value.status.toLowerCase();
+  return (status === 'success' || status === 'error')
     && ['code', 'error', 'message', 'result'].some((key) => hasOwn(value, key));
 }
 
-function hasEnvelopeOrFramingContext(prefix) {
-  const normalized = prefix.replace(/[_-]+/g, ' ');
-  return /\b(?:body|envelope|frame|framed|framing|json|payload|request|response)\b/i.test(
-    normalized,
-  ) || /\bContent-Length\s*:/i.test(prefix);
+function isTransportShaped(value) {
+  return ['code', 'error', 'message', 'params', 'result', 'status', 'type'].some(
+    (key) => hasOwn(value, key),
+  );
 }
 
-function isNestedNonPayloadAssignment(prefix) {
-  const assignment = /([A-Za-z][A-Za-z0-9_.-]*)\s*[:=]\s*$/.exec(prefix);
-  return assignment !== null && !hasEnvelopeOrFramingContext(prefix);
+function hasExplicitPayloadContext(prefix) {
+  const normalized = prefix.replace(/[_-]+/g, ' ');
+  return /\b(?:body|content|data|envelope|frame|framed|framing|json|payload|preview|raw|request|response|wire)\b/i.test(normalized)
+    || /\bContent-Length\s*:/i.test(prefix);
 }
 
 function hasRawEnvelopeCandidate(message) {
-  const candidate = parseJsonObjectCandidate(message);
-  if (candidate === null) return false;
-  if (isNestedNonPayloadAssignment(candidate.prefix)) return false;
-  if (hasEnvelopeOrFramingContext(candidate.prefix)) return true;
-  return isEnvelopeObject(candidate.value);
+  for (const candidate of scanJsonObjectCandidates(message)) {
+    if (!isJsonObject(candidate.value) && !Array.isArray(candidate.value)) continue;
+    if (anyJsonObject(candidate.value, isLiveRequestShape)) return true;
+    if (anyJsonObject(candidate.value, isCanonicalResponseShape)) return true;
+    if (hasExplicitPayloadContext(candidate.prefix)
+      && anyJsonObject(candidate.value, isTransportShaped)) return true;
+  }
+  return false;
 }
 
 export function assertNoPayloadLeak(segments) {
