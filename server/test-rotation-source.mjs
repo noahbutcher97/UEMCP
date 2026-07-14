@@ -21,4 +21,11 @@ runner.assert(
   'tool-surface helper remains a library and does not emit a 0/0 direct-run summary',
 );
 
+runner.assert(
+  rotationSource.includes("from './rotation-failure-details.mjs'")
+    && rotationSource.includes('extractAssertionFailureDetails(stdout, stderr)')
+    && rotationSource.includes('for (const detail of r.failureDetails)'),
+  'rotation reports bounded assertion details through the shared extractor',
+);
+
 process.exit(runner.summary());
