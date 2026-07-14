@@ -2678,6 +2678,12 @@ for (const [artifactName, source] of [
     && erratum.section.includes('one FJsonSerializer::Deserialize')
     && erratum.section.includes('not the retired handwritten grammar parser'),
   `${artifactName} records the post-approval JSON compatibility erratum`);
+  runner.assert(erratum.count === 1
+    && erratum.section.includes('first response chunk')
+    && erratum.section.includes('kernel send buffering')
+    && erratum.section.includes('final request byte')
+    && erratum.section.includes('tcp_send_failure'),
+  `${artifactName} records the post-approval live send-reset timing erratum`);
 }
 const currentTransportDocs = [
   {
@@ -3951,7 +3957,7 @@ runner.assert(liveTcpSmokeSource.includes('function scanJsonCompositeCandidates(
   && !liveTcpSmokeSource.includes("const start = message.indexOf('{');"),
 'live fault payload classifier preserves assignment context across balanced JSON composites');
 runner.assert((liveTcpSmokeSource.match(/resetAndDestroy\(\)/g) ?? []).length >= 2,
-  'live fault smoke resets the partial request and first AnimGraph response chunk');
+  'live fault smoke resets the partial request and completed AnimGraph request');
 const closePeerSourceStart = liveTcpSmokeSource.indexOf('function closePeer(');
 const closePeerSourceEnd = liveTcpSmokeSource.indexOf('\nfunction assertNoResponse(', closePeerSourceStart);
 const closePeerSource = liveTcpSmokeSource.slice(closePeerSourceStart, closePeerSourceEnd);
@@ -4008,7 +4014,7 @@ const requiredLiveSmokeHelpers = [
   'assertMatchingLogAnchor',
   'decodeCompleteUtf8Prefix',
   'buildOversizedDeclarationProbeBytes',
-  'assertIncompleteFirstResponseChunk',
+  'splitRequestForResetBarrier',
   'observeLogHighWater',
   'appendDecodedLogBytes',
   'commitLogEvidence',
@@ -4035,7 +4041,7 @@ if (liveTcpSmokeModule !== null) {
     assertMatchingLogAnchor,
     decodeCompleteUtf8Prefix,
     buildOversizedDeclarationProbeBytes,
-    assertIncompleteFirstResponseChunk,
+    splitRequestForResetBarrier,
     observeLogHighWater,
     appendDecodedLogBytes,
     commitLogEvidence,
@@ -4711,13 +4717,19 @@ if (liveTcpSmokeModule !== null) {
     && oversizedProbeBytes.length < 64,
   'oversized declaration helper returns only the exact 8 MiB+1 header bytes');
 
-  runner.assert(assertIncompleteFirstResponseChunk?.({ status: 'pending' }) === true,
-    'AnimGraph reset accepts only a decoder-confirmed partial first response chunk');
-  for (const status of ['complete', 'malformed']) {
+  const resetBarrierRequest = Buffer.from('framed-request', 'ascii');
+  const resetBarrier = splitRequestForResetBarrier?.(resetBarrierRequest);
+  runner.assert(Buffer.isBuffer(resetBarrier?.prefix)
+    && Buffer.isBuffer(resetBarrier?.finalByte)
+    && resetBarrier.prefix.equals(resetBarrierRequest.subarray(0, -1))
+    && resetBarrier.finalByte.equals(resetBarrierRequest.subarray(-1))
+    && Buffer.concat([resetBarrier.prefix, resetBarrier.finalByte]).equals(resetBarrierRequest),
+  'AnimGraph reset barrier holds only the final request byte before the peer reset');
+  for (const invalidRequest of [Buffer.alloc(0), Buffer.from('x'), 'not-bytes']) {
     await runner.assertRejects(
-      () => Promise.resolve().then(() => assertIncompleteFirstResponseChunk?.({ status })),
-      /first response chunk|incomplete|outstanding/i,
-      `AnimGraph reset rejects a ${status} first response chunk before reset attribution`,
+      () => Promise.resolve().then(() => splitRequestForResetBarrier?.(invalidRequest)),
+      /request bytes|at least two/i,
+      'AnimGraph reset barrier rejects input that cannot prove a complete request boundary',
     );
   }
 
@@ -4761,9 +4773,12 @@ runner.assert(executeProbeSourceStart >= 0
   && animGraphProbeSource.includes(
     'timeoutMs: deriveSocketProbeTimeoutMs(callerTimeoutMs)',
   )
-  && animGraphProbeSource.includes('resetOnFirstResponseChunk: true')
-  && liveTcpSmokeSource.includes('assertIncompleteFirstResponseChunk(snapshot)'),
-'large AnimGraph reset probe alone uses the derived connection-manager caller timeout budget');
+  && animGraphProbeSource.includes('resetPeerAfterFinalRequestByte(')
+  && animGraphProbeSource.includes('assertNoResponse(observation, probeId)')
+  && liveTcpSmokeSource.includes('splitRequestForResetBarrier(requestBytes)')
+  && !liveTcpSmokeSource.includes('resetOnFirstResponseChunk')
+  && !liveTcpSmokeSource.includes('assertIncompleteFirstResponseChunk'),
+'large AnimGraph reset probe alone uses a final-byte request barrier and the derived timeout budget');
 
 const liveAnimationSmokeSource = await readFile(liveAnimationSmokeUrl, 'utf8');
 const liveAnimationAssetGate = liveAnimationSmokeSource.indexOf(

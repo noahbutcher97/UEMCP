@@ -15,6 +15,8 @@ const TCP_HOST = '127.0.0.1';
 const IDLE_HOLD_MS = 2250;
 const TRICKLE_INTERVAL_MS = 1500;
 const PARTIAL_WRITE_DELAY_MS = 25;
+const RESET_REQUEST_PREFIX_SETTLE_MS = 100;
+const RESET_AFTER_FINAL_BYTE_MS = 0;
 const LOG_FLUSH_MS = 150;
 const LOG_POLL_MS = 50;
 const LOG_EVENT_WAIT_MS = 12500;
@@ -786,17 +788,18 @@ export function buildOversizedDeclarationProbeBytes() {
   return Buffer.from(`Content-Length: ${oversizedLength}\r\n\r\n`, 'ascii');
 }
 
-export function assertIncompleteFirstResponseChunk(snapshot) {
-  if (snapshot?.status !== 'pending') {
-    fail(`first response chunk was ${snapshot?.status || 'unknown'}, not an incomplete frame with outstanding bytes`);
-  }
-  return true;
+export function splitRequestForResetBarrier(requestBytes) {
+  if (!Buffer.isBuffer(requestBytes)) fail('reset barrier request bytes must be a Buffer');
+  if (requestBytes.length < 2) fail('reset barrier request must contain at least two bytes');
+  return {
+    prefix: requestBytes.subarray(0, -1),
+    finalByte: requestBytes.subarray(-1),
+  };
 }
 
 function receiveDecodedResponse(selectedPort, {
   requestBytes = null,
   start = null,
-  resetOnFirstResponseChunk = false,
   timeoutMs = SOCKET_PROBE_TIMEOUT_MS,
 } = {}) {
   return new Promise((resolve, reject) => {
@@ -833,12 +836,6 @@ function receiveDecodedResponse(selectedPort, {
       receivedBytes += chunk.length;
       try {
         const snapshot = decoder.consume(chunk);
-        if (resetOnFirstResponseChunk) {
-          assertIncompleteFirstResponseChunk(snapshot);
-          socket.resetAndDestroy();
-          finish(null, null);
-          return;
-        }
         if (snapshot.status === 'malformed') {
           finish(new Error(`response decoder rejected ${snapshot.reasonCode}`));
         } else if (snapshot.status === 'complete') {
@@ -857,6 +854,56 @@ function receiveDecodedResponse(selectedPort, {
       if (settled) return;
       const snapshot = decoder.finish();
       finish(new Error(`response closed before completion: ${snapshot.reasonCode}`));
+    });
+    socket.on('error', (error) => finish(error));
+  });
+}
+
+function resetPeerAfterFinalRequestByte(selectedPort, requestBytes, {
+  timeoutMs = SOCKET_PROBE_TIMEOUT_MS,
+} = {}) {
+  // Let the server settle on an incomplete frame, then complete and reset it before dispatch can reply.
+  const { prefix, finalByte } = splitRequestForResetBarrier(requestBytes);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: TCP_HOST, port: selectedPort });
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error('response-reset probe timed out')), timeoutMs);
+
+    const finish = (error, observation = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!socket.destroyed) socket.destroy();
+      if (error) reject(error);
+      else resolve(observation);
+    };
+    const writeBytes = (bytes) => new Promise((writeResolve, writeReject) => {
+      socket.write(bytes, (error) => (error ? writeReject(error) : writeResolve()));
+    });
+
+    socket.setNoDelay(true);
+    socket.on('connect', async () => {
+      try {
+        await writeBytes(prefix);
+        await sleep(RESET_REQUEST_PREFIX_SETTLE_MS);
+        await writeBytes(finalByte);
+        await sleep(RESET_AFTER_FINAL_BYTE_MS);
+        socket.resetAndDestroy();
+        finish(null, {
+          response: null,
+          receivedBytes: 0,
+          requestBytes: requestBytes.length,
+        });
+      } catch (error) {
+        finish(error);
+      }
+    });
+    socket.on('data', (chunk) => {
+      finish(new Error(`response began before reset barrier completed (${chunk.length} bytes)`));
+    });
+    socket.on('end', () => finish(new Error('peer ended before reset barrier completed')));
+    socket.on('close', () => {
+      if (!settled) finish(new Error('peer closed before reset barrier completed'));
     });
     socket.on('error', (error) => finish(error));
   });
@@ -1044,13 +1091,11 @@ async function executeProbe(probeId, { selectedPort, animBlueprintPath, callerTi
       include_pin_topology: true,
       include_pin_defaults: true,
     });
-    const observation = await receiveDecodedResponse(selectedPort, {
-      requestBytes,
-      resetOnFirstResponseChunk: true,
+    const observation = await resetPeerAfterFinalRequestByte(selectedPort, requestBytes, {
       timeoutMs: deriveSocketProbeTimeoutMs(callerTimeoutMs),
     });
-    if (observation.receivedBytes <= 0) fail(`${probeId} received no response chunk before reset`);
-    return `response_chunks=1 received_bytes=${observation.receivedBytes}`;
+    assertNoResponse(observation, probeId);
+    return `request_bytes=${observation.requestBytes} response_bytes=0`;
   }
   case '15-final-framed-ping': {
     const { response } = await receiveDecodedResponse(selectedPort, {

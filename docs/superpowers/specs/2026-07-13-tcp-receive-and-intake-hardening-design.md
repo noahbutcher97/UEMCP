@@ -575,6 +575,8 @@ This records implementation evidence discovered after approval; it does not rewr
 
 The accepted implementation therefore retains one FJsonSerializer::Deserialize call for each parser-eligible completed candidate and adds a bounded lexical compatibility guard for those documented permissive forms, with uniform rejection of a comma before either closer. It preserves escape, number, nesting, and DOM materialization in Unreal. The guard is not the retired handwritten grammar parser; it is a small platform-compatibility rejection layer required for Node parity. Shared fixtures retain `{"x":}` as the known differential and separately cover a parser-invalid object, raw NUL in a string, a case-variant literal, and an array trailing comma.
 
+Live execution on 2026-07-14 also invalidated probe 14's first response chunk timing premise. On Windows loopback, kernel send buffering could accept the complete 1.21 MB AnimGraph response before Node observed its first chunk, so resetting at that point produced no `tcp_send_failure`. The corrected fixture holds the final request byte after the request prefix has settled, sends that byte, and resets on the next timer turn. This makes the server await request completion before dispatch while placing the reset ahead of response transmission; the log contract still requires exactly one payload-free `tcp_send_failure` and a successful final ping.
+
 ## Evidence And References
 
 - `plugin/UEMCP/Source/UEMCP/Private/MCPServerRunnable.cpp` contains the current receive loop, loose framing parser, timeout, and duplicate send warning.
