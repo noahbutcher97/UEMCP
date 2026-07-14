@@ -2609,8 +2609,174 @@ const retiredRunnableSymbols = [
 ];
 runner.assert(retiredRunnableSymbols.every((symbol) => !nativeRunnableSource.includes(symbol)),
   'source guard: runnable retires accumulator parser helpers and coordination flags');
-runner.assert(!/->\s*Recv\s*\(/.test(nativeRunnableSource),
-  'source guard: runnable contains no direct receive call through any pointer name');
+
+const isCppIdentifierChar = (char) => (
+  typeof char === 'string' && /^[A-Za-z0-9_]$/.test(char)
+);
+const isCppDecimalDigit = (char) => (
+  typeof char === 'string' && /^[0-9]$/.test(char)
+);
+
+function cppRawStringEnd(source, startIndex) {
+  const match = source.slice(startIndex).match(/^(?:u8|u|U|L)?R"([^\s()\\]{0,16})\(/);
+  if (!match || (startIndex > 0 && isCppIdentifierChar(source[startIndex - 1]))) {
+    return -1;
+  }
+
+  const closingToken = `)${match[1]}"`;
+  const contentStart = startIndex + match[0].length;
+  const closingIndex = source.indexOf(closingToken, contentStart);
+  return closingIndex >= 0 ? closingIndex + closingToken.length : source.length;
+}
+
+function cppQuotedLiteralStart(source, startIndex) {
+  const match = source.slice(startIndex).match(/^(?:u8|u|U|L)?(["'])/);
+  if (!match) return null;
+  if (match[0].length > 1
+    && startIndex > 0
+    && isCppIdentifierChar(source[startIndex - 1])) {
+    return null;
+  }
+  return { openingLength: match[0].length, quote: match[1] };
+}
+
+function cppNumberEnd(source, startIndex) {
+  const startsWithDigit = isCppDecimalDigit(source[startIndex]);
+  const startsWithDecimalPoint = source[startIndex] === '.'
+    && isCppDecimalDigit(source[startIndex + 1]);
+  if (!startsWithDigit && !startsWithDecimalPoint) return -1;
+
+  let endIndex = startIndex + 1;
+  while (endIndex < source.length) {
+    const char = source[endIndex];
+    if (isCppIdentifierChar(char) || char === '.'
+      || (char === "'" && isCppIdentifierChar(source[endIndex + 1]))
+      || ((char === '+' || char === '-') && /[eEpP]/.test(source[endIndex - 1]))) {
+      endIndex += 1;
+    } else {
+      break;
+    }
+  }
+  return endIndex;
+}
+
+function maskCppNonCode(source) {
+  const masked = source.split('');
+  const maskRange = (startIndex, endIndex) => {
+    for (let index = startIndex; index < endIndex; index += 1) {
+      if (source[index] !== '\r' && source[index] !== '\n') masked[index] = ' ';
+    }
+  };
+
+  let index = 0;
+  while (index < source.length) {
+    if (source[index] === '/' && source[index + 1] === '/') {
+      let endIndex = index + 2;
+      while (endIndex < source.length) {
+        if (source[endIndex] === '\r' || source[endIndex] === '\n') {
+          const precedingIndex = source[endIndex] === '\n'
+            && source[endIndex - 1] === '\r'
+            ? endIndex - 2
+            : endIndex - 1;
+          if (source[precedingIndex] !== '\\') break;
+        }
+        endIndex += 1;
+      }
+      maskRange(index, endIndex);
+      index = endIndex;
+      continue;
+    }
+
+    if (source[index] === '/' && source[index + 1] === '*') {
+      const closingIndex = source.indexOf('*/', index + 2);
+      const endIndex = closingIndex >= 0 ? closingIndex + 2 : source.length;
+      maskRange(index, endIndex);
+      index = endIndex;
+      continue;
+    }
+
+    const rawStringEnd = cppRawStringEnd(source, index);
+    if (rawStringEnd >= 0) {
+      maskRange(index, rawStringEnd);
+      index = rawStringEnd;
+      continue;
+    }
+
+    const numberEnd = cppNumberEnd(source, index);
+    if (numberEnd >= 0) {
+      index = numberEnd;
+      continue;
+    }
+
+    const quotedLiteral = cppQuotedLiteralStart(source, index);
+    if (quotedLiteral) {
+      let endIndex = index + quotedLiteral.openingLength;
+      while (endIndex < source.length) {
+        if (source[endIndex] === '\\') {
+          endIndex = Math.min(source.length, endIndex + 2);
+        } else if (source[endIndex] === quotedLiteral.quote) {
+          endIndex += 1;
+          break;
+        } else {
+          endIndex += 1;
+        }
+      }
+      maskRange(index, endIndex);
+      index = endIndex;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return masked.join('');
+}
+
+const cppMaskFixture = [
+  'VisibleBefore(); // HiddenLineToken',
+  '/* HiddenBlockToken */',
+  'const TCHAR* Text = TEXT("HiddenStringToken");',
+  'const TCHAR* Raw = TEXT(R"mask(HiddenRawToken)mask");',
+  "const int GroupedNumber = 1'000;",
+  'VisibleAfterNumber();',
+  "const int Character = 'HiddenCharacterToken';",
+  'VisibleAfter();',
+].join('\n');
+const maskedCppFixture = maskCppNonCode(cppMaskFixture);
+runner.assert(maskedCppFixture.length === cppMaskFixture.length
+  && maskedCppFixture.indexOf('VisibleBefore') === cppMaskFixture.indexOf('VisibleBefore')
+  && maskedCppFixture.indexOf('VisibleAfterNumber')
+    === cppMaskFixture.indexOf('VisibleAfterNumber')
+  && maskedCppFixture.indexOf('VisibleAfter') === cppMaskFixture.indexOf('VisibleAfter')
+  && [
+    'HiddenLineToken',
+    'HiddenBlockToken',
+    'HiddenStringToken',
+    'HiddenRawToken',
+    'HiddenCharacterToken',
+  ].every((token) => !maskedCppFixture.includes(token)),
+'source guard scanner: masking preserves code positions and removes comments/literals');
+
+function hasDirectRecvMemberCall(source) {
+  const codeOnly = maskCppNonCode(source);
+  return /(?:->|\.)\s*Recv\s*\(/.test(codeOnly);
+}
+
+runner.assert(!hasDirectRecvMemberCall(nativeRunnableSource),
+  'source guard: MCPServerRunnable code-only tokens contain no direct arrow/dot member call to Recv');
+runner.assert(hasDirectRecvMemberCall('ClientSocket -> Recv(Buffer, BufferSize, BytesRead);'),
+  'source guard mutation: direct arrow Recv member call is detected');
+runner.assert(hasDirectRecvMemberCall('(*ClientSocket) . Recv(Buffer, BufferSize, BytesRead);'),
+  'source guard mutation: direct dot Recv member call is detected');
+runner.assert(!hasDirectRecvMemberCall(`
+  // ClientSocket->Recv(Buffer, BufferSize, BytesRead);
+  /* (*ClientSocket).Recv(Buffer, BufferSize, BytesRead); */
+`), 'source guard mutation: comment-only Recv examples are ignored');
+runner.assert(!hasDirectRecvMemberCall(`
+  const TCHAR* ArrowExample = TEXT("ClientSocket->Recv(Buffer, BufferSize, BytesRead)");
+  const TCHAR* DotExample = TEXT(R"tag((*ClientSocket).Recv(Buffer, BufferSize, BytesRead))tag");
+  const int MultiCharacterExample = '->Recv(';
+`), 'source guard mutation: literal-only Recv examples are ignored');
 runner.assert(!nativeRunnableSource.includes('failed to send response'),
   'source guard: caller-level generic response-send warning is retired');
 runner.assert((nativeRunnableSource.match(/\bReadOneRequest\s*\(/g) ?? []).length === 1
@@ -2700,52 +2866,17 @@ runner.assert(requiredIntakeEvents.every((event) => (
 'source guard: each centralized intake outcome owns exactly one event token');
 
 function extractBalancedLogInvocations(source) {
+  const codeOnly = maskCppNonCode(source);
   const invocations = [];
-  const starts = [...source.matchAll(/\bUEMCP_(?:LOG|WARN|ERROR|VERBOSE)\s*\(/g)];
+  const starts = [...codeOnly.matchAll(/\bUEMCP_(?:LOG|WARN|ERROR|VERBOSE)\s*\(/g)];
   for (const start of starts) {
-    const openIndex = source.indexOf('(', start.index);
+    const openIndex = codeOnly.indexOf('(', start.index);
     let depth = 0;
-    let state = 'code';
-    let escaped = false;
     let endIndex = -1;
-    for (let index = openIndex; index < source.length; index += 1) {
-      const char = source[index];
-      const next = source[index + 1];
-      if (state === 'line-comment') {
-        if (char === '\n') state = 'code';
-        continue;
-      }
-      if (state === 'block-comment') {
-        if (char === '*' && next === '/') {
-          state = 'code';
-          index += 1;
-        }
-        continue;
-      }
-      if (state === 'string' || state === 'character') {
-        if (escaped) {
-          escaped = false;
-        } else if (char === '\\') {
-          escaped = true;
-        } else if ((state === 'string' && char === '"')
-          || (state === 'character' && char === "'")) {
-          state = 'code';
-        }
-        continue;
-      }
-      if (char === '/' && next === '/') {
-        state = 'line-comment';
-        index += 1;
-      } else if (char === '/' && next === '*') {
-        state = 'block-comment';
-        index += 1;
-      } else if (char === '"') {
-        state = 'string';
-      } else if (char === "'") {
-        state = 'character';
-      } else if (char === '(') {
+    for (let index = openIndex; index < codeOnly.length; index += 1) {
+      if (codeOnly[index] === '(') {
         depth += 1;
-      } else if (char === ')') {
+      } else if (codeOnly[index] === ')') {
         depth -= 1;
         if (depth === 0) {
           endIndex = index + 1;
@@ -2755,6 +2886,7 @@ function extractBalancedLogInvocations(source) {
     }
     invocations.push({
       complete: endIndex > openIndex,
+      code: endIndex > openIndex ? codeOnly.slice(start.index, endIndex) : '',
       source: endIndex > openIndex ? source.slice(start.index, endIndex) : '',
     });
   }
@@ -2762,12 +2894,63 @@ function extractBalancedLogInvocations(source) {
 }
 
 const transportLogInvocations = extractBalancedLogInvocations(nativeRunnableSource);
-const payloadBearingLogIdentifier = /\b(?:RequestJson|ResponseJson|SerializedResponse|BodyUtf8|Framed|Bytes|CommandType|Params)\b/;
+const directPayloadLogIdentifier = /\b(?:RequestJson|ResponseJson|SerializedResponse|BodyUtf8|Framed|Bytes|CommandType|Params|Request|Response|RequestObject|ResponseObject)\b/;
+const directPayloadPreviewExpression = /\b(?:ToString|ToJson|Preview)\s*\(|\b(?:Payload|Request|Response|Body|Framed)?Preview\b/;
+
+function invocationDirectlyReferencesPayload(invocation) {
+  if (!invocation.complete) return false;
+  const openIndex = invocation.code.indexOf('(');
+  const argumentCode = invocation.code.slice(openIndex + 1, -1);
+  const withoutSafeFramingMetadata = argumentCode.replace(
+    /\bFramed\s*\.\s*(?:Num|Len)\s*\(\s*\)/g,
+    (match) => ' '.repeat(match.length),
+  );
+  return directPayloadLogIdentifier.test(withoutSafeFramingMetadata)
+    || directPayloadPreviewExpression.test(withoutSafeFramingMetadata);
+}
+
 runner.assert(transportLogInvocations.length > 0
   && transportLogInvocations.every((invocation) => invocation.complete)
   && transportLogInvocations.every((invocation) => (
-    !payloadBearingLogIdentifier.test(invocation.source)
+    !invocationDirectlyReferencesPayload(invocation)
   )),
-  'source guard: complete balanced transport log invocations exclude payload-bearing identifiers');
+  'source guard: code-discovered balanced UEMCP log calls exclude direct payload identifiers and preview expressions');
+
+const pseudoLogInvocations = extractBalancedLogInvocations(`
+  // UEMCP_WARN("%s", *SerializedResponse);
+  const TCHAR* Example = TEXT("UEMCP_LOG(\"%s\", *BodyUtf8)");
+  const TCHAR* RawExample = TEXT(R"tag(UEMCP_VERBOSE("%s", *Framed))tag");
+  const int MultiCharacterExample = 'UEMCP_WARN(';
+`);
+runner.assert(pseudoLogInvocations.length === 0,
+  'source guard mutation: comment/literal pseudo-log macros are ignored');
+
+const directPayloadLogInvocations = [
+  '*SerializedResponse',
+  '*BodyUtf8',
+  'Framed.GetData()',
+  '*RequestJson',
+  '*ResponseJson',
+].flatMap((expression) => extractBalancedLogInvocations(
+  `UEMCP_WARN("payload=%s", ${expression});`,
+));
+runner.assert(directPayloadLogInvocations.length === 5
+  && directPayloadLogInvocations.every(invocationDirectlyReferencesPayload),
+'source guard mutation: direct known payload log arguments are rejected');
+
+const directPreviewLogInvocations = [
+  ...extractBalancedLogInvocations('UEMCP_LOG("preview=%s", *SomeAlias.ToString());'),
+  ...extractBalancedLogInvocations('UEMCP_WARN("preview=%s", *ResponsePreview);'),
+];
+runner.assert(directPreviewLogInvocations.length === 2
+  && directPreviewLogInvocations.every(invocationDirectlyReferencesPayload),
+'source guard mutation: direct ToString and named preview log arguments are rejected');
+
+const safeFramingMetadataInvocations = extractBalancedLogInvocations(
+  'UEMCP_VERBOSE("response_bytes=%d len=%d sent=%d body=%d", Framed.Num(), Framed.Len(), ResponseBytes, BodyLength);',
+);
+runner.assert(safeFramingMetadataInvocations.length === 1
+  && !invocationDirectlyReferencesPayload(safeFramingMetadataInvocations[0]),
+'source guard mutation: Framed Num/Len and byte-count metadata arguments are accepted');
 
 process.exit(runner.summary());
