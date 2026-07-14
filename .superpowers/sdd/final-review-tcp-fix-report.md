@@ -252,3 +252,26 @@ Exit code: `0`; `60` files, `4997 passed / 0 failed / 4997 total`; `4` documente
 
 - The commandlet continued to emit unrelated invalid-workspace source-control diagnostics; they did not affect the seven transport tests.
 - Mac and Linux compile/runtime verification remains unrun.
+
+### Final Reverification
+
+After the final status check, the clean committed worktree was reverified without modifying source:
+
+```powershell
+node test-tcp-transport.mjs
+```
+
+Exit code: `0`; `2068 passed / 0 failed / 2068 total`.
+
+```powershell
+.\sync-plugin.bat "<selected .uproject>" -y
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" <selected editor target> Win64 Development "-Project=<selected .uproject>" -WaitMutex -NoHotReload
+```
+
+Both exit code `0`; the target was already up to date.
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<selected .uproject>" '-ExecCmds=Automation RunTests UEMCP.Transport.;Quit' -unattended -nop4 -NoSourceControl -nosplash -NullRHI -NoSound '-ddc=InstalledNoZenLocalFallback' -stdout -log
+```
+
+Exit code: `0`; found `7` tests; `7 passed / 0 failed`.
