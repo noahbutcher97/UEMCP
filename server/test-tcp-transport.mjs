@@ -2719,14 +2719,14 @@ runner.assert(!/\bconsole\.(?:log|warn|error)|process\.stderr\.write/.test(trans
   'source contains no direct console warning/error or process.stderr.write call');
 
 runner.assert(nativePolicySource.includes('#if PLATFORM_WINDOWS')
-  && nativePolicySource.includes('#elif PLATFORM_UNIX')
+  && (nativePolicySource.match(/#elif PLATFORM_UNIX \|\| PLATFORM_MAC/g) ?? []).length === 2
   && nativePolicySource.includes('#include "Windows/AllowWindowsPlatformTypes.h"')
   && nativePolicySource.includes('THIRD_PARTY_INCLUDES_START')
   && nativePolicySource.includes('#include "WinSock2.h"')
   && nativePolicySource.includes('THIRD_PARTY_INCLUDES_END')
   && nativePolicySource.includes('#include "Windows/HideWindowsPlatformTypes.h"')
   && nativePolicySource.includes('#include <cerrno>'),
-'source guard: native receive error capture has guarded Windows and Unix includes');
+'source guard: native receive error capture has guarded Windows and Unix/Mac includes');
 runner.assert(nativePolicySource.includes('#include "Misc/EngineVersionComparison.h"')
   && nativePolicySource.includes('UE_VERSION_OLDER_THAN(5, 4, 0)')
   && nativePolicySource.includes('PopWithoutShrinking('),
@@ -2745,13 +2745,13 @@ const receiveFunctionStart = nativePolicySource.indexOf(
 const windowsReceiveStart = nativePolicySource.indexOf(
   '#if PLATFORM_WINDOWS', receiveFunctionStart,
 );
-const unixReceiveStart = nativePolicySource.indexOf(
-  '#elif PLATFORM_UNIX', windowsReceiveStart,
+const posixReceiveStart = nativePolicySource.indexOf(
+  '#elif PLATFORM_UNIX || PLATFORM_MAC', windowsReceiveStart,
 );
-const fallbackReceiveStart = nativePolicySource.indexOf('#else', unixReceiveStart);
+const fallbackReceiveStart = nativePolicySource.indexOf('#else', posixReceiveStart);
 const receiveBranchesEnd = nativePolicySource.indexOf('#endif', fallbackReceiveStart);
-const windowsReceiveSource = nativePolicySource.slice(windowsReceiveStart, unixReceiveStart);
-const unixReceiveSource = nativePolicySource.slice(unixReceiveStart, fallbackReceiveStart);
+const windowsReceiveSource = nativePolicySource.slice(windowsReceiveStart, posixReceiveStart);
+const posixReceiveSource = nativePolicySource.slice(posixReceiveStart, fallbackReceiveStart);
 const fallbackReceiveSource = nativePolicySource.slice(fallbackReceiveStart, receiveBranchesEnd);
 function hasClearRecvCaptureOrdering(source, clearToken, captureToken) {
   const receiveMatches = findDirectRecvMemberCalls(source);
@@ -2766,25 +2766,48 @@ function hasClearRecvCaptureOrdering(source, clearToken, captureToken) {
 
 runner.assert(receiveFunctionStart >= 0
   && windowsReceiveStart > receiveFunctionStart
-  && unixReceiveStart > windowsReceiveStart
-  && fallbackReceiveStart > unixReceiveStart
+  && posixReceiveStart > windowsReceiveStart
+  && fallbackReceiveStart > posixReceiveStart
   && receiveBranchesEnd > fallbackReceiveStart
   && countDirectRecvMemberCalls(windowsReceiveSource) === 1
-  && countDirectRecvMemberCalls(unixReceiveSource) === 1
-  && countDirectRecvMemberCalls(fallbackReceiveSource) === 1,
-'source guard: each platform branch contains exactly one receive call');
+  && countDirectRecvMemberCalls(posixReceiveSource) === 1
+  && countDirectRecvMemberCalls(fallbackReceiveSource) === 1
+  && !fallbackReceiveSource.includes('errno'),
+'source guard: Unix and Mac share errno capture without generic fallback');
 runner.assert(hasClearRecvCaptureOrdering(
   windowsReceiveSource,
   'WSASetLastError(0)',
   'WSAGetLastError()',
 ) && hasClearRecvCaptureOrdering(
-  unixReceiveSource,
+  posixReceiveSource,
   'errno = 0',
   'const int32 NativeErrorCode = errno',
 ),
 'source guard: native error clear, receive, and capture ordering is explicit');
 runner.assert(!nativePolicySource.includes('GetConnectionState'),
   'source guard: receive classification never uses GetConnectionState');
+
+const finalizationStart = nativePolicySource.indexOf('\n\tvoid FinalizeBody()');
+const finalizationEnd = nativePolicySource.indexOf('\n\tFMCPDecoderPolicy Policy;', finalizationStart);
+const finalizationSource = nativePolicySource.slice(finalizationStart, finalizationEnd);
+const retiredStrictJsonSymbols = [
+  'ValidateStrictJsonDocument',
+  'EStrictJsonRootKind',
+  'EStrictJsonState',
+  'FStrictJsonFrame',
+  'SkipJsonWhitespace',
+  'IsHexDigit',
+  'ConsumeStrictJsonString',
+  'ConsumeStrictJsonLiteral',
+  'ConsumeStrictJsonNumber',
+  'ConsumeStrictJsonValue',
+];
+runner.assert(finalizationStart >= 0
+  && finalizationEnd > finalizationStart
+  && (finalizationSource.match(/FJsonSerializer::Deserialize/g) ?? []).length === 1
+  && (finalizationSource.match(/\+\+JsonParseCount/g) ?? []).length === 1
+  && retiredStrictJsonSymbols.every((symbol) => !nativePolicySource.includes(symbol)),
+'source guard: finalization has one authoritative Unreal parse and no handwritten JSON grammar');
 
 const retiredRunnableSymbols = [
   'TryParseAccumulated',
