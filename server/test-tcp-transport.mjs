@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { EventEmitter } from 'node:events';
 import {
   appendFile,
   mkdtemp,
@@ -2682,7 +2683,9 @@ for (const [artifactName, source] of [
     && erratum.section.includes('first response chunk')
     && erratum.section.includes('kernel send buffering')
     && erratum.section.includes('final request byte')
-    && erratum.section.includes('tcp_send_failure'),
+    && erratum.section.includes('tcp_send_failure')
+    && erratum.section.includes('verified Windows loopback')
+    && erratum.section.includes('not a platform-independent scheduling guarantee'),
   `${artifactName} records the post-approval live send-reset timing erratum`);
 }
 const currentTransportDocs = [
@@ -3800,6 +3803,13 @@ const expectedLiveFaultProbeContracts = [
     id: '14-animgraph-response-reset',
     expectedEvents: ['event=tcp_send_failure'],
     warningCount: 1,
+    requiredFragments: [
+      'bytesSent=0',
+      'reason=send_error',
+      'socketError=SE_ECONNRESET',
+      'socketCode=26',
+    ],
+    minimumTotalBytes: 65537,
   },
   { id: '15-final-framed-ping', expectedEvents: [], warningCount: 0 },
 ];
@@ -4015,6 +4025,7 @@ const requiredLiveSmokeHelpers = [
   'decodeCompleteUtf8Prefix',
   'buildOversizedDeclarationProbeBytes',
   'splitRequestForResetBarrier',
+  'resetPeerAfterFinalRequestByte',
   'observeLogHighWater',
   'appendDecodedLogBytes',
   'commitLogEvidence',
@@ -4042,6 +4053,7 @@ if (liveTcpSmokeModule !== null) {
     decodeCompleteUtf8Prefix,
     buildOversizedDeclarationProbeBytes,
     splitRequestForResetBarrier,
+    resetPeerAfterFinalRequestByte,
     observeLogHighWater,
     appendDecodedLogBytes,
     commitLogEvidence,
@@ -4357,6 +4369,32 @@ if (liveTcpSmokeModule !== null) {
     expectedEvents: ['event=tcp_intake_malformed'],
     forbiddenEvents: ['event=tcp_intake_socket_error'],
   }, eventLines) === true, 'live fault attribution accepts exactly owned event tokens');
+
+  const animGraphResetProbe = TCP_FAULT_PROBES.find(
+    (probe) => probe.id === '14-animgraph-response-reset',
+  );
+  const completeSendResetEvent = [
+    'LogUEMCP: Warning: event=tcp_send_failure bytesSent=0 totalBytes=1211171 ',
+    'elapsedMs=0.2 reason=send_error socketError=SE_ECONNRESET socketCode=26',
+  ].join('');
+  runner.assert(assertProbeEventContract(animGraphResetProbe, [completeSendResetEvent]) === true,
+    'AnimGraph response-reset attribution requires a zero-byte large-response reset failure');
+  for (const [label, invalidEvent] of [
+    ['partial send', completeSendResetEvent.replace('bytesSent=0', 'bytesSent=1')],
+    ['small response', completeSendResetEvent.replace('totalBytes=1211171', 'totalBytes=65536')],
+    ['timeout reason', completeSendResetEvent.replace('reason=send_error', 'reason=send_timeout')],
+    ['wrong socket error', completeSendResetEvent
+      .replace('socketError=SE_ECONNRESET', 'socketError=SE_ETIMEDOUT')
+      .replace('socketCode=26', 'socketCode=21')],
+  ]) {
+    await runner.assertRejects(
+      () => Promise.resolve().then(() => assertProbeEventContract(
+        animGraphResetProbe, [invalidEvent],
+      )),
+      /required log metadata|totalBytes|minimum|large response/i,
+      `AnimGraph response-reset attribution rejects ${label} metadata`,
+    );
+  }
   await runner.assertRejects(
     () => Promise.resolve().then(() => assertProbeEventContract({
       id: 'duplicate-optional-event',
@@ -4731,6 +4769,127 @@ if (liveTcpSmokeModule !== null) {
       /request bytes|at least two/i,
       'AnimGraph reset barrier rejects input that cannot prove a complete request boundary',
     );
+  }
+
+  if (typeof resetPeerAfterFinalRequestByte === 'function') {
+    function createOrderedResetSocket(events) {
+      const socket = new EventEmitter();
+      socket.destroyed = false;
+      socket.destroyCount = 0;
+      socket.resetCount = 0;
+      socket.writes = [];
+      socket.setNoDelay = (enabled) => events.push(`no-delay:${enabled}`);
+      socket.write = (bytes, callback) => {
+        if (socket.destroyed) {
+          queueMicrotask(() => callback(Object.assign(
+            new Error('socket destroyed'), { code: 'ERR_SOCKET_CLOSED' },
+          )));
+          return false;
+        }
+        const copy = Buffer.from(bytes);
+        socket.writes.push(copy);
+        events.push(`write:${copy.toString('hex')}`);
+        queueMicrotask(() => callback());
+        return true;
+      };
+      socket.resetAndDestroy = () => {
+        events.push('reset');
+        socket.resetCount += 1;
+        socket.destroyed = true;
+      };
+      socket.destroy = () => {
+        events.push('destroy');
+        socket.destroyCount += 1;
+        socket.destroyed = true;
+      };
+      return socket;
+    }
+
+    const orderedEvents = [];
+    const orderedSocket = createOrderedResetSocket(orderedEvents);
+    const orderedObservation = await resetPeerAfterFinalRequestByte(
+      55558,
+      resetBarrierRequest,
+      {
+        timeoutMs: 1000,
+        connect: (options) => {
+          orderedEvents.push(`connect:${options.host}:${options.port}`);
+          queueMicrotask(() => orderedSocket.emit('connect'));
+          return orderedSocket;
+        },
+        wait: async (delayMs) => { orderedEvents.push(`wait:${delayMs}`); },
+      },
+    );
+    const expectedOrderedEvents = [
+      'connect:127.0.0.1:55558',
+      'no-delay:true',
+      `write:${resetBarrier.prefix.toString('hex')}`,
+      'wait:100',
+      `write:${resetBarrier.finalByte.toString('hex')}`,
+      'wait:0',
+      'reset',
+    ];
+    runner.assert(isDeepStrictEqual(orderedEvents, expectedOrderedEvents)
+      && orderedSocket.resetCount === 1
+      && orderedSocket.destroyCount === 0
+      && Buffer.concat(orderedSocket.writes).equals(resetBarrierRequest)
+      && orderedObservation?.response === null
+      && orderedObservation?.receivedBytes === 0
+      && orderedObservation?.requestBytes === resetBarrierRequest.length,
+    'AnimGraph reset helper executes prefix, hold, final byte, timer turn, reset, then settlement');
+
+    const earlyDataEvents = [];
+    const earlyDataSocket = createOrderedResetSocket(earlyDataEvents);
+    let releasePrefixHold;
+    const prefixHold = new Promise((resolve) => { releasePrefixHold = resolve; });
+    const earlyDataPromise = resetPeerAfterFinalRequestByte(
+      55558,
+      resetBarrierRequest,
+      {
+        timeoutMs: 1000,
+        connect: () => {
+          queueMicrotask(() => earlyDataSocket.emit('connect'));
+          return earlyDataSocket;
+        },
+        wait: (delayMs) => (delayMs === 100 ? prefixHold : Promise.resolve()),
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    earlyDataSocket.emit('data', Buffer.alloc(4));
+    await runner.assertRejects(
+      () => earlyDataPromise,
+      /response began before reset barrier completed.*4 bytes/i,
+      'AnimGraph reset helper rejects response data before reset',
+    );
+    earlyDataSocket.emit('end');
+    earlyDataSocket.emit('close');
+    earlyDataSocket.emit('error', new Error('late socket error'));
+    releasePrefixHold();
+    await new Promise((resolve) => setImmediate(resolve));
+    runner.assert(earlyDataSocket.destroyCount === 1
+      && earlyDataSocket.resetCount === 0
+      && earlyDataSocket.writes.length === 1
+      && earlyDataSocket.writes[0].equals(resetBarrier.prefix),
+    'AnimGraph reset helper settles once and cannot continue after pre-reset response data');
+
+    const timeoutEvents = [];
+    const timeoutSocket = createOrderedResetSocket(timeoutEvents);
+    await runner.assertRejects(
+      () => resetPeerAfterFinalRequestByte(
+        55558,
+        resetBarrierRequest,
+        { timeoutMs: 5, connect: () => timeoutSocket, wait: async () => {} },
+      ),
+      /response-reset probe timed out/i,
+      'AnimGraph reset helper times out and rejects when the connection never completes',
+    );
+    timeoutSocket.emit('close');
+    timeoutSocket.emit('error', new Error('late timeout socket error'));
+    runner.assert(timeoutSocket.destroyCount === 1 && timeoutSocket.resetCount === 0,
+      'AnimGraph reset timeout cleans up exactly once');
+  } else {
+    runner.assert(false,
+      'live fault smoke exports executable AnimGraph reset socket ordering for offline tests');
   }
 
   runner.assert(deriveSocketProbeTimeoutMs?.(1) === 15000

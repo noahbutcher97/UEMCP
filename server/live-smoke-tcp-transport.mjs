@@ -17,6 +17,7 @@ const TRICKLE_INTERVAL_MS = 1500;
 const PARTIAL_WRITE_DELAY_MS = 25;
 const RESET_REQUEST_PREFIX_SETTLE_MS = 100;
 const RESET_AFTER_FINAL_BYTE_MS = 0;
+const MIN_LARGE_RESPONSE_BYTES = (64 * 1024) + 1;
 const LOG_FLUSH_MS = 150;
 const LOG_POLL_MS = 50;
 const LOG_EVENT_WAIT_MS = 12500;
@@ -120,6 +121,13 @@ export const TCP_FAULT_PROBES = Object.freeze([
     id: '14-animgraph-response-reset',
     expectedEvents: ['event=tcp_send_failure'],
     warningCount: 1,
+    requiredFragments: [
+      'bytesSent=0',
+      'reason=send_error',
+      'socketError=SE_ECONNRESET',
+      'socketCode=26',
+    ],
+    minimumTotalBytes: MIN_LARGE_RESPONSE_BYTES,
   },
   { id: '15-final-framed-ping', expectedEvents: [], warningCount: 0 },
 ]);
@@ -259,6 +267,18 @@ export function assertProbeEventContract(probe, eventLines) {
   }
   for (const forbidden of probe.forbiddenFragments || []) {
     if (joined.includes(forbidden)) fail(`${probe.id} inherited forbidden log metadata ${forbidden}`);
+  }
+  if (Number.isInteger(probe.minimumTotalBytes)) {
+    const totalByteValues = eventLines.flatMap((line) => (
+      [...line.matchAll(/(?:^|\s)totalBytes=(\d+)(?=\s|$)/g)]
+        .map((match) => Number.parseInt(match[1], 10))
+    ));
+    if (totalByteValues.length !== 1) {
+      fail(`${probe.id} expected exactly one totalBytes value, got ${totalByteValues.length}`);
+    }
+    if (totalByteValues[0] < probe.minimumTotalBytes) {
+      fail(`${probe.id} expected totalBytes minimum ${probe.minimumTotalBytes}, got ${totalByteValues[0]}`);
+    }
   }
   assertWarningCount(probe, eventLines);
   return true;
@@ -859,20 +879,22 @@ function receiveDecodedResponse(selectedPort, {
   });
 }
 
-function resetPeerAfterFinalRequestByte(selectedPort, requestBytes, {
+export function resetPeerAfterFinalRequestByte(selectedPort, requestBytes, {
   timeoutMs = SOCKET_PROBE_TIMEOUT_MS,
+  connect = (options) => net.createConnection(options),
+  wait = sleep,
 } = {}) {
   // Let the server settle on an incomplete frame, then complete and reset it before dispatch can reply.
   const { prefix, finalByte } = splitRequestForResetBarrier(requestBytes);
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: TCP_HOST, port: selectedPort });
+    const socket = connect({ host: TCP_HOST, port: selectedPort });
     let settled = false;
-    const timer = setTimeout(() => finish(new Error('response-reset probe timed out')), timeoutMs);
+    let timer = null;
 
     const finish = (error, observation = null) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
       if (!socket.destroyed) socket.destroy();
       if (error) reject(error);
       else resolve(observation);
@@ -880,14 +902,19 @@ function resetPeerAfterFinalRequestByte(selectedPort, requestBytes, {
     const writeBytes = (bytes) => new Promise((writeResolve, writeReject) => {
       socket.write(bytes, (error) => (error ? writeReject(error) : writeResolve()));
     });
+    timer = setTimeout(() => finish(new Error('response-reset probe timed out')), timeoutMs);
 
     socket.setNoDelay(true);
     socket.on('connect', async () => {
       try {
         await writeBytes(prefix);
-        await sleep(RESET_REQUEST_PREFIX_SETTLE_MS);
+        if (settled) return;
+        await wait(RESET_REQUEST_PREFIX_SETTLE_MS);
+        if (settled) return;
         await writeBytes(finalByte);
-        await sleep(RESET_AFTER_FINAL_BYTE_MS);
+        if (settled) return;
+        await wait(RESET_AFTER_FINAL_BYTE_MS);
+        if (settled) return;
         socket.resetAndDestroy();
         finish(null, {
           response: null,
