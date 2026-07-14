@@ -68,6 +68,7 @@ exit /b %ERRORLEVEL%
   copyFileSync,
   existsSync,
   mkdirSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -87,9 +88,23 @@ const packagePath = packageArg.slice('-Package='.length);
 const pluginPath = pluginArg.slice('-Plugin='.length);
 const engineRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const version = basename(engineRoot).replace(/^UE_/, '');
+let outputLockHeld = null;
+if (process.env.UEMCP_FAKE_PROBE_OUTPUT_LOCK === '1' && version === '5.3') {
+  const outputRoot = dirname(packagePath);
+  const movedRoot = outputRoot + '-rename-probe';
+  outputLockHeld = true;
+  try {
+    renameSync(outputRoot, movedRoot);
+    outputLockHeld = false;
+    renameSync(movedRoot, outputRoot);
+  } catch {
+    // The helper's no-delete-share lease must reject the first rename.
+  }
+  if (!outputLockHeld) process.exit(96);
+}
 appendFileSync(process.env.UEMCP_FAKE_MATRIX_LOG, version + '\\n');
 appendFileSync(process.env.UEMCP_FAKE_ARGUMENT_LOG,
-  JSON.stringify({ version, plugin: pluginPath, package: packagePath, args }) + '\\n');
+  JSON.stringify({ version, plugin: pluginPath, package: packagePath, args, outputLockHeld }) + '\\n');
 console.log('UEMCP_FAKE_STDOUT_CHATTER ' + version);
 console.error('UEMCP_FAKE_STDERR_CHATTER ' + version);
 
@@ -153,6 +168,7 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       UEMCP_FAKE_MATRIX_LOG: invocationLog,
       UEMCP_FAKE_ARGUMENT_LOG: argumentLog,
       UEMCP_FAKE_FAIL_VERSION: '',
+      UEMCP_FAKE_PROBE_OUTPUT_LOCK: '1',
       UEMCP_FAKE_SKIP_FIXTURE_VERSION: '',
       UEMCP_FAKE_WRITE_FILTER: '1',
     };
@@ -181,6 +197,8 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       }),
     'matrix helper invokes UAT with per-run plugin sources staged under its output root',
     JSON.stringify(successArguments));
+    t.assert(successArguments[0]?.outputLockHeld === true,
+      'matrix helper holds a no-delete-share lease on its output root during UAT');
     let results = [];
     try {
       results = JSON.parse(success.stdout);
@@ -351,6 +369,29 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
     } finally {
       await rm(pluginAlias, { recursive: true, force: true });
     }
+
+    const missingParent = join(testRoot, 'missing output parent');
+    const deepOutput = join(missingParent, 'matrix output');
+    await writeFile(invocationLog, '', 'utf8');
+    const deepOutputRun = spawnSync(
+      'powershell.exe',
+      [...baseArgs, '-OutputRoot', deepOutput],
+      { encoding: 'utf8', env: baseEnv, timeout: 120_000 }
+    );
+    t.assert(deepOutputRun.status !== 0
+      && (deepOutputRun.stderr || deepOutputRun.stdout).includes(
+        'OutputRoot must be a new direct child of an existing directory'),
+    'matrix helper rejects an output root with a missing immediate parent');
+    let missingParentExists = true;
+    try {
+      await access(missingParent);
+    } catch {
+      missingParentExists = false;
+    }
+    t.assert(!missingParentExists,
+      'matrix helper creates no intermediate output directories');
+    t.assert((await readLinesIfPresent(invocationLog)).length === 0,
+      'matrix helper invokes no engine when the output parent is missing');
 
     const configDirectory = join(dirname(pluginPath), 'Config');
     const ownedFilter = join(configDirectory, 'FilterPlugin.ini');

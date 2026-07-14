@@ -18,11 +18,32 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
+public sealed class UEMCPPathLease : IDisposable
+{
+    private SafeFileHandle handle;
+    public string FinalPath { get; private set; }
+
+    internal UEMCPPathLease(SafeFileHandle handle, string finalPath)
+    {
+        this.handle = handle;
+        FinalPath = finalPath;
+    }
+
+    public void Dispose()
+    {
+        if (handle != null)
+        {
+            handle.Dispose();
+            handle = null;
+        }
+    }
+}
+
 public static class UEMCPNativePath
 {
+    private const uint FileListDirectory = 0x00000001;
     private const uint FileShareRead = 0x00000001;
     private const uint FileShareWrite = 0x00000002;
-    private const uint FileShareDelete = 0x00000004;
     private const uint OpenExisting = 3;
     private const uint FileFlagBackupSemantics = 0x02000000;
 
@@ -43,48 +64,66 @@ public static class UEMCPNativePath
         uint filePathSize,
         uint flags);
 
-    public static string GetFinalPath(string path)
+    private static string ResolveFinalPath(SafeFileHandle handle, string path)
     {
-        using (SafeFileHandle handle = CreateFile(
-            path,
-            0,
-            FileShareRead | FileShareWrite | FileShareDelete,
-            IntPtr.Zero,
-            OpenExisting,
-            FileFlagBackupSemantics,
-            IntPtr.Zero))
+        StringBuilder buffer = new StringBuilder(512);
+        uint length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+        if (length == 0)
         {
-            if (handle.IsInvalid)
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot open path: " + path);
-            }
-
-            StringBuilder buffer = new StringBuilder(512);
-            uint length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot resolve path: " + path);
+        }
+        if (length >= buffer.Capacity)
+        {
+            buffer = new StringBuilder((int)length + 1);
+            length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
             if (length == 0)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot resolve path: " + path);
             }
-            if (length >= buffer.Capacity)
-            {
-                buffer = new StringBuilder((int)length + 1);
-                length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
-                if (length == 0)
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot resolve path: " + path);
-                }
-            }
+        }
 
-            string result = buffer.ToString();
-            if (result.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
-            {
-                return @"\\" + result.Substring(8);
-            }
-            if (result.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
-            {
-                return result.Substring(4);
-            }
-            return result;
+        string result = buffer.ToString();
+        if (result.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + result.Substring(8);
+        }
+        if (result.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+        {
+            return result.Substring(4);
+        }
+        return result;
+    }
+
+    public static UEMCPPathLease OpenLease(string path)
+    {
+        SafeFileHandle handle = CreateFile(
+            path,
+            FileListDirectory,
+            FileShareRead | FileShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            FileFlagBackupSemantics,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot open path: " + path);
+        }
+        try
+        {
+            return new UEMCPPathLease(handle, ResolveFinalPath(handle, path));
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    public static string GetFinalPath(string path)
+    {
+        using (UEMCPPathLease lease = OpenLease(path))
+        {
+            return lease.FinalPath;
         }
     }
 }
@@ -106,11 +145,25 @@ function Get-CanonicalProspectivePath([string]$Path) {
         $cursor = $parent
     }
 
-    $resolved = [UEMCPNativePath]::GetFinalPath($cursor)
-    while ($suffix.Count -gt 0) {
-        $resolved = Join-Path $resolved $suffix.Pop()
+    if ($suffix.Count -ne 1) {
+        throw "OutputRoot must be a new direct child of an existing directory: $Path"
     }
-    return [IO.Path]::GetFullPath($resolved)
+
+    $lease = [UEMCPNativePath]::OpenLease($cursor)
+    try {
+        $resolved = $lease.FinalPath
+        while ($suffix.Count -gt 0) {
+            $resolved = Join-Path $resolved $suffix.Pop()
+        }
+        return [pscustomobject]@{
+            Path = [IO.Path]::GetFullPath($resolved)
+            Lease = $lease
+        }
+    }
+    catch {
+        $lease.Dispose()
+        throw
+    }
 }
 
 function Get-Sha256Hex([string]$Path) {
@@ -166,73 +219,88 @@ $pluginRoot = [UEMCPNativePath]::GetFinalPath((Split-Path -Parent $pluginPath))
 $pluginPath = Join-Path $pluginRoot $pluginDescriptorName
 
 $epicRootPath = [IO.Path]::GetFullPath($EpicGamesRoot)
-$outputRootPath = Get-CanonicalProspectivePath $OutputRoot
-$pathSeparators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-$pluginRootPrefix = $pluginRoot.TrimEnd($pathSeparators) + [IO.Path]::DirectorySeparatorChar
-if ($outputRootPath.StartsWith($pluginRootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "OutputRoot cannot be inside the plugin source directory: $outputRootPath"
-}
-if (Test-Path -LiteralPath $outputRootPath) {
-    throw "OutputRoot already exists; refusing to let BuildPlugin clear it: $outputRootPath"
-}
-New-Item -ItemType Directory -Path $outputRootPath | Out-Null
-
-$results = [Collections.Generic.List[object]]::new()
-
-foreach ($version in $versions) {
-    $uatPath = Join-Path $epicRootPath "UE_$version\Engine\Build\BatchFiles\RunUAT.bat"
-    if (-not (Test-Path -LiteralPath $uatPath -PathType Leaf)) {
-        throw "RunUAT not found for UE ${version}: $uatPath"
+$outputResolution = Get-CanonicalProspectivePath $OutputRoot
+$outputRootPath = $outputResolution.Path
+$outputRootLease = $null
+try {
+    $pathSeparators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $pluginRootPrefix = $pluginRoot.TrimEnd($pathSeparators) + [IO.Path]::DirectorySeparatorChar
+    if ($outputRootPath.StartsWith($pluginRootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputRoot cannot be inside the plugin source directory: $outputRootPath"
     }
-
-    $packagePath = Join-Path $outputRootPath "UE-$version"
-    if (Test-Path -LiteralPath $packagePath) {
-        throw "Package path unexpectedly exists: $packagePath"
+    if (Test-Path -LiteralPath $outputRootPath) {
+        throw "OutputRoot already exists; refusing to let BuildPlugin clear it: $outputRootPath"
     }
+    New-Item -ItemType Directory -Path $outputRootPath | Out-Null
+    $outputRootLease = [UEMCPNativePath]::OpenLease($outputRootPath)
+}
+finally {
+    $outputResolution.Lease.Dispose()
+}
 
-    $stagedPluginRoot = Join-Path $outputRootPath ".plugin-source-UE-$version"
-    $stagedPluginPath = Join-Path $stagedPluginRoot $pluginDescriptorName
+try {
+    $results = [Collections.Generic.List[object]]::new()
 
-    Copy-PluginSource $pluginRoot $stagedPluginRoot
-    if ($Json) {
-        $savedErrorActionPreference = $ErrorActionPreference
-        try {
-            $ErrorActionPreference = 'Continue'
-            & $uatPath BuildPlugin "-Plugin=$stagedPluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket' 2>&1 |
-                ForEach-Object { [Console]::Error.WriteLine($_) }
+    foreach ($version in $versions) {
+        $uatPath = Join-Path $epicRootPath "UE_$version\Engine\Build\BatchFiles\RunUAT.bat"
+        if (-not (Test-Path -LiteralPath $uatPath -PathType Leaf)) {
+            throw "RunUAT not found for UE ${version}: $uatPath"
+        }
+
+        $packagePath = Join-Path $outputRootPath "UE-$version"
+        if (Test-Path -LiteralPath $packagePath) {
+            throw "Package path unexpectedly exists: $packagePath"
+        }
+
+        $stagedPluginRoot = Join-Path $outputRootPath ".plugin-source-UE-$version"
+        $stagedPluginPath = Join-Path $stagedPluginRoot $pluginDescriptorName
+
+        Copy-PluginSource $pluginRoot $stagedPluginRoot
+        if ($Json) {
+            $savedErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                & $uatPath BuildPlugin "-Plugin=$stagedPluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket' 2>&1 |
+                    ForEach-Object { [Console]::Error.WriteLine($_) }
+                $exitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
+        }
+        else {
+            & $uatPath BuildPlugin "-Plugin=$stagedPluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket'
             $exitCode = $LASTEXITCODE
         }
-        finally {
-            $ErrorActionPreference = $savedErrorActionPreference
+        if ($exitCode -ne 0) {
+            throw "UE $version BuildPlugin failed with exit code $exitCode. Staged source retained at $stagedPluginRoot"
         }
+
+        $fixturePath = Join-Path $packagePath 'Resources\Tests\tcp-transport-cases.json'
+        if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
+            throw "UE $version package omitted TCP transport fixtures: $fixturePath. Staged source retained at $stagedPluginRoot"
+        }
+
+        $results.Add([pscustomobject]@{
+            version = $version
+            exit_code = $exitCode
+            package = $packagePath
+            staged_source = $stagedPluginRoot
+            fixture = $fixturePath
+            fixture_sha256 = Get-Sha256Hex $fixturePath
+        })
+    }
+
+    $resultArray = @($results | ForEach-Object { $_ })
+    if ($Json) {
+        ConvertTo-Json -InputObject $resultArray -Depth 3
     }
     else {
-        & $uatPath BuildPlugin "-Plugin=$stagedPluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket'
-        $exitCode = $LASTEXITCODE
+        $resultArray | Format-Table version, exit_code, package, staged_source, fixture_sha256 -AutoSize
     }
-    if ($exitCode -ne 0) {
-        throw "UE $version BuildPlugin failed with exit code $exitCode. Staged source retained at $stagedPluginRoot"
-    }
-
-    $fixturePath = Join-Path $packagePath 'Resources\Tests\tcp-transport-cases.json'
-    if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
-        throw "UE $version package omitted TCP transport fixtures: $fixturePath. Staged source retained at $stagedPluginRoot"
-    }
-
-    $results.Add([pscustomobject]@{
-        version = $version
-        exit_code = $exitCode
-        package = $packagePath
-        staged_source = $stagedPluginRoot
-        fixture = $fixturePath
-        fixture_sha256 = Get-Sha256Hex $fixturePath
-    })
 }
-
-$resultArray = @($results | ForEach-Object { $_ })
-if ($Json) {
-    ConvertTo-Json -InputObject $resultArray -Depth 3
-}
-else {
-    $resultArray | Format-Table version, exit_code, package, staged_source, fixture_sha256 -AutoSize
+finally {
+    if ($null -ne $outputRootLease) {
+        $outputRootLease.Dispose()
+    }
 }
