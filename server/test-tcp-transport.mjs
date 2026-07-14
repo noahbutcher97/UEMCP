@@ -14,6 +14,10 @@ import {
 const fixtureUrl = new URL('../plugin/UEMCP/Resources/Tests/tcp-transport-cases.json', import.meta.url);
 const transportUrl = new URL('./tcp-transport.mjs', import.meta.url);
 const connectionManagerUrl = new URL('./connection-manager.mjs', import.meta.url);
+const nativePolicySourceUrl = new URL(
+  '../plugin/UEMCP/Source/UEMCP/Private/MCPServerTransportPolicy.cpp',
+  import.meta.url,
+);
 const runner = new TestRunner('TCP transport contract and Node decoder');
 
 const requiredCaseIds = [
@@ -2474,6 +2478,7 @@ const lifecycleFailures = [];
 
 const transportSource = await readFile(transportUrl, 'utf8');
 const connectionManagerSource = await readFile(connectionManagerUrl, 'utf8');
+const nativePolicySource = await readFile(nativePolicySourceUrl, 'utf8');
 const tcpCommandSource = connectionManagerSource.slice(
   connectionManagerSource.indexOf('function tcpCommand('),
   connectionManagerSource.indexOf('// ── HTTP Client'),
@@ -2527,5 +2532,58 @@ runner.assert(sameLineDiagnosticPreviews.length === 0,
   'single-line throw/super expressions contain no direct payload preview expression');
 runner.assert(!/\bconsole\.(?:log|warn|error)|process\.stderr\.write/.test(transportSource),
   'source contains no direct console warning/error or process.stderr.write call');
+
+runner.assert(nativePolicySource.includes('#if PLATFORM_WINDOWS')
+  && nativePolicySource.includes('#elif PLATFORM_UNIX')
+  && nativePolicySource.includes('#include "Windows/AllowWindowsPlatformTypes.h"')
+  && nativePolicySource.includes('THIRD_PARTY_INCLUDES_START')
+  && nativePolicySource.includes('#include "WinSock2.h"')
+  && nativePolicySource.includes('THIRD_PARTY_INCLUDES_END')
+  && nativePolicySource.includes('#include "Windows/HideWindowsPlatformTypes.h"')
+  && nativePolicySource.includes('#include <cerrno>'),
+'source guard: native receive error capture has guarded Windows and Unix includes');
+runner.assert(nativePolicySource.includes('WSASetLastError(0)')
+  && (nativePolicySource.match(/WSAGetLastError\(\)/g) ?? []).length === 1
+  && nativePolicySource.includes('errno = 0')
+  && nativePolicySource.includes('const int32 NativeErrorCode = errno')
+  && nativePolicySource.includes('SocketSubsystem->TranslateErrorCode(NativeErrorCode)'),
+'source guard: native receive errors are cleared, captured, and translated');
+const receiveFunctionStart = nativePolicySource.indexOf(
+  'FMCPReceiveAttempt ReceiveWithCapturedError(',
+);
+const windowsReceiveStart = nativePolicySource.indexOf(
+  '#if PLATFORM_WINDOWS', receiveFunctionStart,
+);
+const unixReceiveStart = nativePolicySource.indexOf(
+  '#elif PLATFORM_UNIX', windowsReceiveStart,
+);
+const fallbackReceiveStart = nativePolicySource.indexOf('#else', unixReceiveStart);
+const receiveBranchesEnd = nativePolicySource.indexOf('#endif', fallbackReceiveStart);
+const windowsReceiveSource = nativePolicySource.slice(windowsReceiveStart, unixReceiveStart);
+const unixReceiveSource = nativePolicySource.slice(unixReceiveStart, fallbackReceiveStart);
+const fallbackReceiveSource = nativePolicySource.slice(fallbackReceiveStart, receiveBranchesEnd);
+const hasOneReceiveCall = (source) => (
+  (source.match(/\bSocket->Recv\s*\(/g) ?? []).length === 1
+);
+runner.assert(receiveFunctionStart >= 0
+  && windowsReceiveStart > receiveFunctionStart
+  && unixReceiveStart > windowsReceiveStart
+  && fallbackReceiveStart > unixReceiveStart
+  && receiveBranchesEnd > fallbackReceiveStart
+  && hasOneReceiveCall(windowsReceiveSource)
+  && hasOneReceiveCall(unixReceiveSource)
+  && hasOneReceiveCall(fallbackReceiveSource),
+'source guard: each platform branch contains exactly one receive call');
+runner.assert(windowsReceiveSource.indexOf('WSASetLastError(0)')
+    < windowsReceiveSource.indexOf('Socket->Recv(')
+  && windowsReceiveSource.indexOf('Socket->Recv(')
+    < windowsReceiveSource.indexOf('WSAGetLastError()')
+  && unixReceiveSource.indexOf('errno = 0')
+    < unixReceiveSource.indexOf('Socket->Recv(')
+  && unixReceiveSource.indexOf('Socket->Recv(')
+    < unixReceiveSource.indexOf('const int32 NativeErrorCode = errno'),
+'source guard: native error clear, receive, and capture ordering is explicit');
+runner.assert(!nativePolicySource.includes('GetConnectionState'),
+  'source guard: receive classification never uses GetConnectionState');
 
 process.exit(runner.summary());
