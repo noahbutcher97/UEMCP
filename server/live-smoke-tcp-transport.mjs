@@ -17,6 +17,7 @@ const PARTIAL_WRITE_DELAY_MS = 25;
 const LOG_FLUSH_MS = 150;
 const LOG_POLL_MS = 50;
 const LOG_EVENT_WAIT_MS = 12500;
+const LOG_ANCHOR_BYTES = 256;
 const SOCKET_PROBE_TIMEOUT_MS = 15000;
 const SOCKET_PROBE_SETTLEMENT_HEADROOM_MS = 250;
 const SECRET_SENTINEL = 'UEMCP_SECRET_PAYLOAD_SENTINEL';
@@ -137,11 +138,14 @@ export function resolveProjectLogPath(projectRoot, uprojectEntries) {
     fail(`expected exactly one top-level .uproject, found ${uprojectEntries?.length ?? 0}`);
   }
   const uprojectPath = join(projectRoot, entryName(uprojectEntries[0]));
-  const projectName = basename(uprojectPath, '.uproject');
+  const projectName = basename(uprojectPath, extname(uprojectPath));
   return join(projectRoot, 'Saved', 'Logs', projectName + '.log');
 }
 
 export function validateLogContinuation(cursor, current) {
+  if (Number.isFinite(cursor.observedSize) && current.size < cursor.observedSize) {
+    fail(`log size regressed below observed high-water mark ${cursor.observedSize}`);
+  }
   if (current.size < cursor.offset) {
     fail(`log truncated below byte offset ${cursor.offset}`);
   }
@@ -261,12 +265,17 @@ export function assertNoPayloadLeak(segments) {
     if (segmentText.includes(SECRET_SENTINEL)) fail('secret sentinel leaked into the appended log');
     for (const line of segmentText.split(/\r?\n/)) {
       if (!/\bLogUEMCP:/i.test(line)) continue;
-      if (/\b(?:(?:raw|preview)[_-]?(?:request|response|body|payload)|(?:request|response|body|payload)[_-]?(?:raw|preview|body|payload))(?:[_-]?(?:raw|preview|body|payload))*\s*=/i.test(line)) {
+      const message = line.slice(line.search(/\bLogUEMCP:/i) + 'LogUEMCP:'.length)
+        .replace(/^\s*(?:Error|Warning|Display|Log|Verbose|VeryVerbose):\s*/i, '');
+      if (/\b(?:(?:raw|preview)[\s_-]*(?:request|response|body|payload)|(?:request|response|body|payload)[\s_-]*(?:raw|preview|body|payload|json|text|content|data|value))(?:[\s_-]*(?:raw|preview|body|payload|json|text|content|data|value))*\s*[:=]/i.test(message)) {
         fail('raw request/response/body preview appeared in the appended log');
       }
-      if (/\b(?:request|response|body|payload)\s*=\s*(?:[\[{"']|Content-Length\s*:)/i.test(line)
-        || /Content-Length\s*:/i.test(line)
-        || /"(?:type|params)"\s*:/.test(line)) {
+      const hasRequestEnvelope = /"type"\s*:/.test(message) && /"params"\s*:/.test(message);
+      const hasBareResponseEnvelope = /^\s*\{/.test(message)
+        && /"status"\s*:/.test(message)
+        && /"(?:code|result)"\s*:/.test(message);
+      if (/\b(?:request|response|body|payload)\s*[:=]\s*\S/i.test(message)
+        || hasRequestEnvelope || hasBareResponseEnvelope) {
         fail('raw request/response/body/payload content appeared in the appended log');
       }
     }
@@ -285,33 +294,105 @@ export function deriveSocketProbeTimeoutMs(callerTimeoutMs) {
   return Math.max(SOCKET_PROBE_TIMEOUT_MS, timeoutMs);
 }
 
+export function assertMatchingLogAnchor(expected, observed) {
+  if (!Buffer.isBuffer(expected) || !Buffer.isBuffer(observed)
+    || expected.length !== observed.length || !expected.equals(observed)) {
+    fail('log anchor changed; log was truncated, rotated, or replaced');
+  }
+  return true;
+}
+
+function completeUtf8PrefixLength(buffer) {
+  if (buffer.length === 0 || buffer[buffer.length - 1] <= 0x7f) return buffer.length;
+
+  let leadIndex = buffer.length - 1;
+  while (leadIndex >= 0 && (buffer[leadIndex] & 0xc0) === 0x80) leadIndex -= 1;
+  if (leadIndex < 0) return buffer.length;
+
+  const lead = buffer[leadIndex];
+  let expectedBytes = 0;
+  if (lead >= 0xc2 && lead <= 0xdf) expectedBytes = 2;
+  else if (lead >= 0xe0 && lead <= 0xef) expectedBytes = 3;
+  else if (lead >= 0xf0 && lead <= 0xf4) expectedBytes = 4;
+  else return buffer.length;
+
+  return buffer.length - leadIndex < expectedBytes ? leadIndex : buffer.length;
+}
+
+export function decodeCompleteUtf8Prefix(buffer) {
+  if (!Buffer.isBuffer(buffer)) fail('appended log bytes must be a Buffer');
+  const bytesConsumed = completeUtf8PrefixLength(buffer);
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, bytesConsumed));
+  return { text, bytesConsumed };
+}
+
+async function readExactRange(fileHandle, position, byteCount, label) {
+  const buffer = Buffer.alloc(byteCount);
+  let bytesRead = 0;
+  while (bytesRead < byteCount) {
+    const result = await fileHandle.read(buffer, bytesRead, byteCount - bytesRead, position + bytesRead);
+    if (result.bytesRead === 0) fail(`short ${label} read: expected ${byteCount}, got ${bytesRead}`);
+    bytesRead += result.bytesRead;
+  }
+  return buffer;
+}
+
+async function createLogCursor(logPath) {
+  let cursor = null;
+  const fileHandle = await open(logPath, 'r');
+  try {
+    const initialStat = await fileHandle.stat();
+    const anchorLength = Math.min(LOG_ANCHOR_BYTES, initialStat.size);
+    cursor = {
+      dev: initialStat.dev,
+      ino: initialStat.ino,
+      birthtimeMs: initialStat.birthtimeMs,
+      mtimeMs: initialStat.mtimeMs,
+      offset: initialStat.size,
+      observedSize: initialStat.size,
+      anchorOffset: initialStat.size - anchorLength,
+      anchorBytes: Buffer.alloc(0),
+    };
+    cursor.anchorBytes = await readExactRange(
+      fileHandle, cursor.anchorOffset, anchorLength, 'initial log anchor',
+    );
+    const afterAnchorStat = await fileHandle.stat();
+    validateLogContinuation(cursor, afterAnchorStat);
+    if (afterAnchorStat.size !== initialStat.size
+      || afterAnchorStat.mtimeMs !== initialStat.mtimeMs) {
+      fail('log changed while recording the initial offset and anchor');
+    }
+    await assertLogAnchorUnchanged(fileHandle, cursor);
+    cursor.observedSize = Math.max(cursor.observedSize, afterAnchorStat.size);
+  } finally {
+    await fileHandle.close();
+  }
+  const afterPathStat = await stat(logPath);
+  validateLogContinuation(cursor, afterPathStat);
+  cursor.observedSize = Math.max(cursor.observedSize, afterPathStat.size);
+  return cursor;
+}
+
+async function assertLogAnchorUnchanged(fileHandle, cursor) {
+  const observed = await readExactRange(
+    fileHandle, cursor.anchorOffset, cursor.anchorBytes.length, 'log anchor',
+  );
+  assertMatchingLogAnchor(cursor.anchorBytes, observed);
+}
+
 async function readAppendedSegment(logPath, cursor, currentStat) {
   validateLogContinuation(cursor, currentStat);
   const byteCount = currentStat.size - cursor.offset;
-  if (byteCount === 0) {
-    cursor.mtimeMs = currentStat.mtimeMs;
-    return '';
-  }
-
-  const buffer = Buffer.alloc(byteCount);
+  let buffer = Buffer.alloc(0);
+  let openStat = null;
   const fileHandle = await open(logPath, 'r');
   try {
-    const openStat = await fileHandle.stat();
+    openStat = await fileHandle.stat();
     validateLogContinuation(cursor, openStat);
     if (openStat.size < currentStat.size) fail('log truncated or rotated during appended read');
-    let bytesRead = 0;
-    while (bytesRead < byteCount) {
-      const readResult = await fileHandle.read(
-        buffer,
-        bytesRead,
-        byteCount - bytesRead,
-        cursor.offset + bytesRead,
-      );
-      if (readResult.bytesRead === 0) {
-        fail(`short appended log read: expected ${byteCount}, got ${bytesRead}`);
-      }
-      bytesRead += readResult.bytesRead;
-    }
+    await assertLogAnchorUnchanged(fileHandle, cursor);
+    buffer = await readExactRange(fileHandle, cursor.offset, byteCount, 'appended log');
+    await assertLogAnchorUnchanged(fileHandle, cursor);
   } finally {
     await fileHandle.close();
   }
@@ -320,9 +401,11 @@ async function readAppendedSegment(logPath, cursor, currentStat) {
   validateLogContinuation(cursor, afterReadStat);
   if (afterReadStat.size < currentStat.size) fail('log truncated during appended read');
 
-  cursor.offset = currentStat.size;
+  const decoded = decodeCompleteUtf8Prefix(buffer);
+  cursor.offset += decoded.bytesConsumed;
   cursor.mtimeMs = currentStat.mtimeMs;
-  return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  cursor.observedSize = Math.max(cursor.observedSize, openStat.size, afterReadStat.size);
+  return decoded.text;
 }
 
 export async function waitForStableAppendedSegment(logPath, cursor, {
@@ -366,6 +449,18 @@ function frameRequest(type, params = {}) {
   return frameBody(Buffer.from(JSON.stringify({ type, params }), 'utf8'));
 }
 
+export function buildOversizedDeclarationProbeBytes() {
+  const oversizedLength = TCP_MAX_REQUEST_BODY_BYTES + 1;
+  return Buffer.from(`Content-Length: ${oversizedLength}\r\n\r\n`, 'ascii');
+}
+
+export function assertIncompleteFirstResponseChunk(snapshot) {
+  if (snapshot?.status !== 'pending') {
+    fail(`first response chunk was ${snapshot?.status || 'unknown'}, not an incomplete frame with outstanding bytes`);
+  }
+  return true;
+}
+
 function receiveDecodedResponse(selectedPort, {
   requestBytes = null,
   start = null,
@@ -404,13 +499,14 @@ function receiveDecodedResponse(selectedPort, {
     });
     socket.on('data', (chunk) => {
       receivedBytes += chunk.length;
-      if (resetOnFirstResponseChunk) {
-        socket.resetAndDestroy();
-        finish(null, null);
-        return;
-      }
       try {
         const snapshot = decoder.consume(chunk);
+        if (resetOnFirstResponseChunk) {
+          assertIncompleteFirstResponseChunk(snapshot);
+          socket.resetAndDestroy();
+          finish(null, null);
+          return;
+        }
         if (snapshot.status === 'malformed') {
           finish(new Error(`response decoder rejected ${snapshot.reasonCode}`));
         } else if (snapshot.status === 'complete') {
@@ -590,9 +686,8 @@ async function executeProbe(probeId, { selectedPort, animBlueprintPath, callerTi
     return 'code=MALFORMED_REQUEST';
   }
   case '11-oversized-declaration': {
-    const oversizedLength = TCP_MAX_REQUEST_BODY_BYTES + 1;
     const { response } = await receiveDecodedResponse(selectedPort, {
-      requestBytes: Buffer.from(`Content-Length: ${oversizedLength}\r\n\r\n`, 'ascii'),
+      requestBytes: buildOversizedDeclarationProbeBytes(),
     });
     assertErrorCode(response, 'REQUEST_TOO_LARGE', probeId);
     return 'code=REQUEST_TOO_LARGE';
@@ -672,16 +767,9 @@ export async function runLiveTcpTransportSmoke() {
     entry.isFile() && extname(entry.name).toLowerCase() === '.uproject'
   ));
   const logPath = resolveProjectLogPath(projectRoot, uprojectEntries);
-  const startLogStat = await stat(logPath);
-  const startLogOffset = startLogStat.size;
-  const startLogTimestampMs = startLogStat.mtimeMs;
-  const cursor = {
-    dev: startLogStat.dev,
-    ino: startLogStat.ino,
-    birthtimeMs: startLogStat.birthtimeMs,
-    mtimeMs: startLogTimestampMs,
-    offset: startLogOffset,
-  };
+  const cursor = await createLogCursor(logPath);
+  const startLogOffset = cursor.offset;
+  const startLogTimestampMs = cursor.mtimeMs;
 
   const selectedPort = smoke.cm.config.tcpPortCustom;
   if (!Number.isInteger(selectedPort) || selectedPort < 1 || selectedPort > 65535) {

@@ -3368,23 +3368,73 @@ runner.assert(safeFramingMetadataInvocations.length === 1
   && !invocationDirectlyReferencesPayload(safeFramingMetadataInvocations[0]),
 'source guard mutation: Framed Num/Len and byte-count metadata arguments are accepted');
 
-const expectedLiveFaultProbeIds = [
-  '01-framed-ping',
-  '02-legacy-ping',
-  '03-empty-close',
-  '04-partial-framed-close',
-  '05-partial-reset',
-  '06-empty-close-after-reset',
-  '07-framed-ping-after-reset',
-  '08-invalid-json-sentinel',
-  '09-invalid-utf8',
-  '10-duplicate-content-length',
-  '11-oversized-declaration',
-  '12-idle-timeout',
-  '13-total-timeout-trickle',
-  '14-animgraph-response-reset',
-  '15-final-framed-ping',
+const expectedLiveFaultProbeContracts = [
+  { id: '01-framed-ping', expectedEvents: [], warningCount: 0 },
+  { id: '02-legacy-ping', expectedEvents: [], warningCount: 0 },
+  {
+    id: '03-empty-close',
+    expectedEvents: [],
+    optionalEvents: ['event=tcp_peer_closed_empty'],
+    warningCount: 0,
+  },
+  {
+    id: '04-partial-framed-close',
+    expectedEvents: ['event=tcp_peer_closed_partial'],
+    warningCount: 1,
+  },
+  {
+    id: '05-partial-reset',
+    expectedEvents: ['event=tcp_intake_socket_error'],
+    warningCount: 1,
+    requiredFragments: ['socketError=SE_ECONNRESET', 'socketCode=26'],
+  },
+  {
+    id: '06-empty-close-after-reset',
+    expectedEvents: [],
+    optionalEvents: ['event=tcp_peer_closed_empty'],
+    warningCount: 0,
+    forbiddenEvents: ['event=tcp_intake_socket_error'],
+    forbiddenFragments: ['SE_ECONNRESET', 'socketCode=26'],
+  },
+  { id: '07-framed-ping-after-reset', expectedEvents: [], warningCount: 0 },
+  {
+    id: '08-invalid-json-sentinel',
+    expectedEvents: ['event=tcp_intake_malformed'],
+    warningCount: 1,
+  },
+  {
+    id: '09-invalid-utf8',
+    expectedEvents: ['event=tcp_intake_malformed'],
+    warningCount: 1,
+  },
+  {
+    id: '10-duplicate-content-length',
+    expectedEvents: ['event=tcp_intake_malformed'],
+    warningCount: 1,
+  },
+  {
+    id: '11-oversized-declaration',
+    expectedEvents: ['event=tcp_intake_too_large'],
+    warningCount: 1,
+  },
+  {
+    id: '12-idle-timeout',
+    expectedEvents: ['event=tcp_intake_idle_timeout'],
+    warningCount: 1,
+  },
+  {
+    id: '13-total-timeout-trickle',
+    expectedEvents: ['event=tcp_intake_total_timeout'],
+    warningCount: 1,
+  },
+  {
+    id: '14-animgraph-response-reset',
+    expectedEvents: ['event=tcp_send_failure'],
+    warningCount: 1,
+  },
+  { id: '15-final-framed-ping', expectedEvents: [], warningCount: 0 },
 ];
+const expectedLiveFaultProbeIds = expectedLiveFaultProbeContracts.map((probe) => probe.id);
 
 let liveTcpSmokeSource = '';
 let liveTcpSmokeModule = null;
@@ -3412,7 +3462,7 @@ runner.assert(liveTcpSmokeSource.includes("from 'node:net'")
 'live fault smoke raw sockets bind only to 127.0.0.1 and the selected connection-manager port');
 runner.assert(liveTcpSmokeSource.includes("readdir(projectRoot, { withFileTypes: true })")
   && liveTcpSmokeSource.includes("extname(entry.name).toLowerCase() === '.uproject'")
-  && liveTcpSmokeSource.includes("basename(uprojectPath, '.uproject')")
+  && liveTcpSmokeSource.includes('basename(uprojectPath, extname(uprojectPath))')
   && liveTcpSmokeSource.includes("join(projectRoot, 'Saved', 'Logs', projectName + '.log')")
   && /exactly one top-level \.uproject/i.test(liveTcpSmokeSource),
 'live fault smoke requires exactly one top-level uproject and derives its active log path');
@@ -3423,6 +3473,21 @@ runner.assert(liveTcpSmokeSource.includes('fileHandle.read(')
   && /rotat|identity/i.test(liveTcpSmokeSource)
   && /truncat/i.test(liveTcpSmokeSource),
 'live fault smoke reads appended log bytes by byte offset and rejects rotation or truncation');
+const createLogCursorSourceStart = liveTcpSmokeSource.indexOf('async function createLogCursor(');
+const createLogCursorSourceEnd = liveTcpSmokeSource.indexOf(
+  '\nasync function assertLogAnchorUnchanged(', createLogCursorSourceStart,
+);
+const createLogCursorSource = liveTcpSmokeSource.slice(
+  createLogCursorSourceStart, createLogCursorSourceEnd,
+);
+runner.assert(createLogCursorSourceStart >= 0
+  && createLogCursorSourceEnd > createLogCursorSourceStart
+  && createLogCursorSource.includes('async function createLogCursor(logPath)')
+  && createLogCursorSource.includes('const initialStat = await fileHandle.stat()')
+  && createLogCursorSource.includes('const afterAnchorStat = await fileHandle.stat()')
+  && createLogCursorSource.includes('cursor.observedSize = Math.max(')
+  && liveTcpSmokeSource.includes('const cursor = await createLogCursor(logPath);'),
+'live fault smoke records offset, anchor, and observed high-water from one opened log handle');
 runner.assert(expectedLiveFaultProbeIds.every((probeId) => liveTcpSmokeSource.includes(probeId)),
   'live fault smoke defines all fifteen deterministic probe IDs');
 runner.assert(requiredIntakeEvents.concat('event=tcp_send_failure').every(
@@ -3520,6 +3585,10 @@ const requiredLiveSmokeHelpers = [
   'assertNoPayloadLeak',
   'transportEvidenceFingerprint',
   'deriveSocketProbeTimeoutMs',
+  'assertMatchingLogAnchor',
+  'decodeCompleteUtf8Prefix',
+  'buildOversizedDeclarationProbeBytes',
+  'assertIncompleteFirstResponseChunk',
 ];
 runner.assert(liveTcpSmokeModule !== null && requiredLiveSmokeHelpers.every(
   (name) => liveTcpSmokeModule[name] !== undefined,
@@ -3537,15 +3606,23 @@ if (liveTcpSmokeModule !== null) {
     assertNoPayloadLeak,
     transportEvidenceFingerprint,
     deriveSocketProbeTimeoutMs,
+    assertMatchingLogAnchor,
+    decodeCompleteUtf8Prefix,
+    buildOversizedDeclarationProbeBytes,
+    assertIncompleteFirstResponseChunk,
   } = liveTcpSmokeModule;
 
-  runner.assert(TCP_FAULT_PROBES.map((probe) => probe.id).join('|')
-    === expectedLiveFaultProbeIds.join('|'),
-  'live fault helper probe order is deterministic');
+  runner.assert(JSON.stringify(TCP_FAULT_PROBES) === JSON.stringify(expectedLiveFaultProbeContracts),
+    'live fault helper independently pins probe order, event ownership, warning counts, and reset metadata');
 
   const derivedLogPath = resolveProjectLogPath('D:/GenericProject', ['GenericProject.uproject']);
   runner.assert(derivedLogPath.replaceAll('\\', '/').endsWith('/Saved/Logs/GenericProject.log'),
     'live fault path helper derives Saved/Logs/<project>.log');
+  const uppercaseDerivedLogPath = resolveProjectLogPath(
+    'D:/GenericProject', ['GenericProject.UPROJECT'],
+  );
+  runner.assert(uppercaseDerivedLogPath.replaceAll('\\', '/').endsWith('/Saved/Logs/GenericProject.log'),
+    'live fault path helper derives the active log for a case-insensitive uproject extension');
   await runner.assertRejects(
     () => Promise.resolve().then(() => resolveProjectLogPath('D:/GenericProject', [])),
     /exactly one top-level \.uproject/i,
@@ -3586,6 +3663,42 @@ if (liveTcpSmokeModule !== null) {
     })),
     /truncat/i,
     'live fault log helper rejects truncation below the byte cursor',
+  );
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => validateLogContinuation({
+      ...logCursor,
+      observedSize: 40,
+    }, {
+      dev: 7, ino: 11, birthtimeMs: 100, mtimeMs: 201, size: 32,
+    })),
+    /truncat|size|regress/i,
+    'live fault log helper rejects size regression below its observed high-water mark',
+  );
+  const stableAnchor = Buffer.from('stable original log tail', 'utf8');
+  runner.assert(assertMatchingLogAnchor?.(stableAnchor, Buffer.from(stableAnchor)) === true,
+    'live fault log helper accepts an unchanged original-tail byte anchor');
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => assertMatchingLogAnchor?.(
+      stableAnchor, Buffer.from('replacement log tail', 'utf8'),
+    )),
+    /truncat|rotat|anchor|replaced/i,
+    'live fault log helper rejects same-file truncation and regrowth that replaces prior bytes',
+  );
+
+  const partialUtf8 = decodeCompleteUtf8Prefix?.(
+    Buffer.from([0x61, 0x62, 0x63, 0xe2, 0x82]),
+  );
+  runner.assert(partialUtf8?.text === 'abc' && partialUtf8?.bytesConsumed === 3,
+    'live fault log decoder retains a trailing partial UTF-8 code point for the next append');
+  const completedUtf8 = decodeCompleteUtf8Prefix?.(Buffer.from([0xe2, 0x82, 0xac, 0x0a]));
+  runner.assert(completedUtf8?.text === '€\n' && completedUtf8?.bytesConsumed === 4,
+    'live fault log decoder consumes a complete appended UTF-8 code point');
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => decodeCompleteUtf8Prefix?.(
+      Buffer.from([0x61, 0xc0, 0xaf]),
+    )),
+    /encoded data|utf-?8|decode/i,
+    'live fault log decoder rejects malformed UTF-8 instead of hiding it as an incomplete tail',
   );
 
   const eventLines = extractTcpEventLines([
@@ -3750,6 +3863,28 @@ if (liveTcpSmokeModule !== null) {
     'LogUEMCP: Display: response_bytes=1024 response_status=success response_code=OK '
       + 'body_bytes=100 payload_bytes=100',
   ]) === true, 'live fault leak helper permits response byte, status, and code metadata');
+  let nestedMetricsAcceptance = null;
+  try {
+    nestedMetricsAcceptance = assertNoPayloadLeak([
+      'LogUEMCP: Display: metrics={"status":"ready","queue_depth":0}',
+    ]);
+  } catch (error) {
+    nestedMetricsAcceptance = error;
+  }
+  runner.assert(nestedMetricsAcceptance === true,
+    'live fault leak helper permits structured non-payload UEMCP metrics',
+    nestedMetricsAcceptance?.message);
+  let uemcpFramingMetadataAcceptance = null;
+  try {
+    uemcpFramingMetadataAcceptance = assertNoPayloadLeak([
+      'LogUEMCP: Display: Content-Length: 128',
+    ]);
+  } catch (error) {
+    uemcpFramingMetadataAcceptance = error;
+  }
+  runner.assert(uemcpFramingMetadataAcceptance === true,
+    'live fault leak helper permits unrelated UEMCP framing metadata without a body value',
+    uemcpFramingMetadataAcceptance?.message);
   let unrelatedLeakAcceptance = null;
   try {
     unrelatedLeakAcceptance = assertNoPayloadLeak([
@@ -3823,9 +3958,27 @@ if (liveTcpSmokeModule !== null) {
       && /raw|preview|content|payload/i.test(rejection.message),
     `live fault leak helper rejects direct raw field value ${index + 1}`);
   }
+  const plainTextRawLeaks = [
+    'LogUEMCP: Warning: request=ping',
+    'LogUEMCP: Warning: raw request: ping',
+    'LogUEMCP: Warning: body=/Game/Generic/Secret',
+    'LogUEMCP: Warning: payload: plain secret text',
+  ];
+  for (const [index, leakLine] of plainTextRawLeaks.entries()) {
+    let rejection = null;
+    try {
+      assertNoPayloadLeak?.([leakLine]);
+    } catch (error) {
+      rejection = error;
+    }
+    runner.assert(rejection instanceof Error
+      && /raw|preview|content|payload/i.test(rejection.message),
+    `live fault leak helper rejects plaintext raw payload diagnostic ${index + 1}`);
+  }
   for (const [index, leakLine] of [
-    'LogUEMCP: Warning: Content-Length: 128',
     'LogUEMCP: Warning: rejected envelope {"type":"ping","params":{}}',
+    'LogUEMCP: Warning: {"status":"error","code":"MALFORMED_REQUEST"}',
+    'LogUEMCP: Warning: response_json={"status":"success","result":{"graph_count":1}}',
   ].entries()) {
     let rejection = null;
     try {
@@ -3836,6 +3989,25 @@ if (liveTcpSmokeModule !== null) {
     runner.assert(rejection instanceof Error
       && /raw|preview|content|payload/i.test(rejection.message),
     `live fault leak helper rejects UEMCP framing or JSON envelope ${index + 1}`);
+  }
+
+  const oversizedProbeBytes = buildOversizedDeclarationProbeBytes?.();
+  const expectedOversizedHeader = Buffer.from(
+    `Content-Length: ${TCP_MAX_REQUEST_BODY_BYTES + 1}\r\n\r\n`, 'ascii',
+  );
+  runner.assert(Buffer.isBuffer(oversizedProbeBytes)
+    && oversizedProbeBytes.equals(expectedOversizedHeader)
+    && oversizedProbeBytes.length < 64,
+  'oversized declaration helper returns only the exact 8 MiB+1 header bytes');
+
+  runner.assert(assertIncompleteFirstResponseChunk?.({ status: 'pending' }) === true,
+    'AnimGraph reset accepts only a decoder-confirmed partial first response chunk');
+  for (const status of ['complete', 'malformed']) {
+    await runner.assertRejects(
+      () => Promise.resolve().then(() => assertIncompleteFirstResponseChunk?.({ status })),
+      /first response chunk|incomplete|outstanding/i,
+      `AnimGraph reset rejects a ${status} first response chunk before reset attribution`,
+    );
   }
 
   runner.assert(deriveSocketProbeTimeoutMs?.(1) === 15000
@@ -3877,7 +4049,9 @@ runner.assert(executeProbeSourceStart >= 0
   && (executeProbeSource.match(/\btimeoutMs\s*:/g) ?? []).length === 1
   && animGraphProbeSource.includes(
     'timeoutMs: deriveSocketProbeTimeoutMs(callerTimeoutMs)',
-  ),
+  )
+  && animGraphProbeSource.includes('resetOnFirstResponseChunk: true')
+  && liveTcpSmokeSource.includes('assertIncompleteFirstResponseChunk(snapshot)'),
 'large AnimGraph reset probe alone uses the derived connection-manager caller timeout budget');
 
 const liveAnimationSmokeSource = await readFile(liveAnimationSmokeUrl, 'utf8');
