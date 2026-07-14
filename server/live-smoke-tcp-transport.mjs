@@ -18,6 +18,7 @@ const LOG_FLUSH_MS = 150;
 const LOG_POLL_MS = 50;
 const LOG_EVENT_WAIT_MS = 12500;
 const SOCKET_PROBE_TIMEOUT_MS = 15000;
+const SOCKET_PROBE_SETTLEMENT_HEADROOM_MS = 250;
 const SECRET_SENTINEL = 'UEMCP_SECRET_PAYLOAD_SENTINEL';
 
 const TCP_EVENT_TOKENS = Object.freeze([
@@ -36,6 +37,19 @@ const TOKENLESS_TRANSPORT_WARNING_PATTERNS = Object.freeze([
   /\b(?:request incomplete(?: before parse)?|incomplete request)\b/i,
   /\b(?:send failed(?: after\b)?|failed to send (?:the )?response|response send fail(?:ed|ure))\b/i,
 ]);
+
+const TOKENLESS_TRANSPORT_OPERATION_PATTERNS = Object.freeze([
+  /\b(?:recv|receive|received|receiving)\b/i,
+  /\b(?:send|sent|sending)\b/i,
+  /\brequest[\s_-]+(?:read|intake)\b/i,
+  /\b(?:read|intake)[\s_-]+request\b/i,
+  /\bpeer[\s_-]+clos(?:e|ed|ing)\b/i,
+  /\bclos(?:e|ed|ing)[\s_-]+peer\b/i,
+  /\bresponse[\s_-]+(?:write|writing|written)\b/i,
+  /\b(?:write|writing|written)[\s_-]+response\b/i,
+]);
+
+const SOCKET_FAILURE_CONTEXT_PATTERN = /(?:\bsocket\b[^\r\n]{0,40}\b(?:error|fail(?:ed|ure)?)\b|\b(?:error|fail(?:ed|ure)?)\b[^\r\n]{0,40}\bsocket\b)/i;
 
 export const TCP_FAULT_PROBES = Object.freeze([
   { id: '01-framed-ping', expectedEvents: [], warningCount: 0 },
@@ -151,7 +165,9 @@ export function extractTcpEventLines(segment) {
 function isTokenlessTransportWarningLine(line) {
   return /LogUEMCP:\s*Warning:/i.test(line)
     && !TCP_EVENT_TOKENS.some((token) => line.includes(token))
-    && TOKENLESS_TRANSPORT_WARNING_PATTERNS.some((pattern) => pattern.test(line));
+    && (TOKENLESS_TRANSPORT_WARNING_PATTERNS.some((pattern) => pattern.test(line))
+      || (TOKENLESS_TRANSPORT_OPERATION_PATTERNS.some((pattern) => pattern.test(line))
+        && SOCKET_FAILURE_CONTEXT_PATTERN.test(line)));
 }
 
 function tokenlessTransportWarningLines(segment) {
@@ -241,17 +257,32 @@ export function assertNoDelayedTcpEvents(segment, probeId) {
 
 export function assertNoPayloadLeak(segments) {
   for (const segment of segments) {
-    if (segment.includes(SECRET_SENTINEL)) fail('secret sentinel leaked into the appended log');
-    if (/\b(?:(?:raw|preview)[_-]?(?:request|response|body|payload)|(?:request|response|body|payload)[_-]?(?:raw|preview|body|payload))(?:[_-]?(?:raw|preview|body|payload))*\s*=/i.test(segment)) {
-      fail('raw request/response/body preview appeared in the appended log');
-    }
-    if (/\b(?:raw_request|raw_body|request_body|request_payload)\s*=/i.test(segment)
-      || /"(?:type|params)"\s*:/.test(segment)
-      || segment.includes('Content-Length:')) {
-      fail('raw request/body content appeared in the appended log');
+    const segmentText = String(segment || '');
+    if (segmentText.includes(SECRET_SENTINEL)) fail('secret sentinel leaked into the appended log');
+    for (const line of segmentText.split(/\r?\n/)) {
+      if (!/\bLogUEMCP:/i.test(line)) continue;
+      if (/\b(?:(?:raw|preview)[_-]?(?:request|response|body|payload)|(?:request|response|body|payload)[_-]?(?:raw|preview|body|payload))(?:[_-]?(?:raw|preview|body|payload))*\s*=/i.test(line)) {
+        fail('raw request/response/body preview appeared in the appended log');
+      }
+      if (/\b(?:request|response|body|payload)\s*=\s*(?:[\[{"']|Content-Length\s*:)/i.test(line)
+        || /Content-Length\s*:/i.test(line)
+        || /"(?:type|params)"\s*:/.test(line)) {
+        fail('raw request/response/body/payload content appeared in the appended log');
+      }
     }
   }
   return true;
+}
+
+export function deriveSocketProbeTimeoutMs(callerTimeoutMs) {
+  if (!Number.isFinite(callerTimeoutMs) || callerTimeoutMs <= 0) {
+    fail('selected caller timeout is not a positive finite value');
+  }
+  const timeoutMs = callerTimeoutMs + SOCKET_PROBE_SETTLEMENT_HEADROOM_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= callerTimeoutMs) {
+    fail('selected caller timeout cannot produce a finite settlement budget');
+  }
+  return Math.max(SOCKET_PROBE_TIMEOUT_MS, timeoutMs);
 }
 
 async function readAppendedSegment(logPath, cursor, currentStat) {
@@ -482,7 +513,7 @@ function startOneByteTrickle(socket) {
   return () => clearInterval(interval);
 }
 
-async function executeProbe(probeId, { selectedPort, animBlueprintPath }) {
+async function executeProbe(probeId, { selectedPort, animBlueprintPath, callerTimeoutMs }) {
   switch (probeId) {
   case '01-framed-ping': {
     const { response } = await receiveDecodedResponse(selectedPort, {
@@ -589,6 +620,7 @@ async function executeProbe(probeId, { selectedPort, animBlueprintPath }) {
     const observation = await receiveDecodedResponse(selectedPort, {
       requestBytes,
       resetOnFirstResponseChunk: true,
+      timeoutMs: deriveSocketProbeTimeoutMs(callerTimeoutMs),
     });
     if (observation.receivedBytes <= 0) fail(`${probeId} received no response chunk before reset`);
     return `response_chunks=1 received_bytes=${observation.receivedBytes}`;
@@ -620,7 +652,7 @@ async function captureProbeLog(probe, run, logPath, cursor, segments) {
   assertNoPayloadLeak([beforeSegment, afterSegment]);
   const eventLines = extractTcpEventLines(afterSegment);
   assertProbeEventContract(probe, eventLines);
-  if (probe.id === '06-empty-close-after-reset') assertNoInheritedReset(afterSegment);
+  if (probe.id === '06-empty-close-after-reset') assertNoInheritedReset(eventLines.join('\n'));
   return { summary, eventCount: eventLines.length };
 }
 
@@ -655,11 +687,12 @@ export async function runLiveTcpTransportSmoke() {
   if (!Number.isInteger(selectedPort) || selectedPort < 1 || selectedPort > 65535) {
     fail('selected TCP port is invalid');
   }
+  const callerTimeoutMs = smoke.cm.config.tcpTimeoutMs;
   const segments = [];
   for (const probe of TCP_FAULT_PROBES) {
     const result = await captureProbeLog(
       probe,
-      () => executeProbe(probe.id, { selectedPort, animBlueprintPath }),
+      () => executeProbe(probe.id, { selectedPort, animBlueprintPath, callerTimeoutMs }),
       logPath,
       cursor,
       segments,

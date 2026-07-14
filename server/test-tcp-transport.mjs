@@ -3464,9 +3464,9 @@ runner.assert(liveTcpSmokeSource.includes('const IDLE_HOLD_MS = 2250;')
 'live fault smoke enforces the approved idle/trickle timing and typed response/no-response contracts');
 runner.assert(liveTcpSmokeSource.includes('socketError=SE_ECONNRESET')
   && liveTcpSmokeSource.includes('socketCode=26')
-  && liveTcpSmokeSource.includes('assertNoInheritedReset')
+  && !liveTcpSmokeSource.includes('assertNoInheritedReset(afterSegment)')
   && liveTcpSmokeSource.includes('assertWarningCount'),
-'live fault smoke enforces translated reset attribution, clean-close isolation, and warning ownership');
+'live fault smoke scopes translated reset attribution to exact event metadata and warning ownership');
 runner.assert(liveTcpSmokeSource.includes("String(process.env.UEMCP_LIVE_ANIM_BLUEPRINT || '').trim()")
   && liveTcpSmokeSource.includes("asset_path: animBlueprintPath")
   && liveTcpSmokeSource.includes('include_transitions: true')
@@ -3496,6 +3496,7 @@ const requiredLiveSmokeHelpers = [
   'assertNoTokenlessTransportWarnings',
   'assertNoPayloadLeak',
   'transportEvidenceFingerprint',
+  'deriveSocketProbeTimeoutMs',
 ];
 runner.assert(liveTcpSmokeModule !== null && requiredLiveSmokeHelpers.every(
   (name) => liveTcpSmokeModule[name] !== undefined,
@@ -3512,6 +3513,7 @@ if (liveTcpSmokeModule !== null) {
     assertNoTokenlessTransportWarnings,
     assertNoPayloadLeak,
     transportEvidenceFingerprint,
+    deriveSocketProbeTimeoutMs,
   } = liveTcpSmokeModule;
 
   runner.assert(TCP_FAULT_PROBES.map((probe) => probe.id).join('|')
@@ -3615,10 +3617,71 @@ if (liveTcpSmokeModule !== null) {
       && /tokenless transport warning/i.test(rejection.message),
     `live fault attribution rejects tokenless transport warning ${index + 1}`);
   }
+  const structuralTransportWarnings = [
+    'LogUEMCP: Warning: response write error: socket error 26',
+    'LogUEMCP: Warning: socket error 26 while writing response',
+    'LogUEMCP: Warning: request read failure: socket error 26',
+    'LogUEMCP: Warning: socket failure during request intake',
+    'LogUEMCP: Warning: peer closed after socket error 26',
+    'LogUEMCP: Warning: socket failure while receiving request bytes',
+    'LogUEMCP: Warning: socket failure while sending response bytes',
+  ];
+  for (const [index, warning] of structuralTransportWarnings.entries()) {
+    let rejection = null;
+    try {
+      assertNoTokenlessTransportWarnings?.(warning, `structural-warning-${index}`);
+    } catch (error) {
+      rejection = error;
+    }
+    runner.assert(rejection instanceof Error
+      && /tokenless transport warning/i.test(rejection.message),
+    `live fault attribution rejects structural transport warning ${index + 1}`);
+  }
+  runner.assert(assertNoTokenlessTransportWarnings?.([
+    'LogUEMCP: Warning: response cache write error: socket error 26',
+    'LogUEMCP: Warning: request asset read failure: socket error 26',
+    'LogUEMCP: Warning: response write validation failed',
+    'LogUEMCP: Warning: socket failure while saving response metrics',
+  ].join('\n'), 'unrelated structural warnings') === true,
+  'live fault attribution ignores UEMCP warnings without both lifecycle and socket-failure context');
   runner.assert(assertNoTokenlessTransportWarnings?.(
     'LogUEMCP: Warning: event=tcp_send_failure sentBytes=12 totalBytes=100',
     'exact-token segment',
   ) === true, 'live fault attribution leaves exact-token warnings to event ownership');
+
+  const benignStructuredBackgroundSegment = [
+    'LogBlueprint: Display: cached request {"type":"preview","params":{"node":"Idle"}}',
+    'LogHttp: Display: Content-Length: 128',
+    'LogTemp: Warning: prior socket details SE_ECONNRESET socketCode=26',
+    'LogUEMCP: Verbose: event=tcp_peer_closed_empty bytes=0',
+  ].join('\n');
+  const cleanCloseProbe = TCP_FAULT_PROBES.find(
+    (probe) => probe.id === '06-empty-close-after-reset',
+  );
+  const benignStructuredEventLines = extractTcpEventLines(benignStructuredBackgroundSegment);
+  let benignStructuredAcceptance = null;
+  try {
+    benignStructuredAcceptance = assertNoPayloadLeak?.([benignStructuredBackgroundSegment]) === true
+      && assertNoTokenlessTransportWarnings?.(
+        benignStructuredBackgroundSegment, 'benign structured background segment',
+      ) === true
+      && assertProbeEventContract?.(cleanCloseProbe, benignStructuredEventLines) === true;
+  } catch (error) {
+    benignStructuredAcceptance = error;
+  }
+  runner.assert(benignStructuredAcceptance === true,
+    'live fault attribution accepts benign background reset, JSON, and framing text',
+    benignStructuredAcceptance?.message);
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => assertProbeEventContract?.(
+      cleanCloseProbe,
+      extractTcpEventLines(
+        'LogUEMCP: Verbose: event=tcp_peer_closed_empty socketError=SE_ECONNRESET socketCode=26',
+      ),
+    )),
+    /forbidden log metadata|SE_ECONNRESET|socketCode/i,
+    'live fault attribution rejects reset metadata on the exact owned clean-close event',
+  );
 
   const backgroundFingerprint = transportEvidenceFingerprint?.(unrelatedWarningSegment);
   const continuedBackgroundFingerprint = transportEvidenceFingerprint?.([
@@ -3633,10 +3696,15 @@ if (liveTcpSmokeModule !== null) {
     unrelatedWarningSegment,
     'LogUEMCP: Warning: recv failed: socket error 0',
   ].join('\n'));
+  const structuralWarningFingerprint = transportEvidenceFingerprint?.([
+    unrelatedWarningSegment,
+    'LogUEMCP: Warning: response write error: socket error 26',
+  ].join('\n'));
   runner.assert(typeof backgroundFingerprint === 'string'
     && backgroundFingerprint === continuedBackgroundFingerprint
     && exactEventFingerprint !== backgroundFingerprint
-    && tokenlessWarningFingerprint !== backgroundFingerprint,
+    && tokenlessWarningFingerprint !== backgroundFingerprint
+    && structuralWarningFingerprint !== backgroundFingerprint,
   'live fault transport evidence fingerprint ignores background growth but tracks transport evidence');
 
   runner.assert(assertNoDelayedTcpEvents?.('background editor output', 'pure-clean') === true,
@@ -3656,8 +3724,22 @@ if (liveTcpSmokeModule !== null) {
   runner.assert(assertNoPayloadLeak(['first appended segment', 'second appended segment']) === true,
     'live fault leak helper accepts clean appended segments');
   runner.assert(assertNoPayloadLeak([
-    'response_bytes=1024 response_status=success body_bytes=100 payload_bytes=100',
-  ]) === true, 'live fault leak helper permits response and body byte-count metadata');
+    'LogUEMCP: Display: response_bytes=1024 response_status=success response_code=OK '
+      + 'body_bytes=100 payload_bytes=100',
+  ]) === true, 'live fault leak helper permits response byte, status, and code metadata');
+  let unrelatedLeakAcceptance = null;
+  try {
+    unrelatedLeakAcceptance = assertNoPayloadLeak([
+      'LogHttp: Display: Content-Length: 128',
+      'LogBlueprint: Display: response={"status":"success"}',
+      'LogTemp: Display: request_preview={"type":"ping"}',
+    ]);
+  } catch (error) {
+    unrelatedLeakAcceptance = error;
+  }
+  runner.assert(unrelatedLeakAcceptance === true,
+    'live fault leak helper ignores framing and JSON diagnostics outside LogUEMCP',
+    unrelatedLeakAcceptance?.message);
   await runner.assertRejects(
     () => Promise.resolve().then(() => assertNoPayloadLeak([
       'first appended segment',
@@ -3669,17 +3751,17 @@ if (liveTcpSmokeModule !== null) {
   await runner.assertRejects(
     () => Promise.resolve().then(() => assertNoPayloadLeak([
       'first appended segment',
-      'second request_preview={raw} segment',
+      'LogUEMCP: Warning: second request_preview={raw} segment',
     ])),
     /preview/i,
     'live fault leak helper inspects every segment for raw request/body previews',
   );
   const rawResponseLeakFields = [
-    'response_preview={raw}',
-    'raw_response={raw}',
-    'response_body={raw}',
-    'response-payload-preview={raw}',
-    'preview_response={raw}',
+    'LogUEMCP: Warning: response_preview={raw}',
+    'LogUEMCP: Warning: raw_response={raw}',
+    'LogUEMCP: Warning: response_body={raw}',
+    'LogUEMCP: Warning: response-payload-preview={raw}',
+    'LogUEMCP: Warning: preview_response={raw}',
   ];
   for (const [index, leakField] of rawResponseLeakFields.entries()) {
     let rejection = null;
@@ -3692,7 +3774,88 @@ if (liveTcpSmokeModule !== null) {
       && /raw|preview|content/i.test(rejection.message),
     `live fault leak helper rejects raw response diagnostic ${index + 1}`);
   }
+  await runner.assertRejects(
+    () => Promise.resolve().then(() => assertNoPayloadLeak?.([
+      'LogUEMCP: Warning: request_payload={"type":"ping"}',
+    ])),
+    /raw|preview|content/i,
+    'live fault leak helper rejects a payload-specific request field',
+  );
+
+  const directRawLeakFields = [
+    'LogUEMCP: Warning: response={"status":"error"}',
+    'LogUEMCP: Warning: request={"type":"ping"}',
+    'LogUEMCP: Warning: body=[1,2,3]',
+    'LogUEMCP: Warning: payload="secret text"',
+    'LogUEMCP: Warning: response=Content-Length: 12',
+  ];
+  for (const [index, leakField] of directRawLeakFields.entries()) {
+    let rejection = null;
+    try {
+      assertNoPayloadLeak?.([leakField]);
+    } catch (error) {
+      rejection = error;
+    }
+    runner.assert(rejection instanceof Error
+      && /raw|preview|content|payload/i.test(rejection.message),
+    `live fault leak helper rejects direct raw field value ${index + 1}`);
+  }
+  for (const [index, leakLine] of [
+    'LogUEMCP: Warning: Content-Length: 128',
+    'LogUEMCP: Warning: rejected envelope {"type":"ping","params":{}}',
+  ].entries()) {
+    let rejection = null;
+    try {
+      assertNoPayloadLeak?.([leakLine]);
+    } catch (error) {
+      rejection = error;
+    }
+    runner.assert(rejection instanceof Error
+      && /raw|preview|content|payload/i.test(rejection.message),
+    `live fault leak helper rejects UEMCP framing or JSON envelope ${index + 1}`);
+  }
+
+  runner.assert(deriveSocketProbeTimeoutMs?.(1) === 15000
+    && deriveSocketProbeTimeoutMs?.(14750) === 15000,
+  'live fault timeout budget retains the 15000ms minimum through the headroom boundary');
+  runner.assert(deriveSocketProbeTimeoutMs?.(14751) === 15001
+    && deriveSocketProbeTimeoutMs?.(15000) === 15250,
+  'live fault timeout budget adds deterministic settlement headroom above the minimum');
+  const commonCallerBudgetMs = deriveSocketProbeTimeoutMs?.(30000);
+  runner.assert(commonCallerBudgetMs === 30250 && Number.isFinite(commonCallerBudgetMs),
+    'live fault timeout budget gives a finite 30000ms caller 250ms of settlement headroom');
+  for (const [index, invalidTimeout] of [0, -1, Number.NaN, Number.POSITIVE_INFINITY].entries()) {
+    await runner.assertRejects(
+      () => Promise.resolve().then(() => deriveSocketProbeTimeoutMs?.(invalidTimeout)),
+      /positive finite|finite positive/i,
+      `live fault timeout budget rejects invalid selected caller timeout ${index + 1}`,
+    );
+  }
 }
+
+const executeProbeSourceStart = liveTcpSmokeSource.indexOf('async function executeProbe(');
+const executeProbeSourceEnd = liveTcpSmokeSource.indexOf(
+  '\nasync function captureProbeLog(', executeProbeSourceStart,
+);
+const executeProbeSource = liveTcpSmokeSource.slice(executeProbeSourceStart, executeProbeSourceEnd);
+const animGraphProbeSourceStart = executeProbeSource.indexOf("case '14-animgraph-response-reset':");
+const animGraphProbeSourceEnd = executeProbeSource.indexOf(
+  "case '15-final-framed-ping':", animGraphProbeSourceStart,
+);
+const animGraphProbeSource = executeProbeSource.slice(
+  animGraphProbeSourceStart, animGraphProbeSourceEnd,
+);
+runner.assert(executeProbeSourceStart >= 0
+  && executeProbeSourceEnd > executeProbeSourceStart
+  && animGraphProbeSourceStart >= 0
+  && animGraphProbeSourceEnd > animGraphProbeSourceStart
+  && liveTcpSmokeSource.includes('const callerTimeoutMs = smoke.cm.config.tcpTimeoutMs;')
+  && liveTcpSmokeSource.includes('callerTimeoutMs })')
+  && (executeProbeSource.match(/\btimeoutMs\s*:/g) ?? []).length === 1
+  && animGraphProbeSource.includes(
+    'timeoutMs: deriveSocketProbeTimeoutMs(callerTimeoutMs)',
+  ),
+'large AnimGraph reset probe alone uses the derived connection-manager caller timeout budget');
 
 const liveAnimationSmokeSource = await readFile(liveAnimationSmokeUrl, 'utf8');
 const liveAnimationAssetGate = liveAnimationSmokeSource.indexOf(
