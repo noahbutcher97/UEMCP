@@ -30,6 +30,7 @@
 #include "Misc/FrameRate.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
+#include "UObject/UnrealType.h"
 
 namespace UEMCP
 {
@@ -204,6 +205,18 @@ namespace UEMCP
 			{
 				Out->SetField(FieldName, MakeShared<FJsonValueNull>());
 			}
+		}
+
+		bool GetOptionalBoolProperty(const UObject* Object, const FName PropertyName, const bool bDefaultValue = false)
+		{
+			if (Object)
+			{
+				if (const FBoolProperty* Property = FindFProperty<FBoolProperty>(Object->GetClass(), PropertyName))
+				{
+					return Property->GetPropertyValue_InContainer(Object);
+				}
+			}
+			return bDefaultValue;
 		}
 
 		struct FAnimGraphTopologyIndex
@@ -1018,7 +1031,7 @@ namespace UEMCP
 			Out->SetNumberField(TEXT("blend_mode"), static_cast<int32>(Transition->BlendMode));
 			Out->SetNumberField(TEXT("logic_type"), static_cast<int32>(Transition->LogicType.GetValue()));
 			Out->SetBoolField(TEXT("bidirectional"), Transition->Bidirectional);
-			Out->SetBoolField(TEXT("disabled"), Transition->bDisabled);
+			Out->SetBoolField(TEXT("disabled"), GetOptionalBoolProperty(Transition, TEXT("bDisabled")));
 			Out->SetBoolField(TEXT("automatic_rule_based_on_sequence_player"), Transition->bAutomaticRuleBasedOnSequencePlayerInState);
 			Out->SetNumberField(TEXT("automatic_rule_trigger_time"), Transition->AutomaticRuleTriggerTime);
 			Out->SetStringField(TEXT("sync_group_name_to_require_valid_markers_rule"), Transition->SyncGroupNameToRequireValidMarkersRule.ToString());

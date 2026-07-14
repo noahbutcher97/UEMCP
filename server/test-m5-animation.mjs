@@ -409,6 +409,12 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'get_anim_graph serializes states');
   t.assert(source.includes('SerializeAnimTransition') && source.includes('UAnimStateTransitionNode'),
     'get_anim_graph serializes transitions');
+  t.assert(source.includes('#include "UObject/UnrealType.h"')
+    && source.includes('FindFProperty<FBoolProperty>')
+    && source.includes('GetPropertyValue_InContainer'),
+  'get_anim_graph reads optional cross-version transition flags through reflected properties');
+  t.assert(!source.includes('Transition->bDisabled'),
+    'get_anim_graph does not directly compile against the post-5.3 bDisabled member');
   t.assert(source.includes('Out->SetNumberField(TEXT("transition_count"), TransitionNodes.Num())'),
     'get_anim_graph transition_count is independent of include_transitions serialization');
   t.assert(graphBlock.includes('UAnimGraphNode_Slot'),

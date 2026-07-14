@@ -4,6 +4,7 @@
 
 #include "Dom/JsonValue.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -24,6 +25,16 @@ constexpr double MaxReceiveWaitSeconds = 0.05;
 constexpr ANSICHAR FramingPrefix[] = "content-length:";
 constexpr uint8 HeaderTerminator[] = {'\r', '\n', '\r', '\n'};
 constexpr uint8 Utf8Bom[] = {0xef, 0xbb, 0xbf};
+
+template <typename ArrayType>
+auto PopWithoutShrinking(ArrayType& Array)
+{
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+	return Array.Pop(false);
+#else
+	return Array.Pop(EAllowShrinking::No);
+#endif
+}
 
 struct FHeaderLine
 {
@@ -359,7 +370,7 @@ FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
 		{
 			return TEXT("mismatched_delimiter");
 		}
-		Delimiters.Pop(EAllowShrinking::No);
+		PopWithoutShrinking(Delimiters);
 		if (!Delimiters.IsEmpty())
 		{
 			continue;
@@ -631,7 +642,7 @@ EStrictJsonRootKind ValidateStrictJsonDocument(const TArray<uint8>& Body, int32 
 			if (Body[Index] == '}')
 			{
 				++Index;
-				Frames.Pop(EAllowShrinking::No);
+				PopWithoutShrinking(Frames);
 				break;
 			}
 			if (!ConsumeStrictJsonString(Body, Index))
@@ -670,7 +681,7 @@ EStrictJsonRootKind ValidateStrictJsonDocument(const TArray<uint8>& Body, int32 
 			if (Body[Index] == '}')
 			{
 				++Index;
-				Frames.Pop(EAllowShrinking::No);
+				PopWithoutShrinking(Frames);
 				break;
 			}
 			if (Body[Index] != ',')
@@ -685,7 +696,7 @@ EStrictJsonRootKind ValidateStrictJsonDocument(const TArray<uint8>& Body, int32 
 			if (Body[Index] == ']')
 			{
 				++Index;
-				Frames.Pop(EAllowShrinking::No);
+				PopWithoutShrinking(Frames);
 				break;
 			}
 			Frame.State = EStrictJsonState::ArrayCommaOrEnd;
@@ -707,7 +718,7 @@ EStrictJsonRootKind ValidateStrictJsonDocument(const TArray<uint8>& Body, int32 
 			if (Body[Index] == ']')
 			{
 				++Index;
-				Frames.Pop(EAllowShrinking::No);
+				PopWithoutShrinking(Frames);
 				break;
 			}
 			if (Body[Index] != ',')
@@ -735,7 +746,7 @@ bool HasNonFiniteJsonNumber(const TSharedPtr<FJsonValue>& RootValue)
 	Pending.Add(RootValue.Get());
 	while (!Pending.IsEmpty())
 	{
-		const FJsonValue* Value = Pending.Pop(EAllowShrinking::No);
+		const FJsonValue* Value = PopWithoutShrinking(Pending);
 		if (Value == nullptr)
 		{
 			return true;
@@ -1351,7 +1362,7 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(TEXT("mismatched_delimiter"));
 			return;
 		}
-		LegacyDelimiters.Pop(EAllowShrinking::No);
+		Private::PopWithoutShrinking(LegacyDelimiters);
 		bLegacyRootComplete = LegacyDelimiters.IsEmpty();
 	}
 

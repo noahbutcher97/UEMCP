@@ -11,6 +11,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInterface.h"
+#include "MaterialDomain.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 

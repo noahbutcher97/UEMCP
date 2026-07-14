@@ -14,6 +14,7 @@
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-m5-materials.mjs
 
+import { readFileSync } from 'node:fs';
 import { ConnectionManager } from './connection-manager.mjs';
 import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import {
@@ -36,6 +37,11 @@ const fakeToolsYaml = {
   },
 };
 initM5MaterialsTools(fakeToolsYaml);
+
+const materialsSource = readFileSync(
+  new URL('../plugin/UEMCP/Source/UEMCP/Private/MaterialsHandlers.cpp', import.meta.url),
+  'utf8'
+);
 
 const t = new TestRunner('M5-materials — TCP:55558 material creates (RC for set_material_parameter)');
 
@@ -246,4 +252,9 @@ console.log('\n── Group 7: Empty Wire Map → Identity Fallback ──');
 }
 
 // ── Done ───────────────────────────────────────────────────────
+console.log('\n── Group 8: UE Version Compatibility ──');
+
+t.assert(materialsSource.includes('#include "MaterialDomain.h"'),
+  'material handlers include the defining EMaterialDomain header explicitly');
+
 process.exit(t.summary());

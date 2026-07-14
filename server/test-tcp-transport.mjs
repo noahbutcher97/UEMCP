@@ -2727,6 +2727,12 @@ runner.assert(nativePolicySource.includes('#if PLATFORM_WINDOWS')
   && nativePolicySource.includes('#include "Windows/HideWindowsPlatformTypes.h"')
   && nativePolicySource.includes('#include <cerrno>'),
 'source guard: native receive error capture has guarded Windows and Unix includes');
+runner.assert(nativePolicySource.includes('#include "Misc/EngineVersionComparison.h"')
+  && nativePolicySource.includes('UE_VERSION_OLDER_THAN(5, 4, 0)')
+  && nativePolicySource.includes('PopWithoutShrinking('),
+'source guard: native decoder preserves non-shrinking stack pops across UE 5.3 and newer');
+runner.assert((nativePolicySource.match(/\.Pop\(EAllowShrinking::No\)/g) ?? []).length === 1,
+  'source guard: post-5.3 EAllowShrinking is isolated to the guarded compatibility helper');
 runner.assert(nativePolicySource.includes('WSASetLastError(0)')
   && (nativePolicySource.match(/WSAGetLastError\(\)/g) ?? []).length === 1
   && nativePolicySource.includes('errno = 0')
