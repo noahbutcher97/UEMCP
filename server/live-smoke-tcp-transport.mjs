@@ -1,6 +1,7 @@
 // Opt-in raw TCP fault/recovery proof for the selected live UEMCP target.
 
 import net from 'node:net';
+import { createHash } from 'node:crypto';
 import { open, readdir, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -277,6 +278,72 @@ export function assertNoDelayedTcpEvents(segment, probeId) {
   return true;
 }
 
+function parseJsonObjectCandidate(message) {
+  const start = message.indexOf('{');
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < message.length; index += 1) {
+    const char = message[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const source = message.slice(start, index + 1);
+        try {
+          const value = JSON.parse(source);
+          return { prefix: message.slice(0, start), value };
+        } catch {
+          return { prefix: message.slice(0, start), value: null };
+        }
+      }
+    }
+  }
+  return { prefix: message.slice(0, start), value: null };
+}
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isEnvelopeObject(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (hasOwn(value, 'type')) return true;
+  return hasOwn(value, 'status')
+    && ['code', 'error', 'message', 'result'].some((key) => hasOwn(value, key));
+}
+
+function hasEnvelopeOrFramingContext(prefix) {
+  const normalized = prefix.replace(/[_-]+/g, ' ');
+  return /\b(?:body|envelope|frame|framed|framing|json|payload|request|response)\b/i.test(
+    normalized,
+  ) || /\bContent-Length\s*:/i.test(prefix);
+}
+
+function isNestedNonPayloadAssignment(prefix) {
+  const assignment = /([A-Za-z][A-Za-z0-9_.-]*)\s*[:=]\s*$/.exec(prefix);
+  return assignment !== null && !hasEnvelopeOrFramingContext(prefix);
+}
+
+function hasRawEnvelopeCandidate(message) {
+  const candidate = parseJsonObjectCandidate(message);
+  if (candidate === null) return false;
+  if (isNestedNonPayloadAssignment(candidate.prefix)) return false;
+  if (hasEnvelopeOrFramingContext(candidate.prefix)) return true;
+  return isEnvelopeObject(candidate.value);
+}
+
 export function assertNoPayloadLeak(segments) {
   for (const segment of segments) {
     const segmentText = String(segment || '');
@@ -288,13 +355,8 @@ export function assertNoPayloadLeak(segments) {
       if (/\b(?:(?:raw|preview)[\s_-]*(?:request|response|body|payload)|(?:request|response|body|payload)[\s_-]*(?:raw|preview|body|payload|json|text|content|data|value))(?:[\s_-]*(?:raw|preview|body|payload|json|text|content|data|value))*\s*[:=]/i.test(message)) {
         fail('raw request/response/body preview appeared in the appended log');
       }
-      const envelopeStart = message.indexOf('{');
-      const possibleEnvelope = envelopeStart >= 0 ? message.slice(envelopeStart) : '';
-      const hasRequestEnvelope = /"type"\s*:/.test(possibleEnvelope);
-      const hasBareResponseEnvelope = /"status"\s*:/.test(possibleEnvelope)
-        && /"(?:code|message|result)"\s*:/.test(possibleEnvelope);
       if (/\b(?:request|response|body|payload)\s*[:=]\s*\S/i.test(message)
-        || hasRequestEnvelope || hasBareResponseEnvelope) {
+        || hasRawEnvelopeCandidate(message)) {
         fail('raw request/response/body/payload content appeared in the appended log');
       }
     }
@@ -345,6 +407,28 @@ export function decodeCompleteUtf8Prefix(buffer) {
   return { text, bytesConsumed };
 }
 
+function createPendingDigest() {
+  return createHash('sha256');
+}
+
+function snapshotPendingDigest(cursor) {
+  if (cursor.pendingDigest === undefined && (cursor.pendingByteCount ?? 0) === 0) {
+    return createPendingDigest().digest();
+  }
+  if (cursor.pendingDigest === null || typeof cursor.pendingDigest?.copy !== 'function') {
+    fail('pending log evidence digest state is unavailable');
+  }
+  return cursor.pendingDigest.copy().digest();
+}
+
+function assertMatchingPendingDigest(expected, observed) {
+  if (!Buffer.isBuffer(expected) || !Buffer.isBuffer(observed)
+    || expected.length !== observed.length || !expected.equals(observed)) {
+    fail('pending log evidence digest changed; log was truncated, regrown, or replaced');
+  }
+  return true;
+}
+
 export function appendDecodedLogBytes(cursor, chunk, {
   maxSegmentBytes = LOG_SEGMENT_MAX_BYTES,
 } = {}) {
@@ -366,9 +450,16 @@ export function appendDecodedLogBytes(cursor, chunk, {
   const trailingUtf8 = Buffer.from(combined.subarray(decoded.bytesConsumed));
   if (trailingUtf8.length > 3) fail('incomplete UTF-8 suffix exceeded three bytes');
 
+  const pendingDigest = cursor.pendingDigest ?? createPendingDigest();
+  if (typeof pendingDigest.update !== 'function' || typeof pendingDigest.copy !== 'function') {
+    fail('pending log evidence digest state is invalid');
+  }
+  pendingDigest.update(chunk);
+
   cursor.pendingText = (cursor.pendingText ?? '') + decoded.text;
   cursor.pendingUtf8 = trailingUtf8;
   cursor.pendingByteCount = pendingByteCount + chunk.length;
+  cursor.pendingDigest = pendingDigest;
   cursor.readOffset = (cursor.readOffset ?? cursor.offset) + chunk.length;
   return cursor;
 }
@@ -413,6 +504,7 @@ export function commitLogEvidence(cursor, {
   cursor.pendingByteCount = 0;
   cursor.pendingText = '';
   cursor.pendingUtf8 = Buffer.alloc(0);
+  cursor.pendingDigest = createPendingDigest();
   return pendingText;
 }
 
@@ -431,7 +523,30 @@ async function readBoundedRange(fileHandle, position, byteCount, label) {
   return buffer;
 }
 
-async function createLogCursor(logPath) {
+async function digestLogRange(fileHandle, position, byteCount, label) {
+  if (!Number.isSafeInteger(position) || position < 0
+    || !Number.isSafeInteger(byteCount) || byteCount < 0
+    || byteCount > LOG_SEGMENT_MAX_BYTES) {
+    fail(`${label} digest range exceeds the bounded appended log segment`);
+  }
+  const digest = createPendingDigest();
+  if (byteCount === 0) return digest.digest();
+
+  const buffer = Buffer.allocUnsafe(LOG_READ_CHUNK_BYTES);
+  let bytesRead = 0;
+  while (bytesRead < byteCount) {
+    const readLength = Math.min(LOG_READ_CHUNK_BYTES, byteCount - bytesRead);
+    const result = await fileHandle.read(buffer, 0, readLength, position + bytesRead);
+    if (result.bytesRead === 0) {
+      fail(`short ${label} digest read: expected ${byteCount}, got ${bytesRead}`);
+    }
+    digest.update(buffer.subarray(0, result.bytesRead));
+    bytesRead += result.bytesRead;
+  }
+  return digest.digest();
+}
+
+export async function createLogCursor(logPath) {
   let cursor = null;
   const fileHandle = await open(logPath, 'r');
   try {
@@ -451,6 +566,7 @@ async function createLogCursor(logPath) {
       pendingByteCount: 0,
       pendingText: '',
       pendingUtf8: Buffer.alloc(0),
+      pendingDigest: createPendingDigest(),
     };
     cursor.anchorBytes = await readBoundedRange(
       fileHandle, cursor.anchorOffset, anchorLength, 'initial log anchor',
@@ -478,13 +594,12 @@ async function assertLogAnchorUnchanged(fileHandle, cursor) {
   assertMatchingLogAnchor(cursor.anchorBytes, observed);
 }
 
-async function ingestAppendedLogBytes(logPath, cursor, currentStat) {
+export async function ingestAppendedLogBytes(logPath, cursor, currentStat) {
   observeLogHighWater(cursor, currentStat);
   const targetOffset = currentStat.size;
   if (targetOffset - cursor.offset > LOG_SEGMENT_MAX_BYTES) {
     fail(`appended log segment exceeds bounded maximum of ${LOG_SEGMENT_MAX_BYTES} bytes`);
   }
-  if (targetOffset === cursor.readOffset) return cursor.pendingText;
 
   const fileHandle = await open(logPath, 'r');
   try {
@@ -493,14 +608,16 @@ async function ingestAppendedLogBytes(logPath, cursor, currentStat) {
     if (openStat.size < targetOffset) fail('log truncated or rotated during appended read');
     await assertLogAnchorUnchanged(fileHandle, cursor);
 
-    const readBuffer = Buffer.allocUnsafe(LOG_READ_CHUNK_BYTES);
-    while (cursor.readOffset < targetOffset) {
-      const readLength = Math.min(LOG_READ_CHUNK_BYTES, targetOffset - cursor.readOffset);
-      const result = await fileHandle.read(readBuffer, 0, readLength, cursor.readOffset);
-      if (result.bytesRead === 0) {
-        fail(`short appended log read before byte offset ${targetOffset}`);
+    if (cursor.readOffset < targetOffset) {
+      const readBuffer = Buffer.allocUnsafe(LOG_READ_CHUNK_BYTES);
+      while (cursor.readOffset < targetOffset) {
+        const readLength = Math.min(LOG_READ_CHUNK_BYTES, targetOffset - cursor.readOffset);
+        const result = await fileHandle.read(readBuffer, 0, readLength, cursor.readOffset);
+        if (result.bytesRead === 0) {
+          fail(`short appended log read before byte offset ${targetOffset}`);
+        }
+        appendDecodedLogBytes(cursor, readBuffer.subarray(0, result.bytesRead));
       }
-      appendDecodedLogBytes(cursor, readBuffer.subarray(0, result.bytesRead));
     }
 
     await assertLogAnchorUnchanged(fileHandle, cursor);
@@ -518,20 +635,16 @@ async function ingestAppendedLogBytes(logPath, cursor, currentStat) {
   return cursor.pendingText;
 }
 
-async function commitPendingLogSegment(logPath, cursor) {
+export async function commitPendingLogSegment(logPath, cursor) {
   if (cursor.observedSize > cursor.readOffset) return null;
-  if ((cursor.pendingByteCount ?? 0) === 0) {
-    return commitLogEvidence(cursor, {
-      boundaryOffset: cursor.readOffset,
-      mtimeMs: cursor.mtimeMs,
-      anchorOffset: cursor.anchorOffset,
-      anchorBytes: cursor.anchorBytes,
-    });
+  const pendingByteCount = cursor.pendingByteCount ?? 0;
+  if (pendingByteCount > 0) {
+    if (cursor.pendingUtf8.length !== 0) fail('cannot commit an incomplete UTF-8 log suffix');
+    if (!cursor.pendingText.endsWith('\n')) fail('cannot commit an incomplete log line without a newline');
   }
-  if (cursor.pendingUtf8.length !== 0) fail('cannot commit an incomplete UTF-8 log suffix');
-  if (!cursor.pendingText.endsWith('\n')) fail('cannot commit an incomplete log line without a newline');
 
   const boundaryOffset = cursor.readOffset;
+  const expectedPendingDigest = snapshotPendingDigest(cursor);
   const anchorLength = Math.min(LOG_ANCHOR_BYTES, boundaryOffset);
   const anchorOffset = boundaryOffset - anchorLength;
   let anchorBytes = null;
@@ -543,6 +656,17 @@ async function commitPendingLogSegment(logPath, cursor) {
     if (cursor.observedSize > boundaryOffset) return null;
     if (openStat.size < boundaryOffset) fail('log truncated before evidence commit');
     await assertLogAnchorUnchanged(fileHandle, cursor);
+    const observedPendingDigest = await digestLogRange(
+      fileHandle, cursor.offset, pendingByteCount, 'pending log evidence',
+    );
+    assertMatchingPendingDigest(expectedPendingDigest, observedPendingDigest);
+    const afterDigestStat = await fileHandle.stat();
+    observeLogHighWater(cursor, afterDigestStat);
+    if (cursor.observedSize > boundaryOffset) return null;
+    if (afterDigestStat.size < boundaryOffset) fail('log truncated during evidence digest');
+    if (afterDigestStat.mtimeMs !== openStat.mtimeMs) {
+      fail('log changed at the same size during pending evidence verification');
+    }
     anchorBytes = await readBoundedRange(
       fileHandle, anchorOffset, anchorLength, 'committed log anchor',
     );
@@ -551,6 +675,9 @@ async function commitPendingLogSegment(logPath, cursor) {
     observeLogHighWater(cursor, afterAnchorStat);
     if (cursor.observedSize > boundaryOffset) return null;
     if (afterAnchorStat.size < boundaryOffset) fail('log truncated during evidence commit');
+    if (afterAnchorStat.mtimeMs !== afterDigestStat.mtimeMs) {
+      fail('log changed at the same size during evidence anchor verification');
+    }
     committedMtimeMs = afterAnchorStat.mtimeMs;
   } finally {
     await fileHandle.close();
@@ -560,6 +687,9 @@ async function commitPendingLogSegment(logPath, cursor) {
   observeLogHighWater(cursor, afterCommitStat);
   if (cursor.observedSize > boundaryOffset) return null;
   if (afterCommitStat.size < boundaryOffset) fail('log truncated after evidence commit');
+  if (afterCommitStat.mtimeMs !== committedMtimeMs) {
+    fail('log changed at the same size after evidence verification');
+  }
 
   return commitLogEvidence(cursor, {
     boundaryOffset,

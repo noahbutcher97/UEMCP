@@ -1,5 +1,15 @@
 import net from 'node:net';
-import { readFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { isDeepStrictEqual, types } from 'node:util';
 import { ConnectionManager } from './connection-manager.mjs';
 import { discoverLiveSmokeScripts } from './run-live-smoke.mjs';
@@ -3579,6 +3589,24 @@ function probeContractsEqual(actual, expected) {
   return isDeepStrictEqual(actual, expected);
 }
 
+async function replaceFileContentsInPlace(filePath, bytes) {
+  const fileHandle = await open(filePath, 'r+');
+  try {
+    await fileHandle.truncate(0);
+    let bytesWritten = 0;
+    while (bytesWritten < bytes.length) {
+      const result = await fileHandle.write(
+        bytes, bytesWritten, bytes.length - bytesWritten, bytesWritten,
+      );
+      if (result.bytesWritten === 0) throw new Error('temporary log replacement made no progress');
+      bytesWritten += result.bytesWritten;
+    }
+    await fileHandle.sync();
+  } finally {
+    await fileHandle.close();
+  }
+}
+
 let liveTcpSmokeSource = '';
 let liveTcpSmokeModule = null;
 let liveTcpSmokeLoadError = null;
@@ -3679,6 +3707,24 @@ runner.assert(liveTcpSmokeSource.includes("new TextDecoder('utf-8', { fatal: tru
   && liveTcpSmokeSource.includes('const afterReadStat = await stat(logPath)')
   && liveTcpSmokeSource.includes('validateLogContinuation(cursor, afterReadStat)'),
 'live fault smoke incrementally consumes bounded chunks with strict UTF-8 and post-read identity checks');
+const digestLogRangeSourceStart = liveTcpSmokeSource.indexOf('async function digestLogRange(');
+const digestLogRangeSourceEnd = liveTcpSmokeSource.indexOf(
+  '\nexport async function createLogCursor(', digestLogRangeSourceStart,
+);
+const digestLogRangeSource = liveTcpSmokeSource.slice(
+  digestLogRangeSourceStart, digestLogRangeSourceEnd,
+);
+runner.assert(!liveTcpSmokeSource.includes(
+  'if (targetOffset === cursor.readOffset) return cursor.pendingText;',
+)
+  && digestLogRangeSourceStart >= 0
+  && digestLogRangeSourceEnd > digestLogRangeSourceStart
+  && digestLogRangeSource.includes('Buffer.allocUnsafe(LOG_READ_CHUNK_BYTES)')
+  && digestLogRangeSource.includes('while (bytesRead < byteCount)')
+  && digestLogRangeSource.includes('Math.min(LOG_READ_CHUNK_BYTES, byteCount - bytesRead)')
+  && !digestLogRangeSource.includes('Buffer.alloc(byteCount)')
+  && liveTcpSmokeSource.includes('assertMatchingPendingDigest('),
+'live fault orchestration checks unchanged-size anchors and chunk-digests pending evidence');
 runner.assert(liveTcpSmokeSource.includes('UEMCP_SECRET_PAYLOAD_SENTINEL')
   && liveTcpSmokeSource.includes('assertNoPayloadLeak')
   && liveTcpSmokeSource.includes('for (const segment of segments)'),
@@ -3745,6 +3791,9 @@ const requiredLiveSmokeHelpers = [
   'observeLogHighWater',
   'appendDecodedLogBytes',
   'commitLogEvidence',
+  'createLogCursor',
+  'ingestAppendedLogBytes',
+  'commitPendingLogSegment',
 ];
 runner.assert(liveTcpSmokeModule !== null && requiredLiveSmokeHelpers.every(
   (name) => liveTcpSmokeModule[name] !== undefined,
@@ -3769,6 +3818,9 @@ if (liveTcpSmokeModule !== null) {
     observeLogHighWater,
     appendDecodedLogBytes,
     commitLogEvidence,
+    createLogCursor,
+    ingestAppendedLogBytes,
+    commitPendingLogSegment,
   } = liveTcpSmokeModule;
 
   runner.assert(probeContractsEqual(TCP_FAULT_PROBES, expectedLiveFaultProbeContracts),
@@ -4014,6 +4066,57 @@ if (liveTcpSmokeModule !== null) {
     'live fault commit fails explicitly instead of splitting an uninspected log line',
   );
 
+  if (typeof createLogCursor === 'function'
+    && typeof ingestAppendedLogBytes === 'function'
+    && typeof commitPendingLogSegment === 'function') {
+    const tempLogRoot = await mkdtemp(join(tmpdir(), 'uemcp-tcp-log-evidence-'));
+    try {
+      const emptyPath = join(tempLogRoot, 'empty-path.log');
+      const emptyOriginal = Buffer.alloc(512, 0x41);
+      const emptyReplacement = Buffer.alloc(512, 0x42);
+      await writeFile(emptyPath, emptyOriginal);
+      const emptyCursor = await createLogCursor(emptyPath);
+      await replaceFileContentsInPlace(emptyPath, emptyReplacement);
+      await runner.assertRejects(
+        async () => ingestAppendedLogBytes(emptyPath, emptyCursor, await stat(emptyPath)),
+        /anchor|changed|replaced|rotat|truncat/i,
+        'live fault empty intake detects same-size truncate and regrow through the committed anchor',
+      );
+
+      const pendingPath = join(tempLogRoot, 'pending-path.log');
+      const committedPrefix = Buffer.alloc(512, 0x43);
+      const pendingPrefix = 'LogUEMCP: Display: pending=';
+      const pendingBody = 'a'.repeat((64 * 1024 * 2) + 17);
+      const pendingOriginal = Buffer.from(`${pendingPrefix}${pendingBody}\n`, 'utf8');
+      const pendingReplacement = Buffer.from(
+        `${pendingPrefix}${pendingBody.slice(0, -1)}b\n`, 'utf8',
+      );
+      runner.assert(pendingOriginal.length === pendingReplacement.length
+        && pendingOriginal.length > 64 * 1024,
+      'live fault pending orchestration fixture is same-size and spans multiple bounded chunks');
+      await writeFile(pendingPath, committedPrefix);
+      const pendingCursor = await createLogCursor(pendingPath);
+      await appendFile(pendingPath, pendingOriginal);
+      await ingestAppendedLogBytes(pendingPath, pendingCursor, await stat(pendingPath));
+      runner.assert(pendingCursor.pendingByteCount === pendingOriginal.length
+        && pendingCursor.pendingText.endsWith('\n'),
+      'live fault pending orchestration ingests the complete multi-chunk evidence range');
+      await replaceFileContentsInPlace(
+        pendingPath, Buffer.concat([committedPrefix, pendingReplacement]),
+      );
+      await runner.assertRejects(
+        () => commitPendingLogSegment(pendingPath, pendingCursor),
+        /digest|evidence|changed|replaced|rotat|truncat/i,
+        'live fault pending commit detects same-size replacement across bounded digest chunks',
+      );
+    } finally {
+      await rm(tempLogRoot, { recursive: true, force: true });
+    }
+  } else {
+    runner.assert(false,
+      'live fault exports actual cursor, intake, and commit orchestration for temp-file tests');
+  }
+
   const eventLines = extractTcpEventLines([
     'background editor output',
     'LogUEMCP: Warning: event=tcp_intake_malformed framing=framed',
@@ -4180,6 +4283,7 @@ if (liveTcpSmokeModule !== null) {
   try {
     nestedMetricsAcceptance = assertNoPayloadLeak([
       'LogUEMCP: Display: metrics={"status":"ready","queue_depth":0}',
+      'LogUEMCP: Display: metrics={"type":"counter","value":1}',
     ]);
   } catch (error) {
     nestedMetricsAcceptance = error;
@@ -4295,6 +4399,11 @@ if (liveTcpSmokeModule !== null) {
     'LogUEMCP: Warning: {"type":"ping"}',
     'LogUEMCP: Warning: {"status":"error","code":"MALFORMED_REQUEST"}',
     'LogUEMCP: Warning: {"status":"error","message":"bad"}',
+    'LogUEMCP: Warning: {"status":"error","error":"bad"}',
+    'LogUEMCP: Warning: Content-Length: 15 {"type":"ping"}',
+    'LogUEMCP: Warning: Content-Length: 15 metrics={"type":"counter"}',
+    'LogUEMCP: Warning: diagnostics envelope {"type":"ping"}',
+    'LogUEMCP: Warning: request metadata={"type":"ping"}',
     'LogUEMCP: Warning: response_json={"status":"success","result":{"graph_count":1}}',
   ].entries()) {
     let rejection = null;
