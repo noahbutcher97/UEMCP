@@ -18,6 +18,14 @@ const nativePolicySourceUrl = new URL(
   '../plugin/UEMCP/Source/UEMCP/Private/MCPServerTransportPolicy.cpp',
   import.meta.url,
 );
+const nativePolicyHeaderUrl = new URL(
+  '../plugin/UEMCP/Source/UEMCP/Private/MCPServerTransportPolicy.h',
+  import.meta.url,
+);
+const nativeRunnableSourceUrl = new URL(
+  '../plugin/UEMCP/Source/UEMCP/Private/MCPServerRunnable.cpp',
+  import.meta.url,
+);
 const runner = new TestRunner('TCP transport contract and Node decoder');
 
 const requiredCaseIds = [
@@ -2479,6 +2487,8 @@ const lifecycleFailures = [];
 const transportSource = await readFile(transportUrl, 'utf8');
 const connectionManagerSource = await readFile(connectionManagerUrl, 'utf8');
 const nativePolicySource = await readFile(nativePolicySourceUrl, 'utf8');
+const nativePolicyHeader = await readFile(nativePolicyHeaderUrl, 'utf8');
+const nativeRunnableSource = await readFile(nativeRunnableSourceUrl, 'utf8');
 const tcpCommandSource = connectionManagerSource.slice(
   connectionManagerSource.indexOf('function tcpCommand('),
   connectionManagerSource.indexOf('// ── HTTP Client'),
@@ -2585,5 +2595,55 @@ runner.assert(windowsReceiveSource.indexOf('WSASetLastError(0)')
 'source guard: native error clear, receive, and capture ordering is explicit');
 runner.assert(!nativePolicySource.includes('GetConnectionState'),
   'source guard: receive classification never uses GetConnectionState');
+
+const retiredRunnableSymbols = [
+  'TryParseAccumulated',
+  'DetectFraming',
+  'FCString::Atoi',
+  'bFramed',
+  'bFramingDecided',
+  'bRequestComplete',
+  'bPeerClosed',
+  'FramingBodyOffset',
+  'FramingBodyLen',
+];
+runner.assert(retiredRunnableSymbols.every((symbol) => !nativeRunnableSource.includes(symbol)),
+  'source guard: runnable retires accumulator parser helpers and coordination flags');
+runner.assert(!/\b(?:ClientSocket|Socket)->Recv\s*\(/.test(nativeRunnableSource),
+  'source guard: runnable performs no direct receive call');
+runner.assert(!nativeRunnableSource.includes('failed to send response'),
+  'source guard: caller-level generic response-send warning is retired');
+runner.assert((nativeRunnableSource.match(/\bReadOneRequest\s*\(/g) ?? []).length === 1
+  && nativeRunnableSource.includes('ReadOneRequest(ClientSocket, AcceptedAtSeconds'),
+  'source guard: runnable delegates intake to exactly one typed read call');
+runner.assert(nativeRunnableSource.includes('constexpr double ResponseSendTimeoutSec = 10.0;')
+  && nativeRunnableSource.includes('SendAll(ClientSocket, Framed, ResponseSendTimeoutSec)')
+  && !nativeRunnableSource.includes('PerConnectionTimeoutSec'),
+  'source guard: response sending owns a distinct 10-second timeout constant');
+runner.assert(nativePolicyHeader.includes('inline constexpr int32 MaxHeaderBytes = 512;')
+  && nativePolicyHeader.includes('inline constexpr int64 MaxRequestBodyBytes = 8ll * 1024ll * 1024ll;')
+  && nativePolicySource.includes('FMCPRequestDecoder Decoder({MaxHeaderBytes, MaxRequestBodyBytes});')
+  && nativePolicySource.includes('ReceiveIdleTimeoutSec')
+  && nativePolicySource.includes('ReceiveTotalTimeoutSec'),
+  'source guard: typed read path owns production decoder limits and receive deadlines');
+runner.assert(nativeRunnableSource.includes('SocketSubsystem->GetSocketError(Error)')
+  && (nativeRunnableSource.match(/event=tcp_send_failure/g) ?? []).length === 1,
+  'source guard: SendAll translates and solely owns one detailed send-failure event');
+const requiredIntakeEvents = [
+  'event=tcp_intake_malformed',
+  'event=tcp_intake_too_large',
+  'event=tcp_intake_idle_timeout',
+  'event=tcp_intake_total_timeout',
+  'event=tcp_peer_closed_empty',
+  'event=tcp_peer_closed_partial',
+  'event=tcp_intake_socket_error',
+];
+runner.assert(requiredIntakeEvents.every((event) => (
+  nativeRunnableSource.match(new RegExp(event, 'g')) ?? []
+).length === 1),
+'source guard: each centralized intake outcome owns exactly one event token');
+runner.assert(!/UEMCP_(?:LOG|WARN|ERROR|VERBOSE)\([^;]*(?:RequestJson|ResponseJson|ResponseText)/s
+  .test(nativeRunnableSource),
+  'source guard: transport logs contain metadata rather than request or response payloads');
 
 process.exit(runner.summary());

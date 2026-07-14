@@ -37,6 +37,25 @@ enum class EMCPDecodeStatus : uint8
 	TooLarge
 };
 
+enum class EMCPRequestReadOutcome : uint8
+{
+	Complete,
+	Malformed,
+	TooLarge,
+	IdleTimeout,
+	TotalTimeout,
+	PeerClosed,
+	SocketError,
+	ServerStopping
+};
+
+enum class EMCPReceiveDeadline : uint8
+{
+	None,
+	IdleTimeout,
+	TotalTimeout
+};
+
 struct FMCPDecoderPolicy
 {
 	int32 MaxHeader = MaxHeaderBytes;
@@ -51,6 +70,24 @@ struct FMCPDecodeSnapshot
 	FString ReasonCode;
 	int64 BytesReceived = 0;
 	int64 DeclaredBodyLength = -1;
+};
+
+struct FMCPRequestReadResult
+{
+	EMCPRequestReadOutcome Outcome = EMCPRequestReadOutcome::SocketError;
+	TSharedPtr<FJsonObject> Object;
+	FString ReasonCode;
+	EMCPFramingMode Framing = EMCPFramingMode::Undecided;
+	int64 BytesReceived = 0;
+	int64 DeclaredBodyLength = -1;
+	double ElapsedMs = 0.0;
+	ESocketErrors SocketError = SE_NO_ERROR;
+};
+
+struct FMCPReceiveWaitDecision
+{
+	EMCPReceiveDeadline Deadline = EMCPReceiveDeadline::None;
+	double WaitSeconds = 0.0;
 };
 
 class FMCPRequestDecoder
@@ -84,4 +121,12 @@ struct FMCPReceiveAttempt
 
 FMCPReceiveAttempt ReceiveWithCapturedError(FSocket* Socket, uint8* Buffer, int32 BufferSize);
 EMCPReceiveAction ClassifyReceiveAttempt(const FMCPReceiveAttempt& Attempt);
+FMCPReceiveWaitDecision EvaluateReceiveDeadlines(
+	double AcceptedAtSeconds,
+	double LastPositiveByteAtSeconds,
+	double NowSeconds);
+FMCPRequestReadResult ReadOneRequest(
+	FSocket* Socket,
+	double AcceptedAtSeconds,
+	TFunctionRef<bool()> IsServerRunning);
 }

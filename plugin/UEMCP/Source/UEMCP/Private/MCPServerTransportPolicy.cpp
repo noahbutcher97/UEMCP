@@ -3,6 +3,7 @@
 #include "MCPServerTransportPolicy.h"
 
 #include "Dom/JsonValue.h"
+#include "HAL/PlatformTime.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -18,6 +19,8 @@ THIRD_PARTY_INCLUDES_END
 
 namespace UEMCP::Transport::Private
 {
+constexpr int32 ReceiveBufferBytes = 8192;
+constexpr double MaxReceiveWaitSeconds = 0.05;
 constexpr ANSICHAR FramingPrefix[] = "content-length:";
 constexpr uint8 HeaderTerminator[] = {'\r', '\n', '\r', '\n'};
 constexpr uint8 Utf8Bom[] = {0xef, 0xbb, 0xbf};
@@ -832,6 +835,175 @@ EMCPReceiveAction ClassifyReceiveAttempt(const FMCPReceiveAttempt& Attempt)
 	return Attempt.BytesRead == 0 && Attempt.Error == SE_NO_ERROR
 		? EMCPReceiveAction::PeerClosed
 		: EMCPReceiveAction::SocketError;
+}
+
+FMCPReceiveWaitDecision EvaluateReceiveDeadlines(
+	double AcceptedAtSeconds,
+	double LastPositiveByteAtSeconds,
+	double NowSeconds)
+{
+	const double TotalRemaining = ReceiveTotalTimeoutSec - (NowSeconds - AcceptedAtSeconds);
+	const double IdleRemaining = ReceiveIdleTimeoutSec - (NowSeconds - LastPositiveByteAtSeconds);
+
+	if (TotalRemaining <= 0.0)
+	{
+		return {EMCPReceiveDeadline::TotalTimeout, 0.0};
+	}
+	if (IdleRemaining <= 0.0)
+	{
+		return {EMCPReceiveDeadline::IdleTimeout, 0.0};
+	}
+
+	return {
+		EMCPReceiveDeadline::None,
+		FMath::Min3(Private::MaxReceiveWaitSeconds, IdleRemaining, TotalRemaining)
+	};
+}
+
+FMCPRequestReadResult ReadOneRequest(
+	FSocket* Socket,
+	double AcceptedAtSeconds,
+	TFunctionRef<bool()> IsServerRunning)
+{
+	FMCPRequestReadResult Result;
+	if (!IsServerRunning())
+	{
+		Result.Outcome = EMCPRequestReadOutcome::ServerStopping;
+		return Result;
+	}
+
+	ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (Socket == nullptr || SocketSubsystem == nullptr)
+	{
+		Result.Outcome = EMCPRequestReadOutcome::SocketError;
+		Result.ReasonCode = Socket == nullptr
+			? TEXT("socket_unavailable")
+			: TEXT("socket_subsystem_unavailable");
+		Result.SocketError = SE_SYSTEM;
+		return Result;
+	}
+
+	FMCPRequestDecoder Decoder({MaxHeaderBytes, MaxRequestBodyBytes});
+	double LastPositiveByteAtSeconds = AcceptedAtSeconds;
+	uint8 Buffer[Private::ReceiveBufferBytes];
+
+	auto PopulateResult = [&Result, &Decoder, AcceptedAtSeconds](
+		EMCPRequestReadOutcome Outcome,
+		double NowSeconds)
+	{
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Snapshot();
+		Result.Outcome = Outcome;
+		Result.Object = Snapshot.Object;
+		Result.ReasonCode = Snapshot.ReasonCode;
+		Result.Framing = Snapshot.Framing;
+		Result.BytesReceived = Snapshot.BytesReceived;
+		Result.DeclaredBodyLength = Snapshot.DeclaredBodyLength;
+		Result.ElapsedMs = FMath::Max(0.0, (NowSeconds - AcceptedAtSeconds) * 1000.0);
+	};
+
+	auto ApplyPrecedence = [
+		&Result,
+		&Decoder,
+		&IsServerRunning,
+		&PopulateResult,
+		AcceptedAtSeconds,
+		&LastPositiveByteAtSeconds](double NowSeconds)
+	{
+		if (!IsServerRunning())
+		{
+			PopulateResult(EMCPRequestReadOutcome::ServerStopping, NowSeconds);
+			return true;
+		}
+
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Snapshot();
+		switch (Snapshot.Status)
+		{
+		case EMCPDecodeStatus::Complete:
+			PopulateResult(EMCPRequestReadOutcome::Complete, NowSeconds);
+			return true;
+		case EMCPDecodeStatus::Malformed:
+			PopulateResult(EMCPRequestReadOutcome::Malformed, NowSeconds);
+			return true;
+		case EMCPDecodeStatus::TooLarge:
+			PopulateResult(EMCPRequestReadOutcome::TooLarge, NowSeconds);
+			return true;
+		case EMCPDecodeStatus::Pending:
+			break;
+		}
+
+		const FMCPReceiveWaitDecision Decision = EvaluateReceiveDeadlines(
+			AcceptedAtSeconds,
+			LastPositiveByteAtSeconds,
+			NowSeconds);
+		if (Decision.Deadline == EMCPReceiveDeadline::TotalTimeout)
+		{
+			PopulateResult(EMCPRequestReadOutcome::TotalTimeout, NowSeconds);
+			Result.ReasonCode = TEXT("total_timeout");
+			return true;
+		}
+		if (Decision.Deadline == EMCPReceiveDeadline::IdleTimeout)
+		{
+			PopulateResult(EMCPRequestReadOutcome::IdleTimeout, NowSeconds);
+			Result.ReasonCode = TEXT("idle_timeout");
+			return true;
+		}
+		return false;
+	};
+
+	while (true)
+	{
+		double NowSeconds = FPlatformTime::Seconds();
+		if (ApplyPrecedence(NowSeconds))
+		{
+			return Result;
+		}
+
+		const FMCPReceiveAttempt Attempt = ReceiveWithCapturedError(
+			Socket,
+			Buffer,
+			Private::ReceiveBufferBytes);
+		const EMCPReceiveAction Action = ClassifyReceiveAttempt(Attempt);
+		NowSeconds = FPlatformTime::Seconds();
+		if (Action == EMCPReceiveAction::ConsumeData)
+		{
+			Decoder.Consume(Buffer, Attempt.BytesRead);
+			LastPositiveByteAtSeconds = NowSeconds;
+		}
+
+		if (ApplyPrecedence(NowSeconds))
+		{
+			return Result;
+		}
+
+		switch (Action)
+		{
+		case EMCPReceiveAction::ConsumeData:
+			break;
+
+		case EMCPReceiveAction::Wait:
+		{
+			const FMCPReceiveWaitDecision Decision = EvaluateReceiveDeadlines(
+				AcceptedAtSeconds,
+				LastPositiveByteAtSeconds,
+				NowSeconds);
+			Socket->Wait(
+				ESocketWaitConditions::WaitForRead,
+				FTimespan::FromSeconds(Decision.WaitSeconds));
+			break;
+		}
+
+		case EMCPReceiveAction::PeerClosed:
+			PopulateResult(EMCPRequestReadOutcome::PeerClosed, NowSeconds);
+			Result.ReasonCode = Decoder.DescribeTerminalEof();
+			return Result;
+
+		case EMCPReceiveAction::SocketError:
+			PopulateResult(EMCPRequestReadOutcome::SocketError, NowSeconds);
+			Result.ReasonCode = TEXT("socket_error");
+			Result.SocketError = Attempt.Error;
+			return Result;
+		}
+	}
 }
 
 struct FMCPRequestDecoder::FImpl

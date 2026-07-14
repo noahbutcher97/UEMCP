@@ -758,10 +758,16 @@ console.log('\n── Test 22c: C++ framed response uses send-all loop ──');
     'SendAll advances the buffer pointer after partial sends');
   t.assert(source.includes('WaitForWrite'),
     'SendAll waits for socket write readiness under backpressure');
-  t.assert(source.includes('if (!SocketSubsystem)'),
+  t.assert(source.includes('if (SocketSubsystem == nullptr)'),
     'SendAll guards the socket-subsystem error path');
-  t.assert(source.includes('SendAll(ClientSocket, Framed, PerConnectionTimeoutSec)'),
-    'framed TCP responses are sent through SendAll');
+  t.assert(source.includes('constexpr double ResponseSendTimeoutSec = 10.0;')
+    && source.includes('SendAll(ClientSocket, Framed, ResponseSendTimeoutSec)'),
+  'framed TCP responses use the distinct 10-second SendAll timeout');
+  t.assert((source.match(/event=tcp_send_failure/g) ?? []).length === 1
+    && source.includes('SocketSubsystem->GetSocketError(Error)'),
+  'SendAll solely owns one detailed translated send-failure event');
+  t.assert(!source.includes('failed to send response'),
+    'SendAll caller emits no duplicate generic send warning');
   t.assert(!source.includes('ClientSocket->Send(Framed.GetData(), Framed.Num(), BytesSent)'),
     'framed TCP responses do not rely on a single non-blocking Send');
 }

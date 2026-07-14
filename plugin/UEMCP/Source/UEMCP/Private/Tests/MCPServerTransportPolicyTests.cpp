@@ -1047,6 +1047,72 @@ bool FUEMCPReceiveClassifierTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPReceiveDeadlineTest,
+	"UEMCP.Transport.ReceiveDeadlines",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPReceiveDeadlineTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Transport;
+
+	auto TestDecision = [this](
+		const TCHAR* Description,
+		double AcceptedAtSeconds,
+		double LastPositiveByteAtSeconds,
+		double NowSeconds,
+		EMCPReceiveDeadline ExpectedDeadline,
+		double ExpectedWaitSeconds)
+	{
+		const FMCPReceiveWaitDecision Decision = EvaluateReceiveDeadlines(
+			AcceptedAtSeconds,
+			LastPositiveByteAtSeconds,
+			NowSeconds);
+		TestTrue(*FString::Printf(TEXT("%s deadline"), Description),
+			Decision.Deadline == ExpectedDeadline);
+		TestTrue(*FString::Printf(TEXT("%s wait"), Description),
+			FMath::IsNearlyEqual(Decision.WaitSeconds, ExpectedWaitSeconds, 1.e-9));
+	};
+
+	TestDecision(TEXT("accept initializes idle and wait is capped at 50ms"),
+		100.0, 100.0, 100.0, EMCPReceiveDeadline::None, 0.05);
+	TestDecision(TEXT("zero-byte and retry attempts leave idle anchored at accept"),
+		100.0, 100.0, 101.999, EMCPReceiveDeadline::None, 0.001);
+	TestDecision(TEXT("idle expires exactly two seconds after accept without positive bytes"),
+		100.0, 100.0, 102.0, EMCPReceiveDeadline::IdleTimeout, 0.0);
+	TestDecision(TEXT("positive bytes reset only the idle deadline"),
+		100.0, 101.75, 102.0, EMCPReceiveDeadline::None, 0.05);
+	TestDecision(TEXT("idle remainder below 50ms owns the wait"),
+		100.0, 101.0, 102.975, EMCPReceiveDeadline::None, 0.025);
+	TestDecision(TEXT("total remainder below idle and 50ms owns the wait"),
+		100.0, 109.0, 109.98, EMCPReceiveDeadline::None, 0.02);
+	TestDecision(TEXT("positive progress never resets the total deadline"),
+		100.0, 109.999, 110.0, EMCPReceiveDeadline::TotalTimeout, 0.0);
+	TestDecision(TEXT("total timeout wins when idle and total expire together"),
+		100.0, 108.0, 110.0, EMCPReceiveDeadline::TotalTimeout, 0.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPReadOneRequestStoppingTest,
+	"UEMCP.Transport.ReadOneRequestStopping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPReadOneRequestStoppingTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Transport;
+
+	const FMCPRequestReadResult Result = ReadOneRequest(nullptr, 100.0, [] { return false; });
+	TestTrue(TEXT("server stop wins before null socket validation"),
+		Result.Outcome == EMCPRequestReadOutcome::ServerStopping);
+	TestEqual(TEXT("quiet stop consumes no request bytes"), Result.BytesReceived, int64{0});
+	TestEqual(TEXT("quiet stop retains no reason code"), Result.ReasonCode, FString());
+	TestTrue(TEXT("quiet stop retains no request object"), !Result.Object.IsValid());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FUEMCPTransportFixtureSchemaTest,
 	"UEMCP.Transport.FixtureSchema",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
