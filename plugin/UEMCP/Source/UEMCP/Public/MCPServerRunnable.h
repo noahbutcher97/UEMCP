@@ -18,7 +18,7 @@ class FSocket;
  *   4. Serialize and send one Content-Length-framed UTF-8 response.
  *   5. Close the client socket and return to the accept loop.
  *
- * Active malformed, oversized, and timed-out requests receive structured errors.
+ * Rejected active requests attempt a structured error response.
  * Peer close, receive failure, and server shutdown do not attempt a response.
  * The listener socket is owned by FUEMCPModule; this runnable only holds a non-owning raw pointer.
  */

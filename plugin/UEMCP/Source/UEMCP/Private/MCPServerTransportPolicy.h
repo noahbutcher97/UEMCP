@@ -125,6 +125,12 @@ FMCPReceiveWaitDecision EvaluateReceiveDeadlines(
 	double AcceptedAtSeconds,
 	double LastPositiveByteAtSeconds,
 	double NowSeconds);
+FMCPRequestReadResult BuildRequestReadResult(
+	EMCPRequestReadOutcome Outcome,
+	const FMCPDecodeSnapshot& Snapshot,
+	double ElapsedMs,
+	FString ReasonCode = FString(),
+	ESocketErrors SocketError = SE_NO_ERROR);
 FMCPRequestReadResult ReadOneRequest(
 	FSocket* Socket,
 	double AcceptedAtSeconds,

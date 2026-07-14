@@ -2609,13 +2609,69 @@ const retiredRunnableSymbols = [
 ];
 runner.assert(retiredRunnableSymbols.every((symbol) => !nativeRunnableSource.includes(symbol)),
   'source guard: runnable retires accumulator parser helpers and coordination flags');
-runner.assert(!/\b(?:ClientSocket|Socket)->Recv\s*\(/.test(nativeRunnableSource),
-  'source guard: runnable performs no direct receive call');
+runner.assert(!/->\s*Recv\s*\(/.test(nativeRunnableSource),
+  'source guard: runnable contains no direct receive call through any pointer name');
 runner.assert(!nativeRunnableSource.includes('failed to send response'),
   'source guard: caller-level generic response-send warning is retired');
 runner.assert((nativeRunnableSource.match(/\bReadOneRequest\s*\(/g) ?? []).length === 1
   && nativeRunnableSource.includes('ReadOneRequest(ClientSocket, AcceptedAtSeconds'),
   'source guard: runnable delegates intake to exactly one typed read call');
+
+const readOneRequestStart = nativePolicySource.indexOf('FMCPRequestReadResult ReadOneRequest(');
+const decoderImplementationStart = nativePolicySource.indexOf(
+  'struct FMCPRequestDecoder::FImpl', readOneRequestStart,
+);
+const readOneRequestSource = nativePolicySource.slice(
+  readOneRequestStart,
+  decoderImplementationStart,
+);
+const precedenceStart = readOneRequestSource.indexOf('auto ApplyPrecedence =');
+const stopPrecedenceIndex = readOneRequestSource.indexOf('if (!IsServerRunning())', precedenceStart);
+const decoderTerminalMappingIndex = readOneRequestSource.indexOf(
+  'switch (Snapshot.Status)', precedenceStart,
+);
+runner.assert(readOneRequestStart >= 0
+  && decoderImplementationStart > readOneRequestStart
+  && precedenceStart >= 0
+  && stopPrecedenceIndex > precedenceStart
+  && decoderTerminalMappingIndex > stopPrecedenceIndex,
+'source guard: read precedence checks server stop before decoder terminal mapping');
+
+const serverStoppingCaseStart = nativeRunnableSource.indexOf(
+  'case EMCPRequestReadOutcome::ServerStopping:',
+);
+const serverStoppingCaseEnd = nativeRunnableSource.indexOf('\n\t}', serverStoppingCaseStart);
+const serverStoppingCaseSource = nativeRunnableSource.slice(
+  serverStoppingCaseStart,
+  serverStoppingCaseEnd,
+);
+runner.assert(serverStoppingCaseStart >= 0
+  && serverStoppingCaseEnd > serverStoppingCaseStart
+  && /\breturn\s*;/.test(serverStoppingCaseSource)
+  && !/UEMCP_(?:LOG|WARN|ERROR|VERBOSE)|BuildErrorResponse|SendAll/.test(serverStoppingCaseSource),
+'source guard: runnable ServerStopping case returns without logging or response work');
+
+const readResultBuilderStart = nativePolicySource.indexOf(
+  'FMCPRequestReadResult BuildRequestReadResult(',
+);
+const readResultBuilderEnd = nativePolicySource.indexOf(
+  'FMCPRequestReadResult ReadOneRequest(', readResultBuilderStart,
+);
+const readResultBuilderSource = nativePolicySource.slice(
+  readResultBuilderStart,
+  readResultBuilderEnd,
+);
+runner.assert(nativePolicyHeader.includes('FMCPRequestReadResult BuildRequestReadResult(')
+  && readResultBuilderStart >= 0
+  && readResultBuilderEnd > readResultBuilderStart
+  && readResultBuilderSource.includes('Outcome == EMCPRequestReadOutcome::Complete')
+  && readResultBuilderSource.includes('Result.Object = Snapshot.Object')
+  && readResultBuilderSource.includes('Result.Object.Reset()'),
+'source guard: pure read-result builder copies Object only for Complete and resets it otherwise');
+runner.assert(readOneRequestSource.includes('Result = BuildRequestReadResult(')
+  && !readOneRequestSource.includes('Result.Object = Snapshot.Object'),
+  'source guard: production read path delegates result mapping to the invariant-owning builder');
+
 runner.assert(nativeRunnableSource.includes('constexpr double ResponseSendTimeoutSec = 10.0;')
   && nativeRunnableSource.includes('SendAll(ClientSocket, Framed, ResponseSendTimeoutSec)')
   && !nativeRunnableSource.includes('PerConnectionTimeoutSec'),
@@ -2642,8 +2698,76 @@ runner.assert(requiredIntakeEvents.every((event) => (
   nativeRunnableSource.match(new RegExp(event, 'g')) ?? []
 ).length === 1),
 'source guard: each centralized intake outcome owns exactly one event token');
-runner.assert(!/UEMCP_(?:LOG|WARN|ERROR|VERBOSE)\([^;]*(?:RequestJson|ResponseJson|ResponseText)/s
-  .test(nativeRunnableSource),
-  'source guard: transport logs contain metadata rather than request or response payloads');
+
+function extractBalancedLogInvocations(source) {
+  const invocations = [];
+  const starts = [...source.matchAll(/\bUEMCP_(?:LOG|WARN|ERROR|VERBOSE)\s*\(/g)];
+  for (const start of starts) {
+    const openIndex = source.indexOf('(', start.index);
+    let depth = 0;
+    let state = 'code';
+    let escaped = false;
+    let endIndex = -1;
+    for (let index = openIndex; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (state === 'line-comment') {
+        if (char === '\n') state = 'code';
+        continue;
+      }
+      if (state === 'block-comment') {
+        if (char === '*' && next === '/') {
+          state = 'code';
+          index += 1;
+        }
+        continue;
+      }
+      if (state === 'string' || state === 'character') {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if ((state === 'string' && char === '"')
+          || (state === 'character' && char === "'")) {
+          state = 'code';
+        }
+        continue;
+      }
+      if (char === '/' && next === '/') {
+        state = 'line-comment';
+        index += 1;
+      } else if (char === '/' && next === '*') {
+        state = 'block-comment';
+        index += 1;
+      } else if (char === '"') {
+        state = 'string';
+      } else if (char === "'") {
+        state = 'character';
+      } else if (char === '(') {
+        depth += 1;
+      } else if (char === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          endIndex = index + 1;
+          break;
+        }
+      }
+    }
+    invocations.push({
+      complete: endIndex > openIndex,
+      source: endIndex > openIndex ? source.slice(start.index, endIndex) : '',
+    });
+  }
+  return invocations;
+}
+
+const transportLogInvocations = extractBalancedLogInvocations(nativeRunnableSource);
+const payloadBearingLogIdentifier = /\b(?:RequestJson|ResponseJson|SerializedResponse|BodyUtf8|Framed|Bytes|CommandType|Params)\b/;
+runner.assert(transportLogInvocations.length > 0
+  && transportLogInvocations.every((invocation) => invocation.complete)
+  && transportLogInvocations.every((invocation) => (
+    !payloadBearingLogIdentifier.test(invocation.source)
+  )),
+  'source guard: complete balanced transport log invocations exclude payload-bearing identifiers');
 
 process.exit(runner.summary());

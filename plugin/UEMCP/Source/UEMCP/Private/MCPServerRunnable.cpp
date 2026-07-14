@@ -383,11 +383,12 @@ void FMCPServerRunnable::ServeOneConnection(FSocket* ClientSocket, double Accept
 		reinterpret_cast<const uint8*>(BodyUtf8.Get()),
 		BodyLength);
 
+	const int32 ResponseBytes = Framed.Num();
 	if (SendAll(ClientSocket, Framed, ResponseSendTimeoutSec))
 	{
 		UEMCP_VERBOSE(
 			"sent %d bytes (framed: %d header + %d body)",
-			Framed.Num(),
+			ResponseBytes,
 			HeaderLength,
 			BodyLength);
 	}

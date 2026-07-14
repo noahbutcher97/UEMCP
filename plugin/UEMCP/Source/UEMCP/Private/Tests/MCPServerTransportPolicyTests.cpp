@@ -1113,6 +1113,79 @@ bool FUEMCPReadOneRequestStoppingTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPRequestReadResultMappingTest,
+	"UEMCP.Transport.RequestReadResultMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPRequestReadResultMappingTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Transport;
+
+	const TSharedPtr<FJsonObject> CompletedObject = MakeShared<FJsonObject>();
+	CompletedObject->SetStringField(TEXT("type"), TEXT("payload_must_not_escape"));
+
+	FMCPDecodeSnapshot CompletedSnapshot;
+	CompletedSnapshot.Status = EMCPDecodeStatus::Complete;
+	CompletedSnapshot.Framing = EMCPFramingMode::Framed;
+	CompletedSnapshot.Object = CompletedObject;
+	CompletedSnapshot.BytesReceived = 73;
+	CompletedSnapshot.DeclaredBodyLength = 51;
+
+	const FMCPRequestReadResult StoppingResult = BuildRequestReadResult(
+		EMCPRequestReadOutcome::ServerStopping,
+		CompletedSnapshot,
+		12.5);
+	TestTrue(TEXT("post-receive server stop wins over a completed decoder snapshot"),
+		StoppingResult.Outcome == EMCPRequestReadOutcome::ServerStopping);
+	TestFalse(TEXT("post-receive server stop carries no payload object"),
+		StoppingResult.Object.IsValid());
+	TestTrue(TEXT("post-receive server stop carries no reason text"),
+		StoppingResult.ReasonCode.IsEmpty());
+	TestTrue(TEXT("post-receive server stop carries no socket error"),
+		StoppingResult.SocketError == SE_NO_ERROR);
+	TestTrue(TEXT("completed decoder snapshot remains valid after stop mapping"),
+		CompletedSnapshot.Object == CompletedObject && CompletedObject.IsValid());
+	TestEqual(TEXT("post-receive server stop retains only framing metadata"),
+		StoppingResult.Framing, EMCPFramingMode::Framed);
+	TestEqual(TEXT("post-receive server stop retains only byte-count metadata"),
+		StoppingResult.BytesReceived, int64{73});
+	TestEqual(TEXT("post-receive server stop retains only declared-length metadata"),
+		StoppingResult.DeclaredBodyLength, int64{51});
+	TestTrue(TEXT("post-receive server stop retains elapsed metadata"),
+		FMath::IsNearlyEqual(StoppingResult.ElapsedMs, 12.5, 1.e-9));
+
+	const EMCPRequestReadOutcome NonCompleteOutcomes[] = {
+		EMCPRequestReadOutcome::Malformed,
+		EMCPRequestReadOutcome::TooLarge,
+		EMCPRequestReadOutcome::IdleTimeout,
+		EMCPRequestReadOutcome::TotalTimeout,
+		EMCPRequestReadOutcome::PeerClosed,
+		EMCPRequestReadOutcome::SocketError,
+		EMCPRequestReadOutcome::ServerStopping
+	};
+	for (const EMCPRequestReadOutcome Outcome : NonCompleteOutcomes)
+	{
+		const FMCPRequestReadResult Result = BuildRequestReadResult(
+			Outcome,
+			CompletedSnapshot,
+			3.0);
+		TestTrue(
+			*FString::Printf(TEXT("non-complete outcome %d carries no payload object"), static_cast<int32>(Outcome)),
+			!Result.Object.IsValid());
+	}
+
+	const FMCPRequestReadResult CompleteResult = BuildRequestReadResult(
+		EMCPRequestReadOutcome::Complete,
+		CompletedSnapshot,
+		7.0);
+	TestTrue(TEXT("complete outcome retains the decoded request object"),
+		CompleteResult.Object == CompletedObject && CompleteResult.Object.IsValid());
+	TestEqual(TEXT("complete outcome retains elapsed metadata"), CompleteResult.ElapsedMs, 7.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FUEMCPTransportFixtureSchemaTest,
 	"UEMCP.Transport.FixtureSchema",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
