@@ -33,6 +33,38 @@ const liveTcpSmokeUrl = new URL('./live-smoke-tcp-transport.mjs', import.meta.ur
 const liveAnimationSmokeUrl = new URL('./live-smoke-animation-readback.mjs', import.meta.url);
 const runner = new TestRunner('TCP transport contract and Node decoder');
 
+function extractUniqueMarkdownSection(source, headingText, headingLevel) {
+  const lines = source.split(/\r?\n/);
+  const exactHeading = `${'#'.repeat(headingLevel)} ${headingText}`;
+  const headingIndexes = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] === exactHeading) {
+      headingIndexes.push(index);
+    }
+  }
+  if (headingIndexes.length !== 1) {
+    return { count: headingIndexes.length, section: '' };
+  }
+
+  const startIndex = headingIndexes[0];
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const headingMatch = /^(#{1,6})\s+/.exec(lines[index]);
+    if (headingMatch && headingMatch[1].length <= headingLevel) {
+      endIndex = index;
+      break;
+    }
+  }
+  return {
+    count: 1,
+    section: lines.slice(startIndex, endIndex).join('\n'),
+  };
+}
+
+function markdownBullet(section, label) {
+  return section.split('\n').find((line) => line.startsWith(`- **${label}** —`)) ?? '';
+}
+
 const requiredCaseIds = [
   'framed-basic',
   'framed-case-insensitive',
@@ -2495,26 +2527,133 @@ const nativePolicySource = await readFile(nativePolicySourceUrl, 'utf8');
 const nativePolicyHeader = await readFile(nativePolicyHeaderUrl, 'utf8');
 const nativeRunnableSource = await readFile(nativeRunnableSourceUrl, 'utf8');
 const currentTransportDocs = [
-  ['CLAUDE.md', await readFile(claudeDocUrl, 'utf8')],
-  ['docs/specs/architecture.md', await readFile(architectureDocUrl, 'utf8')],
+  {
+    docName: 'CLAUDE.md',
+    source: await readFile(claudeDocUrl, 'utf8'),
+    headingText: 'TCP Wire Protocol — Current Contract',
+    headingLevel: 2,
+    requestLabel: 'Requests',
+    responseLabel: 'Responses',
+  },
+  {
+    docName: 'docs/specs/architecture.md',
+    source: await readFile(architectureDocUrl, 'utf8'),
+    headingText: 'Current TCP:55558 Contract',
+    headingLevel: 3,
+    requestLabel: 'Request path',
+    responseLabel: 'Response path',
+  },
 ];
 const requiredCurrentTransportContract = [
-  'strict UTF-8',
   '512-byte header',
   '8 MiB request limit',
   '2-second idle',
   '10-second total',
   'absolute Node deadline',
-  'legacy compatibility',
   'no response cap',
   'Win64-only runtime proof',
 ];
-for (const [docName, source] of currentTransportDocs) {
+for (const {
+  docName,
+  source,
+  headingText,
+  headingLevel,
+  requestLabel,
+  responseLabel,
+} of currentTransportDocs) {
+  const extracted = extractUniqueMarkdownSection(source, headingText, headingLevel);
+  runner.assert(extracted.count === 1,
+    `${docName} contains exactly one ${'#'.repeat(headingLevel)} ${headingText} section`,
+    `found ${extracted.count}`);
   for (const contractText of requiredCurrentTransportContract) {
-    runner.assert(source.includes(contractText),
+    runner.assert(extracted.section.includes(contractText),
       `${docName} current TCP contract names ${contractText}`);
   }
+  const requestLine = markdownBullet(extracted.section, requestLabel);
+  const responseLine = markdownBullet(extracted.section, responseLabel);
+  runner.assert(requestLine.includes('strict UTF-8'),
+    `${docName} current TCP request line requires strict UTF-8`);
+  runner.assert(responseLine.includes('strict UTF-8'),
+    `${docName} current TCP response line requires strict UTF-8`);
+  runner.assert(requestLine.includes('legacy compatibility'),
+    `${docName} current TCP request line names legacy compatibility`);
 }
+
+const outsideOnlyContract = requiredCurrentTransportContract
+  .concat(['strict UTF-8', 'legacy compatibility'])
+  .join(' | ');
+const scopedContractFixture = [
+  outsideOnlyContract,
+  '## TCP Wire Protocol — Current Contract',
+  '- **Requests** — current request text only.',
+  '- **Responses** — current response text only.',
+  '### Nested detail',
+  'nested-marker',
+  '## Later section',
+  outsideOnlyContract,
+].join('\n');
+const scopedContractFixtureResult = extractUniqueMarkdownSection(
+  scopedContractFixture,
+  'TCP Wire Protocol — Current Contract',
+  2,
+);
+runner.assert(scopedContractFixtureResult.count === 1
+  && scopedContractFixtureResult.section.includes('nested-marker')
+  && requiredCurrentTransportContract.every(
+    (contractText) => !scopedContractFixtureResult.section.includes(contractText),
+  )
+  && !markdownBullet(scopedContractFixtureResult.section, 'Requests').includes('strict UTF-8')
+  && !markdownBullet(scopedContractFixtureResult.section, 'Requests').includes('legacy compatibility')
+  && !markdownBullet(scopedContractFixtureResult.section, 'Responses').includes('strict UTF-8'),
+'current-contract extractor includes nested content but excludes matching phrases outside its bounds');
+runner.assert(extractUniqueMarkdownSection(
+  `${scopedContractFixture}\n## TCP Wire Protocol — Current Contract\nduplicate`,
+  'TCP Wire Protocol — Current Contract',
+  2,
+).count === 2,
+'current-contract extractor rejects duplicate exact headings');
+
+const claudeSource = currentTransportDocs[0].source;
+const e1Section = extractUniqueMarkdownSection(
+  claudeSource,
+  'E-1 connection-layer hygiene + EN-23 metrics (D140)',
+  3,
+);
+runner.assert(e1Section.count === 1,
+  'CLAUDE.md contains exactly one E-1 connection-layer hygiene section',
+  `found ${e1Section.count}`);
+const e1TimeoutLine = e1Section.section.split('\n')
+  .find((line) => line.startsWith('- **§5 Timeout reconciliation')) ?? '';
+runner.assert(e1TimeoutLine.includes('PerConnectionTimeoutSec')
+  && e1TimeoutLine.includes('historical')
+  && e1TimeoutLine.includes('superseded'),
+'CLAUDE.md E-1 timeout statement marks PerConnectionTimeoutSec historical and superseded');
+runner.assert(e1TimeoutLine.includes('independent 2-second idle')
+  && e1TimeoutLine.includes('10-second total request-intake')
+  && e1TimeoutLine.includes('distinct 10-second response-send deadline'),
+'CLAUDE.md E-1 timeout statement names independent intake deadlines and distinct send deadline');
+const outsideOnlyE1Fixture = [
+  'historical superseded independent 2-second idle 10-second total request-intake',
+  'distinct 10-second response-send deadline',
+  '### E-1 connection-layer hygiene + EN-23 metrics (D140)',
+  '- **§5 Timeout reconciliation** — plugin `PerConnectionTimeoutSec` 5.0 → 10.0',
+  '### Later history',
+  'historical superseded independent 2-second idle 10-second total request-intake',
+  'distinct 10-second response-send deadline',
+].join('\n');
+const outsideOnlyE1Section = extractUniqueMarkdownSection(
+  outsideOnlyE1Fixture,
+  'E-1 connection-layer hygiene + EN-23 metrics (D140)',
+  3,
+).section;
+const outsideOnlyE1TimeoutLine = outsideOnlyE1Section.split('\n')
+  .find((line) => line.startsWith('- **§5 Timeout reconciliation')) ?? '';
+runner.assert(!outsideOnlyE1TimeoutLine.includes('historical')
+  && !outsideOnlyE1TimeoutLine.includes('superseded')
+  && !outsideOnlyE1TimeoutLine.includes('independent 2-second idle')
+  && !outsideOnlyE1TimeoutLine.includes('10-second total request-intake')
+  && !outsideOnlyE1TimeoutLine.includes('distinct 10-second response-send deadline'),
+'E-1 extractor prevents deadline and supersession phrases outside its section from satisfying the guard');
 const tcpCommandSource = connectionManagerSource.slice(
   connectionManagerSource.indexOf('function tcpCommand('),
   connectionManagerSource.indexOf('// ── HTTP Client'),

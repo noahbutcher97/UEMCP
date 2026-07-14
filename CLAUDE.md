@@ -367,7 +367,7 @@ Five hygiene fixes shipped together:
 - **§2 Event-driven accept loop** — `MCPServerRunnable.cpp` Run() uses `WaitForPendingConnection(500ms)` instead of `Sleep(0.05f)`
 - **§3 Event-driven recv** — `ServeOneConnection` uses `Wait(WaitForRead, 50ms)` instead of `Sleep(0.01f)`
 - **§4 Loopback-only bind** — listener on `FIPv4Address::InternalLoopback` (127.0.0.1), not 0.0.0.0; bound in `UEMCPModule.cpp:47-50` (not `MCPServerRunnable.cpp`); security hardening
-- **§5 Timeout reconciliation** — `tcpTimeoutMs` default 5000 → 10000ms; plugin `PerConnectionTimeoutSec` 5.0 → 10.0
+- **§5 Timeout reconciliation (historical and superseded)** — D140 changed `tcpTimeoutMs` from 5000 to 10000ms and plugin `PerConnectionTimeoutSec` from 5.0 to 10.0. That single plugin timeout model is historical and superseded: the current plugin transport enforces an independent 2-second idle deadline and 10-second total request-intake deadline, plus a distinct 10-second response-send deadline.
 
 **EN-23 metrics aggregator** — `MetricsAggregator` in `connection-manager.mjs` collects per-call timings, cache hits, framed counts. Default-OFF (cheap no-op). Opt-in via `.mcp.json` env: `UEMCP_METRICS_EMIT_EVERY_N=100` (stderr summary) or `UEMCP_METRICS_LOG=<path>` (JSONL append, best-effort). `ConnectionManager.getMetrics()` exposes the data.
 
