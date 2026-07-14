@@ -31,6 +31,29 @@ struct FTransportFixtureCase
 	TSharedPtr<FJsonObject> ExpectedObject;
 };
 
+struct FFixtureExecutionCounts
+{
+	int32 Whole = 0;
+	int32 Explicit = 0;
+	int32 GeneratedSplit = 0;
+
+	int32 Total() const
+	{
+		return Whole + Explicit + GeneratedSplit;
+	}
+};
+
+const TSet<FString>& RequiredAllSplitPointIds()
+{
+	static const TSet<FString> Ids = {
+		TEXT("framed-basic"),
+		TEXT("framed-bom-multibyte"),
+		TEXT("legacy-nested-escaped"),
+		TEXT("legacy-bom-multibyte")
+	};
+	return Ids;
+}
+
 bool IsWholePositiveNumber(double Value)
 {
 	return FMath::IsFinite(Value) && Value > 0.0 && Value <= static_cast<double>(MAX_int32)
@@ -234,6 +257,7 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 	};
 	TSet<FString> SeenIds;
 	TSet<FString> SeenRequestIds;
+	TSet<FString> SeenAllSplitPointIds;
 	for (const TSharedPtr<FJsonValue>& CaseValue : Root->GetArrayField(TEXT("cases")))
 	{
 		if (!CaseValue.IsValid() || CaseValue->Type != EJson::Object)
@@ -434,6 +458,15 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 
 		if (bTargetsRequest)
 		{
+			if (Parsed.bAllSplitPoints)
+			{
+				if (!RequiredAllSplitPointIds().Contains(Parsed.Id))
+				{
+					Test.AddError(FString::Printf(TEXT("Unexpected request fixture enables all_split_points: %s"), *Parsed.Id));
+					continue;
+				}
+				SeenAllSplitPointIds.Add(Parsed.Id);
+			}
 			SeenRequestIds.Add(Parsed.Id);
 			OutCases.Add(MoveTemp(Parsed));
 		}
@@ -469,92 +502,34 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 		Test.AddError(FString::Printf(TEXT("Version 1 fixture must contain exactly %d request cases, found %d"),
 			RequiredRequestIds.Num(), OutCases.Num()));
 	}
+	for (const FString& RequiredId : RequiredAllSplitPointIds())
+	{
+		if (!SeenAllSplitPointIds.Contains(RequiredId))
+		{
+			Test.AddError(FString::Printf(TEXT("Required all_split_points request fixture is missing or false: %s"), *RequiredId));
+		}
+	}
+	if (SeenAllSplitPointIds.Num() != RequiredAllSplitPointIds().Num())
+	{
+		Test.AddError(TEXT("Request fixture all_split_points IDs do not match the required exact set"));
+	}
 
 	return !OutCases.IsEmpty() && !Test.HasAnyErrors();
 }
 
-int64 ExpectedLegacyScanCount(const TArray<uint8>& Data, int64 MaxBody)
+FFixtureExecutionCounts DeriveExpectedExecutionCounts(const TArray<FTransportFixtureCase>& Cases)
 {
-	constexpr uint8 Bom[] = {0xef, 0xbb, 0xbf};
-	bool bBeforeRoot = true;
-	bool bBomSeen = false;
-	int32 BomProgress = 0;
-	bool bRootComplete = false;
-	bool bInString = false;
-	bool bEscaped = false;
-	TArray<uint8> Delimiters;
-	int64 Scanned = 0;
-
-	for (const uint8 Byte : Data)
+	FFixtureExecutionCounts Counts;
+	Counts.Whole = Cases.Num();
+	for (const FTransportFixtureCase& Case : Cases)
 	{
-		if (Scanned >= MaxBody)
+		Counts.Explicit += Case.ChunkPlans.Num();
+		if (Case.bAllSplitPoints)
 		{
-			break;
+			Counts.GeneratedSplit += Case.Data.Num() - 1;
 		}
-		const int64 Position = Scanned++;
-		if (bBeforeRoot)
-		{
-			if (BomProgress == 1)
-			{
-				if (Byte != Bom[1]) break;
-				BomProgress = 2;
-				continue;
-			}
-			if (BomProgress == 2)
-			{
-				if (Byte != Bom[2]) break;
-				BomProgress = 0;
-				bBomSeen = true;
-				continue;
-			}
-			if (Byte == Bom[0])
-			{
-				if (Position != 0 || bBomSeen) break;
-				BomProgress = 1;
-				continue;
-			}
-			if (Byte == 0x20 || Byte == 0x09 || Byte == 0x0a || Byte == 0x0d)
-			{
-				continue;
-			}
-			if (Byte != 0x7b) break;
-			bBeforeRoot = false;
-			Delimiters.Add(Byte);
-			continue;
-		}
-
-		if (bRootComplete)
-		{
-			if (Byte != 0x20 && Byte != 0x09 && Byte != 0x0a && Byte != 0x0d) break;
-			continue;
-		}
-		if (bInString)
-		{
-			if (bEscaped) bEscaped = false;
-			else if (Byte == 0x5c) bEscaped = true;
-			else if (Byte == 0x22) bInString = false;
-			continue;
-		}
-		if (Byte == 0x22)
-		{
-			bInString = true;
-			continue;
-		}
-		if (Byte == 0x7b || Byte == 0x5b)
-		{
-			Delimiters.Add(Byte);
-			continue;
-		}
-		if (Byte != 0x7d && Byte != 0x5d)
-		{
-			continue;
-		}
-		const uint8 ExpectedOpen = Byte == 0x7d ? 0x7b : 0x5b;
-		if (Delimiters.IsEmpty() || Delimiters.Last() != ExpectedOpen) break;
-		Delimiters.Pop(EAllowShrinking::No);
-		bRootComplete = Delimiters.IsEmpty();
 	}
-	return Scanned;
+	return Counts;
 }
 
 int32 ExpectedJsonParseCount(const FTransportFixtureCase& Case)
@@ -616,8 +591,18 @@ void RunFixturePlan(
 		Decoder.GetJsonParseCountForTests(), ExpectedJsonParseCount(Case));
 	if (Case.ExpectedFraming == EMCPFramingMode::Legacy)
 	{
-		Test.TestEqual(*FString::Printf(TEXT("%s/%s legacy bytes scanned once"), *Case.Id, *PlanName),
-			Decoder.GetLegacyBytesScannedForTests(), ExpectedLegacyScanCount(Case.Data, Case.Policy.MaxBody));
+		if (Case.ExpectedStatus == EMCPDecodeStatus::Complete
+			|| Case.ExpectedStatus == EMCPDecodeStatus::Pending
+			|| Case.ExpectedReason == TEXT("invalid_json"))
+		{
+			Test.TestEqual(*FString::Printf(TEXT("%s/%s completed legacy plan scans every delivered byte once"),
+				*Case.Id, *PlanName), Decoder.GetLegacyBytesScannedForTests(), static_cast<int64>(Case.Data.Num()));
+		}
+		else if (Case.ExpectedStatus == EMCPDecodeStatus::TooLarge)
+		{
+			Test.TestEqual(*FString::Printf(TEXT("%s/%s over-limit legacy plan stops scanning at policy cap"),
+				*Case.Id, *PlanName), Decoder.GetLegacyBytesScannedForTests(), Case.Policy.MaxBody);
+		}
 	}
 	else
 	{
@@ -653,6 +638,55 @@ void RunFixturePlan(
 			Decoder.GetJsonParseCountForTests(), ParseCount);
 		Test.TestEqual(*FString::Printf(TEXT("%s/%s terminal scanner is stable"), *Case.Id, *PlanName),
 			Decoder.GetLegacyBytesScannedForTests(), ScanCount);
+	}
+}
+
+void RunLegacyByteAtATimeProof(FAutomationTestBase& Test, const FTransportFixtureCase& Case)
+{
+	FMCPRequestDecoder Decoder(Case.Policy);
+	int64 ExpectedScanned = 0;
+	for (int32 Index = 0; Index < Case.Data.Num(); ++Index)
+	{
+		const FMCPDecodeSnapshot Before = Decoder.Snapshot();
+		const int64 BeforeScanned = Decoder.GetLegacyBytesScannedForTests();
+		const FMCPDecodeSnapshot& After = Decoder.Consume(Case.Data.GetData() + Index, 1);
+		const int64 AfterScanned = Decoder.GetLegacyBytesScannedForTests();
+		const FString Prefix = FString::Printf(TEXT("%s/byte-%d"), *Case.Id, Index);
+
+		if (Before.Status == EMCPDecodeStatus::Pending)
+		{
+			const int64 ExpectedDelta = BeforeScanned < Case.Policy.MaxBody ? 1 : 0;
+			ExpectedScanned += ExpectedDelta;
+			Test.TestEqual(*FString::Printf(TEXT("%s scanner advances by the exact current-byte amount"), *Prefix),
+				AfterScanned - BeforeScanned, ExpectedDelta);
+		}
+		else
+		{
+			Test.TestEqual(*FString::Printf(TEXT("%s terminal repeated consume does not scan"), *Prefix),
+				AfterScanned, BeforeScanned);
+			Test.TestEqual(*FString::Printf(TEXT("%s terminal repeated consume does not receive"), *Prefix),
+				After.BytesReceived, Before.BytesReceived);
+		}
+		Test.TestEqual(*FString::Printf(TEXT("%s cumulative scanner count is exact"), *Prefix),
+			AfterScanned, ExpectedScanned);
+	}
+
+	const FMCPDecodeSnapshot& Snapshot = Decoder.Snapshot();
+	Test.TestTrue(*FString::Printf(TEXT("%s byte-at-a-time framing"), *Case.Id),
+		Snapshot.Framing == EMCPFramingMode::Legacy);
+	Test.TestEqual(*FString::Printf(TEXT("%s byte-at-a-time final scanner count"), *Case.Id),
+		Decoder.GetLegacyBytesScannedForTests(), ExpectedScanned);
+
+	if (Snapshot.Status != EMCPDecodeStatus::Pending)
+	{
+		const FMCPDecodeSnapshot StableSnapshot = Snapshot;
+		const int64 StableScanned = Decoder.GetLegacyBytesScannedForTests();
+		const uint8 ExtraByte = static_cast<uint8>('X');
+		Decoder.Consume(&ExtraByte, 1);
+		Test.TestEqual(*FString::Printf(TEXT("%s terminal extra byte does not change scanner"), *Case.Id),
+			Decoder.GetLegacyBytesScannedForTests(), StableScanned);
+		Test.TestEqual(*FString::Printf(TEXT("%s terminal extra byte does not change bytes received"), *Case.Id),
+			Decoder.Snapshot().BytesReceived, StableSnapshot.BytesReceived);
 	}
 }
 
@@ -693,6 +727,31 @@ void ConsumeInBoundedChunks(FMCPRequestDecoder& Decoder, const TArray<uint8>& By
 		const int32 Count = FMath::Min(ChunkBytes, BytesToConsume - Offset);
 		Decoder.Consume(Bytes.GetData() + Offset, Count);
 		Offset += Count;
+	}
+}
+
+void AssertCompleteInvalidJsonRejected(
+	FAutomationTestBase& Test,
+	const FString& CaseName,
+	const TArray<uint8>& Body)
+{
+	for (const bool bFramed : {false, true})
+	{
+		TArray<uint8> Request;
+		if (bFramed)
+		{
+			Request = MakeFramingHeader(Body.Num());
+		}
+		Request.Append(Body);
+
+		FMCPRequestDecoder Decoder;
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+		const FString Label = FString::Printf(TEXT("%s/%s"), *CaseName, bFramed ? TEXT("framed") : TEXT("legacy"));
+		Test.TestTrue(*FString::Printf(TEXT("%s rejects complete non-RFC JSON"), *Label),
+			Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("invalid_json"));
+		Test.TestFalse(*FString::Printf(TEXT("%s has no dispatchable object"), *Label), Snapshot.Object.IsValid());
+		Test.TestEqual(*FString::Printf(TEXT("%s invokes FJsonSerializer exactly once"), *Label),
+			Decoder.GetJsonParseCountForTests(), 1);
 	}
 }
 }
@@ -768,10 +827,29 @@ bool FUEMCPTransportSharedFixturesTest::RunTest(const FString& Parameters)
 	}
 	AddInfo(FString::Printf(TEXT("fixture_path=%s"), *FixturePath));
 
-	int32 ExplicitPlanExecutions = 0;
-	int32 SplitExecutions = 0;
+	const FFixtureExecutionCounts ExpectedCounts = DeriveExpectedExecutionCounts(Cases);
+	TestEqual(TEXT("derived whole-buffer fixture count remains exact"), ExpectedCounts.Whole, 46);
+	TestEqual(TEXT("derived explicit fixture count remains exact"), ExpectedCounts.Explicit, 46);
+	TestEqual(TEXT("derived generated-split fixture count remains exact"), ExpectedCounts.GeneratedSplit, 145);
+	TestEqual(TEXT("derived fixture execution total remains exact"), ExpectedCounts.Total(), 237);
+	int32 ExpectedLegacyByteAtATimeExecutions = 0;
 	for (const FTransportFixtureCase& Case : Cases)
 	{
+		ExpectedLegacyByteAtATimeExecutions += Case.ExpectedFraming == EMCPFramingMode::Legacy ? 1 : 0;
+	}
+	TestEqual(TEXT("derived legacy byte-at-a-time proof count remains exact"),
+		ExpectedLegacyByteAtATimeExecutions, 21);
+	TestEqual(TEXT("derived total including legacy byte proofs remains exact"),
+		ExpectedCounts.Total() + ExpectedLegacyByteAtATimeExecutions, 258);
+
+	int32 WholeExecutions = 0;
+	int32 ExplicitPlanExecutions = 0;
+	int32 SplitExecutions = 0;
+	int32 LegacyByteAtATimeExecutions = 0;
+	for (const FTransportFixtureCase& Case : Cases)
+	{
+		RunFixturePlan(*this, Case, {Case.Data.Num()}, TEXT("whole-buffer"));
+		++WholeExecutions;
 		for (int32 PlanIndex = 0; PlanIndex < Case.ChunkPlans.Num(); ++PlanIndex)
 		{
 			RunFixturePlan(*this, Case, Case.ChunkPlans[PlanIndex],
@@ -787,13 +865,27 @@ bool FUEMCPTransportSharedFixturesTest::RunTest(const FString& Parameters)
 				++SplitExecutions;
 			}
 		}
+		if (Case.ExpectedFraming == EMCPFramingMode::Legacy)
+		{
+			RunLegacyByteAtATimeProof(*this, Case);
+			++LegacyByteAtATimeExecutions;
+		}
 	}
 
-	TestTrue(TEXT("shared fixture executes request-target cases"), Cases.Num() > 0);
-	TestEqual(TEXT("every request case has an explicit plan execution"), ExplicitPlanExecutions, Cases.Num());
-	TestTrue(TEXT("exhaustive fixture split executions ran"), SplitExecutions > 0);
-	AddInfo(FString::Printf(TEXT("fixture_request_cases=%d explicit_plans=%d exhaustive_splits=%d total_executions=%d"),
-		Cases.Num(), ExplicitPlanExecutions, SplitExecutions, ExplicitPlanExecutions + SplitExecutions));
+	TestEqual(TEXT("fixture runner executes exact derived whole-buffer count"), WholeExecutions, ExpectedCounts.Whole);
+	TestEqual(TEXT("fixture runner executes exact derived explicit count"), ExplicitPlanExecutions, ExpectedCounts.Explicit);
+	TestEqual(TEXT("fixture runner executes exact derived generated-split count"), SplitExecutions, ExpectedCounts.GeneratedSplit);
+	TestEqual(TEXT("fixture runner executes exact derived total"),
+		WholeExecutions + ExplicitPlanExecutions + SplitExecutions, ExpectedCounts.Total());
+	TestEqual(TEXT("fixture runner executes every derived legacy byte-at-a-time proof"),
+		LegacyByteAtATimeExecutions, ExpectedLegacyByteAtATimeExecutions);
+	TestEqual(TEXT("fixture runner executes exact total including independent scanner proofs"),
+		WholeExecutions + ExplicitPlanExecutions + SplitExecutions + LegacyByteAtATimeExecutions,
+		ExpectedCounts.Total() + ExpectedLegacyByteAtATimeExecutions);
+	AddInfo(FString::Printf(TEXT("fixture_request_cases=%d whole=%d explicit=%d generated_splits=%d parity_total=%d legacy_byte_at_a_time=%d total_decoder_executions=%d"),
+		Cases.Num(), WholeExecutions, ExplicitPlanExecutions, SplitExecutions,
+		WholeExecutions + ExplicitPlanExecutions + SplitExecutions, LegacyByteAtATimeExecutions,
+		WholeExecutions + ExplicitPlanExecutions + SplitExecutions + LegacyByteAtATimeExecutions));
 	return true;
 }
 
@@ -806,6 +898,46 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Transport;
 	using namespace UEMCP::Transport::Tests;
+
+	{
+		struct FStrictJsonCase
+		{
+			const TCHAR* Name;
+			TArray<uint8> Body;
+		};
+		TArray<FStrictJsonCase> StrictCases = {
+			{TEXT("lowercase-nan"), MakeAsciiBytes(TEXT("{\"x\":nan}"))},
+			{TEXT("mixedcase-NaN"), MakeAsciiBytes(TEXT("{\"x\":NaN}"))},
+			{TEXT("negative-nan"), MakeAsciiBytes(TEXT("{\"x\":-nan}"))},
+			{TEXT("positive-infinity"), MakeAsciiBytes(TEXT("{\"x\":Infinity}"))},
+			{TEXT("negative-infinity"), MakeAsciiBytes(TEXT("{\"x\":-Infinity}"))},
+			{TEXT("leading-plus"), MakeAsciiBytes(TEXT("{\"x\":+1}"))},
+			{TEXT("leading-zero"), MakeAsciiBytes(TEXT("{\"x\":01}"))},
+			{TEXT("negative-leading-zero"), MakeAsciiBytes(TEXT("{\"x\":-01}"))},
+			{TEXT("missing-fraction-digits"), MakeAsciiBytes(TEXT("{\"x\":1.}"))},
+			{TEXT("missing-integer-digits"), MakeAsciiBytes(TEXT("{\"x\":.1}"))},
+			{TEXT("missing-exponent-digits"), MakeAsciiBytes(TEXT("{\"x\":1e}"))},
+			{TEXT("missing-signed-exponent-digits"), MakeAsciiBytes(TEXT("{\"x\":1e+}"))},
+			{TEXT("non-finite-number-magnitude"), MakeAsciiBytes(TEXT("{\"x\":1e400}"))},
+			{TEXT("literal-case"), MakeAsciiBytes(TEXT("{\"x\":True}"))},
+			{TEXT("truncated-literal"), MakeAsciiBytes(TEXT("{\"x\":tru}"))},
+			{TEXT("unknown-literal"), MakeAsciiBytes(TEXT("{\"x\":undefined}"))},
+			{TEXT("unknown-escape"), MakeAsciiBytes(TEXT("{\"x\":\"\\q\"}"))},
+			{TEXT("short-unicode-escape"), MakeAsciiBytes(TEXT("{\"x\":\"\\u12\"}"))},
+			{TEXT("nonhex-unicode-escape"), MakeAsciiBytes(TEXT("{\"x\":\"\\uZZZZ\"}"))},
+			{TEXT("trailing-object-comma"), MakeAsciiBytes(TEXT("{\"x\":1,}"))},
+			{TEXT("trailing-array-comma"), MakeAsciiBytes(TEXT("{\"x\":[1,]}"))},
+			{TEXT("elided-object-value"), MakeAsciiBytes(TEXT("{\"x\":}"))},
+			{TEXT("elided-array-value"), MakeAsciiBytes(TEXT("{\"x\":[,]}"))},
+			{TEXT("missing-colon"), MakeAsciiBytes(TEXT("{\"x\" 1}"))},
+			{TEXT("missing-comma"), MakeAsciiBytes(TEXT("{\"x\":1 \"y\":2}"))}
+		};
+		StrictCases.Add({TEXT("raw-unescaped-control"), {'{', '"', 'x', '"', ':', '"', 0x01, '"', '}'}});
+		for (const FStrictJsonCase& StrictCase : StrictCases)
+		{
+			AssertCompleteInvalidJsonRejected(*this, StrictCase.Name, StrictCase.Body);
+		}
+	}
 
 	{
 		const FString HeaderPrefix = TEXT("Content-Length: 2\r\nX-Pad: ");

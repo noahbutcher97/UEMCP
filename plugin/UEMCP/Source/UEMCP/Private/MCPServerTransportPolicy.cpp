@@ -373,38 +373,397 @@ FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
 	return {};
 }
 
-bool HasElidedJsonValue(const TArray<uint8>& Body, int32 StartOffset)
+enum class EStrictJsonRootKind : uint8
 {
-	bool bInString = false;
-	bool bEscaped = false;
-	for (int32 Index = StartOffset; Index < Body.Num(); ++Index)
+	Invalid,
+	Object,
+	Other
+};
+
+enum class EStrictJsonState : uint8
+{
+	ObjectKeyOrEnd,
+	ObjectKey,
+	ObjectColon,
+	ObjectValue,
+	ObjectCommaOrEnd,
+	ArrayValueOrEnd,
+	ArrayValue,
+	ArrayCommaOrEnd
+};
+
+struct FStrictJsonFrame
+{
+	EStrictJsonState State;
+};
+
+void SkipJsonWhitespace(const TArray<uint8>& Body, int32& Index)
+{
+	while (Index < Body.Num() && IsJsonWhitespace(Body[Index]))
 	{
-		const uint8 Byte = Body[Index];
-		if (bInString)
-		{
-			if (bEscaped) bEscaped = false;
-			else if (Byte == '\\') bEscaped = true;
-			else if (Byte == '"') bInString = false;
-			continue;
-		}
+		++Index;
+	}
+}
+
+bool IsHexDigit(uint8 Byte)
+{
+	return (Byte >= '0' && Byte <= '9')
+		|| (Byte >= 'a' && Byte <= 'f')
+		|| (Byte >= 'A' && Byte <= 'F');
+}
+
+bool ConsumeStrictJsonString(const TArray<uint8>& Body, int32& Index)
+{
+	if (Index >= Body.Num() || Body[Index] != '"')
+	{
+		return false;
+	}
+	++Index;
+
+	while (Index < Body.Num())
+	{
+		const uint8 Byte = Body[Index++];
 		if (Byte == '"')
 		{
-			bInString = true;
-			continue;
+			return true;
 		}
-		if (Byte != ':' && Byte != ',')
+		if (Byte < 0x20)
+		{
+			return false;
+		}
+		if (Byte != '\\')
 		{
 			continue;
+		}
+		if (Index >= Body.Num())
+		{
+			return false;
 		}
 
-		int32 Next = Index + 1;
-		while (Next < Body.Num() && IsJsonWhitespace(Body[Next]))
+		const uint8 Escape = Body[Index++];
+		if (Escape == '"' || Escape == '\\' || Escape == '/'
+			|| Escape == 'b' || Escape == 'f' || Escape == 'n'
+			|| Escape == 'r' || Escape == 't')
 		{
-			++Next;
+			continue;
 		}
-		if (Next >= Body.Num() || Body[Next] == ',' || Body[Next] == '}' || Body[Next] == ']')
+		if (Escape != 'u')
+		{
+			return false;
+		}
+		for (int32 HexIndex = 0; HexIndex < 4; ++HexIndex)
+		{
+			if (Index >= Body.Num() || !IsHexDigit(Body[Index]))
+			{
+				return false;
+			}
+			++Index;
+		}
+	}
+	return false;
+}
+
+bool ConsumeStrictJsonLiteral(
+	const TArray<uint8>& Body,
+	int32& Index,
+	const ANSICHAR* Literal,
+	int32 LiteralLength)
+{
+	if (Index < 0 || LiteralLength < 0 || Body.Num() - Index < LiteralLength)
+	{
+		return false;
+	}
+	for (int32 LiteralIndex = 0; LiteralIndex < LiteralLength; ++LiteralIndex)
+	{
+		if (Body[Index + LiteralIndex] != static_cast<uint8>(Literal[LiteralIndex]))
+		{
+			return false;
+		}
+	}
+	Index += LiteralLength;
+	return true;
+}
+
+bool ConsumeStrictJsonNumber(const TArray<uint8>& Body, int32& Index)
+{
+	if (Index < Body.Num() && Body[Index] == '-')
+	{
+		++Index;
+	}
+	if (Index >= Body.Num())
+	{
+		return false;
+	}
+
+	if (Body[Index] == '0')
+	{
+		++Index;
+		if (Index < Body.Num() && Body[Index] >= '0' && Body[Index] <= '9')
+		{
+			return false;
+		}
+	}
+	else if (Body[Index] >= '1' && Body[Index] <= '9')
+	{
+		do
+		{
+			++Index;
+		}
+		while (Index < Body.Num() && Body[Index] >= '0' && Body[Index] <= '9');
+	}
+	else
+	{
+		return false;
+	}
+
+	if (Index < Body.Num() && Body[Index] == '.')
+	{
+		++Index;
+		if (Index >= Body.Num() || Body[Index] < '0' || Body[Index] > '9')
+		{
+			return false;
+		}
+		do
+		{
+			++Index;
+		}
+		while (Index < Body.Num() && Body[Index] >= '0' && Body[Index] <= '9');
+	}
+
+	if (Index < Body.Num() && (Body[Index] == 'e' || Body[Index] == 'E'))
+	{
+		++Index;
+		if (Index < Body.Num() && (Body[Index] == '+' || Body[Index] == '-'))
+		{
+			++Index;
+		}
+		if (Index >= Body.Num() || Body[Index] < '0' || Body[Index] > '9')
+		{
+			return false;
+		}
+		do
+		{
+			++Index;
+		}
+		while (Index < Body.Num() && Body[Index] >= '0' && Body[Index] <= '9');
+	}
+	return true;
+}
+
+bool ConsumeStrictJsonValue(
+	const TArray<uint8>& Body,
+	int32& Index,
+	TArray<FStrictJsonFrame, TInlineAllocator<32>>& Frames,
+	EStrictJsonRootKind& RootKind,
+	bool bRoot)
+{
+	if (Index >= Body.Num())
+	{
+		return false;
+	}
+
+	const uint8 Byte = Body[Index];
+	if (bRoot)
+	{
+		RootKind = Byte == '{' ? EStrictJsonRootKind::Object : EStrictJsonRootKind::Other;
+	}
+	if (Byte == '{')
+	{
+		++Index;
+		Frames.Add({EStrictJsonState::ObjectKeyOrEnd});
+		return true;
+	}
+	if (Byte == '[')
+	{
+		++Index;
+		Frames.Add({EStrictJsonState::ArrayValueOrEnd});
+		return true;
+	}
+	if (Byte == '"')
+	{
+		return ConsumeStrictJsonString(Body, Index);
+	}
+	if (Byte == 't')
+	{
+		return ConsumeStrictJsonLiteral(Body, Index, "true", 4);
+	}
+	if (Byte == 'f')
+	{
+		return ConsumeStrictJsonLiteral(Body, Index, "false", 5);
+	}
+	if (Byte == 'n')
+	{
+		return ConsumeStrictJsonLiteral(Body, Index, "null", 4);
+	}
+	if (Byte == '-' || (Byte >= '0' && Byte <= '9'))
+	{
+		return ConsumeStrictJsonNumber(Body, Index);
+	}
+	return false;
+}
+
+EStrictJsonRootKind ValidateStrictJsonDocument(const TArray<uint8>& Body, int32 StartOffset)
+{
+	int32 Index = StartOffset;
+	SkipJsonWhitespace(Body, Index);
+	EStrictJsonRootKind RootKind = EStrictJsonRootKind::Invalid;
+	TArray<FStrictJsonFrame, TInlineAllocator<32>> Frames;
+	if (!ConsumeStrictJsonValue(Body, Index, Frames, RootKind, true))
+	{
+		return EStrictJsonRootKind::Invalid;
+	}
+
+	while (!Frames.IsEmpty())
+	{
+		SkipJsonWhitespace(Body, Index);
+		if (Index >= Body.Num())
+		{
+			return EStrictJsonRootKind::Invalid;
+		}
+
+		FStrictJsonFrame& Frame = Frames.Last();
+		switch (Frame.State)
+		{
+		case EStrictJsonState::ObjectKeyOrEnd:
+			if (Body[Index] == '}')
+			{
+				++Index;
+				Frames.Pop(EAllowShrinking::No);
+				break;
+			}
+			if (!ConsumeStrictJsonString(Body, Index))
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			Frame.State = EStrictJsonState::ObjectColon;
+			break;
+
+		case EStrictJsonState::ObjectKey:
+			if (!ConsumeStrictJsonString(Body, Index))
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			Frame.State = EStrictJsonState::ObjectColon;
+			break;
+
+		case EStrictJsonState::ObjectColon:
+			if (Body[Index] != ':')
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			++Index;
+			Frame.State = EStrictJsonState::ObjectValue;
+			break;
+
+		case EStrictJsonState::ObjectValue:
+			Frame.State = EStrictJsonState::ObjectCommaOrEnd;
+			if (!ConsumeStrictJsonValue(Body, Index, Frames, RootKind, false))
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			break;
+
+		case EStrictJsonState::ObjectCommaOrEnd:
+			if (Body[Index] == '}')
+			{
+				++Index;
+				Frames.Pop(EAllowShrinking::No);
+				break;
+			}
+			if (Body[Index] != ',')
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			++Index;
+			Frame.State = EStrictJsonState::ObjectKey;
+			break;
+
+		case EStrictJsonState::ArrayValueOrEnd:
+			if (Body[Index] == ']')
+			{
+				++Index;
+				Frames.Pop(EAllowShrinking::No);
+				break;
+			}
+			Frame.State = EStrictJsonState::ArrayCommaOrEnd;
+			if (!ConsumeStrictJsonValue(Body, Index, Frames, RootKind, false))
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			break;
+
+		case EStrictJsonState::ArrayValue:
+			Frame.State = EStrictJsonState::ArrayCommaOrEnd;
+			if (!ConsumeStrictJsonValue(Body, Index, Frames, RootKind, false))
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			break;
+
+		case EStrictJsonState::ArrayCommaOrEnd:
+			if (Body[Index] == ']')
+			{
+				++Index;
+				Frames.Pop(EAllowShrinking::No);
+				break;
+			}
+			if (Body[Index] != ',')
+			{
+				return EStrictJsonRootKind::Invalid;
+			}
+			++Index;
+			Frame.State = EStrictJsonState::ArrayValue;
+			break;
+		}
+	}
+
+	SkipJsonWhitespace(Body, Index);
+	return Index == Body.Num() ? RootKind : EStrictJsonRootKind::Invalid;
+}
+
+bool HasNonFiniteJsonNumber(const TSharedPtr<FJsonValue>& RootValue)
+{
+	if (!RootValue.IsValid())
+	{
+		return false;
+	}
+
+	TArray<const FJsonValue*, TInlineAllocator<64>> Pending;
+	Pending.Add(RootValue.Get());
+	while (!Pending.IsEmpty())
+	{
+		const FJsonValue* Value = Pending.Pop(EAllowShrinking::No);
+		if (Value == nullptr)
 		{
 			return true;
+		}
+		if (Value->Type == EJson::Number)
+		{
+			if (!FMath::IsFinite(Value->AsNumber()))
+			{
+				return true;
+			}
+			continue;
+		}
+		if (Value->Type == EJson::Array)
+		{
+			for (const TSharedPtr<FJsonValue>& Child : Value->AsArray())
+			{
+				Pending.Add(Child.Get());
+			}
+			continue;
+		}
+		if (Value->Type == EJson::Object)
+		{
+			const TSharedPtr<FJsonObject> Object = Value->AsObject();
+			if (!Object.IsValid())
+			{
+				return true;
+			}
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->Values)
+			{
+				Pending.Add(Pair.Value.Get());
+			}
 		}
 	}
 	return false;
@@ -867,14 +1226,20 @@ struct FMCPRequestDecoder::FImpl
 		++JsonParseCount;
 		TSharedPtr<FJsonValue> RootValue;
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
-		if (!FJsonSerializer::Deserialize(Reader, RootValue) || !RootValue.IsValid())
+		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid();
+		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
+		const Private::EStrictJsonRootKind StrictRoot = Private::ValidateStrictJsonDocument(Body, BodyOffset);
+		if (StrictRoot == Private::EStrictJsonRootKind::Invalid)
 		{
-			SetMalformed(RootOffset < Body.Num() && Body[RootOffset] != '{'
-				? TEXT("root_not_object")
-				: TEXT("invalid_json"));
+			SetMalformed(TEXT("invalid_json"));
 			return;
 		}
-		if (Private::HasElidedJsonValue(Body, BodyOffset))
+		if (StrictRoot != Private::EStrictJsonRootKind::Object)
+		{
+			SetMalformed(TEXT("root_not_object"));
+			return;
+		}
+		if (!bUnrealParsed || bHasNonFiniteNumber)
 		{
 			SetMalformed(TEXT("invalid_json"));
 			return;
