@@ -7,6 +7,7 @@
 #include "Misc/EngineVersionComparison.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Serialization/MemoryReader.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -223,7 +224,7 @@ bool IsPartialBom(const TArray<uint8>& Body)
 
 bool StartsWithBom(const TArray<uint8>& Body, int32 Offset)
 {
-	return Offset >= 0 && Offset <= Body.Num() - UE_ARRAY_COUNT(Utf8Bom)
+	return Offset >= 0 && Offset + UE_ARRAY_COUNT(Utf8Bom) <= Body.Num()
 		&& Body[Offset] == Utf8Bom[0] && Body[Offset + 1] == Utf8Bom[1] && Body[Offset + 2] == Utf8Bom[2];
 }
 
@@ -1078,13 +1079,9 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(TEXT("invalid_bom"));
 			return;
 		}
-		if (RootOffset >= Body.Num())
-		{
-			SetMalformed(TEXT("invalid_json"));
-			return;
-		}
-		const uint8 RootToken = Body[RootOffset];
-		const bool bScalarCandidate = RootToken != '{' && RootToken != '[';
+		const bool bMissingRoot = RootOffset >= Body.Num();
+		const uint8 RootToken = bMissingRoot ? 0 : Body[RootOffset];
+		const bool bScalarCandidate = !bMissingRoot && RootToken != '{' && RootToken != '[';
 		if (!Private::IsStrictUtf8(Body.GetData(), Body.Num()))
 		{
 			SetMalformed(TEXT("invalid_utf8"));
@@ -1102,18 +1099,31 @@ struct FMCPRequestDecoder::FImpl
 		const int32 JsonBytes = Body.Num() - BodyOffset;
 		if (JsonBytes > 0)
 		{
-			const FUTF8ToTCHAR Converter(reinterpret_cast<const ANSICHAR*>(Body.GetData() + BodyOffset), JsonBytes);
-			JsonText = FString(Converter.Length(), Converter.Get());
+			const UTF8CHAR* JsonUtf8 = reinterpret_cast<const UTF8CHAR*>(Body.GetData() + BodyOffset);
+			const int32 JsonTCharCount = FPlatformString::ConvertedLength<TCHAR>(JsonUtf8, JsonBytes);
+			TArray<TCHAR> JsonCharacters;
+			JsonCharacters.SetNumUninitialized(JsonTCharCount);
+			FPlatformString::Convert(JsonCharacters.GetData(), JsonTCharCount, JsonUtf8, JsonBytes);
+			JsonText.Append(JsonCharacters);
 		}
-		const FString TextToParse = bScalarCandidate
-			? FString::Printf(TEXT("[%s]"), *JsonText)
-			: JsonText;
+		FString ScalarWrapper;
+		if (bScalarCandidate)
+		{
+			ScalarWrapper.Reserve(JsonText.Len() + 2);
+			ScalarWrapper.AppendChar('[');
+			ScalarWrapper.Append(JsonText);
+			ScalarWrapper.AppendChar(']');
+		}
+		const FString& TextToParse = bScalarCandidate ? ScalarWrapper : JsonText;
+		TArray<uint8> JsonTextBytes;
+		JsonTextBytes.Append(reinterpret_cast<const uint8*>(*TextToParse), TextToParse.Len() * sizeof(TCHAR));
+		FMemoryReader JsonStream(JsonTextBytes);
 		++JsonParseCount;
 		TSharedPtr<FJsonValue> RootValue;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(TextToParse);
-		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid();
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(&JsonStream);
+		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid() && JsonStream.AtEnd();
 		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
-		if (!bUnrealParsed || bHasNonFiniteNumber)
+		if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot)
 		{
 			SetMalformed(TEXT("invalid_json"));
 			return;

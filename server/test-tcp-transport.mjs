@@ -1457,7 +1457,25 @@ runner.assert(responsePlans(
   runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
     && sameJson(decoder.debugStatsForTests(), {
       legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
-    }), 'invalid framed JSON candidate assembles and parses exactly once');
+  }), 'invalid framed JSON candidate assembles and parses exactly once');
+}
+
+{
+  let injectedParseCount = 0;
+  const decoder = new TcpResponseDecoder({
+    parseJson(text) {
+      injectedParseCount++;
+      return JSON.parse(text);
+    },
+  });
+  const snapshot = decoder.consume(Buffer.concat([
+    Buffer.from('Content-Length: 2\r\n\r\n1', 'ascii'),
+    Buffer.from([0]),
+  ]));
+  runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
+    && sameJson(decoder.debugStatsForTests(), {
+      legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
+    }), 'framed scalar-like raw NUL is invalid JSON and parses once');
 }
 
 {
@@ -2790,17 +2808,24 @@ runner.assert(!nativePolicySource.includes('GetConnectionState'),
 const finalizationStart = nativePolicySource.indexOf('\n\tvoid FinalizeBody()');
 const finalizationEnd = nativePolicySource.indexOf('\n\tFMCPDecoderPolicy Policy;', finalizationStart);
 const finalizationSource = nativePolicySource.slice(finalizationStart, finalizationEnd);
+const missingRootIndex = finalizationSource.indexOf(
+  'const bool bMissingRoot = RootOffset >= Body.Num();',
+);
 const rootTokenIndex = finalizationSource.indexOf(
-  "const uint8 RootToken = Body[RootOffset];",
+  'const uint8 RootToken = bMissingRoot ? 0 : Body[RootOffset];',
 );
 const scalarCandidateIndex = finalizationSource.indexOf(
-  "const bool bScalarCandidate = RootToken != '{' && RootToken != '[';",
+  "const bool bScalarCandidate = !bMissingRoot && RootToken != '{' && RootToken != '[';",
 );
 const scalarWrapperIndex = finalizationSource.indexOf(
-  'const FString TextToParse = bScalarCandidate',
+  'FString ScalarWrapper;',
 );
+const scalarWrapperReserveIndex = finalizationSource.indexOf('ScalarWrapper.Reserve(JsonText.Len() + 2);');
+const scalarWrapperAppendIndex = finalizationSource.indexOf('ScalarWrapper.Append(JsonText);');
+const parserStreamIndex = finalizationSource.indexOf('FMemoryReader JsonStream(JsonTextBytes);');
 const deserializeIndex = finalizationSource.indexOf('FJsonSerializer::Deserialize');
-const scalarClassificationIndex = finalizationSource.indexOf('if (bScalarCandidate)');
+const parserStreamEndIndex = finalizationSource.indexOf('JsonStream.AtEnd()', deserializeIndex);
+const scalarClassificationIndex = finalizationSource.indexOf('if (bScalarCandidate)', deserializeIndex);
 const retiredStrictJsonSymbols = [
   'ValidateStrictJsonDocument',
   'EStrictJsonRootKind',
@@ -2817,13 +2842,19 @@ runner.assert(finalizationStart >= 0
   && finalizationEnd > finalizationStart
   && (finalizationSource.match(/FJsonSerializer::Deserialize/g) ?? []).length === 1
   && (finalizationSource.match(/\+\+JsonParseCount/g) ?? []).length === 1
-  && rootTokenIndex >= 0
+  && missingRootIndex >= 0
+  && rootTokenIndex > missingRootIndex
   && scalarCandidateIndex > rootTokenIndex
   && scalarWrapperIndex > scalarCandidateIndex
-  && deserializeIndex > scalarWrapperIndex
+  && scalarWrapperReserveIndex > scalarWrapperIndex
+  && scalarWrapperAppendIndex > scalarWrapperReserveIndex
+  && parserStreamIndex > scalarWrapperAppendIndex
+  && deserializeIndex > parserStreamIndex
+  && parserStreamEndIndex > deserializeIndex
   && scalarClassificationIndex > deserializeIndex
+  && !finalizationSource.includes('FString::Printf(TEXT("[%s]"), *JsonText)')
   && retiredStrictJsonSymbols.every((symbol) => !nativePolicySource.includes(symbol)),
-'source guard: finalization has one authoritative Unreal parse with scalar wrapper classification');
+'source guard: finalization has one authoritative Unreal parse with length-aware scalar wrapper classification');
 
 const retiredRunnableSymbols = [
   'TryParseAccumulated',
