@@ -26,15 +26,6 @@ function Get-Sha256Hex([string]$Path) {
     }
 }
 
-function Test-IsBuildPluginGeneratedFilter([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $false
-    }
-    $content = [IO.File]::ReadAllText($Path)
-    return $content -match '(?m)^\[FilterPlugin\]\r?$' -and
-        $content.Contains('This section lists additional files which will be packaged along with your plugin.')
-}
-
 $versions = @($VersionsCsv.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($versions.Count -eq 0) {
     throw 'VersionsCsv must name at least one Unreal Engine version.'
@@ -68,11 +59,51 @@ New-Item -ItemType Directory -Path $outputRootPath | Out-Null
 $pluginRoot = Split-Path -Parent $pluginPath
 $configDirectory = Join-Path $pluginRoot 'Config'
 $filterPath = Join-Path $configDirectory 'FilterPlugin.ini'
-$configExisted = Test-Path -LiteralPath $configDirectory -PathType Container
 $filterExisted = Test-Path -LiteralPath $filterPath -PathType Leaf
+$configDirectoryCreatedByHelper = $false
+$temporaryFilterContent = $null
 $results = [Collections.Generic.List[object]]::new()
 
 try {
+    if (-not $filterExisted) {
+        if (-not (Test-Path -LiteralPath $configDirectory -PathType Container)) {
+            try {
+                New-Item -ItemType Directory -Path $configDirectory -ErrorAction Stop | Out-Null
+                $configDirectoryCreatedByHelper = $true
+            }
+            catch {
+                if (-not (Test-Path -LiteralPath $configDirectory -PathType Container)) {
+                    throw
+                }
+            }
+        }
+        $temporaryFilterContent = "[FilterPlugin]`r`n; UEMCP temporary matrix marker $([Guid]::NewGuid().ToString('N'))`r`n"
+        $filterBytes = [Text.UTF8Encoding]::new($false).GetBytes($temporaryFilterContent)
+        try {
+            $filterStream = [IO.File]::Open(
+                $filterPath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+            try {
+                $filterStream.Write($filterBytes, 0, $filterBytes.Length)
+            }
+            finally {
+                $filterStream.Dispose()
+            }
+        }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $filterPath -PathType Leaf) {
+                $filterExisted = $true
+                $temporaryFilterContent = $null
+            }
+            else {
+                throw
+            }
+        }
+    }
+
     foreach ($version in $versions) {
         $uatPath = Join-Path $epicRootPath "UE_$version\Engine\Build\BatchFiles\RunUAT.bat"
         if (-not (Test-Path -LiteralPath $uatPath -PathType Leaf)) {
@@ -85,13 +116,21 @@ try {
         }
 
         if ($Json) {
-            & $uatPath BuildPlugin "-Plugin=$pluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket' 2>&1 |
-                ForEach-Object { [Console]::Error.WriteLine($_) }
+            $savedErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                & $uatPath BuildPlugin "-Plugin=$pluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket' 2>&1 |
+                    ForEach-Object { [Console]::Error.WriteLine($_) }
+                $exitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
         }
         else {
             & $uatPath BuildPlugin "-Plugin=$pluginPath" "-Package=$packagePath" '-TargetPlatforms=Win64' '-Rocket'
+            $exitCode = $LASTEXITCODE
         }
-        $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
             throw "UE $version BuildPlugin failed with exit code $exitCode."
         }
@@ -119,10 +158,12 @@ try {
     }
 }
 finally {
-    if (-not $filterExisted -and (Test-IsBuildPluginGeneratedFilter $filterPath)) {
+    if (-not $filterExisted -and $null -ne $temporaryFilterContent -and
+        (Test-Path -LiteralPath $filterPath -PathType Leaf) -and
+        [IO.File]::ReadAllText($filterPath) -ceq $temporaryFilterContent) {
         Remove-Item -LiteralPath $filterPath -Force
     }
-    if (-not $configExisted -and (Test-Path -LiteralPath $configDirectory -PathType Container)) {
+    if ($configDirectoryCreatedByHelper -and (Test-Path -LiteralPath $configDirectory -PathType Container)) {
         $remainingConfigFiles = @(Get-ChildItem -LiteralPath $configDirectory -Force)
         if ($remainingConfigFiles.Count -eq 0) {
             Remove-Item -LiteralPath $configDirectory

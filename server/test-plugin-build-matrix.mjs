@@ -43,16 +43,48 @@ if (scriptSource.length > 0) {
     const versions = ['5.3', '5.6', '5.7'];
     const fakeBatch = `@echo off
 setlocal EnableExtensions EnableDelayedExpansion
+set "SCRIPT_DIR=%~dp0"
 set "PACKAGE="
 set "PLUGIN="
-for %%A in (%*) do (
-  set "ARG=%%~A"
-  if /I "!ARG:~0,9!"=="-Package=" set "PACKAGE=!ARG:~9!"
-  if /I "!ARG:~0,8!"=="-Plugin=" set "PLUGIN=!ARG:~8!"
+set "EXPECT_PACKAGE=0"
+set "EXPECT_PLUGIN=0"
+set "HAS_ROCKET=0"
+if /I not "%~1"=="BuildPlugin" exit /b 91
+set "RAW_ARGS=%*"
+shift
+:parse_args
+if "%~1"=="" goto args_done
+set "ARG=%~1"
+if "!EXPECT_PACKAGE!"=="1" (
+  set "PACKAGE=!ARG!"
+  set "EXPECT_PACKAGE=0"
+) else if "!EXPECT_PLUGIN!"=="1" (
+  set "PLUGIN=!ARG!"
+  set "EXPECT_PLUGIN=0"
+) else if /I "!ARG!"=="-Package" (
+  set "EXPECT_PACKAGE=1"
+) else if /I "!ARG!"=="-Plugin" (
+  set "EXPECT_PLUGIN=1"
+) else if /I "!ARG:~0,9!"=="-Package=" (
+  set "PACKAGE=!ARG:~9!"
+) else if /I "!ARG:~0,8!"=="-Plugin=" (
+  set "PLUGIN=!ARG:~8!"
+) else if /I "!ARG!"=="-Rocket" (
+  set "HAS_ROCKET=1"
 )
-for %%D in ("%~dp0..\\..\\..") do set "ENGINE_DIR=%%~nxD"
+shift
+goto parse_args
+:args_done
+if not defined PACKAGE exit /b 92
+if not defined PLUGIN exit /b 93
+echo(!RAW_ARGS!| %SystemRoot%\\System32\\findstr.exe /I /L /C:"-TargetPlatforms=Win64" >nul
+if errorlevel 1 exit /b 94
+if not "!HAS_ROCKET!"=="1" exit /b 95
+for %%D in ("!SCRIPT_DIR!..\\..\\..") do set "ENGINE_DIR=%%~nxD"
 set "VERSION=!ENGINE_DIR:UE_=!"
 echo !VERSION!>>"%UEMCP_FAKE_MATRIX_LOG%"
+echo UEMCP_FAKE_STDOUT_CHATTER !VERSION!
+echo UEMCP_FAKE_STDERR_CHATTER !VERSION! 1>&2
 for %%D in ("!PLUGIN!") do set "PLUGIN_DIR=%%~dpD"
 if /I "%UEMCP_FAKE_WRITE_FILTER%"=="1" (
   if not exist "!PLUGIN_DIR!Config" mkdir "!PLUGIN_DIR!Config"
@@ -62,6 +94,7 @@ if /I "%UEMCP_FAKE_WRITE_FILTER%"=="1" (
   )
 )
 if /I "%UEMCP_FAKE_FAIL_VERSION%"=="!VERSION!" exit /b 7
+if /I "%UEMCP_FAKE_SKIP_FIXTURE_VERSION%"=="!VERSION!" exit /b 0
 if not exist "!PACKAGE!\\Resources\\Tests" mkdir "!PACKAGE!\\Resources\\Tests"
 copy /Y "%UEMCP_FAKE_FIXTURE%" "!PACKAGE!\\Resources\\Tests\\tcp-transport-cases.json" >nul
 exit /b 0
@@ -90,6 +123,7 @@ exit /b 0
       UEMCP_FAKE_FIXTURE: sourceFixture,
       UEMCP_FAKE_MATRIX_LOG: invocationLog,
       UEMCP_FAKE_FAIL_VERSION: '',
+      UEMCP_FAKE_SKIP_FIXTURE_VERSION: '',
       UEMCP_FAKE_WRITE_FILTER: '1',
     };
 
@@ -114,6 +148,10 @@ exit /b 0
     }
     t.assert(Array.isArray(results) && results.length === versions.length,
       'matrix helper emits one JSON result per engine', success.stdout);
+    t.assert(success.stderr.includes('UEMCP_FAKE_STDOUT_CHATTER 5.3')
+      && success.stderr.includes('UEMCP_FAKE_STDERR_CHATTER 5.7'),
+    'matrix helper routes BuildPlugin stdout and stderr chatter away from JSON stdout',
+    success.stderr);
     t.assert(results.every((result, index) => result.version === versions[index]
       && result.exit_code === 0
       && result.fixture_sha256?.length === 64),
@@ -154,6 +192,27 @@ exit /b 0
       'matrix helper cleans generated filter state on failure');
 
     await writeFile(invocationLog, '', 'utf8');
+    const missingFixtureOutput = join(testRoot, 'missing fixture output');
+    const missingFixture = spawnSync(
+      'powershell.exe',
+      [...baseArgs, '-OutputRoot', missingFixtureOutput],
+      {
+        encoding: 'utf8',
+        env: { ...baseEnv, UEMCP_FAKE_SKIP_FIXTURE_VERSION: '5.6' },
+        timeout: 120_000,
+      }
+    );
+    t.assert(missingFixture.status !== 0,
+      'matrix helper rejects a successful BuildPlugin run that omits the fixture');
+    const missingFixtureInvocations = await readLinesIfPresent(invocationLog);
+    t.assert(JSON.stringify(missingFixtureInvocations) === JSON.stringify(['5.3', '5.6']),
+      'matrix helper stops before later engines after a missing fixture',
+      JSON.stringify(missingFixtureInvocations));
+    t.assert((missingFixture.stderr || missingFixture.stdout).includes('omitted TCP transport fixtures'),
+      'matrix helper reports the omitted fixture path',
+      missingFixture.stderr || missingFixture.stdout);
+
+    await writeFile(invocationLog, '', 'utf8');
     const defaultPluginOutput = join(testRoot, 'default plugin output');
     const omittedDefaultArgs = new Set(['-Plugin', '-VersionsCsv']);
     const defaultPluginArgs = baseArgs.filter((value, index) => {
@@ -191,8 +250,9 @@ exit /b 0
 
     const configDirectory = join(dirname(pluginPath), 'Config');
     const ownedFilter = join(configDirectory, 'FilterPlugin.ini');
+    const ownedFilterContent = `[FilterPlugin]\r\n; This section lists additional files which will be packaged along with your plugin.\r\n/Resources/...\r\n`;
     await mkdir(configDirectory, { recursive: true });
-    await writeFile(ownedFilter, 'owned-filter', 'utf8');
+    await writeFile(ownedFilter, ownedFilterContent, 'utf8');
     const ownedFilterOutput = join(testRoot, 'owned filter output');
     const ownedFilterRun = spawnSync(
       'powershell.exe',
@@ -202,8 +262,8 @@ exit /b 0
     t.assert(ownedFilterRun.status === 0,
       'matrix helper succeeds when source already owns FilterPlugin.ini',
       `${ownedFilterRun.status}: ${ownedFilterRun.stderr || ownedFilterRun.stdout}`);
-    t.assert(await readFile(ownedFilter, 'utf8') === 'owned-filter',
-      'matrix helper preserves a pre-existing source FilterPlugin.ini');
+    t.assert(await readFile(ownedFilter, 'utf8') === ownedFilterContent,
+      'matrix helper preserves a source filter even when it contains Unreal boilerplate markers');
   } finally {
     await rm(testRoot, { recursive: true, force: true });
   }
