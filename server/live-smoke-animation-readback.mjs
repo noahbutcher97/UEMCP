@@ -1,8 +1,8 @@
-// Live smoke for get_anim_graph. Read-only, but still runs inside the opt-in
-// live-smoke suite so the target editor/project is explicit.
+// Opt-in, read-only large AnimGraph response proof.
 
 import { executeMenhanceTool } from './menhance-tcp-tools.mjs';
-import { createLiveSmokeCall, prepareLiveSmoke } from './live-smoke-harness.mjs';
+import { prepareLiveSmoke } from './live-smoke-harness.mjs';
+import { validateAnimGraphPinTopology } from './anim-graph-topology-validation.mjs';
 
 const assetPath = String(process.env.UEMCP_LIVE_ANIM_BLUEPRINT || '').trim();
 if (!assetPath) {
@@ -13,37 +13,54 @@ if (!assetPath) {
 const smoke = await prepareLiveSmoke({ name: 'live-smoke-animation-readback' });
 if (!smoke.ready) process.exit(smoke.exitCode);
 
-const call = createLiveSmokeCall({
-  summarize: (_label, result) => ({
-    asset_path: result.asset_path,
-    graph_count: result.graph_count,
-    state_machine_count: result.state_machine_count,
-    slot_node_count: result.slot_node_count,
-    layered_blend_node_count: result.layered_blend_node_count,
-  }),
-});
+const callerTimeoutMs = smoke.cm.config.tcpTimeoutMs;
+if (!Number.isFinite(callerTimeoutMs) || callerTimeoutMs <= 0) {
+  throw new Error('get_anim_graph caller timeout is not a positive finite value');
+}
 
-const result = await call('get_anim_graph', () => executeMenhanceTool('get_anim_graph', {
+const startedAt = performance.now();
+const result = await executeMenhanceTool('get_anim_graph', {
   asset_path: assetPath,
   include_transitions: true,
   include_node_properties: true,
-}, smoke.cm));
+  include_pin_topology: true,
+  include_pin_defaults: true,
+}, smoke.cm);
+const elapsedMs = performance.now() - startedAt;
+const responseBytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
+const payload = result?.status === 'success' ? (result.result ?? result) : result;
 
-if (result.asset_path !== assetPath) {
-  throw new Error(`get_anim_graph returned unexpected asset_path ${result.asset_path}`);
+if (result?.status && result.status !== 'success') {
+  throw new Error('get_anim_graph returned a non-success response');
 }
-if (!Array.isArray(result.graphs)) {
+if (payload.asset_path !== assetPath) {
+  throw new Error('get_anim_graph returned an unexpected asset_path');
+}
+if (!Array.isArray(payload.graphs)) {
   throw new Error('get_anim_graph did not return graphs[]');
 }
-if (!Array.isArray(result.state_machines)) {
+if (!Array.isArray(payload.state_machines)) {
   throw new Error('get_anim_graph did not return state_machines[]');
 }
-if (!Array.isArray(result.slot_nodes)) {
+if (!Array.isArray(payload.slot_nodes)) {
   throw new Error('get_anim_graph did not return slot_nodes[]');
 }
-if (!Array.isArray(result.layered_blend_nodes)) {
+if (!Array.isArray(payload.layered_blend_nodes)) {
   throw new Error('get_anim_graph did not return layered_blend_nodes[]');
 }
-if (!Array.isArray(result.unsupported_runtime_fields)) {
+if (!Array.isArray(payload.unsupported_runtime_fields)) {
   throw new Error('get_anim_graph did not return unsupported_runtime_fields[]');
 }
+
+const topology = validateAnimGraphPinTopology(payload.pin_topology, {
+  requireComplete: true,
+  requireNonEmpty: true,
+  expectedIncludesPinDefaults: true,
+});
+if (elapsedMs >= callerTimeoutMs) {
+  throw new Error('get_anim_graph exceeded the unchanged caller timeout boundary');
+}
+
+console.log(
+  `PASS get_anim_graph: graph_count=${payload.graph_count} state_machine_count=${payload.state_machine_count} slot_node_count=${payload.slot_node_count} layered_blend_node_count=${payload.layered_blend_node_count} topology_graph_count=${topology.graph_count} node_count=${topology.node_count} pin_count=${topology.pin_count} edge_count=${topology.edge_count} response_bytes=${responseBytes} elapsed_ms=${elapsedMs.toFixed(1)}`,
+);

@@ -4,11 +4,13 @@
 //
 // Run: cd D:\DevTools\UEMCP\server && node test-mock-seam.mjs
 
+import { readFileSync } from 'node:fs';
+
 import {
   ConnectionManager,
   MetricsAggregator,
-  _detectResponseFraming,
 } from './connection-manager.mjs';
+import { TcpResponseDecoder } from './tcp-transport.mjs';
 import {
   FakeTcpResponder,
   ErrorTcpResponder,
@@ -566,58 +568,6 @@ console.log('\n── Test 16: ECONNREFUSED retry-on-next-command (D131) ──'
   );
 }
 
-// ── Test 17: E-1 §1 length-framing detection ────────────────
-console.log('\n── Test 17: E-1 §1 length-framing detection ──');
-
-{
-  // Pure helper coverage — no socket, no mock seam.
-  // Framed: full header + body.
-  {
-    const buf = Buffer.from('Content-Length: 11\r\n\r\n{"x":"abc"}', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === true, 'framed prefix detected');
-    t.assert(r.bodyLen === 11, `bodyLen=11 (got ${r.bodyLen})`);
-    t.assert(r.headerLen === buf.indexOf('\r\n\r\n') + 4, 'headerLen points past terminator');
-  }
-
-  // Legacy: no framing prefix → unframed.
-  {
-    const buf = Buffer.from('{"status":"success"}', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === false, 'plain JSON response detected as unframed');
-  }
-
-  // Pending: too few bytes to decide.
-  {
-    const buf = Buffer.from('Cont', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === 'pending', 'short prefix returns pending');
-  }
-
-  // Pending: header started but no terminator yet.
-  {
-    const buf = Buffer.from('Content-Length: 100\r\n', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === 'pending', 'partial header (no terminator) is pending');
-  }
-
-  // Case insensitivity.
-  {
-    const buf = Buffer.from('content-LENGTH: 5\r\n\r\nhello', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === true, 'case-insensitive framing prefix detected');
-    t.assert(r.bodyLen === 5, 'case-insensitive bodyLen parsed');
-  }
-
-  // Defense: a JSON payload that contains "Content-Length:" mid-body must NOT
-  // false-positive — sniff inspects only byte 0.
-  {
-    const buf = Buffer.from('{"note":"Content-Length: 42 inside JSON"}', 'utf-8');
-    const r = _detectResponseFraming(buf);
-    t.assert(r.framed === false, 'mid-body Content-Length string does not false-positive');
-  }
-}
-
 // ── Test 18: E-1 §5 timeout default reconciliation ──────────
 console.log('\n── Test 18: E-1 §5 timeout default reconciliation ──');
 
@@ -727,40 +677,29 @@ console.log('\n── Test 21: E-1 §6 ConnectionManager wires metrics ──');
 // ── Test 22b: E-1 §1 real-socket framed roundtrip ──────────
 // Validates the production tcpCommand path (no mock seam) end-to-end against
 // a real net.Server. Confirms outgoing requests are framed on tcp-55558,
-// incoming framed responses parse correctly, and (separately) unframed
-// responses still work via the legacy parse-loop fallback.
+// and incoming framed responses parse correctly.
 console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
 
 {
   const net = await import('node:net');
 
-  // Helper: spin up a server on a free port that accumulates bytes until a
-  // request can be parsed (framed or unframed), then dispatches the handler.
-  // This avoids races on multi-chunk delivery (the JS framing path emits two
-  // writes for header + body; TCP may deliver them as separate data events).
-  const startEchoServer = (expectFramed, handler) => new Promise((resolve) => {
+  // Use the shared decoder instead of retaining a second framing parser here.
+  const startEchoServer = (handler) => new Promise((resolve) => {
     const server = net.createServer((sock) => {
       const chunks = [];
+      const decoder = new TcpResponseDecoder();
       let dispatched = false;
       sock.on('data', (c) => {
         if (dispatched) return;
         chunks.push(c);
-        const buf = Buffer.concat(chunks);
-
-        if (expectFramed) {
-          const r = _detectResponseFraming(buf);
-          if (r.framed === true && buf.length >= r.headerLen + r.bodyLen) {
-            dispatched = true;
-            handler(buf, sock);
-          }
-          return;
-        }
-        // Unframed: parse-loop until JSON valid.
-        try {
-          JSON.parse(buf.toString('utf-8'));
+        const snapshot = decoder.consume(c);
+        if (snapshot.status === 'complete') {
           dispatched = true;
-          handler(buf, sock);
-        } catch { /* keep reading */ }
+          handler(Buffer.concat(chunks), sock);
+        } else if (snapshot.status === 'malformed') {
+          dispatched = true;
+          sock.destroy();
+        }
       });
     });
     server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
@@ -770,7 +709,7 @@ console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
   // We mimic the new plugin: emit Content-Length-framed reply.
   {
     const captured = { req: null, framedReply: false };
-    const { server, port } = await startEchoServer(true, (reqBuf, sock) => {
+    const { server, port } = await startEchoServer((reqBuf, sock) => {
       captured.req = reqBuf.toString('utf-8');
       const body = JSON.stringify({ status: 'success', echoed: true });
       const reply = `Content-Length: ${Buffer.byteLength(body, 'utf-8')}\r\n\r\n${body}`;
@@ -801,6 +740,36 @@ console.log('\n── Test 22b: E-1 §1 real-socket framed roundtrip ──');
     }
   }
 
+}
+
+// ── Test 22c: C++ framed response uses send-all loop ─────────
+console.log('\n── Test 22c: C++ framed response uses send-all loop ──');
+
+{
+  const source = readFileSync(
+    new URL('../plugin/UEMCP/Source/UEMCP/Private/MCPServerRunnable.cpp', import.meta.url),
+    'utf8'
+  );
+
+  t.assert(source.includes('bool SendAll('), 'C++ TCP server defines SendAll helper');
+  t.assert(/while\s*\(\s*TotalSent\s*<\s*Bytes\.Num\(\)/.test(source),
+    'SendAll loops until the full response buffer is written');
+  t.assert(source.includes('Bytes.GetData() + TotalSent'),
+    'SendAll advances the buffer pointer after partial sends');
+  t.assert(source.includes('WaitForWrite'),
+    'SendAll waits for socket write readiness under backpressure');
+  t.assert(source.includes('if (SocketSubsystem == nullptr)'),
+    'SendAll guards the socket-subsystem error path');
+  t.assert(source.includes('constexpr double ResponseSendTimeoutSec = 10.0;')
+    && source.includes('SendAll(ClientSocket, Framed, ResponseSendTimeoutSec)'),
+  'framed TCP responses use the distinct 10-second SendAll timeout');
+  t.assert((source.match(/event=tcp_send_failure/g) ?? []).length === 1
+    && source.includes('SocketSubsystem->GetSocketError(Error)'),
+  'SendAll solely owns one detailed translated send-failure event');
+  t.assert(!source.includes('failed to send response'),
+    'SendAll caller emits no duplicate generic send warning');
+  t.assert(!source.includes('ClientSocket->Send(Framed.GetData(), Framed.Num(), BytesSent)'),
+    'framed TCP responses do not rely on a single non-blocking Send');
 }
 
 // ── Test 22: E-1 §6 metrics off — getMetrics still works ────

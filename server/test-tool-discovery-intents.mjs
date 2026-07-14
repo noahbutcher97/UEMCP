@@ -46,4 +46,11 @@ t.assert(
   `got ${animGraphNames.join(', ')}`,
 );
 
+const animGraphPinNames = topToolNames(index, 'full pin level AnimGraph visual edge wiring', 8);
+t.assert(
+  animGraphPinNames.includes('get_anim_graph'),
+  'AnimGraph pin-level wiring intent routes to get_anim_graph',
+  `got ${animGraphPinNames.join(', ')}`,
+);
+
 process.exit(t.summary());

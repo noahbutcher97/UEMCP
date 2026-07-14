@@ -409,6 +409,12 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'get_anim_graph serializes states');
   t.assert(source.includes('SerializeAnimTransition') && source.includes('UAnimStateTransitionNode'),
     'get_anim_graph serializes transitions');
+  t.assert(source.includes('#include "UObject/UnrealType.h"')
+    && source.includes('FindFProperty<FBoolProperty>')
+    && source.includes('GetPropertyValue_InContainer'),
+  'get_anim_graph reads optional cross-version transition flags through reflected properties');
+  t.assert(!source.includes('Transition->bDisabled'),
+    'get_anim_graph does not directly compile against the post-5.3 bDisabled member');
   t.assert(source.includes('Out->SetNumberField(TEXT("transition_count"), TransitionNodes.Num())'),
     'get_anim_graph transition_count is independent of include_transitions serialization');
   t.assert(graphBlock.includes('UAnimGraphNode_Slot'),
@@ -419,6 +425,138 @@ console.log('\n── Group 10: D187 AnimGraph Readback Source Guard ──');
     'get_anim_graph explicitly marks runtime-only data unsupported');
   t.assert(!/run_python_command|IPythonScriptPlugin|FPythonCommand/i.test(graphBlock),
     'get_anim_graph does not use Python execution');
+
+  t.assert(source.includes('#include "EdGraph/EdGraphPin.h"'),
+    'get_anim_graph includes UEdGraphPin header for pin topology');
+  t.assert(source.includes('#include "EdGraph/EdGraphSchema.h"'),
+    'get_anim_graph includes UEdGraphSchema header for schema metadata');
+  t.assert(source.includes('SerializeAnimGraphPinTopology'),
+    'get_anim_graph has a dedicated pin topology serializer');
+  t.assert(source.includes('SerializeAnimGraphTopologyNode'),
+    'get_anim_graph serializes topology nodes separately from summary nodes');
+  t.assert(source.includes('SerializeAnimGraphPin('),
+    'get_anim_graph serializes UEdGraphPin fields');
+  t.assert(source.includes('BuildAnimGraphTopologyIndex'),
+    'get_anim_graph builds a graph-key index before link serialization');
+  t.assert(source.includes('CollectAnimGraphTopologyGraphs') &&
+    source.includes('TEXT("get_all_graphs")') &&
+    source.includes('TEXT("referenced_graph")'),
+  'pin topology preserves GetAllGraphs provenance and cross-checks referenced graphs');
+  t.assert(source.includes('EditorStateMachineGraph') &&
+    source.includes('State->GetBoundGraph()') &&
+    source.includes('Transition->GetBoundGraph()') &&
+    source.includes('Transition->GetCustomTransitionGraph()'),
+  'pin topology cross-checks state machine, state, transition, and custom transition graph references');
+  t.assert(/for\s*\(\s*UEdGraph\*\s+SubGraph\s*:\s*Graph->SubGraphs\s*\)\s*\{\s*AddAnimGraphTopologyGraph\(Collection,\s*SubGraph,\s*TEXT\("referenced_graph"\),\s*true\);\s*\}/s.test(source),
+    'pin topology recursively adds direct SubGraphs through the shared referenced-graph collector');
+  t.assert(source.includes('for (int32 GraphIndex = 0; GraphIndex < Collection.Graphs.Num(); ++GraphIndex)'),
+    'pin topology walks a growing graph collection so newly discovered referenced graphs are scanned');
+  t.assert(graphBlock.includes('include_pin_topology'),
+    'get_anim_graph reads include_pin_topology');
+  t.assert(graphBlock.includes('include_pin_defaults'),
+    'get_anim_graph reads include_pin_defaults');
+  t.assert(graphBlock.includes('PIN_DEFAULTS_REQUIRE_TOPOLOGY'),
+    'get_anim_graph rejects pin defaults without topology at C++ layer');
+  t.assert(graphBlock.includes('SetObjectField(TEXT("pin_topology")'),
+    'get_anim_graph attaches pin_topology only when requested');
+  t.assert(source.includes('EGuidFormats::Digits'),
+    'pin topology uses explicit digits GUID format');
+  t.assert(source.includes('SetBoolField(TEXT("truncated"), false)'),
+    'pin topology explicitly reports non-truncated payloads');
+  t.assert(source.includes('dangling_link_count'),
+    'pin topology reports dangling link count');
+  t.assert(source.includes('duplicate_graph_key_count'),
+    'pin topology reports duplicate graph-key count');
+  t.assert(source.includes('TSet<FString> UsedGraphKeys') &&
+    source.includes('while (UsedGraphKeys.Contains(GraphKey))') &&
+    source.includes('UsedGraphKeys.Add(GraphKey)'),
+  'pin topology reserves final graph keys globally so generated suffixes cannot collide with real graph names');
+  t.assert(source.includes('null_node_count') && source.includes('null_pin_count'),
+    'pin topology reports omitted null nodes and pins');
+  t.assert(source.includes('invalid_node_guid_count') && source.includes('invalid_pin_guid_count'),
+    'pin topology reports invalid node and pin GUIDs');
+  t.assert(source.includes('duplicate_node_key_count') && source.includes('duplicate_pin_key_count'),
+    'pin topology reports node and pin key collisions');
+  t.assert([
+    'null_nodes',
+    'null_pins',
+    'null_linked_pins',
+    'dangling_links',
+    'orphaned_pins',
+    'duplicate_graph_keys',
+    'duplicate_node_guids',
+    'duplicate_pin_ids',
+  ].every((field) => source.includes(`TEXT("${field}")`)),
+  'pin topology reports documented v1 dropped counter aliases');
+  t.assert(source.includes('null_referenced_graph_count') &&
+    source.includes('null_linked_pin_count') &&
+    source.includes('null_linked_owner_count'),
+  'pin topology reports null referenced graphs, linked pins, and linked owners');
+  t.assert(source.includes('dangling_parent_pin_count') &&
+    source.includes('dangling_subpin_count') &&
+    source.includes('mismatched_pin_owner_count'),
+  'pin topology reports unresolved split-pin relationships and mismatched pin ownership');
+  t.assert(source.includes('null_node_graph_count') &&
+    source.includes('mismatched_node_graph_count') &&
+    source.includes('Node->GetGraph()'),
+  'pin topology reports null or mismatched node graph ownership');
+  t.assert(source.includes('HasAnimGraphTopologyLosses') &&
+    source.includes('Root->SetBoolField(TEXT("complete"), !HasAnimGraphTopologyLosses(Index));'),
+  'pin topology marks complete false for every recorded topology loss');
+
+  const topologyStart = source.indexOf('struct FAnimGraphTopologyIndex');
+  const topologyEnd = source.indexOf('TSharedPtr<FJsonObject> SerializeEditorGraphNode', topologyStart);
+  t.assert(topologyStart >= 0 && topologyEnd > topologyStart,
+    'pin topology serializer guard boundaries are valid');
+  const topologyBlock = topologyStart >= 0 && topologyEnd > topologyStart
+    ? source.slice(topologyStart, topologyEnd)
+    : '';
+  t.assert(topologyBlock.includes('BuildAnimGraphTopologyEntryIndex') &&
+    topologyBlock.includes('Index.NodeKeys.Find(LinkedNode)') &&
+    topologyBlock.includes('Index.PinKeys.Find(LinkedPin)'),
+  'pin topology validates linked node and pin membership before emitting endpoints');
+  t.assert(topologyBlock.includes('!LinkedNodeKey || !LinkedPinKey') &&
+    topologyBlock.includes('++Index.DanglingLinkCount'),
+  'unserialized link endpoints are counted as dangling');
+  t.assert(topologyBlock.includes('Index.PinNodes.Find(LinkedPin)') &&
+    topologyBlock.includes('Index.NodeGraphs.Find(LinkedNode)') &&
+    topologyBlock.includes('Index.GraphKeys.Find(LinkedGraph)'),
+  'pin topology validates link endpoint graph and node membership');
+  t.assert(topologyBlock.includes('IndexAnimGraphPinRecursive') &&
+    topologyBlock.includes('SerializeAnimGraphPinRecursive') &&
+    topologyBlock.includes('Pin->SubPins'),
+  'pin topology recursively indexes and serializes split pins');
+  t.assert(topologyBlock.includes('SubPin->ParentPin == Pin') &&
+    topologyBlock.includes('ParentSubPin == Pin'),
+  'pin topology emits split-pin relationships only when parent and child references agree');
+  t.assert(topologyBlock.includes('SetBoolField(TEXT("is_subpin")') &&
+    topologyBlock.includes('SetArrayField(TEXT("subpin_ids")'),
+  'pin topology emits documented split-pin fields');
+  t.assert(topologyBlock.includes('SetStringField(TEXT("name")') &&
+    topologyBlock.includes('SetStringField(TEXT("class_name")') &&
+    topologyBlock.includes('SetStringField(TEXT("schema_class")'),
+  'pin topology graph entries emit documented identity and schema fields');
+  t.assert(topologyBlock.includes('GetOwningNodeUnchecked') &&
+    /GetOwningNodeUnchecked\(\);\s*if\s*\(\s*!LinkedNode\s*\)/s.test(topologyBlock),
+  'pin topology reads linked owners through the nullable API and checks them before dereference');
+  t.assert(topologyBlock.includes('TSet<const UEdGraphNode*> SerializedNodes') &&
+    topologyBlock.includes('SerializedNodes.Contains(Node)'),
+  'pin topology serializes each indexed node pointer at most once');
+  t.assert(source.includes('Root->SetNumberField(TEXT("graph_count"), Index.Graphs.Num())'),
+    'pin topology graph_count is independent of the JSON map and exposes accidental key overwrite');
+  t.assert(source.includes('MakeCanonicalEdgeKey') &&
+    source.includes('First.Len()') && source.includes('Second.Len()') &&
+    !topologyBlock.includes('A + TEXT("<->") + B'),
+  'pin topology uses length-prefixed canonical edge keys instead of a valid-name delimiter');
+  t.assert(!/Modify\s*\(|AllocateDefaultPins|MarkPackageDirty|SavePackage|CompileBlueprint|MakeLinkTo|BreakLinkTo|BreakAllPinLinks/.test(topologyBlock),
+    'pin topology serializer remains read-only and does not normalize or mutate graph state');
+
+  const pinTopologyAttachments = [
+    ...graphBlock.matchAll(/Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AnimBlueprint,\s*bIncludePinDefaults\)\);/g)
+  ];
+  t.assert(pinTopologyAttachments.length === 1 &&
+    /if\s*\(\s*bIncludePinTopology\s*\)\s*\{\s*Result->SetObjectField\(TEXT\("pin_topology"\),\s*SerializeAnimGraphPinTopology\(AnimBlueprint,\s*bIncludePinDefaults\)\);\s*\}/s.test(graphBlock),
+  'get_anim_graph attaches pin_topology exactly once inside the include_pin_topology gate');
 
   t.assert(/Registry\.Register\(TEXT\("get_anim_graph"\),\s*&HandleGetAnimGraph\)/.test(source),
     'get_anim_graph is registered on the live TCP command registry');

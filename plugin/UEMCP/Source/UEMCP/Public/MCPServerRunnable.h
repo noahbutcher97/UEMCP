@@ -11,13 +11,16 @@ class FSocket;
  * TCP accept loop for UEMCP on port 55558.
  *
  * Connect-per-command protocol (no persistent connection):
- *   1. Accept client on the listener socket (non-blocking poll).
- *   2. Read bytes into an accumulator until a full JSON object parses.
- *   3. Extract 'type' + 'params', dispatch via FMCPCommandRegistry.
- *   4. Serialize response, send (UTF-8, no newline terminator).
- *   5. Close client socket. Loop.
+ *   1. Accept one client and capture a monotonic acceptance timestamp.
+ *   2. Perform typed strict request intake for one Content-Length-framed or
+ *      legacy JSON object, with bounded header/body sizes and independent
+ *      idle/total receive deadlines.
+ *   3. Dispatch valid 'type' + 'params' only from a complete intake result.
+ *   4. Serialize and send one strict UTF-8, Content-Length-framed response.
+ *   5. Close the client socket and return to the accept loop.
  *
- * Malformed requests (missing 'type', unparseable JSON) return MALFORMED_REQUEST errors.
+ * Rejected active requests attempt a structured error response.
+ * Peer close, receive failure, and server shutdown do not attempt a response.
  * The listener socket is owned by FUEMCPModule; this runnable only holds a non-owning raw pointer.
  */
 class FMCPServerRunnable : public FRunnable
@@ -33,7 +36,7 @@ public:
 	virtual void Exit() override;
 
 private:
-	void ServeOneConnection(FSocket* ClientSocket);
+	void ServeOneConnection(FSocket* ClientSocket, double AcceptedAtSeconds);
 
 	FSocket* ListenerSocket = nullptr;
 	FThreadSafeBool bRunning;

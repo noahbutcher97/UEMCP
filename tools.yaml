@@ -1138,12 +1138,16 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: bp_list_graphs
-        aliases: ["AnimGraph state machine", "animation blueprint graph", "animation state machine", "slot node", "layered bone blend"]
-        description: AnimBlueprint static graph read — graphs, state machines, states, transitions, slot nodes, and layered bone blend nodes.
+        offline_fallback_scope: partial
+        offline_fallback_note: "bp_list_graphs can confirm top-level graph presence offline, but it does not provide live UEdGraph pin topology, linked_to endpoints, pin defaults, or schema metadata."
+        aliases: ["AnimGraph state machine", "animation blueprint graph", "animation state machine", "slot node", "layered bone blend", "AnimGraph pin topology", "animation pin wiring", "pin-level graph edges", "visual graph edge wiring"]
+        description: AnimBlueprint static graph read - graphs, state machines, states, transitions, slot nodes, layered bone blend nodes, and optional full visual pin topology.
         params:
-          asset_path: { type: string, required: true }
-          include_transitions: { type: boolean, required: false }
-          include_node_properties: { type: boolean, required: false }
+          asset_path: { type: string, required: true, description: "/Game/... path to a UAnimBlueprint asset" }
+          include_transitions: { type: boolean, required: false, description: "Include transition metadata and rule/custom graph names; default true in the plugin." }
+          include_node_properties: { type: boolean, required: false, description: "Include per-graph node summaries; default false." }
+          include_pin_topology: { type: boolean, required: false, description: "Include full UEdGraph node/pin/linked_to visual topology with graph-scoped link endpoints; default false." }
+          include_pin_defaults: { type: boolean, required: false, description: "Include safe UEdGraphPin default fields; requires include_pin_topology=true." }
       # reduced_scope: runtime interpolation evaluation; sample points + blend axes shipped offline
       # displaced_by: read_asset_properties
       get_blend_space:

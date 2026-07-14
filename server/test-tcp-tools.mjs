@@ -14,7 +14,14 @@
 // Run: cd /d D:\DevTools\UEMCP\server && node test-tcp-tools.mjs
 
 import { ConnectionManager } from './connection-manager.mjs';
-import { FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import {
+  FakeTcpResponder,
+  ErrorTcpResponder,
+  TestRunner,
+  createAnimGraphTopologyFixture,
+  createTestConfig,
+} from './test-helpers.mjs';
+import { validateAnimGraphPinTopology } from './anim-graph-topology-validation.mjs';
 import {
   initBlueprintsWriteTools,
   executeBlueprintsWriteTool, getBlueprintsWriteToolDefs, BLUEPRINTS_WRITE_SCHEMAS,
@@ -717,6 +724,14 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       /Invalid|enum/i,
       'W-B: start_pie rejects unknown mode at Zod layer (no silent fallthrough to viewport)'
     );
+    await t.assertRejects(
+      () => executeMenhanceTool('get_anim_graph', {
+        asset_path: '/Game/Anim/ABP_Test',
+        include_pin_defaults: true,
+      }, cm),
+      /include_pin_defaults.*include_pin_topology/i,
+      'get_anim_graph rejects include_pin_defaults without include_pin_topology'
+    );
   }
 
   // ── Wire-type map identity fallback ───────────────────────────
@@ -895,7 +910,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
       status: 'success',
       result: { asset_path: '/Game/Anim/S', duration_seconds: 1.0 },
     });
-    fake.on('get_anim_graph', {
+    const expectedPinTopology = createAnimGraphTopologyFixture();
+    fake.on('get_anim_graph', (_port, _type, params) => ({
       status: 'success',
       result: {
         asset_path: '/Game/Anim/ABP_Test',
@@ -903,8 +919,11 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         state_machines: [{ name: 'Locomotion', states: [], transitions: [] }],
         slot_nodes: [{ graph_name: 'AnimGraph', slot_name: 'DefaultSlot' }],
         layered_blend_nodes: [],
+        pin_topology: createAnimGraphTopologyFixture({
+          includePinDefaults: params.include_pin_defaults === true,
+        }),
       },
-    });
+    }));
     const montage = await executeMenhanceTool('get_montage_full', { asset_path: '/Game/Anim/M' }, cm);
     const seq = await executeMenhanceTool('get_anim_sequence_info', { asset_path: '/Game/Anim/S' }, cm);
     t.assert(Array.isArray(montage.result?.sections), 'get_montage_full pass-through from dedicated handler');
@@ -918,15 +937,44 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
         asset_path: '/Game/Anim/ABP_Test',
         include_transitions: true,
         include_node_properties: true,
+        include_pin_topology: true,
+        unknown_sentinel: 'strip-me',
       }, cm);
       t.assert(graph.result?.state_machines?.[0]?.name === 'Locomotion',
         'get_anim_graph pass-through from dedicated handler');
+      const topology = graph.result?.pin_topology;
+      const topologySummary = validateAnimGraphPinTopology(topology, {
+        requireComplete: true,
+        requireNonEmpty: true,
+        expectedIncludesPinDefaults: false,
+      });
+      t.assert(topologySummary.pin_count === 4 && topologySummary.edge_count === 1,
+        'get_anim_graph topology passes the shared structural and edge validator');
+      t.assert(JSON.stringify(topology) === JSON.stringify(expectedPinTopology),
+        'get_anim_graph pin_topology round-trips unchanged through TCP dispatch');
       t.assert(fake.lastCall('get_anim_graph')?.params?.asset_path === '/Game/Anim/ABP_Test',
         'get_anim_graph dispatches to get_anim_graph wire type');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_transitions === true,
         'get_anim_graph forwards include_transitions');
       t.assert(fake.lastCall('get_anim_graph')?.params?.include_node_properties === true,
         'get_anim_graph forwards include_node_properties');
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_topology === true,
+        'get_anim_graph forwards include_pin_topology');
+      t.assert(!('unknown_sentinel' in fake.lastCall('get_anim_graph')?.params),
+        'get_anim_graph strips unknown schema parameters before TCP dispatch');
+      const graphWithDefaults = await executeMenhanceTool('get_anim_graph', {
+        asset_path: '/Game/Anim/ABP_Test',
+        include_pin_topology: true,
+        include_pin_defaults: true,
+      }, cm);
+      t.assert(fake.lastCall('get_anim_graph')?.params?.include_pin_defaults === true,
+        'get_anim_graph forwards include_pin_defaults');
+      const defaultsSummary = validateAnimGraphPinTopology(graphWithDefaults.result?.pin_topology, {
+        requireComplete: true,
+        expectedIncludesPinDefaults: true,
+      });
+      t.assert(defaultsSummary.includes_pin_defaults === true,
+        'get_anim_graph round-trips and validates requested pin defaults');
     } else {
       t.assert(false, 'get_anim_graph pass-through from dedicated handler', 'schema missing');
       t.assert(false, 'get_anim_graph dispatches to get_anim_graph wire type', 'schema missing');

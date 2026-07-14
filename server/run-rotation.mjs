@@ -35,6 +35,7 @@ import {
   collectOracleFreshness,
   detectOracleFreshnessMarkers,
 } from './rotation-oracle-freshness.mjs';
+import { extractAssertionFailureDetails } from './rotation-failure-details.mjs';
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -163,8 +164,22 @@ function runOne(file) {
   const importError = detectImportError(stderr);
   const kind = classify(exitCode, counts, importError);
   const oracleFreshness = detectOracleFreshnessMarkers(stdout);
+  const failureDetails = kind === 'ASSERTION_FAILED'
+    ? extractAssertionFailureDetails(stdout, stderr)
+    : [];
 
-  return { file, exitCode, kind, counts, importError, oracleFreshness, elapsedMs: Date.now() - start, stdout, stderr };
+  return {
+    file,
+    exitCode,
+    kind,
+    counts,
+    importError,
+    oracleFreshness,
+    failureDetails,
+    elapsedMs: Date.now() - start,
+    stdout,
+    stderr,
+  };
 }
 
 function tail(s, n = 5) {
@@ -250,6 +265,7 @@ function main() {
         file: r.file, kind: r.kind, exitCode: r.exitCode,
         counts: r.counts, importError: r.importError,
         oracleFreshness: r.oracleFreshness,
+        failureDetails: r.failureDetails,
         elapsedMs: r.elapsedMs,
       })),
       aggregate,
@@ -306,6 +322,9 @@ function main() {
       console.log('  Files with assertion failures:');
       for (const r of assertionFailures) {
         console.log(`    ✗ ${r.file}: ${r.counts.failed} failed of ${r.counts.total}`);
+        for (const detail of r.failureDetails) {
+          console.log(`        ${detail}`);
+        }
       }
     }
     if (oracleFreshness.count > 0) {
