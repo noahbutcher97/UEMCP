@@ -2634,211 +2634,285 @@ function cppPhase2SpliceLength(source, startIndex) {
   return 0;
 }
 
-function cppPreviousLogicalIndex(source, startIndex) {
-  let cursor = startIndex;
-  while (cursor > 0) {
-    if (source[cursor - 1] === '\n') {
-      if (cursor >= 3 && source[cursor - 2] === '\r' && source[cursor - 3] === '\\') {
-        cursor -= 3;
-        continue;
-      }
-      if (cursor >= 2 && source[cursor - 2] === '\\') {
-        cursor -= 2;
-        continue;
-      }
-    } else if (source[cursor - 1] === '\r'
-      && cursor >= 2
-      && source[cursor - 2] === '\\') {
-      cursor -= 2;
+function cppLogicalEntry(source, startIndex) {
+  let originalIndex = startIndex;
+  while (originalIndex < source.length) {
+    const spliceLength = cppPhase2SpliceLength(source, originalIndex);
+    if (spliceLength > 0) {
+      originalIndex += spliceLength;
       continue;
     }
-    return cursor - 1;
+
+    if (source[originalIndex] === '\r') {
+      return {
+        char: '\n',
+        originalIndex,
+        nextOriginalIndex: originalIndex + (source[originalIndex + 1] === '\n' ? 2 : 1),
+      };
+    }
+    if (source[originalIndex] === '\n') {
+      return { char: '\n', originalIndex, nextOriginalIndex: originalIndex + 1 };
+    }
+    return {
+      char: source[originalIndex],
+      originalIndex,
+      nextOriginalIndex: originalIndex + 1,
+    };
   }
-  return -1;
+  return null;
 }
 
-function cppRawStringEnd(source, startIndex) {
-  const previousLogicalIndex = cppPreviousLogicalIndex(source, startIndex);
-  if (previousLogicalIndex >= 0 && isCppIdentifierChar(source[previousLogicalIndex])) {
-    return -1;
-  }
+function cppRawLiteralOpening(source, startIndex, previousLogicalChar) {
+  if (isCppIdentifierChar(previousLogicalChar)) return null;
 
-  const logicalChars = [];
-  const logicalToOriginal = [];
-  let originalIndex = startIndex;
-  const readLogicalChar = () => {
-    while (originalIndex < source.length) {
-      const spliceLength = cppPhase2SpliceLength(source, originalIndex);
-      if (spliceLength > 0) {
-        originalIndex += spliceLength;
-        continue;
-      }
-      logicalChars.push(source[originalIndex]);
-      logicalToOriginal.push(originalIndex);
-      originalIndex += 1;
-      return logicalChars[logicalChars.length - 1];
+  const entries = [];
+  let cursor = startIndex;
+  const read = () => {
+    const entry = cppLogicalEntry(source, cursor);
+    if (entry) {
+      entries.push(entry);
+      cursor = entry.nextOriginalIndex;
     }
-    return null;
+    return entry;
   };
 
-  const first = readLogicalChar();
-  if (first === 'u') {
-    const second = readLogicalChar();
-    if (second === '8') {
-      if (readLogicalChar() !== 'R') return -1;
-    } else if (second !== 'R') {
-      return -1;
+  const first = read();
+  if (!first) return null;
+  if (first.char === 'u') {
+    const second = read();
+    if (!second) return null;
+    if (second.char === '8') {
+      const third = read();
+      if (!third || third.char !== 'R') return null;
+    } else if (second.char !== 'R') {
+      return null;
     }
-  } else if (first === 'U' || first === 'L') {
-    if (readLogicalChar() !== 'R') return -1;
-  } else if (first !== 'R') {
-    return -1;
-  }
-
-  if (readLogicalChar() !== '"') return -1;
-  const delimiterStart = logicalChars.length;
-  while (true) {
-    const char = readLogicalChar();
-    if (char === null) return -1;
-    if (char === '(') break;
-    if (logicalChars.length - delimiterStart > 16 || /[\s()\\]/.test(char)) return -1;
-  }
-
-  const delimiter = logicalChars.slice(delimiterStart, -1).join('');
-  const closingToken = `)${delimiter}"`;
-  const contentStart = logicalToOriginal[logicalToOriginal.length - 1] + 1;
-  const closingIndex = source.indexOf(closingToken, contentStart);
-  return closingIndex >= 0 ? closingIndex + closingToken.length : source.length;
-}
-
-function cppQuotedLiteralStart(source, startIndex) {
-  const match = source.slice(startIndex).match(/^(?:u8|u|U|L)?(["'])/);
-  if (!match) return null;
-  if (match[0].length > 1
-    && startIndex > 0
-    && isCppIdentifierChar(source[startIndex - 1])) {
+  } else if (first.char === 'U' || first.char === 'L') {
+    const second = read();
+    if (!second || second.char !== 'R') return null;
+  } else if (first.char !== 'R') {
     return null;
   }
-  return { openingLength: match[0].length, quote: match[1] };
+
+  const quote = read();
+  if (!quote || quote.char !== '"') return null;
+  let delimiter = '';
+  while (delimiter.length <= 16) {
+    const entry = read();
+    if (!entry) return null;
+    if (entry.char === '(') {
+      const closingToken = `)${delimiter}"`;
+      const closingIndex = source.indexOf(closingToken, entry.nextOriginalIndex);
+      return {
+        entries,
+        contentStart: entry.nextOriginalIndex,
+        endOriginalIndex: closingIndex >= 0
+          ? closingIndex + closingToken.length
+          : source.length,
+      };
+    }
+    if (/[\s()\\]/.test(entry.char)) return null;
+    delimiter += entry.char;
+  }
+  return null;
 }
 
-function cppNumberEnd(source, startIndex) {
-  const startsWithDigit = isCppDecimalDigit(source[startIndex]);
-  const startsWithDecimalPoint = source[startIndex] === '.'
-    && isCppDecimalDigit(source[startIndex + 1]);
-  if (!startsWithDigit && !startsWithDecimalPoint) return -1;
+function cppQuotedLiteralOpening(source, startIndex, previousLogicalChar) {
+  const entries = [];
+  let cursor = startIndex;
+  const read = () => {
+    const entry = cppLogicalEntry(source, cursor);
+    if (entry) {
+      entries.push(entry);
+      cursor = entry.nextOriginalIndex;
+    }
+    return entry;
+  };
 
-  let endIndex = startIndex + 1;
-  while (endIndex < source.length) {
-    const char = source[endIndex];
-    if (isCppIdentifierChar(char) || char === '.'
-      || (char === "'" && isCppIdentifierChar(source[endIndex + 1]))
-      || ((char === '+' || char === '-') && /[eEpP]/.test(source[endIndex - 1]))) {
-      endIndex += 1;
-    } else {
+  const first = read();
+  if (!first) return null;
+  if (first.char === '"' || first.char === "'") {
+    return { entries, quote: first.char, endOriginalIndex: cursor };
+  }
+  if (isCppIdentifierChar(previousLogicalChar)) return null;
+
+  let quote = null;
+  if (first.char === 'u') {
+    const second = read();
+    if (!second) return null;
+    quote = second;
+    if (second.char === '8') quote = read();
+  } else if (first.char === 'U' || first.char === 'L') {
+    quote = read();
+  } else {
+    return null;
+  }
+
+  if (!quote || (quote.char !== '"' && quote.char !== "'")) return null;
+  return { entries, quote: quote.char, endOriginalIndex: cursor };
+}
+
+function cppNumberToken(source, startIndex) {
+  const first = cppLogicalEntry(source, startIndex);
+  if (!first) return null;
+  const second = cppLogicalEntry(source, first.nextOriginalIndex);
+  const startsWithDigit = isCppDecimalDigit(first.char);
+  const startsWithDecimalPoint = first.char === '.'
+    && second
+    && isCppDecimalDigit(second.char);
+  if (!startsWithDigit && !startsWithDecimalPoint) return null;
+
+  const entries = [first];
+  let cursor = first.nextOriginalIndex;
+  while (cursor < source.length) {
+    const entry = cppLogicalEntry(source, cursor);
+    if (!entry) {
+      cursor = source.length;
       break;
     }
+    const previousChar = entries[entries.length - 1].char;
+    const afterEntry = cppLogicalEntry(source, entry.nextOriginalIndex);
+    const continuesNumber = isCppIdentifierChar(entry.char)
+      || entry.char === '.'
+      || (entry.char === "'" && afterEntry && isCppIdentifierChar(afterEntry.char))
+      || ((entry.char === '+' || entry.char === '-') && /[eEpP]/.test(previousChar));
+    if (!continuesNumber) break;
+    entries.push(entry);
+    cursor = entry.nextOriginalIndex;
   }
-  return endIndex;
-}
-
-function maskCppNonCode(source) {
-  const masked = source.split('');
-  const maskRange = (startIndex, endIndex) => {
-    for (let index = startIndex; index < endIndex; index += 1) {
-      if (source[index] !== '\r' && source[index] !== '\n') masked[index] = ' ';
-    }
-  };
-
-  let index = 0;
-  while (index < source.length) {
-    if (source[index] === '/' && source[index + 1] === '/') {
-      let endIndex = index + 2;
-      while (endIndex < source.length) {
-        if (source[endIndex] === '\r' || source[endIndex] === '\n') {
-          const precedingIndex = source[endIndex] === '\n'
-            && source[endIndex - 1] === '\r'
-            ? endIndex - 2
-            : endIndex - 1;
-          if (source[precedingIndex] !== '\\') break;
-        }
-        endIndex += 1;
-      }
-      maskRange(index, endIndex);
-      index = endIndex;
-      continue;
-    }
-
-    if (source[index] === '/' && source[index + 1] === '*') {
-      const closingIndex = source.indexOf('*/', index + 2);
-      const endIndex = closingIndex >= 0 ? closingIndex + 2 : source.length;
-      maskRange(index, endIndex);
-      index = endIndex;
-      continue;
-    }
-
-    const rawStringEnd = cppRawStringEnd(source, index);
-    if (rawStringEnd >= 0) {
-      maskRange(index, rawStringEnd);
-      index = rawStringEnd;
-      continue;
-    }
-
-    const numberEnd = cppNumberEnd(source, index);
-    if (numberEnd >= 0) {
-      index = numberEnd;
-      continue;
-    }
-
-    const quotedLiteral = cppQuotedLiteralStart(source, index);
-    if (quotedLiteral) {
-      let endIndex = index + quotedLiteral.openingLength;
-      while (endIndex < source.length) {
-        if (source[endIndex] === '\\') {
-          endIndex = Math.min(source.length, endIndex + 2);
-        } else if (source[endIndex] === quotedLiteral.quote) {
-          endIndex += 1;
-          break;
-        } else {
-          endIndex += 1;
-        }
-      }
-      maskRange(index, endIndex);
-      index = endIndex;
-      continue;
-    }
-
-    index += 1;
-  }
-
-  return masked.join('');
+  return { entries, endOriginalIndex: cursor };
 }
 
 function cppCodeView(source) {
-  const initiallyMasked = maskCppNonCode(source);
-  const normalizedChars = [];
+  const codeChars = [];
   const normalizedToOriginal = [];
+  const emit = (char, originalIndex) => {
+    codeChars.push(char);
+    normalizedToOriginal.push(originalIndex);
+  };
+  const emitMasked = (entry) => {
+    emit(entry.char === '\n' ? '\n' : ' ', entry.originalIndex);
+  };
+  const emitRawMaskedRange = (startIndex, endIndex) => {
+    let index = startIndex;
+    while (index < endIndex) {
+      if (source[index] === '\r') {
+        emit('\n', index);
+        index += source[index + 1] === '\n' ? 2 : 1;
+      } else if (source[index] === '\n') {
+        emit('\n', index);
+        index += 1;
+      } else {
+        emit(' ', index);
+        index += 1;
+      }
+    }
+  };
 
-  let index = 0;
-  while (index < initiallyMasked.length) {
-    const spliceLength = cppPhase2SpliceLength(initiallyMasked, index);
-    if (spliceLength > 0) {
-      index += spliceLength;
+  let cursor = 0;
+  let state = 'code';
+  let quote = '';
+  let escaped = false;
+  while (cursor < source.length) {
+    const entry = cppLogicalEntry(source, cursor);
+    if (!entry) break;
+
+    if (state === 'line-comment') {
+      if (entry.char === '\n') {
+        emit('\n', entry.originalIndex);
+        state = 'code';
+      } else {
+        emitMasked(entry);
+      }
+      cursor = entry.nextOriginalIndex;
       continue;
     }
 
-    normalizedChars.push(initiallyMasked[index]);
-    normalizedToOriginal.push(index);
-    index += 1;
+    if (state === 'block-comment') {
+      const next = entry.char === '*'
+        ? cppLogicalEntry(source, entry.nextOriginalIndex)
+        : null;
+      if (next && next.char === '/') {
+        emitMasked(entry);
+        emitMasked(next);
+        cursor = next.nextOriginalIndex;
+        state = 'code';
+      } else {
+        emitMasked(entry);
+        cursor = entry.nextOriginalIndex;
+      }
+      continue;
+    }
+
+    if (state === 'quoted-literal') {
+      if (entry.char === '\n') {
+        emit('\n', entry.originalIndex);
+        state = 'code';
+        escaped = false;
+      } else {
+        emitMasked(entry);
+        if (escaped) {
+          escaped = false;
+        } else if (entry.char === '\\') {
+          escaped = true;
+        } else if (entry.char === quote) {
+          state = 'code';
+        }
+      }
+      cursor = entry.nextOriginalIndex;
+      continue;
+    }
+
+    const next = entry.char === '/'
+      ? cppLogicalEntry(source, entry.nextOriginalIndex)
+      : null;
+    if (next && (next.char === '/' || next.char === '*')) {
+      emitMasked(entry);
+      emitMasked(next);
+      cursor = next.nextOriginalIndex;
+      state = next.char === '/' ? 'line-comment' : 'block-comment';
+      continue;
+    }
+
+    const previousLogicalChar = codeChars.length > 0
+      ? codeChars[codeChars.length - 1]
+      : '';
+    const rawLiteral = cppRawLiteralOpening(source, cursor, previousLogicalChar);
+    if (rawLiteral) {
+      rawLiteral.entries.forEach(emitMasked);
+      emitRawMaskedRange(rawLiteral.contentStart, rawLiteral.endOriginalIndex);
+      cursor = rawLiteral.endOriginalIndex;
+      continue;
+    }
+
+    const number = cppNumberToken(source, cursor);
+    if (number) {
+      number.entries.forEach((numberEntry) => emit(
+        numberEntry.char,
+        numberEntry.originalIndex,
+      ));
+      cursor = number.endOriginalIndex;
+      continue;
+    }
+
+    const quotedLiteral = cppQuotedLiteralOpening(source, cursor, previousLogicalChar);
+    if (quotedLiteral) {
+      quotedLiteral.entries.forEach(emitMasked);
+      cursor = quotedLiteral.endOriginalIndex;
+      state = 'quoted-literal';
+      quote = quotedLiteral.quote;
+      escaped = false;
+      continue;
+    }
+
+    emit(entry.char, entry.originalIndex);
+    cursor = entry.nextOriginalIndex;
   }
 
-  return {
-    code: maskCppNonCode(normalizedChars.join('')),
-    normalizedToOriginal,
-  };
+  return { code: codeChars.join(''), normalizedToOriginal };
 }
 
-const cppMaskFixture = [
+const cppLexerFixture = [
   'VisibleBefore(); // HiddenLineToken',
   '/* HiddenBlockToken */',
   'const TCHAR* Text = TEXT("HiddenStringToken");',
@@ -2848,22 +2922,25 @@ const cppMaskFixture = [
   "const int Character = 'HiddenCharacterToken';",
   'VisibleAfter();',
 ].join('\n');
-const cppMaskCodeView = cppCodeView(cppMaskFixture);
-const maskedCppFixture = cppMaskCodeView.code;
-runner.assert(maskedCppFixture.length === cppMaskFixture.length
-  && maskedCppFixture.length === cppMaskCodeView.normalizedToOriginal.length
-  && maskedCppFixture.indexOf('VisibleBefore') === cppMaskFixture.indexOf('VisibleBefore')
-  && maskedCppFixture.indexOf('VisibleAfterNumber')
-    === cppMaskFixture.indexOf('VisibleAfterNumber')
-  && maskedCppFixture.indexOf('VisibleAfter') === cppMaskFixture.indexOf('VisibleAfter')
+const cppLexerCodeView = cppCodeView(cppLexerFixture);
+const cppFixtureCode = cppLexerCodeView.code;
+runner.assert(cppFixtureCode.length === cppLexerFixture.length
+  && cppFixtureCode.length === cppLexerCodeView.normalizedToOriginal.length
+  && cppLexerCodeView.normalizedToOriginal.every((originalIndex, logicalIndex, mapping) => (
+    logicalIndex === 0 || originalIndex > mapping[logicalIndex - 1]
+  ))
+  && cppFixtureCode.indexOf('VisibleBefore') === cppLexerFixture.indexOf('VisibleBefore')
+  && cppFixtureCode.indexOf('VisibleAfterNumber')
+    === cppLexerFixture.indexOf('VisibleAfterNumber')
+  && cppFixtureCode.indexOf('VisibleAfter') === cppLexerFixture.indexOf('VisibleAfter')
   && [
     'HiddenLineToken',
     'HiddenBlockToken',
     'HiddenStringToken',
     'HiddenRawToken',
     'HiddenCharacterToken',
-  ].every((token) => !maskedCppFixture.includes(token)),
-'source guard scanner: code view preserves surviving positions and removes comments/literals');
+  ].every((token) => !cppFixtureCode.includes(token)),
+'source guard scanner: mapped code view preserves source order and removes comments/literals');
 
 function findDirectRecvMemberCalls(source) {
   const codeView = cppCodeView(source);
@@ -2961,7 +3038,7 @@ const qualifiedSplicedOrderingFixtures = ['\n', '\r\n', '\r'].map((lineEnding) =
   'errno = 0;',
   `Attempt.bSucceeded = Socket->FSocket::Re${cppPhase2Splice(lineEnding)}cv(Buffer, BufferSize, BytesRead);`,
   'const int32 NativeErrorCode = errno;',
-].join('\n')));
+].join(lineEnding)));
 runner.assert(qualifiedSplicedOrderingFixtures.every((source) => (
   hasClearRecvCaptureOrdering(source, 'errno = 0', 'const int32 NativeErrorCode = errno')
 )), 'source guard mutation: qualified LF/CRLF/CR-spliced Recv orders between clear and capture');
@@ -3114,6 +3191,61 @@ function invocationDirectlyReferencesPayload(invocation) {
   return directPayloadLogIdentifier.test(withoutSafeFramingMetadata)
     || directPayloadPreviewExpression.test(withoutSafeFramingMetadata);
 }
+
+const cppLineEndings = ['\n', '\r\n', '\r'];
+const spliceFormedBlockCloseFixtures = cppLineEndings.map((lineEnding) => ([
+  '/* Socket->Recv(HiddenBuffer, HiddenSize, HiddenBytes);',
+  'UEMCP_WARN("hidden=%s", *SerializedResponse);',
+  `*${cppPhase2Splice(lineEnding)}/`,
+  'Socket->Recv(Buffer, BufferSize, BytesRead);',
+  'UEMCP_WARN("payload=%s", *SerializedResponse);',
+].join(lineEnding)));
+runner.assert(spliceFormedBlockCloseFixtures.every((source) => {
+  const invocations = extractBalancedLogInvocations(source);
+  return countDirectRecvMemberCalls(source) === 1
+    && invocations.length === 1
+    && invocationDirectlyReferencesPayload(invocations[0]);
+}), 'source guard scanner: LF/CRLF/CR-spliced block closes expose following receive and payload log');
+
+const spliceFormedLineCommentFixtures = cppLineEndings.map((lineEnding) => ([
+  `/${cppPhase2Splice(lineEnding)}/ misleading R"tag( " UEMCP_WARN("hidden=%s", *SerializedResponse)`,
+  'Socket->Recv(Buffer, BufferSize, BytesRead);',
+  'UEMCP_WARN("payload=%s", *SerializedResponse);',
+].join(lineEnding)));
+runner.assert(spliceFormedLineCommentFixtures.every((source) => {
+  const invocations = extractBalancedLogInvocations(source);
+  return countDirectRecvMemberCalls(source) === 1
+    && invocations.length === 1
+    && invocationDirectlyReferencesPayload(invocations[0]);
+}), 'source guard scanner: LF/CRLF/CR-spliced line comments ignore misleading literals and end at a logical newline');
+
+const spliceFormedBlockCommentFixtures = cppLineEndings.map((lineEnding) => ([
+  `/${cppPhase2Splice(lineEnding)}* misleading u8R"broken( "unterminated`,
+  'Socket->Recv(HiddenBuffer, HiddenSize, HiddenBytes);',
+  'UEMCP_WARN("hidden=%s", *SerializedResponse);',
+  `*${cppPhase2Splice(lineEnding)}/`,
+  'Socket->Recv(Buffer, BufferSize, BytesRead);',
+  'UEMCP_WARN("payload=%s", *SerializedResponse);',
+].join('\n')));
+runner.assert(spliceFormedBlockCommentFixtures.every((source) => {
+  const invocations = extractBalancedLogInvocations(source);
+  return countDirectRecvMemberCalls(source) === 1
+    && invocations.length === 1
+    && invocationDirectlyReferencesPayload(invocations[0]);
+}), 'source guard scanner: LF/CRLF/CR-spliced block delimiters hide misleading literal prefixes');
+
+const rawInternalSpliceFixtures = cppLineEndings.map((lineEnding) => (
+  `R"tag(raw )ta${cppPhase2Splice(lineEnding)}g" Socket->Recv(HiddenBuffer, HiddenSize, HiddenBytes); `
+    + 'UEMCP_WARN("hidden=%s", *SerializedResponse); )tag"; '
+    + 'Socket->Recv(Buffer, BufferSize, BytesRead); '
+    + 'UEMCP_WARN("payload=%s", *SerializedResponse);'
+));
+runner.assert(rawInternalSpliceFixtures.every((source) => {
+  const invocations = extractBalancedLogInvocations(source);
+  return countDirectRecvMemberCalls(source) === 1
+    && invocations.length === 1
+    && invocationDirectlyReferencesPayload(invocations[0]);
+}), 'source guard scanner: raw literal contents retain LF/CRLF/CR backslash-newlines and hide pseudo calls');
 
 runner.assert(transportLogInvocations.length > 0
   && transportLogInvocations.every((invocation) => invocation.complete)
