@@ -27,6 +27,14 @@ const transportUrl = new URL('./tcp-transport.mjs', import.meta.url);
 const connectionManagerUrl = new URL('./connection-manager.mjs', import.meta.url);
 const claudeDocUrl = new URL('../CLAUDE.md', import.meta.url);
 const architectureDocUrl = new URL('../docs/specs/architecture.md', import.meta.url);
+const hardeningSpecUrl = new URL(
+  '../docs/superpowers/specs/2026-07-13-tcp-receive-and-intake-hardening-design.md',
+  import.meta.url,
+);
+const hardeningPlanUrl = new URL(
+  '../docs/superpowers/plans/2026-07-13-tcp-receive-and-intake-hardening.md',
+  import.meta.url,
+);
 const nativePolicySourceUrl = new URL(
   '../plugin/UEMCP/Source/UEMCP/Private/MCPServerTransportPolicy.cpp',
   import.meta.url,
@@ -113,6 +121,10 @@ const requiredCaseIds = [
   'json-root-array',
   'json-root-scalar',
   'json-invalid-object',
+  'json-parser-invalid-object',
+  'json-raw-nul-in-string',
+  'json-case-variant-literal',
+  'json-array-trailing-comma',
   'utf8-overlong',
   'utf8-surrogate',
   'utf8-above-max',
@@ -291,6 +303,26 @@ for (const id of requiredCaseIds) {
 }
 
 const casesById = new Map(cases.map((caseData) => [caseData.id, caseData]));
+const exactJsonCompatibilityCases = [
+  ['json-invalid-object', 'data_ascii', '{"x":}', 6],
+  ['json-parser-invalid-object', 'data_ascii', '{"x":tru}', 9],
+  ['json-raw-nul-in-string', 'data_base64', 'eyJ4IjoiYQBiIn0=', 11],
+  ['json-case-variant-literal', 'data_ascii', '{"x":True}', 10],
+  ['json-array-trailing-comma', 'data_ascii', '{"x":[1,]}', 10],
+];
+for (const [id, encoding, payload, byteLength] of exactJsonCompatibilityCases) {
+  const caseData = casesById.get(id);
+  runner.assert(caseData?.[encoding] === payload,
+    `${id}: exact shared compatibility payload is retained`);
+  runner.assert(JSON.stringify(caseData?.targets) === JSON.stringify(['request', 'response']),
+    `${id}: shared compatibility payload targets both runtimes`);
+  runner.assert(JSON.stringify(caseData?.chunk_plans) === JSON.stringify([[byteLength]]),
+    `${id}: shared compatibility payload uses its exact whole-body plan`);
+  runner.assert(caseData?.expected?.status === 'malformed'
+    && caseData.expected.framing === 'legacy'
+    && caseData.expected.reason_code === 'invalid_json',
+  `${id}: shared compatibility payload has the exact invalid-JSON contract`);
+}
 const requestHugeLength = casesById.get('request-huge-length');
 runner.assert(requestHugeLength?.data_ascii === 'Content-Length: 8388609\r\n\r\n',
   'request-huge-length declares the default 8 MiB limit plus one byte');
@@ -701,8 +733,8 @@ for (const category of Object.keys(expectedResponsePlanCounts)) {
     `expected ${expectedResponsePlanCounts[category]}, got ${actualResponsePlanCounts[category]}`);
 }
 runner.assert(sameJson(actualResponsePlanCounts, {
-  whole: 42,
-  explicit: 42,
+  whole: 46,
+  explicit: 46,
   generatedSplit: 145,
   byteAtATime: 1,
 }), 'response fixture execution categories remain independently counted');
@@ -1441,7 +1473,7 @@ runner.assert(responsePlans(
   runner.assert(snapshot.reasonCode === 'invalid_json',
     'completed invalid JSON candidate is classified accurately');
   runner.assert(injectedParseCount === 1 && sameJson(decoder.debugStatsForTests(), {
-    legacyBytesScanned: 9, bodyAssemblyCount: 1, jsonParseCount: 1,
+    legacyBytesScanned: 6, bodyAssemblyCount: 1, jsonParseCount: 1,
   }), 'completed invalid JSON candidate assembles and parses exactly once');
 }
 
@@ -1453,11 +1485,12 @@ runner.assert(responsePlans(
       return JSON.parse(text);
     },
   });
-  const snapshot = decoder.consume(Buffer.from('Content-Length: 9\r\n\r\n{"x":tru}', 'ascii'));
+  const parserInvalidBody = caseBytesById.get('json-parser-invalid-object');
+  const snapshot = decoder.consume(frameForBody(parserInvalidBody));
   runner.assert(snapshot.reasonCode === 'invalid_json' && injectedParseCount === 1
     && sameJson(decoder.debugStatsForTests(), {
       legacyBytesScanned: 0, bodyAssemblyCount: 1, jsonParseCount: 1,
-  }), 'invalid framed JSON candidate assembles and parses exactly once');
+  }), 'parser-invalid framed JSON candidate assembles and parses exactly once');
 }
 
 {
@@ -2631,6 +2664,21 @@ const connectionManagerSource = await readFile(connectionManagerUrl, 'utf8');
 const nativePolicySource = await readFile(nativePolicySourceUrl, 'utf8');
 const nativePolicyHeader = await readFile(nativePolicyHeaderUrl, 'utf8');
 const nativeRunnableSource = await readFile(nativeRunnableSourceUrl, 'utf8');
+const hardeningSpecSource = await readFile(hardeningSpecUrl, 'utf8');
+const hardeningPlanSource = await readFile(hardeningPlanUrl, 'utf8');
+for (const [artifactName, source] of [
+  ['approved hardening specification', hardeningSpecSource],
+  ['approved hardening plan', hardeningPlanSource],
+]) {
+  const erratum = extractUniqueMarkdownSection(source, 'Post-Approval Implementation Erratum', 2);
+  runner.assert(erratum.count === 1
+    && erratum.section.includes('UE 5.3, 5.6, and 5.7')
+    && erratum.section.includes('no portable strict flag or parser')
+    && erratum.section.includes('bounded lexical compatibility guard')
+    && erratum.section.includes('one FJsonSerializer::Deserialize')
+    && erratum.section.includes('not the retired handwritten grammar parser'),
+  `${artifactName} records the post-approval JSON compatibility erratum`);
+}
 const currentTransportDocs = [
   {
     docName: 'CLAUDE.md',

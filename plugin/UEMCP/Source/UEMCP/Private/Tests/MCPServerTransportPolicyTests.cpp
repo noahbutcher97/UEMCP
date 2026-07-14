@@ -633,6 +633,8 @@ bool LoadRequestFixtureCases(FAutomationTestBase& Test, TArray<FTransportFixture
 		TEXT("framed-over-small-limit"), TEXT("legacy-exact-small-limit"), TEXT("legacy-over-small-limit"),
 		TEXT("framed-trailing-byte"), TEXT("legacy-trailing-byte"), TEXT("legacy-mismatched-close"),
 		TEXT("json-root-array"), TEXT("json-root-scalar"), TEXT("json-invalid-object"),
+		TEXT("json-parser-invalid-object"), TEXT("json-raw-nul-in-string"),
+		TEXT("json-case-variant-literal"), TEXT("json-array-trailing-comma"),
 		TEXT("utf8-overlong"), TEXT("utf8-surrogate"), TEXT("utf8-above-max"),
 		TEXT("utf8-forbidden-lead"), TEXT("utf8-lone-continuation"), TEXT("utf8-malformed-continuation"),
 		TEXT("utf8-truncated-framed"), TEXT("bom-duplicate"), TEXT("bom-after-whitespace"),
@@ -1429,19 +1431,19 @@ bool FUEMCPTransportSharedFixturesTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("fixture_path=%s"), *FixturePath));
 
 	const FFixtureExecutionCounts ExpectedCounts = DeriveExpectedExecutionCounts(Cases);
-	TestEqual(TEXT("derived whole-buffer fixture count remains exact"), ExpectedCounts.Whole, 46);
-	TestEqual(TEXT("derived explicit fixture count remains exact"), ExpectedCounts.Explicit, 46);
+	TestEqual(TEXT("derived whole-buffer fixture count remains exact"), ExpectedCounts.Whole, 50);
+	TestEqual(TEXT("derived explicit fixture count remains exact"), ExpectedCounts.Explicit, 50);
 	TestEqual(TEXT("derived generated-split fixture count remains exact"), ExpectedCounts.GeneratedSplit, 145);
-	TestEqual(TEXT("derived fixture execution total remains exact"), ExpectedCounts.Total(), 237);
+	TestEqual(TEXT("derived fixture execution total remains exact"), ExpectedCounts.Total(), 245);
 	int32 ExpectedLegacyByteAtATimeExecutions = 0;
 	for (const FTransportFixtureCase& Case : Cases)
 	{
 		ExpectedLegacyByteAtATimeExecutions += Case.ExpectedFraming == EMCPFramingMode::Legacy ? 1 : 0;
 	}
 	TestEqual(TEXT("derived legacy byte-at-a-time proof count remains exact"),
-		ExpectedLegacyByteAtATimeExecutions, 21);
+		ExpectedLegacyByteAtATimeExecutions, 25);
 	TestEqual(TEXT("derived total including legacy byte proofs remains exact"),
-		ExpectedCounts.Total() + ExpectedLegacyByteAtATimeExecutions, 258);
+		ExpectedCounts.Total() + ExpectedLegacyByteAtATimeExecutions, 270);
 
 	int32 WholeExecutions = 0;
 	int32 ExplicitPlanExecutions = 0;

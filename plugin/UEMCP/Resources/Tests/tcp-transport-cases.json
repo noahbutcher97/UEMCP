@@ -41,7 +41,11 @@
     {"id":"legacy-mismatched-close","targets":["request","response"],"data_ascii":"{\"x\":1]","chunk_plans":[[7]],"expected":{"status":"malformed","framing":"legacy","reason_code":"mismatched_delimiter"}},
     {"id":"json-root-array","targets":["request","response"],"data_ascii":"[]","chunk_plans":[[2]],"expected":{"status":"malformed","framing":"legacy","reason_code":"root_not_object"}},
     {"id":"json-root-scalar","targets":["request","response"],"data_ascii":"1","chunk_plans":[[1]],"expected":{"status":"malformed","framing":"legacy","reason_code":"root_not_object"}},
-    {"id":"json-invalid-object","targets":["request","response"],"data_ascii":"{\"x\":tru}","chunk_plans":[[9]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
+    {"id":"json-invalid-object","targets":["request","response"],"data_ascii":"{\"x\":}","chunk_plans":[[6]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
+    {"id":"json-parser-invalid-object","targets":["request","response"],"data_ascii":"{\"x\":tru}","chunk_plans":[[9]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
+    {"id":"json-raw-nul-in-string","targets":["request","response"],"data_base64":"eyJ4IjoiYQBiIn0=","chunk_plans":[[11]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
+    {"id":"json-case-variant-literal","targets":["request","response"],"data_ascii":"{\"x\":True}","chunk_plans":[[10]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
+    {"id":"json-array-trailing-comma","targets":["request","response"],"data_ascii":"{\"x\":[1,]}","chunk_plans":[[10]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_json"}},
 
     {"id":"utf8-overlong","targets":["request","response"],"data_base64":"eyJ4IjoiwK8ifQ==","chunk_plans":[[10]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_utf8"}},
     {"id":"utf8-surrogate","targets":["request","response"],"data_base64":"eyJ4Ijoi7aCAIn0=","chunk_plans":[[11]],"expected":{"status":"malformed","framing":"legacy","reason_code":"invalid_utf8"}},

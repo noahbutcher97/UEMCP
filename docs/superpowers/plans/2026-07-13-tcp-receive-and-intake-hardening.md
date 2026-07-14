@@ -765,3 +765,9 @@ Expected: the worktree is clean, whitespace check is clean, and task plus eviden
 ## Deferred Follow-Ons
 
 Do not absorb response-size telemetry/capping, concurrent client handling, legacy-framing removal, generic headless MCP execution, HTTP body-policy unification, Mac/Linux build/runtime proof, or persistent headless service work into this implementation. Record any evidence discovered for those lanes without changing this slice's acceptance gate.
+
+## Post-Approval Implementation Erratum
+
+This is a post-approval implementation correction, not a retroactive planning input. Installed UE 5.3, 5.6, and 5.7 readers share permissive handling of unescaped C0 string controls, case-variant literals, object close after a colon, and trailing commas before closers; audit found no portable strict flag or parser across those engines.
+
+The implemented bounded lexical compatibility guard rejects only those documented permissive forms before acceptance while retaining one FJsonSerializer::Deserialize call for every parser-eligible completed candidate. Unreal still owns escaping, number grammar, nesting, and DOM materialization. This guard is not the retired handwritten grammar parser. The shared corpus preserves `{"x":}` as the known differential and records separate parser-invalid, raw-NUL, case-variant-literal, and trailing-comma cases for both runtimes.

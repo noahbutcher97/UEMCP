@@ -569,6 +569,12 @@ Mitigation: Put parser and classifier behavior in compiled C++ automation tests 
 - Unreal-capable Mac/Linux CI or dedicated hosts if cross-platform compile/runtime verification becomes a release guarantee rather than a declared support target.
 - Authentication and bind-address policy if UEMCP is ever exposed beyond localhost.
 
+## Post-Approval Implementation Erratum
+
+This records implementation evidence discovered after approval; it does not rewrite the decision record or imply the original approval knew these details. Installed UE 5.3, 5.6, and 5.7 readers share permissive extensions: unescaped C0 controls in strings, case-variant literals, an object close after a colon, and trailing commas before closers. Source audit found no portable strict flag or parser across that engine baseline.
+
+The accepted implementation therefore retains one FJsonSerializer::Deserialize call for each parser-eligible completed candidate and adds a bounded lexical compatibility guard for only those documented permissive forms. It preserves escape, number, nesting, and DOM materialization in Unreal. The guard is not the retired handwritten grammar parser; it is a small platform-compatibility rejection layer required for Node parity. Shared fixtures retain `{"x":}` as the known differential and separately cover a parser-invalid object, raw NUL in a string, a case-variant literal, and an array trailing comma.
+
 ## Evidence And References
 
 - `plugin/UEMCP/Source/UEMCP/Private/MCPServerRunnable.cpp` contains the current receive loop, loose framing parser, timeout, and duplicate send warning.
