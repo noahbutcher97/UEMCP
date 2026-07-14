@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -28,16 +29,15 @@ async function readJsonLinesIfPresent(path) {
   return (await readLinesIfPresent(path)).map((line) => JSON.parse(line));
 }
 
-async function anyPathExists(paths) {
+async function allPathsExist(paths) {
   for (const path of paths) {
     try {
       await access(path);
-      return true;
     } catch {
-      // Continue checking the remaining paths.
+      return false;
     }
   }
-  return false;
+  return true;
 }
 
 let scriptSource = '';
@@ -195,8 +195,9 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
     success.stderr);
     t.assert(results.every((result, index) => result.version === versions[index]
       && result.exit_code === 0
+      && result.staged_source === dirname(successArguments[index].plugin)
       && result.fixture_sha256?.length === 64),
-    'matrix results preserve version, exit status, and packaged fixture hash');
+    'matrix results preserve version, exit status, staged source, and fixture hash');
     for (const version of versions) {
       await access(join(successOutput, `UE-${version}`, 'Resources', 'Tests', 'tcp-transport-cases.json'));
     }
@@ -209,8 +210,8 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
     }
     t.assert(!generatedFilterExists,
       'matrix helper isolates BuildPlugin-generated FilterPlugin.ini from source');
-    t.assert(!await anyPathExists(successArguments.map((record) => record.plugin)),
-      'matrix helper removes its staged plugin sources after successful packaging');
+    t.assert(await allPathsExist(successArguments.map((record) => dirname(record.plugin))),
+      'matrix helper retains staged plugin sources after successful packaging');
 
     await writeFile(invocationLog, '', 'utf8');
     await writeFile(argumentLog, '', 'utf8');
@@ -227,8 +228,8 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       'matrix helper stops before later engines after a failure',
       JSON.stringify(failureInvocations));
     const failureArguments = await readJsonLinesIfPresent(argumentLog);
-    t.assert(!await anyPathExists(failureArguments.map((record) => record.plugin)),
-      'matrix helper removes staged plugin sources after a BuildPlugin failure');
+    t.assert(await allPathsExist(failureArguments.map((record) => dirname(record.plugin))),
+      'matrix helper retains staged plugin sources after a BuildPlugin failure');
     generatedFilterExists = true;
     try {
       await access(join(dirname(pluginPath), 'Config', 'FilterPlugin.ini'));
@@ -260,8 +261,8 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       'matrix helper reports the omitted fixture path',
       missingFixture.stderr || missingFixture.stdout);
     const missingFixtureArguments = await readJsonLinesIfPresent(argumentLog);
-    t.assert(!await anyPathExists(missingFixtureArguments.map((record) => record.plugin)),
-      'matrix helper removes staged plugin sources after fixture validation fails');
+    t.assert(await allPathsExist(missingFixtureArguments.map((record) => dirname(record.plugin))),
+      'matrix helper retains staged plugin sources after fixture validation fails');
 
     await writeFile(invocationLog, '', 'utf8');
     const defaultPluginOutput = join(testRoot, 'default plugin output');
@@ -320,6 +321,36 @@ copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
       'matrix helper creates no nested output before rejecting it');
     t.assert((await readLinesIfPresent(invocationLog)).length === 0,
       'matrix helper invokes no engine for a nested output root');
+
+    const pluginAlias = join(testRoot, 'Plugin Source Alias');
+    const aliasedOutputName = 'aliased matrix output';
+    const aliasedOutput = join(pluginAlias, aliasedOutputName);
+    const physicalAliasedOutput = join(dirname(pluginPath), aliasedOutputName);
+    await symlink(dirname(pluginPath), pluginAlias, 'junction');
+    try {
+      await writeFile(invocationLog, '', 'utf8');
+      const aliasedOutputRun = spawnSync(
+        'powershell.exe',
+        [...baseArgs, '-OutputRoot', aliasedOutput],
+        { encoding: 'utf8', env: baseEnv, timeout: 120_000 }
+      );
+      t.assert(aliasedOutputRun.status !== 0
+        && (aliasedOutputRun.stderr || aliasedOutputRun.stdout).includes(
+          'OutputRoot cannot be inside the plugin source directory'),
+      'matrix helper rejects an output root aliased into plugin source');
+      let physicalAliasedOutputExists = true;
+      try {
+        await access(physicalAliasedOutput);
+      } catch {
+        physicalAliasedOutputExists = false;
+      }
+      t.assert(!physicalAliasedOutputExists,
+        'matrix helper creates no physical output through a plugin-source alias');
+      t.assert((await readLinesIfPresent(invocationLog)).length === 0,
+        'matrix helper invokes no engine for an aliased output root');
+    } finally {
+      await rm(pluginAlias, { recursive: true, force: true });
+    }
 
     const configDirectory = join(dirname(pluginPath), 'Config');
     const ownedFilter = join(configDirectory, 'FilterPlugin.ini');

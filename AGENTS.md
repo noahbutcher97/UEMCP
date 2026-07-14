@@ -30,7 +30,7 @@ powershell -NoProfile -File .\test-plugin-build-matrix.ps1
 ```
 
 Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. Use local `.uemcp-targets.json` profiles, based on `.uemcp-targets.json.example`, for repeated `attach_project`, `verify-deploy`, and live-smoke workflows; run `migrate-targets.bat` to convert an existing legacy `.uemcp-targets.txt`. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
-Use `test-plugin-build-matrix.ps1` for the fail-fast UE 5.3/5.6/5.7 Win64 BuildPlugin and packaged-fixture gate; pass `-VersionsCsv` to narrow an intentional local rerun.
+Use `test-plugin-build-matrix.ps1` for the fail-fast UE 5.3/5.6/5.7 Win64 BuildPlugin and packaged-fixture gate; pass `-VersionsCsv` to narrow an intentional local rerun. Each result reports a retained `staged_source` below the new output root for diagnostics; remove the output root when that evidence is no longer needed.
 
 ## Coding Style & Naming Conventions
 
