@@ -173,3 +173,82 @@ Exit code: `0`; `60` files, `4996 passed / 0 failed / 4996 total`; `4` documente
 
 - The commandlet emitted unrelated existing invalid-workspace source-control diagnostics despite `-nop4 -NoSourceControl`; all seven selected tests completed successfully.
 - Mac and Linux compile/runtime verification remains unrun.
+
+## Follow-up: Empty Candidate and Raw-NUL Intake Hardening
+
+### Correction
+
+- Complete framed empty and RFC-whitespace-only bodies now remain on the one authoritative Unreal parser path. `bMissingRoot` records the absent token but does not return before `++JsonParseCount` and the single `FJsonSerializer::Deserialize`; the completed candidate is then `invalid_json`.
+- `StartsWithBom` now uses a non-underflowing bounds check, allowing an empty complete body to reach that parser path safely.
+- Scalar wrapping uses `FString::Reserve`, `AppendChar`, and counted `FString` append operations. It no longer uses `%s` formatting.
+- UTF-8-to-`TCHAR` conversion now uses explicit source and destination lengths before appending the counted character range. This preserves a trailing raw U+0000 instead of treating it as a C-string terminator.
+- The one parser reads from a bounded memory stream built from the exact `FString` length, and finalization requires that the stream be consumed. No handwritten JSON grammar validator, second parse, or parser-error matching was added.
+- Added C++ regressions for empty, whitespace-only, and raw-NUL scalar-like framed bodies, all asserting `invalid_json` and exactly one parse. Node coverage now injects the corresponding framed raw-NUL body and asserts `invalid_json` with one parse. The scalar test wording now names the Unreal parser.
+
+Production and test commit: `acb9669`
+
+### RED Evidence
+
+Initial source-contract RED after adding the new tests, before production edits:
+
+```powershell
+node test-tcp-transport.mjs
+```
+
+Exit code: `1`; `2067 passed / 1 failed / 2068 total`. The failing assertion was `source guard: finalization has one authoritative Unreal parse with length-aware scalar wrapper classification`.
+
+The first deployed automation after the missing-root change was valid RED evidence:
+
+```powershell
+UnrealEditor-Cmd.exe <selected .uproject> "-ExecCmds=Automation RunTests UEMCP.Transport.;Quit" ...
+```
+
+Exit code: `3`. `DecoderBoundaries` asserted in `StartsWithBom` because its former `Body.Num() - 3` check underflowed for a complete empty body and indexed the empty array before parsing.
+
+After that bounds correction, the second deployed RED was:
+
+```powershell
+UnrealEditor-Cmd.exe <selected .uproject> "-ExecCmds=Automation RunTests UEMCP.Transport.;Quit" ...
+```
+
+Exit code: `-1`; `6 passed / 1 failed / 7 total`. `DecoderBoundaries` reported `framed scalar-like raw NUL is rejected as invalid_json` as false. Investigation of the installed platform conversion showed that the previous UTF-8 conversion helper treats a final zero byte as a C-string terminator, so the wrapper received only `1` and classified it as `root_not_object`.
+
+### GREEN Evidence
+
+Focused Node source and decoder coverage:
+
+```powershell
+node test-tcp-transport.mjs
+```
+
+Exit code: `0`; `2068 passed / 0 failed / 2068 total`.
+
+Selected-target sync and build:
+
+```powershell
+.\sync-plugin.bat "<selected .uproject>" -y
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" <selected editor target> Win64 Development "-Project=<selected .uproject>" -WaitMutex -NoHotReload
+```
+
+Exit code: `0`; the selected editor target rebuilt `UnrealEditor-UEMCP.dll`.
+
+Focused deployed automation:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<selected .uproject>" '-ExecCmds=Automation RunTests UEMCP.Transport.;Quit' -unattended -nop4 -NoSourceControl -nosplash -NullRHI -NoSound '-ddc=InstalledNoZenLocalFallback' -stdout -log
+```
+
+Exit code: `0`; found `7` tests; `7 passed / 0 failed`.
+
+Full Node rotation:
+
+```powershell
+npm test
+```
+
+Exit code: `0`; `60` files, `4997 passed / 0 failed / 4997 total`; `4` documented environment/live-gated skips.
+
+### Follow-up Concerns
+
+- The commandlet continued to emit unrelated invalid-workspace source-control diagnostics; they did not affect the seven transport tests.
+- Mac and Linux compile/runtime verification remains unrun.
