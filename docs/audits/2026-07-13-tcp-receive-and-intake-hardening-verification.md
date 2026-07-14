@@ -12,10 +12,12 @@ Audience: Internal verification. Machine-local package paths are retained becaus
 - Selected project: `<SELECTED_PROJECT_ROOT>\<PROJECT_NAME>.uproject` (NDA-redacted)
 - Live AnimBlueprint: `/Game/Actors/Character/ABP_DroppedCharacter`
 - Approved TCP design/plan commits: `4cc2ddb` through `93eb842`
-- Implementation and hardening commits: `b425247` through `e77e81b`
-- Latest plugin-source commit: `5544d04`
-- Final live-fixture review fixes: `7b9e9e9` and `e77e81b`
+- Implementation and hardening commits: `b425247` through `13ca30e`
+- Latest plugin-source commit: `3d8e77b`
+- Final live-fixture review fixes: `e62df39` and `13ca30e`
 - Final adversarial re-review: no Critical, Important, or Minor findings; explicit `Ready to merge: Yes` verdict.
+
+Before publication, one NDA-sensitive editor-target name was removed from the unpublished `85fe0e3` commit message. Its descendants were replayed without conflicts, and the pre/post-rewrite tip trees were byte-identical. Commit identifiers in this report are the sanitized post-rewrite identifiers.
 
 This report covers the TCP receive/intake work only. Earlier AnimGraph topology commits on the same branch are outside this acceptance record except where the AnimGraph full-read response is used as the large live response fixture.
 
@@ -33,7 +35,7 @@ npm run lint
 - Full rotation: exit `0`, `60` files, `5183 passed / 0 failed / 5183 total`.
 - Full-rotation skips: `4`, all documented environment/live-gated skips with no contributing assertions.
 - ESLint: exit `0`.
-- `git diff --check`: exit `0` at `e77e81b` before adding this evidence artifact.
+- `git diff --check`: exit `0` at `13ca30e` before adding this evidence artifact.
 - Mutation proof: temporarily removing the production `await` from the post-final-byte timer turn produced exit `4`, `2250 passed / 4 failed / 2254 total`. The four failures covered reset-before-turn-settlement, loss of the post-final-byte observation window, failure to reject data in that window, and incorrect final settlement. Restoring the `await` returned the focused suite to `2254/2254`.
 
 ## C++ Automation
@@ -76,7 +78,7 @@ All final package runs used the repository `test-plugin-build-matrix.ps1` flow, 
 
 The first UE 5.3 stock attempt failed during generated HostProject UHT discovery before UEMCP compiled. The installed `SolusComboSystem_5.3` and `ComboGraph_5.3` marketplace plugins expose colliding `ComboGraphSchema.h` and `ComboGraph.h` basenames. For the final UE 5.3 UEMCP baseline, all UE 5.3 processes were closed, the exact `SolusComboSystem_5.3` directory was temporarily held with native PowerShell `Move-Item`, and restoration ran in `finally`. Post-run checks confirmed the plugin was restored at its exact source path, the hold root was removed, no UE 5.3 editor remained, and ports `55558`/`30010` had no listener.
 
-Between those runs, an isolated UE 5.3 UBT compile bypassed the unrelated HostProject inventory collision and reached UEMCP source. It exposed cross-version API differences that were fixed in `80ffbeb`: transition `bDisabled` became an optional reflected property, `MaterialDomain.h` was included explicitly, and non-shrinking `TArray::Pop` uses `false` before UE 5.4 and `EAllowShrinking::No` afterward. The isolated UE 5.3 compile then passed before the final BuildPlugin package run.
+Between those runs, an isolated UE 5.3 UBT compile bypassed the unrelated HostProject inventory collision and reached UEMCP source. It exposed cross-version API differences that were fixed in `85fe0e3`: transition `bDisabled` became an optional reflected property, `MaterialDomain.h` was included explicitly, and non-shrinking `TArray::Pop` uses `false` before UE 5.4 and `EAllowShrinking::No` afterward. The isolated UE 5.3 compile then passed before the final BuildPlugin package run.
 
 This UE 5.3 result proves UEMCP Win64 compile/package against UE 5.3 after isolating an unrelated installed-plugin collision. It does not claim that the unchanged local marketplace-plugin inventory packages successfully as a whole.
 
@@ -102,13 +104,13 @@ verify-deploy.bat --targets <one-target-temp-file> --no-pause
 ```
 
 - Sync result: success; version match `manifest=1.0.17`, `uplugin=18`, `versionName=1.0.17`.
-- Deploy marker at the last production/live-fixture sync: `sourceCommitSha=7b9e9e9`, `headPluginCommitSha=5544d04`.
+- The live-tested deployed content maps after the message-only rewrite to live-fixture commit `e62df39` and plugin-source commit `3d8e77b`. The selected-target marker was refreshed without changing plugin source bytes; refreshed source mtimes required a new editor-target build, after which isolated deployment verification returned `SYNC`/`ALL-SYNC`.
 - Verification scope: exactly one selected target; the temporary target file was removed.
 - Source comparison: repository and deployed plugin source each contain `78` files with no content diff.
 - Verdict: `SYNC - DLL >= deployed source >= repo source` and `ALL-SYNC - 1 target(s) match repo source`.
 - Deployed `UEMCP.uplugin`: `990` bytes, SHA-256 `A2D25A32B39F9DF4E8859A6ED6CC211FA69EADCB11D1858D091C236E4C6F70CE`.
-- Deployed `UnrealEditor-UEMCP.dll`: `1469952` bytes, SHA-256 `C81F4C9041B26AD0FABF5CDD68DD5D4A4F44D6ED4712A4FEE49C65F4159BD7F7`.
-- The DLL timestamp was `119` seconds newer than repository/deployed source. Editor active: `NO`.
+- Deployed `UnrealEditor-UEMCP.dll`: `1469952` bytes, SHA-256 `31F46F137EDDC82196E972154797BE7128D751C799DE399D39AD9E69D6E1F85F`.
+- The rebuilt DLL timestamp was `156` seconds newer than repository/deployed source. Editor active: `NO`.
 
 ## Live Fault Matrix
 
