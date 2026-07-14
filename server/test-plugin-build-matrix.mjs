@@ -8,7 +8,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { TestRunner } from './test-helpers.mjs';
@@ -22,6 +22,22 @@ async function readLinesIfPresent(path) {
   } catch {
     return [];
   }
+}
+
+async function readJsonLinesIfPresent(path) {
+  return (await readLinesIfPresent(path)).map((line) => JSON.parse(line));
+}
+
+async function anyPathExists(paths) {
+  for (const path of paths) {
+    try {
+      await access(path);
+      return true;
+    } catch {
+      // Continue checking the remaining paths.
+    }
+  }
+  return false;
 }
 
 let scriptSource = '';
@@ -40,65 +56,60 @@ if (scriptSource.length > 0) {
     const pluginPath = join(testRoot, 'Plugin Source', 'UEMCP.uplugin');
     const sourceFixture = join(testRoot, 'tcp-transport-cases.json');
     const invocationLog = join(testRoot, 'invocations.txt');
+    const argumentLog = join(testRoot, 'arguments.jsonl');
     const versions = ['5.3', '5.6', '5.7'];
     const fakeBatch = `@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "SCRIPT_DIR=%~dp0"
-set "PACKAGE="
-set "PLUGIN="
-set "EXPECT_PACKAGE=0"
-set "EXPECT_PLUGIN=0"
-set "HAS_ROCKET=0"
-if /I not "%~1"=="BuildPlugin" exit /b 91
-set "RAW_ARGS=%*"
-shift
-:parse_args
-if "%~1"=="" goto args_done
-set "ARG=%~1"
-if "!EXPECT_PACKAGE!"=="1" (
-  set "PACKAGE=!ARG!"
-  set "EXPECT_PACKAGE=0"
-) else if "!EXPECT_PLUGIN!"=="1" (
-  set "PLUGIN=!ARG!"
-  set "EXPECT_PLUGIN=0"
-) else if /I "!ARG!"=="-Package" (
-  set "EXPECT_PACKAGE=1"
-) else if /I "!ARG!"=="-Plugin" (
-  set "EXPECT_PLUGIN=1"
-) else if /I "!ARG:~0,9!"=="-Package=" (
-  set "PACKAGE=!ARG:~9!"
-) else if /I "!ARG:~0,8!"=="-Plugin=" (
-  set "PLUGIN=!ARG:~8!"
-) else if /I "!ARG!"=="-Rocket" (
-  set "HAS_ROCKET=1"
-)
-shift
-goto parse_args
-:args_done
-if not defined PACKAGE exit /b 92
-if not defined PLUGIN exit /b 93
-echo(!RAW_ARGS!| %SystemRoot%\\System32\\findstr.exe /I /L /C:"-TargetPlatforms=Win64" >nul
-if errorlevel 1 exit /b 94
-if not "!HAS_ROCKET!"=="1" exit /b 95
-for %%D in ("!SCRIPT_DIR!..\\..\\..") do set "ENGINE_DIR=%%~nxD"
-set "VERSION=!ENGINE_DIR:UE_=!"
-echo !VERSION!>>"%UEMCP_FAKE_MATRIX_LOG%"
-echo UEMCP_FAKE_STDOUT_CHATTER !VERSION!
-echo UEMCP_FAKE_STDERR_CHATTER !VERSION! 1>&2
-for %%D in ("!PLUGIN!") do set "PLUGIN_DIR=%%~dpD"
-if /I "%UEMCP_FAKE_WRITE_FILTER%"=="1" (
-  if not exist "!PLUGIN_DIR!Config" mkdir "!PLUGIN_DIR!Config"
-  if not exist "!PLUGIN_DIR!Config\\FilterPlugin.ini" (
-    >"!PLUGIN_DIR!Config\\FilterPlugin.ini" echo [FilterPlugin]
-    >>"!PLUGIN_DIR!Config\\FilterPlugin.ini" echo ; This section lists additional files which will be packaged along with your plugin.
-  )
-)
-if /I "%UEMCP_FAKE_FAIL_VERSION%"=="!VERSION!" exit /b 7
-if /I "%UEMCP_FAKE_SKIP_FIXTURE_VERSION%"=="!VERSION!" exit /b 0
-if not exist "!PACKAGE!\\Resources\\Tests" mkdir "!PACKAGE!\\Resources\\Tests"
-copy /Y "%UEMCP_FAKE_FIXTURE%" "!PACKAGE!\\Resources\\Tests\\tcp-transport-cases.json" >nul
-exit /b 0
+setlocal
+"%UEMCP_FAKE_NODE%" "%~dp0fake-uat.mjs" %*
+exit /b %ERRORLEVEL%
 `.replace(/\n/g, '\r\n');
+    const fakeUat = `import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const [command, ...args] = process.argv.slice(2);
+if (command !== 'BuildPlugin') process.exit(91);
+
+const packageArg = args.find((arg) => arg.startsWith('-Package='));
+const pluginArg = args.find((arg) => arg.startsWith('-Plugin='));
+if (!packageArg || packageArg.length === '-Package='.length) process.exit(92);
+if (!pluginArg || pluginArg.length === '-Plugin='.length) process.exit(93);
+if (!args.includes('-TargetPlatforms=Win64')) process.exit(94);
+if (!args.includes('-Rocket')) process.exit(95);
+
+const packagePath = packageArg.slice('-Package='.length);
+const pluginPath = pluginArg.slice('-Plugin='.length);
+const engineRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const version = basename(engineRoot).replace(/^UE_/, '');
+appendFileSync(process.env.UEMCP_FAKE_MATRIX_LOG, version + '\\n');
+appendFileSync(process.env.UEMCP_FAKE_ARGUMENT_LOG,
+  JSON.stringify({ version, plugin: pluginPath, package: packagePath, args }) + '\\n');
+console.log('UEMCP_FAKE_STDOUT_CHATTER ' + version);
+console.error('UEMCP_FAKE_STDERR_CHATTER ' + version);
+
+if (process.env.UEMCP_FAKE_WRITE_FILTER === '1') {
+  const configDirectory = join(dirname(pluginPath), 'Config');
+  const filterPath = join(configDirectory, 'FilterPlugin.ini');
+  mkdirSync(configDirectory, { recursive: true });
+  if (!existsSync(filterPath)) {
+    writeFileSync(filterPath,
+      '[FilterPlugin]\\r\\n; This section lists additional files which will be packaged along with your plugin.\\r\\n');
+  }
+}
+
+if (process.env.UEMCP_FAKE_FAIL_VERSION === version) process.exit(7);
+if (process.env.UEMCP_FAKE_SKIP_FIXTURE_VERSION === version) process.exit(0);
+const fixtureDirectory = join(packagePath, 'Resources', 'Tests');
+mkdirSync(fixtureDirectory, { recursive: true });
+copyFileSync(process.env.UEMCP_FAKE_FIXTURE,
+  join(fixtureDirectory, 'tcp-transport-cases.json'));
+`;
 
     await mkdir(dirname(pluginPath), { recursive: true });
     await writeFile(pluginPath, '{"FileVersion":3}', 'utf8');
@@ -107,7 +118,24 @@ exit /b 0
       const batchPath = join(epicRoot, `UE_${version}`, 'Engine', 'Build', 'BatchFiles', 'RunUAT.bat');
       await mkdir(dirname(batchPath), { recursive: true });
       await writeFile(batchPath, fakeBatch, 'utf8');
+      await writeFile(join(dirname(batchPath), 'fake-uat.mjs'), fakeUat, 'utf8');
     }
+
+    const deceptiveTargetArgument = spawnSync(
+      process.execPath,
+      [
+        join(epicRoot, 'UE_5.3', 'Engine', 'Build', 'BatchFiles', 'fake-uat.mjs'),
+        'BuildPlugin',
+        `-Plugin=${pluginPath}`,
+        `-Package=${join(testRoot, 'deceptive package')}`,
+        '-Unused=-TargetPlatforms=Win64',
+        '-Rocket',
+      ],
+      { encoding: 'utf8', env: process.env, timeout: 120_000 }
+    );
+    t.assert(deceptiveTargetArgument.status === 94,
+      'fake UAT rejects target-platform text embedded inside another argument',
+      `${deceptiveTargetArgument.status}: ${deceptiveTargetArgument.stderr}`);
 
     const baseArgs = [
       '-NoProfile',
@@ -120,8 +148,10 @@ exit /b 0
     ];
     const baseEnv = {
       ...process.env,
+      UEMCP_FAKE_NODE: process.execPath,
       UEMCP_FAKE_FIXTURE: sourceFixture,
       UEMCP_FAKE_MATRIX_LOG: invocationLog,
+      UEMCP_FAKE_ARGUMENT_LOG: argumentLog,
       UEMCP_FAKE_FAIL_VERSION: '',
       UEMCP_FAKE_SKIP_FIXTURE_VERSION: '',
       UEMCP_FAKE_WRITE_FILTER: '1',
@@ -140,6 +170,17 @@ exit /b 0
     t.assert(JSON.stringify(successInvocations) === JSON.stringify(versions),
       'matrix helper invokes requested engines in declared order',
       JSON.stringify(successInvocations));
+    const successArguments = await readJsonLinesIfPresent(argumentLog);
+    t.assert(successArguments.length === versions.length
+      && successArguments.every((record) => {
+        const stagedRelativePath = relative(successOutput, record.plugin);
+        return stagedRelativePath !== ''
+          && stagedRelativePath !== '..'
+          && !stagedRelativePath.startsWith(`..${sep}`)
+          && !isAbsolute(stagedRelativePath);
+      }),
+    'matrix helper invokes UAT with per-run plugin sources staged under its output root',
+    JSON.stringify(successArguments));
     let results = [];
     try {
       results = JSON.parse(success.stdout);
@@ -167,9 +208,12 @@ exit /b 0
       generatedFilterExists = false;
     }
     t.assert(!generatedFilterExists,
-      'matrix helper removes BuildPlugin-generated FilterPlugin.ini when source had none');
+      'matrix helper isolates BuildPlugin-generated FilterPlugin.ini from source');
+    t.assert(!await anyPathExists(successArguments.map((record) => record.plugin)),
+      'matrix helper removes its staged plugin sources after successful packaging');
 
     await writeFile(invocationLog, '', 'utf8');
+    await writeFile(argumentLog, '', 'utf8');
     const failureOutput = join(testRoot, 'failure output');
     const failure = spawnSync('powershell.exe', [...baseArgs, '-OutputRoot', failureOutput], {
       encoding: 'utf8',
@@ -182,6 +226,9 @@ exit /b 0
     t.assert(JSON.stringify(failureInvocations) === JSON.stringify(['5.3', '5.6']),
       'matrix helper stops before later engines after a failure',
       JSON.stringify(failureInvocations));
+    const failureArguments = await readJsonLinesIfPresent(argumentLog);
+    t.assert(!await anyPathExists(failureArguments.map((record) => record.plugin)),
+      'matrix helper removes staged plugin sources after a BuildPlugin failure');
     generatedFilterExists = true;
     try {
       await access(join(dirname(pluginPath), 'Config', 'FilterPlugin.ini'));
@@ -192,6 +239,7 @@ exit /b 0
       'matrix helper cleans generated filter state on failure');
 
     await writeFile(invocationLog, '', 'utf8');
+    await writeFile(argumentLog, '', 'utf8');
     const missingFixtureOutput = join(testRoot, 'missing fixture output');
     const missingFixture = spawnSync(
       'powershell.exe',
@@ -211,6 +259,9 @@ exit /b 0
     t.assert((missingFixture.stderr || missingFixture.stdout).includes('omitted TCP transport fixtures'),
       'matrix helper reports the omitted fixture path',
       missingFixture.stderr || missingFixture.stdout);
+    const missingFixtureArguments = await readJsonLinesIfPresent(argumentLog);
+    t.assert(!await anyPathExists(missingFixtureArguments.map((record) => record.plugin)),
+      'matrix helper removes staged plugin sources after fixture validation fails');
 
     await writeFile(invocationLog, '', 'utf8');
     const defaultPluginOutput = join(testRoot, 'default plugin output');
@@ -247,6 +298,28 @@ exit /b 0
       'matrix helper preserves files under a refused output root');
     t.assert((await readLinesIfPresent(invocationLog)).length === 0,
       'matrix helper invokes no engine after refusing an output root');
+
+    const nestedOutput = join(dirname(pluginPath), 'matrix output');
+    await writeFile(invocationLog, '', 'utf8');
+    const nestedOutputRun = spawnSync(
+      'powershell.exe',
+      [...baseArgs, '-OutputRoot', nestedOutput],
+      { encoding: 'utf8', env: baseEnv, timeout: 120_000 }
+    );
+    t.assert(nestedOutputRun.status !== 0
+      && (nestedOutputRun.stderr || nestedOutputRun.stdout).includes(
+        'OutputRoot cannot be inside the plugin source directory'),
+    'matrix helper rejects an output root nested under plugin source');
+    let nestedOutputExists = true;
+    try {
+      await access(nestedOutput);
+    } catch {
+      nestedOutputExists = false;
+    }
+    t.assert(!nestedOutputExists,
+      'matrix helper creates no nested output before rejecting it');
+    t.assert((await readLinesIfPresent(invocationLog)).length === 0,
+      'matrix helper invokes no engine for a nested output root');
 
     const configDirectory = join(dirname(pluginPath), 'Config');
     const ownedFilter = join(configDirectory, 'FilterPlugin.ini');
