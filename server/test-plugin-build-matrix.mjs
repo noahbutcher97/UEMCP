@@ -50,6 +50,15 @@ try {
 t.assert(scriptSource.length > 0, 'matrix helper exists');
 
 if (scriptSource.length > 0) {
+  const leaseRevalidationIndex = scriptSource.indexOf('$leasedOutputRootPath =');
+  const stageCopyIndex = scriptSource.indexOf('Copy-PluginSource $pluginRoot');
+  const leaseRevalidationBlock = scriptSource.slice(leaseRevalidationIndex, stageCopyIndex);
+  t.assert(leaseRevalidationIndex >= 0
+    && stageCopyIndex > leaseRevalidationIndex
+    && leaseRevalidationBlock.includes('StartsWith($pluginRootPrefix')
+    && leaseRevalidationBlock.includes('$outputRootPath = $leasedOutputRootPath'),
+  'matrix helper revalidates and adopts its leased physical output path before staging');
+
   const testRoot = await mkdtemp(join(tmpdir(), 'uemcp-build-matrix-test-'));
   try {
     const epicRoot = join(testRoot, 'Epic Games');

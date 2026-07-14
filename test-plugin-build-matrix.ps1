@@ -233,6 +233,19 @@ try {
     }
     New-Item -ItemType Directory -Path $outputRootPath | Out-Null
     $outputRootLease = [UEMCPNativePath]::OpenLease($outputRootPath)
+    $leasedOutputRootPath = [IO.Path]::GetFullPath($outputRootLease.FinalPath)
+    if (-not $leasedOutputRootPath.Equals($outputRootPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $leasedOutputRootPath.StartsWith($pluginRootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputRoot physical path changed before its lease was acquired: $leasedOutputRootPath"
+    }
+    $outputRootPath = $leasedOutputRootPath
+}
+catch {
+    if ($null -ne $outputRootLease) {
+        $outputRootLease.Dispose()
+        $outputRootLease = $null
+    }
+    throw
 }
 finally {
     $outputResolution.Lease.Dispose()
