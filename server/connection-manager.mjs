@@ -986,7 +986,7 @@ export class ConnectionManager {
         this._rcCallCount >= this._rcRelaunchHintAfterN
       ) {
         process.stderr.write(
-          `[uemcp] WARNING: ${this._rcCallCount} RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Consider relaunching editor + restarting MCP server. Per CLAUDE.md §Operational Limits.\n`
+          `[uemcp] WARNING: ${this._rcCallCount} RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Relaunch the Unreal Editor, then restart the MCP server before resuming RC operations.\n`
         );
         this._rcRelaunchHintFired = true;
       }

@@ -113,17 +113,70 @@ function assert(condition, name, detail) {
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 
-console.log('\n═══ Test 0a: D186 read_asset_properties subobject contract ═══');
+console.log('\n═══ Test 0a: Always-on tool registry wire contract ═══');
 {
-  const rap = toolsData.toolsets.offline.tools.read_asset_properties;
-  assert(rap.params.include_subobjects !== undefined,
+  const offlineTools = toolsData.toolsets.offline.tools;
+  const rap = offlineTools.read_asset_properties;
+  const inspectBlueprint = offlineTools.inspect_blueprint;
+  const listLevelActors = offlineTools.list_level_actors;
+  const findBlueprintNodes = offlineTools.find_blueprint_nodes;
+  const listAssetExports = offlineTools.list_asset_exports;
+  const rapDescription = rap?.description ?? '';
+  const rapParams = rap?.params ?? {};
+  assert(/include_defaults=true/.test(inspectBlueprint?.description ?? ''),
+    'D44: inspect_blueprint wire description mentions include_defaults');
+  assert(/transforms/i.test(listLevelActors?.description ?? ''),
+    'D44: list_level_actors wire description mentions transforms');
+  assert(rap !== undefined,
+    'D44: read_asset_properties entry exists in yaml');
+  for (const term of [
+    /serialized UPROPERTY/i,
+    /export_index/,
+    /engine[- ]struct/i,
+    /reason codes/,
+    /property_names/,
+    /max_bytes/,
+    /include_subobjects/,
+  ]) {
+    assert(term.test(rapDescription),
+      `D44: bounded read_asset_properties wire description includes ${term}`);
+  }
+  assert(rapParams.include_subobjects !== undefined,
     'D186: read_asset_properties.include_subobjects declared in yaml');
-  assert(rap.params.subobject_depth !== undefined,
+  assert(rapParams.subobject_depth !== undefined,
     'D186: read_asset_properties.subobject_depth declared in yaml');
-  assert(rap.params.subobject_limit !== undefined,
+  assert(rapParams.subobject_limit !== undefined,
     'D186: read_asset_properties.subobject_limit declared in yaml');
-  assert(/present_but_undecoded|subobjects|collision/i.test(rap.description),
-    'D186: read_asset_properties docs mention subobject/collision semantics');
+  assert(/present_but_undecoded|subobjects|collision/i.test(rapDescription),
+    'D186: read_asset_properties wire description mentions bounded subobject/collision semantics');
+  assert(listLevelActors?.params?.limit !== undefined,
+    'D44: list_level_actors.params.limit declared in yaml');
+  assert(inspectBlueprint?.params?.include_defaults !== undefined,
+    'D44: inspect_blueprint.params.include_defaults declared in yaml');
+  assert(inspectBlueprint?.params?.verbose === undefined,
+    'D44: inspect_blueprint.params.verbose removed per Q1 rename');
+  assert(findBlueprintNodes !== undefined,
+    'D44 T4: find_blueprint_nodes entry exists in yaml');
+  assert(/skeletal K2Node|K2Node_CallFunction/i.test(findBlueprintNodes?.description ?? ''),
+    'D44 T4: find_blueprint_nodes wire description references skeletal K2Node surface');
+  assert(findBlueprintNodes?.params?.node_class !== undefined,
+    'D44 T4: find_blueprint_nodes.params.node_class declared');
+  assert(findBlueprintNodes?.params?.member_name !== undefined,
+    'D44 T4: find_blueprint_nodes.params.member_name declared');
+  assert(listAssetExports !== undefined,
+    'D185: list_asset_exports entry exists in offline toolset');
+  assert(listAssetExports?.params?.asset_path?.required === true,
+    'D185: list_asset_exports.asset_path is required');
+  assert(listAssetExports?.params?.limit !== undefined,
+    'D185: list_asset_exports.limit is declared');
+  assert(listAssetExports?.params?.offset !== undefined,
+    'D185: list_asset_exports.offset is declared');
+
+  const index = new ToolIndex();
+  index.build(toolsData);
+  const hits = index.search('list exports export table choose export asset export names', 10);
+  assert(hits.some(h => h.toolName === 'list_asset_exports' && h.toolsetName === 'offline'),
+    'D185: find_tools terminology discovers list_asset_exports');
 }
 
 // ── Test 1: Server modules import clean ──────────────────
@@ -1042,92 +1095,8 @@ if (HAS_REAL_ASSETS) {
     assert(false, 'Option C: bad export_name', e.message);
   }
 
-  // D44 invariant: tools.yaml is single source of truth for descriptions.
-  // Verify the three modified/new tools show up in the offline toolset with
-  // their Option C descriptions.
-  try {
-    const offlineTools = toolsData.toolsets.offline.tools;
-    assert(/include_defaults=true/.test(offlineTools.inspect_blueprint.description),
-           'D44: inspect_blueprint yaml description mentions include_defaults');
-    assert(/transforms/i.test(offlineTools.list_level_actors.description),
-           'D44: list_level_actors yaml description mentions transforms');
-    assert(offlineTools.read_asset_properties !== undefined,
-           'D44: read_asset_properties entry exists in yaml');
-    assert(/Level 2 engine structs|engine structs/i.test(offlineTools.read_asset_properties.description),
-           'D44: read_asset_properties description calls out engine struct coverage');
-    assert(offlineTools.read_asset_properties.params.include_subobjects !== undefined,
-           'D186: read_asset_properties.include_subobjects declared in yaml');
-    assert(offlineTools.read_asset_properties.params.subobject_depth !== undefined,
-           'D186: read_asset_properties.subobject_depth declared in yaml');
-    assert(offlineTools.read_asset_properties.params.subobject_limit !== undefined,
-           'D186: read_asset_properties.subobject_limit declared in yaml');
-    assert(/present_but_undecoded|subobjects|collision/i.test(offlineTools.read_asset_properties.description),
-           'D186: read_asset_properties docs mention subobject/collision semantics');
-    // Params line up with yaml (tools/list and find_tools read from the same source).
-    assert(offlineTools.list_level_actors.params.limit !== undefined,
-           'D44: list_level_actors.params.limit declared in yaml');
-    assert(offlineTools.inspect_blueprint.params.include_defaults !== undefined,
-           'D44: inspect_blueprint.params.include_defaults declared in yaml');
-    assert(offlineTools.inspect_blueprint.params.verbose === undefined,
-           'D44: inspect_blueprint.params.verbose removed per Q1 rename');
-    // Agent 10.5 Tier 4: find_blueprint_nodes registered in yaml.
-    assert(offlineTools.find_blueprint_nodes !== undefined,
-           'D44 T4: find_blueprint_nodes entry exists in yaml');
-    assert(/skeletal K2Node|K2Node_CallFunction/i.test(offlineTools.find_blueprint_nodes.description),
-           'D44 T4: find_blueprint_nodes description references skeletal K2Node surface');
-    assert(offlineTools.find_blueprint_nodes.params.node_class !== undefined,
-           'D44 T4: find_blueprint_nodes.params.node_class declared');
-    assert(offlineTools.find_blueprint_nodes.params.member_name !== undefined,
-           'D44 T4: find_blueprint_nodes.params.member_name declared');
-  } catch (e) {
-    assert(false, 'D44: yaml invariant check', e.message);
-  }
-
   async function testD185ExportListing() {
     console.log(`\n═══ Test 15: D185 export listing and default export selection ═══`);
-    const offlineTools = toolsData.toolsets.offline.tools;
-    assert(offlineTools.list_asset_exports !== undefined,
-      'D185: list_asset_exports entry exists in offline toolset');
-    assert(offlineTools.list_asset_exports?.params?.asset_path?.required === true,
-      'D185: list_asset_exports.asset_path is required');
-    assert(offlineTools.list_asset_exports?.params?.limit !== undefined,
-      'D185: list_asset_exports.limit is declared');
-    assert(offlineTools.list_asset_exports?.params?.offset !== undefined,
-      'D185: list_asset_exports.offset is declared');
-    const rapDesc = offlineTools.read_asset_properties.description;
-    assert(/export_index/.test(rapDesc),
-      'D185: read_asset_properties docs mention export_index');
-    assert(/requested_properties/.test(rapDesc),
-      'D185: read_asset_properties docs mention requested_properties');
-    assert(/export_selection_reason/.test(rapDesc),
-      'D185: read_asset_properties docs mention export_selection_reason');
-    assert(/not_serialized_default/.test(rapDesc),
-      'D185: read_asset_properties docs mention not_serialized_default');
-    assert(/unknown_due_to_truncation/.test(rapDesc),
-      'D185: read_asset_properties docs mention unknown_due_to_truncation');
-    for (const reasonCode of [
-      'blueprint_cdo',
-      'package_root_name_match',
-      'root_asset_export',
-      'first_asset_export',
-      'first_export_fallback',
-      'explicit_export_name',
-      'explicit_export_index',
-    ]) {
-      assert(rapDesc.includes(reasonCode),
-        `D185: read_asset_properties docs list export_selection_reason code ${reasonCode}`);
-    }
-    assert(!/no_cdo_export_found/.test(rapDesc),
-      'D185: read_asset_properties docs omit inspect_blueprint-only no_cdo_export_found');
-    assert(!/root_component_parse_failed/.test(rapDesc),
-      'D185: read_asset_properties docs omit list_level_actors-only root_component_parse_failed');
-
-    const index = new ToolIndex();
-    index.build(toolsData);
-    const hits = index.search('list exports export table choose export asset export names', 10);
-    assert(hits.some(h => h.toolName === 'list_asset_exports' && h.toolsetName === 'offline'),
-      'D185: find_tools terminology discovers list_asset_exports');
-
     if (!HAS_D185_ASSETS) {
       console.log('  SKIP: D185 empirical assets not found in this project');
       return;
@@ -1389,7 +1358,7 @@ await testFindBlueprintNodes();
 //   P2  read_asset_properties scopes unsupported[] to property_names filter
 //   P3  packageIndex is stripped from response objects at every depth
 //   P4  unsupported[] is deduped by {name, reason}
-//   P5  unexpected_preamble is documented in tools.yaml
+//   P5  parser documentation contract (always-on in test-tool-metadata.mjs)
 //   P6  delegate-path note — see comment block below (no runtime assertion)
 //   P7  deterministic top-level field ordering across tools
 //
@@ -1512,19 +1481,6 @@ if (HAS_REAL_ASSETS) {
       `P4: unsupported[] has no {name, reason} duplicates (got ${keys.length} rows, ${unique.size} unique)`);
   } catch (e) {
     assert(false, 'P4: dedupe unsupported[]', e.message);
-  }
-
-  // P5: tools.yaml documents the marker reason codes including unexpected_preamble.
-  try {
-    const desc = toolsData.toolsets.offline.tools.read_asset_properties.description;
-    assert(/unexpected_preamble/.test(desc),
-      'P5: read_asset_properties description documents unexpected_preamble');
-    assert(/unknown_struct/.test(desc),
-      'P5: read_asset_properties description documents unknown_struct');
-    assert(/size_budget_exceeded/.test(desc),
-      'P5: read_asset_properties description documents size_budget_exceeded');
-  } catch (e) {
-    assert(false, 'P5: unexpected_preamble docs in yaml', e.message);
   }
 
   // P7: deterministic field ordering. list_level_actors actor rows end with

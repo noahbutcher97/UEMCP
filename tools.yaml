@@ -11,7 +11,7 @@
 
 # ─────────────────────────────────────────────────────────────
 # Always-loaded management tools (10)
-# Visible to Claude regardless of which toolsets are enabled
+# Visible to MCP clients regardless of which toolsets are enabled
 # ─────────────────────────────────────────────────────────────
 management:
   description: Always-loaded discovery and management tools
@@ -72,8 +72,8 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 139 tools, 10 of which are status: planned/hidden)
-# — plus 10 management tools above = 149 declared total (139 active/callable)
+# Toolsets; declared and active/callable totals are derived by
+# server/test-tool-registry-truth.mjs together with the management registry above.
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
@@ -141,58 +141,7 @@ toolsets:
           offset:     { type: number, required: false, description: "Result offset for pagination (default 0)" }
       read_asset_properties:
         description: >-
-          Read serialized UPROPERTY values from a specific export in a .uasset/.umap.
-          Default export is the asset's primary CDO (Default__<Name>_C for BPs, main
-          export otherwise). Use export_index to target a specific export row from
-          list_asset_exports when packages contain multiple exports or duplicate export
-          names. Supports scalars, enums, object refs, soft refs, gameplay
-          tags/containers, 24 engine structs (FVector, FRotator, FQuat, FTransform,
-          FLinearColor, FColor, FVector2D, FVector4, FGuid, FBox, FIntPoint,
-          FBodyInstance, FSoftObjectPath, FSoftClassPath, FGameplayTag,
-          FGameplayTagContainer, FExpressionInput, 7 MaterialInput variants),
-          simple-element TArray/TSet, and FFieldPath. TMap with scalar keys is
-          supported; struct-key TMap and unknown structs return {unsupported, reason}
-          markers — never silently skipped.
-          Reason codes — parser core: `unknown_struct` (struct outside engine registry —
-          tagged self-describing decode applied), `unknown_property_type` (unsupported
-          FPropertyTag type), `unexpected_preamble` (non-zero export body preamble —
-          non-CDO subclass exports, AssetImportData), `serial_range_out_of_bounds`,
-          `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`
-          (UE 5.6 FPropertyTagExtensions field unhandled), `value_read_failed`,
-          `delegate_not_serialized` (rarely fires on CDOs), `localized_text`,
-          `size_budget_exceeded` (max_bytes). Containers: `complex_element_container`
-          (TArray/TSet of custom structs without a binary-layout handler),
-          `container_deferred` (TMap not yet supported), `container_count_unreasonable`,
-          `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`,
-          `map_key_type_unsupported`, `map_value_type_unsupported`,
-          `map_value_struct_name_missing`, `struct_key_map` (TMap with struct keys —
-          wire format requires shape-key tagging not yet implemented). Struct-specific:
-          `body_instance_native_layout_unknown` (FBodyInstance with HAS_BINARY_NATIVE
-          flag — tagged-fallback covers partial overrides; native binary needs a known
-          layout), `expression_input_native_layout_unknown` (FExpressionInput /
-          MaterialInput beyond the documented native layouts).
-          Responses include export_selection_reason: `blueprint_cdo`,
-          `package_root_name_match`, `root_asset_export`, `first_asset_export`,
-          `first_export_fallback`, `explicit_export_name`, or
-          `explicit_export_index`. Response capped at max_bytes with truncated
-          flag. When property_names is set, properties remains a decoded-value
-          map and requested_properties returns one row per requested name with
-          status serialized, unsupported, not_serialized_default, or
-          unknown_due_to_truncation. unsupported[] is scoped to the filter (plus
-          `__stream__`-wide markers). This offline reader reports serialized
-          overrides and parser-supported values; it does not prove inherited
-          native or Blueprint class defaults. With include_subobjects=true,
-          read_asset_properties also walks bounded same-package component/subobject
-          exports reachable from the selected export through outer links, serialized
-          object refs, or Blueprint generated-class children. Subobject rows include
-          decode_status (`serialized`, `empty_or_default`, or `present_but_undecoded`)
-          plus decoded properties and unsupported markers. Component collision
-          summaries are emitted only when collision/profile/BodyInstance fields are
-          serialized; absent collision fields mean not_serialized_default, not proof
-          of no collision configuration. Subobject decoded payloads share an aggregate
-          subobject_payload_max_bytes budget equal to max_bytes; rows past that budget
-          return `present_but_undecoded` with `subobject_budget_exhausted` rather than
-          expanding the response unboundedly.
+          Read serialized UPROPERTY values from a selected .uasset/.umap export. The default is the Blueprint CDO or primary asset export; use export_index from list_asset_exports when names are duplicated. Supports common scalar, reference, gameplay-tag, engine-struct, array, set, scalar-key map, and field-path values. Unsupported layouts return explicit markers and reason codes rather than being skipped. property_names adds one status row per requested name. max_bytes bounds decoded payload and reports truncation. include_subobjects performs bounded same-package traversal with depth, row, and aggregate payload limits. Results prove serialized values only; absent fields do not prove inherited native or Blueprint defaults. Collision summaries appear only for serialized collision/profile/BodyInstance data.
         params:
           asset_path:         { type: string, required: true, description: "/Game/... path (with or without extension) or project-relative Content/... path" }
           export_name:        { type: string, required: false, description: "Target export objectName. Mutually exclusive with export_index; ambiguous when duplicate export names exist." }
@@ -1693,7 +1642,7 @@ toolsets:
         params:
           object_path: { type: string, required: true }
       rc_batch:
-        description: "Execute multiple RC operations atomically via /remote/batch. **CALLER RESPONSIBILITY (D129)**: every sub-request's target function MUST be UFUNCTION-decorated for the call to succeed (non-UFUNCTION sub-requests return 400 + 'Function does not exist' cleanly — correct RC behavior, not a foot-gun). The historical NEW-2 crash class (Map.h:716 race n=3) was traced to UE 5.6.1 engine bug WebRemoteControl.cpp:930 and is eliminated by the D131 Passphrase-header workaround in connection-manager.mjs; batch sub-requests now fail-graceful regardless of UFUNCTION decoration. See CLAUDE.md §Operational Limits + D131."
+        description: "Execute multiple RC operations atomically via /remote/batch. **CALLER RESPONSIBILITY (D129)**: every sub-request's target function MUST be UFUNCTION-decorated for the call to succeed (non-UFUNCTION sub-requests return 400 + 'Function does not exist' cleanly — correct RC behavior, not a foot-gun). The historical NEW-2 crash class (Map.h:716 race n=3) was traced to UE 5.6.1 engine bug WebRemoteControl.cpp:930 and is eliminated by the D131 Passphrase-header workaround in connection-manager.mjs; batch sub-requests now fail-graceful regardless of UFUNCTION decoration. See D131 in docs/tracking/risks-and-decisions.md."
         params:
           operations: { type: array, required: true }
       rc_get_presets:

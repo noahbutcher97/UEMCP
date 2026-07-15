@@ -23,6 +23,23 @@ import {
   buildStructHandlers,
   buildContainerHandlers,
 } from './uasset-structs.mjs';
+import {
+  PROPERTY_READ_REASON_GROUPS,
+  REQUIRED_CONTAINER_PROPERTY_TYPES,
+} from './property-read-contract.mjs';
+
+const BOUNDED_SUBOBJECT_REASONS = PROPERTY_READ_REASON_GROUPS.boundedSubobject;
+
+export function buildPropertyReadHandlers() {
+  const structHandlers = buildStructHandlers();
+  const containerHandlers = buildContainerHandlers();
+  const missingContainerHandlers = REQUIRED_CONTAINER_PROPERTY_TYPES
+    .filter(type => typeof containerHandlers.get(type) !== 'function');
+  if (missingContainerHandlers.length > 0) {
+    throw new Error(`Missing read_asset_properties container handlers: ${missingContainerHandlers.join(', ')}`);
+  }
+  return { structHandlers, containerHandlers };
+}
 
 // ── Asset Header Cache (Option D: Hybrid TTL + mtime + write-suspicion) ─────
 //
@@ -1174,21 +1191,8 @@ const BP_GENERATED_CLASSES = new Set([
  * Arrays and plain objects only; skips primitives, null, and non-plain
  * objects (Date, Map, etc.) defensively.
  *
- * Reason-code catalog for `unsupported[]` markers surfaced by the Level 1+2+2.5
- * parser pipeline:
- *   - `unknown_struct`            — struct name not in the engine registry
- *                                   (falls back to tagged self-describing decode)
- *   - `complex_element_container` — TArray/TSet of custom struct elements
- *   - `container_deferred`        — TMap with non-scalar key/value types
- *   - `size_budget_exceeded`      — property value skipped to honor max_bytes
- *   - `unknown_property_type`     — FPropertyTag type outside the supported set
- *   - `unexpected_preamble`       — export body begins with a non-zero byte
- *                                   (non-CDO subclass exports, AssetImportData, etc.)
- *   - `serial_range_out_of_bounds`— declared export serial range exceeds buffer
- *   - `delegate_not_serialized`   — FDelegateProperty / FMulticastDelegateProperty
- *                                   (rarely fires: CDOs don't serialize delegate bindings)
- *   - `localized_text`            — FText with localization tables
- *   - `no_cdo_export_found`       — include_defaults=true but CDO export missing
+ * The configured reader's `unsupported[]` reasons are centralized in
+ * PROPERTY_READ_REASON_GROUPS and documented in docs/specs/tool-surface.md.
  */
 function stripPackageIndex(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -1269,12 +1273,21 @@ async function parseAssetForPropertyRead(projectRoot, assetPath) {
   const names = readNameTable(cur, summary);
   const imports = readImportTable(cur, summary, names);
   const exports = readExportTable(cur, summary, names);
+  const handlers = buildPropertyReadHandlers();
   return {
     diskPath, stats, buf, summary, names, imports, exports,
     resolve: makePackageIndexResolver(exports, imports),
-    structHandlers: buildStructHandlers(),
-    containerHandlers: buildContainerHandlers(),
+    ...handlers,
   };
+}
+
+function readPropertyExport(ctx, exportEntry, maxBytes) {
+  return readExportProperties(ctx.buf, exportEntry, ctx.names, {
+    resolve: ctx.resolve,
+    structHandlers: ctx.structHandlers,
+    containerHandlers: ctx.containerHandlers,
+    maxBytes,
+  });
 }
 
 function assetPathLeaf(assetPath) {
@@ -1661,7 +1674,7 @@ function budgetExhaustedRow(row, parsed, unsupported) {
     properties: {},
     unsupported: dedupeUnsupported([
       ...unsupported,
-      { name: '__stream__', reason: 'subobject_budget_exhausted' },
+      { name: '__stream__', reason: BOUNDED_SUBOBJECT_REASONS.subobjectBudgetExhausted },
     ]),
     property_count_returned: 0,
     property_count_total: parsed.propertyCount ?? 0,
@@ -2039,7 +2052,7 @@ async function readAssetProperties(projectRoot, params) {
   });
 
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
-  const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
+  const { diskPath, exports, imports } = ctx;
 
   // Pick the target export.
   let target = null;
@@ -2080,8 +2093,7 @@ async function readAssetProperties(projectRoot, params) {
   if (!target) throw new Error('No exports found in asset');
 
   const structType = resolvePackageIndex(target.classIndex, exports, imports, 'objectName');
-  const parsed = readExportProperties(buf, target, names,
-    { resolve, structHandlers, containerHandlers, maxBytes });
+  const parsed = readPropertyExport(ctx, target, maxBytes);
 
   const filtered = filterParsedProperties(parsed, filterNames);
 
@@ -2107,8 +2119,10 @@ async function readAssetProperties(projectRoot, params) {
     const parsedSubobjects = new Map();
     const parseSubobjectExport = (zeroBasedIndex) => {
       if (!parsedSubobjects.has(zeroBasedIndex)) {
-        parsedSubobjects.set(zeroBasedIndex, readExportProperties(buf, exports[zeroBasedIndex], names,
-          { resolve, structHandlers, containerHandlers, maxBytes }));
+        parsedSubobjects.set(
+          zeroBasedIndex,
+          readPropertyExport(ctx, exports[zeroBasedIndex], maxBytes),
+        );
       }
       return parsedSubobjects.get(zeroBasedIndex);
     };

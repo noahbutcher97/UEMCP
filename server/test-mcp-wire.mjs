@@ -44,7 +44,7 @@ const t = new TestRunner('MCP-Wire Integration Tests');
 
 // ── Test server factory ──────────────────────────────────────────────
 // Mirrors server.mjs's offline-tool registration using the SAME inputs:
-//   tools.yaml offline defs → buildZodSchema → server.tool()
+//   tools.yaml offline defs → buildZodSchema → server.registerTool()
 //
 // `handlerFactory(toolName)` returns the handler for a given tool. Tests
 // inject stubs for Zod-validation experiments (we want to see what args
@@ -60,10 +60,12 @@ async function createTestServer(handlerFactory) {
   for (const [name, def] of Object.entries(OFFLINE_DEFS)) {
     const schema = buildZodSchema(def.params);
     const handler = handlerFactory(name);
-    const handle = server.tool(
+    const handle = server.registerTool(
       name,
-      def.description,
-      schema,
+      {
+        description: def.description,
+        inputSchema: schema,
+      },
       async (args, ctx) => {
         try {
           const result = await handler(args, ctx);
