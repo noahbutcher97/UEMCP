@@ -23,7 +23,21 @@ This is a durable parser reference, not additional tool-wire metadata. The bound
 
 ### Supported Values And Boundaries
 
-The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, and simple-element `TArray` and `TSet`. Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, `FColorMaterialInput`, `FScalarMaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, and `FMaterialAttributesInput`. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and other non-scalar map keys remain unsupported.
+The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, and simple-element `TArray` and `TSet`.
+
+Normalized map capabilities:
+
+- Map keys: `scalar`.
+- Map values: `scalar`, `StructProperty`, `SoftObjectProperty`, `SoftClassProperty`.
+- Unsupported map value reason: `map_value_type_unsupported`.
+
+`StructProperty` map values use a configured engine-struct handler or tagged self-describing decoding. Struct-key maps and other non-scalar map keys remain unsupported.
+
+Configured engine structs:
+
+- Engine structs: `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, `FColorMaterialInput`, `FScalarMaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, `FMaterialAttributesInput`.
+
+Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped.
 
 ### Reason-Code Taxonomy
 

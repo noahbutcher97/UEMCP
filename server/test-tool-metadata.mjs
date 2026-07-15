@@ -226,6 +226,19 @@ function extractReasonCodeTaxonomy(source) {
   return new Set([...section.matchAll(/`([a-z0-9_]+)`/g)].map(match => match[1]));
 }
 
+function extractLabeledCodeSet(source, label) {
+  const line = source.split(/\r?\n/)
+    .find(candidate => candidate.trimStart().startsWith(label));
+  return new Set([...(line ?? '').matchAll(/`([^`]+)`/g)].map(match => match[1]));
+}
+
+function compareSets(expected, actual) {
+  return {
+    missing: [...expected].filter(value => !actual.has(value)).sort(),
+    extra: [...actual].filter(value => !expected.has(value)).sort(),
+  };
+}
+
 function annotationsMatch(actual, expected) {
   if (!actual || typeof actual !== 'object') return false;
   const actualKeys = Object.keys(actual).sort();
@@ -340,22 +353,33 @@ t.assert(
 );
 
 const supportedValuesSection = extractMarkdownSection(toolSurfaceDoc, '### Supported Values And Boundaries');
-const durableMapBoundary = 'Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`.';
+const expectedMapKeyCapabilities = new Set(['scalar']);
+const expectedMapValueCapabilities = new Set([
+  'scalar',
+  'StructProperty',
+  'SoftObjectProperty',
+  'SoftClassProperty',
+]);
+const documentedMapKeyCapabilities = extractLabeledCodeSet(supportedValuesSection, '- Map keys:');
+const documentedMapValueCapabilities = extractLabeledCodeSet(supportedValuesSection, '- Map values:');
+const mapKeyDelta = compareSets(expectedMapKeyCapabilities, documentedMapKeyCapabilities);
+const mapValueDelta = compareSets(expectedMapValueCapabilities, documentedMapValueCapabilities);
 t.assert(
-  supportedValuesSection.includes(durableMapBoundary),
-  'durable map boundary documents scalar keys and every currently supported value category',
-  `missing: ${durableMapBoundary}`,
+  mapKeyDelta.missing.length === 0 && mapKeyDelta.extra.length === 0 &&
+    mapValueDelta.missing.length === 0 && mapValueDelta.extra.length === 0 &&
+    supportedValuesSection.includes('`map_value_type_unsupported`'),
+  'durable map capability sets exactly match contracted key/value categories',
+  `key missing: ${mapKeyDelta.missing.join(', ')}; key extra: ${mapKeyDelta.extra.join(', ')}; ` +
+    `value missing: ${mapValueDelta.missing.join(', ')}; value extra: ${mapValueDelta.extra.join(', ')}`,
 );
-const undocumentedConfiguredStructs = [...configuredStructHandlers.keys()]
-  .filter(structName => {
-    const documentedName = structName.startsWith('F') ? structName : `F${structName}`;
-    return !supportedValuesSection.includes(`\`${documentedName}\``);
-  })
-  .sort();
+const configuredStructs = new Set([...configuredStructHandlers.keys()].map(structName =>
+  structName.startsWith('F') ? structName : `F${structName}`));
+const documentedStructs = extractLabeledCodeSet(supportedValuesSection, '- Engine structs:');
+const structDelta = compareSets(configuredStructs, documentedStructs);
 t.assert(
-  undocumentedConfiguredStructs.length === 0,
-  'durable parser reference names every configured engine-struct handler',
-  `undocumented handlers: ${undocumentedConfiguredStructs.join(', ')}`,
+  structDelta.missing.length === 0 && structDelta.extra.length === 0,
+  'durable engine-struct set exactly matches configured handlers',
+  `missing: ${structDelta.missing.join(', ')}; extra: ${structDelta.extra.join(', ')}`,
 );
 
 const exportSelectionSection = extractMarkdownSection(toolSurfaceDoc, '### Export And Property Selection');
