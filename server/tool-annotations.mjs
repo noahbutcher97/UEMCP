@@ -10,15 +10,37 @@ const MANAGEMENT_SESSION_STATE_TOOL_NAMES = Object.freeze([
   'detach_project',
   'refresh_project_context',
 ]);
-const managementSessionStateToolLookup = new Set(MANAGEMENT_SESSION_STATE_TOOL_NAMES);
+const managementSessionStateToolSet = new Set(MANAGEMENT_SESSION_STATE_TOOL_NAMES);
 
-const managementSessionStateTools = Object.create(null);
-Object.defineProperties(managementSessionStateTools, {
-  has: {
-    value: (toolName) => managementSessionStateToolLookup.has(toolName),
+const managementSessionStateTools = new Proxy(managementSessionStateToolSet, {
+  get(target, property) {
+    if (property === 'add' || property === 'delete' || property === 'clear') {
+      return undefined;
+    }
+    if (property === 'size') {
+      return target.size;
+    }
+    if (property === 'forEach') {
+      return (callback, thisArg) => target.forEach((value, key) => {
+        callback.call(thisArg, value, key, managementSessionStateTools);
+      });
+    }
+    if (
+      property === 'has' ||
+      property === 'keys' ||
+      property === 'values' ||
+      property === 'entries' ||
+      property === Symbol.iterator
+    ) {
+      return target[property].bind(target);
+    }
+    return Reflect.get(target, property, target);
   },
-  [Symbol.iterator]: {
-    value: () => MANAGEMENT_SESSION_STATE_TOOL_NAMES[Symbol.iterator](),
+  has(target, property) {
+    if (property === 'add' || property === 'delete' || property === 'clear') {
+      return false;
+    }
+    return Reflect.has(target, property);
   },
 });
 export const MANAGEMENT_SESSION_STATE_TOOLS = Object.freeze(managementSessionStateTools);
@@ -38,7 +60,7 @@ export function getToolAnnotations(toolName, requirement) {
       annotations = { readOnlyHint: false, destructiveHint: true };
       break;
     case TOOL_REQUIREMENT_KINDS.MANAGEMENT:
-      annotations = managementSessionStateToolLookup.has(toolName)
+      annotations = MANAGEMENT_SESSION_STATE_TOOLS.has(toolName)
         ? { readOnlyHint: false, destructiveHint: false }
         : { readOnlyHint: true };
       break;

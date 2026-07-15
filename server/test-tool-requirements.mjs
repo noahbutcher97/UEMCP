@@ -133,6 +133,15 @@ const expectedManagementSessionStateTools = [
   'detach_project',
   'refresh_project_context',
 ];
+t.assert(MANAGEMENT_SESSION_STATE_TOOLS instanceof Set, 'management session-state policy remains a Set');
+t.assert(
+  Object.prototype.toString.call(MANAGEMENT_SESSION_STATE_TOOLS) === '[object Set]',
+  'management session-state policy retains the Set type tag',
+);
+t.assert(
+  MANAGEMENT_SESSION_STATE_TOOLS.size === expectedManagementSessionStateTools.length,
+  'management session-state policy exposes Set size',
+);
 t.assert(
   MANAGEMENT_SESSION_STATE_TOOLS.has('connection_info') &&
     !MANAGEMENT_SESSION_STATE_TOOLS.has('list_toolsets'),
@@ -141,6 +150,22 @@ t.assert(
 t.assert(
   JSON.stringify([...MANAGEMENT_SESSION_STATE_TOOLS]) === JSON.stringify(expectedManagementSessionStateTools),
   'management session-state policy supports iteration',
+);
+t.assert(
+  typeof MANAGEMENT_SESSION_STATE_TOOLS.keys === 'function' &&
+    JSON.stringify([...MANAGEMENT_SESSION_STATE_TOOLS.keys()]) === JSON.stringify(expectedManagementSessionStateTools),
+  'management session-state policy supports keys()',
+);
+t.assert(
+  typeof MANAGEMENT_SESSION_STATE_TOOLS.values === 'function' &&
+    JSON.stringify([...MANAGEMENT_SESSION_STATE_TOOLS.values()]) === JSON.stringify(expectedManagementSessionStateTools),
+  'management session-state policy supports values()',
+);
+t.assert(
+  typeof MANAGEMENT_SESSION_STATE_TOOLS.entries === 'function' &&
+    JSON.stringify([...MANAGEMENT_SESSION_STATE_TOOLS.entries()]) ===
+      JSON.stringify(expectedManagementSessionStateTools.map((toolName) => [toolName, toolName])),
+  'management session-state policy supports entries()',
 );
 t.assert(Object.isFrozen(MANAGEMENT_SESSION_STATE_TOOLS), 'management session-state policy facade is frozen');
 
@@ -167,6 +192,68 @@ for (const [mutator, argument, probeTool] of policyMutationCases) {
     `before ${JSON.stringify(before)}, after ${JSON.stringify(after)}`,
   );
 }
+
+const nativePolicyMutationCases = [
+  ['add', Set.prototype.add, 'list_toolsets', 'list_toolsets'],
+  ['delete', Set.prototype.delete, 'connection_info', 'connection_info'],
+  ['clear', Set.prototype.clear, undefined, 'detect_project'],
+];
+for (const [mutator, nativeMutator, argument, probeTool] of nativePolicyMutationCases) {
+  const before = getToolAnnotations(probeTool, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+  let mutationError;
+  try {
+    nativeMutator.call(MANAGEMENT_SESSION_STATE_TOOLS, argument);
+  } catch (error) {
+    mutationError = error;
+  }
+  const after = getToolAnnotations(probeTool, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+  t.assert(mutationError instanceof TypeError, `native Set.prototype.${mutator} rejects the protected policy`);
+  t.assert(
+    JSON.stringify(after) === JSON.stringify(before),
+    `native ${mutator} mutation attempt cannot change management annotations`,
+    `before ${JSON.stringify(before)}, after ${JSON.stringify(after)}`,
+  );
+}
+
+const forEachPairs = [];
+const forEachSets = [];
+let forEachMutationAttempted = false;
+let forEachError;
+const beforeForEachMutation = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+try {
+  MANAGEMENT_SESSION_STATE_TOOLS.forEach((value, key, policy) => {
+    forEachPairs.push([value, key]);
+    forEachSets.push(policy);
+    if (!forEachMutationAttempted) {
+      forEachMutationAttempted = true;
+      try {
+        policy.add('list_toolsets');
+      } catch {
+        // The callback receives the protected export, not the private Set.
+      }
+    }
+  });
+} catch (error) {
+  forEachError = error;
+}
+const afterForEachMutation = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+t.assert(
+  forEachError === undefined &&
+    JSON.stringify(forEachPairs) ===
+      JSON.stringify(expectedManagementSessionStateTools.map((toolName) => [toolName, toolName])),
+  'management session-state policy supports forEach()',
+  forEachError?.message,
+);
+t.assert(
+  forEachSets.length === expectedManagementSessionStateTools.length &&
+    forEachSets.every((policy) => policy === MANAGEMENT_SESSION_STATE_TOOLS),
+  'forEach() exposes only the protected policy as its third argument',
+);
+t.assert(
+  forEachMutationAttempted && JSON.stringify(afterForEachMutation) === JSON.stringify(beforeForEachMutation),
+  'forEach() callback cannot mutate management annotations through its policy argument',
+  `before ${JSON.stringify(beforeForEachMutation)}, after ${JSON.stringify(afterForEachMutation)}`,
+);
 
 let unknownRequirementError;
 try {
