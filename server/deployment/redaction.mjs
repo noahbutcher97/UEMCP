@@ -76,3 +76,35 @@ export function assertNoSecretCanaries(value, canaries) {
   }
   return true;
 }
+
+export function assertNoSecretMaterial(value, { secretKeys = DEFAULT_SECRET_KEYS } = {}) {
+  const seen = new Set();
+  function inspect(entry, path) {
+    if (entry === null || typeof entry !== 'object') return;
+    if (seen.has(entry)) throw new RedactionError('secret scan encountered a cycle');
+    seen.add(entry);
+    try {
+      if (Array.isArray(entry)) {
+        entry.forEach((item, index) => inspect(item, `${path}[${index}]`));
+        return;
+      }
+      for (const [key, child] of Object.entries(entry)) {
+        if (isSecretKey(key, secretKeys)) {
+          const emptyPublicEnvironment = normalizedKey(key) === 'env'
+            && child !== null
+            && typeof child === 'object'
+            && !Array.isArray(child)
+            && Object.keys(child).length === 0;
+          if (!emptyPublicEnvironment) {
+            throw new RedactionError('secret-bearing material is not allowed', 'SECRET_MATERIAL', { path: `${path}.${key}` });
+          }
+        }
+        inspect(child, `${path}.${key}`);
+      }
+    } finally {
+      seen.delete(entry);
+    }
+  }
+  inspect(value, '$');
+  return true;
+}

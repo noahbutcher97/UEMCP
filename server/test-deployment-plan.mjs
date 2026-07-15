@@ -4,6 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -16,7 +17,16 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { TestRunner } from './test-helpers.mjs';
+import { canonicalJson, sha256Bytes } from './deployment/canonical-json.mjs';
+import { createMachineResult, createStageResult } from './deployment/contracts.mjs';
 import { createCanonicalDescriptor, descriptorsEqual } from './deployment/descriptor.mjs';
+import { fingerprintPath } from './deployment/fingerprints.mjs';
+import {
+  computePlanDigest,
+  createPlanDocument,
+  validatePlanForApply,
+} from './deployment/plan-document.mjs';
+import { readAndVerifyReceipt, writeReceipt } from './deployment/receipts.mjs';
 import { createTargetDomain } from './deployment/target-domain.mjs';
 import {
   parseTargetProfilesFile,
@@ -221,6 +231,193 @@ function writeProject(root, name = 'SampleProject') {
     rmSync(join(stateRoot, '.uemcp-targets.json'));
     const absent = readProjectTargets({ repoRoot, stateRoot, sourceKind: 'pinned_archive', clientRoots: [root] });
     t.assert(absent.status === 'absent' && absent.targetsPath === join(resolve(stateRoot), '.uemcp-targets.json'), 'absent archive registry still reports the stable state path');
+  } finally {
+    cleanup(root);
+  }
+}
+
+function sampleSource(root, overrides = {}) {
+  return {
+    kind: 'git_checkout',
+    repository: 'owner/UEMCP',
+    repo_root: resolve(root),
+    git_commit: 'a'.repeat(40),
+    dirty: false,
+    archive: null,
+    orchestrator_version: '1.0.0',
+    ...overrides,
+  };
+}
+
+function sampleDescriptor(root) {
+  return {
+    name: 'uemcp',
+    transport: 'stdio',
+    command: join(resolve(root), 'node.exe'),
+    args: [join(resolve(root), 'server.mjs')],
+    env: {},
+    cwd: null,
+  };
+}
+
+function sampleRequest(overrides = {}) {
+  return {
+    requested_project: null,
+    requested_profile: null,
+    selected_clients: [],
+    ...overrides,
+  };
+}
+
+function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:00.000Z'), overrides = {} }) {
+  return createPlanDocument({
+    operation: 'setup',
+    outcome: 'ACTION_REQUIRED',
+    source: sampleSource(root),
+    request: sampleRequest(),
+    descriptor: sampleDescriptor(root),
+    stages: [createStageResult({ name: 'target', status: 'REGISTERED', result: 'action_required' })],
+    preconditions: [{
+      kind: 'file',
+      label: 'target-config',
+      canonical_path: reviewed.canonical_path,
+      fingerprint: reviewed,
+    }],
+    operations: [{
+      operation_id: 'target:register:sample',
+      domain: 'target',
+      domain_order: 20,
+      kind: 'REGISTER_PROJECT_TARGET',
+      config_path: reviewed.canonical_path,
+    }],
+    clients: [],
+    actions: [],
+    now,
+    ...overrides,
+  });
+}
+
+// Plans are canonical, complete previews whose digest binds every authorization input.
+{
+  const root = makeRoot();
+  try {
+    const config = join(root, 'targets.json');
+    writeFileSync(config, '{"version":1}\n', 'utf8');
+    const reviewed = await fingerprintPath(config, { allowedRoots: [root] });
+    const plan = createReviewedPlan({ root, reviewed });
+    t.assert(plan.kind === 'uemcp.deployment.plan' && plan.schema_version === '1.0', 'saved plan uses the versioned public kind');
+    t.assert(plan.created_at === '2026-07-15T12:00:00.000Z' && plan.expires_at === '2026-07-15T12:30:00.000Z', 'saved plan expires exactly 30 minutes after creation');
+    t.assert(plan.digest === computePlanDigest({ ...plan, digest: undefined }), 'stored digest covers the canonical plan body');
+    t.assert(!Object.hasOwn(plan.stages[0], 'result') && !Object.hasOwn(plan.stages[0], 'progress'), 'saved plan stages keep the locked public schema');
+
+    const reorderedSource = {
+      orchestrator_version: '1.0.0',
+      archive: null,
+      dirty: false,
+      git_commit: 'a'.repeat(40),
+      repo_root: resolve(root),
+      repository: 'owner/UEMCP',
+      kind: 'git_checkout',
+    };
+    const reordered = createReviewedPlan({ root, reviewed, overrides: { source: reorderedSource } });
+    t.assert(reordered.digest === plan.digest, 'object insertion order cannot change the canonical plan digest');
+    const sourceChanged = createReviewedPlan({ root, reviewed, overrides: { source: sampleSource(root, { git_commit: 'b'.repeat(40) }) } });
+    t.assert(sourceChanged.digest !== plan.digest, 'source commit changes the plan digest');
+    const operationChanged = createReviewedPlan({
+      root,
+      reviewed,
+      overrides: {
+        operations: [{ operation_id: 'target:register:changed', domain: 'target', domain_order: 20, kind: 'REGISTER_PROJECT_TARGET', config_path: reviewed.canonical_path }],
+      },
+    });
+    t.assert(operationChanged.digest !== plan.digest, 'operation identity changes the plan digest');
+    const expiryChanged = createReviewedPlan({ root, reviewed, overrides: { ttlMs: 60_000 } });
+    t.assert(expiryChanged.digest !== plan.digest, 'expiry changes the plan digest');
+
+    const valid = await validatePlanForApply({
+      plan,
+      approvedDigest: plan.digest,
+      now: new Date('2026-07-15T12:29:59.999Z'),
+      fingerprint: async () => fingerprintPath(config, { allowedRoots: [root] }),
+      localState: { wasDigestApplied: async () => false },
+    });
+    t.assert(valid.ok === true && valid.plan.digest === plan.digest, 'unchanged approved plan validates before apply');
+
+    const tampered = structuredClone(plan);
+    tampered.operations[0].kind = 'OTHER_OPERATION';
+    t.assert(await rejectsCode(() => validatePlanForApply({ plan: tampered, approvedDigest: plan.digest, now: new Date('2026-07-15T12:10:00.000Z') }), 'PLAN_DIGEST_MISMATCH'), 'tampered stored plan is rejected');
+    const domainTampered = structuredClone(plan);
+    domainTampered.operations[0].domain = 'unknown-domain';
+    t.assert(await rejectsCode(() => validatePlanForApply({ plan: domainTampered, approvedDigest: plan.digest, now: new Date('2026-07-15T12:10:00.000Z') }), 'PLAN_DIGEST_MISMATCH'), 'digest validation precedes semantic interpretation of tampered operations');
+    t.assert(await rejectsCode(() => validatePlanForApply({ plan, approvedDigest: 'f'.repeat(64), now: new Date('2026-07-15T12:10:00.000Z') }), 'PLAN_DIGEST_MISMATCH'), 'wrong approved digest is rejected');
+    t.assert(await rejectsCode(() => validatePlanForApply({ plan, approvedDigest: plan.digest, now: new Date('2026-07-15T12:30:00.000Z') }), 'PLAN_EXPIRED'), 'plan expires at the exact boundary');
+    t.assert(await rejectsCode(() => validatePlanForApply({ plan, approvedDigest: plan.digest, now: new Date('2026-07-15T12:10:00.000Z'), localState: { wasDigestApplied: async () => true } }), 'PLAN_REPLAYED'), 'applied digest cannot be replayed');
+
+    writeFileSync(config, '{"version":2}\n', 'utf8');
+    let mutationCalls = 0;
+    t.assert(await rejectsCode(() => validatePlanForApply({
+      plan,
+      approvedDigest: plan.digest,
+      now: new Date('2026-07-15T12:10:00.000Z'),
+      fingerprint: async () => fingerprintPath(config, { allowedRoots: [root] }),
+      localState: {
+        wasDigestApplied: async () => false,
+        createSnapshot: async () => { mutationCalls += 1; },
+        writeJsonAtomic: async () => { mutationCalls += 1; },
+      },
+    }), 'PLAN_STALE'), 'precondition drift rejects the complete plan');
+    t.assert(mutationCalls === 0, 'every plan rejection occurs before snapshots or writes');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Receipt hashes bind redacted evidence to its machine-local path label.
+{
+  const root = makeRoot();
+  try {
+    const receiptsRoot = join(root, 'receipts');
+    mkdirSync(receiptsRoot);
+    const config = join(root, 'targets.json');
+    writeFileSync(config, '{}\n', 'utf8');
+    const reviewed = await fingerprintPath(config, { allowedRoots: [root] });
+    const plan = createReviewedPlan({ root, reviewed });
+    const result = createMachineResult({
+      operation: 'verify',
+      source: sampleSource(root),
+      request: sampleRequest(),
+      descriptor: sampleDescriptor(root),
+      plan: null,
+      stages: [createStageResult({ name: 'target', status: 'VERIFIED' })],
+      clients: [],
+      receipts: [],
+      actions: [],
+      now: new Date('2026-07-15T12:05:00.000Z'),
+    });
+    result.stages[0].evidence = {
+      token: 'receipt-token-canary',
+      nested: { password: 'receipt-password-canary', safe_hash: 'a'.repeat(64) },
+    };
+    const localState = {
+      paths: () => ({ receipts: receiptsRoot }),
+      async writeJsonAtomic(path, value) {
+        writeFileSync(path, `${canonicalJson(value)}\n`, 'utf8');
+      },
+    };
+    const reference = await writeReceipt({ localState, result, plan });
+    t.assert(reference.kind === 'deployment' && /^[0-9a-f]{64}$/.test(reference.sha256), 'receipt writer returns a stable hashed reference');
+    const bytes = readFileSync(reference.path, 'utf8');
+    t.assert(!bytes.includes('receipt-token-canary') && !bytes.includes('receipt-password-canary'), 'receipt JSON contains no secret canaries');
+    const verified = await readAndVerifyReceipt(reference.path);
+    t.assert(verified.receipt_sha256 === reference.sha256 && verified.plan.digest === plan.digest, 'receipt self-hash and plan digest verify');
+
+    const copied = join(receiptsRoot, 'copied-receipt.json');
+    copyFileSync(reference.path, copied);
+    t.assert(await rejectsCode(() => readAndVerifyReceipt(copied), 'RECEIPT_INTEGRITY_FAILED'), 'copy-moved receipt cannot establish current state');
+    const parsed = JSON.parse(bytes);
+    parsed.outcome = 'FAILED';
+    writeFileSync(reference.path, `${canonicalJson(parsed)}\n`, 'utf8');
+    t.assert(await rejectsCode(() => readAndVerifyReceipt(reference.path), 'RECEIPT_INTEGRITY_FAILED'), 'tampered receipt fails its canonical self-hash');
   } finally {
     cleanup(root);
   }

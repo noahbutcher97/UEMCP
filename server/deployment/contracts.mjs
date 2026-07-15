@@ -409,6 +409,30 @@ export function validateMachineResult(value) {
   return true;
 }
 
+export function validateSourceContract(value) {
+  return validateSource(value);
+}
+
+export function validateRequestContract(value) {
+  return validateRequest(value);
+}
+
+export function validateDescriptorContract(value) {
+  return validateDescriptor(value);
+}
+
+export function validateStageContract(value) {
+  return validatePublicStage(value);
+}
+
+export function validateClientContract(value) {
+  return validateClient(value);
+}
+
+export function validateActionContract(value) {
+  return validateAction(value);
+}
+
 export function exitCodeForOutcome(outcome) {
   if (!Object.values(OUTCOMES).includes(outcome)) fail('unknown deployment outcome', { outcome });
   return EXIT_CODES[outcome];
