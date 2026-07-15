@@ -167,6 +167,70 @@ t.assert(
       JSON.stringify(expectedManagementSessionStateTools.map((toolName) => [toolName, toolName])),
   'management session-state policy supports entries()',
 );
+
+const setOperationOperand = new Set(['connection_info', 'list_toolsets']);
+const setReadCases = [
+  ['size', () => MANAGEMENT_SESSION_STATE_TOOLS.size, expectedManagementSessionStateTools.length],
+  ['has', () => MANAGEMENT_SESSION_STATE_TOOLS.has('connection_info'), true],
+  ['keys', () => [...MANAGEMENT_SESSION_STATE_TOOLS.keys()], expectedManagementSessionStateTools],
+  ['values', () => [...MANAGEMENT_SESSION_STATE_TOOLS.values()], expectedManagementSessionStateTools],
+  [
+    'entries',
+    () => [...MANAGEMENT_SESSION_STATE_TOOLS.entries()],
+    expectedManagementSessionStateTools.map((toolName) => [toolName, toolName]),
+  ],
+  ['iterator', () => [...MANAGEMENT_SESSION_STATE_TOOLS[Symbol.iterator]()], expectedManagementSessionStateTools],
+  [
+    'forEach',
+    () => {
+      const values = [];
+      MANAGEMENT_SESSION_STATE_TOOLS.forEach((value) => values.push(value));
+      return values;
+    },
+    expectedManagementSessionStateTools,
+  ],
+  [
+    'union',
+    () => [...MANAGEMENT_SESSION_STATE_TOOLS.union(setOperationOperand)],
+    [...expectedManagementSessionStateTools, 'list_toolsets'],
+  ],
+  ['intersection', () => [...MANAGEMENT_SESSION_STATE_TOOLS.intersection(setOperationOperand)], ['connection_info']],
+  [
+    'difference',
+    () => [...MANAGEMENT_SESSION_STATE_TOOLS.difference(setOperationOperand)],
+    expectedManagementSessionStateTools.slice(1),
+  ],
+  [
+    'symmetricDifference',
+    () => [...MANAGEMENT_SESSION_STATE_TOOLS.symmetricDifference(setOperationOperand)],
+    [...expectedManagementSessionStateTools.slice(1), 'list_toolsets'],
+  ],
+  [
+    'isSubsetOf',
+    () => MANAGEMENT_SESSION_STATE_TOOLS.isSubsetOf(new Set([...expectedManagementSessionStateTools, 'list_toolsets'])),
+    true,
+  ],
+  [
+    'isSupersetOf',
+    () => MANAGEMENT_SESSION_STATE_TOOLS.isSupersetOf(new Set(['connection_info', 'detect_project'])),
+    true,
+  ],
+  ['isDisjointFrom', () => MANAGEMENT_SESSION_STATE_TOOLS.isDisjointFrom(new Set(['list_toolsets'])), true],
+];
+for (const [operation, read, expected] of setReadCases) {
+  let actual;
+  let operationError;
+  try {
+    actual = read();
+  } catch (error) {
+    operationError = error;
+  }
+  t.assert(
+    operationError === undefined && JSON.stringify(actual) === JSON.stringify(expected),
+    `management session-state policy supports Node 22 ${operation} read semantics`,
+    operationError?.message || `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+  );
+}
 t.assert(Object.isFrozen(MANAGEMENT_SESSION_STATE_TOOLS), 'management session-state policy facade is frozen');
 
 for (const mutator of ['add', 'delete', 'clear']) {
@@ -306,6 +370,112 @@ t.assert(
 t.assert(
   !(inheritedReceiverProbe in Set.prototype),
   'inherited receiver probe is removed from Set.prototype',
+);
+
+const poisonedSetDescriptors = [
+  ['size', Object.getOwnPropertyDescriptor(Set.prototype, 'size')],
+  ['has', Object.getOwnPropertyDescriptor(Set.prototype, 'has')],
+  ['values', Object.getOwnPropertyDescriptor(Set.prototype, 'values')],
+];
+const beforePoisonedReadsEntries = [...MANAGEMENT_SESSION_STATE_TOOLS];
+const beforePoisonedReadsAnnotations = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+const poisonedReadReceivers = [];
+const poisonedReadResults = [];
+let poisonedSizeResult;
+let poisonedHasResults;
+let poisonedValuesResult;
+let poisonedReadsEntries;
+let poisonedReadsAnnotations;
+let poisonedReadsError;
+try {
+  Object.defineProperty(Set.prototype, 'size', {
+    configurable: true,
+    get() {
+      poisonedReadReceivers.push(this);
+      return this;
+    },
+  });
+  Object.defineProperty(Set.prototype, 'has', {
+    configurable: true,
+    writable: true,
+    value() {
+      poisonedReadReceivers.push(this);
+      return this;
+    },
+  });
+  Object.defineProperty(Set.prototype, 'values', {
+    configurable: true,
+    writable: true,
+    value() {
+      poisonedReadReceivers.push(this);
+      return [this][Symbol.iterator]();
+    },
+  });
+
+  poisonedSizeResult = MANAGEMENT_SESSION_STATE_TOOLS.size;
+  poisonedHasResults = [
+    MANAGEMENT_SESSION_STATE_TOOLS.has('connection_info'),
+    MANAGEMENT_SESSION_STATE_TOOLS.has('list_toolsets'),
+  ];
+  poisonedValuesResult = [...MANAGEMENT_SESSION_STATE_TOOLS.values()];
+  poisonedReadResults.push(poisonedSizeResult, ...poisonedHasResults, ...poisonedValuesResult);
+  for (const result of poisonedReadResults) {
+    if (result instanceof Set) {
+      try {
+        result.add('list_toolsets');
+      } catch {
+        // Captured reads must not expose a mutable private Set.
+      }
+    }
+  }
+  poisonedReadsEntries = [...MANAGEMENT_SESSION_STATE_TOOLS];
+  poisonedReadsAnnotations = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+} catch (error) {
+  poisonedReadsError = error;
+} finally {
+  for (const receiver of [...poisonedReadReceivers, ...poisonedReadResults]) {
+    if (receiver instanceof Set && receiver !== MANAGEMENT_SESSION_STATE_TOOLS) {
+      Set.prototype.delete.call(receiver, 'list_toolsets');
+    }
+  }
+  for (const [property, descriptor] of poisonedSetDescriptors) {
+    Object.defineProperty(Set.prototype, property, descriptor);
+  }
+}
+t.assert(
+  poisonedReadsError === undefined && poisonedSizeResult === expectedManagementSessionStateTools.length,
+  'captured size getter retains semantics after Set.prototype.size replacement',
+  poisonedReadsError?.message,
+);
+t.assert(
+  JSON.stringify(poisonedHasResults) === JSON.stringify([true, false]),
+  'captured has intrinsic retains semantics after Set.prototype.has replacement',
+);
+t.assert(
+  JSON.stringify(poisonedValuesResult) === JSON.stringify(expectedManagementSessionStateTools),
+  'captured values intrinsic retains semantics after Set.prototype.values replacement',
+);
+t.assert(
+  poisonedReadReceivers.length === 0 &&
+    poisonedReadResults.every((result) => !(result instanceof Set) || result === MANAGEMENT_SESSION_STATE_TOOLS),
+  'poisoned explicit Set reads cannot expose the private target',
+);
+t.assert(
+  JSON.stringify(poisonedReadsEntries) === JSON.stringify(beforePoisonedReadsEntries),
+  'poisoned explicit Set reads cannot change policy entries',
+  `before ${JSON.stringify(beforePoisonedReadsEntries)}, after ${JSON.stringify(poisonedReadsEntries)}`,
+);
+t.assert(
+  JSON.stringify(poisonedReadsAnnotations) === JSON.stringify(beforePoisonedReadsAnnotations),
+  'poisoned explicit Set reads cannot change management annotations',
+  `before ${JSON.stringify(beforePoisonedReadsAnnotations)}, after ${JSON.stringify(poisonedReadsAnnotations)}`,
+);
+t.assert(
+  poisonedSetDescriptors.every(([property, descriptor]) => {
+    const restored = Object.getOwnPropertyDescriptor(Set.prototype, property);
+    return restored?.get === descriptor.get && restored?.value === descriptor.value;
+  }),
+  'poisoned Set read descriptors are restored',
 );
 
 let unknownRequirementError;

@@ -1,5 +1,45 @@
 import { TOOL_REQUIREMENT_KINDS } from './tool-requirements.mjs';
 
+const REFLECT_APPLY = Reflect.apply;
+const REFLECT_GET = Reflect.get;
+const REFLECT_HAS = Reflect.has;
+
+function captureSetDescriptor(property) {
+  return Object.freeze(Object.getOwnPropertyDescriptor(Set.prototype, property));
+}
+
+const SET_READ_DESCRIPTORS = Object.freeze({
+  size: captureSetDescriptor('size'),
+  has: captureSetDescriptor('has'),
+  keys: captureSetDescriptor('keys'),
+  values: captureSetDescriptor('values'),
+  entries: captureSetDescriptor('entries'),
+  iterator: captureSetDescriptor(Symbol.iterator),
+  forEach: captureSetDescriptor('forEach'),
+  union: captureSetDescriptor('union'),
+  intersection: captureSetDescriptor('intersection'),
+  difference: captureSetDescriptor('difference'),
+  symmetricDifference: captureSetDescriptor('symmetricDifference'),
+  isSubsetOf: captureSetDescriptor('isSubsetOf'),
+  isSupersetOf: captureSetDescriptor('isSupersetOf'),
+  isDisjointFrom: captureSetDescriptor('isDisjointFrom'),
+});
+
+const SET_READ_METHODS = Object.freeze(Object.assign(Object.create(null), {
+  has: SET_READ_DESCRIPTORS.has.value,
+  keys: SET_READ_DESCRIPTORS.keys.value,
+  values: SET_READ_DESCRIPTORS.values.value,
+  entries: SET_READ_DESCRIPTORS.entries.value,
+  [Symbol.iterator]: SET_READ_DESCRIPTORS.iterator.value,
+  union: SET_READ_DESCRIPTORS.union.value,
+  intersection: SET_READ_DESCRIPTORS.intersection.value,
+  difference: SET_READ_DESCRIPTORS.difference.value,
+  symmetricDifference: SET_READ_DESCRIPTORS.symmetricDifference.value,
+  isSubsetOf: SET_READ_DESCRIPTORS.isSubsetOf.value,
+  isSupersetOf: SET_READ_DESCRIPTORS.isSupersetOf.value,
+  isDisjointFrom: SET_READ_DESCRIPTORS.isDisjointFrom.value,
+}));
+
 const MANAGEMENT_SESSION_STATE_TOOL_NAMES = Object.freeze([
   'connection_info',
   'detect_project',
@@ -18,29 +58,24 @@ const managementSessionStateTools = new Proxy(managementSessionStateToolSet, {
       return undefined;
     }
     if (property === 'size') {
-      return target.size;
+      return REFLECT_APPLY(SET_READ_DESCRIPTORS.size.get, target, []);
     }
     if (property === 'forEach') {
-      return (callback, thisArg) => target.forEach((value, key) => {
-        callback.call(thisArg, value, key, managementSessionStateTools);
-      });
+      return (callback, thisArg) => REFLECT_APPLY(SET_READ_DESCRIPTORS.forEach.value, target, [
+        (value, key) => REFLECT_APPLY(callback, thisArg, [value, key, managementSessionStateTools]),
+      ]);
     }
-    if (
-      property === 'has' ||
-      property === 'keys' ||
-      property === 'values' ||
-      property === 'entries' ||
-      property === Symbol.iterator
-    ) {
-      return target[property].bind(target);
+    const readMethod = SET_READ_METHODS[property];
+    if (readMethod !== undefined) {
+      return (...args) => REFLECT_APPLY(readMethod, target, args);
     }
-    return Reflect.get(target, property, managementSessionStateTools);
+    return REFLECT_GET(target, property, managementSessionStateTools);
   },
   has(target, property) {
     if (property === 'add' || property === 'delete' || property === 'clear') {
       return false;
     }
-    return Reflect.has(target, property);
+    return REFLECT_HAS(target, property);
   },
 });
 export const MANAGEMENT_SESSION_STATE_TOOLS = Object.freeze(managementSessionStateTools);
