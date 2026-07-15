@@ -255,6 +255,59 @@ t.assert(
   `before ${JSON.stringify(beforeForEachMutation)}, after ${JSON.stringify(afterForEachMutation)}`,
 );
 
+const inheritedReceiverProbe = Symbol('management-session-state-receiver');
+const beforeInheritedReceiverEntries = [...MANAGEMENT_SESSION_STATE_TOOLS];
+const beforeInheritedReceiverAnnotations = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+let inheritedReceiver;
+let inheritedReceiverEntries;
+let inheritedReceiverAnnotations;
+let inheritedReceiverMutationAttempted = false;
+let inheritedReceiverError;
+try {
+  Object.defineProperty(Set.prototype, inheritedReceiverProbe, {
+    configurable: true,
+    get() {
+      return this;
+    },
+  });
+  inheritedReceiver = MANAGEMENT_SESSION_STATE_TOOLS[inheritedReceiverProbe];
+  inheritedReceiverMutationAttempted = true;
+  try {
+    inheritedReceiver.add('list_toolsets');
+  } catch {
+    // An inherited accessor receives the protected export, which has no mutator route.
+  }
+  inheritedReceiverEntries = [...MANAGEMENT_SESSION_STATE_TOOLS];
+  inheritedReceiverAnnotations = getToolAnnotations('list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+} catch (error) {
+  inheritedReceiverError = error;
+} finally {
+  if (inheritedReceiver instanceof Set && inheritedReceiver !== MANAGEMENT_SESSION_STATE_TOOLS) {
+    Set.prototype.delete.call(inheritedReceiver, 'list_toolsets');
+  }
+  delete Set.prototype[inheritedReceiverProbe];
+}
+t.assert(
+  inheritedReceiverError === undefined && inheritedReceiver === MANAGEMENT_SESSION_STATE_TOOLS,
+  'inherited Set accessors receive only the protected policy export',
+  inheritedReceiverError?.message,
+);
+t.assert(
+  inheritedReceiverMutationAttempted &&
+    JSON.stringify(inheritedReceiverEntries) === JSON.stringify(beforeInheritedReceiverEntries),
+  'inherited-accessor mutation cannot change policy entries',
+  `before ${JSON.stringify(beforeInheritedReceiverEntries)}, after ${JSON.stringify(inheritedReceiverEntries)}`,
+);
+t.assert(
+  JSON.stringify(inheritedReceiverAnnotations) === JSON.stringify(beforeInheritedReceiverAnnotations),
+  'inherited-accessor mutation cannot change management annotations',
+  `before ${JSON.stringify(beforeInheritedReceiverAnnotations)}, after ${JSON.stringify(inheritedReceiverAnnotations)}`,
+);
+t.assert(
+  !(inheritedReceiverProbe in Set.prototype),
+  'inherited receiver probe is removed from Set.prototype',
+);
+
 let unknownRequirementError;
 try {
   getToolAnnotations('synthetic_tool', 'future_requirement');

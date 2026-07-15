@@ -34,7 +34,7 @@ const managementSessionStateTools = new Proxy(managementSessionStateToolSet, {
     ) {
       return target[property].bind(target);
     }
-    return Reflect.get(target, property, target);
+    return Reflect.get(target, property, managementSessionStateTools);
   },
   has(target, property) {
     if (property === 'add' || property === 'delete' || property === 'clear') {
