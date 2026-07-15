@@ -307,7 +307,10 @@ t.assert(
   'read_asset_properties reason and container contracts are immutable',
 );
 
-const { containerHandlers: configuredContainerHandlers } = buildPropertyReadHandlers();
+const {
+  structHandlers: configuredStructHandlers,
+  containerHandlers: configuredContainerHandlers,
+} = buildPropertyReadHandlers();
 const missingConfiguredContainerHandlers = REQUIRED_CONTAINER_PROPERTY_TYPES
   .filter(type => typeof configuredContainerHandlers.get(type) !== 'function');
 t.assert(
@@ -342,6 +345,51 @@ t.assert(
   supportedValuesSection.includes(durableMapBoundary),
   'durable map boundary documents scalar keys and every currently supported value category',
   `missing: ${durableMapBoundary}`,
+);
+const undocumentedConfiguredStructs = [...configuredStructHandlers.keys()]
+  .filter(structName => {
+    const documentedName = structName.startsWith('F') ? structName : `F${structName}`;
+    return !supportedValuesSection.includes(`\`${documentedName}\``);
+  })
+  .sort();
+t.assert(
+  undocumentedConfiguredStructs.length === 0,
+  'durable parser reference names every configured engine-struct handler',
+  `undocumented handlers: ${undocumentedConfiguredStructs.join(', ')}`,
+);
+
+const exportSelectionSection = extractMarkdownSection(toolSurfaceDoc, '### Export And Property Selection');
+const documentedExportSelectionReasons = [
+  'blueprint_cdo',
+  'package_root_name_match',
+  'root_asset_export',
+  'first_asset_export',
+  'first_export_fallback',
+  'explicit_export_name',
+  'explicit_export_index',
+];
+const documentedRequestedPropertyStatuses = [
+  'serialized',
+  'unsupported',
+  'not_serialized_default',
+  'unknown_due_to_truncation',
+];
+t.assert(
+  exportSelectionSection.includes('`export_selection_reason`') &&
+    documentedExportSelectionReasons.every(reason => exportSelectionSection.includes(`\`${reason}\``)),
+  'durable export-selection contract names the response field and every emitted reason',
+  `section: ${JSON.stringify(exportSelectionSection)}`,
+);
+t.assert(
+  exportSelectionSection.includes('`requested_properties`') &&
+    documentedRequestedPropertyStatuses.every(status => exportSelectionSection.includes(`\`${status}\``)),
+  'durable requested-property contract names the response field and every row status',
+  `section: ${JSON.stringify(exportSelectionSection)}`,
+);
+t.assert(
+  !exportSelectionSection.includes('`no_cdo_export_found`') &&
+    !exportSelectionSection.includes('`root_component_parse_failed`'),
+  'read_asset_properties contract excludes reason codes emitted only by sibling tools',
 );
 
 const actorOfflineTip = 'Use the client\'s native source-search capability to find C++ class names under Source/, then use get_actor_properties to inspect level instances.';

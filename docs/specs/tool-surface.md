@@ -23,7 +23,7 @@ This is a durable parser reference, not additional tool-wire metadata. The bound
 
 ### Supported Values And Boundaries
 
-The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, and simple-element `TArray` and `TSet`. Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, and seven MaterialInput variants. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and other non-scalar map keys remain unsupported.
+The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, and simple-element `TArray` and `TSet`. Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, `FColorMaterialInput`, `FScalarMaterialInput`, `FShadingModelMaterialInput`, `FSubstrateMaterialInput`, `FVectorMaterialInput`, `FVector2MaterialInput`, and `FMaterialAttributesInput`. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and other non-scalar map keys remain unsupported.
 
 ### Reason-Code Taxonomy
 
@@ -36,7 +36,7 @@ The parser supports scalar values, enums, object and soft references, gameplay t
 
 ### Export And Property Selection
 
-The default export-selection reasons are `blueprint_cdo`, `package_root_name_match`, `root_asset_export`, `first_asset_export`, and `first_export_fallback`. Explicit selection reports `explicit_export_name` or `explicit_export_index`. `export_name` and `export_index` are mutually exclusive; `export_index` is one-based and is the durable disambiguator for duplicate export names.
+The `export_selection_reason` response field reports `blueprint_cdo`, `package_root_name_match`, `root_asset_export`, `first_asset_export`, or `first_export_fallback` for default selection and `explicit_export_name` or `explicit_export_index` for explicit selection. `export_name` and `export_index` are mutually exclusive; `export_index` is one-based and is the durable disambiguator for duplicate export names.
 
 `property_names` leaves `properties` as the decoded-value map and adds exactly one `requested_properties` row per requested name. Row statuses are `serialized`, `unsupported`, `not_serialized_default`, and `unknown_due_to_truncation`. Filtered `unsupported[]` markers are scoped to requested properties, except `__stream__` markers, which apply to the whole parse. A missing property proves only that no serialized value was found; it does not prove inherited native or Blueprint defaults.
 

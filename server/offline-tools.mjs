@@ -1191,21 +1191,8 @@ const BP_GENERATED_CLASSES = new Set([
  * Arrays and plain objects only; skips primitives, null, and non-plain
  * objects (Date, Map, etc.) defensively.
  *
- * Reason-code catalog for `unsupported[]` markers surfaced by the Level 1+2+2.5
- * parser pipeline:
- *   - `unknown_struct`            — struct name not in the engine registry
- *                                   (falls back to tagged self-describing decode)
- *   - `complex_element_container` — TArray/TSet of custom struct elements
- *   - `container_deferred`        — TMap with non-scalar key/value types
- *   - `size_budget_exceeded`      — property value skipped to honor max_bytes
- *   - `unknown_property_type`     — FPropertyTag type outside the supported set
- *   - `unexpected_preamble`       — export body begins with a non-zero byte
- *                                   (non-CDO subclass exports, AssetImportData, etc.)
- *   - `serial_range_out_of_bounds`— declared export serial range exceeds buffer
- *   - `delegate_not_serialized`   — FDelegateProperty / FMulticastDelegateProperty
- *                                   (rarely fires: CDOs don't serialize delegate bindings)
- *   - `localized_text`            — FText with localization tables
- *   - `no_cdo_export_found`       — include_defaults=true but CDO export missing
+ * The configured reader's `unsupported[]` reasons are centralized in
+ * PROPERTY_READ_REASON_GROUPS and documented in docs/specs/tool-surface.md.
  */
 function stripPackageIndex(value) {
   if (value === null || typeof value !== 'object') return value;
