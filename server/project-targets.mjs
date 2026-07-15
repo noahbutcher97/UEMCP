@@ -1,25 +1,45 @@
 // Repo-local .uemcp-targets.json / .uemcp-targets.txt parsing and aliasing.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
+  lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 
 import { PROJECT_ERROR_CODES } from './project-errors.mjs';
 import { createProjectIdentity, normalizeComparisonPath } from './project-identity.mjs';
 
 const DEFAULT_FS = {
+  closeSync,
   existsSync,
+  fsyncSync,
+  lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 };
+
+export class ProjectTargetPathError extends Error {
+  constructor(message, code = 'INVALID_TARGET') {
+    super(message);
+    this.name = 'ProjectTargetPathError';
+    this.code = code;
+  }
+}
 
 export function parseTargetsFile(content) {
   return String(content || '')
@@ -30,6 +50,9 @@ export function parseTargetsFile(content) {
 
 export function parseTargetProfilesFile(content) {
   const parsed = JSON.parse(String(content || '{}'));
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Target profile document must be an object.');
+  }
   const targets = parsed.targets && typeof parsed.targets === 'object' && !Array.isArray(parsed.targets)
     ? parsed.targets
     : {};
@@ -37,10 +60,70 @@ export function parseTargetProfilesFile(content) {
     ? parsed.profiles
     : {};
   return {
+    ...parsed,
     version: parsed.version ?? 1,
     profiles,
     targets,
   };
+}
+
+export function resolveDefaultTargetsPath({
+  repoRoot,
+  stateRoot = null,
+  sourceKind = null,
+  explicitTargetsPath = null,
+  fsImpl = DEFAULT_FS,
+} = {}) {
+  if (!repoRoot) throw new ProjectTargetPathError('resolveDefaultTargetsPath requires repoRoot');
+  if (explicitTargetsPath) {
+    if (!isAbsolute(explicitTargetsPath) || extname(explicitTargetsPath).toLowerCase() !== '.json') {
+      throw new ProjectTargetPathError('Explicit target registry must be an absolute .json path.');
+    }
+    return resolve(explicitTargetsPath);
+  }
+  const absoluteRepoRoot = resolve(repoRoot);
+  let kind = sourceKind;
+  if (kind === null) {
+    if (fsImpl.existsSync(join(absoluteRepoRoot, '.git'))) kind = 'git_checkout';
+    else if (fsImpl.existsSync(join(absoluteRepoRoot, '.uemcp-source-provenance.json'))) kind = 'pinned_archive';
+    else kind = 'git_checkout';
+  }
+  if (kind === 'git_checkout') return join(absoluteRepoRoot, '.uemcp-targets.json');
+  if (kind === 'pinned_archive') {
+    if (!stateRoot) throw new ProjectTargetPathError('Pinned archive target registration requires stable local state.', 'LOCAL_STATE_UNAVAILABLE');
+    return join(resolve(stateRoot), '.uemcp-targets.json');
+  }
+  throw new ProjectTargetPathError(`Unknown source kind: ${kind}`);
+}
+
+function writeStructuredFileAtomic(configPath, serialized, fsImpl) {
+  const dir = dirname(configPath);
+  if (dir) fsImpl.mkdirSync(dir, { recursive: true });
+  const supportsAtomicWrite = ['openSync', 'fsyncSync', 'closeSync', 'renameSync', 'rmSync']
+    .every(name => typeof fsImpl[name] === 'function');
+  if (!supportsAtomicWrite) {
+    fsImpl.writeFileSync(configPath, serialized, 'utf8');
+    return;
+  }
+  const scratchPath = join(dir, `.${randomBytes(16).toString('hex')}.scratch`);
+  let handle = null;
+  try {
+    handle = fsImpl.openSync(scratchPath, 'wx', 0o600);
+    fsImpl.writeFileSync(handle, serialized, 'utf8');
+    fsImpl.fsyncSync(handle);
+    fsImpl.closeSync(handle);
+    handle = null;
+    fsImpl.renameSync(scratchPath, configPath);
+  } finally {
+    if (handle !== null) {
+      try { fsImpl.closeSync(handle); } catch {
+        // Preserve the original write failure.
+      }
+    }
+    try { fsImpl.rmSync(scratchPath, { force: true }); } catch {
+      // Best-effort cleanup after the primary operation.
+    }
+  }
 }
 
 function shortHash(text) {
@@ -139,6 +222,8 @@ export function registerProjectTargetProfile({
   configPath,
   uprojectPath,
   profiles = ['default', 'smoke', 'release-gate'],
+  dryRun = false,
+  writeStructuredFile = null,
   fsImpl = DEFAULT_FS,
 } = {}) {
   if (!configPath) throw new Error('registerProjectTargetProfile requires configPath');
@@ -178,16 +263,18 @@ export function registerProjectTargetProfile({
     }
   }
 
-  if (changed) {
-    const dir = dirname(configPath);
-    if (dir) fsImpl.mkdirSync(dir, { recursive: true });
-    fsImpl.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  const serialized = `${JSON.stringify(config, null, 2)}\n`;
+  if (changed && !dryRun) {
+    if (writeStructuredFile) writeStructuredFile(configPath, serialized);
+    else writeStructuredFileAtomic(configPath, serialized, fsImpl);
   }
 
   return {
     status: changed ? 'added' : 'unchanged',
     alias,
     configPath,
+    document: config,
+    serialized,
   };
 }
 
@@ -247,15 +334,28 @@ export function migrateLegacyTargetsToProfiles({
 export function readProjectTargets({
   repoRoot,
   targetsPath = null,
-  targetsJsonPath = join(repoRoot, '.uemcp-targets.json'),
-  legacyTargetsPath = join(repoRoot, '.uemcp-targets.txt'),
+  targetsJsonPath = null,
+  legacyTargetsPath = null,
+  stateRoot = null,
+  sourceKind = null,
   profile = null,
   fsImpl = DEFAULT_FS,
   clientRoots = [],
 } = {}) {
   const explicitTargetsPath = !!targetsPath;
+  const resolvedTargetsJsonPath = targetsJsonPath || resolveDefaultTargetsPath({
+    repoRoot,
+    stateRoot,
+    sourceKind,
+    fsImpl,
+  });
+  const resolvedLegacyTargetsPath = legacyTargetsPath || join(resolve(repoRoot), '.uemcp-targets.txt');
+  const inferredPinnedSource = sourceKind === 'pinned_archive'
+    || (sourceKind === null
+      && !fsImpl.existsSync(join(resolve(repoRoot), '.git'))
+      && fsImpl.existsSync(join(resolve(repoRoot), '.uemcp-source-provenance.json')));
   const resolvedTargetsPath = targetsPath || (
-    fsImpl.existsSync(targetsJsonPath) ? targetsJsonPath : legacyTargetsPath
+    fsImpl.existsSync(resolvedTargetsJsonPath) || inferredPinnedSource ? resolvedTargetsJsonPath : resolvedLegacyTargetsPath
   );
   const ext = extname(resolvedTargetsPath).toLowerCase();
 
@@ -281,7 +381,7 @@ export function readProjectTargets({
   if (ext === '.json') {
     return readStructuredProjectTargets({
       targetsPath: resolvedTargetsPath,
-      legacyTargetsPath,
+      legacyTargetsPath: resolvedLegacyTargetsPath,
       explicitTargetsPath,
       profile,
       fsImpl,
