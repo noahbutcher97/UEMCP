@@ -42,7 +42,7 @@ The default export-selection reasons are `blueprint_cdo`, `package_root_name_mat
 
 ### Subobjects, Collision, And Budgets
 
-With `include_subobjects=true`, traversal stays in the selected package and discovers component or subobject exports through outer links, serialized object references, and Blueprint generated-class children. Traversal honors `subobject_depth` (default 1, cap 3) and `subobject_limit` (default 50, cap 200). Each subobject row reports `decode_status` as `serialized`, `empty_or_default`, or `present_but_undecoded`.
+With `include_subobjects=true`, traversal stays in the selected package and discovers component or subobject exports through outer links, serialized object references, and Blueprint generated-class children. Traversal honors `subobject_depth` (default 1, cap 3) and `subobject_limit` (default 50, cap 200). Each subobject row reports `decode_status` as `serialized`, `empty_or_default`, or `present_but_undecoded`. Ordinary subobject rows also include decoded `properties` and `unsupported` markers.
 
 `max_bytes` bounds decoded output and sets `truncated`; `size_budget_exceeded` markers are capped at 20. Subobjects share the aggregate `subobject_payload_max_bytes` budget, equal to `max_bytes`, with `subobject_payload_bytes_remaining` tracking what remains. A row that would exceed the remaining aggregate budget is returned as `present_but_undecoded` with `subobject_budget_exhausted`, and the response sets `subobjects_truncated` instead of expanding without bound.
 

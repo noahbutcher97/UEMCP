@@ -251,6 +251,39 @@ t.assert(
   'blueprints-write offline workflow uses the provider-neutral source-search tip',
 );
 
+const originalActorCore = TOOLSET_TIPS.actors.core;
+const originalActorWorkflow = TOOLSET_TIPS.actors.workflows[0].tip;
+const originalActorWorkflowCount = TOOLSET_TIPS.actors.workflows.length;
+const originalActorRequirementCount = TOOLSET_TIPS.actors.workflows[0].requires.length;
+const tipMutationMarker = 'MUTATED TOOLSET TIPS';
+t.assert(
+  Object.isFrozen(TOOLSET_TIPS.actors) &&
+    Object.isFrozen(TOOLSET_TIPS.actors.core) &&
+    Object.isFrozen(TOOLSET_TIPS.actors.workflows) &&
+    Object.isFrozen(TOOLSET_TIPS.actors.workflows[0]) &&
+    Object.isFrozen(TOOLSET_TIPS.actors.workflows[0].requires),
+  'representative nested toolset tip nodes are immutable',
+);
+
+const tipMutationErrors = [
+  () => { TOOLSET_TIPS.actors.core = tipMutationMarker; },
+  () => { TOOLSET_TIPS.actors.workflows[0].tip = tipMutationMarker; },
+  () => { TOOLSET_TIPS.actors.workflows[0].requires.push('never-enabled'); },
+  () => { TOOLSET_TIPS.actors.workflows.push({ requires: [], tip: tipMutationMarker }); },
+].map(mutate => captureError(mutate));
+t.assert(
+  tipMutationErrors.every(error => error instanceof TypeError),
+  'nested toolset tip writes are rejected',
+  tipMutationErrors.map(error => error?.message || 'mutation succeeded').join('; '),
+);
+t.assert(
+  TOOLSET_TIPS.actors.core === originalActorCore &&
+    TOOLSET_TIPS.actors.workflows[0].tip === originalActorWorkflow &&
+    TOOLSET_TIPS.actors.workflows.length === originalActorWorkflowCount &&
+    TOOLSET_TIPS.actors.workflows[0].requires.length === originalActorRequirementCount,
+  'nested writes leave toolset tips unchanged',
+);
+
 const oversizedDescriptions = [...tools.values()]
   .filter(record => utf8Bytes(record.def.description || '') > TOOL_DESCRIPTION_LIMIT_BYTES)
   .map(record => `${record.name}: ${utf8Bytes(record.def.description)} bytes`);
@@ -342,6 +375,27 @@ try {
     `got ${attachResponse.result?.structuredContent?.projectContext?.attachmentState}`,
   );
 
+  const tipsResponse = await transport.sendClientRequest('tools/call', {
+    name: 'find_tools',
+    arguments: {
+      query: 'spawn blueprint actor create blueprint',
+      max_results: 10,
+    },
+  });
+  const tipsPayload = tipsResponse.result?.structuredContent || {};
+  const actorRuntimeTip = (tipsPayload.tips || []).find(tip => tip.startsWith('[actors]')) || '';
+  t.assert(
+    tipsPayload.autoEnabled?.includes('actors') && tipsPayload.autoEnabled?.includes('blueprints-write'),
+    'runtime tip scenario enables the related toolsets',
+  );
+  t.assert(
+    actorRuntimeTip.includes(originalActorCore) &&
+      actorRuntimeTip.includes(originalActorWorkflow) &&
+      !actorRuntimeTip.includes(tipMutationMarker),
+    'rejected mutations cannot alter a later collectTips runtime response',
+    `got ${JSON.stringify(actorRuntimeTip)}`,
+  );
+
   const allToolsetNames = Object.keys(toolsData.toolsets);
   const enableResponse = await transport.sendClientRequest('tools/call', {
     name: 'enable_toolset',
@@ -403,6 +457,23 @@ try {
     listedRows.length === expectedNames.size && missingNames.length === 0 && unexpectedNames.length === 0,
     'tools/list exposes the independently inventoried management and dynamic registrations',
     `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
+  );
+
+  const registeredDescriptionSizes = listedRows.map(row => ({
+    name: row.name,
+    bytes: typeof row.description === 'string' ? utf8Bytes(row.description) : Infinity,
+  }));
+  const oversizedRegisteredDescriptions = registeredDescriptionSizes
+    .filter(row => row.bytes > TOOL_DESCRIPTION_LIMIT_BYTES)
+    .map(row => `${row.name}: ${Number.isFinite(row.bytes) ? `${row.bytes} bytes` : 'non-string description'}`);
+  const maximumRegisteredDescription = registeredDescriptionSizes.reduce(
+    (maximum, row) => row.bytes > maximum.bytes ? row : maximum,
+    { name: '(none)', bytes: 0 },
+  );
+  t.assert(
+    oversizedRegisteredDescriptions.length === 0,
+    `every registered tools/list description fits the UTF-8 wire budget (maximum ${maximumRegisteredDescription.name}: ${maximumRegisteredDescription.bytes} bytes)`,
+    oversizedRegisteredDescriptions.join('; '),
   );
 
   const managementAnnotationMismatches = [];
