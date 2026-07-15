@@ -2,6 +2,22 @@
 //
 // Run: cd server && node test-deployment-contracts.mjs
 
+import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+
 import { TestRunner } from './test-helpers.mjs';
 import {
   ACTION_CODES,
@@ -18,6 +34,17 @@ import {
   reduceOutcome,
   validateMachineResult,
 } from './deployment/contracts.mjs';
+import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
+import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints.mjs';
+import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
+import { createProcessRunner } from './deployment/process-runner.mjs';
+import {
+  fingerprintWindowsFileMetadata,
+  inspectAuthenticode,
+  replaceFilePreservingMetadata,
+} from './deployment/windows-native.mjs';
+import { createLocalState } from './deployment/local-state.mjs';
+import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 
 const t = new TestRunner('Deployment Contract Tests');
 
@@ -266,6 +293,338 @@ function validMachineInput(overrides = {}) {
   const drifted = { ...result, schema_version: '2.0' };
   t.assert(throwsCode(() => validateMachineResult(drifted), 'INVALID_CONTRACT'), 'schema-version drift is rejected');
   t.assert(throwsCode(() => validateMachineResult({ ...result, extra: true }), 'INVALID_CONTRACT'), 'unknown top-level fields are rejected');
+}
+
+function makePrimitiveRoot(label = 'uemcp-deployment-primitives-') {
+  const root = join(tmpdir(), `${label}${randomUUID()}`);
+  mkdirSync(root);
+  return root;
+}
+
+function cleanupPrimitiveRoot(root, label = 'uemcp-') {
+  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
+  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
+  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
+  rmSync(root, { recursive: true, force: true });
+}
+
+async function rejectsCode(fn, code) {
+  try {
+    await fn();
+    return false;
+  } catch (error) {
+    return error?.code === code;
+  }
+}
+
+// Canonical JSON and hashing preserve exact machine-review bytes.
+{
+  t.assert(canonicalJson({ z: 1, a: { d: 4, b: 2 }, list: [3, 1] }) === '{"a":{"b":2,"d":4},"list":[3,1],"z":1}', 'canonical JSON recursively sorts object keys and preserves arrays');
+  t.assert(canonicalJson({ path: 'D:/\u30c4\u30fc\u30eb/Project' }) === '{"path":"D:/\u30c4\u30fc\u30eb/Project"}', 'canonical JSON preserves Unicode strings');
+  t.assert(canonicalJson(-0) === '0', 'canonical JSON normalizes negative zero');
+  t.assert(throwsCode(() => canonicalJson(Number.NaN), 'INVALID_CANONICAL_JSON'), 'canonical JSON rejects NaN');
+  t.assert(throwsCode(() => canonicalJson({ missing: undefined }), 'INVALID_CANONICAL_JSON'), 'canonical JSON rejects undefined');
+  const cycle = {};
+  cycle.self = cycle;
+  t.assert(throwsCode(() => canonicalJson(cycle), 'INVALID_CANONICAL_JSON'), 'canonical JSON rejects cycles');
+  const raw = Buffer.from([0, 255, 1, 254]);
+  const expectedRawHash = createHash('sha256').update(raw).digest('hex');
+  t.assert(sha256Bytes(raw) === expectedRawHash && /^[0-9a-f]{64}$/.test(sha256Bytes(raw)), 'raw-byte SHA-256 is lowercase and exact');
+  t.assert(sha256Canonical({ b: 2, a: 1 }) === sha256Canonical({ a: 1, b: 2 }), 'canonical hash ignores object insertion order');
+}
+
+// File and directory fingerprints bind bytes, path identity, and link metadata.
+{
+  const root = makePrimitiveRoot();
+  try {
+    const payload = join(root, 'payload.bin');
+    const hardLink = join(root, 'payload-hardlink.bin');
+    const tree = join(root, 'tree');
+    mkdirSync(tree);
+    writeFileSync(payload, Buffer.from([0, 255, 10, 13]));
+    linkSync(payload, hardLink);
+    writeFileSync(join(tree, 'b.txt'), 'b', 'utf8');
+    writeFileSync(join(tree, 'a.txt'), 'a', 'utf8');
+
+    const file = await fingerprintPath(payload, { allowedRoots: [root] });
+    t.assert(file.exists && file.kind === 'file' && file.sha256 === sha256Bytes(Buffer.from([0, 255, 10, 13])), 'file fingerprint hashes exact bytes');
+    t.assert(file.link_count >= 2, 'file fingerprint records hard-link count');
+    const missing = await fingerprintPath(join(root, 'missing.txt'), { allowedRoots: [root] });
+    t.assert(!missing.exists && missing.kind === 'missing' && missing.sha256 === null, 'missing path has an explicit fingerprint');
+    const directory = await fingerprintDirectory(tree, { allowedRoots: [root] });
+    t.assert(directory.entries.map(entry => entry.path).join(',') === 'a.txt,b.txt', 'directory manifest paths are slash-normalized and ordinal sorted');
+    t.assert(directory.manifest_sha256 === sha256Canonical(directory.entries), 'directory manifest hash covers exact entry rows');
+    t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: ['relative-root'] }), 'INVALID_ALLOWED_ROOT'), 'relative allowed roots are rejected');
+
+    const outside = makePrimitiveRoot('uemcp-outside-');
+    try {
+      const outsideDir = join(outside, 'outside');
+      mkdirSync(outsideDir);
+      writeFileSync(join(outsideDir, 'secret.txt'), 'outside', 'utf8');
+      const junction = join(root, 'escaped');
+      symlinkSync(outsideDir, junction, 'junction');
+      t.assert(await rejectsCode(() => fingerprintPath(join(junction, 'secret.txt'), { allowedRoots: [root] }), 'PATH_OUTSIDE_ALLOWED_ROOT'), 'real-path escape through a junction is rejected');
+    } finally {
+      cleanupPrimitiveRoot(outside, 'uemcp-outside-');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root);
+  }
+}
+
+// Recursive redaction preserves shape without preserving secret values.
+{
+  const redacted = redactSecrets({
+    token: 'token-canary',
+    nested: { api_key: 'key-canary', public_value: 'visible' },
+    env: { PATH: 'path-canary' },
+  });
+  t.assert(redacted.token === '<redacted>' && redacted.nested.api_key === '<redacted>', 'known secret keys are redacted recursively');
+  t.assert(redacted.nested.public_value === 'visible', 'non-secret values remain available');
+  t.assert(redacted.env === '<redacted>', 'environment blocks are redacted by default');
+  t.assert(throwsCode(() => assertNoSecretCanaries(redacted, ['visible']), 'SECRET_CANARY'), 'canary assertion finds a surviving canary');
+  t.assert(assertNoSecretCanaries(redacted, ['token-canary', 'key-canary', 'path-canary']) === true, 'redacted secret canaries do not survive');
+}
+
+// The process runner never invokes a shell and bounds time/output.
+{
+  const runner = createProcessRunner({ defaultTimeoutMs: 2_000, defaultOutputLimitBytes: 1_024 });
+  const argument = 'value with spaces & metacharacters | $(ignored)';
+  const exact = await runner.run(process.execPath, ['-e', 'process.stdout.write(process.argv[1])', argument]);
+  t.assert(exact.status === 'exited' && exact.exitCode === 0 && exact.stdout === argument, 'process arguments remain one exact argument without shell interpretation');
+  const nonzero = await runner.run(process.execPath, ['-e', 'process.stderr.write("failure"); process.exit(7)']);
+  t.assert(nonzero.status === 'exited' && nonzero.exitCode === 7 && nonzero.stderr === 'failure', 'negative child exit remains distinct and bounded');
+  const overflow = await runner.run(process.execPath, ['-e', 'process.stdout.write("x".repeat(4096))'], { outputLimitBytes: 128 });
+  t.assert(overflow.status === 'output_limit' && overflow.stdout.length <= 128 && overflow.stdoutDiscardedBytes > 0, 'stdout overflow is classified and counted');
+  const stderrOverflow = await runner.run(process.execPath, ['-e', 'process.stderr.write("y".repeat(4096))'], { outputLimitBytes: 128 });
+  t.assert(stderrOverflow.status === 'output_limit' && stderrOverflow.stderr.length <= 128 && stderrOverflow.stderrDiscardedBytes > 0, 'stderr overflow is classified and counted');
+
+  let killed = 0;
+  const timeoutRunner = createProcessRunner({
+    defaultTimeoutMs: 50,
+    killTree: async child => {
+      killed += 1;
+      child.kill('SIGKILL');
+    },
+  });
+  const timedOut = await timeoutRunner.run(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+  t.assert(timedOut.status === 'timed_out' && killed === 1, 'timeout invokes process-tree termination exactly once');
+
+  let spawnOptions = null;
+  const probeRunner = createProcessRunner({
+    spawnImpl(executable, args, options) {
+      spawnOptions = options;
+      return spawn(executable, args, options);
+    },
+  });
+  t.assert(spawnOptions === null, 'injected spawn is not invoked during runner construction');
+  const probed = await probeRunner.run(process.execPath, ['-e', '']);
+  t.assert(probed.status === 'exited' && spawnOptions.shell === false && spawnOptions.windowsHide === true, 'real spawn is forced to shell:false with a hidden Windows child');
+}
+
+// Windows-native helpers use fixed stdin programs and dedicated environment values.
+{
+  const root = makePrimitiveRoot();
+  try {
+    const target = join(root, 'tool with & metachar.exe');
+    const replacement = join(root, 'replacement.tmp');
+    const destination = join(root, 'destination.json');
+    writeFileSync(target, 'tool', 'utf8');
+    writeFileSync(replacement, 'new', 'utf8');
+    writeFileSync(destination, 'old', 'utf8');
+    const calls = [];
+    const fakeRunner = {
+      async run(executable, args, options) {
+        calls.push({ executable, args, options });
+        if (options.env.UEMCP_AUTHENTICODE_TARGET) {
+          return { status: 'exited', exitCode: 0, stdout: '{"status":"Valid","signer_name":"Trusted Signer","thumbprint":"ABC123"}\r\n', stderr: '' };
+        }
+        if (options.env.UEMCP_METADATA_TARGET) {
+          return { status: 'exited', exitCode: 0, stdout: `{"metadata_sha256":"${'a'.repeat(64)}","stream_count":1,"stream_bytes":12}`, stderr: '' };
+        }
+        return { status: 'exited', exitCode: 0, stdout: '{"status":"replaced"}', stderr: '' };
+      },
+    };
+
+    const signature = await inspectAuthenticode(target, {
+      runner: fakeRunner,
+      systemRoot: 'C:\\Windows',
+      expectedSignerNames: ['Trusted Signer'],
+      allowedRoots: [root],
+    });
+    t.assert(signature.status === 'valid' && signature.signer_name === 'Trusted Signer', 'bounded Authenticode evidence accepts an expected signer');
+    const authCall = calls[0];
+    t.assert(!authCall.args.join(' ').includes(target) && !authCall.options.stdin.includes(target), 'Authenticode target is not interpolated into arguments or PowerShell source');
+    t.assert(authCall.options.env.UEMCP_AUTHENTICODE_TARGET === resolve(target), 'Authenticode target crosses only a dedicated environment key');
+
+    const mismatchRunner = {
+      async run() {
+        return { status: 'exited', exitCode: 0, stdout: '{"status":"Valid","signer_name":"Other","thumbprint":"ABC123"}', stderr: '' };
+      },
+    };
+    const mismatch = await inspectAuthenticode(target, { runner: mismatchRunner, systemRoot: 'C:\\Windows', expectedSignerNames: ['Trusted Signer'], allowedRoots: [root] });
+    t.assert(mismatch.status === 'invalid', 'unexpected Authenticode signer is invalid');
+    const malformedRunner = {
+      async run() {
+        return { status: 'exited', exitCode: 0, stdout: '{}\n{}', stderr: '' };
+      },
+    };
+    const malformed = await inspectAuthenticode(target, { runner: malformedRunner, systemRoot: 'C:\\Windows', allowedRoots: [root] });
+    t.assert(malformed.status === 'unavailable', 'malformed or extra Authenticode output fails closed');
+
+    const metadata = await fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root] });
+    t.assert(metadata.metadata_sha256 === 'a'.repeat(64) && metadata.stream_count === 1, 'metadata helper returns only aggregate evidence');
+    const metadataCall = calls.find(call => call.options.env.UEMCP_METADATA_TARGET);
+    t.assert(!metadataCall.options.stdin.includes(target) && !JSON.stringify(metadata).includes('tool with'), 'metadata helper does not expose paths or stream details');
+
+    const replaced = await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows' });
+    t.assert(replaced.status === 'replaced', 'replacement helper accepts a normalized success response');
+    const replaceCall = calls.find(call => call.options.env.UEMCP_REPLACEMENT_PATH);
+    t.assert(!replaceCall.options.stdin.includes(replacement) && !replaceCall.args.join(' ').includes(destination), 'replacement paths are not interpolated into source or arguments');
+  } finally {
+    cleanupPrimitiveRoot(root);
+  }
+}
+
+// Local state is injectable, atomic, replay-aware, and lease protected.
+{
+  const root = makePrimitiveRoot('uemcp-local-state-');
+  const aclCalls = [];
+  let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
+  const processStates = new Map();
+  const localState = createLocalState({
+    root,
+    aclRestrictor: async path => aclCalls.push(path),
+    processInspector: async ({ pid, process_start }) => processStates.get(`${pid}:${process_start}`) ?? 'unknown',
+    clock: () => nowMs,
+    sleep: async ms => {
+      nowMs += ms;
+    },
+  });
+  try {
+    const paths = localState.paths();
+    t.assert(paths.root === resolve(root) && paths.lock.endsWith('deployment-apply-v1.lock'), 'local-state paths are rooted only in the injected test directory');
+    const stateFile = join(paths.state, 'sample.json');
+    await localState.writeJsonAtomic(stateFile, { b: 2, a: 1 });
+    t.assert((await localState.readJson(stateFile)).a === 1, 'atomic local-state JSON round trips');
+    t.assert(aclCalls.length > 0, 'local-state creation invokes the ACL restrictor');
+    t.assert(!readFileSync(stateFile, 'utf8').includes('.tmp'), 'atomic write leaves no scratch filename in content');
+
+    const target = join(root, 'target.bin');
+    writeFileSync(target, Buffer.from([0, 1, 255]));
+    chmodSync(target, 0o640);
+    const stamp = new Date('2026-07-14T10:00:00.000Z');
+    utimesSync(target, stamp, stamp);
+    const snapshot = await localState.createSnapshot(target, { transactionId: 'tx-one' });
+    writeFileSync(target, 'applied', 'utf8');
+    t.assert(await rejectsCode(() => localState.restoreSnapshot(snapshot, { expectedCurrentHash: '0'.repeat(64) }), 'ROLLBACK_CONFLICT'), 'snapshot restore rejects concurrent content drift');
+    await localState.restoreSnapshot(snapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('applied')) });
+    t.assert(readFileSync(target).equals(Buffer.from([0, 1, 255])), 'snapshot restores exact original bytes');
+    const absentTarget = join(root, 'created-during-apply.bin');
+    const absentSnapshot = await localState.createSnapshot(absentTarget, { transactionId: 'tx-absent' });
+    writeFileSync(absentTarget, 'created', 'utf8');
+    await localState.restoreSnapshot(absentSnapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('created')) });
+    t.assert(!existsSync(absentTarget), 'snapshot restores an originally absent file to absence');
+
+    const digest = '9'.repeat(64);
+    t.assert(!(await localState.wasDigestApplied(digest)), 'fresh digest is not replayed');
+    await localState.markDigestApplied(digest, { receipt_sha256: '8'.repeat(64) });
+    t.assert(await localState.wasDigestApplied(digest), 'applied digest is persisted for replay protection');
+
+    processStates.set('123:1000', 'alive');
+    const lease = await localState.acquireApplyLease({ pid: 123, processStart: 1000, waitMs: 0 });
+    t.assert(typeof lease.ownerToken === 'string' && lease.ownerToken.length >= 16, 'apply lease has an unguessable owner token');
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ pid: 456, processStart: 2000, waitMs: 25, pollMs: 5 }), 'APPLY_IN_PROGRESS'), 'second live lease owner is bounded and rejected');
+    t.assert(await rejectsCode(() => lease.release('wrong-token'), 'LEASE_OWNER_MISMATCH'), 'only the matching lease owner may release');
+    await lease.release();
+
+    writeFileSync(paths.lock, '{}', 'utf8');
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ pid: 456, processStart: 2000, waitMs: 0 }), 'APPLY_IN_PROGRESS'), 'malformed lease residue is never broken automatically');
+    rmSync(paths.lock, { force: true });
+
+    const deadLease = { owner_token: 'dead-owner-token', pid: 321, process_start: 3000, acquired_at: new Date(nowMs - 60_000).toISOString() };
+    mkdirSync(dirname(paths.lock), { recursive: true });
+    writeFileSync(paths.lock, canonicalJson(deadLease), 'utf8');
+    processStates.set('321:3000', 'dead');
+    nowMs += 10_000;
+    const reclaimed = await localState.acquireApplyLease({ pid: 654, processStart: 4000, waitMs: 100, pollMs: 5, staleGraceMs: 5_000 });
+    t.assert(reclaimed.ownerToken !== deadLease.owner_token, 'proven-dead lease is reclaimed after the grace period');
+    await reclaimed.release();
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-local-state-');
+  }
+}
+
+// Source provenance accepts attributable checkouts and pinned archive baselines only.
+{
+  const root = makePrimitiveRoot('uemcp-provenance-');
+  try {
+    const bundleManifest = join(root, 'deploy-uemcp.manifest.json');
+    const payload = join(root, 'server', 'server.mjs');
+    mkdirSync(dirname(payload), { recursive: true });
+    writeFileSync(bundleManifest, '{"schema_version":"1.0"}\n', 'utf8');
+    writeFileSync(payload, 'export const value = 1;\n', 'utf8');
+    const payloadEntries = [{ path: 'server/server.mjs', size: readFileSync(payload).byteLength, sha256: sha256Bytes(readFileSync(payload)) }];
+    const provenance = {
+      schema_version: '1.0',
+      kind: 'pinned_github_archive',
+      repository: 'owner/UEMCP',
+      requested_ref: 'v1.0.0',
+      git_commit: 'a'.repeat(40),
+      archive_sha256: 'b'.repeat(64),
+      bundle_manifest_sha256: sha256Bytes(readFileSync(bundleManifest)),
+      payload_entries: payloadEntries,
+      payload_manifest_sha256: sha256Canonical(payloadEntries),
+      downloaded_at: '2026-07-15T10:00:00.000Z',
+    };
+    provenance.provenance_sha256 = sha256Canonical(provenance);
+    writeFileSync(join(root, '.uemcp-source-provenance.json'), `${canonicalJson(provenance)}\n`, 'utf8');
+
+    const pinned = await inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest });
+    t.assert(pinned.kind === 'pinned_archive' && pinned.dirty === false, 'verified pinned archive is attributable and clean');
+    t.assert(!JSON.stringify(pinned).includes('payload_entries'), 'pinned source result never exposes payload entries');
+    writeFileSync(payload, 'export const value = 2;\n', 'utf8');
+    const changed = await inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest });
+    t.assert(changed.dirty === true && changed.archive.current_manifest_sha256 !== changed.archive.baseline_manifest_sha256, 'changed archive payload is attributable but dirty');
+    writeFileSync(join(root, 'unexpected.txt'), 'extra', 'utf8');
+    t.assert(await rejectsCode(() => inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest }), 'SOURCE_PROVENANCE_UNKNOWN'), 'unrecognized archive extras fail provenance closed');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-provenance-');
+  }
+}
+
+{
+  const root = makePrimitiveRoot('uemcp-checkout-');
+  try {
+    mkdirSync(join(root, '.git'));
+    const gitExecutable = join(root, 'trusted-git.exe');
+    writeFileSync(gitExecutable, 'sample-binary', 'utf8');
+    const calls = [];
+    const runner = {
+      async run(executable, args) {
+        calls.push({ executable, args });
+        const command = args.join(' ');
+        if (command === '--version') return { status: 'exited', exitCode: 0, stdout: 'git version 2.50.1.windows.1\n', stderr: '' };
+        if (command === 'rev-parse --show-toplevel') return { status: 'exited', exitCode: 0, stdout: `${root}\n`, stderr: '' };
+        if (command === 'config --get remote.origin.url') return { status: 'exited', exitCode: 0, stdout: 'https://user:credential-canary@github.com/owner/UEMCP.git?token=secret#fragment\n', stderr: '' };
+        if (command === 'rev-parse HEAD') return { status: 'exited', exitCode: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' };
+        if (command === 'status --porcelain=v1 --untracked-files=all') return { status: 'exited', exitCode: 0, stdout: '?? local.txt\n', stderr: '' };
+        throw new Error(`unexpected git command: ${command}`);
+      },
+    };
+    const checkout = await inspectSourceProvenance({
+      repoRoot: root,
+      runner,
+      gitExecutable,
+      authenticodeInspector: async () => ({ status: 'valid', signer_name: 'Git for Windows', thumbprint: 'ABC' }),
+    });
+    t.assert(checkout.kind === 'git_checkout' && checkout.dirty === true, 'checkout provenance uses exact Git evidence including untracked files');
+    t.assert(checkout.repository === 'owner/UEMCP', 'GitHub remote normalizes to owner/repository identity');
+    t.assert(!JSON.stringify(checkout).includes('credential-canary') && !JSON.stringify(checkout).includes('secret'), 'remote credentials, query, and fragment never survive');
+    t.assert(calls.every(call => call.executable === resolve(gitExecutable)), 'checkout probes only the selected absolute Git executable');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-checkout-');
+  }
 }
 
 const failed = t.summary();
