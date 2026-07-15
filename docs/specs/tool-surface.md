@@ -28,7 +28,7 @@ The parser supports scalar values, enums, object and soft references, gameplay t
 ### Reason-Code Taxonomy
 
 - Parser core: `unknown_struct`, `unknown_property_type`, `unexpected_preamble`, `serial_range_out_of_bounds`, `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`, `value_read_failed`, `delegate_not_serialized`, `localized_text`, and `size_budget_exceeded`.
-- Containers: `complex_element_container`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, and `struct_key_map`.
+- Containers: `complex_element_container`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, `struct_key_map`, and `tagged_struct_terminator_missing`.
 - Struct layouts: `body_instance_native_layout_unknown`.
 - Bounded subobject output: `subobject_budget_exhausted`.
 

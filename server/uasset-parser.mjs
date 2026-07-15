@@ -872,6 +872,7 @@ function readScalarPropertyValue(cur, tag, names, opts) {
  *   unsupported: Array<{name: string, reason: string, type?: string, size_bytes?: number}>,
  *   propertyCount: number,
  *   truncated: boolean,
+ *   terminated: boolean,
  *   bytesConsumed: number
  * }}
  */
@@ -880,7 +881,14 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   const start = exportEntry.serialOffset;
   const end = start + exportEntry.serialSize;
   if (end > buf.length || start + 1 > buf.length) {
-    return { properties: {}, unsupported: [{ name: '__stream__', reason: PARSER_REASONS.serialRangeOutOfBounds }], propertyCount: 0, truncated: false, bytesConsumed: 0 };
+    return {
+      properties: {},
+      unsupported: [{ name: '__stream__', reason: PARSER_REASONS.serialRangeOutOfBounds }],
+      propertyCount: 0,
+      truncated: false,
+      terminated: false,
+      bytesConsumed: 0,
+    };
   }
   cur.seek(start);
   const preamble = cur.readUInt8();
@@ -890,7 +898,7 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
     return {
       properties: {},
       unsupported: [{ name: '__stream__', reason: PARSER_REASONS.unexpectedPreamble, size_bytes: preamble }],
-      propertyCount: 0, truncated: false, bytesConsumed: 1,
+      propertyCount: 0, truncated: false, terminated: false, bytesConsumed: 1,
     };
   }
   const res = readTaggedPropertyStream(cur, end, names, opts);
@@ -913,6 +921,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
   let propertyCount = 0;
   let responseBytes = 0;
   let truncated = false;
+  let terminated = false;
 
   while (cur.tell() < endOffset) {
     let tag;
@@ -922,7 +931,10 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
       unsupported.push({ name: '__stream__', reason: PARSER_REASONS.tagHeaderReadFailed, size_bytes: endOffset - cur.tell() });
       break;
     }
-    if (tag.terminator) break;
+    if (tag.terminator) {
+      terminated = true;
+      break;
+    }
 
     const valueStart = cur.tell();
     const valueEnd = valueStart + tag.size;
@@ -985,7 +997,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
     responseBytes += tag.size;
   }
 
-  return { properties, unsupported, propertyCount, truncated };
+  return { properties, unsupported, propertyCount, truncated, terminated };
 }
 
 /**

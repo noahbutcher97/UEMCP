@@ -28,6 +28,7 @@ export const PROPERTY_READ_REASON_GROUPS = deepFreeze({
     mapValueTypeUnsupported: 'map_value_type_unsupported',
     mapValueStructNameMissing: 'map_value_struct_name_missing',
     structKeyMap: 'struct_key_map',
+    taggedStructTerminatorMissing: 'tagged_struct_terminator_missing',
   },
   structLayouts: {
     bodyInstanceNativeLayoutUnknown: 'body_instance_native_layout_unknown',
@@ -48,4 +49,3 @@ export const REQUIRED_CONTAINER_PROPERTY_TYPES = Object.freeze([
   'SetProperty',
   'MapProperty',
 ]);
-

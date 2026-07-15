@@ -1704,6 +1704,11 @@ function testFieldPathPropertySynthetic() {
 function testContainerSyntheticScalars() {
   const structHandlers = buildStructHandlers();
   const containerHandlers = buildContainerHandlers();
+  const taggedVectorBytes = (names, x, y, z) => buildTaggedStream([
+    { name: 'X', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(x) },
+    { name: 'Y', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(y) },
+    { name: 'Z', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(z) },
+  ], names);
 
   // The parser's generic path must report a stable fallback marker when a
   // caller intentionally omits the configured container registry.
@@ -1827,12 +1832,9 @@ function testContainerSyntheticScalars() {
   // self-describing sub-stream rather than returning handler defaults.
   {
     const names = ['None', 'X', 'Y', 'Z', 'DoubleProperty'];
-    const taggedVector = buildTaggedStream([
-      { name: 'X', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(1.5) },
-      { name: 'Y', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(-2.5) },
-      { name: 'Z', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(3.5) },
-    ], names);
-    const body = Buffer.concat([int32Bytes(1), taggedVector]);
+    const first = taggedVectorBytes(names, 1.5, -2.5, 3.5);
+    const second = taggedVectorBytes(names, 7.5, 8.5, -9.5);
+    const body = Buffer.concat([int32Bytes(2), first, second]);
     const tag = { flags: 0x00, size: body.length, type: 'ArrayProperty',
                   typeParams: [{ name: 'StructProperty',
                                  params: [{ name: 'Vector', params: [] }] }] };
@@ -1840,9 +1842,56 @@ function testContainerSyntheticScalars() {
     const result = containerHandlers.get('ArrayProperty')(cur, tag, names,
                                                           { structHandlers, containerHandlers });
     runner.assert(result?.[0]?.x === 1.5 && result?.[0]?.y === -2.5 && result?.[0]?.z === 3.5,
-                  'T2 synth: TArray<tagged Vector> decodes registered struct fields');
+                  'T2 synth: TArray<tagged Vector> decodes first registered struct');
+    runner.assert(result?.[1]?.x === 7.5 && result?.[1]?.y === 8.5 && result?.[1]?.z === -9.5,
+                  'T2 synth: TArray<tagged Vector> decodes second registered struct');
     runner.assert(cur.tell() === body.length,
-                  'T2 synth: TArray<tagged Vector> consumes the complete tagged element');
+                  'T2 synth: TArray<tagged Vector> consumes both tagged elements');
+  }
+
+  // A malformed element must stop at the declared array boundary even when
+  // the backing buffer contains a valid tagged property that could poison it.
+  {
+    const names = ['None', 'X', 'Y', 'Z', 'DoubleProperty'];
+    const unterminated = taggedVectorBytes(names, 1, 2, 3).subarray(0, -8);
+    const body = Buffer.concat([int32Bytes(1), unterminated]);
+    const poison = taggedVectorBytes(names, 99, 98, 97);
+    const backing = Buffer.concat([body, poison]);
+    const tag = { flags: 0x00, size: body.length, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'Vector', params: [] }] }] };
+    const cur = new Cursor(backing);
+    const result = containerHandlers.get('ArrayProperty')(cur, tag, names,
+                                                          { structHandlers, containerHandlers });
+    runner.assert(result?.__unsupported__ === true &&
+                  result?.reason === 'tagged_struct_terminator_missing',
+                  'T2 synth: unterminated tagged array element emits a stable marker');
+    runner.assert(cur.tell() === body.length,
+                  'T2 synth: unterminated tagged array element cannot consume poisoned trailing bytes');
+  }
+
+  // The handler-free tagged fallback shares the same boundary and terminator
+  // contract as registered structs.
+  {
+    const names = ['None', 'Alpha', 'IntProperty'];
+    const tagged = buildTaggedStream([
+      { name: 'Alpha', typeName: 'IntProperty', typeParams: [], size: 4, flags: 0, valueBytes: int32Bytes(1) },
+    ], names);
+    const body = Buffer.concat([int32Bytes(1), tagged.subarray(0, -8)]);
+    const poison = buildTaggedStream([
+      { name: 'Alpha', typeName: 'IntProperty', typeParams: [], size: 4, flags: 0, valueBytes: int32Bytes(99) },
+    ], names);
+    const tag = { flags: 0x00, size: body.length, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'UnknownTaggedStruct', params: [] }] }] };
+    const cur = new Cursor(Buffer.concat([body, poison]));
+    const result = containerHandlers.get('ArrayProperty')(cur, tag, names,
+                                                          { structHandlers, containerHandlers });
+    runner.assert(result?.__unsupported__ === true &&
+                  result?.reason === 'tagged_struct_terminator_missing',
+                  'T2 synth: unterminated unknown tagged struct emits the same stable marker');
+    runner.assert(cur.tell() === body.length,
+                  'T2 synth: unknown tagged fallback cannot consume poisoned trailing bytes');
   }
 
   // Tier 2 (D46): TMap<Name, int32> synthetic.
@@ -1895,17 +1944,16 @@ function testContainerSyntheticScalars() {
 
   // Scalar key + registered struct value using tagged serialization.
   {
-    const names = ['None', 'Origin', 'X', 'Y', 'Z', 'DoubleProperty'];
-    const taggedVector = buildTaggedStream([
-      { name: 'X', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(4.5) },
-      { name: 'Y', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(-5.5) },
-      { name: 'Z', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(6.5) },
-    ], names);
+    const names = ['None', 'Origin', 'Destination', 'X', 'Y', 'Z', 'DoubleProperty'];
+    const first = taggedVectorBytes(names, 4.5, -5.5, 6.5);
+    const second = taggedVectorBytes(names, -7.5, 8.5, 9.5);
     const buf = Buffer.concat([
       int32Bytes(0),
-      int32Bytes(1),
+      int32Bytes(2),
       writeFName('Origin', names),
-      taggedVector,
+      first,
+      writeFName('Destination', names),
+      second,
     ]);
     const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
                   typeParams: [
@@ -1919,9 +1967,42 @@ function testContainerSyntheticScalars() {
                   result?.[0]?.value?.x === 4.5 &&
                   result?.[0]?.value?.y === -5.5 &&
                   result?.[0]?.value?.z === 6.5,
-                  'T2 synth: TMap<Name, tagged Vector> decodes registered struct fields');
+                  'T2 synth: TMap<Name, tagged Vector> decodes first registered struct');
+    runner.assert(result?.[1]?.key === 'Destination' &&
+                  result?.[1]?.value?.x === -7.5 &&
+                  result?.[1]?.value?.y === 8.5 &&
+                  result?.[1]?.value?.z === 9.5,
+                  'T2 synth: TMap<Name, tagged Vector> decodes second registered struct');
     runner.assert(cur.tell() === buf.length,
-                  'T2 synth: TMap<Name, tagged Vector> consumes the complete tagged value');
+                  'T2 synth: TMap<Name, tagged Vector> consumes both tagged values');
+  }
+
+  // A malformed map value must not consume a following outer property from
+  // the same backing buffer when its own declared container payload ends.
+  {
+    const names = ['None', 'Origin', 'X', 'Y', 'Z', 'DoubleProperty'];
+    const unterminated = taggedVectorBytes(names, 1, 2, 3).subarray(0, -8);
+    const body = Buffer.concat([
+      int32Bytes(0),
+      int32Bytes(1),
+      writeFName('Origin', names),
+      unterminated,
+    ]);
+    const poison = taggedVectorBytes(names, 99, 98, 97);
+    const backing = Buffer.concat([body, poison]);
+    const tag = { flags: 0x00, size: body.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'StructProperty', params: [{ name: 'Vector', params: [] }] },
+                  ] };
+    const cur = new Cursor(backing);
+    const result = containerHandlers.get('MapProperty')(cur, tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.__unsupported__ === true &&
+                  result?.reason === 'tagged_struct_terminator_missing',
+                  'T2 synth: unterminated tagged map value emits a stable marker');
+    runner.assert(cur.tell() === body.length,
+                  'T2 synth: unterminated tagged map value cannot consume poisoned trailing bytes');
   }
 
   // Scalar key + soft-object reference value.

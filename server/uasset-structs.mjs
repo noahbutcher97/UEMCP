@@ -25,12 +25,13 @@
 //   - FGameplayTagContainer: int32 count + N × FName (native binary, flag 0x08)
 //   - FSoftObjectPath: FName (UE 5.1+ asset path) + FString (sub-path)
 
-import { readFNameAtCursor, readTaggedPropertyStream } from './uasset-parser.mjs';
+import { Cursor, readFNameAtCursor, readTaggedPropertyStream } from './uasset-parser.mjs';
 import { PROPERTY_READ_REASON_GROUPS } from './property-read-contract.mjs';
 
 const HAS_BINARY_NATIVE = 0x08;
 const CONTAINER_REASONS = PROPERTY_READ_REASON_GROUPS.containers;
 const STRUCT_LAYOUT_REASONS = PROPERTY_READ_REASON_GROUPS.structLayouts;
+const TAGGED_STREAM_STATE = Symbol('taggedStreamState');
 
 // ── Level 2.5 — simple-element containers (D46) ───────────────────────
 //
@@ -99,7 +100,7 @@ const SCALAR_ELEMENT_READERS = new Map([
  * the top-level tier-3 fallback in dispatchPropertyValue.
  */
 function readStructElement(cur, structName, outerFlags, names, opts) {
-  const handler = opts.structHandlers?.get(structName);
+  const handler = opts?.structHandlers?.get(structName);
   // Native binary requires a known layout. No handler + native = surrender.
   if (outerFlags & HAS_BINARY_NATIVE) {
     if (!handler) return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: structName };
@@ -110,17 +111,36 @@ function readStructElement(cur, structName, outerFlags, names, opts) {
   // it without a handler because each inner FPropertyTag carries its own
   // type + size.
   if (handler) {
+    const taggedStreamState = { result: null };
     const pseudoTag = {
       flags: outerFlags,
       size: cur.buf.length - cur.tell(),
       type: 'StructProperty',
       typeParams: [{ name: structName, params: [] }],
     };
-    return handler(cur, pseudoTag, names, opts);
+    const value = handler(cur, pseudoTag, names, {
+      ...opts,
+      [TAGGED_STREAM_STATE]: taggedStreamState,
+    });
+    if (taggedStreamState.result?.terminated !== true) {
+      return {
+        __unsupported__: true,
+        reason: CONTAINER_REASONS.taggedStructTerminatorMissing,
+        inner_type: structName,
+      };
+    }
+    return value;
   }
   const virtualEnd = cur.buf.length;
   const sub = readTaggedPropertyStream(cur, virtualEnd, names, opts);
-  if (opts.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
+  if (!sub.terminated) {
+    return {
+      __unsupported__: true,
+      reason: CONTAINER_REASONS.taggedStructTerminatorMissing,
+      inner_type: structName,
+    };
+  }
+  if (opts?.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
   return extractKnownStructFields(structName, sub.properties);
 }
 
@@ -183,12 +203,33 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
 
 // ── Container handlers (ArrayProperty / SetProperty) ──────────────────
 
-export function handleArrayProperty(cur, tag, names, opts) {
+function withBoundedContainerCursor(cur, tag, reader) {
+  const start = cur.tell();
+  if (!Number.isInteger(tag.size) || tag.size < 0 || tag.size > cur.remaining()) {
+    throw new Error(`container serial range out of bounds: size=${tag.size}, remaining=${cur.remaining()}`);
+  }
+  const bounded = new Cursor(cur.buf.subarray(start, start + tag.size));
+  try {
+    return reader(bounded);
+  } finally {
+    cur.seek(start + bounded.tell());
+  }
+}
+
+function readArrayPropertyBody(cur, tag, names, opts) {
   const count = cur.readInt32();
   if (count < 0 || count > INT_MAX_ELEMENTS) {
     return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable, inner_type: tag.typeParams?.[0]?.name };
   }
   return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
+}
+
+export function handleArrayProperty(cur, tag, names, opts) {
+  return withBoundedContainerCursor(
+    cur,
+    tag,
+    bounded => readArrayPropertyBody(bounded, tag, names, opts),
+  );
 }
 
 // Agent 10.5 tier 2 (D46): TMap<K, V> handler.
@@ -203,7 +244,7 @@ export function handleArrayProperty(cur, tag, names, opts) {
 // Struct keys emit {unsupported, reason:"struct_key_map"} — the wire format
 // for struct keys varies with the struct's serialization traits and requires
 // a resolver this tier doesn't ship.
-export function handleMapProperty(cur, tag, names, opts) {
+function readMapPropertyBody(cur, tag, names, opts) {
   const numRemoved = cur.readInt32();
   if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
     return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
@@ -256,7 +297,15 @@ export function handleMapProperty(cur, tag, names, opts) {
   return entries;
 }
 
-export function handleSetProperty(cur, tag, names, opts) {
+export function handleMapProperty(cur, tag, names, opts) {
+  return withBoundedContainerCursor(
+    cur,
+    tag,
+    bounded => readMapPropertyBody(bounded, tag, names, opts),
+  );
+}
+
+function readSetPropertyBody(cur, tag, names, opts) {
   // TSet: int32 NumRemovedItems (typically 0 outside save-game deltas) + Count + elements.
   const numRemoved = cur.readInt32();
   if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
@@ -271,6 +320,14 @@ export function handleSetProperty(cur, tag, names, opts) {
     return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
   }
   return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
+}
+
+export function handleSetProperty(cur, tag, names, opts) {
+  return withBoundedContainerCursor(
+    cur,
+    tag,
+    bounded => readSetPropertyBody(bounded, tag, names, opts),
+  );
 }
 
 /**
@@ -355,7 +412,10 @@ export function readFBoxBinary(cur) {
 
 function readTaggedStructFields(cur, tag, names, opts) {
   const end = cur.tell() + tag.size;
-  return readTaggedPropertyStream(cur, end, names, opts);
+  const result = readTaggedPropertyStream(cur, end, names, opts);
+  const state = opts?.[TAGGED_STREAM_STATE];
+  if (state) state.result = result;
+  return result;
 }
 
 // Helper: prefer a field from a tagged sub-stream, coercing common conventions.
