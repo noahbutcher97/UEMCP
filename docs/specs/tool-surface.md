@@ -10,7 +10,7 @@ See `tools.yaml` for the complete registry. Summary:
 
 | Category | Toolsets | Layer |
 |----------|---------|-------|
-| Always loaded | — (6 management tools) | All |
+| Always loaded | Management tools | All |
 | Offline | `offline` | Offline |
 | UEMCP Plugin | `actors`, `blueprints-write`, `widgets`, `gas`, `blueprint-read`, `asset-registry`, `animation`, `data-assets`, `input-and-pie`, `geometry`, `materials`, `editor-utility`, `visual-capture`, `sidecar` | TCP:55558 |
 | Remote Control | `remote-control` | HTTP:30010 |

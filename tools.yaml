@@ -72,8 +72,8 @@ management:
 
 
 # ─────────────────────────────────────────────────────────────
-# Toolsets (16 toolsets, 139 tools, 10 of which are status: planned/hidden)
-# — plus 10 management tools above = 149 declared total (139 active/callable)
+# Toolsets; declared and active/callable totals are derived by
+# server/test-tool-registry-truth.mjs together with the management registry above.
 # ─────────────────────────────────────────────────────────────
 toolsets:
 
