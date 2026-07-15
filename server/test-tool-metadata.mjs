@@ -24,6 +24,14 @@ import { TestRunner } from './test-helpers.mjs';
 import { getToolAnnotations } from './tool-annotations.mjs';
 import { getToolRequirement } from './tool-requirements.mjs';
 import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
+import {
+  SERVER_INSTRUCTIONS,
+  SERVER_INSTRUCTION_LIMIT_BYTES,
+  SERVER_PREFIX_LIMIT_BYTES,
+  TOOL_DESCRIPTION_LIMIT_BYTES,
+  TOOLSET_TIPS,
+  utf8Bytes,
+} from './server-guidance.mjs';
 
 const ALLOWED_STATUS = new Set(['shipped', 'planned', 'deprecated', 'hidden']);
 const ALLOWED_LAYERS = new Set(['offline', 'tcp-55558', 'http-30010']);
@@ -155,6 +163,17 @@ function hasCapabilityMetadata(def) {
   return 'availability_layer' in def || 'transport_layer' in def;
 }
 
+function flattenTipStrings(value, strings = []) {
+  if (typeof value === 'string') {
+    strings.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) flattenTipStrings(item, strings);
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) flattenTipStrings(item, strings);
+  }
+  return strings;
+}
+
 function annotationsMatch(actual, expected) {
   if (!actual || typeof actual !== 'object') return false;
   const actualKeys = Object.keys(actual).sort();
@@ -183,6 +202,60 @@ const t = new TestRunner('Tool Metadata Schema');
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const tools = collectTools(toolsData);
+
+console.log('\n── Provider-neutral guidance budgets ──');
+t.assert(SERVER_PREFIX_LIMIT_BYTES === 512, 'server prefix budget is 512 UTF-8 bytes');
+t.assert(SERVER_INSTRUCTION_LIMIT_BYTES === 2048, 'server instruction budget is 2 KiB');
+t.assert(TOOL_DESCRIPTION_LIMIT_BYTES === 1800, 'tool description budget is 1,800 UTF-8 bytes');
+t.assert(Object.isFrozen(TOOLSET_TIPS), 'toolset guidance metadata is immutable');
+t.assert(utf8Bytes(SERVER_INSTRUCTIONS) < SERVER_INSTRUCTION_LIMIT_BYTES,
+  'server instructions are below 2 KiB', `got ${utf8Bytes(SERVER_INSTRUCTIONS)} bytes`);
+t.assert(
+  SERVER_INSTRUCTIONS.slice(0, 512).includes('connection_info') &&
+    SERVER_INSTRUCTIONS.slice(0, 512).includes('find_tools(query)'),
+  'first 512 characters contain the discovery workflow',
+);
+
+const serverPrefix = Buffer.from(SERVER_INSTRUCTIONS, 'utf8')
+  .subarray(0, SERVER_PREFIX_LIMIT_BYTES)
+  .toString('utf8');
+t.assert(
+  serverPrefix.includes('Unreal Engine') &&
+    serverPrefix.includes('Use it for') &&
+    serverPrefix.includes('connection_info') &&
+    serverPrefix.includes('find_tools(query)'),
+  'first 512 UTF-8 bytes are self-contained discovery guidance',
+  `got ${JSON.stringify(serverPrefix)}`,
+);
+
+const forbiddenGuidanceTokens = ['Claude', 'Codex', 'Gemini', 'ChatGPT', '`Read`', '`Grep`', '`Glob`'];
+const guidanceStrings = [SERVER_INSTRUCTIONS, ...flattenTipStrings(TOOLSET_TIPS)];
+const forbiddenGuidanceMatches = guidanceStrings.flatMap(value => {
+  const normalized = value.toLocaleLowerCase();
+  return forbiddenGuidanceTokens
+    .filter(token => normalized.includes(token.toLocaleLowerCase()))
+    .map(token => `${token}: ${value}`);
+});
+t.assert(forbiddenGuidanceMatches.length === 0,
+  'instructions and toolset tips avoid provider brands and native-tool names',
+  forbiddenGuidanceMatches.join('\n'));
+
+const actorOfflineTip = 'Use the client\'s native source-search capability to find C++ class names under Source/, then use get_actor_properties to inspect level instances.';
+const blueprintOfflineTip = 'Use the client\'s native source-search capability to inspect C++ base-class signatures before adding function or event nodes. Confirm event names exactly.';
+t.assert(
+  TOOLSET_TIPS.actors.workflows.some(workflow => workflow.tip === actorOfflineTip),
+  'actors offline workflow uses the provider-neutral source-search tip',
+);
+t.assert(
+  TOOLSET_TIPS['blueprints-write'].workflows.some(workflow => workflow.tip === blueprintOfflineTip),
+  'blueprints-write offline workflow uses the provider-neutral source-search tip',
+);
+
+const oversizedDescriptions = [...tools.values()]
+  .filter(record => utf8Bytes(record.def.description || '') > TOOL_DESCRIPTION_LIMIT_BYTES)
+  .map(record => `${record.name}: ${utf8Bytes(record.def.description)} bytes`);
+t.assert(oversizedDescriptions.length === 0,
+  'registered tool descriptions fit the UTF-8 wire budget', oversizedDescriptions.join('; '));
 
 console.log('\n── MCP registration metadata ──');
 const createServerSource = await readFile('./create-uemcp-server.mjs', 'utf-8');

@@ -17,6 +17,37 @@ See `tools.yaml` for the complete registry. Summary:
 
 Tool counts are derived from `tools.yaml` — never hardcode them in documentation.
 
+## `read_asset_properties` Parser Contract
+
+This is a durable parser reference, not additional tool-wire metadata. The bounded wire description remains in `tools.yaml`; this section preserves the parser semantics required to interpret its response.
+
+### Supported Values And Boundaries
+
+The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, simple-element `TArray` and `TSet`, and scalar-key `TMap` values. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, and seven MaterialInput variants. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and non-scalar map keys or values remain unsupported.
+
+### Reason-Code Taxonomy
+
+- Parser core: `unknown_struct`, `unknown_property_type`, `unexpected_preamble`, `serial_range_out_of_bounds`, `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`, `value_read_failed`, `delegate_not_serialized`, `localized_text`, `size_budget_exceeded`, and `no_cdo_export_found`.
+- Containers: `complex_element_container`, `container_deferred`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, and `struct_key_map`.
+- Struct layouts: `body_instance_native_layout_unknown` and `expression_input_native_layout_unknown`.
+- Bounded subobject output: `subobject_budget_exhausted`.
+
+`unknown_struct` identifies a struct outside the engine registry; `unexpected_preamble` identifies a non-zero export-body preamble, including non-CDO subclass exports and AssetImportData; and `property_tag_extensions` identifies an unhandled UE 5.6 `FPropertyTagExtensions` field. `body_instance_native_layout_unknown` means a `FBodyInstance` native binary layout was not known, although tagged fallback can expose partial overrides. `expression_input_native_layout_unknown` covers `FExpressionInput` and MaterialInput data beyond the documented native layouts.
+
+### Export And Property Selection
+
+The default export-selection reasons are `blueprint_cdo`, `package_root_name_match`, `root_asset_export`, `first_asset_export`, and `first_export_fallback`. Explicit selection reports `explicit_export_name` or `explicit_export_index`. `export_name` and `export_index` are mutually exclusive; `export_index` is one-based and is the durable disambiguator for duplicate export names.
+
+`property_names` leaves `properties` as the decoded-value map and adds exactly one `requested_properties` row per requested name. Row statuses are `serialized`, `unsupported`, `not_serialized_default`, and `unknown_due_to_truncation`. Filtered `unsupported[]` markers are scoped to requested properties, except `__stream__` markers, which apply to the whole parse. A missing property proves only that no serialized value was found; it does not prove inherited native or Blueprint defaults.
+
+### Subobjects, Collision, And Budgets
+
+With `include_subobjects=true`, traversal stays in the selected package and discovers component or subobject exports through outer links, serialized object references, and Blueprint generated-class children. Traversal honors `subobject_depth` (default 1, cap 3) and `subobject_limit` (default 50, cap 200). Each subobject row reports `decode_status` as `serialized`, `empty_or_default`, or `present_but_undecoded`.
+
+`max_bytes` bounds decoded output and sets `truncated`; `size_budget_exceeded` markers are capped at 20. Subobjects share the aggregate `subobject_payload_max_bytes` budget, equal to `max_bytes`, with `subobject_payload_bytes_remaining` tracking what remains. A row that would exceed the remaining aggregate budget is returned as `present_but_undecoded` with `subobject_budget_exhausted`, and the response sets `subobjects_truncated` instead of expanding without bound.
+
+Collision summaries are emitted only when collision/profile/`BodyInstance` fields are serialized. An absent collision field means `not_serialized_default`; it does not prove that the component has no collision configuration.
+
 ## Toolset Notes
 
 Active toolset membership and layer assignment come from `tools.yaml`.
