@@ -73,6 +73,15 @@ const MANAGEMENT_INSPECTION_NAMES = Object.freeze([
 ]);
 const SESSION_STATE_ANNOTATIONS = Object.freeze({ readOnlyHint: false, destructiveHint: false });
 const INSPECTION_ANNOTATIONS = Object.freeze({ readOnlyHint: true });
+const SUPPORTED_CLIENT_BRANDS = Object.freeze([
+  'Claude',
+  'Codex',
+  'Gemini',
+  'ChatGPT',
+  'Visual Studio Code',
+  'VS Code',
+]);
+const NATIVE_TOOL_TOKENS = Object.freeze(['`Read`', '`Grep`', '`Glob`']);
 
 const REQUIRED_ANNOTATED_TOOLS = new Set([
   // RC-backed semantic delegates.
@@ -163,15 +172,52 @@ function hasCapabilityMetadata(def) {
   return 'availability_layer' in def || 'transport_layer' in def;
 }
 
-function flattenTipStrings(value, strings = []) {
+function collectStringSurfaces(value, surface, name = surface, strings = []) {
   if (typeof value === 'string') {
-    strings.push(value);
+    strings.push({ surface, name, value });
   } else if (Array.isArray(value)) {
-    for (const item of value) flattenTipStrings(item, strings);
+    for (const [index, item] of value.entries()) {
+      collectStringSurfaces(item, surface, `${name}[${index}]`, strings);
+    }
   } else if (value && typeof value === 'object') {
-    for (const item of Object.values(value)) flattenTipStrings(item, strings);
+    for (const [key, item] of Object.entries(value)) {
+      collectStringSurfaces(item, surface, `${name}.${key}`, strings);
+    }
   }
   return strings;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findProviderSpecificTokens(surfaces) {
+  const matches = [];
+  for (const { surface, name, value } of surfaces) {
+    if (typeof value !== 'string') continue;
+    for (const token of SUPPORTED_CLIENT_BRANDS) {
+      const wordToken = new RegExp(`(?:^|[^a-z0-9])${escapeRegex(token)}(?=$|[^a-z0-9])`, 'i');
+      if (wordToken.test(value)) matches.push(`${surface}/${name}/${token}`);
+    }
+    for (const token of NATIVE_TOOL_TOKENS) {
+      if (value.toLocaleLowerCase().includes(token.toLocaleLowerCase())) {
+        matches.push(`${surface}/${name}/${token}`);
+      }
+    }
+  }
+  return matches;
+}
+
+function extractReasonCodes(source) {
+  return new Set([...source.matchAll(/\breason\s*:\s*'([a-z0-9_]+)'/g)].map(match => match[1]));
+}
+
+function extractReasonCodeTaxonomy(source) {
+  const heading = '### Reason-Code Taxonomy';
+  const start = source.indexOf(heading);
+  const end = source.indexOf('\n### ', start + heading.length);
+  const section = start === -1 ? '' : source.slice(start, end === -1 ? source.length : end);
+  return new Set([...section.matchAll(/`([a-z0-9_]+)`/g)].map(match => match[1]));
 }
 
 function annotationsMatch(actual, expected) {
@@ -202,6 +248,10 @@ const t = new TestRunner('Tool Metadata Schema');
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const tools = collectTools(toolsData);
+const toolSurfaceDoc = await readFile(join('..', 'docs', 'specs', 'tool-surface.md'), 'utf-8');
+const uassetParserSource = await readFile('./uasset-parser.mjs', 'utf-8');
+const uassetStructsSource = await readFile('./uasset-structs.mjs', 'utf-8');
+const offlineToolsSource = await readFile('./offline-tools.mjs', 'utf-8');
 
 console.log('\n── Provider-neutral guidance budgets ──');
 t.assert(SERVER_PREFIX_LIMIT_BYTES === 512, 'server prefix budget is 512 UTF-8 bytes');
@@ -228,17 +278,45 @@ t.assert(
   `got ${JSON.stringify(serverPrefix)}`,
 );
 
-const forbiddenGuidanceTokens = ['Claude', 'Codex', 'Gemini', 'ChatGPT', '`Read`', '`Grep`', '`Glob`'];
-const guidanceStrings = [SERVER_INSTRUCTIONS, ...flattenTipStrings(TOOLSET_TIPS)];
-const forbiddenGuidanceMatches = guidanceStrings.flatMap(value => {
-  const normalized = value.toLocaleLowerCase();
-  return forbiddenGuidanceTokens
-    .filter(token => normalized.includes(token.toLocaleLowerCase()))
-    .map(token => `${token}: ${value}`);
-});
-t.assert(forbiddenGuidanceMatches.length === 0,
-  'instructions and toolset tips avoid provider brands and native-tool names',
-  forbiddenGuidanceMatches.join('\n'));
+const guidanceSurfaces = [
+  { surface: 'runtime-guidance', name: 'SERVER_INSTRUCTIONS', value: SERVER_INSTRUCTIONS },
+  ...collectStringSurfaces(TOOLSET_TIPS, 'runtime-guidance', 'TOOLSET_TIPS'),
+];
+const yamlDescriptionSurfaces = [...tools.values()].map(record => ({
+  surface: 'tools.yaml ToolIndex description',
+  name: record.name,
+  value: record.def.description,
+}));
+const staticProviderSpecificMatches = findProviderSpecificTokens([
+  ...guidanceSurfaces,
+  ...yamlDescriptionSurfaces,
+]);
+t.assert(staticProviderSpecificMatches.length === 0,
+  'runtime guidance and every structured tools.yaml description, including planned rows, avoid supported-client brands and exact native-tool tokens',
+  staticProviderSpecificMatches.join('\n'));
+
+console.log('\n── read_asset_properties reason-code taxonomy ──');
+const sourceReasonCodes = new Set([
+  ...extractReasonCodes(uassetParserSource),
+  ...extractReasonCodes(uassetStructsSource),
+]);
+const subobjectStart = offlineToolsSource.indexOf('function budgetExhaustedRow');
+const subobjectEnd = offlineToolsSource.indexOf('export function buildSubobjectResponseRow', subobjectStart);
+for (const code of extractReasonCodes(offlineToolsSource.slice(subobjectStart, subobjectEnd))) {
+  sourceReasonCodes.add(code);
+}
+const documentedReasonCodes = extractReasonCodeTaxonomy(toolSurfaceDoc);
+const undocumentedCurrentReasonCodes = [...sourceReasonCodes]
+  .filter(code => !documentedReasonCodes.has(code))
+  .sort();
+const nonCurrentDocumentedReasonCodes = [...documentedReasonCodes]
+  .filter(code => !sourceReasonCodes.has(code))
+  .sort();
+t.assert(
+  undocumentedCurrentReasonCodes.length === 0 && nonCurrentDocumentedReasonCodes.length === 0,
+  'Reason-Code Taxonomy exactly matches current read_asset_properties parser and bounded subobject emissions',
+  `undocumented current: ${undocumentedCurrentReasonCodes.join(', ')}; cross-tool or historical: ${nonCurrentDocumentedReasonCodes.join(', ')}`,
+);
 
 const actorOfflineTip = 'Use the client\'s native source-search capability to find C++ class names under Source/, then use get_actor_properties to inspect level instances.';
 const blueprintOfflineTip = 'Use the client\'s native source-search capability to inspect C++ base-class signatures before adding function or event nodes. Confirm event names exactly.';
@@ -457,6 +535,22 @@ try {
     listedRows.length === expectedNames.size && missingNames.length === 0 && unexpectedNames.length === 0,
     'tools/list exposes the independently inventoried management and dynamic registrations',
     `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
+  );
+  t.assert(
+    listedRows.length === 140,
+    'independent all-enabled tools/list inventory contains 140 registered tools',
+    `listed=${listedRows.length}`,
+  );
+
+  const wireProviderSpecificMatches = findProviderSpecificTokens(listedRows.map(row => ({
+    surface: 'tools/list description',
+    name: row.name,
+    value: row.description,
+  })));
+  t.assert(
+    wireProviderSpecificMatches.length === 0,
+    'every independently inventoried all-enabled tools/list description avoids supported-client brands and exact native-tool tokens',
+    wireProviderSpecificMatches.join('\n'),
   );
 
   const registeredDescriptionSizes = listedRows.map(row => ({

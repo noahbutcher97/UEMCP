@@ -11,7 +11,7 @@
 
 # ─────────────────────────────────────────────────────────────
 # Always-loaded management tools (10)
-# Visible to Claude regardless of which toolsets are enabled
+# Visible to MCP clients regardless of which toolsets are enabled
 # ─────────────────────────────────────────────────────────────
 management:
   description: Always-loaded discovery and management tools
@@ -1642,7 +1642,7 @@ toolsets:
         params:
           object_path: { type: string, required: true }
       rc_batch:
-        description: "Execute multiple RC operations atomically via /remote/batch. **CALLER RESPONSIBILITY (D129)**: every sub-request's target function MUST be UFUNCTION-decorated for the call to succeed (non-UFUNCTION sub-requests return 400 + 'Function does not exist' cleanly — correct RC behavior, not a foot-gun). The historical NEW-2 crash class (Map.h:716 race n=3) was traced to UE 5.6.1 engine bug WebRemoteControl.cpp:930 and is eliminated by the D131 Passphrase-header workaround in connection-manager.mjs; batch sub-requests now fail-graceful regardless of UFUNCTION decoration. See CLAUDE.md §Operational Limits + D131."
+        description: "Execute multiple RC operations atomically via /remote/batch. **CALLER RESPONSIBILITY (D129)**: every sub-request's target function MUST be UFUNCTION-decorated for the call to succeed (non-UFUNCTION sub-requests return 400 + 'Function does not exist' cleanly — correct RC behavior, not a foot-gun). The historical NEW-2 crash class (Map.h:716 race n=3) was traced to UE 5.6.1 engine bug WebRemoteControl.cpp:930 and is eliminated by the D131 Passphrase-header workaround in connection-manager.mjs; batch sub-requests now fail-graceful regardless of UFUNCTION decoration. See D131 in docs/tracking/risks-and-decisions.md."
         params:
           operations: { type: array, required: true }
       rc_get_presets:

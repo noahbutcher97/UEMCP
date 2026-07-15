@@ -27,12 +27,12 @@ The parser supports scalar values, enums, object and soft references, gameplay t
 
 ### Reason-Code Taxonomy
 
-- Parser core: `unknown_struct`, `unknown_property_type`, `unexpected_preamble`, `serial_range_out_of_bounds`, `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`, `value_read_failed`, `delegate_not_serialized`, `localized_text`, `size_budget_exceeded`, and `no_cdo_export_found`.
+- Parser core: `unknown_struct`, `unknown_property_type`, `unexpected_preamble`, `serial_range_out_of_bounds`, `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`, `value_read_failed`, `delegate_not_serialized`, `localized_text`, and `size_budget_exceeded`.
 - Containers: `complex_element_container`, `container_deferred`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, and `struct_key_map`.
-- Struct layouts: `body_instance_native_layout_unknown` and `expression_input_native_layout_unknown`.
+- Struct layouts: `body_instance_native_layout_unknown`.
 - Bounded subobject output: `subobject_budget_exhausted`.
 
-`unknown_struct` identifies a struct outside the engine registry; `unexpected_preamble` identifies a non-zero export-body preamble, including non-CDO subclass exports and AssetImportData; and `property_tag_extensions` identifies an unhandled UE 5.6 `FPropertyTagExtensions` field. `body_instance_native_layout_unknown` means a `FBodyInstance` native binary layout was not known, although tagged fallback can expose partial overrides. `expression_input_native_layout_unknown` covers `FExpressionInput` and MaterialInput data beyond the documented native layouts.
+`unknown_struct` identifies a struct outside the engine registry; `unexpected_preamble` identifies a non-zero export-body preamble, including non-CDO subclass exports and AssetImportData; and `property_tag_extensions` identifies an unhandled UE 5.6 `FPropertyTagExtensions` field. `body_instance_native_layout_unknown` means a `FBodyInstance` native binary layout was not known, although tagged fallback can expose partial overrides.
 
 ### Export And Property Selection
 

@@ -219,8 +219,9 @@ console.log('\n── Test 6: relaunch-hint fires exactly once at threshold ─�
     'warning text references NEW-2 ceiling'
   );
   t.assert(
-    stderrText.includes('CLAUDE.md §Operational Limits'),
-    'warning references CLAUDE.md §Operational Limits'
+    stderrText === '[uemcp] WARNING: 3 RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Relaunch the Unreal Editor, then restart the MCP server before resuming RC operations.\n',
+    'warning gives self-contained provider-neutral RC recovery guidance',
+    `got ${JSON.stringify(stderrText)}`
   );
   t.assert(
     stderrText.includes('[uemcp] WARNING:'),
