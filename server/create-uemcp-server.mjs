@@ -78,6 +78,31 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = dirname(__dirname);
 const TOOLS_YAML = yaml.load(readFileSync(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
 
+function buildCanonicalToolDefinitionIndex(toolsData) {
+  const index = new Map();
+  for (const [toolsetName, toolset] of Object.entries(toolsData.toolsets || {})) {
+    for (const [toolName, def] of Object.entries(toolset.tools || {})) {
+      if (index.has(toolName)) {
+        throw new Error(`Duplicate dynamic tool name in tools.yaml: ${toolName}`);
+      }
+      index.set(toolName, Object.freeze({ toolsetName, def }));
+    }
+  }
+  return index;
+}
+
+const CANONICAL_TOOL_DEFINITIONS = buildCanonicalToolDefinitionIndex(TOOLS_YAML);
+
+function getCanonicalToolDefinition(toolName, registrationGroupName) {
+  const canonical = CANONICAL_TOOL_DEFINITIONS.get(toolName);
+  if (!canonical) {
+    throw new Error(
+      `Dynamic tool registration has no canonical tools.yaml definition: ${registrationGroupName}.${toolName}`,
+    );
+  }
+  return canonical;
+}
+
 const MANAGEMENT_PURE_INSPECTION_TOOL_NAMES = Object.freeze([
   'list_toolsets',
   'list_project_targets',
@@ -236,7 +261,8 @@ function isMutationRequirement(requirement) {
 
 function registerToolGroup(server, toolsetManager, projectContext, log, toolsetName, label, defs, schemaBuilder, executor) {
   for (const [name, def] of Object.entries(defs)) {
-    const requirement = getToolRequirement(name, toolsetName, def);
+    const canonical = getCanonicalToolDefinition(name, toolsetName);
+    const requirement = getToolRequirement(name, canonical.toolsetName, canonical.def);
     const handle = server.registerTool(
       name,
       {
@@ -248,11 +274,15 @@ function registerToolGroup(server, toolsetManager, projectContext, log, toolsetN
         try {
           return await withProjectContextGuard(
             projectContext,
-            { requirement, toolName: name, toolsetName },
+            { requirement, toolName: name, toolsetName: canonical.toolsetName },
             async () => {
               let mutationId = null;
               if (isMutationRequirement(requirement)) {
-                mutationId = projectContext.beginMutation({ toolName: name, toolsetName, requirement });
+                mutationId = projectContext.beginMutation({
+                  toolName: name,
+                  toolsetName: canonical.toolsetName,
+                  requirement,
+                });
               }
               try {
                 log('info', `Executing ${label} tool: ${name}`);

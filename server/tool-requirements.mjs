@@ -43,6 +43,7 @@ const LIVE_MUTATION_OVERRIDES = new Set([
 const RC_MUTATION_OVERRIDES = new Set([
   'rc_set_property',
   'rc_call_function',
+  'rc_batch',
   'rc_passthrough',
   'set_material_parameter',
 ]);

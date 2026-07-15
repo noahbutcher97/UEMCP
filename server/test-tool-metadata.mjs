@@ -19,12 +19,17 @@ import { getM5GeometryToolDefs } from './m5-geometry-tools.mjs';
 import { getM5InputPieToolDefs } from './m5-input-pie-tools.mjs';
 import { getM5MaterialsToolDefs } from './m5-materials-tools.mjs';
 import { getMenhanceToolDefs } from './menhance-tcp-tools.mjs';
+import { buildPropertyReadHandlers } from './offline-tools.mjs';
+import {
+  CONFIGURED_PROPERTY_READ_REASON_CODES,
+  GENERIC_CONTAINER_FALLBACK_REASON,
+  PROPERTY_READ_REASON_GROUPS,
+  REQUIRED_CONTAINER_PROPERTY_TYPES,
+} from './property-read-contract.mjs';
 import { getRcToolDefs } from './rc-tools.mjs';
 import { TestRunner } from './test-helpers.mjs';
 import { getToolAnnotations } from './tool-annotations.mjs';
 import { getToolRequirement } from './tool-requirements.mjs';
-import * as UassetParserModule from './uasset-parser.mjs';
-import { buildContainerHandlers } from './uasset-structs.mjs';
 import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
 import {
   SERVER_INSTRUCTIONS,
@@ -210,10 +215,6 @@ function findProviderSpecificTokens(surfaces) {
   return matches;
 }
 
-function extractReasonCodes(source) {
-  return new Set([...source.matchAll(/\breason\s*:\s*'([a-z0-9_]+)'/g)].map(match => match[1]));
-}
-
 function extractMarkdownSection(source, heading) {
   const start = source.indexOf(heading);
   const end = source.indexOf('\n### ', start + heading.length);
@@ -223,12 +224,6 @@ function extractMarkdownSection(source, heading) {
 function extractReasonCodeTaxonomy(source) {
   const section = extractMarkdownSection(source, '### Reason-Code Taxonomy');
   return new Set([...section.matchAll(/`([a-z0-9_]+)`/g)].map(match => match[1]));
-}
-
-function sourceBetween(source, startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
-  const end = source.indexOf(endMarker, start + startMarker.length);
-  return start === -1 || end === -1 ? '' : source.slice(start, end);
 }
 
 function annotationsMatch(actual, expected) {
@@ -260,9 +255,6 @@ const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const tools = collectTools(toolsData);
 const toolSurfaceDoc = await readFile(join('..', 'docs', 'specs', 'tool-surface.md'), 'utf-8');
-const uassetParserSource = await readFile('./uasset-parser.mjs', 'utf-8');
-const uassetStructsSource = await readFile('./uasset-structs.mjs', 'utf-8');
-const offlineToolsSource = await readFile('./offline-tools.mjs', 'utf-8');
 
 console.log('\n── Provider-neutral guidance budgets ──');
 t.assert(SERVER_PREFIX_LIMIT_BYTES === 512, 'server prefix budget is 512 UTF-8 bytes');
@@ -307,85 +299,36 @@ t.assert(staticProviderSpecificMatches.length === 0,
   staticProviderSpecificMatches.join('\n'));
 
 console.log('\n── read_asset_properties reason-code taxonomy ──');
-const containerDispatchSource = sourceBetween(
-  uassetParserSource,
-  "if (type === 'ArrayProperty' || type === 'SetProperty' || type === 'MapProperty')",
-  "if (type === 'DelegateProperty'",
-);
-const lexicalGenericContainerReasons = extractReasonCodes(containerDispatchSource);
-const namedGenericContainerReason = UassetParserModule.GENERIC_CONTAINER_FALLBACK_REASON;
-const observedGenericContainerReason = typeof namedGenericContainerReason === 'string'
-  ? namedGenericContainerReason
-  : [...lexicalGenericContainerReasons][0];
-const genericReasonUsesNamedEmission =
-  typeof namedGenericContainerReason === 'string' &&
-  /reason:\s*GENERIC_CONTAINER_FALLBACK_REASON\b/.test(containerDispatchSource);
 t.assert(
-  genericReasonUsesNamedEmission,
-  'generic no-container-handler fallback exports and emits GENERIC_CONTAINER_FALLBACK_REASON',
-  `export=${JSON.stringify(namedGenericContainerReason)}; branch=${JSON.stringify(containerDispatchSource)}`,
+  Object.isFrozen(PROPERTY_READ_REASON_GROUPS) &&
+    Object.values(PROPERTY_READ_REASON_GROUPS).every(group => Object.isFrozen(group)) &&
+    Object.isFrozen(CONFIGURED_PROPERTY_READ_REASON_CODES) &&
+    Object.isFrozen(REQUIRED_CONTAINER_PROPERTY_TYPES),
+  'read_asset_properties reason and container contracts are immutable',
 );
 
-const configuredContainerHandlers = buildContainerHandlers();
-const requiredContainerTypes = ['ArrayProperty', 'SetProperty', 'MapProperty'];
-const missingConfiguredContainerHandlers = requiredContainerTypes
+const { containerHandlers: configuredContainerHandlers } = buildPropertyReadHandlers();
+const missingConfiguredContainerHandlers = REQUIRED_CONTAINER_PROPERTY_TYPES
   .filter(type => typeof configuredContainerHandlers.get(type) !== 'function');
-const propertyReadContextSource = sourceBetween(
-  offlineToolsSource,
-  'async function parseAssetForPropertyRead',
-  'function assetPathLeaf',
-);
-const readAssetPropertiesSource = sourceBetween(
-  offlineToolsSource,
-  'async function readAssetProperties',
-  ' * find_blueprint_nodes —',
-);
-const contextBuildsContainerHandlers =
-  /containerHandlers:\s*buildContainerHandlers\(\)/.test(propertyReadContextSource);
-const rootReadWiresContainerHandlers =
-  /readExportProperties\(buf,\s*target,\s*names,\s*\{\s*resolve,\s*structHandlers,\s*containerHandlers,\s*maxBytes\s*\}\)/s
-    .test(readAssetPropertiesSource);
-const subobjectReadWiresContainerHandlers =
-  /readExportProperties\(buf,\s*exports\[zeroBasedIndex\],\s*names,\s*\{\s*resolve,\s*structHandlers,\s*containerHandlers,\s*maxBytes\s*\}\)/s
-    .test(readAssetPropertiesSource);
-const configuredContainerCallPathProven =
-  missingConfiguredContainerHandlers.length === 0 &&
-  contextBuildsContainerHandlers &&
-  rootReadWiresContainerHandlers &&
-  subobjectReadWiresContainerHandlers;
 t.assert(
-  configuredContainerCallPathProven,
-  'read_asset_properties configures Array/Set/Map handlers for root and subobject reads',
-  `missing handlers: ${missingConfiguredContainerHandlers.join(', ')}; context=${contextBuildsContainerHandlers}; root=${rootReadWiresContainerHandlers}; subobject=${subobjectReadWiresContainerHandlers}`,
+  missingConfiguredContainerHandlers.length === 0,
+  'read_asset_properties runtime handler factory configures every contracted container type',
+  `missing handlers: ${missingConfiguredContainerHandlers.join(', ')}`,
 );
 
-const sourceReasonCodes = new Set([
-  ...extractReasonCodes(uassetParserSource),
-  ...extractReasonCodes(uassetStructsSource),
-]);
-if (typeof namedGenericContainerReason === 'string') {
-  sourceReasonCodes.add(namedGenericContainerReason);
-}
-const subobjectStart = offlineToolsSource.indexOf('function budgetExhaustedRow');
-const subobjectEnd = offlineToolsSource.indexOf('export function buildSubobjectResponseRow', subobjectStart);
-for (const code of extractReasonCodes(offlineToolsSource.slice(subobjectStart, subobjectEnd))) {
-  sourceReasonCodes.add(code);
-}
 const documentedReasonCodes = extractReasonCodeTaxonomy(toolSurfaceDoc);
-if (configuredContainerCallPathProven && genericReasonUsesNamedEmission) {
-  sourceReasonCodes.delete(namedGenericContainerReason);
-}
 t.assert(
-  typeof observedGenericContainerReason === 'string' &&
-    !documentedReasonCodes.has(observedGenericContainerReason),
+  typeof GENERIC_CONTAINER_FALLBACK_REASON === 'string' &&
+    !documentedReasonCodes.has(GENERIC_CONTAINER_FALLBACK_REASON),
   'Reason-Code Taxonomy excludes the configured-call-path-unreachable generic container fallback',
-  `generic-only reason=${JSON.stringify(observedGenericContainerReason)}; documented=${documentedReasonCodes.has(observedGenericContainerReason)}`,
+  `generic-only reason=${JSON.stringify(GENERIC_CONTAINER_FALLBACK_REASON)}; documented=${documentedReasonCodes.has(GENERIC_CONTAINER_FALLBACK_REASON)}`,
 );
-const undocumentedCurrentReasonCodes = [...sourceReasonCodes]
+const contractedReasonCodes = new Set(CONFIGURED_PROPERTY_READ_REASON_CODES);
+const undocumentedCurrentReasonCodes = [...contractedReasonCodes]
   .filter(code => !documentedReasonCodes.has(code))
   .sort();
 const nonCurrentDocumentedReasonCodes = [...documentedReasonCodes]
-  .filter(code => !sourceReasonCodes.has(code))
+  .filter(code => !contractedReasonCodes.has(code))
   .sort();
 t.assert(
   undocumentedCurrentReasonCodes.length === 0 && nonCurrentDocumentedReasonCodes.length === 0,
@@ -589,12 +532,31 @@ try {
     ['geometry', getM5GeometryToolDefs()],
     ['editor-utility', getM5EditorUtilityToolDefs()],
   ];
+  const canonicalDynamicDefinitions = new Map();
+  const duplicateCanonicalNames = [];
+  for (const [toolsetName, toolset] of Object.entries(toolsData.toolsets || {})) {
+    for (const [name, def] of Object.entries(toolset.tools || {})) {
+      if (canonicalDynamicDefinitions.has(name)) duplicateCanonicalNames.push(name);
+      canonicalDynamicDefinitions.set(name, { toolsetName, def });
+    }
+  }
+  t.assert(
+    duplicateCanonicalNames.length === 0,
+    'canonical tools.yaml dynamic tool names are globally unique',
+    duplicateCanonicalNames.join(', '),
+  );
   const expectedDynamicAnnotations = new Map();
   const duplicateDynamicNames = [];
+  const missingCanonicalDefinitions = [];
   for (const [toolsetName, definitions] of dynamicRegistrationGroups) {
-    for (const [name, def] of Object.entries(definitions)) {
+    for (const name of Object.keys(definitions)) {
       if (expectedDynamicAnnotations.has(name)) duplicateDynamicNames.push(name);
-      const requirement = getToolRequirement(name, toolsetName, def);
+      const canonical = canonicalDynamicDefinitions.get(name);
+      if (!canonical) {
+        missingCanonicalDefinitions.push(`${toolsetName}.${name}`);
+        continue;
+      }
+      const requirement = getToolRequirement(name, canonical.toolsetName, canonical.def);
       expectedDynamicAnnotations.set(name, getToolAnnotations(name, requirement));
     }
   }
@@ -602,6 +564,11 @@ try {
     duplicateDynamicNames.length === 0,
     'independent dynamic registration inventory has no duplicate names',
     duplicateDynamicNames.join(', '),
+  );
+  t.assert(
+    missingCanonicalDefinitions.length === 0,
+    'every dynamic registration has canonical tools.yaml metadata',
+    missingCanonicalDefinitions.join(', '),
   );
 
   const toolList = await transport.sendClientRequest('tools/list', {});
@@ -677,6 +644,32 @@ try {
     dynamicAnnotationMismatches.length === 0,
     'every dynamic tools/list row exposes its requirement-derived annotations',
     dynamicAnnotationMismatches.join('; '),
+  );
+
+  const canonicalMutationNames = new Set(['rc_batch']);
+  for (const toolset of Object.values(toolsData.toolsets || {})) {
+    for (const [name, def] of Object.entries(toolset.tools || {})) {
+      if (
+        def.mutates_asset === true ||
+        def.mutates_level === true ||
+        def.saves_asset === true ||
+        def.compiles_asset === true
+      ) {
+        canonicalMutationNames.add(name);
+      }
+    }
+  }
+  const unsafeMutationAnnotations = [...canonicalMutationNames]
+    .filter(name => listedByName.has(name))
+    .filter(name => !annotationsMatch(
+      listedByName.get(name)?.annotations,
+      { readOnlyHint: false, destructiveHint: true },
+    ))
+    .map(name => `${name}: ${JSON.stringify(listedByName.get(name)?.annotations)}`);
+  t.assert(
+    unsafeMutationAnnotations.length === 0,
+    'canonical metadata mutations and mixed-operation RC batch are never advertised read-only',
+    unsafeMutationAnnotations.join('; '),
   );
 } finally {
   await serverApp.server.close();

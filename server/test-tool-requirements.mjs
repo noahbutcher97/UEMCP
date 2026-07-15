@@ -42,6 +42,7 @@ assertRequirement('blueprints-write', 'create_blueprint', TOOL_REQUIREMENT_KINDS
 assertRequirement('input-and-pie', 'start_pie', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
 assertRequirement('remote-control', 'rc_get_property', TOOL_REQUIREMENT_KINDS.RC_READ);
 assertRequirement('remote-control', 'rc_set_property', TOOL_REQUIREMENT_KINDS.RC_MUTATION);
+assertRequirement('remote-control', 'rc_batch', TOOL_REQUIREMENT_KINDS.RC_MUTATION);
 assertRequirement('editor-utility', 'run_python_command', TOOL_REQUIREMENT_KINDS.PYTHON_EXEC);
 assertRequirement('editor-utility', 'delete_asset_safe', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
 assertRequirement('animation', 'get_anim_graph', TOOL_REQUIREMENT_KINDS.LIVE_READ);

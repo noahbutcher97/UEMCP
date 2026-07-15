@@ -40,6 +40,7 @@ import {
   readFBoxBinary,
   readFExpressionInputBinary,
 } from './uasset-structs.mjs';
+import { GENERIC_CONTAINER_FALLBACK_REASON } from './property-read-contract.mjs';
 import {
   applyOracleFreshnessGate,
   countTopologyEdges,
@@ -1704,6 +1705,27 @@ function testContainerSyntheticScalars() {
   const structHandlers = buildStructHandlers();
   const containerHandlers = buildContainerHandlers();
 
+  // The parser's generic path must report a stable fallback marker when a
+  // caller intentionally omits the configured container registry.
+  {
+    const names = ['None', 'Numbers', 'ArrayProperty', 'IntProperty'];
+    const valueBytes = Buffer.concat([int32Bytes(1), int32Bytes(42)]);
+    const outer = buildTaggedStream([{
+      name: 'Numbers',
+      typeName: 'ArrayProperty',
+      typeParams: [{ name: 'IntProperty', params: [] }],
+      size: valueBytes.length,
+      flags: 0,
+      valueBytes,
+    }], names);
+    const result = readTaggedPropertyStream(new Cursor(outer), outer.length, names, {});
+    runner.assert(
+      result.properties?.Numbers?.unsupported === true &&
+        result.properties?.Numbers?.reason === GENERIC_CONTAINER_FALLBACK_REASON,
+      'T2 synth: parser without container handlers emits the generic fallback reason',
+    );
+  }
+
   // TArray<IntProperty> — 3 elements: 42, -7, 0
   {
     const tag = { flags: 0x00, type: 'ArrayProperty', size: 16,
@@ -1801,6 +1823,28 @@ function testContainerSyntheticScalars() {
                   'T2 synth: second element fields (Alpha=3, Beta=4) extracted');
   }
 
+  // Tagged element with a registered handler must consume its complete
+  // self-describing sub-stream rather than returning handler defaults.
+  {
+    const names = ['None', 'X', 'Y', 'Z', 'DoubleProperty'];
+    const taggedVector = buildTaggedStream([
+      { name: 'X', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(1.5) },
+      { name: 'Y', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(-2.5) },
+      { name: 'Z', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(3.5) },
+    ], names);
+    const body = Buffer.concat([int32Bytes(1), taggedVector]);
+    const tag = { flags: 0x00, size: body.length, type: 'ArrayProperty',
+                  typeParams: [{ name: 'StructProperty',
+                                 params: [{ name: 'Vector', params: [] }] }] };
+    const cur = new Cursor(body);
+    const result = containerHandlers.get('ArrayProperty')(cur, tag, names,
+                                                          { structHandlers, containerHandlers });
+    runner.assert(result?.[0]?.x === 1.5 && result?.[0]?.y === -2.5 && result?.[0]?.z === 3.5,
+                  'T2 synth: TArray<tagged Vector> decodes registered struct fields');
+    runner.assert(cur.tell() === body.length,
+                  'T2 synth: TArray<tagged Vector> consumes the complete tagged element');
+  }
+
   // Tier 2 (D46): TMap<Name, int32> synthetic.
   {
     const names = ['None', 'First', 'Second'];
@@ -1847,6 +1891,37 @@ function testContainerSyntheticScalars() {
                   result?.[0]?.value?.y === -2.5 &&
                   result?.[0]?.value?.z === 3.5,
                   'T2 synth: TMap<Name, Vector> decodes a supported struct value');
+  }
+
+  // Scalar key + registered struct value using tagged serialization.
+  {
+    const names = ['None', 'Origin', 'X', 'Y', 'Z', 'DoubleProperty'];
+    const taggedVector = buildTaggedStream([
+      { name: 'X', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(4.5) },
+      { name: 'Y', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(-5.5) },
+      { name: 'Z', typeName: 'DoubleProperty', typeParams: [], size: 8, flags: 0, valueBytes: doubleBytes(6.5) },
+    ], names);
+    const buf = Buffer.concat([
+      int32Bytes(0),
+      int32Bytes(1),
+      writeFName('Origin', names),
+      taggedVector,
+    ]);
+    const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'StructProperty', params: [{ name: 'Vector', params: [] }] },
+                  ] };
+    const cur = new Cursor(buf);
+    const result = containerHandlers.get('MapProperty')(cur, tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.[0]?.key === 'Origin' &&
+                  result?.[0]?.value?.x === 4.5 &&
+                  result?.[0]?.value?.y === -5.5 &&
+                  result?.[0]?.value?.z === 6.5,
+                  'T2 synth: TMap<Name, tagged Vector> decodes registered struct fields');
+    runner.assert(cur.tell() === buf.length,
+                  'T2 synth: TMap<Name, tagged Vector> consumes the complete tagged value');
   }
 
   // Scalar key + soft-object reference value.

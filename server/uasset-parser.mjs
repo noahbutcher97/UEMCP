@@ -28,12 +28,18 @@
 // shouldRescan helpers in offline-tools.mjs decide re-parse vs hit.
 
 import { open } from 'node:fs/promises';
+import {
+  GENERIC_CONTAINER_FALLBACK_REASON,
+  PROPERTY_READ_REASON_GROUPS,
+} from './property-read-contract.mjs';
 
 // ── Constants ────────────────────────────────────────────────
 
 export const PACKAGE_FILE_TAG = 0x9E2A83C1;
 export const PACKAGE_FILE_TAG_SWAPPED = 0xC1832A9E;
-export const GENERIC_CONTAINER_FALLBACK_REASON = 'container_deferred';
+export { GENERIC_CONTAINER_FALLBACK_REASON };
+
+const PARSER_REASONS = PROPERTY_READ_REASON_GROUPS.parserCore;
 
 // EUnrealEngineObjectUE5Version values we branch on.
 // Derived from Engine/Source/Runtime/Core/Public/UObject/ObjectVersion.h.
@@ -874,7 +880,7 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   const start = exportEntry.serialOffset;
   const end = start + exportEntry.serialSize;
   if (end > buf.length || start + 1 > buf.length) {
-    return { properties: {}, unsupported: [{ name: '__stream__', reason: 'serial_range_out_of_bounds' }], propertyCount: 0, truncated: false, bytesConsumed: 0 };
+    return { properties: {}, unsupported: [{ name: '__stream__', reason: PARSER_REASONS.serialRangeOutOfBounds }], propertyCount: 0, truncated: false, bytesConsumed: 0 };
   }
   cur.seek(start);
   const preamble = cur.readUInt8();
@@ -883,7 +889,7 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   if (preamble !== 0x00) {
     return {
       properties: {},
-      unsupported: [{ name: '__stream__', reason: 'unexpected_preamble', size_bytes: preamble }],
+      unsupported: [{ name: '__stream__', reason: PARSER_REASONS.unexpectedPreamble, size_bytes: preamble }],
       propertyCount: 0, truncated: false, bytesConsumed: 1,
     };
   }
@@ -913,7 +919,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
     try {
       tag = readPropertyTag(cur, names);
     } catch (err) {
-      unsupported.push({ name: '__stream__', reason: 'tag_header_read_failed', size_bytes: endOffset - cur.tell() });
+      unsupported.push({ name: '__stream__', reason: PARSER_REASONS.tagHeaderReadFailed, size_bytes: endOffset - cur.tell() });
       break;
     }
     if (tag.terminator) break;
@@ -921,14 +927,14 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
     const valueStart = cur.tell();
     const valueEnd = valueStart + tag.size;
     if (valueEnd > endOffset) {
-      unsupported.push({ name: tag.name, reason: 'value_overruns_serial', type: tag.type, size_bytes: tag.size });
+      unsupported.push({ name: tag.name, reason: PARSER_REASONS.valueOverrunsSerial, type: tag.type, size_bytes: tag.size });
       break;
     }
 
     if (responseBytes >= maxBytes) {
       truncated = true;
       if (unsupported.filter(u => u.reason === 'size_budget_exceeded').length < 20) {
-        unsupported.push({ name: tag.name, reason: 'size_budget_exceeded' });
+        unsupported.push({ name: tag.name, reason: PARSER_REASONS.sizeBudgetExceeded });
       }
       cur.seek(valueEnd);
       propertyCount += 1;
@@ -941,7 +947,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
 
     if (tag.unsupportedExtensions) {
       isUnsupported = true;
-      unsupportedMarker = { reason: 'property_tag_extensions' };
+      unsupportedMarker = { reason: PARSER_REASONS.propertyTagExtensions };
     } else {
       try {
         value = dispatchPropertyValue(cur, tag, names, opts);
@@ -954,7 +960,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
         }
       } catch (err) {
         isUnsupported = true;
-        unsupportedMarker = { reason: 'value_read_failed' };
+        unsupportedMarker = { reason: PARSER_REASONS.valueReadFailed };
       }
     }
 
@@ -1006,7 +1012,7 @@ function dispatchPropertyValue(cur, tag, names, opts) {
       if (opts.resolvedUnknownStructs && structName) opts.resolvedUnknownStructs.add(structName);
       return sub.properties;
     }
-    return { __unsupported__: true, reason: 'unknown_struct', struct_name: structName };
+    return { __unsupported__: true, reason: PARSER_REASONS.unknownStruct, struct_name: structName };
   }
   if (type === 'ArrayProperty' || type === 'SetProperty' || type === 'MapProperty') {
     const handler = opts.containerHandlers?.get(type);
@@ -1015,20 +1021,20 @@ function dispatchPropertyValue(cur, tag, names, opts) {
   }
   if (type === 'DelegateProperty' || type === 'MulticastDelegateProperty' ||
       type === 'MulticastInlineDelegateProperty' || type === 'MulticastSparseDelegateProperty') {
-    return { __unsupported__: true, reason: 'delegate_not_serialized' };
+    return { __unsupported__: true, reason: PARSER_REASONS.delegateNotSerialized };
   }
   if (type === 'TextProperty') {
-    return { __unsupported__: true, reason: 'localized_text' };
+    return { __unsupported__: true, reason: PARSER_REASONS.localizedText };
   }
   if (type === 'SoftObjectProperty' || type === 'SoftClassProperty') {
     const handler = opts.structHandlers?.get('SoftObjectPath');
     if (handler) return handler(cur, tag, names, opts);
-    return { __unsupported__: true, reason: 'unknown_property_type', detail: type };
+    return { __unsupported__: true, reason: PARSER_REASONS.unknownPropertyType, detail: type };
   }
 
   const val = readScalarPropertyValue(cur, tag, names, opts);
   if (val === null || val === undefined) {
-    return { __unsupported__: true, reason: 'unknown_property_type', detail: type };
+    return { __unsupported__: true, reason: PARSER_REASONS.unknownPropertyType, detail: type };
   }
   return val;
 }

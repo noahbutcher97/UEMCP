@@ -26,8 +26,11 @@
 //   - FSoftObjectPath: FName (UE 5.1+ asset path) + FString (sub-path)
 
 import { readFNameAtCursor, readTaggedPropertyStream } from './uasset-parser.mjs';
+import { PROPERTY_READ_REASON_GROUPS } from './property-read-contract.mjs';
 
 const HAS_BINARY_NATIVE = 0x08;
+const CONTAINER_REASONS = PROPERTY_READ_REASON_GROUPS.containers;
+const STRUCT_LAYOUT_REASONS = PROPERTY_READ_REASON_GROUPS.structLayouts;
 
 // ── Level 2.5 — simple-element containers (D46) ───────────────────────
 //
@@ -99,7 +102,7 @@ function readStructElement(cur, structName, outerFlags, names, opts) {
   const handler = opts.structHandlers?.get(structName);
   // Native binary requires a known layout. No handler + native = surrender.
   if (outerFlags & HAS_BINARY_NATIVE) {
-    if (!handler) return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
+    if (!handler) return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: structName };
     const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
     return handler(cur, pseudoTag, names, opts);
   }
@@ -107,7 +110,12 @@ function readStructElement(cur, structName, outerFlags, names, opts) {
   // it without a handler because each inner FPropertyTag carries its own
   // type + size.
   if (handler) {
-    const pseudoTag = { flags: outerFlags, size: 0, type: 'StructProperty', typeParams: [{ name: structName, params: [] }] };
+    const pseudoTag = {
+      flags: outerFlags,
+      size: cur.buf.length - cur.tell(),
+      type: 'StructProperty',
+      typeParams: [{ name: structName, params: [] }],
+    };
     return handler(cur, pseudoTag, names, opts);
   }
   const virtualEnd = cur.buf.length;
@@ -146,13 +154,13 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
   if (innerTypeName === 'StructProperty') {
     const structName = innerTypeParams[0].params?.[0]?.name ?? null;
     if (!structName) {
-      return { __unsupported__: true, reason: 'complex_element_container', inner_type: '<null>' };
+      return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: '<null>' };
     }
     // Tier 2 (D46): tagged-stream elements walk without a handler; only native
     // binary requires a known layout and fails out here.
     const hasHandler = opts.structHandlers?.has(structName);
     if ((outerTag.flags & HAS_BINARY_NATIVE) && !hasHandler) {
-      return { __unsupported__: true, reason: 'complex_element_container', inner_type: structName };
+      return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: structName };
     }
     for (let i = 0; i < count; i++) {
       const el = readStructElement(cur, structName, outerTag.flags, names, opts);
@@ -170,7 +178,7 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
     }
     return elements;
   }
-  return { __unsupported__: true, reason: 'complex_element_container', inner_type: innerTypeName ?? '<null>' };
+  return { __unsupported__: true, reason: CONTAINER_REASONS.complexElementContainer, inner_type: innerTypeName ?? '<null>' };
 }
 
 // ── Container handlers (ArrayProperty / SetProperty) ──────────────────
@@ -178,7 +186,7 @@ function readArrayElements(cur, outerTag, count, innerTypeParams, names, opts) {
 export function handleArrayProperty(cur, tag, names, opts) {
   const count = cur.readInt32();
   if (count < 0 || count > INT_MAX_ELEMENTS) {
-    return { __unsupported__: true, reason: 'container_count_unreasonable', inner_type: tag.typeParams?.[0]?.name };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable, inner_type: tag.typeParams?.[0]?.name };
   }
   return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
 }
@@ -198,28 +206,28 @@ export function handleArrayProperty(cur, tag, names, opts) {
 export function handleMapProperty(cur, tag, names, opts) {
   const numRemoved = cur.readInt32();
   if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
-    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
   }
   if (numRemoved > 0) {
     // TMap save-game deltas serialize removed keys before new entries.
-    return { __unsupported__: true, reason: 'map_with_removed_items' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.mapWithRemovedItems };
   }
   const count = cur.readInt32();
   if (count < 0 || count > INT_MAX_ELEMENTS) {
-    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
   }
   const keyType = tag.typeParams?.[0]?.name ?? null;
   const valueTypeParams = tag.typeParams?.[1] ?? null;
   const valueType = valueTypeParams?.name ?? null;
   if (!keyType || !valueType) {
-    return { __unsupported__: true, reason: 'map_type_params_missing' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.mapTypeParamsMissing };
   }
   if (keyType === 'StructProperty') {
-    return { __unsupported__: true, reason: 'struct_key_map' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.structKeyMap };
   }
   const keyReader = SCALAR_ELEMENT_READERS.get(keyType);
   if (!keyReader) {
-    return { __unsupported__: true, reason: 'map_key_type_unsupported', detail: keyType };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.mapKeyTypeUnsupported, detail: keyType };
   }
   const valueScalarReader = SCALAR_ELEMENT_READERS.get(valueType);
   const entries = [];
@@ -231,7 +239,7 @@ export function handleMapProperty(cur, tag, names, opts) {
     } else if (valueType === 'StructProperty') {
       const valStructName = valueTypeParams.params?.[0]?.name ?? null;
       if (!valStructName) {
-        return { __unsupported__: true, reason: 'map_value_struct_name_missing' };
+        return { __unsupported__: true, reason: CONTAINER_REASONS.mapValueStructNameMissing };
       }
       const el = readStructElement(cur, valStructName, tag.flags, names, opts);
       if (el && el.__unsupported__) {
@@ -241,7 +249,7 @@ export function handleMapProperty(cur, tag, names, opts) {
     } else if (valueType === 'SoftObjectProperty' || valueType === 'SoftClassProperty') {
       value = { assetPath: readFNameAtCursor(cur, names), subPath: cur.readFString() };
     } else {
-      return { __unsupported__: true, reason: 'map_value_type_unsupported', detail: valueType };
+      return { __unsupported__: true, reason: CONTAINER_REASONS.mapValueTypeUnsupported, detail: valueType };
     }
     entries.push({ key, value });
   }
@@ -252,15 +260,15 @@ export function handleSetProperty(cur, tag, names, opts) {
   // TSet: int32 NumRemovedItems (typically 0 outside save-game deltas) + Count + elements.
   const numRemoved = cur.readInt32();
   if (numRemoved < 0 || numRemoved > INT_MAX_ELEMENTS) {
-    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
   }
   // Skip any RemovedItem entries (rare; emit marker if present so we don't silently eat bytes).
   if (numRemoved > 0) {
-    return { __unsupported__: true, reason: 'set_with_removed_items', inner_type: tag.typeParams?.[0]?.name };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.setWithRemovedItems, inner_type: tag.typeParams?.[0]?.name };
   }
   const count = cur.readInt32();
   if (count < 0 || count > INT_MAX_ELEMENTS) {
-    return { __unsupported__: true, reason: 'container_count_unreasonable' };
+    return { __unsupported__: true, reason: CONTAINER_REASONS.containerCountUnreasonable };
   }
   return readArrayElements(cur, tag, count, tag.typeParams, names, opts);
 }
@@ -561,7 +569,7 @@ function handleFMaterialAttributesInput(cur, tag, names, opts) {
 // case), only those overrides appear — the rest live at class default.
 function handleFBodyInstance(cur, tag, names, opts) {
   if (tag.flags & HAS_BINARY_NATIVE) {
-    return { __unsupported__: true, reason: 'body_instance_native_layout_unknown' };
+    return { __unsupported__: true, reason: STRUCT_LAYOUT_REASONS.bodyInstanceNativeLayoutUnknown };
   }
   return readTaggedStructFields(cur, tag, names, opts).properties || {};
 }
