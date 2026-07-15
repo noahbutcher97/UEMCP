@@ -11,7 +11,10 @@ import {
   collectRequirementMetadataMismatches,
   isMutationRequirementKind,
 } from './test-tool-surface-helpers.mjs';
-import { getToolAnnotations } from './tool-annotations.mjs';
+import {
+  MANAGEMENT_SESSION_STATE_TOOLS,
+  getToolAnnotations,
+} from './tool-annotations.mjs';
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
 
 const t = new TestRunner('Tool Requirement Tests');
@@ -118,6 +121,64 @@ const annotationResults = annotationCases.map(([toolName, requirement, expected]
 t.assert(
   new Set(annotationResults).size === annotationResults.length,
   'tool annotations return a new object for every call',
+);
+
+const expectedManagementSessionStateTools = [
+  'connection_info',
+  'detect_project',
+  'find_tools',
+  'enable_toolset',
+  'disable_toolset',
+  'attach_project',
+  'detach_project',
+  'refresh_project_context',
+];
+t.assert(
+  MANAGEMENT_SESSION_STATE_TOOLS.has('connection_info') &&
+    !MANAGEMENT_SESSION_STATE_TOOLS.has('list_toolsets'),
+  'management session-state policy supports membership checks',
+);
+t.assert(
+  JSON.stringify([...MANAGEMENT_SESSION_STATE_TOOLS]) === JSON.stringify(expectedManagementSessionStateTools),
+  'management session-state policy supports iteration',
+);
+t.assert(Object.isFrozen(MANAGEMENT_SESSION_STATE_TOOLS), 'management session-state policy facade is frozen');
+
+for (const mutator of ['add', 'delete', 'clear']) {
+  t.assert(!(mutator in MANAGEMENT_SESSION_STATE_TOOLS), `management session-state policy exposes no ${mutator} route`);
+}
+
+const policyMutationCases = [
+  ['add', 'list_toolsets', 'list_toolsets'],
+  ['delete', 'connection_info', 'connection_info'],
+  ['clear', undefined, 'detect_project'],
+];
+for (const [mutator, argument, probeTool] of policyMutationCases) {
+  const before = getToolAnnotations(probeTool, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+  try {
+    MANAGEMENT_SESSION_STATE_TOOLS[mutator](argument);
+  } catch {
+    // A read-only facade has no mutator to invoke.
+  }
+  const after = getToolAnnotations(probeTool, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+  t.assert(
+    JSON.stringify(after) === JSON.stringify(before),
+    `${mutator} mutation attempt cannot change management annotations`,
+    `before ${JSON.stringify(before)}, after ${JSON.stringify(after)}`,
+  );
+}
+
+let unknownRequirementError;
+try {
+  getToolAnnotations('synthetic_tool', 'future_requirement');
+} catch (error) {
+  unknownRequirementError = error;
+}
+t.assert(
+  unknownRequirementError instanceof Error &&
+    unknownRequirementError.message === 'Unknown tool requirement kind: future_requirement',
+  'unknown requirement kind fails closed with the exact error message',
+  `got ${unknownRequirementError?.message ?? 'no error'}`,
 );
 
 process.exit(t.summary());
