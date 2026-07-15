@@ -11,6 +11,7 @@ import {
   collectRequirementMetadataMismatches,
   isMutationRequirementKind,
 } from './test-tool-surface-helpers.mjs';
+import { getToolAnnotations } from './tool-annotations.mjs';
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
 
 const t = new TestRunner('Tool Requirement Tests');
@@ -78,6 +79,45 @@ t.assert(
     isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.PYTHON_EXEC) &&
     !isMutationRequirementKind(TOOL_REQUIREMENT_KINDS.LIVE_READ),
   'mutation requirement helper recognizes live, RC, and Python mutation-risk kinds',
+);
+
+console.log('\n── Tool annotations ──');
+
+const annotationCases = [
+  ['project_info', TOOL_REQUIREMENT_KINDS.OFFLINE_READ, { readOnlyHint: true }],
+  ['get_editor_state', TOOL_REQUIREMENT_KINDS.LIVE_READ, { readOnlyHint: true }],
+  ['rc_get_property', TOOL_REQUIREMENT_KINDS.RC_READ, { readOnlyHint: true }],
+  ['create_blueprint', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION, { readOnlyHint: false, destructiveHint: true }],
+  ['rc_set_property', TOOL_REQUIREMENT_KINDS.RC_MUTATION, { readOnlyHint: false, destructiveHint: true }],
+  ['run_python_command', TOOL_REQUIREMENT_KINDS.PYTHON_EXEC, { readOnlyHint: false, destructiveHint: true }],
+  ['list_toolsets', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: true }],
+  ['list_project_targets', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: true }],
+  ['connection_info', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['detect_project', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['find_tools', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['enable_toolset', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['disable_toolset', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['attach_project', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['detach_project', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['refresh_project_context', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+];
+
+const annotationResults = annotationCases.map(([toolName, requirement, expected]) => {
+  const annotations = getToolAnnotations(toolName, requirement);
+  t.assert(
+    JSON.stringify(annotations) === JSON.stringify(expected),
+    `${toolName} annotations match requirement policy`,
+    `got ${JSON.stringify(annotations)}`,
+  );
+  t.assert(Object.isFrozen(annotations), `${toolName} annotations are frozen`);
+  t.assert(!('idempotentHint' in annotations), `${toolName} annotations omit idempotentHint`);
+  t.assert(!('openWorldHint' in annotations), `${toolName} annotations omit openWorldHint`);
+  return annotations;
+});
+
+t.assert(
+  new Set(annotationResults).size === annotationResults.length,
+  'tool annotations return a new object for every call',
 );
 
 process.exit(t.summary());
