@@ -87,7 +87,60 @@ const SERVER_INSTRUCTIONS = [
   'search_gameplay_tags globs: * = one level, ** = across levels.',
 ].join(' ');
 
-const MANAGEMENT_TOOL_COUNT = 10;
+const MANAGEMENT_PURE_INSPECTION_TOOL_NAMES = Object.freeze([
+  'list_toolsets',
+  'list_project_targets',
+]);
+const MANAGEMENT_SESSION_STATE_ANNOTATIONS = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: false,
+});
+const MANAGEMENT_PURE_INSPECTION_ANNOTATIONS = Object.freeze({
+  readOnlyHint: true,
+});
+const MANAGEMENT_TOOL_COUNT = MANAGEMENT_SESSION_STATE_TOOLS.size + MANAGEMENT_PURE_INSPECTION_TOOL_NAMES.length;
+
+function annotationsMatchLiteralPolicy(actual, expected) {
+  if (!actual || typeof actual !== 'object') return false;
+  const actualKeys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index] && actual[key] === expected[key]);
+}
+
+export function assertManagementAnnotationPolicies(registeredManagementTools) {
+  if (!(registeredManagementTools instanceof Map)) {
+    throw new Error('Management registrations must be captured in a Map');
+  }
+
+  const expectedNames = new Set([
+    ...MANAGEMENT_SESSION_STATE_TOOLS,
+    ...MANAGEMENT_PURE_INSPECTION_TOOL_NAMES,
+  ]);
+  const registeredNames = new Set(registeredManagementTools.keys());
+  const missing = [...expectedNames].filter(name => !registeredNames.has(name)).sort();
+  const unexpected = [...registeredNames].filter(name => !expectedNames.has(name)).sort();
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      `Management registration inventory mismatch; missing: ${missing.join(', ') || '(none)'}; ` +
+      `unexpected: ${unexpected.join(', ') || '(none)'}`
+    );
+  }
+
+  for (const name of MANAGEMENT_SESSION_STATE_TOOLS) {
+    const actual = registeredManagementTools.get(name);
+    if (!annotationsMatchLiteralPolicy(actual, MANAGEMENT_SESSION_STATE_ANNOTATIONS)) {
+      throw new Error(`Management tool ${name} does not use the literal session-state annotation policy`);
+    }
+  }
+
+  for (const name of MANAGEMENT_PURE_INSPECTION_TOOL_NAMES) {
+    const actual = registeredManagementTools.get(name);
+    if (!annotationsMatchLiteralPolicy(actual, MANAGEMENT_PURE_INSPECTION_ANNOTATIONS)) {
+      throw new Error(`Management tool ${name} does not use the literal pure-inspection annotation policy`);
+    }
+  }
+}
 
 function createConfig(env = {}) {
   return {
@@ -545,41 +598,21 @@ export async function createUemcpServer(options = {}) {
     return structuredResult(payload);
   }
 
-  const registeredManagementToolNames = new Set();
+  const registeredManagementTools = new Map();
 
   function registerManagementTool(name, configObject, handler) {
-    registeredManagementToolNames.add(name);
-    return server.registerTool(
+    const annotations = getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+    const handle = server.registerTool(
       name,
       {
         ...configObject,
         outputSchema: MANAGEMENT_OUTPUT_SHAPE,
-        annotations: getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT),
+        annotations,
       },
       handler
     );
-  }
-
-  function assertManagementAnnotationPolicies() {
-    const unregisteredSessionStateTools = [...MANAGEMENT_SESSION_STATE_TOOLS]
-      .filter(name => !registeredManagementToolNames.has(name));
-    if (unregisteredSessionStateTools.length > 0) {
-      throw new Error(
-        `Management session-state tools must be registered: ${unregisteredSessionStateTools.join(', ')}`
-      );
-    }
-
-    for (const name of registeredManagementToolNames) {
-      const annotations = getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
-      const isInspectionPolicy = annotations.readOnlyHint === true && !('destructiveHint' in annotations);
-      const isSessionStatePolicy = annotations.readOnlyHint === false && annotations.destructiveHint === false;
-      if (!isInspectionPolicy && !isSessionStatePolicy) {
-        throw new Error(`Management tool ${name} has an unsupported annotation policy`);
-      }
-      if (isSessionStatePolicy !== MANAGEMENT_SESSION_STATE_TOOLS.has(name)) {
-        throw new Error(`Management tool ${name} does not match its session-state policy`);
-      }
-    }
+    registeredManagementTools.set(name, annotations);
+    return handle;
   }
 
   async function inspectEditorProcesses() {
@@ -960,7 +993,7 @@ export async function createUemcpServer(options = {}) {
     }
   );
 
-  assertManagementAnnotationPolicies();
+  assertManagementAnnotationPolicies(registeredManagementTools);
 
   toolsetManager.onListChanged(() => {
     server.server.sendToolListChanged();

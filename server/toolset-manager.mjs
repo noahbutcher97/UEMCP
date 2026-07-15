@@ -91,9 +91,9 @@ export class ToolsetManager {
 
   /**
    * Store an SDK tool handle so we can toggle its visibility in tools/list.
-   * Called by server.mjs after each server.tool() registration.
+   * Called by server.mjs after each server.registerTool() registration.
    * @param {string} toolName
-   * @param {{enable: () => void, disable: () => void}} handle — return value of server.tool()
+   * @param {{enable: () => void, disable: () => void}} handle — return value of server.registerTool()
    */
   registerToolHandle(toolName, handle) {
     this._toolHandles.set(toolName, handle);

@@ -6,11 +6,24 @@
 // compile, and offline fallback semantics.
 
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { load } from 'js-yaml';
-import { createUemcpServer } from './create-uemcp-server.mjs';
+import * as UemcpServerModule from './create-uemcp-server.mjs';
+import { getActorsToolDefs } from './actors-tcp-tools.mjs';
+import { getBlueprintsWriteToolDefs } from './blueprints-write-tcp-tools.mjs';
 import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
+import { getM5AnimationToolDefs } from './m5-animation-tools.mjs';
+import { getM5EditorUtilityToolDefs } from './m5-editor-utility-tools.mjs';
+import { getM5GeometryToolDefs } from './m5-geometry-tools.mjs';
+import { getM5InputPieToolDefs } from './m5-input-pie-tools.mjs';
+import { getM5MaterialsToolDefs } from './m5-materials-tools.mjs';
+import { getMenhanceToolDefs } from './menhance-tcp-tools.mjs';
+import { getRcToolDefs } from './rc-tools.mjs';
 import { TestRunner } from './test-helpers.mjs';
+import { getToolAnnotations } from './tool-annotations.mjs';
+import { getToolRequirement } from './tool-requirements.mjs';
+import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
 
 const ALLOWED_STATUS = new Set(['shipped', 'planned', 'deprecated', 'hidden']);
 const ALLOWED_LAYERS = new Set(['offline', 'tcp-55558', 'http-30010']);
@@ -34,6 +47,24 @@ const BOOLEAN_FIELDS = [
   'saves_asset',
   'compiles_asset',
 ];
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const MANAGEMENT_SESSION_STATE_NAMES = Object.freeze([
+  'connection_info',
+  'detect_project',
+  'find_tools',
+  'enable_toolset',
+  'disable_toolset',
+  'attach_project',
+  'detach_project',
+  'refresh_project_context',
+]);
+const MANAGEMENT_INSPECTION_NAMES = Object.freeze([
+  'list_toolsets',
+  'list_project_targets',
+]);
+const SESSION_STATE_ANNOTATIONS = Object.freeze({ readOnlyHint: false, destructiveHint: false });
+const INSPECTION_ANNOTATIONS = Object.freeze({ readOnlyHint: true });
 
 const REQUIRED_ANNOTATED_TOOLS = new Set([
   // RC-backed semantic delegates.
@@ -124,6 +155,30 @@ function hasCapabilityMetadata(def) {
   return 'availability_layer' in def || 'transport_layer' in def;
 }
 
+function annotationsMatch(actual, expected) {
+  if (!actual || typeof actual !== 'object') return false;
+  const actualKeys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index] && actual[key] === expected[key]);
+}
+
+function literalManagementAnnotations() {
+  return new Map([
+    ...MANAGEMENT_SESSION_STATE_NAMES.map(name => [name, SESSION_STATE_ANNOTATIONS]),
+    ...MANAGEMENT_INSPECTION_NAMES.map(name => [name, INSPECTION_ANNOTATIONS]),
+  ]);
+}
+
+function captureError(fn) {
+  try {
+    fn();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 const t = new TestRunner('Tool Metadata Schema');
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
@@ -136,8 +191,63 @@ t.assert(
   'production server uses no deprecated .tool() registrations',
 );
 
-const serverApp = await createUemcpServer({
+const assertManagementAnnotationPolicies = UemcpServerModule.assertManagementAnnotationPolicies;
+t.assert(
+  typeof assertManagementAnnotationPolicies === 'function',
+  'production exports the independent management registration invariant',
+);
+
+if (typeof assertManagementAnnotationPolicies === 'function') {
+  const expectedManagement = literalManagementAnnotations();
+  t.assert(
+    captureError(() => assertManagementAnnotationPolicies(expectedManagement)) === null,
+    'exact management inventory and literal policies satisfy the startup invariant',
+  );
+
+  const unexpectedRegistration = new Map(expectedManagement);
+  unexpectedRegistration.set('future_management_tool', INSPECTION_ANNOTATIONS);
+  t.assert(
+    /unexpected: future_management_tool/.test(
+      captureError(() => assertManagementAnnotationPolicies(unexpectedRegistration))?.message || ''
+    ),
+    'startup invariant rejects a management registration absent from both inventories',
+  );
+
+  const staleInventory = new Map(expectedManagement);
+  staleInventory.delete('list_project_targets');
+  t.assert(
+    /missing: list_project_targets/.test(
+      captureError(() => assertManagementAnnotationPolicies(staleInventory))?.message || ''
+    ),
+    'startup invariant rejects a stale management inventory name',
+  );
+
+  const wrongSessionStatePolicy = new Map(expectedManagement);
+  wrongSessionStatePolicy.set('connection_info', INSPECTION_ANNOTATIONS);
+  t.assert(
+    /connection_info.*session-state/.test(
+      captureError(() => assertManagementAnnotationPolicies(wrongSessionStatePolicy))?.message || ''
+    ),
+    'startup invariant compares captured session-state annotations to a literal policy',
+  );
+
+  const wrongInspectionPolicy = new Map(expectedManagement);
+  wrongInspectionPolicy.set('list_toolsets', SESSION_STATE_ANNOTATIONS);
+  t.assert(
+    /list_toolsets.*pure-inspection/.test(
+      captureError(() => assertManagementAnnotationPolicies(wrongInspectionPolicy))?.message || ''
+    ),
+    'startup invariant compares captured inspection annotations to a literal policy',
+  );
+}
+
+const committedProjectRoot = join(__dirname, 'fix' + 'tures', 'uemcp-' + 'fix' + 'ture');
+const serverApp = await UemcpServerModule.createUemcpServer({
   cwd: process.cwd(),
+  workspaceRoots: [committedProjectRoot],
+  writeProjectCodenames: false,
+  tcpCommandFn: async () => ({ status: 'success' }),
+  httpCommandFn: async () => ({ Presets: [] }),
   stderr: { write() {} },
 });
 const transport = new FakeMcpTransport();
@@ -148,12 +258,104 @@ try {
     capabilities: {},
     clientInfo: { name: 'tool-metadata-test', version: '1.0.0' },
   });
-  const toolList = await transport.sendClientRequest('tools/list', {});
-  const rowsWithoutAnnotations = toolList.result?.tools?.filter(tool => tool.annotations === undefined) || [];
+
+  const attachResponse = await transport.sendClientRequest('tools/call', {
+    name: 'attach_project',
+    arguments: { project_root: committedProjectRoot },
+  });
   t.assert(
-    rowsWithoutAnnotations.length === 0,
-    'every visible tools/list row exposes annotations',
-    rowsWithoutAnnotations.map(tool => tool.name).join(', '),
+    attachResponse.result?.structuredContent?.projectContext?.attachmentState === 'attached',
+    'wire metadata gate attaches the committed test project',
+    `got ${attachResponse.result?.structuredContent?.projectContext?.attachmentState}`,
+  );
+
+  const allToolsetNames = Object.keys(toolsData.toolsets);
+  const enableResponse = await transport.sendClientRequest('tools/call', {
+    name: 'enable_toolset',
+    arguments: { toolsets: allToolsetNames },
+  });
+  const enableResult = enableResponse.result?.structuredContent || {};
+  const enabledOrAlreadyEnabled = new Set([
+    ...(enableResult.enabled || []),
+    ...(enableResult.alreadyEnabled || []),
+  ]);
+  const toolsetsNotEnabled = allToolsetNames.filter(name => !enabledOrAlreadyEnabled.has(name));
+  t.assert(
+    toolsetsNotEnabled.length === 0 &&
+      (enableResult.unavailable || []).length === 0 &&
+      (enableResult.unknown || []).length === 0,
+    'deterministic transport stubs enable every registered toolset shape',
+    `not enabled: ${toolsetsNotEnabled.join(', ')}; unavailable: ${(enableResult.unavailable || []).join(', ')}; unknown: ${(enableResult.unknown || []).join(', ')}`,
+  );
+
+  const dynamicRegistrationGroups = [
+    ['offline', toolsData.toolsets.offline.tools],
+    ['actors', getActorsToolDefs()],
+    ['blueprints-write', getBlueprintsWriteToolDefs()],
+    ['widgets', getWidgetsToolDefs()],
+    ['remote-control', getRcToolDefs()],
+    ['m-enhance', getMenhanceToolDefs()],
+    ['animation', getM5AnimationToolDefs()],
+    ['materials', getM5MaterialsToolDefs()],
+    ['input-and-pie', getM5InputPieToolDefs()],
+    ['geometry', getM5GeometryToolDefs()],
+    ['editor-utility', getM5EditorUtilityToolDefs()],
+  ];
+  const expectedDynamicAnnotations = new Map();
+  const duplicateDynamicNames = [];
+  for (const [toolsetName, definitions] of dynamicRegistrationGroups) {
+    for (const [name, def] of Object.entries(definitions)) {
+      if (expectedDynamicAnnotations.has(name)) duplicateDynamicNames.push(name);
+      const requirement = getToolRequirement(name, toolsetName, def);
+      expectedDynamicAnnotations.set(name, getToolAnnotations(name, requirement));
+    }
+  }
+  t.assert(
+    duplicateDynamicNames.length === 0,
+    'independent dynamic registration inventory has no duplicate names',
+    duplicateDynamicNames.join(', '),
+  );
+
+  const toolList = await transport.sendClientRequest('tools/list', {});
+  const listedRows = toolList.result?.tools || [];
+  const listedByName = new Map(listedRows.map(row => [row.name, row]));
+  const expectedManagementAnnotations = literalManagementAnnotations();
+  const expectedNames = new Set([
+    ...expectedManagementAnnotations.keys(),
+    ...expectedDynamicAnnotations.keys(),
+  ]);
+  const missingNames = [...expectedNames].filter(name => !listedByName.has(name)).sort();
+  const unexpectedNames = [...listedByName.keys()].filter(name => !expectedNames.has(name)).sort();
+  t.assert(
+    listedRows.length === expectedNames.size && missingNames.length === 0 && unexpectedNames.length === 0,
+    'tools/list exposes the independently inventoried management and dynamic registrations',
+    `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
+  );
+
+  const managementAnnotationMismatches = [];
+  for (const [name, expected] of expectedManagementAnnotations) {
+    const actual = listedByName.get(name)?.annotations;
+    if (!annotationsMatch(actual, expected)) {
+      managementAnnotationMismatches.push(`${name}: ${JSON.stringify(actual)}`);
+    }
+  }
+  t.assert(
+    managementAnnotationMismatches.length === 0,
+    'every management tools/list row exposes its literal expected annotations',
+    managementAnnotationMismatches.join('; '),
+  );
+
+  const dynamicAnnotationMismatches = [];
+  for (const [name, expected] of expectedDynamicAnnotations) {
+    const actual = listedByName.get(name)?.annotations;
+    if (!annotationsMatch(actual, expected)) {
+      dynamicAnnotationMismatches.push(`${name}: ${JSON.stringify(actual)}`);
+    }
+  }
+  t.assert(
+    dynamicAnnotationMismatches.length === 0,
+    'every dynamic tools/list row exposes its requirement-derived annotations',
+    dynamicAnnotationMismatches.join('; '),
   );
 } finally {
   await serverApp.server.close();
