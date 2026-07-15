@@ -1826,6 +1826,53 @@ function testContainerSyntheticScalars() {
                   'T2 synth: TMap entry 1 {Second → 20}');
   }
 
+  // Scalar key + supported native struct value.
+  {
+    const names = ['None', 'Origin'];
+    const buf = Buffer.concat([
+      int32Bytes(0),
+      int32Bytes(1),
+      writeFName('Origin', names),
+      vectorBytes(1.5, -2.5, 3.5),
+    ]);
+    const tag = { flags: 0x08, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'StructProperty', params: [{ name: 'Vector', params: [] }] },
+                  ] };
+    const result = containerHandlers.get('MapProperty')(new Cursor(buf), tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.[0]?.key === 'Origin' &&
+                  result?.[0]?.value?.x === 1.5 &&
+                  result?.[0]?.value?.y === -2.5 &&
+                  result?.[0]?.value?.z === 3.5,
+                  'T2 synth: TMap<Name, Vector> decodes a supported struct value');
+  }
+
+  // Scalar key + soft-object reference value.
+  {
+    const assetPath = '/Game/Props/SM_Crate.SM_Crate';
+    const names = ['None', 'Crate', assetPath];
+    const buf = Buffer.concat([
+      int32Bytes(0),
+      int32Bytes(1),
+      writeFName('Crate', names),
+      writeFName(assetPath, names),
+      fstringBytes('LOD0'),
+    ]);
+    const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'SoftObjectProperty', params: [] },
+                  ] };
+    const result = containerHandlers.get('MapProperty')(new Cursor(buf), tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.[0]?.key === 'Crate' &&
+                  result?.[0]?.value?.assetPath === assetPath &&
+                  result?.[0]?.value?.subPath === 'LOD0',
+                  'T2 synth: TMap<Name, SoftObjectProperty> decodes a soft reference value');
+  }
+
   // Tier 2 (D46): TMap<StructProperty<_>, *> → struct_key_map marker.
   {
     const buf = Buffer.alloc(8);  // NumRemoved=0, Count=0
@@ -1838,6 +1885,27 @@ function testContainerSyntheticScalars() {
                                                         { structHandlers, containerHandlers });
     runner.assert(result?.__unsupported__ === true && result?.reason === 'struct_key_map',
                   'T2 synth: struct-keyed TMap emits struct_key_map marker');
+  }
+
+  // Scalar key + unsupported value category.
+  {
+    const names = ['None', 'Nested'];
+    const buf = Buffer.concat([
+      int32Bytes(0),
+      int32Bytes(1),
+      writeFName('Nested', names),
+    ]);
+    const tag = { flags: 0x00, size: buf.length, type: 'MapProperty',
+                  typeParams: [
+                    { name: 'NameProperty', params: [] },
+                    { name: 'ArrayProperty', params: [] },
+                  ] };
+    const result = containerHandlers.get('MapProperty')(new Cursor(buf), tag, names,
+                                                        { structHandlers, containerHandlers });
+    runner.assert(result?.__unsupported__ === true &&
+                  result?.reason === 'map_value_type_unsupported' &&
+                  result?.detail === 'ArrayProperty',
+                  'T2 synth: unsupported TMap value type emits map_value_type_unsupported');
   }
 }
 

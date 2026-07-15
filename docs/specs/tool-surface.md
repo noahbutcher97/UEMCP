@@ -23,12 +23,12 @@ This is a durable parser reference, not additional tool-wire metadata. The bound
 
 ### Supported Values And Boundaries
 
-The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, simple-element `TArray` and `TSet`, and scalar-key `TMap` values. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, and seven MaterialInput variants. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and non-scalar map keys or values remain unsupported.
+The parser supports scalar values, enums, object and soft references, gameplay tags and tag containers, `FFieldPath`, and simple-element `TArray` and `TSet`. Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`. Supported engine structs are `FVector`, `FRotator`, `FQuat`, `FTransform`, `FLinearColor`, `FColor`, `FVector2D`, `FVector4`, `FGuid`, `FBox`, `FIntPoint`, `FBodyInstance`, `FSoftObjectPath`, `FSoftClassPath`, `FGameplayTag`, `FGameplayTagContainer`, `FExpressionInput`, and seven MaterialInput variants. Unknown structs use tagged self-describing decoding where possible; unhandled layouts return markers rather than being silently skipped. Struct-key maps and other non-scalar map keys remain unsupported.
 
 ### Reason-Code Taxonomy
 
 - Parser core: `unknown_struct`, `unknown_property_type`, `unexpected_preamble`, `serial_range_out_of_bounds`, `value_overruns_serial`, `tag_header_read_failed`, `property_tag_extensions`, `value_read_failed`, `delegate_not_serialized`, `localized_text`, and `size_budget_exceeded`.
-- Containers: `complex_element_container`, `container_deferred`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, and `struct_key_map`.
+- Containers: `complex_element_container`, `container_count_unreasonable`, `set_with_removed_items`, `map_with_removed_items`, `map_type_params_missing`, `map_key_type_unsupported`, `map_value_type_unsupported`, `map_value_struct_name_missing`, and `struct_key_map`.
 - Struct layouts: `body_instance_native_layout_unknown`.
 - Bounded subobject output: `subobject_budget_exhausted`.
 

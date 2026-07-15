@@ -33,6 +33,7 @@ import { open } from 'node:fs/promises';
 
 export const PACKAGE_FILE_TAG = 0x9E2A83C1;
 export const PACKAGE_FILE_TAG_SWAPPED = 0xC1832A9E;
+export const GENERIC_CONTAINER_FALLBACK_REASON = 'container_deferred';
 
 // EUnrealEngineObjectUE5Version values we branch on.
 // Derived from Engine/Source/Runtime/Core/Public/UObject/ObjectVersion.h.
@@ -1010,7 +1011,7 @@ function dispatchPropertyValue(cur, tag, names, opts) {
   if (type === 'ArrayProperty' || type === 'SetProperty' || type === 'MapProperty') {
     const handler = opts.containerHandlers?.get(type);
     if (handler) return handler(cur, tag, names, opts);
-    return { __unsupported__: true, reason: 'container_deferred' };
+    return { __unsupported__: true, reason: GENERIC_CONTAINER_FALLBACK_REASON };
   }
   if (type === 'DelegateProperty' || type === 'MulticastDelegateProperty' ||
       type === 'MulticastInlineDelegateProperty' || type === 'MulticastSparseDelegateProperty') {

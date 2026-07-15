@@ -23,6 +23,8 @@ import { getRcToolDefs } from './rc-tools.mjs';
 import { TestRunner } from './test-helpers.mjs';
 import { getToolAnnotations } from './tool-annotations.mjs';
 import { getToolRequirement } from './tool-requirements.mjs';
+import * as UassetParserModule from './uasset-parser.mjs';
+import { buildContainerHandlers } from './uasset-structs.mjs';
 import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
 import {
   SERVER_INSTRUCTIONS,
@@ -212,12 +214,21 @@ function extractReasonCodes(source) {
   return new Set([...source.matchAll(/\breason\s*:\s*'([a-z0-9_]+)'/g)].map(match => match[1]));
 }
 
-function extractReasonCodeTaxonomy(source) {
-  const heading = '### Reason-Code Taxonomy';
+function extractMarkdownSection(source, heading) {
   const start = source.indexOf(heading);
   const end = source.indexOf('\n### ', start + heading.length);
-  const section = start === -1 ? '' : source.slice(start, end === -1 ? source.length : end);
+  return start === -1 ? '' : source.slice(start, end === -1 ? source.length : end);
+}
+
+function extractReasonCodeTaxonomy(source) {
+  const section = extractMarkdownSection(source, '### Reason-Code Taxonomy');
   return new Set([...section.matchAll(/`([a-z0-9_]+)`/g)].map(match => match[1]));
+}
+
+function sourceBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  return start === -1 || end === -1 ? '' : source.slice(start, end);
 }
 
 function annotationsMatch(actual, expected) {
@@ -296,16 +307,80 @@ t.assert(staticProviderSpecificMatches.length === 0,
   staticProviderSpecificMatches.join('\n'));
 
 console.log('\n── read_asset_properties reason-code taxonomy ──');
+const containerDispatchSource = sourceBetween(
+  uassetParserSource,
+  "if (type === 'ArrayProperty' || type === 'SetProperty' || type === 'MapProperty')",
+  "if (type === 'DelegateProperty'",
+);
+const lexicalGenericContainerReasons = extractReasonCodes(containerDispatchSource);
+const namedGenericContainerReason = UassetParserModule.GENERIC_CONTAINER_FALLBACK_REASON;
+const observedGenericContainerReason = typeof namedGenericContainerReason === 'string'
+  ? namedGenericContainerReason
+  : [...lexicalGenericContainerReasons][0];
+const genericReasonUsesNamedEmission =
+  typeof namedGenericContainerReason === 'string' &&
+  /reason:\s*GENERIC_CONTAINER_FALLBACK_REASON\b/.test(containerDispatchSource);
+t.assert(
+  genericReasonUsesNamedEmission,
+  'generic no-container-handler fallback exports and emits GENERIC_CONTAINER_FALLBACK_REASON',
+  `export=${JSON.stringify(namedGenericContainerReason)}; branch=${JSON.stringify(containerDispatchSource)}`,
+);
+
+const configuredContainerHandlers = buildContainerHandlers();
+const requiredContainerTypes = ['ArrayProperty', 'SetProperty', 'MapProperty'];
+const missingConfiguredContainerHandlers = requiredContainerTypes
+  .filter(type => typeof configuredContainerHandlers.get(type) !== 'function');
+const propertyReadContextSource = sourceBetween(
+  offlineToolsSource,
+  'async function parseAssetForPropertyRead',
+  'function assetPathLeaf',
+);
+const readAssetPropertiesSource = sourceBetween(
+  offlineToolsSource,
+  'async function readAssetProperties',
+  ' * find_blueprint_nodes —',
+);
+const contextBuildsContainerHandlers =
+  /containerHandlers:\s*buildContainerHandlers\(\)/.test(propertyReadContextSource);
+const rootReadWiresContainerHandlers =
+  /readExportProperties\(buf,\s*target,\s*names,\s*\{\s*resolve,\s*structHandlers,\s*containerHandlers,\s*maxBytes\s*\}\)/s
+    .test(readAssetPropertiesSource);
+const subobjectReadWiresContainerHandlers =
+  /readExportProperties\(buf,\s*exports\[zeroBasedIndex\],\s*names,\s*\{\s*resolve,\s*structHandlers,\s*containerHandlers,\s*maxBytes\s*\}\)/s
+    .test(readAssetPropertiesSource);
+const configuredContainerCallPathProven =
+  missingConfiguredContainerHandlers.length === 0 &&
+  contextBuildsContainerHandlers &&
+  rootReadWiresContainerHandlers &&
+  subobjectReadWiresContainerHandlers;
+t.assert(
+  configuredContainerCallPathProven,
+  'read_asset_properties configures Array/Set/Map handlers for root and subobject reads',
+  `missing handlers: ${missingConfiguredContainerHandlers.join(', ')}; context=${contextBuildsContainerHandlers}; root=${rootReadWiresContainerHandlers}; subobject=${subobjectReadWiresContainerHandlers}`,
+);
+
 const sourceReasonCodes = new Set([
   ...extractReasonCodes(uassetParserSource),
   ...extractReasonCodes(uassetStructsSource),
 ]);
+if (typeof namedGenericContainerReason === 'string') {
+  sourceReasonCodes.add(namedGenericContainerReason);
+}
 const subobjectStart = offlineToolsSource.indexOf('function budgetExhaustedRow');
 const subobjectEnd = offlineToolsSource.indexOf('export function buildSubobjectResponseRow', subobjectStart);
 for (const code of extractReasonCodes(offlineToolsSource.slice(subobjectStart, subobjectEnd))) {
   sourceReasonCodes.add(code);
 }
 const documentedReasonCodes = extractReasonCodeTaxonomy(toolSurfaceDoc);
+if (configuredContainerCallPathProven && genericReasonUsesNamedEmission) {
+  sourceReasonCodes.delete(namedGenericContainerReason);
+}
+t.assert(
+  typeof observedGenericContainerReason === 'string' &&
+    !documentedReasonCodes.has(observedGenericContainerReason),
+  'Reason-Code Taxonomy excludes the configured-call-path-unreachable generic container fallback',
+  `generic-only reason=${JSON.stringify(observedGenericContainerReason)}; documented=${documentedReasonCodes.has(observedGenericContainerReason)}`,
+);
 const undocumentedCurrentReasonCodes = [...sourceReasonCodes]
   .filter(code => !documentedReasonCodes.has(code))
   .sort();
@@ -316,6 +391,14 @@ t.assert(
   undocumentedCurrentReasonCodes.length === 0 && nonCurrentDocumentedReasonCodes.length === 0,
   'Reason-Code Taxonomy exactly matches current read_asset_properties parser and bounded subobject emissions',
   `undocumented current: ${undocumentedCurrentReasonCodes.join(', ')}; cross-tool or historical: ${nonCurrentDocumentedReasonCodes.join(', ')}`,
+);
+
+const supportedValuesSection = extractMarkdownSection(toolSurfaceDoc, '### Supported Values And Boundaries');
+const durableMapBoundary = 'Map keys must be scalar; values may be scalars, supported or tagged structs, `SoftObjectProperty`, or `SoftClassProperty`. Other value types return `map_value_type_unsupported`.';
+t.assert(
+  supportedValuesSection.includes(durableMapBoundary),
+  'durable map boundary documents scalar keys and every currently supported value category',
+  `missing: ${durableMapBoundary}`,
 );
 
 const actorOfflineTip = 'Use the client\'s native source-search capability to find C++ class names under Source/, then use get_actor_properties to inspect level instances.';
