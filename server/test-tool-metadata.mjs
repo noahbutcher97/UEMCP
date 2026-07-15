@@ -8,6 +8,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
+import { createUemcpServer } from './create-uemcp-server.mjs';
+import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const ALLOWED_STATUS = new Set(['shipped', 'planned', 'deprecated', 'hidden']);
@@ -126,6 +128,36 @@ const t = new TestRunner('Tool Metadata Schema');
 const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const tools = collectTools(toolsData);
+
+console.log('\n── MCP registration metadata ──');
+const createServerSource = await readFile('./create-uemcp-server.mjs', 'utf-8');
+t.assert(
+  !/\.tool\s*\(/.test(createServerSource),
+  'production server uses no deprecated .tool() registrations',
+);
+
+const serverApp = await createUemcpServer({
+  cwd: process.cwd(),
+  stderr: { write() {} },
+});
+const transport = new FakeMcpTransport();
+await serverApp.start(transport);
+try {
+  await transport.sendClientRequest('initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'tool-metadata-test', version: '1.0.0' },
+  });
+  const toolList = await transport.sendClientRequest('tools/list', {});
+  const rowsWithoutAnnotations = toolList.result?.tools?.filter(tool => tool.annotations === undefined) || [];
+  t.assert(
+    rowsWithoutAnnotations.length === 0,
+    'every visible tools/list row exposes annotations',
+    rowsWithoutAnnotations.map(tool => tool.name).join(', '),
+  );
+} finally {
+  await serverApp.server.close();
+}
 
 console.log('\n── Required metadata coverage ──');
 for (const name of REQUIRED_ANNOTATED_TOOLS) {

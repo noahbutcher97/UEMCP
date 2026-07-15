@@ -16,6 +16,7 @@ import { ProjectContext, withProjectContextGuard } from './project-context.mjs';
 import { PROJECT_ERROR_CODES, ProjectContextError, makeProjectToolResult } from './project-errors.mjs';
 import { readProjectTargets } from './project-targets.mjs';
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
+import { MANAGEMENT_SESSION_STATE_TOOLS, getToolAnnotations } from './tool-annotations.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { registerProjectCodenames } from './project-hygiene.mjs';
 import {
@@ -192,10 +193,13 @@ function isMutationRequirement(requirement) {
 function registerToolGroup(server, toolsetManager, projectContext, log, toolsetName, label, defs, schemaBuilder, executor) {
   for (const [name, def] of Object.entries(defs)) {
     const requirement = getToolRequirement(name, toolsetName, def);
-    const handle = server.tool(
+    const handle = server.registerTool(
       name,
-      def.description,
-      schemaBuilder(def),
+      {
+        description: def.description,
+        inputSchema: schemaBuilder(def),
+        annotations: getToolAnnotations(name, requirement),
+      },
       async (args) => {
         try {
           return await withProjectContextGuard(
@@ -541,15 +545,41 @@ export async function createUemcpServer(options = {}) {
     return structuredResult(payload);
   }
 
+  const registeredManagementToolNames = new Set();
+
   function registerManagementTool(name, configObject, handler) {
+    registeredManagementToolNames.add(name);
     return server.registerTool(
       name,
       {
         ...configObject,
         outputSchema: MANAGEMENT_OUTPUT_SHAPE,
+        annotations: getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT),
       },
       handler
     );
+  }
+
+  function assertManagementAnnotationPolicies() {
+    const unregisteredSessionStateTools = [...MANAGEMENT_SESSION_STATE_TOOLS]
+      .filter(name => !registeredManagementToolNames.has(name));
+    if (unregisteredSessionStateTools.length > 0) {
+      throw new Error(
+        `Management session-state tools must be registered: ${unregisteredSessionStateTools.join(', ')}`
+      );
+    }
+
+    for (const name of registeredManagementToolNames) {
+      const annotations = getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
+      const isInspectionPolicy = annotations.readOnlyHint === true && !('destructiveHint' in annotations);
+      const isSessionStatePolicy = annotations.readOnlyHint === false && annotations.destructiveHint === false;
+      if (!isInspectionPolicy && !isSessionStatePolicy) {
+        throw new Error(`Management tool ${name} has an unsupported annotation policy`);
+      }
+      if (isSessionStatePolicy !== MANAGEMENT_SESSION_STATE_TOOLS.has(name)) {
+        throw new Error(`Management tool ${name} does not match its session-state policy`);
+      }
+    }
   }
 
   async function inspectEditorProcesses() {
@@ -929,6 +959,8 @@ export async function createUemcpServer(options = {}) {
       return structuredResult({ ok: true, projectContext: snap });
     }
   );
+
+  assertManagementAnnotationPolicies();
 
   toolsetManager.onListChanged(() => {
     server.server.sendToolListChanged();
