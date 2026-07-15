@@ -8,7 +8,7 @@
 // Run: cd server && node test-provider-conformance.mjs
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +18,8 @@ import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
+const LIST_CHANGED_METHOD = 'notifications/tools/list_changed';
+const SCRATCH_PREFIX = 'uemcp-provider-conformance-';
 const CLIENTS = Object.freeze([
   { name: 'claude-code', version: '2.1.210' },
   { name: 'codex', version: '0.144.4' },
@@ -47,13 +49,26 @@ const MANAGEMENT_NAMES = Object.freeze([
 ]);
 
 const t = new TestRunner('Provider-Neutral MCP Conformance');
+const generatedScratchRoots = new Set();
+
+function scratchParent() {
+  return process.env['T' + 'EMP'] || process.env['T' + 'MP'] || homedir();
+}
+
+function listScratchInventory() {
+  return readdirSync(scratchParent(), { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(SCRATCH_PREFIX))
+    .map(entry => entry.name)
+    .sort();
+}
 
 function makeScratchRoot() {
-  const parent = process.env['T' + 'EMP'] || process.env['T' + 'MP'] || homedir();
+  const parent = scratchParent();
   for (let sequence = 0; sequence < 10; sequence += 1) {
-    const root = join(parent, `uemcp-provider-conformance-${randomUUID()}`);
+    const root = join(parent, `${SCRATCH_PREFIX}${randomUUID()}`);
     try {
       mkdirSync(root);
+      generatedScratchRoots.add(root);
       return root;
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
@@ -64,13 +79,36 @@ function makeScratchRoot() {
 
 function cleanup(dir) {
   const normalized = dir.replace(/\\/g, '/');
-  const parent = (process.env['T' + 'EMP'] || process.env['T' + 'MP'] || homedir())
+  const parent = scratchParent()
     .replace(/\\/g, '/')
     .replace(/\/+$/, '');
-  if (!normalized.startsWith(`${parent}/uemcp-provider-conformance-`)) {
+  if (!normalized.startsWith(`${parent}/${SCRATCH_PREFIX}`)) {
     throw new Error(`Refusing to remove unexpected path: ${dir}`);
   }
   rmSync(dir, { recursive: true, force: true });
+}
+
+async function settleEventLoop(turns = 5) {
+  for (let index = 0; index < turns; index += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+async function closeAndVerifyCleanup(app, root, label) {
+  if (app) await app.server.close();
+  cleanup(root);
+  await settleEventLoop();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  t.assert(!existsSync(root), `${label}: generated scratch root remains absent after cleanup`);
+}
+
+async function waitForCondition(label, predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${label}`);
 }
 
 function writeProject(root, name = 'ConformanceProject') {
@@ -89,6 +127,7 @@ async function createWireApp({ cwd, workspaceRoots = [] } = {}) {
     processInspector: () => [],
     tcpCommandFn: async () => ({ status: 'success', result: {} }),
     httpCommandFn: async () => ({ status: 'success', result: {} }),
+    writeProjectCodenames: false,
     stderr: { write() {} },
   });
   const transport = new FakeMcpTransport();
@@ -148,10 +187,56 @@ async function waitForNotifications(transport, method, { timeoutMs = 3000, settl
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   for (let index = 0; index < settleTicks; index += 1) {
-    await new Promise(resolve => setImmediate(resolve));
+    await settleEventLoop(1);
     collected.push(...transport.drainNotifications(method));
   }
   return collected;
+}
+
+async function drainSettledNotifications(transport, method, settleTicks = 5) {
+  const collected = [];
+  for (let index = 0; index < settleTicks; index += 1) {
+    await settleEventLoop(1);
+    collected.push(...transport.drainNotifications(method));
+  }
+  return collected;
+}
+
+async function assertNotificationQueueEmpty(transport, label) {
+  const queued = await drainSettledNotifications(transport, LIST_CHANGED_METHOD);
+  t.assert(
+    queued.length === 0,
+    `${label}: settled list-changed queue is empty before action`,
+    `got ${queued.length}`,
+  );
+}
+
+async function collectOneListChanged(transport, label) {
+  const notifications = await waitForNotifications(transport, LIST_CHANGED_METHOD);
+  t.assert(
+    notifications.length === 1,
+    `${label}: action emits exactly one list-changed notification`,
+    `got ${notifications.length}`,
+  );
+  return notifications;
+}
+
+async function waitForProjectState(transport, {
+  attachmentState,
+  projectName = null,
+  projectInfoVisible,
+  minimumGeneration = 1,
+}, label) {
+  let observed = null;
+  await waitForCondition(label, async () => {
+    observed = parseToolResult(await callTool(transport, 'connection_info'));
+    const names = toolNames(await toolsList(transport));
+    return observed?.projectContext?.generation >= minimumGeneration &&
+      observed.projectContext.attachmentState === attachmentState &&
+      (projectName === null || observed.projectContext.identity?.projectName === projectName) &&
+      names.includes('project_info') === projectInfoVisible;
+  });
+  return observed;
 }
 
 function normalizeSnapshot(value, scratchPaths) {
@@ -200,23 +285,18 @@ async function captureProfile(client, profile) {
       max_results: 3,
     }));
 
-    transport.drainNotifications('notifications/tools/list_changed');
+    const profileLabel = `${profile.name}/${client.name}`;
+    await assertNotificationQueueEmpty(transport, `${profileLabel}/attach`);
     const attach = await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
     if (attach.result?.isError) throw new Error(`attach_project failed: ${JSON.stringify(attach.result.structuredContent)}`);
     const postAttachNames = toolNames(await toolsList(transport));
-    const attachNotifications = await waitForNotifications(transport, 'notifications/tools/list_changed');
-    if (attachNotifications.length !== 1) {
-      throw new Error(`Expected one attach notification, got ${attachNotifications.length}`);
-    }
+    const attachNotifications = await collectOneListChanged(transport, `${profileLabel}/attach`);
 
-    transport.drainNotifications('notifications/tools/list_changed');
+    await assertNotificationQueueEmpty(transport, `${profileLabel}/enable`);
     const enable = await callTool(transport, 'enable_toolset', { toolsets: ['actors'] });
     if (enable.result?.isError) throw new Error(`enable_toolset failed: ${JSON.stringify(enable.result.structuredContent)}`);
     const postEnableNames = toolNames(await toolsList(transport));
-    const enableNotifications = await waitForNotifications(transport, 'notifications/tools/list_changed');
-    if (enableNotifications.length !== 1) {
-      throw new Error(`Expected one enable notification, got ${enableNotifications.length}`);
-    }
+    const enableNotifications = await collectOneListChanged(transport, `${profileLabel}/enable`);
 
     return normalizeSnapshot({
       initialize: {
@@ -234,36 +314,125 @@ async function captureProfile(client, profile) {
       notifications: { attach: attachNotifications, enable: enableNotifications },
     }, scratchPaths);
   } finally {
-    if (app) await app.server.close();
-    cleanup(workspace);
+    await closeAndVerifyCleanup(app, workspace, `${profile.name}/${client.name}`);
   }
 }
 
-async function resolveRoots(client, { fallback = false } = {}) {
+async function resolveInheritedWorkspace(client) {
   const workspace = makeScratchRoot();
-  const project = writeProject(join(workspace, fallback ? 'FallbackProject' : 'RootsProject'), fallback ? 'FallbackProject' : 'RootsProject');
+  const project = writeProject(join(workspace, 'InheritedProject'), 'InheritedProject');
   let app;
   try {
     const wire = await createWireApp({
       cwd: workspace,
-      workspaceRoots: fallback ? [project.projectRoot] : [],
+      workspaceRoots: [project.projectRoot],
+    });
+    app = wire.app;
+    const { transport } = wire;
+    await initialize(transport, client, PROFILES[0].capabilities);
+    await assertNotificationQueueEmpty(transport, `no-roots/${client.name}/initialized`);
+    await transport.sendClientNotification('notifications/initialized');
+    await settleEventLoop();
+    const rootRequests = transport.drainServerRequests('roots/list');
+    t.assert(
+      rootRequests.length === 0,
+      `${client.name}: no-roots client receives no roots/list request`,
+      `got ${rootRequests.length}`,
+    );
+    const info = await waitForProjectState(transport, {
+      attachmentState: 'auto_attached',
+      projectName: project.name,
+      projectInfoVisible: true,
+    }, `${client.name}: inherited workspace auto-attachment`);
+    await collectOneListChanged(transport, `no-roots/${client.name}/initialized`);
+    return info;
+  } finally {
+    await closeAndVerifyCleanup(app, workspace, `no-roots/${client.name}`);
+  }
+}
+
+async function resolveRoots(client, { rejected = false } = {}) {
+  const workspace = makeScratchRoot();
+  const projectName = rejected ? 'FallbackProject' : 'RootsProject';
+  const project = writeProject(join(workspace, projectName), projectName);
+  let app;
+  try {
+    const wire = await createWireApp({
+      cwd: workspace,
+      workspaceRoots: rejected ? [project.projectRoot] : [],
     });
     app = wire.app;
     const { transport } = wire;
     await initialize(transport, client, PROFILES[1].capabilities);
+    const label = `${rejected ? 'rejected-roots' : 'roots'}/${client.name}`;
+    await assertNotificationQueueEmpty(transport, `${label}/initialized`);
     await transport.sendClientNotification('notifications/initialized');
-    if (fallback) {
+    if (rejected) {
       await transport.rejectServerRequest('roots/list', -32001, 'roots disabled');
     } else {
       await transport.respondToServerRequest('roots/list', {
         roots: [{ uri: pathToFileURL(project.projectRoot).href, name: project.name }],
       });
     }
-    await new Promise(resolve => setImmediate(resolve));
-    return parseToolResult(await callTool(transport, 'connection_info'));
+    const info = await waitForProjectState(transport, {
+      attachmentState: 'auto_attached',
+      projectName: project.name,
+      projectInfoVisible: true,
+    }, `${client.name}: ${rejected ? 'rejected roots fallback' : 'roots resolution'}`);
+    await collectOneListChanged(transport, `${label}/initialized`);
+    return info;
   } finally {
-    if (app) await app.server.close();
-    cleanup(workspace);
+    await closeAndVerifyCleanup(app, workspace, `${rejected ? 'rejected-roots' : 'roots'}/${client.name}`);
+  }
+}
+
+async function assertFormElicitation(client) {
+  const workspace = makeScratchRoot();
+  let app;
+  try {
+    const wire = await createWireApp({ cwd: workspace });
+    app = wire.app;
+    const { transport } = wire;
+    await initialize(transport, client, PROFILES[1].capabilities);
+    await transport.sendClientNotification('notifications/initialized');
+    await transport.respondToServerRequest('roots/list', { roots: [] });
+    await waitForProjectState(transport, {
+      attachmentState: 'unresolved',
+      projectInfoVisible: false,
+    }, `${client.name}: empty roots resolution`);
+    await assertNotificationQueueEmpty(transport, `form/${client.name}/attach`);
+
+    const project = writeProject(join(workspace, 'PromptProject'), 'PromptProject');
+    const callPromise = callTool(transport, 'attach_project', { prompt: true });
+    const request = await transport.respondToServerRequest('elicitation/create', {
+      action: 'accept',
+      content: { project_path: project.uprojectPath },
+    });
+    t.assert(request.params.mode === 'form', `${client.name}: negotiated elicitation requests form mode`);
+    t.assert(
+      request.params.requestedSchema.properties.project_path.type === 'string',
+      `${client.name}: form requests a project path`,
+    );
+
+    const response = await callPromise;
+    t.assert(response.result?.isError !== true, `${client.name}: form-capable prompt attaches successfully`);
+    t.assert(
+      response.result?.structuredContent?.projectContext?.identity?.projectName === project.name,
+      `${client.name}: elicited attachment reports PromptProject`,
+    );
+    const info = await waitForProjectState(transport, {
+      attachmentState: 'attached',
+      projectName: project.name,
+      projectInfoVisible: true,
+      minimumGeneration: 2,
+    }, `${client.name}: elicited project attachment`);
+    await collectOneListChanged(transport, `form/${client.name}/attach`);
+    t.assert(
+      info.projectContext.identity?.projectName === project.name,
+      `${client.name}: connection_info reports elicited project identity`,
+    );
+  } finally {
+    await closeAndVerifyCleanup(app, workspace, `form/${client.name}`);
   }
 }
 
@@ -283,10 +452,12 @@ async function assertNoFormElicitation(client) {
       `got ${response.result?.structuredContent?.code}`,
     );
   } finally {
-    if (app) await app.server.close();
-    cleanup(workspace);
+    await closeAndVerifyCleanup(app, workspace, `no-form/${client.name}`);
   }
 }
+
+const scratchInventoryBefore = listScratchInventory();
+console.log(`\nScratch inventory before: ${scratchInventoryBefore.length}`);
 
 for (const profile of PROFILES) {
   console.log(`\n-- ${profile.name}: unknown-host baseline --`);
@@ -301,11 +472,21 @@ for (const profile of PROFILES) {
 
 for (const client of CLIENTS) {
   console.log(`\n-- capability probes: ${client.name} --`);
+  const inherited = await resolveInheritedWorkspace(client);
+  t.assert(
+    inherited.projectContext.attachmentState === 'auto_attached',
+    `${client.name}: no-roots inherited workspace auto-attaches deterministically`,
+  );
+  t.assert(
+    inherited.projectContext.identity?.projectName === 'InheritedProject',
+    `${client.name}: no-roots fallback resolves InheritedProject`,
+  );
+
   const roots = await resolveRoots(client);
   t.assert(roots.projectContext.attachmentState === 'auto_attached', `${client.name}: roots capability auto-attaches one project`);
   t.assert(roots.projectContext.identity?.projectName === 'RootsProject', `${client.name}: roots capability resolves RootsProject`);
 
-  const fallback = await resolveRoots(client, { fallback: true });
+  const fallback = await resolveRoots(client, { rejected: true });
   t.assert(fallback.projectContext.attachmentState === 'auto_attached', `${client.name}: rejected roots falls back to inherited workspace roots`);
   t.assert(fallback.projectContext.identity?.projectName === 'FallbackProject', `${client.name}: fallback resolves FallbackProject`);
   t.assert(
@@ -313,7 +494,20 @@ for (const client of CLIENTS) {
     `${client.name}: fallback records ROOTS_UNSUPPORTED`,
   );
 
+  await assertFormElicitation(client);
   await assertNoFormElicitation(client);
 }
+
+for (const root of generatedScratchRoots) {
+  t.assert(!existsSync(root), `generated scratch root is absent at suite end: ${root}`);
+}
+
+const scratchInventoryAfter = listScratchInventory();
+console.log(`Scratch inventory after: ${scratchInventoryAfter.length}`);
+assertDeepEqual(
+  scratchInventoryAfter,
+  scratchInventoryBefore,
+  'scratch inventory is unchanged after all conformance probes',
+);
 
 process.exit(t.summary());
