@@ -2,6 +2,7 @@ import * as defaultFs from 'node:fs/promises';
 import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 
 import { sha256Bytes, sha256Canonical } from './canonical-json.mjs';
+import { readFileWithinLimit } from './bounded-config-file.mjs';
 
 export class FingerprintError extends Error {
   constructor(message, code = 'FINGERPRINT_FAILED', details = {}) {
@@ -80,9 +81,12 @@ function kindFor(stat) {
   return 'other';
 }
 
-export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs } = {}) {
+export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs, maxBytes = null } = {}) {
   if (typeof requestedPath !== 'string' || requestedPath.trim() === '') {
     throw new FingerprintError('path must be a non-empty string', 'INVALID_PATH');
+  }
+  if (maxBytes !== null && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
+    throw new FingerprintError('file fingerprint byte limit is invalid', 'INVALID_FINGERPRINT_LIMIT');
   }
   const canonicalPath = resolve(requestedPath);
   let lstat;
@@ -110,8 +114,29 @@ export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = de
   const linkKind = lstat.isSymbolicLink() ? 'symbolic_link' : 'none';
   const stat = lstat.isSymbolicLink() ? await fsImpl.stat(canonicalPath) : lstat;
   const kind = kindFor(stat);
+  let observedSize = Number(stat.size);
   let sha256 = null;
-  if (kind === 'file') sha256 = sha256Bytes(await fsImpl.readFile(canonicalPath));
+  if (kind === 'file') {
+    if (maxBytes !== null && Number(stat.size) > maxBytes) {
+      throw new FingerprintError('file exceeds its fingerprint byte limit', 'FINGERPRINT_BYTE_LIMIT', {
+        maximum_bytes: maxBytes,
+        observed_bytes: Number(stat.size),
+      });
+    }
+    let bytes;
+    try {
+      bytes = maxBytes === null
+        ? await fsImpl.readFile(canonicalPath)
+        : await readFileWithinLimit(canonicalPath, { fsImpl, maxBytes, scope: 'fingerprint' });
+    } catch (error) {
+      if (error?.code === 'INSPECTION_LIMIT_EXCEEDED') {
+        throw new FingerprintError('file exceeds its fingerprint byte limit', 'FINGERPRINT_BYTE_LIMIT', error.details);
+      }
+      throw error;
+    }
+    sha256 = sha256Bytes(bytes);
+    if (maxBytes !== null) observedSize = bytes.length;
+  }
   return {
     requested_path: requestedPath,
     canonical_path: canonicalPath,
@@ -120,7 +145,7 @@ export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = de
     kind,
     link_kind: linkKind,
     link_count: Number(stat.nlink),
-    size: Number(stat.size),
+    size: observedSize,
     sha256,
   };
 }

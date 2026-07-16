@@ -8,6 +8,7 @@ import {
 } from 'node:path';
 
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
+import { readBoundedConfigFile } from '../bounded-config-file.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
 import {
   getJsoncValue,
@@ -224,30 +225,14 @@ function missing(error) {
 }
 
 async function readConfigFile(fsImpl, captureFingerprint, entry, tracker, limits) {
-  const fingerprint = await captureFingerprint(entry.path, {
-    allowedRoots: [entry.allowed_root],
-    writable: false,
+  return readBoundedConfigFile({
+    fsImpl,
+    captureFingerprint,
+    entry,
+    tracker,
+    limits,
+    parseBytes: bytes => parseJsoncDocument(bytes, { pathLabel: `${entry.scope} Claude config`, maxBytes: limits.fileBytes }),
   });
-  let stat;
-  try {
-    stat = await fsImpl.lstat(entry.path);
-  } catch (error) {
-    if (missing(error)) return { ...entry, fingerprint, exists: false, bytes: null, document: null };
-    throw error;
-  }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    fail('Claude config path is not a safe regular file', 'UNSAFE_CONFIG_PATH', { scope: entry.scope });
-  }
-  if (Number(stat.size) > limits.fileBytes) fail('Claude config exceeds its per-file inspection limit', 'INSPECTION_LIMIT_EXCEEDED');
-  tracker.bytes += Number(stat.size);
-  if (tracker.bytes > limits.aggregateBytes) fail('Claude config exceeds its aggregate inspection limit', 'INSPECTION_LIMIT_EXCEEDED');
-  const bytes = await fsImpl.readFile(entry.path);
-  if (bytes.length > limits.fileBytes || tracker.bytes - Number(stat.size) + bytes.length > limits.aggregateBytes) {
-    fail('Claude config changed beyond its inspection limit', 'INSPECTION_LIMIT_EXCEEDED');
-  }
-  tracker.bytes += bytes.length - Number(stat.size);
-  const document = parseJsoncDocument(bytes, { pathLabel: `${entry.scope} Claude config`, maxBytes: limits.fileBytes });
-  return { ...entry, fingerprint, exists: true, bytes, document };
 }
 
 function physicalEvidence(entry) {
@@ -591,7 +576,7 @@ export function createClaudeAdapter({
   async function inspect(context, detection) {
     if (detection?.client_id !== 'claude') fail('Claude detection is invalid', 'INVALID_CLIENT_DETECTION');
     const desired = physicalClaudeEntry(context.descriptor);
-    const tracker = { bytes: 0 };
+    const tracker = { total: 0 };
     const sourceFiles = [];
     try {
       for (const key of ['state', 'project_config', 'user_settings', 'project_settings', 'local_settings', 'managed_config', 'managed_settings']) {

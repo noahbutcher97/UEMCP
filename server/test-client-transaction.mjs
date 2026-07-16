@@ -195,12 +195,30 @@ function fakeAdapter(id, behavior = {}) {
       if (behavior.failBeforeWrite) throw Object.assign(new Error(`${id} pre-write failure`), { code: 'INJECTED_FAILURE' });
       for (const operation of operations) {
         if (operation.ledger_only === true) continue;
-        await context.transaction.writeFile(operation.path, Buffer.from(operation.desired_text), {
-          parse: bytes => {
-            if (behavior.failStructuralRead) throw Object.assign(new Error('structured reread failed'), { code: 'STRUCTURAL_VERIFY_FAILED' });
-            return JSON.parse(bytes.toString('utf8'));
-          },
-        });
+        const parse = bytes => {
+          if (behavior.failStructuralRead) throw Object.assign(new Error('structured reread failed'), { code: 'STRUCTURAL_VERIFY_FAILED' });
+          return JSON.parse(bytes.toString('utf8'));
+        };
+        if (operation.external_write === true || behavior.useExternalWrite) {
+          const target = behavior.externalPath ?? operation.path;
+          const seed = operation.seed_text === undefined
+            ? await asyncFs.readFile(operation.path).catch(error => {
+              if (error.code === 'ENOENT') return Buffer.alloc(0);
+              throw error;
+            })
+            : Buffer.from(operation.seed_text);
+          await context.transaction.runStagedWrite(target, async (path, stage) => {
+            if (behavior.externalMutate) return behavior.externalMutate(path, operation, stage);
+            await asyncFs.writeFile(path, Buffer.from(operation.desired_text));
+            if (behavior.extraStageFile) await asyncFs.writeFile(join(stage.root, 'unexpected.json'), Buffer.from('{}\n'));
+          }, {
+            seed_bytes: seed,
+            stage_relative_path: 'config.json',
+            parse,
+          });
+        } else {
+          await context.transaction.writeFile(operation.path, Buffer.from(operation.desired_text), { parse });
+        }
         if (behavior.deferDelete) await context.transaction.deleteFileAfterVerify(operation.path);
       }
       if (behavior.ledgerValue) await context.transaction.ownershipLedger.write(behavior.ledgerValue);
@@ -1371,6 +1389,290 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
     t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNAPPROVED_DEFERRED_DELETE', 'unplanned deferred deletion is rejected and rolled back');
     t.assert((await asyncFs.readFile(path)).equals(original), 'unplanned deferred deletion preserves original config');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A newly acquired apply lease clears stages abandoned by an earlier process before snapshotting secrets again.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const stageParent = join(localState.paths().state, 'native-staging');
+    const staleStage = join(stageParent, 'abandoned-stage');
+    const staleQuarantine = join(localState.paths().state, `.native-staging-${'a'.repeat(24)}.stale`);
+    const unrelated = join(localState.paths().state, '.native-staging-not-ours.stale');
+    writeBytes(join(staleStage, 'config.json'), Buffer.from('{"secret":"stale"}\n'));
+    writeBytes(join(staleQuarantine, 'config.json'), Buffer.from('{"secret":"quarantined"}\n'));
+    const unrelatedCanary = writeBytes(join(unrelated, 'keep.txt'), Buffer.from('keep'));
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    t.assert(await asyncFs.stat(stageParent).then(() => false, error => error.code === 'ENOENT'), 'exclusive snapshot cleanup removes every abandoned native stage');
+    t.assert(await asyncFs.stat(staleQuarantine).then(() => false, error => error.code === 'ENOENT'), 'exclusive snapshot cleanup removes a quarantine abandoned during prior cleanup');
+    t.assert((await asyncFs.readFile(unrelatedCanary, 'utf8')) === 'keep', 'abandoned-stage cleanup preserves similarly named unrelated local state');
+    await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A linked stale-stage parent is rejected without traversing or deleting its target.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const outside = join(root, 'outside-stage-target');
+    const canary = writeBytes(join(outside, 'canary.txt'), Buffer.from('keep'));
+    mkdirSync(localState.paths().state, { recursive: true });
+    await asyncFs.symlink(outside, join(localState.paths().state, 'native-staging'), 'junction');
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    let code = null;
+    try {
+      await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+      await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    } catch (error) {
+      code = error.code;
+    }
+    t.assert(code === 'UNSAFE_WRITABLE_PATH', 'linked stale-stage parent fails closed before transaction snapshots');
+    t.assert((await asyncFs.readFile(canary, 'utf8')) === 'keep', 'linked stale-stage cleanup never traverses the link target');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A reviewed staged native write participates in the same touched-file and verification contract.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, {
+      external_write: true,
+      desired_text: '{"native":"created"}\n',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED', 'approved staged native write commits through the client transaction');
+    t.assert((await asyncFs.readFile(path, 'utf8')) === operation.desired_text, 'approved staged native write commits the parsed stage bytes');
+    t.assert(result.touched_files.some(row => row.path === resolve(path)), 'approved staged native write reports the provider config as touched');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A native writer that changes its stage and then fails never reaches provider config.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, {
+      external_write: true,
+      desired_text: '{"native":"partial"}\n',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', {
+      externalMutate: async target => {
+        await asyncFs.writeFile(target, Buffer.from(operation.desired_text));
+        throw Object.assign(new Error('native process failed after write'), { code: 'NATIVE_WRITE_FAILED' });
+      },
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.rollback.reason_code === 'NATIVE_WRITE_FAILED', 'write-then-fail staged mutation enters verified rollback');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'write-then-fail staged mutation leaves provider config absent');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// External mutation requires an explicit reviewed operation flag.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', { useExternalWrite: true });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNAPPROVED_EXTERNAL_WRITE', 'unapproved external mutation is rejected with a stable code');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'unapproved external mutation never invokes the native writer');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// An approved native operation cannot redirect its write capability to another path.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const otherPath = join(home, 'other.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, { external_write: true });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', { externalPath: otherPath });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNAPPROVED_EXTERNAL_WRITE', 'external mutation cannot target an unplanned path');
+    t.assert(await asyncFs.stat(otherPath).then(() => false, error => error.code === 'ENOENT'), 'wrong-path rejection happens before invoking the native writer');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Structural failure after a successful staged write leaves provider config untouched.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, {
+      external_write: true,
+      desired_text: '{"native":"untrusted-until-parsed"}\n',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', { failStructuralRead: true });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.rollback.reason_code === 'STRUCTURAL_VERIFY_FAILED', 'staged write is not trusted until parser-backed reread succeeds');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'failed staged structural reread leaves provider config absent');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Staged native writes can update an existing file only through metadata-preserving replacement.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"native":"existing"}\n');
+    const path = writeBytes(join(home, 'config.json'), original);
+    const operation = await transactionOperation('codex', path, home, windowsNative, { external_write: true });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED', 'staged native write can commit to an existing reviewed target');
+    t.assert((await asyncFs.readFile(path, 'utf8')) === operation.desired_text, 'existing target receives only the parsed staged bytes');
+    t.assert(windowsNative.calls.some(call => call.destinationPath === resolve(path)), 'existing staged write uses metadata-preserving replacement');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Any unexpected staged side effect is rejected before provider config can change.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, { external_write: true });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', { extraStageFile: true });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNEXPECTED_STAGED_OUTPUT', 'unexpected staged output is rejected with a stable code');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'unexpected staged output never reaches provider config');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A native writer cannot hide an undeclared side effect beside its assigned stage root.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const stageParent = join(localState.paths().state, 'native-staging');
+    const path = join(home, 'config.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative, {
+      external_write: true,
+      desired_text: '{"native":"sibling-output"}\n',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex', {
+      externalMutate: async (target, current, stage) => {
+        await asyncFs.writeFile(target, Buffer.from(current.desired_text));
+        await asyncFs.writeFile(join(dirname(stage.root), 'undeclared.json'), Buffer.from('{}\n'));
+      },
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNEXPECTED_STAGED_OUTPUT', 'sibling staged output is rejected with a stable code');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'sibling staged output never reaches provider config');
+    t.assert(await asyncFs.stat(stageParent).then(() => false, error => error.code === 'ENOENT'), 'sibling staged output is removed with the rejected stage');
   } finally {
     cleanupTransactionRoot(root);
   }

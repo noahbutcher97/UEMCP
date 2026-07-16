@@ -25,6 +25,13 @@ import {
   physicalClaudeEntry,
   resolveClaudeLocations,
 } from './deployment/adapters/claude.mjs';
+import {
+  CODEX_NATIVE_MUTATION_CHARACTERIZATION,
+  classifyCodexNativeStatus,
+  createCodexAdapter,
+  physicalCodexEntry,
+  resolveCodexLocations,
+} from './deployment/adapters/codex.mjs';
 import { sha256Bytes } from './deployment/canonical-json.mjs';
 import {
   CLIENT_IDS,
@@ -36,6 +43,7 @@ import { resolveClientLaunch } from './deployment/client-process.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
+import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/toml-config.mjs';
 
 const t = new TestRunner('Client Adapter Tests');
 const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
@@ -202,6 +210,109 @@ function claudeContext(root, overrides = {}) {
   };
 }
 
+function codexLaunch(root, { version = '0.144.4', writeSupported = version === '0.144.4' } = {}) {
+  const node = write(join(root, 'runtime', 'node.exe'), 'node');
+  const entry = write(join(root, 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), 'export {};\n');
+  return {
+    client_id: 'codex',
+    command: resolve(node),
+    args_prefix: [resolve(entry)],
+    env_overlay: {},
+    package_id: '@openai/codex',
+    source: 'npm_package',
+    version,
+    compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
+    write_supported: writeSupported,
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+  };
+}
+
+function codexNativeJson(descriptor, overrides = {}) {
+  return JSON.stringify({
+    name: 'uemcp',
+    enabled: true,
+    disabled_reason: null,
+    transport: {
+      type: 'stdio',
+      command: descriptor.command,
+      args: descriptor.args,
+      env: null,
+      env_vars: [],
+      cwd: null,
+    },
+    startup_timeout_sec: null,
+    tool_timeout_sec: null,
+    ...overrides,
+  });
+}
+
+function codexNativeRunner(root, outputs = {}) {
+  const calls = [];
+  return {
+    calls,
+    async run(executable, args, options = {}) {
+      calls.push({ executable, args: [...args], options: { ...options, env: { ...options.env } } });
+      const mcpIndex = args.indexOf('mcp');
+      if (mcpIndex < 0) throw Object.assign(new Error('unexpected Codex command'), { code: 'UNEXPECTED_NATIVE_QUERY' });
+      const tail = args.slice(mcpIndex + 1);
+      if (tail[0] === 'list' && tail[1] === '--json') {
+        return typeof outputs.list === 'function'
+          ? outputs.list({ executable, args, options, tail })
+          : outputs.list ?? { status: 'exited', exitCode: 0, stdout: '[]\n', stderr: '' };
+      }
+      if (tail[0] === 'get' && tail[1] === 'uemcp' && tail[2] === '--json') {
+        return typeof outputs.get === 'function'
+          ? outputs.get({ executable, args, options, tail })
+          : outputs.get ?? { status: 'exited', exitCode: 1, stdout: '', stderr: "MCP server 'uemcp' not found" };
+      }
+      if (tail[0] === 'add' && tail[1] === 'uemcp' && tail[2] === '--') {
+        if (outputs.rejectMutation) throw Object.assign(new Error('mutating Codex MCP command was attempted'), { code: 'MUTATING_NATIVE_COMMAND' });
+        if (outputs.add) return outputs.add({ executable, args, options, tail });
+        const command = tail[3];
+        const launchArgs = tail.slice(4);
+        const home = options.env.CODEX_HOME;
+        const configPath = join(home, 'config.toml');
+        const before = existsSync(configPath) ? readFileSync(configPath) : Buffer.alloc(0);
+        const document = parseTomlDocument(before, { pathLabel: 'Codex native test config' });
+        const edit = patchTomlTable(document, ['mcp_servers', 'uemcp'], { command, args: launchArgs });
+        write(configPath, edit.after_bytes);
+        return { status: 'exited', exitCode: 0, stdout: "Added global MCP server 'uemcp'.\n", stderr: '' };
+      }
+      throw Object.assign(new Error('unexpected Codex MCP query'), { code: 'UNEXPECTED_NATIVE_QUERY' });
+    },
+  };
+}
+
+function codexContext(root, overrides = {}) {
+  const baseEnv = environment(root);
+  const env = { ...baseEnv, CODEX_HOME: resolve(join(root, 'codex-home')), ...overrides.env };
+  const projectRoot = resolve(overrides.projectRoot ?? join(root, 'workspace'));
+  const activeDirectory = resolve(overrides.activeDirectory ?? projectRoot);
+  mkdirSync(activeDirectory, { recursive: true });
+  const descriptor = overrides.descriptor ?? canonicalDesired(root);
+  const knownFolders = overrides.knownFolders ?? { programData: resolve(join(root, 'ProgramData')) };
+  return {
+    env,
+    workspaceRoot: projectRoot,
+    projectRoot,
+    activeDirectory,
+    workspaceTrusted: overrides.workspaceTrusted ?? false,
+    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
+    launch: overrides.launch ?? codexLaunch(root),
+    descriptor,
+    ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
+    knownFolders,
+    ...overrides,
+    env,
+    workspaceRoot: projectRoot,
+    projectRoot,
+    activeDirectory,
+    descriptor,
+    knownFolders,
+  };
+}
+
 function adapterTransaction(ledger) {
   const writes = [];
   const deletes = [];
@@ -220,6 +331,22 @@ function adapterTransaction(ledger) {
       write(path, Buffer.from(bytes));
       if (options.parse) await options.parse(Buffer.from(bytes));
       return { path: resolve(path), content_sha256: sha256Bytes(Buffer.from(bytes)), metadata_sha256: 'e'.repeat(64) };
+    },
+    async runStagedWrite(path, mutate, options = {}) {
+      const stageRoot = join(tmpdir(), `uemcp-client-adapter-stage-${randomUUID()}`);
+      const stagedPath = resolve(join(stageRoot, options.stage_relative_path));
+      mkdirSync(dirname(stagedPath), { recursive: true });
+      writeFileSync(stagedPath, Buffer.from(options.seed_bytes ?? Buffer.alloc(0)));
+      try {
+        await mutate(stagedPath, Object.freeze({ root: resolve(stageRoot), relative_path: options.stage_relative_path }));
+        const bytes = readFileSync(stagedPath);
+        if (options.parse) await options.parse(bytes);
+        writes.push({ path: resolve(path), bytes: Buffer.from(bytes), external: true });
+        write(path, bytes);
+        return { path: resolve(path), content_sha256: sha256Bytes(bytes), metadata_sha256: 'e'.repeat(64) };
+      } finally {
+        rmSync(stageRoot, { recursive: true, force: true });
+      }
     },
     async deleteFileAfterVerify(path) {
       deletes.push(resolve(path));
@@ -363,6 +490,7 @@ async function rejectsCode(fn, code) {
   } finally {
     cleanup(root);
   }
+
 }
 
 // Candidate paths must already be absolute and discovery work is explicitly bounded.
@@ -396,6 +524,7 @@ async function rejectsCode(fn, code) {
   } finally {
     cleanup(root);
   }
+
 }
 
 // Package bin string form, extra version output, and unknown-newer gating.
@@ -1031,17 +1160,47 @@ async function rejectsCode(fn, code) {
 
   const root = makeRoot();
   try {
+    let oversizedCaptured = false;
+    const context = claudeContext(root);
+    const oversizedPath = resolveClaudeLocations(context).state.path;
     const adapter = createClaudeAdapter({
       runner: claudeNativeRunner(),
-      captureFingerprint: async path => simpleFingerprint(path),
+      captureFingerprint: async path => {
+        if (resolve(path) === oversizedPath) oversizedCaptured = true;
+        return simpleFingerprint(path);
+      },
       limits: { fileBytes: 32, aggregateBytes: 64, pluginRecords: 4 },
     });
-    const context = claudeContext(root);
-    write(resolveClaudeLocations(context).state.path, JSON.stringify({ padding: 'x'.repeat(64) }));
+    write(oversizedPath, JSON.stringify({ padding: 'x'.repeat(64) }));
     const inspection = await adapter.inspect(context, await adapter.detect(context));
     t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED' && (await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Claude byte-limit failure never becomes absence or a partial plan');
+    t.assert(oversizedCaptured === false, 'Claude rejects an oversized config before asking the fingerprint layer to hash it');
   } finally {
     cleanup(root);
+  }
+
+  const racingRoot = makeRoot();
+  try {
+    const context = claudeContext(racingRoot);
+    const locations = resolveClaudeLocations(context);
+    write(locations.state.path, '{"mcpServers":{}}\n');
+    let mutated = false;
+    const adapter = createClaudeAdapter({
+      runner: claudeNativeRunner(),
+      captureFingerprint: async path => {
+        const fingerprint = simpleFingerprint(path);
+        if (!mutated && resolve(path) === locations.state.path) {
+          mutated = true;
+          write(locations.state.path, '{"mcpServers":{"other":{"command":"changed"}}}\n');
+        }
+        return fingerprint;
+      },
+    });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH' && plan.operations.length === 0, 'config mutation between fingerprint and parse fails closed without a partial plan');
+  } finally {
+    cleanup(racingRoot);
   }
 }
 
@@ -1404,6 +1563,507 @@ async function rejectsCode(fn, code) {
     const inspection = await adapter.inspect(context, await adapter.detect(context));
     t.assert(inspection.enablement === 'ENABLED' && inspection.activation === 'REJECTED', 'Claude native rejection wins activation without rewriting structural enablement');
     t.assert(inspection.native.disagrees_with_structural_policy === true, 'Claude rejected-versus-enabled disagreement remains explicit');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Codex locations honor CODEX_HOME, enumerate trusted project layers, and use a trusted policy root.
+{
+  const root = makeRoot();
+  try {
+    const projectRoot = resolve(join(root, 'workspace'));
+    const activeDirectory = resolve(join(projectRoot, 'Source', 'Nested'));
+    const trustedProgramData = resolve(join(root, 'TrustedProgramData'));
+    const context = codexContext(root, {
+      projectRoot,
+      activeDirectory,
+      env: { ProgramData: resolve(join(root, 'SpoofedProgramData')) },
+      knownFolders: { programData: trustedProgramData },
+    });
+    const locations = resolveCodexLocations(context);
+    t.assert(locations.user.path === resolve(join(context.env.CODEX_HOME, 'config.toml')), 'Codex user config is rooted in CODEX_HOME');
+    t.assert(locations.project_layers.map(row => row.path).join('|') === [
+      join(projectRoot, '.codex', 'config.toml'),
+      join(projectRoot, 'Source', '.codex', 'config.toml'),
+      join(activeDirectory, '.codex', 'config.toml'),
+    ].map(path => resolve(path)).join('|'), 'Codex project configs are enumerated root-to-active-directory');
+    t.assert(locations.system_requirements.path === resolve(join(trustedProgramData, 'OpenAI', 'Codex', 'requirements.toml')), 'Codex requirements use the trusted ProgramData known folder');
+    t.assert(await rejectsCode(() => Promise.resolve(resolveCodexLocations(codexContext(root, {
+      projectRoot,
+      activeDirectory: resolve(join(root, 'outside')),
+    }))), 'INVALID_CLIENT_LOCATION'), 'Codex rejects an active directory outside the project root');
+    const limitedAdapter = createCodexAdapter({
+      runner: codexNativeRunner(root),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { projectLayers: 2 },
+    });
+    t.assert(await rejectsCode(() => limitedAdapter.detect(context), 'INSPECTION_LIMIT_EXCEEDED'), 'Codex detection honors the configured project-layer limit');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Absent Codex config plans one native user create, while unknown versions remain inspect-only.
+{
+  const root = makeRoot();
+  try {
+    const runner = codexNativeRunner(root);
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = codexContext(root);
+    const detection = await adapter.detect(context);
+    const inspection = await adapter.inspect(context, detection);
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'ABSENT' && inspection.activation === 'UNKNOWN', 'Codex inspection distinguishes absent config from unproven activation');
+    t.assert(plan.status === 'CREATE' && plan.operations.length === 1 && plan.operations[0].type === 'CREATE_ENTRY', 'Codex absence plans one user create');
+    t.assert(plan.operations[0].external_write === true && plan.operations[0].path === detection.locations.user.path, 'Codex fresh create is explicitly bound to the native external-write capability');
+    t.assert(JSON.stringify(plan.operations[0].desired_entry) === JSON.stringify(physicalCodexEntry(context.descriptor)), 'Codex create owns only command and args');
+    const bound = new Set(plan.operations[0].read_only_paths.map(row => row.path));
+    t.assert([context.launch.command, ...context.launch.args_prefix, context.descriptor.command, ...context.descriptor.args].every(path => bound.has(resolve(path))), 'Codex plan binds launch and descriptor evidence');
+    t.assert(bound.has(detection.locations.system_requirements.path), 'Codex plan binds system requirements as read-only evidence');
+
+    const unsupportedContext = codexContext(root, { launch: codexLaunch(root, { version: '0.145.0', writeSupported: false }) });
+    const unsupportedInspection = await adapter.inspect(unsupportedContext, await adapter.detect(unsupportedContext));
+    const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
+    t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Codex version cannot plan a write');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// A missing table in an existing Codex file uses a targeted parser edit because native add reformats existing bytes.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = codexContext(root, { ownershipLedger: ledger });
+    const locations = resolveCodexLocations(context);
+    const original = [
+      '# Preserve existing Codex settings.',
+      'model = "gpt-5.4"',
+      '',
+      '[mcp_servers.other]',
+      'url = "https://example.invalid/mcp"',
+      '',
+    ].join('\n');
+    write(locations.user.path, original);
+    const runner = codexNativeRunner(root, { rejectMutation: true });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'CREATE' && plan.operations[0].external_write === false, 'Codex existing-file table creation uses the metadata-preserving parser path');
+    await adapter.apply({ ...context, transaction: adapterTransaction(ledger) }, plan.operations);
+    const after = readFileSync(locations.user.path);
+    const parsed = parseTomlDocument(after);
+    t.assert(after.toString('utf8').startsWith(original), 'Codex table creation preserves every existing byte as a prefix');
+    t.assert(getTomlTable(parsed, ['mcp_servers', 'other']).url === 'https://example.invalid/mcp', 'Codex table creation preserves unrelated servers');
+    t.assert(getTomlTable(parsed, ['mcp_servers', 'uemcp']).command === context.descriptor.command, 'Codex table creation appends the canonical owned projection');
+    t.assert(!runner.calls.some(call => call.args.includes('add')), 'Codex existing-file table creation never invokes the reformatting native add path');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Exact disabled Codex entries are adoptable without rewriting client-owned launch policy.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = codexContext(root, { ownershipLedger: ledger });
+    const locations = resolveCodexLocations(context);
+    write(locations.user.path, sample('codex-user-exact.toml', {
+      NODE: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    const native = codexNativeJson(context.descriptor, { enabled: false, disabled_reason: 'disabled by configuration' });
+    const runner = codexNativeRunner(root, {
+      list: { status: 'exited', exitCode: 0, stdout: `[${native}]`, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: native, stderr: '' },
+      rejectMutation: true,
+    });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const before = readFileSync(locations.user.path);
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.enablement === 'DISABLED' && inspection.activation === 'UNKNOWN', 'Codex enabled=false is configured but disabled with unknown activation');
+    t.assert(inspection.actions.includes('CLIENT_ENABLEMENT_REQUIRED') && inspection.actions.includes('CUSTOM_LAUNCH_REVIEW_REQUIRED'), 'Codex disabled and custom cwd actions remain explicit');
+    t.assert(!serialized.includes('do-not-serialize') && !serialized.includes('preserve-me'), 'Codex inspection never serializes environment values');
+    t.assert(serialized.includes('API_TOKEN') && serialized.includes('HARMLESS'), 'Codex inspection retains secret-safe environment key evidence');
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'ADOPT' && plan.operations[0].ledger_only === true, 'exact unowned Codex entry requires visible adoption');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    t.assert(readFileSync(locations.user.path).equals(before), 'Codex adoption preserves config bytes exactly');
+    t.assert(transaction.writes.length === 1 && transaction.writes[0].path === '<ownership-ledger>', 'Codex adoption writes only ownership state');
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'owned exact Codex entry is idempotent');
+    t.assert(!runner.calls.some(call => call.args.includes('add')), 'Codex never invokes native add for an existing table');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Trusted nested project config wins root-to-leaf; untrusted project files are ignored without parsing.
+{
+  const root = makeRoot();
+  try {
+    const projectRoot = resolve(join(root, 'workspace'));
+    const activeDirectory = resolve(join(projectRoot, 'Source'));
+    const trustedContext = codexContext(root, { projectRoot, activeDirectory, workspaceTrusted: true });
+    const locations = resolveCodexLocations(trustedContext);
+    write(locations.user.path, [
+      '[mcp_servers.uemcp]',
+      `command = ${JSON.stringify(trustedContext.descriptor.command)}`,
+      `args = [${JSON.stringify(trustedContext.descriptor.args[0])}]`,
+      '',
+    ].join('\n'));
+    write(locations.project_layers[0].path, sample('codex-user-conflict.toml'));
+    write(locations.project_layers[1].path, [
+      '[mcp_servers.uemcp]',
+      `command = ${JSON.stringify(trustedContext.descriptor.command)}`,
+      `args = [${JSON.stringify(trustedContext.descriptor.args[0])}]`,
+      '',
+    ].join('\n'));
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(trustedContext, await adapter.detect(trustedContext));
+    t.assert(inspection.effective.path === locations.project_layers[1].path && inspection.registration === 'CONFIGURED', 'deepest trusted Codex project layer is effective');
+    t.assert(inspection.occurrences.map(row => row.path).join('|') === [locations.user.path, ...locations.project_layers.map(row => row.path)].join('|'), 'Codex occurrences retain user then root-to-leaf precedence evidence');
+    t.assert((await adapter.plan(trustedContext, inspection, trustedContext.descriptor)).operations.length === 0, 'effective project definition is never rewritten through the user scope');
+
+    write(locations.project_layers[0].path, '[mcp_servers.uemcp\nmalformed = true\n');
+    const untrustedContext = codexContext(root, { projectRoot, activeDirectory, workspaceTrusted: false });
+    inspection = await adapter.inspect(untrustedContext, await adapter.detect(untrustedContext));
+    t.assert(inspection.effective.path === locations.user.path && inspection.registration === 'CONFIGURED', 'untrusted Codex project layers do not shadow user config');
+    t.assert(inspection.ignored_project_layers.length === 2 && inspection.occurrences.length === 1, 'untrusted Codex project layers are reported separately and not parsed as active config');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// System requirements enforce both the uemcp name and its canonical stdio identity.
+{
+  const cases = [
+    { label: 'absent', content: null, expected: 'ALLOWED', writable: true },
+    { label: 'allow', content: 'codex-requirements-allow.toml', expected: 'ALLOWED', writable: true },
+    { label: 'missing-name deny', content: 'codex-requirements-deny.toml', expected: 'POLICY_BLOCKED', writable: false },
+    { label: 'identity mismatch', content: 'codex-requirements-mismatch.toml', expected: 'POLICY_BLOCKED', writable: false },
+  ];
+  for (const testCase of cases) {
+    const root = makeRoot();
+    try {
+      const calls = [];
+      const capture = async (path, options = {}) => {
+        calls.push({ path: resolve(path), writable: options.writable === true });
+        return simpleFingerprint(path);
+      };
+      const context = codexContext(root);
+      const locations = resolveCodexLocations(context);
+      if (testCase.content) {
+        write(locations.system_requirements.path, sample(testCase.content, {
+          NODE: context.descriptor.command,
+          SERVER: context.descriptor.args[0],
+        }));
+      }
+      const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: capture });
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      const plan = await adapter.plan(context, inspection, context.descriptor);
+      t.assert(inspection.policy === testCase.expected, `Codex requirements ${testCase.label} is classified conservatively`);
+      t.assert((plan.operations.length > 0) === testCase.writable, `Codex requirements ${testCase.label} controls write planning`);
+      t.assert(calls.filter(call => call.path === locations.system_requirements.path).every(call => call.writable === false), `Codex requirements ${testCase.label} remains read-only`);
+    } finally {
+      cleanup(root);
+    }
+  }
+
+  const root = makeRoot();
+  try {
+    const context = codexContext(root, { invocationPolicyKnown: false });
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.policy === 'POLICY_UNKNOWN' && plan.operations[0].verification_status === 'POLICY_UNKNOWN', 'opaque cloud policy remains unknown and visible on a planned create');
+  } finally {
+    cleanup(root);
+  }
+
+  const regexRoot = makeRoot();
+  try {
+    const context = codexContext(regexRoot);
+    const locations = resolveCodexLocations(context);
+    write(locations.system_requirements.path, [
+      '[mcp_servers.uemcp.identity]',
+      `command = { executable = ${JSON.stringify(context.descriptor.command)}, args = [{ match = "regex", value = ".*" }] }`,
+      '',
+    ].join('\n'));
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(regexRoot), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.policy === 'POLICY_UNKNOWN' && plan.operations[0].verification_status === 'POLICY_UNKNOWN', 'regex requirements remain host-evaluated policy instead of executing locally');
+  } finally {
+    cleanup(regexRoot);
+  }
+}
+
+// Codex native JSON is structural evidence with explicit missing-field and refusal semantics.
+{
+  const root = makeRoot();
+  try {
+    const descriptor = canonicalDesired(root);
+    const exact = codexNativeJson(descriptor);
+    const matching = classifyCodexNativeStatus({ status: 'exited', exitCode: 0, stdout: exact, stderr: '' }, { desired: physicalCodexEntry(descriptor), mode: 'get' });
+    const missingTransport = classifyCodexNativeStatus({ status: 'exited', exitCode: 0, stdout: JSON.stringify({ name: 'uemcp', enabled: true }), stderr: '' }, { desired: physicalCodexEntry(descriptor), mode: 'get' });
+    const blocked = classifyCodexNativeStatus({ status: 'exited', exitCode: 0, stdout: codexNativeJson(descriptor, { enabled: false, disabled_reason: 'not allowed by requirements' }), stderr: '' }, { desired: physicalCodexEntry(descriptor), mode: 'get' });
+    const duplicateList = classifyCodexNativeStatus({ status: 'exited', exitCode: 0, stdout: `[${exact},${exact}]`, stderr: '' }, { desired: physicalCodexEntry(descriptor), mode: 'list' });
+    t.assert(matching.status === 'PRESENT' && matching.identity === 'MATCHING' && matching.enablement === 'ENABLED', 'Codex native parser recognizes matching enabled config');
+    t.assert(missingTransport.status === 'PRESENT' && missingTransport.identity === 'UNKNOWN', 'Codex native parser never invents omitted client-owned fields');
+    t.assert(blocked.status === 'PRESENT' && blocked.enablement === 'POLICY_BLOCKED', 'Codex native parser recognizes host policy refusal');
+    t.assert(duplicateList.status === 'AMBIGUOUS' && duplicateList.identity === 'UNKNOWN', 'Codex native parser rejects duplicate same-name list rows as ambiguous');
+    t.assert(classifyCodexNativeStatus({ status: 'exited', exitCode: 1, stdout: '', stderr: "MCP server 'uemcp' not found" }, { mode: 'get' }).status === 'ABSENT', 'Codex native parser recognizes absent named config');
+    t.assert(classifyCodexNativeStatus({ status: 'timed_out', exitCode: null, stdout: '', stderr: '' }, { mode: 'get' }).status === 'TIMEOUT', 'Codex native parser preserves timeout distinctly');
+
+    const runner = codexNativeRunner(root);
+    const context = codexContext(root);
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    await adapter.inspect(context, await adapter.detect(context));
+    t.assert(runner.calls.length === 2 && runner.calls.every(call => call.args.includes('--json')), 'Codex inspection performs only list/get JSON queries');
+    t.assert(runner.calls.every(call => !call.args.includes('add') && call.options.shell === false && call.options.timeoutMs <= 10_000 && call.options.outputLimitBytes <= 64 * 1024), 'Codex native inspection is read-only, shell-free, and bounded');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native host evidence can block or satisfy registration without authoring an unseen user shadow.
+{
+  const exactRoot = makeRoot();
+  try {
+    const context = codexContext(exactRoot);
+    const native = codexNativeJson(context.descriptor);
+    const runner = codexNativeRunner(exactRoot, {
+      list: { status: 'exited', exitCode: 0, stdout: `[${native}]`, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: native, stderr: '' },
+      rejectMutation: true,
+    });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.native_only === true, 'matching host-only Codex registration is configured without inventing a local source');
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'matching host-only Codex registration never creates a user shadow');
+  } finally {
+    cleanup(exactRoot);
+  }
+
+  const inconsistentRoot = makeRoot();
+  try {
+    const context = codexContext(inconsistentRoot);
+    const native = codexNativeJson(context.descriptor);
+    const runner = codexNativeRunner(inconsistentRoot, {
+      list: { status: 'exited', exitCode: 0, stdout: `[${native}]`, stderr: '' },
+      get: { status: 'exited', exitCode: 1, stdout: '', stderr: "MCP server 'uemcp' not found" },
+      rejectMutation: true,
+    });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.native.status === 'INCONSISTENT' && inspection.native_write_blocked === true, 'disagreeing Codex list/get evidence remains explicitly inconsistent');
+    t.assert(plan.status === 'POLICY_UNKNOWN' && plan.operations.length === 0, 'inconsistent native evidence blocks an unproven user create');
+  } finally {
+    cleanup(inconsistentRoot);
+  }
+
+  const failedRoot = makeRoot();
+  try {
+    const context = codexContext(failedRoot);
+    const timedOut = { status: 'timed_out', exitCode: null, stdout: '', stderr: '' };
+    const runner = codexNativeRunner(failedRoot, { list: timedOut, get: timedOut, rejectMutation: true });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.native_write_blocked === true && plan.status === 'POLICY_UNKNOWN' && plan.operations.length === 0, 'failed native absence proof blocks Codex user creation');
+  } finally {
+    cleanup(failedRoot);
+  }
+}
+
+// Owned Codex updates patch only command and args while preserving comments and client-owned fields.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = codexContext(root, { ownershipLedger: ledger, approvedOwnedReplacement: true });
+    const locations = resolveCodexLocations(context);
+    const oldEntry = {
+      command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
+      args: [resolve(write(join(root, 'old-runtime', 'server.mjs'), 'export {};\n'))],
+    };
+    write(locations.user.path, sample('codex-user-owned-old.toml', {
+      OLD_NODE: oldEntry.command,
+      OLD_SERVER: oldEntry.args[0],
+    }));
+    const before = readFileSync(locations.user.path);
+    await recordOwnedWrite({
+      ledger,
+      location: { clientId: 'codex', configPath: locations.user.path, scope: 'user', entryName: 'uemcp' },
+      beforeEntry: null,
+      afterEntry: oldEntry,
+      ownedPaths: ownedPathsForClient('codex', oldEntry),
+      appliedConfigHash: sha256Bytes(before),
+      planDigest: TEST_PLAN_DIGEST,
+    });
+    const native = codexNativeJson(context.descriptor);
+    const runner = codexNativeRunner(root, {
+      list: { status: 'exited', exitCode: 0, stdout: `[${native}]`, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: native, stderr: '' },
+      rejectMutation: true,
+    });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'UPDATE' && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'owned stale Codex launch plans a targeted update');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    const afterBytes = readFileSync(locations.user.path);
+    const table = getTomlTable(parseTomlDocument(afterBytes), ['mcp_servers', 'uemcp']);
+    const text = afterBytes.toString('utf8');
+    t.assert(table.command === context.descriptor.command && JSON.stringify(table.args) === JSON.stringify(context.descriptor.args), 'Codex update writes canonical owned fields');
+    t.assert(table.enabled === false && table.required === true && table.startup_timeout_sec === 45 && table.tool_timeout_sec === 90, 'Codex update preserves enablement, required, and timeout policy');
+    t.assert(table.cwd === 'C:\\CustomWorkspace' && table.env.API_TOKEN === 'do-not-serialize' && table.default_tools_approval_mode === 'writes', 'Codex update preserves cwd, environment, and approval policy');
+    t.assert(text.includes('# Preserve the command comment') && text.includes('[mcp_servers.other]') && text.includes('[mcp_servers.uemcp.tools.get_editor_state]'), 'Codex update preserves comments, unrelated servers, and per-tool policy');
+    t.assert(!runner.calls.some(call => call.args.includes('add')), 'Codex existing-table update never invokes native add');
+    const verified = await adapter.verify(context, plan.operations);
+    t.assert(verified.status === 'CLIENT_ENABLEMENT_REQUIRED' && verified.restart_required === true, 'Codex disabled structural update retains both enablement and restart requirements');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Hostile same-name Codex entries stay conflicts and version-bound native replacement remains disabled.
+{
+  const root = makeRoot();
+  try {
+    const context = codexContext(root);
+    const locations = resolveCodexLocations(context);
+    write(locations.user.path, sample('codex-user-conflict.toml'));
+    const runner = codexNativeRunner(root, { rejectMutation: true });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFLICT' && plan.status === 'CONFLICT' && plan.operations.length === 0, 'unowned conflicting Codex table cannot be replaced implicitly');
+    t.assert(!serialized.includes('SECRET_ARGUMENT_CANARY') && !serialized.includes('SECRET_ENV_CANARY') && !serialized.includes('--token'), 'Codex conflict evidence does not expose argument or environment secrets');
+    t.assert(serialized.includes('args_sha256') && serialized.includes('API_TOKEN'), 'Codex conflict evidence retains hash and environment-key diagnostics');
+    t.assert(!runner.calls.some(call => call.args.includes('add')), 'Codex conflict inspection never invokes the dangerous native replacement path');
+
+    const observed = JSON.parse(sample('codex-0.144.4-mcp-observation.json'));
+    t.assert(observed.version === CODEX_NATIVE_MUTATION_CHARACTERIZATION.version, 'Codex native mutation characterization is version-bound');
+    t.assert(observed.same_name_add_exit_code === 0 && observed.same_name_replaced_existing_table, 'Codex same-name add replacement hazard remains locked');
+    t.assert(JSON.stringify(observed.isolated_home_files_after_fresh_add) === JSON.stringify(['config.toml']) && CODEX_NATIVE_MUTATION_CHARACTERIZATION.native_add_existing_allowed === false, 'Codex fresh-add containment permits no existing-table native mutation');
+    t.assert(observed.existing_file_add_preserved_exact_bytes === false && observed.existing_file_add_normalized_crlf === true, 'Codex existing-file add reformatting remains locked as a parser-path guard');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Malformed Codex TOML fails closed, including duplicate target tables.
+{
+  const root = makeRoot();
+  try {
+    const context = codexContext(root);
+    const locations = resolveCodexLocations(context);
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: async path => simpleFingerprint(path) });
+    for (const content of [
+      '[mcp_servers.uemcp\ncommand = "broken"\n',
+      '[mcp_servers.uemcp]\ncommand = "C:\\\\one.exe"\n[mcp_servers.uemcp]\nargs = []\n',
+    ]) {
+      write(locations.user.path, content);
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      const plan = await adapter.plan(context, inspection, context.descriptor);
+      t.assert(inspection.registration === 'MALFORMED_CONFIG' && plan.operations.length === 0, 'malformed or duplicate Codex target table blocks writes');
+    }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Oversized Codex config is rejected before content fingerprinting can read it.
+{
+  const root = makeRoot();
+  try {
+    const context = codexContext(root);
+    const locations = resolveCodexLocations(context);
+    write(locations.user.path, `padding = ${JSON.stringify('x'.repeat(64))}\n`);
+    let oversizedCaptured = false;
+    const adapter = createCodexAdapter({
+      runner: codexNativeRunner(root),
+      captureFingerprint: async path => {
+        if (resolve(path) === locations.user.path) oversizedCaptured = true;
+        return simpleFingerprint(path);
+      },
+      limits: { fileBytes: 32, aggregateBytes: 64, projectLayers: 64 },
+    });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED' && plan.operations.length === 0, 'Codex byte-limit failure never becomes absence or a partial plan');
+    t.assert(oversizedCaptured === false, 'Codex rejects an oversized config before asking the fingerprint layer to hash it');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// The real Codex adapter completes one central native-create transaction and leaves restart explicit.
+{
+  const root = makeRoot();
+  try {
+    const context = codexContext(root);
+    mkdirSync(context.env.CODEX_HOME, { recursive: true });
+    const configPath = resolveCodexLocations(context).user.path;
+    const runner = codexNativeRunner(root, {
+      list: () => existsSync(configPath)
+        ? { status: 'exited', exitCode: 0, stdout: `[${codexNativeJson(context.descriptor)}]`, stderr: '' }
+        : { status: 'exited', exitCode: 0, stdout: '[]', stderr: '' },
+      get: () => existsSync(configPath)
+        ? { status: 'exited', exitCode: 0, stdout: codexNativeJson(context.descriptor), stderr: '' }
+        : { status: 'exited', exitCode: 1, stdout: '', stderr: "MCP server 'uemcp' not found" },
+    });
+    const windowsNative = transactionWindowsNative();
+    const capture = (path, options) => captureClientPathFingerprint(path, { ...options, fsImpl: asyncFs, windowsNative });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: capture });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context });
+    const table = getTomlTable(parseTomlDocument(readFileSync(configPath)), ['mcp_servers', 'uemcp']);
+    t.assert(result.status === 'ACTION_REQUIRED' && result.clients[0].status === 'RESTART_REQUIRED', 'Codex native create commits structurally while preserving restart as required');
+    t.assert(table.command === context.descriptor.command && JSON.stringify(table.args) === JSON.stringify(context.descriptor.args), 'Codex native create writes the canonical launch identity');
+    t.assert(result.touched_files.map(row => row.path).sort().join('|') === [configPath, localState.paths().ownership].map(path => resolve(path)).sort().join('|'), 'Codex central transaction touches only provider config and ownership state');
+    const nativeAdds = runner.calls.filter(call => call.args.includes('add'));
+    t.assert(nativeAdds.length === 1, 'Codex central transaction invokes native add exactly once for an absent file');
+    t.assert(resolve(nativeAdds[0].options.env.CODEX_HOME) !== resolve(context.env.CODEX_HOME), 'Codex fresh native add receives only an isolated home');
+    t.assert(resolve(nativeAdds[0].options.cwd) === resolve(nativeAdds[0].options.env.CODEX_HOME), 'Codex fresh native add uses the isolated home as its working directory');
+    const persistedLedger = {
+      async read() {
+        try {
+          return await asyncFs.readFile(localState.paths().ownership, 'utf8');
+        } catch (error) {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        }
+      },
+      now: () => '2026-07-16T12:00:00.000Z',
+    };
+    const persistedContext = { ...context, ownershipLedger: persistedLedger };
+    const nextInspection = await adapter.inspect(persistedContext, await adapter.detect(persistedContext));
+    const nextPlan = await adapter.plan(persistedContext, nextInspection, persistedContext.descriptor);
+    t.assert(nextPlan.status === 'NO_OP' && nextPlan.operations.length === 0, 'Codex native create becomes an owned idempotent no-op');
   } finally {
     cleanup(root);
   }

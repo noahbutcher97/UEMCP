@@ -1,0 +1,4 @@
+[mcp_servers.uemcp]
+command = "C:\\Untrusted\\node.exe"
+args = ["D:\\Untrusted\\server.mjs", "--token", "SECRET_ARGUMENT_CANARY"]
+env = { API_TOKEN = "SECRET_ENV_CANARY" }

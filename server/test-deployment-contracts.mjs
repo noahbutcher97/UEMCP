@@ -4,6 +4,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import * as asyncFs from 'node:fs/promises';
 import {
   chmodSync,
   existsSync,
@@ -356,6 +357,28 @@ async function rejectsCode(fn, code) {
     const file = await fingerprintPath(payload, { allowedRoots: [root] });
     t.assert(file.exists && file.kind === 'file' && file.sha256 === sha256Bytes(Buffer.from([0, 255, 10, 13])), 'file fingerprint hashes exact bytes');
     t.assert(file.link_count >= 2, 'file fingerprint records hard-link count');
+    let boundedReads = 0;
+    const boundedFs = {
+      ...asyncFs,
+      async readFile(...args) {
+        boundedReads += 1;
+        return asyncFs.readFile(...args);
+      },
+    };
+    t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: [root], fsImpl: boundedFs, maxBytes: 3 }), 'FINGERPRINT_BYTE_LIMIT'), 'file fingerprint rejects an oversized file before hashing');
+    t.assert(boundedReads === 0, 'oversized fingerprint rejection performs no file read');
+    const growthFs = {
+      ...asyncFs,
+      async lstat(...args) {
+        const stat = await asyncFs.lstat(...args);
+        return new Proxy(stat, {
+          get(target, property) {
+            return property === 'size' ? 1 : Reflect.get(target, property, target);
+          },
+        });
+      },
+    };
+    t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: [root], fsImpl: growthFs, maxBytes: 3 }), 'FINGERPRINT_BYTE_LIMIT'), 'file growth after the initial stat remains bounded by the fingerprint read');
     const missing = await fingerprintPath(join(root, 'missing.txt'), { allowedRoots: [root] });
     t.assert(!missing.exists && missing.kind === 'missing' && missing.sha256 === null, 'missing path has an explicit fingerprint');
     const directory = await fingerprintDirectory(tree, { allowedRoots: [root] });

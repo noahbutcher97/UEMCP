@@ -1,0 +1,2 @@
+[mcp_servers.other]
+identity = { command = "C:\\Tools\\approved-mcp.exe" }
