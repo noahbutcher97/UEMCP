@@ -102,6 +102,7 @@ function result(document, afterText, edits) {
   const parsed = parseJsoncDocument(afterBytes, {
     pathLabel: document.path_label,
     maxBytes: document.max_bytes,
+    allowTrailingComma: document.allow_trailing_comma,
   });
   return Object.freeze({
     before_bytes: document.bytes,
@@ -125,11 +126,12 @@ function noChange(document) {
 export function parseJsoncDocument(bytes, {
   pathLabel = 'client JSONC config',
   maxBytes = 16 * 1024 * 1024,
+  allowTrailingComma = true,
 } = {}) {
   const decoded = decodeConfigBytes(bytes, { pathLabel, maxBytes });
   const errors = [];
   const root = parseTree(decoded.text, errors, {
-    allowTrailingComma: true,
+    allowTrailingComma,
     allowEmptyContent: true,
     disallowComments: false,
   });
@@ -144,6 +146,7 @@ export function parseJsoncDocument(bytes, {
     kind: 'jsonc_document',
     path_label: pathLabel,
     max_bytes: maxBytes,
+    allow_trailing_comma: allowTrailingComma,
     bytes,
     text: decoded.text,
     had_utf8_bom: decoded.had_utf8_bom,

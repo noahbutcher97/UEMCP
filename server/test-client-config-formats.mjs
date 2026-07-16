@@ -110,6 +110,14 @@ function count(source, needle) {
   t.assert(rejectsCode(() => setJsoncValue(document, ['mcpServers', 'uemcp', 'command'], Number.NaN), 'MALFORMED_CONFIG'), 'JSONC set rejects non-finite values');
   t.assert(rejectsCode(() => parseJsoncDocument(Buffer.from('{"a":1,"a":2}'), { pathLabel: 'duplicate.jsonc' }), 'MALFORMED_CONFIG'), 'JSONC rejects duplicate keys');
   t.assert(rejectsCode(() => parseJsoncDocument(Buffer.from('{"a":}'), { pathLabel: 'malformed.jsonc' }), 'MALFORMED_CONFIG'), 'JSONC rejects malformed syntax');
+  t.assert(rejectsCode(() => parseJsoncDocument(Buffer.from('{"a":1,}'), {
+    pathLabel: 'json-with-comments-no-trailing-comma.json',
+    allowTrailingComma: false,
+  }), 'MALFORMED_CONFIG'), 'JSONC can enforce a provider subset that rejects trailing commas');
+  t.assert(parseJsoncDocument(Buffer.from('{/* comment */"a":1}'), {
+    pathLabel: 'json-with-comments.json',
+    allowTrailingComma: false,
+  }).parsed_value.a === 1, 'provider subset can retain comments while rejecting trailing commas');
 }
 
 // TOML parsing and AST range edits preserve comments, tables, and client-owned keys.

@@ -30,6 +30,21 @@ function invalid(message) {
   throw new ClientContractError(message);
 }
 
+export function readWindowsEnvironmentValue(env, name) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)
+    || typeof name !== 'string' || name.trim() === '') {
+    throw new ClientContractError('Windows environment lookup input is invalid', 'INVALID_CLIENT_ENVIRONMENT');
+  }
+  const normalizedName = name.toUpperCase();
+  const matches = Object.entries(env).filter(([key, value]) => (
+    key.toUpperCase() === normalizedName && value !== undefined && value !== null
+  ));
+  if (matches.length > 1) {
+    throw new ClientContractError(`${normalizedName} has ambiguous case-variant definitions`, 'AMBIGUOUS_CLIENT_ENVIRONMENT');
+  }
+  return matches[0]?.[1];
+}
+
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? '');
   if (!match) return null;

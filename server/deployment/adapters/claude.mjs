@@ -24,7 +24,10 @@ import {
   recordOwnedWrite,
 } from '../ownership-ledger.mjs';
 import { createProcessRunner } from '../process-runner.mjs';
-import { validateClientLaunchContract } from '../client-contract.mjs';
+import {
+  readWindowsEnvironmentValue,
+  validateClientLaunchContract,
+} from '../client-contract.mjs';
 
 const DEFAULT_LIMITS = Object.freeze({
   fileBytes: 16 * 1024 * 1024,
@@ -99,9 +102,9 @@ export function resolveClaudeLocations(context = {}) {
   const env = context.env ?? process.env;
   const workspaceRoot = context.workspaceRoot;
   if (!absolutePath(workspaceRoot)) fail('Claude inspection requires an absolute workspace root', 'INVALID_CLIENT_LOCATION');
-  const userProfile = env.USERPROFILE;
+  const userProfile = readWindowsEnvironmentValue(env, 'USERPROFILE');
   if (!absolutePath(userProfile)) fail('Claude inspection requires an absolute USERPROFILE', 'INVALID_CLIENT_LOCATION');
-  const isolatedHome = env.CLAUDE_CONFIG_DIR;
+  const isolatedHome = readWindowsEnvironmentValue(env, 'CLAUDE_CONFIG_DIR');
   if (isolatedHome !== undefined && isolatedHome !== '' && !absolutePath(isolatedHome)) {
     fail('CLAUDE_CONFIG_DIR must be an absolute non-device path', 'INVALID_CLIENT_LOCATION');
   }

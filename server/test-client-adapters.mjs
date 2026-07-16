@@ -32,11 +32,20 @@ import {
   physicalCodexEntry,
   resolveCodexLocations,
 } from './deployment/adapters/codex.mjs';
+import {
+  GEMINI_NATIVE_MUTATION_CHARACTERIZATION,
+  classifyGeminiNativeStatus,
+  createGeminiAdapter,
+  physicalGeminiEntry,
+  resolveGeminiLocations,
+} from './deployment/adapters/gemini.mjs';
 import { sha256Bytes } from './deployment/canonical-json.mjs';
+import { ACTION_CODES } from './deployment/contracts.mjs';
 import {
   CLIENT_IDS,
   RELEASE_GATES,
   classifySupportedVersion,
+  readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
@@ -48,6 +57,26 @@ import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/to
 const t = new TestRunner('Client Adapter Tests');
 const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
 const TEST_PLAN_DIGEST = 'a'.repeat(64);
+
+function hasOnlyContractActions(actions) {
+  return actions.every(code => Object.hasOwn(ACTION_CODES, code));
+}
+
+function throwsCode(fn, code) {
+  try {
+    fn();
+    return false;
+  } catch (error) {
+    return error?.code === code;
+  }
+}
+
+// Windows environment lookup is case-insensitive and rejects ambiguous plain-object aliases.
+{
+  t.assert(readWindowsEnvironmentValue({ Path: 'one' }, 'PATH') === 'one', 'shared client environment lookup accepts a case variant');
+  t.assert(readWindowsEnvironmentValue({ PATH: undefined, Path: 'one' }, 'PATH') === 'one', 'undefined environment aliases do not create false ambiguity');
+  t.assert(throwsCode(() => readWindowsEnvironmentValue({ PATH: 'one', Path: 'two' }, 'PATH'), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'shared client environment lookup rejects duplicate case variants');
+}
 
 function makeRoot() {
   const root = join(tmpdir(), `uemcp-client-adapter-${randomUUID()}`);
@@ -308,6 +337,67 @@ function codexContext(root, overrides = {}) {
     workspaceRoot: projectRoot,
     projectRoot,
     activeDirectory,
+    descriptor,
+    knownFolders,
+  };
+}
+
+function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '0.41.2' } = {}) {
+  const node = write(join(root, 'runtime', 'node.exe'), 'node');
+  const entry = write(join(root, 'npm', 'node_modules', '@google', 'gemini-cli', 'bundle', 'gemini.js'), 'export {};\n');
+  return {
+    client_id: 'gemini',
+    command: resolve(node),
+    args_prefix: [resolve(entry)],
+    env_overlay: {},
+    package_id: '@google/gemini-cli',
+    source: 'npm_package',
+    version,
+    compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
+    write_supported: writeSupported,
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+  };
+}
+
+function geminiNativeRunner(output = { status: 'exited', exitCode: 0, stdout: 'No MCP servers configured.\n', stderr: '' }) {
+  const calls = [];
+  return {
+    calls,
+    async run(executable, args, options = {}) {
+      calls.push({ executable, args: [...args], options: { ...options, env: { ...options.env } } });
+      const mcpIndex = args.indexOf('mcp');
+      if (mcpIndex < 0 || args.slice(mcpIndex).join(' ') !== 'mcp list') {
+        throw Object.assign(new Error('mutating Gemini MCP command was attempted'), { code: 'MUTATING_NATIVE_COMMAND' });
+      }
+      return typeof output === 'function' ? output({ executable, args, options }) : output;
+    },
+  };
+}
+
+function geminiContext(root, overrides = {}) {
+  const baseEnv = environment(root);
+  const env = {
+    ...baseEnv,
+    GEMINI_CLI_HOME: resolve(join(root, 'gemini-home')),
+    ...overrides.env,
+  };
+  const workspaceRoot = resolve(overrides.workspaceRoot ?? join(root, 'workspace'));
+  mkdirSync(workspaceRoot, { recursive: true });
+  const descriptor = overrides.descriptor ?? canonicalDesired(root);
+  const knownFolders = overrides.knownFolders ?? { programData: resolve(join(root, 'ProgramData')) };
+  return {
+    env,
+    workspaceRoot,
+    workspaceTrusted: overrides.workspaceTrusted ?? false,
+    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
+    launch: overrides.launch ?? geminiLaunch(root),
+    descriptor,
+    ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
+    knownFolders,
+    ...overrides,
+    env,
+    workspaceRoot,
     descriptor,
     knownFolders,
   };
@@ -896,6 +986,49 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Client discovery applies Windows environment semantics after process.env is copied to a plain object.
+{
+  const root = makeRoot();
+  try {
+    const layout = npmInstall(root, 'codex', { packageName: '@openai/codex' });
+    const where = write(join(layout.env.SystemRoot, 'System32', 'where.exe'), 'where-binary');
+    const env = {
+      ...layout.env,
+      SystemRoot: undefined,
+      WINDIR: undefined,
+      systemroot: layout.env.SystemRoot,
+      APPDATA: undefined,
+      appdata: layout.env.APPDATA,
+      PATH: undefined,
+      Path: layout.env.PATH,
+      PATHEXT: undefined,
+      Pathext: '.COM;.EXE;.BAT;.CMD',
+    };
+    const runner = runnerFor('0.144.4', {
+      run: async executable => executable === resolve(where)
+        ? { status: 'exited', exitCode: 0, stdout: `${layout.shim}\n`, stderr: '' }
+        : { status: 'exited', exitCode: 0, stdout: '0.144.4\n', stderr: '' },
+    });
+    const result = await resolveClientLaunch('codex', {
+      env,
+      runner,
+      candidates: { nodeExecutable: layout.nodeExecutable },
+    });
+    t.assert(result.write_supported && runner.calls[0].options.env.PATH === layout.env.PATH, 'client discovery honors case-variant Windows environment keys');
+
+    const ambiguousEnv = { ...env, PATH: 'first', Path: 'second' };
+    const ambiguousRunner = runnerFor('0.144.4');
+    t.assert(await rejectsCode(() => resolveClientLaunch('codex', {
+      env: ambiguousEnv,
+      runner: ambiguousRunner,
+      candidates: { nodeExecutable: layout.nodeExecutable },
+    }), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'client discovery rejects duplicate case-variant environment keys');
+    t.assert(ambiguousRunner.calls.length === 0, 'ambiguous client discovery environment is rejected before process launch');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Safe launch resolution does not tolerate malformed or unsuccessful version output.
 {
   for (const testCase of [
@@ -956,6 +1089,12 @@ async function rejectsCode(fn, code) {
     t.assert(locations.project_config.path === resolve(join(context.workspaceRoot, '.mcp.json')), 'Claude project config remains rooted in the active workspace');
     t.assert(locations.managed_config.path === resolve(join(context.env.ProgramFiles, 'ClaudeCode', 'managed-mcp.json')), 'Claude managed MCP path uses the fixed Program Files policy root');
     t.assert(locations.project_settings.path.endsWith(join('.claude', 'settings.json')) && locations.local_settings.path.endsWith(join('.claude', 'settings.local.json')), 'Claude project approval paths are both enumerated');
+    const lowerHome = resolve(join(root, 'lower-claude-home'));
+    const lowerContext = claudeContext(root, { env: { CLAUDE_CONFIG_DIR: undefined, claude_config_dir: lowerHome } });
+    t.assert(resolveClaudeLocations(lowerContext).state.path === resolve(join(lowerHome, '.claude.json')), 'Claude config home lookup is case-insensitive');
+    t.assert(throwsCode(() => resolveClaudeLocations(claudeContext(root, {
+      env: { CLAUDE_CONFIG_DIR: lowerHome, claude_config_dir: resolve(join(root, 'other-claude-home')) },
+    })), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'Claude rejects duplicate case-variant config homes');
   } finally {
     cleanup(root);
   }
@@ -1563,6 +1702,7 @@ async function rejectsCode(fn, code) {
     const inspection = await adapter.inspect(context, await adapter.detect(context));
     t.assert(inspection.enablement === 'ENABLED' && inspection.activation === 'REJECTED', 'Claude native rejection wins activation without rewriting structural enablement');
     t.assert(inspection.native.disagrees_with_structural_policy === true, 'Claude rejected-versus-enabled disagreement remains explicit');
+    t.assert(hasOnlyContractActions(inspection.actions), 'Claude inspection emits only deployment-contract action codes');
   } finally {
     cleanup(root);
   }
@@ -1589,6 +1729,12 @@ async function rejectsCode(fn, code) {
       join(activeDirectory, '.codex', 'config.toml'),
     ].map(path => resolve(path)).join('|'), 'Codex project configs are enumerated root-to-active-directory');
     t.assert(locations.system_requirements.path === resolve(join(trustedProgramData, 'OpenAI', 'Codex', 'requirements.toml')), 'Codex requirements use the trusted ProgramData known folder');
+    const lowerHome = resolve(join(root, 'lower-codex-home'));
+    const lowerContext = codexContext(root, { env: { CODEX_HOME: undefined, codex_home: lowerHome } });
+    t.assert(resolveCodexLocations(lowerContext).user.path === resolve(join(lowerHome, 'config.toml')), 'Codex home lookup is case-insensitive');
+    t.assert(throwsCode(() => resolveCodexLocations(codexContext(root, {
+      env: { CODEX_HOME: lowerHome, codex_home: resolve(join(root, 'other-codex-home')) },
+    })), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'Codex rejects duplicate case-variant homes');
     t.assert(await rejectsCode(() => Promise.resolve(resolveCodexLocations(codexContext(root, {
       projectRoot,
       activeDirectory: resolve(join(root, 'outside')),
@@ -1599,6 +1745,12 @@ async function rejectsCode(fn, code) {
       limits: { projectLayers: 2 },
     });
     t.assert(await rejectsCode(() => limitedAdapter.detect(context), 'INSPECTION_LIMIT_EXCEEDED'), 'Codex detection honors the configured project-layer limit');
+    const adapter = createCodexAdapter({
+      runner: codexNativeRunner(root),
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    const invalidLaunch = { ...codexLaunch(root), command: 'codex.exe' };
+    t.assert(await rejectsCode(() => adapter.detect(codexContext(root, { launch: invalidLaunch })), 'INVALID_CLIENT_LAUNCH'), 'Codex detection validates the complete launch contract');
   } finally {
     cleanup(root);
   }
@@ -1871,6 +2023,21 @@ async function rejectsCode(fn, code) {
     cleanup(inconsistentRoot);
   }
 
+  const structuralDisagreementRoot = makeRoot();
+  try {
+    const context = codexContext(structuralDisagreementRoot);
+    const locations = resolveCodexLocations(context);
+    write(locations.user.path, `[mcp_servers.uemcp]\ncommand = ${JSON.stringify(context.descriptor.command)}\nargs = [${context.descriptor.args.map(value => JSON.stringify(value)).join(', ')}]\n`);
+    const absent = { status: 'exited', exitCode: 1, stdout: '', stderr: "MCP server 'uemcp' not found" };
+    const runner = codexNativeRunner(structuralDisagreementRoot, { list: absent, get: absent, rejectMutation: true });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.native.status === 'ABSENT', 'Codex preserves structural registration when native evidence is absent');
+    t.assert(inspection.actions.includes('CONFLICT') && hasOnlyContractActions(inspection.actions), 'Codex native disagreement uses the shared conflict action vocabulary');
+  } finally {
+    cleanup(structuralDisagreementRoot);
+  }
+
   const failedRoot = makeRoot();
   try {
     const context = codexContext(failedRoot);
@@ -2067,6 +2234,477 @@ async function rejectsCode(fn, code) {
   } finally {
     cleanup(root);
   }
+}
+
+// Gemini locations honor the home-root override, retain the nested .gemini directory, and pin system policy to a trusted root.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root);
+    const locations = resolveGeminiLocations(context);
+    t.assert(locations.user.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'settings.json')), 'Gemini custom home resolves beneath a nested .gemini directory');
+    t.assert(locations.enablement.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'mcp-server-enablement.json')), 'Gemini persistent enablement shares the nested global config directory');
+    t.assert(locations.extensions_root.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'extensions')), 'Gemini extensions share the nested global config directory');
+    t.assert(locations.project.path === resolve(join(context.workspaceRoot, '.gemini', 'settings.json')), 'Gemini project settings remain workspace scoped');
+    t.assert(locations.system_defaults.path === resolve(join(context.knownFolders.programData, 'gemini-cli', 'system-defaults.json')), 'Gemini system defaults use trusted ProgramData evidence');
+    t.assert(locations.system_override.path === resolve(join(context.knownFolders.programData, 'gemini-cli', 'settings.json')), 'Gemini system override uses trusted ProgramData evidence');
+    const lowerCaseHome = resolve(join(root, 'lower-case-gemini-home'));
+    const lowerCaseContext = geminiContext(root, {
+      env: { GEMINI_CLI_HOME: undefined, gemini_cli_home: lowerCaseHome },
+    });
+    const lowerCaseLocations = resolveGeminiLocations(lowerCaseContext);
+    t.assert(lowerCaseLocations.user.path === resolve(join(lowerCaseHome, '.gemini', 'settings.json')), 'Gemini resolves Windows environment names case-insensitively');
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    t.assert((await adapter.detect(lowerCaseContext)).custom_home === true, 'Gemini case-variant home remains a custom-home safety boundary');
+    t.assert(await rejectsCode(() => adapter.detect(geminiContext(root, {
+      env: {
+        GEMINI_CLI_HOME: resolve(join(root, 'first-home')),
+        gemini_cli_home: resolve(join(root, 'second-home')),
+      },
+    })), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'Gemini rejects duplicate case-variant home keys before inspection and native launch diverge');
+    t.assert(await rejectsCode(() => Promise.resolve(resolveGeminiLocations(geminiContext(root, {
+      env: { GEMINI_CLI_HOME: '..\\relative' },
+    }))), 'INVALID_CLIENT_LOCATION'), 'Gemini rejects a relative home override');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini absence plans one targeted user create, and unknown releases remain inspect-only.
+{
+  const root = makeRoot();
+  try {
+    const runner = geminiNativeRunner();
+    const context = geminiContext(root);
+    const adapter = createGeminiAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const detection = await adapter.detect(context);
+    const inspection = await adapter.inspect(context, detection);
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'ABSENT' && inspection.enablement === 'UNKNOWN', 'Gemini distinguishes absent registration from unproven enablement');
+    t.assert(plan.status === 'CREATE' && plan.operations.length === 1 && plan.operations[0].type === 'CREATE_ENTRY', 'Gemini absence plans one user create');
+    t.assert(plan.operations[0].path === detection.locations.user.path && plan.operations[0].external_write === false, 'Gemini create uses the parser-backed private user path');
+    t.assert(JSON.stringify(plan.operations[0].desired_entry) === JSON.stringify(physicalGeminiEntry(context.descriptor)), 'Gemini create owns only command and args');
+    t.assert(runner.calls.length === 1 && runner.calls[0].args.slice(-2).join(' ') === 'mcp list', 'Gemini inspection invokes only the read-only native list command');
+    t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 10_000 && runner.calls[0].options.outputLimitBytes <= 64 * 1024, 'Gemini native inspection is shell-free and bounded');
+
+    const unsupportedContext = geminiContext(root, { launch: geminiLaunch(root, { version: '0.42.0', writeSupported: false }) });
+    const unsupportedInspection = await adapter.inspect(unsupportedContext, await adapter.detect(unsupportedContext));
+    const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
+    t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Gemini versions cannot plan writes');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Exact Gemini entries are adoptable without rewriting comments, trust, launch policy, or environment state.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = geminiContext(root, { ownershipLedger: ledger, workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    write(locations.user.path, sample('gemini-user-preservation.jsonc', {
+      COMMAND: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    const before = readFileSync(locations.user.path);
+    const adapter = createGeminiAdapter({
+      runner: geminiNativeRunner({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-disconnected.txt'), stderr: '' }),
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.effective.scope === 'user', 'Gemini recognizes an exact user registration');
+    t.assert(inspection.actions.includes('CUSTOM_ENV_REVIEW_REQUIRED') && inspection.actions.includes('CUSTOM_LAUNCH_REVIEW_REQUIRED'), 'Gemini reports custom environment and cwd review');
+    t.assert(!serialized.includes('do-not-serialize') && !serialized.includes('preserve-me'), 'Gemini inspection never emits environment values');
+    t.assert(serialized.includes('UEMCP_PRIVATE_TOKEN') && serialized.includes('HARMLESS'), 'Gemini retains environment key names as safe evidence');
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'ADOPT' && plan.operations[0].type === 'ADOPT_EXACT_ENTRY', 'Gemini exact unowned entry requires visible adoption');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    t.assert(readFileSync(locations.user.path).equals(before), 'Gemini adoption preserves provider bytes exactly');
+    t.assert(transaction.writes.length === 1 && transaction.writes[0].path === '<ownership-ledger>', 'Gemini adoption writes only ownership state');
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'owned exact Gemini entry becomes an idempotent no-op');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini scope precedence reports every occurrence and never writes beneath an effective project or system override.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    const desired = physicalGeminiEntry(context.descriptor);
+    writeJson(locations.system_defaults.path, { mcpServers: { uemcp: { command: 'C:\\Defaults\\node.exe', args: [] } } });
+    writeJson(locations.user.path, { mcpServers: { uemcp: desired } });
+    writeJson(locations.project.path, { mcpServers: { uemcp: { command: 'C:\\Project\\node.exe', args: [] } } });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective.scope === 'project' && inspection.registration === 'CONFLICT', 'trusted Gemini project settings shadow the user entry');
+    t.assert(inspection.occurrences.map(row => row.scope).join(',') === 'system_defaults,user,project', 'Gemini reports settings occurrences in precedence order');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Gemini never rewrites user settings beneath a project conflict');
+
+    const untrusted = geminiContext(root, { workspaceTrusted: false, ownershipLedger: context.ownershipLedger });
+    inspection = await adapter.inspect(untrusted, await adapter.detect(untrusted));
+    t.assert(inspection.effective.scope === 'user' && inspection.registration === 'CONFIGURED', 'untrusted Gemini project settings do not shadow user settings');
+    t.assert(inspection.ignored_project?.reason === 'UNTRUSTED_PROJECT', 'ignored Gemini project evidence remains visible');
+
+    writeJson(locations.system_override.path, { mcpServers: { uemcp: { command: 'C:\\Policy\\node.exe', args: [] } } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective.scope === 'system_override' && inspection.registration === 'CONFLICT', 'Gemini system override has final precedence');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).status === 'CONFLICT', 'Gemini system override conflicts cannot be replaced through user scope');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini treats case-colliding logical server IDs as conflicts instead of creating a duplicate canonical name.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true, approvedExtensionShadow: true });
+    const locations = resolveGeminiLocations(context);
+    const desired = physicalGeminiEntry(context.descriptor);
+    writeJson(locations.user.path, { mcpServers: { UEMCP: desired } });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFLICT' && inspection.logical_name_conflict === true, 'Gemini detects a case-colliding user server ID');
+    t.assert(plan.status === 'CONFLICT' && plan.operations.length === 0, 'Gemini never adds a duplicate canonical ID beside a case-colliding user entry');
+
+    rmSync(locations.user.path);
+    writeJson(join(locations.extensions_root.path, 'case-collision', 'gemini-extension.json'), {
+      name: 'case-collision',
+      version: '1.0.0',
+      mcpServers: { UEMCP: desired },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFLICT' && inspection.logical_name_conflict === true, 'Gemini detects a case-colliding extension server ID');
+    t.assert(plan.status === 'CONFLICT' && plan.operations.length === 0, 'extension-shadow approval cannot hide a differently cased logical server ID');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini policy, persistent enablement, and native session state remain separate evidence.
+{
+  const cases = [
+    { label: 'allowlist omission', settings: { mcp: { allowed: ['other'] } }, expected: 'POLICY_BLOCKED' },
+    { label: 'explicit exclusion', settings: { mcp: { excluded: ['UEMCP'] } }, expected: 'POLICY_BLOCKED' },
+    { label: 'administrator disable', settings: { admin: { mcp: { enabled: false } } }, expected: 'POLICY_BLOCKED' },
+    { label: 'administrator remote allowlist replacement', settings: desired => ({ admin: { mcp: { config: { uemcp: desired } } } }), expected: 'POLICY_BLOCKED' },
+    { label: 'administrator required remote replacement', settings: desired => ({ admin: { mcp: { requiredConfig: { uemcp: desired } } } }), expected: 'POLICY_BLOCKED' },
+  ];
+  for (const testCase of cases) {
+    const root = makeRoot();
+    try {
+      const context = geminiContext(root, { workspaceTrusted: true });
+      const locations = resolveGeminiLocations(context);
+      const desired = physicalGeminiEntry(context.descriptor);
+      const settings = typeof testCase.settings === 'function' ? testCase.settings(desired) : testCase.settings;
+      writeJson(locations.user.path, {
+        ...settings,
+        mcpServers: { uemcp: desired },
+      });
+      const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      t.assert(inspection.policy === testCase.expected && inspection.enablement === 'POLICY_BLOCKED', `Gemini ${testCase.label} blocks enablement`);
+      t.assert(inspection.actions.includes('CLIENT_ENABLEMENT_REQUIRED'), `Gemini ${testCase.label} emits a client action without changing policy`);
+    } finally {
+      cleanup(root);
+    }
+  }
+
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    writeJson(locations.user.path, { mcpServers: { uemcp: physicalGeminiEntry(context.descriptor) } });
+    writeJson(locations.enablement.path, { uemcp: { enabled: false }, unrelated: { enabled: false } });
+    const adapter = createGeminiAdapter({
+      runner: geminiNativeRunner({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-disabled.txt'), stderr: '' }),
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.enablement === 'DISABLED' && inspection.enablement_evidence.status === 'READY', 'Gemini normalized persistent disable remains separate from registration');
+    t.assert(inspection.native.status === 'DISABLED' && inspection.actions.includes('CLIENT_ENABLEMENT_REQUIRED'), 'Gemini native disabled evidence cannot be promoted to connected');
+    t.assert(inspection.remediation_actions[0].command === null, 'Gemini custom-home enablement action cannot target the wrong home');
+    t.assert(readFileSync(locations.enablement.path, 'utf8').includes('unrelated'), 'Gemini adapter never writes persistent enablement state');
+
+    const defaultContext = geminiContext(root, { env: { GEMINI_CLI_HOME: undefined }, workspaceTrusted: true });
+    const defaultLocations = resolveGeminiLocations(defaultContext);
+    writeJson(defaultLocations.user.path, { mcpServers: { uemcp: physicalGeminiEntry(defaultContext.descriptor) } });
+    writeJson(defaultLocations.enablement.path, { uemcp: { enabled: false } });
+    const defaultInspection = await adapter.inspect(defaultContext, await adapter.detect(defaultContext));
+    const command = defaultInspection.remediation_actions[0].command;
+    t.assert(command.executable === defaultContext.launch.command && command.args.slice(-3).join(' ') === 'mcp enable uemcp', 'Gemini default-home enablement action is an exact structured command');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini extension declarations are bounded, path-sensitive, non-hydrated, and explicitly shadowed only with approval.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    const desired = physicalGeminiEntry(context.descriptor);
+    const extensionDir = join(locations.extensions_root.path, 'exact-extension');
+    writeJson(join(extensionDir, 'gemini-extension.json'), {
+      name: 'exact-extension',
+      version: '1.0.0',
+      mcpServers: { uemcp: desired },
+    });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.effective.scope === 'extension', 'enabled extension-only Gemini registration can be effective');
+    t.assert(inspection.extensions.length === 1 && inspection.extensions[0].enabled === true, 'Gemini reports enabled extension provenance');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).status === 'NO_OP', 'exact extension registration is not redundantly shadowed');
+
+    writeJson(locations.extensions_enablement.path, {
+      'exact-extension': { overrides: [`!${context.workspaceRoot.replaceAll('\\', '/')}/`] },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'ABSENT' && inspection.extensions[0].enabled === false, 'path-disabled Gemini extension does not supply an effective server');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).status === 'CREATE', 'disabled extension does not block a canonical user registration');
+
+    writeJson(locations.extensions_enablement.path, {});
+    writeJson(join(extensionDir, 'gemini-extension.json'), {
+      name: 'exact-extension',
+      version: '1.0.0',
+      mcpServers: { uemcp: { command: 'C:\\Extension\\node.exe', args: ['${SECRET_EXTENSION_VALUE}'] } },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    t.assert(inspection.registration === 'CONFLICT' && !serialized.includes('SECRET_EXTENSION_VALUE'), 'Gemini variable-bearing extension conflict is never hydrated or exposed');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Gemini extension shadowing requires explicit approval');
+    const approved = geminiContext(root, { workspaceTrusted: true, approvedExtensionShadow: true, ownershipLedger: context.ownershipLedger });
+    const approvedPlan = await adapter.plan(approved, inspection, approved.descriptor);
+    t.assert(approvedPlan.status === 'CREATE' && approvedPlan.operations[0].shadows_extension === true, 'approved Gemini extension shadow is explicit in the operation');
+
+    writeJson(locations.user.path, { mcpServers: { uemcp: desired } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective.scope === 'user' && inspection.occurrences.some(row => row.scope === 'extension'), 'Gemini user registration wins while retaining extension occurrence evidence');
+
+    writeJson(join(locations.extensions_root.path, 'second-extension', 'gemini-extension.json'), {
+      name: 'second-extension',
+      version: '1.0.0',
+      mcpServers: { uemcp: desired },
+    });
+    rmSync(locations.user.path);
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'CONFLICT' && inspection.actions.includes('CONFLICT'), 'multiple Gemini extension declarations fail closed');
+    t.assert(hasOnlyContractActions(inspection.actions), 'Gemini extension ambiguity uses only deployment-contract action codes');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Administrator-disabled Gemini extensions cannot shadow settings or block a safe user registration.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    writeJson(locations.user.path, { admin: { extensions: { enabled: false } } });
+    writeJson(join(locations.extensions_root.path, 'disabled-by-admin', 'gemini-extension.json'), {
+      name: 'disabled-by-admin',
+      version: '1.0.0',
+      mcpServers: { uemcp: { command: 'C:\\Extension\\node.exe', args: [] } },
+    });
+    write(locations.extensions_enablement.path, '{ malformed but irrelevant while extensions are disabled');
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.extensions_enabled === false && inspection.registration === 'ABSENT', 'Gemini admin extension disable removes extension declarations from effective state');
+    t.assert(inspection.extension_evidence === 'READY' && plan.status === 'CREATE', 'irrelevant disabled-extension state cannot block a canonical user registration');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Duplicate Gemini extension names make host extension loading ambiguous even when only one declares UEMCP.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    writeJson(join(locations.extensions_root.path, 'first', 'gemini-extension.json'), {
+      name: 'duplicate-name',
+      version: '1.0.0',
+      mcpServers: { uemcp: physicalGeminiEntry(context.descriptor) },
+    });
+    writeJson(join(locations.extensions_root.path, 'second', 'gemini-extension.json'), {
+      name: 'duplicate-name',
+      version: '1.0.0',
+      mcpServers: {},
+    });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.extension_evidence === 'UNKNOWN' && inspection.registration === 'UNKNOWN', 'duplicate Gemini extension names invalidate effective extension evidence');
+    t.assert(plan.status === 'POLICY_UNKNOWN' && plan.operations.length === 0, 'duplicate Gemini extension identities block writes instead of guessing precedence');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini rejects malformed provider syntax, linked host state, and extension/aggregate inspection overflow.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root);
+    const locations = resolveGeminiLocations(context);
+    write(locations.user.path, '{\n  // comments are valid\n  "mcpServers": {},\n}\n');
+    let adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'MALFORMED_CONFIG', 'Gemini rejects trailing commas exactly as release 0.41.2 does');
+
+    writeJson(locations.user.path, { mcpServers: { uemcp: physicalGeminiEntry(context.descriptor) } });
+    const source = write(join(root, 'linked-enablement.json'), '{"uemcp":{"enabled":false}}');
+    mkdirSync(dirname(locations.enablement.path), { recursive: true });
+    linkSync(source, locations.enablement.path);
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH' && inspection.enablement === 'UNKNOWN', 'Gemini linked enablement evidence cannot authorize a write or enabled state');
+
+    rmSync(locations.enablement.path);
+    for (const name of ['one', 'two']) {
+      writeJson(join(locations.extensions_root.path, name, 'gemini-extension.json'), {
+        name,
+        version: '1.0.0',
+        mcpServers: {},
+      });
+    }
+    adapter = createGeminiAdapter({
+      runner: geminiNativeRunner(),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { fileBytes: 1024, aggregateBytes: 8192, extensionRecords: 1 },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'Gemini extension record overflow fails closed');
+
+    write(locations.user.path, '{}\n');
+    adapter = createGeminiAdapter({
+      runner: geminiNativeRunner(),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { fileBytes: 64, aggregateBytes: 100, extensionRecords: 8 },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'Gemini aggregate config bytes are bounded across settings and extensions');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini extension enablement records and individual path rules have independent CPU/memory ceilings.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    writeJson(join(locations.extensions_root.path, 'bounded-extension', 'gemini-extension.json'), {
+      name: 'bounded-extension',
+      version: '1.0.0',
+      mcpServers: {},
+    });
+    writeJson(locations.extensions_enablement.path, {
+      'bounded-extension': { overrides: ['/one/', '/two/', '/three/'] },
+    });
+    let adapter = createGeminiAdapter({
+      runner: geminiNativeRunner(),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { extensionRecords: 4 },
+    });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'Gemini counts enablement keys and overrides in the aggregate extension-record ceiling');
+
+    writeJson(locations.extensions_enablement.path, {
+      'bounded-extension': { overrides: [`/${'x'.repeat(64)}/`] },
+    });
+    adapter = createGeminiAdapter({
+      runner: geminiNativeRunner(),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { extensionRecords: 8, extensionRuleBytes: 16 },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'Gemini bounds each extension path rule before matching');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Gemini native output parsing is target-specific, ambiguity-resistant, and keeps activation separate from enablement.
+{
+  const connected = classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-connected.txt'), stderr: '' });
+  const disconnected = classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-disconnected.txt'), stderr: '' });
+  const disabled = classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-disabled.txt'), stderr: '' });
+  const blocked = classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('gemini-native-blocked.txt'), stderr: '' });
+  t.assert(connected.status === 'CONNECTED' && connected.enablement === 'ENABLED', 'Gemini native parser recognizes connected target status');
+  t.assert(disconnected.status === 'DISCONNECTED' && disconnected.activation === 'UNKNOWN', 'Gemini native parser keeps disconnected activation unproven');
+  t.assert(disabled.status === 'DISABLED' && disabled.enablement === 'DISABLED', 'Gemini native parser recognizes disabled target status');
+  t.assert(blocked.status === 'BLOCKED' && blocked.enablement === 'POLICY_BLOCKED', 'Gemini native parser recognizes policy-blocked target status');
+  t.assert(classifyGeminiNativeStatus({ status: 'timed_out', exitCode: null, stdout: '', stderr: '' }).status === 'TIMEOUT', 'Gemini native parser preserves timeout distinctly');
+  t.assert(classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: 'No MCP servers configured.\n', stderr: '' }).status === 'ABSENT', 'Gemini native parser recognizes explicit absence');
+  const spoofed = `${sample('gemini-native-disconnected.txt')}\n${sample('gemini-native-connected.txt')}`;
+  t.assert(classifyGeminiNativeStatus({ status: 'exited', exitCode: 0, stdout: spoofed, stderr: '' }).status === 'AMBIGUOUS', 'Gemini native parser rejects duplicate target lines instead of accepting injected status');
+}
+
+// Owned Gemini updates patch command and args only while preserving every client-owned field.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = geminiContext(root, { ownershipLedger: ledger, workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    const oldEntry = {
+      command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
+      args: [resolve(write(join(root, 'old-runtime', 'server.mjs'), 'export {};\n'))],
+      trust: false,
+      cwd: 'C:\\Preserve\\Workspace',
+      env: { API_TOKEN: 'secret', HARMLESS: 'keep' },
+      timeout: 6200,
+    };
+    writeJson(locations.user.path, {
+      mcpServers: { other: { httpUrl: 'https://example.invalid' }, uemcp: oldEntry },
+      unrelated: { keep: true },
+    });
+    await recordOwnedWrite({
+      ledger,
+      location: { clientId: 'gemini', configPath: locations.user.path, scope: 'user', entryName: 'uemcp' },
+      beforeEntry: null,
+      afterEntry: oldEntry,
+      ownedPaths: ownedPathsForClient('gemini', oldEntry),
+      appliedConfigHash: sha256Bytes(readFileSync(locations.user.path)),
+      planDigest: TEST_PLAN_DIGEST,
+    });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'UPDATE' && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'Gemini owned stale identity plans a targeted update');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    const after = JSON.parse(readFileSync(locations.user.path, 'utf8'));
+    t.assert(after.mcpServers.uemcp.command === context.descriptor.command && JSON.stringify(after.mcpServers.uemcp.args) === JSON.stringify(context.descriptor.args), 'Gemini update writes canonical command and args');
+    t.assert(after.mcpServers.uemcp.trust === false && after.mcpServers.uemcp.cwd === oldEntry.cwd && after.mcpServers.uemcp.timeout === 6200, 'Gemini update preserves trust, cwd, and timeout');
+    t.assert(JSON.stringify(after.mcpServers.uemcp.env) === JSON.stringify(oldEntry.env) && after.mcpServers.other.httpUrl && after.unrelated.keep, 'Gemini update preserves environment, unrelated servers, and top-level state');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native Gemini mutation remains forbidden because release 0.41.2 defaults to project scope and replaces same-name/unrelated settings.
+{
+  t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.version === '0.41.2', 'Gemini mutation characterization is release-bound');
+  t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.default_scope === 'project', 'Gemini native add defaults to project scope');
+  t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.same_name_replaced === true, 'Gemini native add replaces a same-name server');
+  t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.unrelated_settings_preserved === false, 'Gemini native add is forbidden because it can discard unrelated settings');
+  t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.mutating_subcommands_allowed === false, 'Gemini adapter contract forbids native mutation');
 }
 
 process.exitCode = t.summary();

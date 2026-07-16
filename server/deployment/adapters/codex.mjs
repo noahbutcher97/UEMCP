@@ -18,6 +18,10 @@ import {
   ownershipKey,
   recordOwnedWrite,
 } from '../ownership-ledger.mjs';
+import {
+  readWindowsEnvironmentValue,
+  validateClientLaunchContract,
+} from '../client-contract.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from '../toml-config.mjs';
 
 const DEFAULT_LIMITS = Object.freeze({
@@ -94,9 +98,9 @@ function location(path, allowedRoot, scope, writable = false, extras = {}) {
 
 export function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS.projectLayers } = {}) {
   const env = context.env ?? process.env;
-  const userProfile = env.USERPROFILE;
+  const userProfile = readWindowsEnvironmentValue(env, 'USERPROFILE');
   if (!absolutePath(userProfile)) fail('Codex inspection requires an absolute USERPROFILE', 'INVALID_CLIENT_LOCATION');
-  const configuredHome = env.CODEX_HOME;
+  const configuredHome = readWindowsEnvironmentValue(env, 'CODEX_HOME');
   if (configuredHome !== undefined && configuredHome !== '' && !absolutePath(configuredHome)) {
     fail('CODEX_HOME must be an absolute non-device path', 'INVALID_CLIENT_LOCATION');
   }
@@ -599,7 +603,8 @@ export function createCodexAdapter({
   const limits = normalizedLimits(limitOverrides);
 
   async function detect(context) {
-    if (context.launch?.client_id !== 'codex') fail('Codex launch evidence is invalid', 'INVALID_CLIENT_LAUNCH');
+    validateClientLaunchContract(context.launch);
+    if (context.launch.client_id !== 'codex') fail('Codex launch evidence is invalid', 'INVALID_CLIENT_LAUNCH');
     return Object.freeze({
       client_id: 'codex',
       launch: context.launch,
@@ -658,7 +663,7 @@ export function createCodexAdapter({
       if (policy === 'POLICY_UNKNOWN') actions.push('POLICY_UNKNOWN');
       if (nativeWriteBlocked && !nativeOnly) actions.push('POLICY_UNKNOWN');
       if (registration === 'CONFLICT') actions.push('CONFLICT');
-      if (disagrees) actions.push('NATIVE_CONFIG_DISAGREEMENT');
+      if (disagrees) actions.push('CONFLICT');
 
       let ownershipProbe = userOccurrence?.ownership ?? null;
       if (!ownershipProbe) {

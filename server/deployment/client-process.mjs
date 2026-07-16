@@ -14,6 +14,7 @@ import { sha256Canonical } from './canonical-json.mjs';
 import {
   classifySupportedVersion,
   CLIENT_IDS,
+  readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './client-contract.mjs';
 import { fingerprintPath } from './fingerprints.mjs';
@@ -135,27 +136,33 @@ function candidateRows(clientId, candidates) {
 
 function npmPrefixes(env, candidates) {
   const rows = [];
-  if (env.APPDATA) rows.push(join(env.APPDATA, 'npm'));
-  if (env.NPM_CONFIG_PREFIX) rows.push(resolve(env.NPM_CONFIG_PREFIX));
+  const appData = readWindowsEnvironmentValue(env, 'APPDATA');
+  const npmConfigPrefix = readWindowsEnvironmentValue(env, 'NPM_CONFIG_PREFIX');
+  if (appData) rows.push(join(appData, 'npm'));
+  if (npmConfigPrefix) rows.push(resolve(npmConfigPrefix));
   for (const path of candidates?.npmPrefixes ?? []) rows.push(resolve(path));
   return [...new Map(rows.map(path => [pathKey(path), resolve(path)])).values()];
 }
 
 function expectedNativePaths(clientId, env) {
   if (clientId === 'claude') {
-    return env.USERPROFILE ? [join(env.USERPROFILE, '.local', 'bin', 'claude.exe')] : [];
+    const userProfile = readWindowsEnvironmentValue(env, 'USERPROFILE');
+    return userProfile ? [join(userProfile, '.local', 'bin', 'claude.exe')] : [];
   }
   if (clientId === 'vscode') {
+    const localAppData = readWindowsEnvironmentValue(env, 'LOCALAPPDATA');
+    const programFiles = readWindowsEnvironmentValue(env, 'PROGRAMFILES');
     return [
-      env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'Code.exe') : null,
-      env.ProgramFiles ? join(env.ProgramFiles, 'Microsoft VS Code', 'Code.exe') : null,
+      localAppData ? join(localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe') : null,
+      programFiles ? join(programFiles, 'Microsoft VS Code', 'Code.exe') : null,
     ].filter(Boolean);
   }
   return [];
 }
 
 async function discoverWithWhere(clientId, { env, runner, fsImpl }) {
-  const systemRoot = env.SystemRoot || env.WINDIR;
+  const systemRoot = readWindowsEnvironmentValue(env, 'SYSTEMROOT')
+    || readWindowsEnvironmentValue(env, 'WINDIR');
   if (!systemRoot) return [];
   const wherePath = join(systemRoot, 'System32', 'where.exe');
   let where;
@@ -169,11 +176,13 @@ async function discoverWithWhere(clientId, { env, runner, fsImpl }) {
   } catch {
     return [];
   }
+  const path = readWindowsEnvironmentValue(env, 'PATH');
+  const pathExt = readWindowsEnvironmentValue(env, 'PATHEXT');
   const discoveryEnv = {
     SystemRoot: resolve(systemRoot),
     WINDIR: resolve(systemRoot),
-    ...(typeof env.PATH === 'string' ? { PATH: env.PATH } : {}),
-    ...(typeof env.PATHEXT === 'string' ? { PATHEXT: env.PATHEXT } : {}),
+    ...(typeof path === 'string' ? { PATH: path } : {}),
+    ...(typeof pathExt === 'string' ? { PATHEXT: pathExt } : {}),
   };
   const result = await runner.run(where.path, [CLIENTS[clientId].command_name], {
     env: discoveryEnv,
@@ -330,7 +339,8 @@ async function validAuthenticode(path, clientId, { env, runner, fsImpl, authenti
   const expected = CLIENTS[clientId].signer;
   const result = await authenticodeInspector(path, {
     runner,
-    systemRoot: env.SystemRoot || env.WINDIR,
+    systemRoot: readWindowsEnvironmentValue(env, 'SYSTEMROOT')
+      || readWindowsEnvironmentValue(env, 'WINDIR'),
     expectedSignerNames: [expected],
     allowedRoots: [dirname(path)],
     fsImpl,

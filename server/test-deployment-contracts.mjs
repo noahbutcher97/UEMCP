@@ -61,7 +61,7 @@ EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
-ENABLED DISABLED CONNECTED PENDING_TRUST RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
+ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
 VERIFIED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH NOT_CHECKED
@@ -71,7 +71,7 @@ const EXPECTED_ACTIONS = `
 NODE_INSTALL_REQUIRED DEPENDENCIES_INSTALL_REQUIRED DEPENDENCY_POLICY_BLOCKED SOURCE_PROVENANCE_UNKNOWN LOCAL_STATE_UNAVAILABLE APPLY_IN_PROGRESS
 INSTALL_FAILED SYNC_FAILED BUILD_REQUIRED BUILD_FAILED UNKNOWN_TOOLCHAIN
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH
-PENDING_TRUST RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
+PENDING_TRUST PENDING_APPROVAL RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
 CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
@@ -279,6 +279,15 @@ function validMachineInput(overrides = {}) {
 
   const withClient = createMachineResult(validMachineInput({ clients: [validClient()] }));
   t.assert(withClient.clients[0].status === 'CONFIGURED', 'field-specific valid client states are accepted');
+  const pendingApproval = createMachineResult(validMachineInput({
+    clients: [validClient({
+      activation: 'PENDING_APPROVAL',
+      actions: [validAction({ code: 'PENDING_APPROVAL', message: 'Approve the server in the client.' })],
+    })],
+  }));
+  t.assert(pendingApproval.clients[0].activation === 'PENDING_APPROVAL', 'client approval remains distinct from workspace trust');
+  const rejected = createMachineResult(validMachineInput({ clients: [validClient({ activation: 'REJECTED' })] }));
+  t.assert(rejected.clients[0].activation === 'REJECTED', 'client rejection remains distinct from structural enablement');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ compatibility: 'unknown_newer', write_supported: true })] })), 'INVALID_CONTRACT'), 'unknown newer clients cannot be write-supported');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ compatibility: 'release_gated', write_supported: false })] })), 'INVALID_CONTRACT'), 'release-gated clients must be write-supported');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ status: 'READY' })] })), 'INVALID_CONTRACT'), 'client structural status uses its field-specific subset');
