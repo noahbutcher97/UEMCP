@@ -1,0 +1,18 @@
+{
+  // Keep this comment and every unrelated field byte-for-byte.
+  "mcpServers": {
+    "other": {
+      "command": "other.exe",
+      "args": ["--keep"],
+      "env": { "TOKEN": "secret-canary" }
+    },
+    "uemcp": {
+      "command": "old-node.exe",
+      "args": ["old-server.mjs"],
+      "enabled": false,
+    },
+  },
+  "inputs": [
+    { "id": "keep", "type": "promptString" },
+  ],
+}

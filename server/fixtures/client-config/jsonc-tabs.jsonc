@@ -1,0 +1,5 @@
+{
+	"servers": {
+		"other": { "command": "keep.exe" }
+	}
+}

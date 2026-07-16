@@ -1,0 +1,18 @@
+# Keep this leading comment.
+model = "gpt-5"
+
+[mcp_servers.other]
+command = "other.exe"
+args = ["--keep"]
+env = { TOKEN = "secret-canary" }
+
+[mcp_servers.uemcp]
+# Keep this table comment.
+command = "old-node.exe"
+args = ["old-server.mjs"]
+enabled = false
+startup_timeout_sec = 30
+
+[profiles."quoted.name"]
+description = """A multiline
+value that must survive."""
