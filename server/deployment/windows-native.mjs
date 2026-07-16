@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
 import { dirname, join, parse, resolve } from 'node:path';
 
@@ -19,6 +20,11 @@ if ($null -ne $signature.SignerCertificate) {
 
 const METADATA_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([byte[]]$Bytes) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try { $hashBytes = $sha.ComputeHash($Bytes) } finally { $sha.Dispose() }
+  return [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+}
 $target = $env:UEMCP_METADATA_TARGET
 $maxStreams = [int]$env:UEMCP_MAX_STREAMS
 $maxBytes = [long]$env:UEMCP_MAX_STREAM_BYTES
@@ -29,10 +35,11 @@ if ($streams.Count -gt $maxStreams) { throw 'STREAM_COUNT_LIMIT' }
 $streamRows = @()
 $streamBytes = [long]0
 foreach ($stream in $streams) {
-  $bytes = [System.IO.File]::ReadAllBytes($stream.FileName + ':' + $stream.Stream)
+  $content = Get-Content -LiteralPath $stream.FileName -Stream $stream.Stream -Encoding Byte -Raw -ErrorAction Stop
+  $bytes = if ($null -eq $content) { [byte[]]@() } else { [byte[]]$content }
   $streamBytes += $bytes.LongLength
   if ($streamBytes -gt $maxBytes) { throw 'STREAM_BYTE_LIMIT' }
-  $hash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+  $hash = Get-Sha256Hex $bytes
   $streamRows += [ordered]@{ name = $stream.Stream; size = $bytes.LongLength; sha256 = $hash }
 }
 $metadata = [ordered]@{
@@ -43,9 +50,8 @@ $metadata = [ordered]@{
   streams = $streamRows
 }
 $json = $metadata | ConvertTo-Json -Compress -Depth 8
-$hashBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($json))
 [ordered]@{
-  metadata_sha256 = [Convert]::ToHexString($hashBytes).ToLowerInvariant()
+  metadata_sha256 = Get-Sha256Hex ([System.Text.Encoding]::UTF8.GetBytes($json))
   stream_count = $streams.Count
   stream_bytes = $streamBytes
 } | ConvertTo-Json -Compress
@@ -53,8 +59,35 @@ $hashBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encodi
 
 const REPLACE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class UemcpReplaceFileNative
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ReplaceFile(
+        string replacedFileName,
+        string replacementFileName,
+        string backupFileName,
+        uint replaceFlags,
+        IntPtr exclude,
+        IntPtr reserved);
+}
+'@
 try {
-  [System.IO.File]::Replace($env:UEMCP_REPLACEMENT_PATH, $env:UEMCP_DESTINATION_PATH, $null, $false)
+  $replaced = [UemcpReplaceFileNative]::ReplaceFile(
+    $env:UEMCP_DESTINATION_PATH,
+    $env:UEMCP_REPLACEMENT_PATH,
+    $env:UEMCP_BACKUP_PATH,
+    0,
+    [IntPtr]::Zero,
+    [IntPtr]::Zero)
+  if (-not $replaced) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
   [ordered]@{ status = 'replaced' } | ConvertTo-Json -Compress
 } catch {
   [ordered]@{ status = 'failed'; error_code = $_.Exception.GetType().FullName } | ConvertTo-Json -Compress
@@ -216,16 +249,30 @@ export async function replaceFilePreservingMetadata({
   }
   await assertRegularSinglePath(replacement, { allowedRoots: [dirname(destination)], fsImpl });
   await assertRegularSinglePath(destination, { allowedRoots: [dirname(destination)], fsImpl });
-  const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
-    env: minimalEnvironment(systemRoot, {
-      UEMCP_REPLACEMENT_PATH: replacement,
-      UEMCP_DESTINATION_PATH: destination,
-    }),
-    stdin: `${REPLACE_SCRIPT}\n\n`,
-    timeoutMs: 30_000,
-    outputLimitBytes: 8 * 1024,
-  });
-  const parsed = parseSingleJson(result, ['status']);
+  const backup = join(dirname(destination), `.${randomBytes(16).toString('hex')}.uemcp-backup`);
+  let parsed;
+  let replaceError = null;
+  try {
+    const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+      env: minimalEnvironment(systemRoot, {
+        UEMCP_REPLACEMENT_PATH: replacement,
+        UEMCP_DESTINATION_PATH: destination,
+        UEMCP_BACKUP_PATH: backup,
+      }),
+      stdin: `${REPLACE_SCRIPT}\n\n`,
+      timeoutMs: 30_000,
+      outputLimitBytes: 8 * 1024,
+    });
+    parsed = parseSingleJson(result, ['status']);
+  } catch (error) {
+    replaceError = error;
+  }
+  try {
+    await fsImpl.rm(backup, { force: true });
+  } catch {
+    throw new WindowsNativeError('metadata-preserving replacement backup cleanup failed');
+  }
+  if (replaceError) throw replaceError;
   if (parsed.status !== 'replaced') throw new WindowsNativeError('metadata-preserving replacement failed');
   return { status: 'replaced' };
 }

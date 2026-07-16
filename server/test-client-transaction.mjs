@@ -2,8 +2,20 @@
 //
 // Run: cd server && node test-client-transaction.mjs
 
+import { randomUUID } from 'node:crypto';
+import * as asyncFs from 'node:fs/promises';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+
 import { TestRunner } from './test-helpers.mjs';
-import { sha256Canonical } from './deployment/canonical-json.mjs';
+import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
+import {
+  captureClientPathFingerprint,
+  createClientTransaction,
+} from './deployment/client-transaction.mjs';
+import { createLocalState } from './deployment/local-state.mjs';
+import { createProcessRunner } from './deployment/process-runner.mjs';
 import {
   adoptExactEntry,
   deduplicateOwnershipLocations,
@@ -51,6 +63,199 @@ function memoryLedger(initial = null) {
     snapshot: () => (value === null || typeof value === 'string' ? value : structuredClone(value)),
     writeCount: () => writes,
   };
+}
+
+function makeTransactionRoot() {
+  const root = join(tmpdir(), `uemcp-client-transaction-${randomUUID()}`);
+  mkdirSync(root);
+  return root;
+}
+
+function cleanupTransactionRoot(root) {
+  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
+  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
+  if (!normalized.startsWith(`${expected}/uemcp-client-transaction-`)) throw new Error(`refusing to clean unexpected path: ${root}`);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function writeBytes(path, bytes) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, bytes);
+  return path;
+}
+
+function virtualWindowsMetadata() {
+  const metadata = new Map();
+  const calls = [];
+  let failReplace = false;
+  let failMetadata = false;
+  const key = path => resolve(path).toLowerCase();
+  const stateFor = path => metadata.get(key(path)) ?? { dacl: 'owner-only', attributes: 32, streams: {} };
+  return {
+    calls,
+    set(path, value) {
+      metadata.set(key(path), structuredClone(value));
+    },
+    mutate(path, mutate) {
+      const next = structuredClone(stateFor(path));
+      mutate(next);
+      metadata.set(key(path), next);
+    },
+    failNextReplace() {
+      failReplace = true;
+    },
+    failNextMetadata() {
+      failMetadata = true;
+    },
+    async fingerprintWindowsFileMetadata(path) {
+      if (failMetadata) {
+        failMetadata = false;
+        const error = new Error('metadata stream limit exceeded');
+        error.code = 'WINDOWS_NATIVE_FAILED';
+        throw error;
+      }
+      const state = stateFor(path);
+      const streamValues = Object.values(state.streams ?? {});
+      return {
+        metadata_sha256: sha256Canonical(state),
+        stream_count: streamValues.length,
+        stream_bytes: streamValues.reduce((total, value) => total + Buffer.byteLength(value), 0),
+      };
+    },
+    async replaceFilePreservingMetadata({ replacementPath, destinationPath }) {
+      calls.push({ replacementPath: resolve(replacementPath), destinationPath: resolve(destinationPath) });
+      if (failReplace) {
+        failReplace = false;
+        const error = new Error('replacement failed');
+        error.code = 'WINDOWS_NATIVE_FAILED';
+        throw error;
+      }
+      const bytes = await asyncFs.readFile(replacementPath);
+      await asyncFs.writeFile(destinationPath, bytes);
+      await asyncFs.rm(replacementPath, { force: true });
+      return { status: 'replaced' };
+    },
+  };
+}
+
+function createTestLocalState(root, calls = []) {
+  const base = createLocalState({
+    root: join(root, 'local-state'),
+    aclRestrictor: async () => {},
+    processInspector: async () => 'alive',
+  });
+  return Object.freeze({
+    ...base,
+    async acquireApplyLease(options) {
+      calls.push({ type: 'lease' });
+      const lease = await base.acquireApplyLease(options);
+      return {
+        ...lease,
+        async release() {
+          calls.push({ type: 'lease-release' });
+          return lease.release();
+        },
+      };
+    },
+    async createSnapshot(path, options) {
+      calls.push({ type: 'snapshot', path: resolve(path) });
+      return base.createSnapshot(path, options);
+    },
+    async deleteSnapshot(snapshot) {
+      calls.push({ type: 'snapshot-delete', path: snapshot.metadata.target_path });
+      return base.deleteSnapshot(snapshot);
+    },
+  });
+}
+
+function fakeAdapter(id, behavior = {}) {
+  return {
+    id,
+    async snapshot(context, operations) {
+      return {
+        writable_paths: operations.map(operation => ({
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope_kind: operation.scope_kind,
+          fingerprint: operation.fingerprint,
+          owned_paths: operation.owned_paths,
+          shared_resource_id: operation.shared_resource_id,
+        })),
+        read_only_paths: context.read_only_paths?.filter(row => row.client_id === id) ?? [],
+      };
+    },
+    async apply(context, operations) {
+      if (behavior.failBeforeWrite) throw Object.assign(new Error(`${id} pre-write failure`), { code: 'INJECTED_FAILURE' });
+      for (const operation of operations) {
+        await context.transaction.writeFile(operation.path, Buffer.from(operation.desired_text), {
+          parse: bytes => {
+            if (behavior.failStructuralRead) throw Object.assign(new Error('structured reread failed'), { code: 'STRUCTURAL_VERIFY_FAILED' });
+            return JSON.parse(bytes.toString('utf8'));
+          },
+        });
+      }
+      if (behavior.ledgerValue) await context.transaction.ownershipLedger.write(behavior.ledgerValue);
+      if (behavior.afterWrite) await behavior.afterWrite(context, operations);
+      if (behavior.failAfterWrite) throw Object.assign(new Error(`${id} post-write failure`), { code: 'INJECTED_FAILURE' });
+      return { status: behavior.applyStatus ?? 'APPLIED' };
+    },
+    async verify(context, expected) {
+      if (behavior.beforeVerify) await behavior.beforeVerify(context, expected);
+      if (behavior.failVerify) throw Object.assign(new Error(`${id} native verify failure`), { code: 'NATIVE_VERIFY_FAILED' });
+      return { status: behavior.verifyStatus ?? 'READY' };
+    },
+    async rollback(context, records) {
+      if (behavior.failRollback) throw Object.assign(new Error(`${id} rollback hook failure`), { code: 'ROLLBACK_HOOK_FAILED' });
+      return { status: 'delegated', count: records.length };
+    },
+  };
+}
+
+async function transactionOperation(clientId, path, root, windowsNative, overrides = {}) {
+  const fingerprint = Object.hasOwn(overrides, 'fingerprint')
+    ? overrides.fingerprint
+    : await captureClientPathFingerprint(path, {
+      allowedRoots: [root],
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+  return {
+    operation_id: `${clientId}-write`,
+    client_id: clientId,
+    selected: true,
+    write_supported: true,
+    path,
+    allowed_root: root,
+    scope_kind: 'user',
+    desired_text: `${JSON.stringify({ client: clientId, applied: true })}\n`,
+    fingerprint,
+    ...overrides,
+  };
+}
+
+async function setExplicitTestDacl(path) {
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$acl = Get-Acl -LiteralPath $env:UEMCP_DACL_TARGET
+$acl.SetAccessRuleProtection($true, $false)
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow')
+$acl.SetAccessRule($rule)
+Set-Acl -LiteralPath $env:UEMCP_DACL_TARGET -AclObject $acl
+`.trim();
+  const result = await createProcessRunner().run(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], {
+    env: {
+      SystemRoot: resolve(systemRoot),
+      WINDIR: resolve(systemRoot),
+      UEMCP_DACL_TARGET: resolve(path),
+    },
+    stdin: `${script}\n\n`,
+    timeoutMs: 15_000,
+    outputLimitBytes: 8 * 1024,
+  });
+  if (result.status !== 'exited' || result.exitCode !== 0 || result.stderr !== '') throw new Error('could not establish explicit test DACL');
 }
 
 async function rejectsCode(fn, code) {
@@ -355,6 +560,748 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
       appliedConfigHash: CONFIG_HASH,
       planDigest: PLAN_DIGEST,
     }), 'INVALID_OWNED_PATHS'), `${forbiddenPath} cannot become installer-owned`);
+  }
+}
+
+// A successful transaction leases first, snapshots every writable path once, and applies in fixed client order.
+{
+  const root = makeTransactionRoot();
+  try {
+    const calls = [];
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root, calls);
+    const adapters = ['vscode', 'gemini', 'claude', 'codex'].map(id => fakeAdapter(id, {
+      afterWrite: async () => calls.push({ type: 'applied', id }),
+    }));
+    const operations = [];
+    for (const id of ['claude', 'codex', 'gemini', 'vscode']) {
+      const path = writeBytes(join(home, `${id}.json`), Buffer.from(`${JSON.stringify({ client: id, applied: false })}\n`));
+      windowsNative.set(path, { dacl: `${id}-owner`, attributes: 32, streams: { canary: `${id}-stream` } });
+      operations.push(await transactionOperation(id, path, home, windowsNative));
+    }
+    const policyPath = writeBytes(join(home, 'policy.json'), Buffer.from('{"managed":true}\n'));
+    const readOnlyFingerprint = await captureClientPathFingerprint(policyPath, {
+      allowedRoots: [home],
+      fsImpl: asyncFs,
+      windowsNative,
+      writable: false,
+    });
+    const ownershipPath = localState.paths().ownership;
+    const ownershipFingerprint = await captureClientPathFingerprint(ownershipPath, {
+      allowedRoots: [localState.paths().state],
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    const context = {
+      read_only_paths: [{
+        client_id: 'claude',
+        path: policyPath,
+        allowed_root: home,
+        fingerprint: readOnlyFingerprint,
+        scope_kind: 'managed',
+      }],
+    };
+    const planned = { planDigest: PLAN_DIGEST, adapters, operations, context, ownershipFingerprint };
+    const snapshot = await transaction.snapshot(planned);
+    t.assert(calls[0]?.type === 'lease', 'transaction acquires the core apply lease before preflight');
+    t.assert(snapshot.writable_paths.length === 5, 'all four configs plus ownership ledger are snapshotted before apply');
+    t.assert(calls.filter(call => call.type === 'snapshot').length === 5, 'each writable physical path receives one exact-byte snapshot');
+    t.assert(!calls.some(call => call.type === 'snapshot' && call.path === resolve(policyPath)), 'managed read-only evidence is never snapshotted as writable state');
+
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations, context });
+    t.assert(result.status === 'APPLIED' && result.clients.every(client => client.status === 'READY'), 'successful structural and native verification commits APPLIED');
+    t.assert(JSON.stringify(calls.filter(call => call.type === 'applied').map(call => call.id)) === JSON.stringify(['claude', 'codex', 'gemini', 'vscode']), 'adapters apply in locked deterministic order');
+    t.assert(result.touched_files.length === 4 && result.touched_files.every(file => /^[0-9a-f]{64}$/.test(file.applied_sha256)), 'result records one applied content hash per changed config');
+    t.assert(calls.filter(call => call.type === 'snapshot-delete').length === 5 && calls.at(-1)?.type === 'lease-release', 'successful apply deletes all snapshots before releasing the lease');
+    t.assert(result.retained_snapshots.length === 0, 'successful apply retains no recovery snapshots');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Failure before the first write and after each adapter write restores every original byte sequence.
+{
+  const failures = [
+    { label: 'before first write', clientId: 'claude', behavior: { failBeforeWrite: true } },
+    ...['claude', 'codex', 'gemini', 'vscode'].map(clientId => ({ label: `after ${clientId} write`, clientId, behavior: { failAfterWrite: true } })),
+  ];
+  for (const failure of failures) {
+    const root = makeTransactionRoot();
+    try {
+      const home = join(root, 'client-home');
+      const windowsNative = virtualWindowsMetadata();
+      const localState = createTestLocalState(root);
+      const originals = new Map();
+      const operations = [];
+      const adapters = [];
+      for (const id of ['claude', 'codex', 'gemini', 'vscode']) {
+        const bytes = Buffer.from(`${JSON.stringify({ client: id, marker: `original-${id}` })}\r\n`);
+        const path = writeBytes(join(home, `${id}.json`), bytes);
+        originals.set(path, bytes);
+        operations.push(await transactionOperation(id, path, home, windowsNative));
+        adapters.push(fakeAdapter(id, id === failure.clientId ? failure.behavior : {}));
+      }
+      const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+        allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+      });
+      const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+      await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations, context: {}, ownershipFingerprint });
+      const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations, context: {} });
+      t.assert(result.status === 'ROLLED_BACK', `${failure.label} returns verified ROLLED_BACK`);
+      let exact = true;
+      for (const [path, bytes] of originals) exact &&= (await asyncFs.readFile(path)).equals(bytes);
+      t.assert(exact, `${failure.label} restores exact original bytes for every potentially changed config`);
+      t.assert(result.retained_snapshots.length === 0, `${failure.label} deletes snapshots after verified restoration`);
+    } finally {
+      cleanupTransactionRoot(root);
+    }
+  }
+}
+
+// Structured reread and native verification failures trigger the same guarded rollback.
+{
+  for (const [label, behavior] of [
+    ['structural reread failure', { failStructuralRead: true }],
+    ['native verify failure', { failVerify: true }],
+  ]) {
+    const root = makeTransactionRoot();
+    try {
+      const home = join(root, 'client-home');
+      const windowsNative = virtualWindowsMetadata();
+      const localState = createTestLocalState(root);
+      const original = Buffer.from('{"state":"original"}\n');
+      const path = writeBytes(join(home, 'claude.json'), original);
+      const operation = await transactionOperation('claude', path, home, windowsNative);
+      const adapters = [fakeAdapter('claude', behavior)];
+      const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+        allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+      });
+      const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+      await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+      const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+      t.assert(result.status === 'ROLLED_BACK' && (await asyncFs.readFile(path)).equals(original), `${label} restores exact bytes`);
+    } finally {
+      cleanupTransactionRoot(root);
+    }
+  }
+}
+
+// Provider config and ownership ledger bytes participate in one rollback boundary.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const configOriginal = Buffer.from('{"state":"original"}\r\n');
+    const ledgerOriginal = Buffer.from('{"legacy":"preserve-exactly"}\r\n');
+    const path = writeBytes(join(home, 'claude.json'), configOriginal);
+    writeBytes(localState.paths().ownership, ledgerOriginal);
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const adapters = [fakeAdapter('claude', {
+      ledgerValue: { schema_version: '1.0', records: {}, self_hash: '0'.repeat(64) },
+      failAfterWrite: true,
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    const snapshot = await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    t.assert(snapshot.writable_paths.includes(resolve(localState.paths().ownership)), 'ownership ledger is included in the same transaction snapshot set');
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK', 'provider plus ownership write failure rolls back as one unit');
+    t.assert((await asyncFs.readFile(path)).equals(configOriginal), 'provider config exact bytes are restored with ownership failure');
+    t.assert((await asyncFs.readFile(localState.paths().ownership)).equals(ledgerOriginal), 'ownership ledger exact bytes are restored with provider config');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Trust, enablement, or restart work remains ACTION_REQUIRED without rolling back a valid write.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'gemini.json'), Buffer.from('{"state":"original"}\n'));
+    const operation = await transactionOperation('gemini', path, home, windowsNative);
+    const adapters = [fakeAdapter('gemini', { verifyStatus: 'PENDING_TRUST' })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ACTION_REQUIRED' && result.clients[0].status === 'PENDING_TRUST', 'host-owned trust action commits structurally valid config as ACTION_REQUIRED');
+    t.assert((await asyncFs.readFile(path, 'utf8')) === operation.desired_text, 'ACTION_REQUIRED does not roll back a valid registration');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Concurrent content, DACL, attribute, or stream edits survive rollback and retain bounded recovery evidence.
+{
+  const mutations = [
+    {
+      label: 'default stream',
+      mutate: async (path) => asyncFs.writeFile(path, Buffer.from('{"external":true}\n')),
+      verify: async path => (await asyncFs.readFile(path, 'utf8')).includes('external'),
+    },
+    {
+      label: 'DACL',
+      mutate: async (path, native) => native.mutate(path, state => { state.dacl = 'external-owner'; }),
+      verify: async () => true,
+    },
+    {
+      label: 'attribute',
+      mutate: async (path, native) => native.mutate(path, state => { state.attributes = 1; }),
+      verify: async () => true,
+    },
+    {
+      label: 'alternate stream',
+      mutate: async (path, native) => native.mutate(path, state => { state.streams['canary-secret-stream'] = 'external-stream-value'; }),
+      verify: async () => true,
+    },
+  ];
+  for (const mutation of mutations) {
+    const root = makeTransactionRoot();
+    try {
+      const home = join(root, 'client-home');
+      const windowsNative = virtualWindowsMetadata();
+      const localState = createTestLocalState(root);
+      const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+      windowsNative.set(path, { dacl: 'original-owner', attributes: 32, streams: { canary: 'original-stream' } });
+      const operation = await transactionOperation('claude', path, home, windowsNative);
+      const adapters = [fakeAdapter('claude', {
+        afterWrite: async () => mutation.mutate(path, windowsNative),
+        failAfterWrite: true,
+      })];
+      const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+        allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+      });
+      const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+      await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+      const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+      const serialized = JSON.stringify(result);
+      t.assert(result.status === 'ROLLBACK_CONFLICT', `concurrent ${mutation.label} edit returns ROLLBACK_CONFLICT`);
+      t.assert(await mutation.verify(path), `concurrent ${mutation.label} edit survives rollback`);
+      t.assert(result.retained_snapshots.length === 1 && Number.isFinite(Date.parse(result.retained_snapshots[0].retained_until)), `concurrent ${mutation.label} edit retains seven-day recovery evidence`);
+      t.assert(!serialized.includes('original-stream') && !serialized.includes('canary-secret-stream') && !serialized.includes('external-stream-value') && !serialized.includes('owner-only'), `concurrent ${mutation.label} result contains path-only remediation`);
+    } finally {
+      cleanupTransactionRoot(root);
+    }
+  }
+}
+
+// A rollback hook failure is visible but cannot stop central restoration of safe paths.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'codex.json'), original);
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const adapters = [fakeAdapter('codex', { failAfterWrite: true, failRollback: true })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_FAILED' && (await asyncFs.readFile(path)).equals(original), 'rollback hook failure remains visible after central exact-byte restoration');
+    t.assert(result.retained_snapshots.length === 0, 'verified central restoration does not retain unnecessary snapshots');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Replacement failure leaves original bytes and metadata untouched without rename fallback.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'vscode.json'), original);
+    windowsNative.set(path, { dacl: 'original-owner', attributes: 32, streams: { canary: 'original-stream' } });
+    const operation = await transactionOperation('vscode', path, home, windowsNative);
+    const adapters = [fakeAdapter('vscode')];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    windowsNative.failNextReplace();
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && (await asyncFs.readFile(path)).equals(original), 'metadata-preserving apply failure leaves original bytes unchanged');
+    t.assert(windowsNative.calls.length === 1, 'metadata-preserving apply failure never falls back to rename-overwrite');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Missing originals are removed on rollback, including only transaction-created empty parents.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'created', 'nested', 'claude.json');
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const adapters = [fakeAdapter('claude', { failAfterWrite: true })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'rollback removes a transaction-created config');
+    t.assert(await asyncFs.stat(join(home, 'created')).then(() => false, error => error.code === 'ENOENT'), 'rollback removes only now-empty parent directories created by the transaction');
+    t.assert((await asyncFs.stat(home)).isDirectory(), 'rollback preserves the pre-existing writable root');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Unsafe path, authority, and precondition cases fail before any snapshot is created.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const calls = [];
+    const localState = createTestLocalState(root, calls);
+    const safePath = writeBytes(join(home, 'claude.json'), Buffer.from('{}\n'));
+    const safe = await transactionOperation('claude', safePath, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const cases = [
+      { label: 'unselected adapter', operation: { ...safe, selected: false }, code: 'UNAPPROVED_CLIENT_WRITE' },
+      { label: 'unknown-version write', operation: { ...safe, write_supported: false }, code: 'UNSUPPORTED_CLIENT_WRITE' },
+      { label: 'managed-scope write', operation: { ...safe, scope_kind: 'managed' }, code: 'READ_ONLY_SCOPE' },
+      { label: 'path outside writable root', operation: { ...safe, path: join(root, 'outside.json') }, code: 'PATH_OUTSIDE_WRITABLE_ROOT' },
+      { label: 'relative traversal', operation: { ...safe, path: '..\\outside.json' }, code: 'UNSAFE_TRANSACTION_PATH' },
+      { label: 'Windows device path', operation: { ...safe, path: '\\\\?\\C:\\unsafe.json' }, code: 'UNSAFE_TRANSACTION_PATH' },
+    ];
+    for (const testCase of cases) {
+      calls.length = 0;
+      const adapters = [fakeAdapter('claude')];
+      const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+      t.assert(await rejectsCode(() => transaction.snapshot({
+        planDigest: PLAN_DIGEST,
+        adapters,
+        operations: [testCase.operation],
+        context: {},
+        ownershipFingerprint,
+      }), testCase.code), `${testCase.label} is rejected during preflight`);
+      t.assert(!calls.some(call => call.type === 'snapshot'), `${testCase.label} fails before snapshot creation`);
+    }
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Link identity, linked ancestors, and fingerprint drift fail closed before snapshots.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const outside = join(root, 'outside');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const calls = [];
+    const localState = createTestLocalState(root, calls);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+
+    const hardLinked = writeBytes(join(home, 'hard-linked.json'), Buffer.from('{}\n'));
+    await asyncFs.link(hardLinked, join(home, 'second-link.json'));
+    const hardFingerprint = await captureClientPathFingerprint(hardLinked, {
+      allowedRoots: [home], fsImpl: asyncFs, windowsNative, writable: false,
+    });
+    const hardOperation = {
+      ...(await transactionOperation('claude', hardLinked, home, windowsNative, { fingerprint: hardFingerprint })),
+    };
+    const linkedParent = join(home, 'linked-parent');
+    await asyncFs.symlink(outside, linkedParent, 'junction');
+    const linkedPath = join(linkedParent, 'missing.json');
+    const linkedFingerprint = await captureClientPathFingerprint(linkedPath, {
+      allowedRoots: [outside], fsImpl: asyncFs, windowsNative, writable: false,
+    });
+    const linkedOperation = {
+      ...(await transactionOperation('claude', linkedPath, home, windowsNative, { fingerprint: linkedFingerprint })),
+    };
+
+    const driftPath = writeBytes(join(home, 'drift.json'), Buffer.from('{}\n'));
+    const driftOperation = await transactionOperation('claude', driftPath, home, windowsNative);
+    await asyncFs.writeFile(driftPath, Buffer.from('{"changed":true}\n'));
+    for (const [label, operation, code] of [
+      ['multiply linked writable file', hardOperation, 'UNSAFE_WRITABLE_PATH'],
+      ['missing config below linked ancestor', linkedOperation, 'UNSAFE_WRITABLE_PATH'],
+      ['content fingerprint drift', driftOperation, 'TRANSACTION_PRECONDITION_CHANGED'],
+    ]) {
+      calls.length = 0;
+      const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+      t.assert(await rejectsCode(() => transaction.snapshot({
+        planDigest: PLAN_DIGEST,
+        adapters: [fakeAdapter('claude')],
+        operations: [operation],
+        context: {},
+        ownershipFingerprint,
+      }), code), `${label} is rejected`);
+      t.assert(!calls.some(call => call.type === 'snapshot'), `${label} fails before snapshots`);
+    }
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Shared physical paths require explicit non-overlapping ownership; aliases snapshot once.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const sharedPath = writeBytes(join(home, 'shared.json'), Buffer.from('{}\n'));
+    const claude = await transactionOperation('claude', sharedPath, home, windowsNative);
+    const vscode = await transactionOperation('vscode', sharedPath.toUpperCase(), home.toUpperCase(), windowsNative, {
+      operation_id: 'vscode-shared-write',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    t.assert(await rejectsCode(() => transaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [fakeAdapter('claude'), fakeAdapter('vscode')],
+      operations: [claude, vscode],
+      context: {},
+      ownershipFingerprint,
+    }), 'SHARED_WRITE_CONFLICT'), 'same config path across adapters conflicts without explicit field partitioning');
+
+    const calls = [];
+    const partitionedState = createTestLocalState(join(root, 'partitioned'), calls);
+    const partitionedOwnership = await captureClientPathFingerprint(partitionedState.paths().ownership, {
+      allowedRoots: [partitionedState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const partitioned = createClientTransaction({ localState: partitionedState, fsImpl: asyncFs, windowsNative });
+    const sharedOperations = [
+      { ...claude, shared_resource_id: 'shared-user-config', owned_paths: ['/servers/uemcp'] },
+      { ...vscode, shared_resource_id: 'shared-user-config', owned_paths: ['/inputs'] },
+    ];
+    const snapshot = await partitioned.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [fakeAdapter('claude'), fakeAdapter('vscode')],
+      operations: sharedOperations,
+      context: {},
+      ownershipFingerprint: partitionedOwnership,
+    });
+    t.assert(snapshot.writable_paths.filter(path => path.toLowerCase() === resolve(sharedPath).toLowerCase()).length === 1, 'case aliases with non-overlapping declared fields produce one physical snapshot');
+    await partitioned.rollback({ reason: 'test cleanup' });
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Apply revalidates the exact approved operation set and lease contention remains bounded.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'codex.json'), Buffer.from('{}\n'));
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    t.assert(await rejectsCode(() => transaction.apply({
+      planDigest: PLAN_DIGEST,
+      adapters: [adapter],
+      operations: [{ ...operation, desired_text: '{"expanded":true}\n' }],
+      context: {},
+    }), 'UNAPPROVED_OPERATION_SET'), 'apply cannot expand or alter the reviewed operation set');
+    const releasedAfterRejection = await localState.acquireApplyLease({
+      pid: process.pid,
+      processStart: Math.round(Date.now() - process.uptime() * 1000),
+      waitMs: 0,
+    });
+    t.assert(Boolean(releasedAfterRejection), 'rejected apply operation set releases its lease and snapshots automatically');
+    await releasedAfterRejection.release();
+
+    const firstLease = await localState.acquireApplyLease({ pid: process.pid, processStart: Math.round(Date.now() - process.uptime() * 1000), waitMs: 0 });
+    const second = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    t.assert(await rejectsCode(() => second.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [adapter],
+      operations: [operation],
+      context: {},
+      ownershipFingerprint,
+    }), 'APPLY_IN_PROGRESS'), 'concurrent second UEMCP transaction is rejected by the core lease');
+    await firstLease.release();
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A concurrent edit during native verification is detected before commit and never overwritten.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const adapters = [fakeAdapter('claude', {
+      beforeVerify: async () => asyncFs.writeFile(path, Buffer.from('{"external":"during-verify"}\n')),
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_CONFLICT', 'edit during native verification prevents a false successful commit');
+    t.assert((await asyncFs.readFile(path, 'utf8')).includes('during-verify'), 'edit during native verification survives guarded rollback');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Post-write hard-link drift is a rollback conflict, not authority to replace the linked file.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'codex.json'), Buffer.from('{"state":"original"}\n'));
+    const secondLink = join(home, 'external-hard-link.json');
+    const operation = await transactionOperation('codex', path, home, windowsNative);
+    const adapters = [fakeAdapter('codex', {
+      afterWrite: async () => asyncFs.link(path, secondLink),
+      failAfterWrite: true,
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_CONFLICT', 'post-write link-count drift is classified as ROLLBACK_CONFLICT');
+    t.assert((await asyncFs.stat(path)).nlink === 2 && (await asyncFs.stat(secondLink)).nlink === 2, 'post-write hard-link state is preserved');
+    t.assert(result.retained_snapshots.length === 1, 'post-write hard-link drift retains restricted recovery evidence');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A parent planned as absent cannot be adopted if another process creates it before apply.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const externalParent = join(home, 'externally-created');
+    const path = join(externalParent, 'claude.json');
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const adapters = [fakeAdapter('claude')];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    await asyncFs.mkdir(externalParent);
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.rollback.reason_code === 'TRANSACTION_PRECONDITION_CHANGED', 'externally created planned parent invalidates apply');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'parent race produces no config write');
+    t.assert((await asyncFs.stat(externalParent)).isDirectory(), 'parent race never removes the externally created directory');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A directory-creation failure removes only parents already created by this transaction.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const firstParent = join(home, 'created');
+    const deniedParent = join(firstParent, 'denied');
+    const path = join(deniedParent, 'claude.json');
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const deniedFs = {
+      ...asyncFs,
+      async mkdir(target, options) {
+        if (resolve(target).toLowerCase() === resolve(deniedParent).toLowerCase()) {
+          const error = new Error('directory creation denied');
+          error.code = 'EACCES';
+          throw error;
+        }
+        return asyncFs.mkdir(target, options);
+      },
+    };
+    const transaction = createClientTransaction({ localState, fsImpl: deniedFs, windowsNative });
+    const adapter = fakeAdapter('claude');
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK', 'directory-creation failure terminates through verified rollback');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'directory-creation failure produces no config file');
+    t.assert(await asyncFs.stat(firstParent).then(() => false, error => error.code === 'ENOENT'), 'directory-creation failure removes the parent already created by this transaction');
+    t.assert((await asyncFs.stat(home)).isDirectory(), 'directory-creation failure preserves the original writable root');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Read-only access and metadata inspection failures stop before snapshot creation.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{}\n'));
+    const windowsNative = virtualWindowsMetadata();
+    const deniedFs = {
+      ...asyncFs,
+      async access() {
+        const error = new Error('denied');
+        error.code = 'EACCES';
+        throw error;
+      },
+    };
+    t.assert(await rejectsCode(() => captureClientPathFingerprint(path, {
+      allowedRoots: [home], fsImpl: deniedFs, windowsNative,
+    }), 'READ_ONLY_TARGET'), 'read-only target is rejected before planning a write');
+
+    const localState = createTestLocalState(root);
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    windowsNative.failNextMetadata();
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    t.assert(await rejectsCode(() => transaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [fakeAdapter('claude')],
+      operations: [operation],
+      context: {},
+      ownershipFingerprint,
+    }), 'METADATA_INSPECTION_FAILED'), 'metadata inspection failure aborts preflight with a stable code');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Rollback replacement failure retains the original snapshot and reports an incomplete recovery.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'vscode.json'), original);
+    const operation = await transactionOperation('vscode', path, home, windowsNative);
+    const adapters = [fakeAdapter('vscode', {
+      afterWrite: async () => windowsNative.failNextReplace(),
+      failAfterWrite: true,
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_FAILED', 'rollback replacement failure is visible as ROLLBACK_FAILED');
+    t.assert(!(await asyncFs.readFile(path)).equals(original), 'failed rollback does not claim original bytes were restored');
+    t.assert(result.retained_snapshots.length === 1, 'failed rollback retains bounded recovery evidence');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Real Windows replacement preserves an explicit DACL and alternate data stream on apply and rollback.
+if (process.platform === 'win32') {
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\r\n'));
+    const streamPath = `${path}:uemcp-canary`;
+    await asyncFs.writeFile(streamPath, Buffer.from('canary-value'));
+    await setExplicitTestDacl(path);
+
+    const before = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
+    const operation = await transactionOperation('claude', path, home, undefined);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs });
+    const adapter = fakeAdapter('claude');
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const applied = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    const afterApply = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
+    t.assert(applied.status === 'APPLIED', `real Windows metadata-preserving apply succeeds (got ${applied.status}, rollback ${applied.rollback?.reason_code ?? 'none'})`);
+    t.assert(afterApply.metadata_sha256 === before.metadata_sha256 && (await asyncFs.readFile(streamPath, 'utf8')) === 'canary-value', 'real apply preserves explicit DACL and canary alternate stream');
+    t.assert(!(await asyncFs.readdir(home)).some(name => name.endsWith('.uemcp-backup') || name.endsWith('.uemcp-write')), 'real apply leaves no replacement or backup artifact');
+
+    const appliedBytes = await asyncFs.readFile(path);
+    const appliedStat = await asyncFs.lstat(path);
+    const rollbackOperation = await transactionOperation('claude', path, home, undefined, {
+      operation_id: 'claude-rollback-write',
+      desired_text: '{"state":"second-write"}\n',
+    });
+    const rollbackOwnership = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs,
+    });
+    const rollbackTransaction = createClientTransaction({ localState, fsImpl: asyncFs });
+    const failingAdapter = fakeAdapter('claude', { failAfterWrite: true });
+    await rollbackTransaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [failingAdapter],
+      operations: [rollbackOperation],
+      context: {},
+      ownershipFingerprint: rollbackOwnership,
+    });
+    const rolledBack = await rollbackTransaction.apply({
+      planDigest: PLAN_DIGEST,
+      adapters: [failingAdapter],
+      operations: [rollbackOperation],
+      context: {},
+    });
+    const afterRollback = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
+    t.assert(rolledBack.status === 'ROLLED_BACK' && (await asyncFs.readFile(path)).equals(appliedBytes), 'real Windows rollback restores exact prior default-stream bytes');
+    t.assert(afterRollback.metadata_sha256 === before.metadata_sha256 && (await asyncFs.readFile(streamPath, 'utf8')) === 'canary-value', 'real rollback preserves explicit DACL and canary alternate stream');
+    const restoredStat = await asyncFs.lstat(path);
+    t.assert(Math.abs(restoredStat.mtimeMs - appliedStat.mtimeMs) <= 2 && restoredStat.mode === appliedStat.mode, 'real rollback restores prior mutable timestamp and mode');
+    t.assert(!(await asyncFs.readdir(home)).some(name => name.endsWith('.uemcp-backup') || name.endsWith('.uemcp-rollback')), 'real rollback leaves no replacement or backup artifact');
+  } finally {
+    cleanupTransactionRoot(root);
   }
 }
 
