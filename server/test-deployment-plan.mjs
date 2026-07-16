@@ -9,9 +9,9 @@ import {
   linkSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -54,12 +54,10 @@ function cleanup(root, label = 'uemcp-plan-') {
   rmSync(root, { recursive: true, force: true });
 }
 
-function sameRealPath(left, right) {
-  const key = value => {
-    const canonical = realpathSync(value).replace(/\\/g, '/');
-    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
-  };
-  return key(left) === key(right);
+function sameFileIdentity(left, right) {
+  const leftStat = statSync(left, { bigint: true });
+  const rightStat = statSync(right, { bigint: true });
+  return leftStat.dev === rightStat.dev && leftStat.ino !== 0n && leftStat.ino === rightStat.ino;
 }
 
 async function rejectsCode(fn, code) {
@@ -99,7 +97,7 @@ function writeProject(root, name = 'SampleProject') {
       serverEntry,
       allowedRoots: [runtimeRoot, serverRoot],
     });
-    t.assert(sameRealPath(descriptor.command, nodeExecutable) && sameRealPath(descriptor.args[0], serverEntry), 'descriptor preserves canonical absolute paths with spaces, Unicode, and ancestor aliases');
+    t.assert(sameFileIdentity(descriptor.command, nodeExecutable) && sameFileIdentity(descriptor.args[0], serverEntry), 'descriptor preserves canonical absolute paths with spaces, Unicode, and ancestor aliases');
     t.assert(descriptor.name === 'uemcp' && descriptor.transport === 'stdio', 'descriptor uses the canonical name and stdio transport');
     t.assert(Object.isFrozen(descriptor) && Object.isFrozen(descriptor.args) && Object.isFrozen(descriptor.env), 'descriptor and nested values are frozen');
     t.assert(JSON.stringify(descriptor.env) === '{}' && descriptor.cwd === null, 'descriptor has an empty environment and no working directory');
