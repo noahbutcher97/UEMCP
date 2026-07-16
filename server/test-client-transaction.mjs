@@ -173,7 +173,7 @@ function fakeAdapter(id, behavior = {}) {
     id,
     async snapshot(context, operations) {
       return {
-        writable_paths: operations.map(operation => ({
+        writable_paths: operations.filter(operation => operation.ledger_only !== true).map(operation => ({
           path: operation.path,
           allowed_root: operation.allowed_root,
           scope_kind: operation.scope_kind,
@@ -181,18 +181,27 @@ function fakeAdapter(id, behavior = {}) {
           owned_paths: operation.owned_paths,
           shared_resource_id: operation.shared_resource_id,
         })),
-        read_only_paths: context.read_only_paths?.filter(row => row.client_id === id) ?? [],
+        read_only_paths: [
+          ...(context.read_only_paths?.filter(row => row.client_id === id) ?? []),
+          ...operations.filter(operation => operation.ledger_only === true).map(operation => ({
+            path: operation.path,
+            allowed_root: operation.allowed_root,
+            fingerprint: operation.fingerprint,
+          })),
+        ],
       };
     },
     async apply(context, operations) {
       if (behavior.failBeforeWrite) throw Object.assign(new Error(`${id} pre-write failure`), { code: 'INJECTED_FAILURE' });
       for (const operation of operations) {
+        if (operation.ledger_only === true) continue;
         await context.transaction.writeFile(operation.path, Buffer.from(operation.desired_text), {
           parse: bytes => {
             if (behavior.failStructuralRead) throw Object.assign(new Error('structured reread failed'), { code: 'STRUCTURAL_VERIFY_FAILED' });
             return JSON.parse(bytes.toString('utf8'));
           },
         });
+        if (behavior.deferDelete) await context.transaction.deleteFileAfterVerify(operation.path);
       }
       if (behavior.ledgerValue) await context.transaction.ownershipLedger.write(behavior.ledgerValue);
       if (behavior.afterWrite) await behavior.afterWrite(context, operations);
@@ -1240,6 +1249,128 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     t.assert(result.status === 'ROLLBACK_FAILED', 'rollback replacement failure is visible as ROLLBACK_FAILED');
     t.assert(!(await asyncFs.readFile(path)).equals(original), 'failed rollback does not claim original bytes were restored');
     t.assert(result.retained_snapshots.length === 1, 'failed rollback retains bounded recovery evidence');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Planned config deletion is deferred until every adapter has verified successfully.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'project', '.mcp.json'), Buffer.from('{"mcpServers":{"uemcp":{}}}\n'));
+    const operation = await transactionOperation('claude', path, home, windowsNative, {
+      desired_text: '{"mcpServers":{}}\n',
+      delete_after_verify: true,
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', {
+      deferDelete: true,
+      beforeVerify: async () => {
+        t.assert((await asyncFs.readFile(path, 'utf8')) === '{"mcpServers":{}}\n', 'deferred client config remains present through structural verification');
+      },
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED', 'approved deferred client-config deletion commits with the transaction');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'approved empty client config is deleted only after verification');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Exact-entry adoption treats provider config as read-only and snapshots only the ownership ledger.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const calls = [];
+    const localState = createTestLocalState(root, calls);
+    const original = Buffer.from('{"mcpServers":{"uemcp":{"type":"stdio"}}}\n');
+    const path = writeBytes(join(home, 'claude.json'), original);
+    const fingerprint = await captureClientPathFingerprint(path, {
+      allowedRoots: [home], fsImpl: asyncFs, windowsNative, writable: false,
+    });
+    const operation = await transactionOperation('claude', path, home, windowsNative, {
+      operation_id: 'claude-adopt',
+      ledger_only: true,
+      fingerprint,
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { ledgerValue: { adopted: true } });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const snapshotPaths = calls.filter(call => call.type === 'snapshot').map(call => call.path);
+    t.assert(snapshotPaths.length === 1 && snapshotPaths[0] === resolve(localState.paths().ownership), 'ledger-only adoption snapshots no provider config');
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED' && (await asyncFs.readFile(path)).equals(original), 'ledger-only adoption commits without provider config write access');
+    t.assert(result.touched_files.length === 1 && result.touched_files[0].path === resolve(localState.paths().ownership), 'ledger-only adoption reports only ownership state as touched');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A later adapter failure restores a queued-delete config because commit deletion has not started.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"mcpServers":{"uemcp":{}}}\n');
+    const claudePath = writeBytes(join(home, 'project', '.mcp.json'), original);
+    const codexPath = writeBytes(join(home, 'codex', 'config.toml'), Buffer.from('[mcp_servers.uemcp]\n'));
+    const operations = [
+      await transactionOperation('claude', claudePath, home, windowsNative, {
+        desired_text: '{"mcpServers":{}}\n',
+        delete_after_verify: true,
+      }),
+      await transactionOperation('codex', codexPath, home, windowsNative),
+    ];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapters = [fakeAdapter('claude', { deferDelete: true }), fakeAdapter('codex', { failVerify: true })];
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations, context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations, context: {} });
+    t.assert(result.status === 'ROLLED_BACK', 'later adapter failure rolls back before queued deletion');
+    t.assert((await asyncFs.readFile(claudePath)).equals(original), 'rollback restores exact queued-delete config bytes');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// An adapter cannot queue deletion unless the reviewed operation declares it.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"mcpServers":{"uemcp":{}}}\n');
+    const path = writeBytes(join(home, '.mcp.json'), original);
+    const operation = await transactionOperation('claude', path, home, windowsNative, {
+      desired_text: '{"mcpServers":{}}\n',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { deferDelete: true });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0].error_code === 'UNAPPROVED_DEFERRED_DELETE', 'unplanned deferred deletion is rejected and rolled back');
+    t.assert((await asyncFs.readFile(path)).equals(original), 'unplanned deferred deletion preserves original config');
   } finally {
     cleanupTransactionRoot(root);
   }

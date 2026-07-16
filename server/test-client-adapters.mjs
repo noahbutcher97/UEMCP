@@ -3,10 +3,14 @@
 // Run: cd server && node test-client-adapters.mjs
 
 import { randomUUID } from 'node:crypto';
+import * as asyncFs from 'node:fs/promises';
 import {
+  existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -15,14 +19,27 @@ import { dirname, join, resolve } from 'node:path';
 
 import { TestRunner } from './test-helpers.mjs';
 import {
+  CLAUDE_NATIVE_MUTATION_CHARACTERIZATION,
+  classifyClaudeNativeStatus,
+  createClaudeAdapter,
+  physicalClaudeEntry,
+  resolveClaudeLocations,
+} from './deployment/adapters/claude.mjs';
+import { sha256Bytes } from './deployment/canonical-json.mjs';
+import {
   CLIENT_IDS,
   RELEASE_GATES,
   classifySupportedVersion,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
+import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
+import { createLocalState } from './deployment/local-state.mjs';
+import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
 
 const t = new TestRunner('Client Adapter Tests');
+const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
+const TEST_PLAN_DIGEST = 'a'.repeat(64);
 
 function makeRoot() {
   const root = join(tmpdir(), `uemcp-client-adapter-${randomUUID()}`);
@@ -45,6 +62,188 @@ function write(path, content = 'sample') {
 
 function writeJson(path, value) {
   return write(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function sample(name, replacements = {}) {
+  let value = readFileSync(join(clientConfigSamples, name), 'utf8');
+  for (const [token, replacement] of Object.entries(replacements)) {
+    value = value.replaceAll(`__${token}__`, JSON.stringify(replacement).slice(1, -1));
+  }
+  return value;
+}
+
+function memoryOwnershipLedger() {
+  let value = null;
+  const writes = [];
+  return {
+    writes,
+    async read() {
+      return value === null ? null : structuredClone(value);
+    },
+    async write(next) {
+      value = structuredClone(next);
+      writes.push(structuredClone(next));
+    },
+    now: () => '2026-07-16T12:00:00.000Z',
+  };
+}
+
+function simpleFingerprint(path) {
+  const absolute = resolve(path);
+  if (!existsSync(absolute)) {
+    return {
+      canonical_path: absolute,
+      real_path: absolute,
+      exists: false,
+      kind: 'absent',
+      link_kind: 'none',
+      link_count: 0,
+      size: 0,
+      content_sha256: null,
+      metadata_sha256: null,
+      stream_count: 0,
+      stream_bytes: 0,
+      mode: null,
+      atime_ms: null,
+      mtime_ms: null,
+      identity: null,
+    };
+  }
+  const stat = statSync(absolute);
+  const bytes = readFileSync(absolute);
+  return {
+    canonical_path: absolute,
+    real_path: absolute,
+    exists: true,
+    kind: 'file',
+    link_kind: 'none',
+    link_count: Number(stat.nlink),
+    size: bytes.length,
+    content_sha256: sha256Bytes(bytes),
+    metadata_sha256: 'b'.repeat(64),
+    stream_count: 0,
+    stream_bytes: 0,
+    mode: Number(stat.mode),
+    atime_ms: Number(stat.atimeMs),
+    mtime_ms: Number(stat.mtimeMs),
+    identity: { dev: Number(stat.dev), ino: Number(stat.ino), birthtime_ms: Number(stat.birthtimeMs) },
+  };
+}
+
+function claudeLaunch(root, { version = '2.1.210', writeSupported = version === '2.1.210' } = {}) {
+  const node = write(join(root, 'runtime', 'node.exe'), 'node');
+  const entry = write(join(root, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.mjs'), 'export {};\n');
+  return {
+    client_id: 'claude',
+    command: resolve(node),
+    args_prefix: [resolve(entry)],
+    env_overlay: {},
+    package_id: '@anthropic-ai/claude-code',
+    source: 'npm_package',
+    version,
+    compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
+    write_supported: writeSupported,
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+  };
+}
+
+function canonicalDesired(root) {
+  return {
+    name: 'uemcp',
+    transport: 'stdio',
+    command: resolve(write(join(root, 'server-runtime', 'node.exe'), 'node')),
+    args: [resolve(write(join(root, 'server-runtime', 'server.mjs'), 'export {};\n'))],
+    env: {},
+    cwd: null,
+  };
+}
+
+function claudeNativeRunner(outputs = {}) {
+  const calls = [];
+  return {
+    calls,
+    async run(executable, args, options = {}) {
+      calls.push({ executable, args: [...args], options: { ...options, env: { ...options.env } } });
+      if (args.includes('add') || args.includes('add-json') || args.includes('remove')) {
+        throw Object.assign(new Error('mutating Claude MCP command was attempted'), { code: 'MUTATING_NATIVE_COMMAND' });
+      }
+      if (args.at(-1) === 'list') return outputs.list ?? { status: 'exited', exitCode: 0, stdout: '', stderr: '' };
+      if (args.at(-2) === 'get' && args.at(-1) === 'uemcp') {
+        return outputs.get ?? { status: 'exited', exitCode: 1, stdout: '', stderr: 'No MCP server found with name uemcp' };
+      }
+      throw Object.assign(new Error('unexpected Claude MCP query'), { code: 'UNEXPECTED_NATIVE_QUERY' });
+    },
+  };
+}
+
+function claudeContext(root, overrides = {}) {
+  const env = { ...environment(root), ...overrides.env };
+  const workspaceRoot = resolve(overrides.workspaceRoot ?? join(root, 'workspace'));
+  mkdirSync(workspaceRoot, { recursive: true });
+  const descriptor = overrides.descriptor ?? canonicalDesired(root);
+  const knownFolders = overrides.knownFolders ?? { programFiles: env.ProgramFiles };
+  return {
+    env,
+    workspaceRoot,
+    workspaceTrusted: overrides.workspaceTrusted ?? false,
+    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
+    launch: overrides.launch ?? claudeLaunch(root),
+    descriptor,
+    ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
+    pluginMcpEntries: overrides.pluginMcpEntries ?? [],
+    settingsTracking: overrides.settingsTracking ?? {},
+    knownFolders,
+    ...overrides,
+    env,
+    workspaceRoot,
+    descriptor,
+    knownFolders,
+  };
+}
+
+function adapterTransaction(ledger) {
+  const writes = [];
+  const deletes = [];
+  return {
+    writes,
+    deletes,
+    ownershipLedger: {
+      ...ledger,
+      async write(value) {
+        writes.push({ path: '<ownership-ledger>', value: structuredClone(value) });
+        return ledger.write(value);
+      },
+    },
+    async writeFile(path, bytes, options = {}) {
+      writes.push({ path: resolve(path), bytes: Buffer.from(bytes) });
+      write(path, Buffer.from(bytes));
+      if (options.parse) await options.parse(Buffer.from(bytes));
+      return { path: resolve(path), content_sha256: sha256Bytes(Buffer.from(bytes)), metadata_sha256: 'e'.repeat(64) };
+    },
+    async deleteFileAfterVerify(path) {
+      deletes.push(resolve(path));
+    },
+  };
+}
+
+function transactionWindowsNative() {
+  return {
+    async fingerprintWindowsFileMetadata(path) {
+      const stat = await asyncFs.lstat(path);
+      return {
+        metadata_sha256: sha256Bytes(Buffer.from(`${stat.mode}:${stat.birthtimeMs}`, 'utf8')),
+        stream_count: 0,
+        stream_bytes: 0,
+      };
+    },
+    async replaceFilePreservingMetadata({ replacementPath, destinationPath }) {
+      const bytes = await asyncFs.readFile(replacementPath);
+      await asyncFs.writeFile(destinationPath, bytes);
+      await asyncFs.rm(replacementPath, { force: true });
+      return { status: 'replaced' };
+    },
+  };
 }
 
 function vscodeWrapper(installRoot, content = null, versionDirectory = '5264f2156c') {
@@ -612,6 +811,599 @@ async function rejectsCode(fn, code) {
       runner,
       candidates: {},
     }), 'UNSUPPORTED_CLIENT'), 'unknown client ID returns UNSUPPORTED_CLIENT');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Claude locations honor an isolated config home without changing project or managed roots.
+{
+  const root = makeRoot();
+  try {
+    const context = claudeContext(root, { env: { CLAUDE_CONFIG_DIR: resolve(join(root, 'isolated-claude')) } });
+    const locations = resolveClaudeLocations(context);
+    t.assert(locations.state.path === resolve(join(root, 'isolated-claude', '.claude.json')), 'Claude isolated state file is beneath CLAUDE_CONFIG_DIR');
+    t.assert(locations.user_settings.path === resolve(join(root, 'isolated-claude', 'settings.json')), 'Claude isolated settings file is beneath CLAUDE_CONFIG_DIR');
+    t.assert(locations.project_config.path === resolve(join(context.workspaceRoot, '.mcp.json')), 'Claude project config remains rooted in the active workspace');
+    t.assert(locations.managed_config.path === resolve(join(context.env.ProgramFiles, 'ClaudeCode', 'managed-mcp.json')), 'Claude managed MCP path uses the fixed Program Files policy root');
+    t.assert(locations.project_settings.path.endsWith(join('.claude', 'settings.json')) && locations.local_settings.path.endsWith(join('.claude', 'settings.local.json')), 'Claude project approval paths are both enumerated');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Absent Claude state plans one private user registration, while unknown versions remain inspect-only.
+{
+  const root = makeRoot();
+  try {
+    const runner = claudeNativeRunner();
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root);
+    const detection = await adapter.detect(context);
+    const inspection = await adapter.inspect(context, detection);
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'ABSENT' && inspection.occurrences.length === 0, 'Claude inspection distinguishes an absent registration');
+    t.assert(inspection.native.status === 'ABSENT', 'Claude native omission remains separate absent evidence');
+    t.assert(plan.status === 'CREATE' && plan.operations.length === 1 && plan.operations[0].type === 'CREATE_ENTRY', 'Claude absent state plans one user create');
+    t.assert(plan.operations[0].scope_kind === 'user' && plan.operations[0].path === detection.locations.state.path, 'Claude create targets private user state');
+    t.assert(JSON.stringify(plan.operations[0].desired_entry) === JSON.stringify(physicalClaudeEntry(context.descriptor)), 'Claude create contains only the physical canonical entry');
+    t.assert(!JSON.stringify(plan).includes('UNREAL_PROJECT_ROOT') && !JSON.stringify(plan).includes('env'), 'Claude default plan does not author environment state');
+    t.assert(plan.operations[0].read_only_paths.some(row => row.path === detection.locations.user_settings.path), 'Claude plan binds read-only approval evidence');
+    const boundPaths = new Set(plan.operations[0].read_only_paths.map(row => row.path));
+    t.assert([context.launch.command, ...context.launch.args_prefix, context.descriptor.command, ...context.descriptor.args].every(path => boundPaths.has(resolve(path))), 'Claude plan binds client-launch and server-descriptor files as read-only evidence');
+
+    const unsupportedContext = claudeContext(root, { launch: claudeLaunch(root, { version: '2.2.0', writeSupported: false }) });
+    const unsupportedDetection = await adapter.detect(unsupportedContext);
+    const unsupportedInspection = await adapter.inspect(unsupportedContext, unsupportedDetection);
+    const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
+    t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Claude version cannot plan a write');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Exact unowned Claude entries are adopted visibly without leaking or rewriting custom launch state.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const runner = claudeNativeRunner({
+      list: { status: 'exited', exitCode: 0, stdout: sample('claude-native-connected.txt'), stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: sample('claude-native-connected.txt'), stderr: '' },
+    });
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, { ownershipLedger: ledger });
+    const locations = resolveClaudeLocations(context);
+    write(locations.state.path, sample('claude-user-exact.jsonc', {
+      NODE: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    const before = readFileSync(locations.state.path);
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.effective.scope === 'user', 'Claude exact user entry is structurally configured');
+    t.assert(inspection.actions.includes('CUSTOM_ENV_REVIEW_REQUIRED') && inspection.actions.includes('CUSTOM_LAUNCH_REVIEW_REQUIRED'), 'Claude reports custom environment and working-directory review separately');
+    t.assert(!serialized.includes('do-not-serialize') && !serialized.includes('preserve-me'), 'Claude inspection redacts environment values');
+    t.assert(serialized.includes('UEMCP_PRIVATE_TOKEN') && serialized.includes('HARMLESS'), 'Claude inspection retains environment key names as review evidence');
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'ADOPT' && plan.operations.length === 1 && plan.operations[0].type === 'ADOPT_EXACT_ENTRY', 'Claude exact unowned entry requires visible adoption');
+    const transaction = adapterTransaction(ledger);
+    const applied = await adapter.apply({ ...context, transaction }, plan.operations);
+    t.assert(applied.status === 'APPLIED' && transaction.writes.length === 1 && transaction.writes[0].path === '<ownership-ledger>', 'Claude adoption writes only the ownership ledger');
+    t.assert(readFileSync(locations.state.path).equals(before), 'Claude adoption preserves provider config byte-for-byte');
+    const ownedInspection = await adapter.inspect(context, await adapter.detect(context));
+    const ownedPlan = await adapter.plan(context, ownedInspection, context.descriptor);
+    t.assert(ownedPlan.status === 'NO_OP' && ownedPlan.operations.length === 0, 'owned exact Claude entry becomes an idempotent no-op');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Claude precedence is local, project, user, plugin; managed configuration is exclusive.
+{
+  const root = makeRoot();
+  try {
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, {
+      pluginMcpEntries: [{
+        plugin_id: 'sample-plugin',
+        enabled: true,
+        mcp_servers: { uemcp: physicalClaudeEntry(canonicalDesired(root)) },
+      }],
+    });
+    const locations = resolveClaudeLocations(context);
+    const desired = physicalClaudeEntry(context.descriptor);
+    writeJson(locations.state.path, {
+      mcpServers: { uemcp: desired },
+      projects: { [context.workspaceRoot]: { mcpServers: { uemcp: desired } } },
+    });
+    write(locations.project_config.path, sample('claude-project-conflict.json'));
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective.scope === 'local' && inspection.registration === 'CONFIGURED', 'Claude local scope wins over project and user entries');
+    t.assert(inspection.occurrences.map(row => row.scope).join(',') === 'local,project,user,plugin', 'Claude reports all same-name occurrences in precedence order');
+
+    const state = JSON.parse(readFileSync(locations.state.path, 'utf8'));
+    delete state.projects;
+    writeJson(locations.state.path, state);
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    const shadowPlan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.effective.scope === 'project' && inspection.registration === 'CONFLICT', 'Claude project conflict shadows an exact user entry');
+    t.assert(shadowPlan.status === 'CONFLICT' && shadowPlan.operations.length === 0, 'Claude shadow conflict cannot be replaced implicitly');
+
+    write(locations.managed_config.path, sample('claude-managed-exact.json', {
+      NODE: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective.scope === 'managed' && inspection.registration === 'CONFIGURED', 'Claude managed entry becomes the exclusive effective definition');
+    t.assert((await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Claude never authors user config under exclusive managed MCP control');
+
+    writeJson(locations.managed_config.path, { mcpServers: {} });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.enablement === 'POLICY_BLOCKED' && inspection.registration === 'POLICY_BLOCKED', 'empty managed MCP policy blocks all user and plugin servers');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Project approval, workspace trust, disablement, and native activation remain independent evidence.
+{
+  const cases = [
+    { label: 'user approval before trust', settings: 'user', trusted: false, expectedEnablement: 'ENABLED', expectedActivation: 'UNKNOWN' },
+    { label: 'tracked project approval before trust', settings: 'project', trusted: false, expectedEnablement: 'UNKNOWN', expectedActivation: 'PENDING_TRUST' },
+    { label: 'untracked local approval before trust', settings: 'local', trusted: false, expectedEnablement: 'UNKNOWN', expectedActivation: 'PENDING_TRUST' },
+    { label: 'project approval after trust', settings: 'project', trusted: true, expectedEnablement: 'ENABLED', expectedActivation: 'UNKNOWN' },
+  ];
+  for (const testCase of cases) {
+    const root = makeRoot();
+    try {
+      const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+      const context = claudeContext(root, { workspaceTrusted: testCase.trusted });
+      const locations = resolveClaudeLocations(context);
+      writeJson(locations.project_config.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+      const settingsPath = testCase.settings === 'user'
+        ? locations.user_settings.path
+        : testCase.settings === 'project'
+          ? locations.project_settings.path
+          : locations.local_settings.path;
+      const settingsSample = testCase.settings === 'user'
+        ? 'claude-settings-user.json'
+        : testCase.settings === 'project'
+          ? 'claude-settings-project.json'
+          : 'claude-settings-local.json';
+      write(settingsPath, sample(settingsSample, {
+        NODE: context.descriptor.command,
+        SERVER: context.descriptor.args[0],
+      }));
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      t.assert(inspection.enablement === testCase.expectedEnablement && inspection.activation === testCase.expectedActivation, `Claude ${testCase.label} follows trust-aware approval semantics`);
+    } finally {
+      cleanup(root);
+    }
+  }
+}
+
+// Deny policy remains blocked even when native status says connected, and the disagreement is explicit.
+{
+  const root = makeRoot();
+  try {
+    const connected = sample('claude-native-connected.txt');
+    const runner = claudeNativeRunner({
+      list: { status: 'exited', exitCode: 0, stdout: connected, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: connected, stderr: '' },
+    });
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, { workspaceTrusted: true });
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.project_config.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+    write(locations.managed_settings.path, sample('claude-settings-managed-deny.json', {
+      NODE: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.enablement === 'POLICY_BLOCKED' && inspection.activation === 'CONNECTED', 'Claude native connected status wins only the activation field');
+    t.assert(inspection.native.disagrees_with_structural_policy === true && inspection.actions.includes('CLIENT_ENABLEMENT_REQUIRED'), 'Claude native-policy disagreement remains explicit');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Malformed and over-limit Claude evidence fails closed before planning writes.
+{
+  for (const testCase of [
+    { label: 'malformed user state', target: 'state', content: '{ broken' },
+    { label: 'malformed project config', target: 'project_config', content: '{ broken' },
+    { label: 'malformed approval settings', target: 'user_settings', content: '{ broken' },
+  ]) {
+    const root = makeRoot();
+    try {
+      const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+      const context = claudeContext(root);
+      const locations = resolveClaudeLocations(context);
+      write(locations[testCase.target].path, testCase.content);
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      const plan = await adapter.plan(context, inspection, context.descriptor);
+      t.assert(inspection.registration === 'MALFORMED_CONFIG' && plan.operations.length === 0, `Claude ${testCase.label} blocks writes`);
+    } finally {
+      cleanup(root);
+    }
+  }
+
+  const root = makeRoot();
+  try {
+    const adapter = createClaudeAdapter({
+      runner: claudeNativeRunner(),
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { fileBytes: 32, aggregateBytes: 64, pluginRecords: 4 },
+    });
+    const context = claudeContext(root);
+    write(resolveClaudeLocations(context).state.path, JSON.stringify({ padding: 'x'.repeat(64) }));
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED' && (await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Claude byte-limit failure never becomes absence or a partial plan');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native output classification is bounded, read-only, and independent from structural config.
+{
+  t.assert(classifyClaudeNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('claude-native-connected.txt'), stderr: '' }).status === 'CONNECTED', 'Claude native parser recognizes connected status');
+  t.assert(classifyClaudeNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('claude-native-pending.txt'), stderr: '' }).status === 'PENDING_APPROVAL', 'Claude native parser recognizes pending approval');
+  t.assert(classifyClaudeNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('claude-native-rejected.txt'), stderr: '' }).status === 'REJECTED', 'Claude native parser recognizes rejected status');
+  t.assert(classifyClaudeNativeStatus({ status: 'exited', exitCode: 1, stdout: '', stderr: 'No MCP server found with name uemcp' }).status === 'ABSENT', 'Claude native parser recognizes absent target');
+  t.assert(classifyClaudeNativeStatus({ status: 'timed_out', exitCode: null, stdout: '', stderr: '' }).status === 'TIMEOUT', 'Claude native parser preserves timeout distinctly');
+  t.assert(classifyClaudeNativeStatus({ status: 'exited', exitCode: 0, stdout: sample('claude-native-unrelated.txt'), stderr: '' }).status === 'ABSENT', 'Claude native parser ignores unrelated servers');
+
+  const root = makeRoot();
+  try {
+    const runner = claudeNativeRunner();
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root);
+    await adapter.inspect(context, await adapter.detect(context));
+    t.assert(runner.calls.length === 2, 'Claude inspection performs list and named get read-only queries');
+    t.assert(runner.calls.every(call => call.options.shell === false && call.options.timeoutMs <= 10_000 && call.options.outputLimitBytes <= 64 * 1024), 'Claude native inspection is shell-free and bounded');
+    t.assert(runner.calls.every(call => call.args.includes('mcp') && (call.args.at(-1) === 'list' || (call.args.at(-2) === 'get' && call.args.at(-1) === 'uemcp'))), 'Claude production inspection never invokes a mutating MCP subcommand');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Owned Claude updates patch only type, command, and args while preserving custom fields.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, { ownershipLedger: ledger });
+    const locations = resolveClaudeLocations(context);
+    const oldEntry = {
+      type: 'stdio',
+      command: resolve(write(join(root, 'old', 'node.exe'), 'node')),
+      args: [resolve(write(join(root, 'old', 'server.mjs'), 'export {};\n'))],
+      cwd: resolve(join(root, 'pinned-workspace')),
+      env: { UEMCP_PRIVATE_TOKEN: 'secret-value', HARMLESS: 'keep-value' },
+      startup_timeout_sec: 45,
+    };
+    writeJson(locations.state.path, { unrelated: { keep: true }, mcpServers: { other: { type: 'http', url: 'https://example.invalid' }, uemcp: oldEntry } });
+    const beforeBytes = readFileSync(locations.state.path);
+    await recordOwnedWrite({
+      ledger,
+      location: { clientId: 'claude', configPath: locations.state.path, scope: 'user', entryName: 'uemcp' },
+      beforeEntry: null,
+      afterEntry: oldEntry,
+      ownedPaths: ownedPathsForClient('claude', oldEntry),
+      appliedConfigHash: sha256Bytes(beforeBytes),
+      planDigest: TEST_PLAN_DIGEST,
+    });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'UPDATE' && plan.operations.length === 1 && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'Claude owned stale descriptor plans a targeted update');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    const after = JSON.parse(readFileSync(locations.state.path, 'utf8'));
+    t.assert(after.mcpServers.uemcp.command === context.descriptor.command && JSON.stringify(after.mcpServers.uemcp.args) === JSON.stringify(context.descriptor.args), 'Claude update writes canonical command and args');
+    t.assert(after.mcpServers.uemcp.type === 'stdio' && after.mcpServers.uemcp.cwd === oldEntry.cwd && after.mcpServers.uemcp.startup_timeout_sec === 45, 'Claude update preserves custom launch and timeout fields');
+    t.assert(JSON.stringify(after.mcpServers.uemcp.env) === JSON.stringify(oldEntry.env) && after.mcpServers.other.url === 'https://example.invalid' && after.unrelated.keep, 'Claude update preserves environment, unrelated servers, and top-level state');
+    t.assert(transaction.writes.map(row => row.path).sort().join('|') === ['<ownership-ledger>', locations.state.path].sort().join('|'), 'Claude apply writes only the planned config and ownership ledger');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Legacy project migration is explicit, paired with user registration, and deletes only proven installer-created empty files.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, {
+      ownershipLedger: ledger,
+      migrateLegacyProject: true,
+      legacyProjectInstallerCreated: true,
+    });
+    const locations = resolveClaudeLocations(context);
+    write(locations.project_config.path, sample('claude-old-setup.json', {
+      NODE: context.descriptor.command,
+      SERVER: context.descriptor.args[0],
+    }));
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'MIGRATE' && plan.operations.map(row => row.type).join(',') === 'MIGRATE_PROJECT_ENTRY,CREATE_ENTRY', 'Claude legacy migration and user registration share one reviewed plan');
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    const projectAfter = JSON.parse(readFileSync(locations.project_config.path, 'utf8'));
+    t.assert(projectAfter.mcpServers.uemcp === undefined && transaction.deletes.length === 1 && transaction.deletes[0] === locations.project_config.path, 'Claude migration removes only uemcp and defers deletion of a proven installer-created empty file');
+    t.assert(JSON.parse(readFileSync(locations.state.path, 'utf8')).mcpServers.uemcp.type === 'stdio', 'Claude migration creates the canonical private user entry');
+  } finally {
+    cleanup(root);
+  }
+}
+
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, {
+      ownershipLedger: ledger,
+      migrateLegacyProject: true,
+      legacyProjectInstallerCreated: true,
+    });
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.project_config.path, {
+      mcpServers: {
+        uemcp: physicalClaudeEntry(context.descriptor),
+        other: { type: 'http', url: 'https://example.invalid' },
+      },
+      teamMetadata: true,
+    });
+    const plan = await adapter.plan(context, await adapter.inspect(context, await adapter.detect(context)), context.descriptor);
+    const transaction = adapterTransaction(ledger);
+    await adapter.apply({ ...context, transaction }, plan.operations);
+    const projectAfter = JSON.parse(readFileSync(locations.project_config.path, 'utf8'));
+    t.assert(projectAfter.mcpServers.uemcp === undefined && projectAfter.mcpServers.other.url === 'https://example.invalid' && projectAfter.teamMetadata, 'Claude migration preserves every unrelated project field');
+    t.assert(transaction.deletes.length === 0, 'Claude migration never deletes a nonempty project config');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// The installed 2.1.210 observation permanently forbids native mutation in production apply.
+{
+  const observed = JSON.parse(sample('claude-2.1.210-add-json-observation.json'));
+  t.assert(observed.version === CLAUDE_NATIVE_MUTATION_CHARACTERIZATION.version, 'Claude native mutation characterization is version-bound');
+  t.assert(observed.duplicate_same_name_exit_code === 1 && observed.duplicate_preserved_existing_config_sha256, 'Claude duplicate add-json behavior remains locked');
+  t.assert(observed.isolated_config_outputs.some(path => path.startsWith('backups/')) && CLAUDE_NATIVE_MUTATION_CHARACTERIZATION.mutating_subcommands_allowed === false, 'Claude backup side effect keeps all native mutation disabled');
+}
+
+// Conflict inspection exposes hashes and field names, never raw command arguments or environment values.
+{
+  const root = makeRoot();
+  try {
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root);
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.state.path, {
+      mcpServers: {
+        uemcp: {
+          type: 'stdio',
+          command: resolve(join(root, 'foreign', 'node.exe')),
+          args: ['--token', 'SECRET_ARGUMENT_CANARY'],
+          env: { API_TOKEN: 'SECRET_ENV_CANARY' },
+        },
+      },
+    });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const serialized = JSON.stringify(inspection);
+    t.assert(inspection.registration === 'CONFLICT', 'Claude hostile same-name entry remains a conflict');
+    t.assert(!serialized.includes('SECRET_ARGUMENT_CANARY') && !serialized.includes('SECRET_ENV_CANARY') && !serialized.includes('--token'), 'Claude conflict evidence contains no raw argument or environment secret');
+    t.assert(serialized.includes('args_sha256') && serialized.includes('API_TOKEN'), 'Claude conflict evidence retains hash and environment-key diagnostics');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Known Claude settings keys with invalid shapes fail closed as malformed policy evidence.
+{
+  const invalidSettings = [
+    { enableAllProjectMcpServers: 'yes' },
+    { enabledMcpjsonServers: 'uemcp' },
+    { disabledMcpjsonServers: [42] },
+    { allowManagedMcpServersOnly: 'true' },
+    { allowedMcpServers: [{ serverCommand: 'node server.mjs' }] },
+    { deniedMcpServers: [{ serverName: 'uemcp', extra: true }] },
+  ];
+  for (const [index, settings] of invalidSettings.entries()) {
+    const root = makeRoot();
+    try {
+      const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+      const context = claudeContext(root);
+      writeJson(resolveClaudeLocations(context).user_settings.path, settings);
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      t.assert(inspection.registration === 'MALFORMED_CONFIG', `Claude invalid known settings shape ${index + 1} blocks planning`);
+    } finally {
+      cleanup(root);
+    }
+  }
+}
+
+// Invalid ownership storage cannot produce an adoption operation that is guaranteed to fail during apply.
+{
+  const root = makeRoot();
+  try {
+    const ledger = {
+      async read() { return '{broken'; },
+      async write() { throw new Error('must not write invalid ownership storage'); },
+      now: () => '2026-07-16T12:00:00.000Z',
+    };
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, { ownershipLedger: ledger });
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.state.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'OWNERSHIP_LEDGER_INVALID' && plan.operations.length === 0, 'Claude invalid ownership storage blocks adoption before transaction apply');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Inspection is read-only; only an explicit migration plan escalates the selected project path to a writable fingerprint.
+{
+  const root = makeRoot();
+  try {
+    const calls = [];
+    const capture = async (path, options) => {
+      calls.push({ path: resolve(path), writable: options.writable });
+      return simpleFingerprint(path);
+    };
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: capture });
+    const context = claudeContext(root, { migrateLegacyProject: true, legacyProjectInstallerCreated: true });
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.project_config.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(calls.filter(call => call.path === locations.project_config.path).every(call => call.writable === false), 'Claude discovery never requires project write access');
+    await adapter.plan(context, inspection, context.descriptor);
+    t.assert(calls.some(call => call.path === locations.project_config.path && call.writable === true), 'Claude explicit migration planning validates project write access');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Delete authority is present only when removing uemcp leaves a proven installer-created empty document.
+{
+  const root = makeRoot();
+  try {
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root, { migrateLegacyProject: true, legacyProjectInstallerCreated: true });
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.project_config.path, {
+      mcpServers: {
+        uemcp: physicalClaudeEntry(context.descriptor),
+        other: { type: 'http', url: 'https://example.invalid' },
+      },
+    });
+    const plan = await adapter.plan(context, await adapter.inspect(context, await adapter.detect(context)), context.descriptor);
+    const migration = plan.operations.find(operation => operation.type === 'MIGRATE_PROJECT_ENTRY');
+    t.assert(migration.delete_after_verify === false && migration.installer_created_file === true, 'Claude nonempty project migration carries no file-delete authority');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native process-launch failures become bounded unknown evidence instead of aborting structural inspection.
+{
+  const root = makeRoot();
+  try {
+    const runner = {
+      async run() {
+        throw Object.assign(new Error('spawn failed'), { code: 'PROCESS_LAUNCH_FAILED' });
+      },
+    };
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root);
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'ABSENT' && inspection.native.status === 'UNKNOWN', 'Claude native launch failure preserves structural inspection with unknown activation');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// The real Claude adapter completes one central create transaction with structural and native verification.
+{
+  const root = makeRoot();
+  try {
+    const claudeHome = resolve(join(root, 'claude-home'));
+    mkdirSync(claudeHome, { recursive: true });
+    const context = claudeContext(root, { env: { CLAUDE_CONFIG_DIR: claudeHome } });
+    const statePath = resolveClaudeLocations(context).state.path;
+    const runner = {
+      async run(executable, args, options) {
+        const present = existsSync(statePath);
+        const output = present ? sample('claude-native-connected.txt') : '';
+        return args.at(-1) === 'list'
+          ? { status: 'exited', exitCode: 0, stdout: output, stderr: '' }
+          : present
+            ? { status: 'exited', exitCode: 0, stdout: output, stderr: '' }
+            : { status: 'exited', exitCode: 1, stdout: '', stderr: 'No MCP server found with name uemcp' };
+      },
+    };
+    const windowsNative = transactionWindowsNative();
+    const capture = (path, options) => captureClientPathFingerprint(path, {
+      ...options,
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: capture });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state],
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({
+      planDigest: TEST_PLAN_DIGEST,
+      adapters: [adapter],
+      operations: plan.operations,
+      context,
+      ownershipFingerprint,
+    });
+    const result = await transaction.apply({
+      planDigest: TEST_PLAN_DIGEST,
+      adapters: [adapter],
+      operations: plan.operations,
+      context,
+    });
+    const config = JSON.parse(readFileSync(statePath, 'utf8'));
+    t.assert(result.status === 'APPLIED' && result.clients[0].status === 'READY', 'Claude adapter transaction reaches structurally and natively verified apply');
+    t.assert(config.mcpServers.uemcp.type === 'stdio' && config.mcpServers.uemcp.command === context.descriptor.command, 'Claude adapter transaction writes the canonical private user entry');
+    t.assert(!Object.hasOwn(config.mcpServers.uemcp, 'env') && !Object.hasOwn(config.mcpServers.uemcp, 'cwd'), 'Claude adapter transaction omits default environment and working directory');
+    t.assert(result.touched_files.map(row => row.path).sort().join('|') === [statePath, localState.paths().ownership].map(path => resolve(path)).sort().join('|'), 'Claude adapter transaction touches only provider config and ownership state');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Managed policy discovery uses a trusted known-folder root, not a spoofable process environment value.
+{
+  const root = makeRoot();
+  try {
+    const trusted = resolve(join(root, 'trusted-program-files'));
+    const spoofed = resolve(join(root, 'spoofed-program-files'));
+    const context = claudeContext(root, {
+      env: { ProgramFiles: spoofed },
+      knownFolders: { programFiles: trusted },
+    });
+    const locations = resolveClaudeLocations(context);
+    t.assert(locations.managed_config.path === resolve(join(trusted, 'ClaudeCode', 'managed-mcp.json')), 'Claude managed policy ignores spoofed ProgramFiles environment input');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native rejection overrides activation while preserving contradictory structural enablement evidence.
+{
+  const root = makeRoot();
+  try {
+    const rejected = sample('claude-native-rejected.txt');
+    const runner = claudeNativeRunner({
+      list: { status: 'exited', exitCode: 0, stdout: rejected, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: rejected, stderr: '' },
+    });
+    const adapter = createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const context = claudeContext(root);
+    const locations = resolveClaudeLocations(context);
+    writeJson(locations.state.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.enablement === 'ENABLED' && inspection.activation === 'REJECTED', 'Claude native rejection wins activation without rewriting structural enablement');
+    t.assert(inspection.native.disagrees_with_structural_policy === true, 'Claude rejected-versus-enabled disagreement remains explicit');
   } finally {
     cleanup(root);
   }

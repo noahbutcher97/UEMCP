@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "uemcp": {
+      "command": "__NODE__",
+      "args": ["__SERVER__"],
+      "env": {
+        "UNREAL_TCP_PORT_CUSTOM": "55558",
+        "UNREAL_TCP_TIMEOUT_MS": "5000",
+        "UNREAL_RC_PORT": "30010",
+        "UNREAL_AUTO_DETECT": "true"
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": ["uemcp"],
+  "allowedMcpServers": [
+    { "serverCommand": ["__NODE__", "__SERVER__"] }
+  ]
+}

@@ -248,6 +248,15 @@ function validateOperations(operations, adapters) {
     if (!safeAbsolutePath(operation.allowed_root)) fail('transaction writable root is unsafe', 'UNSAFE_TRANSACTION_PATH');
     if (!contained(operation.allowed_root, operation.path)) fail('transaction path is outside its writable root', 'PATH_OUTSIDE_WRITABLE_ROOT');
     if (!operation.fingerprint || typeof operation.fingerprint !== 'object') fail('transaction operation lacks a path precondition', 'INVALID_OPERATION_SET');
+    if (operation.ledger_only !== undefined && typeof operation.ledger_only !== 'boolean') {
+      fail('ledger-only approval must be boolean', 'INVALID_OPERATION_SET');
+    }
+    if (operation.ledger_only === true && operation.delete_after_verify === true) {
+      fail('ledger-only operation cannot delete provider config', 'INVALID_OPERATION_SET');
+    }
+    if (operation.delete_after_verify !== undefined && typeof operation.delete_after_verify !== 'boolean') {
+      fail('deferred-delete approval must be boolean', 'INVALID_OPERATION_SET');
+    }
   }
 }
 
@@ -353,6 +362,7 @@ export function createClientTransaction({
     changedOrder: [],
     createdDirectories: [],
     clientResults: [],
+    deferredDeletes: new Map(),
     currentClient: null,
     transactionId: randomBytes(12).toString('hex'),
   };
@@ -479,6 +489,23 @@ export function createClientTransaction({
     }
   }
 
+  async function deleteFileAfterVerify(path) {
+    if (state.phase !== 'applying') fail('deferred deletes are available only during apply', 'TRANSACTION_NOT_APPLYING');
+    const key = pathKey(path);
+    const record = state.records.get(key);
+    const operation = state.operations.find(candidate => candidate.client_id === state.currentClient
+      && pathKey(candidate.path) === key
+      && candidate.delete_after_verify === true);
+    if (!record || !operation || !record.changed || record.changedBy !== state.currentClient) {
+      fail('adapter attempted an unapproved deferred delete', 'UNAPPROVED_DEFERRED_DELETE');
+    }
+    if (record.clients.some(clientId => clientId !== state.currentClient)) {
+      fail('shared client config cannot be deleted', 'SHARED_WRITE_CONFLICT');
+    }
+    state.deferredDeletes.set(key, { key, client_id: state.currentClient });
+    return { path: record.path, status: 'DEFERRED' };
+  }
+
   const ownershipPath = resolve(localState.paths().ownership);
   const ownershipLedger = Object.freeze({
     async read() {
@@ -497,7 +524,7 @@ export function createClientTransaction({
     now: () => new Date(Number(clock())).toISOString(),
   });
 
-  const transactionCapability = Object.freeze({ writeFile, ownershipLedger });
+  const transactionCapability = Object.freeze({ writeFile, deleteFileAfterVerify, ownershipLedger });
 
   async function snapshot({ planDigest, adapters, operations, context = {}, ownershipFingerprint } = {}) {
     if (state.phase !== 'new') fail('transaction snapshot can run only once', 'TRANSACTION_STATE_INVALID');
@@ -538,8 +565,10 @@ export function createClientTransaction({
       }
 
       const operationPaths = new Set(writableRows.map(row => `${row.client_id}:${pathKey(row.path)}`));
+      const readOnlyOperationPaths = new Set(readOnlyRows.map(row => `${row.client_id}:${pathKey(row.path)}`));
       for (const operation of operations) {
-        if (!operationPaths.has(`${operation.client_id}:${pathKey(operation.path)}`)) {
+        const declaredPaths = operation.ledger_only === true ? readOnlyOperationPaths : operationPaths;
+        if (!declaredPaths.has(`${operation.client_id}:${pathKey(operation.path)}`)) {
           fail('planned operation lacks an adapter writable declaration', 'INVALID_ADAPTER_SNAPSHOT');
         }
       }
@@ -648,6 +677,42 @@ export function createClientTransaction({
       const current = await capture(row.path, [row.allowed_root], false);
       if (!fingerprintsEqual(current, row.current)) fail('read-only evidence changed during apply', 'TRANSACTION_POSTWRITE_CHANGED');
     }
+  }
+
+  async function commitDeferredDeletes() {
+    const failures = [];
+    const ordered = [...state.deferredDeletes.values()].sort((left, right) => left.key.localeCompare(right.key));
+    for (const deferred of ordered) {
+      const record = state.records.get(deferred.key);
+      let current;
+      try {
+        current = await capture(record.path, [record.allowedRoot], true);
+      } catch (error) {
+        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_INSPECTION_FAILED' });
+        continue;
+      }
+      if (!fingerprintsEqual(current, record.appliedFingerprint)) {
+        failures.push({ path: record.path, code: 'DEFERRED_DELETE_CONFLICT' });
+        continue;
+      }
+      try {
+        await fsImpl.rm(record.path);
+      } catch (error) {
+        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_FAILED' });
+        continue;
+      }
+      try {
+        const after = await capture(record.path, [record.allowedRoot], true);
+        if (after.exists) {
+          failures.push({ path: record.path, code: 'DEFERRED_DELETE_CONFLICT' });
+          continue;
+        }
+        markChanged(record, after);
+      } catch (error) {
+        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_VERIFY_FAILED' });
+      }
+    }
+    return failures;
   }
 
   async function cleanupCreatedDirectories() {
@@ -828,6 +893,7 @@ export function createClientTransaction({
         }
       }
 
+      const deferredDeleteFailures = await commitDeferredDeletes();
       const cleanupFailures = [];
       for (const record of state.records.values()) {
         try {
@@ -839,10 +905,11 @@ export function createClientTransaction({
       state.phase = 'complete';
       await releaseLease();
       return {
-        status: actionRequired || cleanupFailures.length > 0 ? 'ACTION_REQUIRED' : 'APPLIED',
+        status: actionRequired || cleanupFailures.length > 0 || deferredDeleteFailures.length > 0 ? 'ACTION_REQUIRED' : 'APPLIED',
         ...transactionResultBase(state),
         rollback: null,
         retained_snapshots: cleanupFailures.map(row => ({ path: row.path, retained_until: null })),
+        cleanup_actions: deferredDeleteFailures,
       };
     } catch (error) {
       return rollbackInternal({ reason: error?.code ?? 'APPLY_FAILED' });
