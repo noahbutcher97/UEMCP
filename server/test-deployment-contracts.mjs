@@ -672,10 +672,14 @@ async function rejectsCode(fn, code) {
 }
 
 {
-  const root = makePrimitiveRoot('uemcp-checkout-');
+  const sandbox = makePrimitiveRoot('uemcp-checkout-');
+  const root = join(sandbox, 'checkout');
+  const aliasRoot = join(sandbox, 'checkout-alias');
   try {
+    mkdirSync(root);
+    symlinkSync(root, aliasRoot, 'junction');
     mkdirSync(join(root, '.git'));
-    const gitExecutable = join(root, 'trusted-git.exe');
+    const gitExecutable = join(aliasRoot, 'trusted-git.exe');
     writeFileSync(gitExecutable, 'sample-binary', 'utf8');
     const calls = [];
     const runner = {
@@ -683,7 +687,7 @@ async function rejectsCode(fn, code) {
         calls.push({ executable, args });
         const command = args.join(' ');
         if (command === '--version') return { status: 'exited', exitCode: 0, stdout: 'git version 2.50.1.windows.1\n', stderr: '' };
-        if (command === 'rev-parse --show-toplevel') return { status: 'exited', exitCode: 0, stdout: `${root}\n`, stderr: '' };
+        if (command === 'rev-parse --show-toplevel') return { status: 'exited', exitCode: 0, stdout: `${aliasRoot}\n`, stderr: '' };
         if (command === 'config --get remote.origin.url') return { status: 'exited', exitCode: 0, stdout: 'https://user:credential-canary@github.com/owner/UEMCP.git?token=secret#fragment\n', stderr: '' };
         if (command === 'rev-parse HEAD') return { status: 'exited', exitCode: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' };
         if (command === 'status --porcelain=v1 --untracked-files=all') return { status: 'exited', exitCode: 0, stdout: '?? local.txt\n', stderr: '' };
@@ -691,7 +695,7 @@ async function rejectsCode(fn, code) {
       },
     };
     const checkout = await inspectSourceProvenance({
-      repoRoot: root,
+      repoRoot: aliasRoot,
       runner,
       gitExecutable,
       authenticodeInspector: async () => ({ status: 'valid', signer_name: 'Git for Windows', thumbprint: 'ABC' }),
@@ -701,7 +705,7 @@ async function rejectsCode(fn, code) {
     t.assert(!JSON.stringify(checkout).includes('credential-canary') && !JSON.stringify(checkout).includes('secret'), 'remote credentials, query, and fragment never survive');
     t.assert(calls.every(call => call.executable === resolve(gitExecutable)), 'checkout probes only the selected absolute Git executable');
   } finally {
-    cleanupPrimitiveRoot(root, 'uemcp-checkout-');
+    cleanupPrimitiveRoot(sandbox, 'uemcp-checkout-');
   }
 }
 

@@ -133,7 +133,16 @@ async function runGit(runner, executable, args, repoRoot, { allowFailure = false
 
 async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authenticodeInspector, environment }) {
   const gitPath = await selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment });
-  const topLevel = resolve(await runGit(runner, gitPath, ['rev-parse', '--show-toplevel'], repoRoot));
+  const reportedTopLevel = await runGit(runner, gitPath, ['rev-parse', '--show-toplevel'], repoRoot);
+  if (!(isAbsolute(reportedTopLevel) || win32.isAbsolute(reportedTopLevel) || posix.isAbsolute(reportedTopLevel))) {
+    fail('Git returned a non-absolute top-level path');
+  }
+  let topLevel;
+  try {
+    topLevel = resolve(await fsImpl.realpath(resolve(reportedTopLevel)));
+  } catch {
+    fail('Git top-level is unavailable');
+  }
   const expectedRoot = process.platform === 'win32' ? resolve(repoRoot).toLowerCase() : resolve(repoRoot);
   const observedRoot = process.platform === 'win32' ? topLevel.toLowerCase() : topLevel;
   if (expectedRoot !== observedRoot) fail('Git top-level does not match the requested repository root');

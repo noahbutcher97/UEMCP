@@ -39,6 +39,14 @@ function cleanup(root, label = 'uemcp-prerequisite-') {
   rmSync(root, { recursive: true, force: true });
 }
 
+function sameRealPath(left, right) {
+  const key = value => {
+    const canonical = realpathSync(value).replace(/\\/g, '/');
+    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  };
+  return key(left) === key(right);
+}
+
 async function rejectsCode(fn, code) {
   try {
     await fn();
@@ -150,7 +158,7 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
     const readyRunner = createRunner({ nodeVersion: 'v22.13.1' });
     const ready = await inspectNodeRuntime({ executable: nodeExecutable, runner: readyRunner, allowedRoots: [root] });
     t.assert(ready.status === 'READY' && ready.version.major === 22, 'Node 22+ runtime is READY');
-    t.assert(readyRunner.calls.length === 1 && readyRunner.calls[0].executable === resolve(nodeExecutable), 'runtime probe executes only the selected absolute path');
+    t.assert(readyRunner.calls.length === 1 && readyRunner.calls[0].executable === ready.executable && sameRealPath(ready.executable, nodeExecutable), 'runtime probe executes only the selected absolute path');
 
     const old = await inspectNodeRuntime({ executable: nodeExecutable, runner: createRunner({ nodeVersion: 'v20.19.4' }), allowedRoots: [root] });
     t.assert(old.status === 'NODE_UNSUPPORTED' && old.version.major === 20, 'Node 20 is explicitly unsupported');
@@ -181,7 +189,7 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
 
     const stale = await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState });
     t.assert(stale.status === 'STALE' && stale.install_required === true, 'missing dependency stamp requires a deterministic install plan');
-    t.assert(stale.npm_cli === resolve(npmCli), 'paired npm CLI is resolved beneath the selected Node installation');
+    t.assert(sameRealPath(stale.npm_cli, npmCli), 'paired npm CLI is resolved beneath the selected Node installation');
 
     const planned = planPrerequisiteOperations({ node, dependencies: stale });
     t.assert(planned.operations.length === 1 && planned.operations[0].kind === 'INSTALL_DEPENDENCIES', 'stale dependencies produce one explicit install operation');
@@ -189,9 +197,9 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
     t.assert(applied.status === 'READY', 'successful deterministic install and validation returns READY');
     const installCall = runner.calls.find(call => call.args.includes('ci'));
     t.assert(
-      installCall.executable === resolve(nodeExecutable)
-        && JSON.stringify(installCall.args) === JSON.stringify([resolve(npmCli), 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'])
-        && installCall.options.cwd === resolve(serverRoot),
+      installCall.executable === node.executable
+        && JSON.stringify(installCall.args) === JSON.stringify([stale.npm_cli, 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'])
+        && sameRealPath(installCall.options.cwd, serverRoot),
       'dependency install uses exact node/npm paths and locked no-script flags',
     );
     t.assert(!runner.calls.some(call => /\.(?:cmd|bat)$/i.test(call.executable)), 'dependency readiness never executes a command-shell launcher');
@@ -233,7 +241,7 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
     const dependencies = await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState });
     const planned = planPrerequisiteOperations({ node, dependencies });
     const applied = await applyDependencyOperation(planned.operations[0], { serverRoot, runner, localState });
-    t.assert(node.executable === realpathSync(physicalNodeExecutable), 'runtime inspection selects the expanded real executable path');
+    t.assert(sameRealPath(node.executable, physicalNodeExecutable), 'runtime inspection selects the expanded real executable path');
     t.assert(applied.status === 'READY', 'expanded runtime identity remains stable from plan through apply');
   } finally {
     cleanup(root);
