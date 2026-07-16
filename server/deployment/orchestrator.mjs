@@ -192,6 +192,7 @@ export function createDeploymentOrchestrator({
     }
     const context = await buildContext(normalized);
     const aggregate = { stages: [], operations: [], preconditions: [], clients: [], actions: [] };
+    let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
       const planned = normalizeDomainPlan(await domain.plan(context), domain);
       aggregate.stages.push(...planned.stages);
@@ -200,10 +201,11 @@ export function createDeploymentOrchestrator({
       aggregate.clients.push(...planned.clients);
       aggregate.actions.push(...planned.actions);
       if (domain.name === 'prerequisites' && planned.operations.length === 0 && reduceOutcome(planned.stages) !== 'HEALTHY') {
+        prerequisitesBlocked = true;
         break;
       }
     }
-    await appendGenericSupport(context, aggregate);
+    if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) {
       aggregate.stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));
     }
@@ -260,6 +262,7 @@ export function createDeploymentOrchestrator({
       }
 
       const stages = [];
+      let prerequisitesBlocked = false;
       for (const domain of orderedDomains) {
         const operations = plan.operations.filter(operation => operation.domain === domain.name);
         let stage;
@@ -275,11 +278,14 @@ export function createDeploymentOrchestrator({
           break;
         }
         stages.push(stage);
-        if (domain.name === 'prerequisites' && stageOutcome !== 'HEALTHY') break;
+        if (domain.name === 'prerequisites' && stageOutcome !== 'HEALTHY') {
+          prerequisitesBlocked = true;
+          break;
+        }
       }
       if (stages.length === 0) stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));
-      let clients = plan.clients;
-      if (includeGenericClient && plan.clients.some(client => client.adapter === 'generic-mcp-host')) {
+      let clients = prerequisitesBlocked ? [] : plan.clients;
+      if (!prerequisitesBlocked && includeGenericClient && plan.clients.some(client => client.adapter === 'generic-mcp-host')) {
         const generic = { stages: [], clients: [], actions: [] };
         await appendGenericSupport(context, generic);
         stages.push(...generic.stages);
@@ -330,12 +336,14 @@ export function createDeploymentOrchestrator({
     const normalized = normalizeRequest({ ...input, operation });
     const context = await buildContext(normalized);
     const aggregate = { stages: [], clients: [], actions: [] };
+    let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
       const stage = await domain.verify(context);
       aggregate.stages.push(stage);
       aggregate.actions.push(...stage.actions);
+      if (domain.name === 'prerequisites' && reduceOutcome([stage]) !== 'HEALTHY') prerequisitesBlocked = true;
     }
-    await appendGenericSupport(context, aggregate);
+    if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) aggregate.stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));
     return createMachineResult({
       operation,

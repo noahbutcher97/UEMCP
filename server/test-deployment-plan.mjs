@@ -9,8 +9,10 @@ import {
   linkSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -72,8 +74,12 @@ function writeProject(root, name = 'SampleProject') {
 {
   const root = makeRoot();
   try {
-    const runtimeRoot = join(root, 'Runtime With Spaces');
-    const serverRoot = join(root, '\u30b5\u30fc\u30d0\u30fc');
+    const physicalRoot = join(root, 'Physical Root');
+    const aliasRoot = join(root, 'Alias Root');
+    mkdirSync(physicalRoot);
+    symlinkSync(physicalRoot, aliasRoot, 'junction');
+    const runtimeRoot = join(aliasRoot, 'Runtime With Spaces');
+    const serverRoot = join(aliasRoot, '\u30b5\u30fc\u30d0\u30fc');
     mkdirSync(runtimeRoot, { recursive: true });
     mkdirSync(serverRoot, { recursive: true });
     const nodeExecutable = join(runtimeRoot, 'node.exe');
@@ -85,7 +91,7 @@ function writeProject(root, name = 'SampleProject') {
       serverEntry,
       allowedRoots: [runtimeRoot, serverRoot],
     });
-    t.assert(descriptor.command === resolve(nodeExecutable) && descriptor.args[0] === resolve(serverEntry), 'descriptor preserves exact absolute paths with spaces and Unicode');
+    t.assert(descriptor.command === realpathSync(nodeExecutable) && descriptor.args[0] === realpathSync(serverEntry), 'descriptor preserves canonical absolute paths with spaces, Unicode, and ancestor aliases');
     t.assert(descriptor.name === 'uemcp' && descriptor.transport === 'stdio', 'descriptor uses the canonical name and stdio transport');
     t.assert(Object.isFrozen(descriptor) && Object.isFrozen(descriptor.args) && Object.isFrozen(descriptor.env), 'descriptor and nested values are frozen');
     t.assert(JSON.stringify(descriptor.env) === '{}' && descriptor.cwd === null, 'descriptor has an empty environment and no working directory');
@@ -614,6 +620,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
   const root = makeRoot();
   try {
     let targetPlanCalls = 0;
+    let protocolSmokeCalls = 0;
     const prerequisite = {
       name: 'prerequisites',
       order: 10,
@@ -648,11 +655,16 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       localState: { wasDigestApplied: async () => false },
       sourceProvider: async () => sampleSource(root),
       descriptorProvider: async () => sampleDescriptor(root),
-      includeGenericClient: false,
+      protocolSmoke: async () => {
+        protocolSmokeCalls += 1;
+        return { status: 'HEALTHY', instruction_bytes: 10, tool_count: 1, initial_tool_names: ['one'], duration_ms: 1 };
+      },
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
     const plan = await orchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] });
+    const verified = await orchestrator.verify({ requested_project: null, requested_profile: null, selected_clients: [] });
     t.assert(targetPlanCalls === 0 && plan.operations.length === 0, 'unresolved prerequisite planning blocks every downstream domain operation');
+    t.assert(protocolSmokeCalls === 0 && plan.clients.length === 0 && verified.clients.length === 0, 'unresolved prerequisites block generic protocol launches in plan and verify');
   } finally {
     cleanup(root);
   }
@@ -662,7 +674,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
 {
   const root = makeRoot();
   try {
-    function makeOrchestrator({ prerequisiteApply, targetApply, counters }) {
+    function makeOrchestrator({ prerequisiteApply, targetApply, counters, includeGenericClient = false }) {
       const prerequisite = {
         name: 'prerequisites',
         order: 10,
@@ -705,14 +717,19 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
           counters.receipt += 1;
           return { kind: 'deployment', path_label: 'receipts/gate.json', sha256: '3'.repeat(64) };
         },
-        includeGenericClient: false,
+        includeGenericClient,
+        protocolSmoke: async () => {
+          counters.protocol += 1;
+          return { status: 'HEALTHY', instruction_bytes: 10, tool_count: 1, initial_tool_names: ['one'], duration_ms: 1 };
+        },
         clock: () => new Date('2026-07-15T12:00:00.000Z'),
       });
     }
 
-    const failedCounters = { prerequisite: 0, target: 0, receipt: 0, replay: 0 };
+    const failedCounters = { prerequisite: 0, target: 0, receipt: 0, replay: 0, protocol: 0 };
     const failedOrchestrator = makeOrchestrator({
       counters: failedCounters,
+      includeGenericClient: true,
       prerequisiteApply: () => createStageResult({ name: 'prerequisites', status: 'INSTALL_FAILED', result: 'failed' }),
       targetApply: () => createStageResult({ name: 'target', status: 'REGISTERED', changed: true }),
     });
@@ -720,8 +737,9 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     const failedPlan = await failedOrchestrator.plan(request);
     const failedResult = await failedOrchestrator.apply({ plan: failedPlan, approvedDigest: failedPlan.digest });
     t.assert(failedResult.outcome === 'FAILED' && failedCounters.target === 0, 'failed prerequisite apply blocks every downstream domain write');
+    t.assert(failedCounters.protocol === 1 && !failedResult.stages.some(stage => stage.name === 'protocol'), 'failed prerequisite apply does not rerun generic protocol smoke');
 
-    const partialCounters = { prerequisite: 0, target: 0, receipt: 0, replay: 0 };
+    const partialCounters = { prerequisite: 0, target: 0, receipt: 0, replay: 0, protocol: 0 };
     const partialOrchestrator = makeOrchestrator({
       counters: partialCounters,
       prerequisiteApply: () => createStageResult({ name: 'prerequisites', status: 'READY', changed: true }),

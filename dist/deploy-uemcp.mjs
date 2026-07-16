@@ -8372,7 +8372,7 @@ function contained2(root, candidate) {
   return rel === "" || !rel.startsWith(`..${sep3}`) && rel !== ".." && !isAbsolute6(rel);
 }
 function safeSegment(value, label) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9._-]+$/.test(value)) {
+  if (typeof value !== "string" || value === "." || value === ".." || !/^[A-Za-z0-9._-]+$/.test(value)) {
     throw new LocalStateError(`${label} contains unsafe characters`);
   }
   return value;
@@ -8596,6 +8596,7 @@ function createLocalState({
   async function createSnapshot(targetPath, { transactionId = randomBytes(12).toString("hex"), retainOnConflict = false } = {}) {
     const id = safeSegment(transactionId, "transactionId");
     const directory = join4(pathSet.snapshots, id, randomBytes(8).toString("hex"));
+    if (!contained2(pathSet.snapshots, directory)) throw new LocalStateError("snapshot transaction escapes the snapshot root");
     await ensureDirectory(directory);
     const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: "UNSAFE_SNAPSHOT_TARGET" });
     let stat = null;
@@ -16778,6 +16779,7 @@ function createDeploymentOrchestrator({
     }
     const context = await buildContext(normalized);
     const aggregate = { stages: [], operations: [], preconditions: [], clients: [], actions: [] };
+    let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
       const planned = normalizeDomainPlan(await domain.plan(context), domain);
       aggregate.stages.push(...planned.stages);
@@ -16786,10 +16788,11 @@ function createDeploymentOrchestrator({
       aggregate.clients.push(...planned.clients);
       aggregate.actions.push(...planned.actions);
       if (domain.name === "prerequisites" && planned.operations.length === 0 && reduceOutcome(planned.stages) !== "HEALTHY") {
+        prerequisitesBlocked = true;
         break;
       }
     }
-    await appendGenericSupport(context, aggregate);
+    if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) {
       aggregate.stages.push(createStageResult({ name: "prerequisites", status: "NOT_CHECKED", result: "action_required" }));
     }
@@ -16842,6 +16845,7 @@ function createDeploymentOrchestrator({
         throw new OrchestratorError("source or descriptor changed after planning", "PLAN_STALE");
       }
       const stages = [];
+      let prerequisitesBlocked = false;
       for (const domain of orderedDomains) {
         const operations = plan.operations.filter((operation) => operation.domain === domain.name);
         let stage;
@@ -16855,11 +16859,14 @@ function createDeploymentOrchestrator({
           break;
         }
         stages.push(stage);
-        if (domain.name === "prerequisites" && stageOutcome !== "HEALTHY") break;
+        if (domain.name === "prerequisites" && stageOutcome !== "HEALTHY") {
+          prerequisitesBlocked = true;
+          break;
+        }
       }
       if (stages.length === 0) stages.push(createStageResult({ name: "prerequisites", status: "NOT_CHECKED", result: "action_required" }));
-      let clients = plan.clients;
-      if (includeGenericClient && plan.clients.some((client) => client.adapter === "generic-mcp-host")) {
+      let clients = prerequisitesBlocked ? [] : plan.clients;
+      if (!prerequisitesBlocked && includeGenericClient && plan.clients.some((client) => client.adapter === "generic-mcp-host")) {
         const generic = { stages: [], clients: [], actions: [] };
         await appendGenericSupport(context, generic);
         stages.push(...generic.stages);
@@ -16909,12 +16916,14 @@ function createDeploymentOrchestrator({
     const normalized = normalizeRequest({ ...input, operation });
     const context = await buildContext(normalized);
     const aggregate = { stages: [], clients: [], actions: [] };
+    let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
       const stage = await domain.verify(context);
       aggregate.stages.push(stage);
       aggregate.actions.push(...stage.actions);
+      if (domain.name === "prerequisites" && reduceOutcome([stage]) !== "HEALTHY") prerequisitesBlocked = true;
     }
-    await appendGenericSupport(context, aggregate);
+    if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) aggregate.stages.push(createStageResult({ name: "prerequisites", status: "NOT_CHECKED", result: "action_required" }));
     return createMachineResult({
       operation,
@@ -17004,7 +17013,8 @@ async function inspectNodeRuntime({
     return { status: "NODE_UNSUPPORTED", executable: requestedFingerprint.real_path, version: null, fingerprint: requestedFingerprint };
   }
   const canonicalExecutable = requestedFingerprint.real_path;
-  const fingerprint = requestedFingerprint.link_kind === "none" ? requestedFingerprint : await fingerprintPath(canonicalExecutable, { allowedRoots, fsImpl });
+  const sameCanonicalPath = process.platform === "win32" ? requestedFingerprint.canonical_path.toLowerCase() === canonicalExecutable.toLowerCase() : requestedFingerprint.canonical_path === canonicalExecutable;
+  const fingerprint = requestedFingerprint.link_kind === "none" && sameCanonicalPath ? requestedFingerprint : await fingerprintPath(canonicalExecutable, { allowedRoots, fsImpl });
   const result = await runner.run(canonicalExecutable, ["--version"], {
     env: {},
     timeoutMs: 1e4,
@@ -17784,7 +17794,16 @@ async function collectArchiveFiles(repoRoot, fsImpl) {
 async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   if (!bundleManifestPath) fail6("archive provenance requires a bundle manifest path");
   const document = await readArchiveDocument(join8(repoRoot, PROVENANCE_FILE), fsImpl);
-  const bundlePath = resolve8(bundleManifestPath);
+  let bundlePath;
+  try {
+    const requestedBundlePath = resolve8(bundleManifestPath);
+    const stat = await fsImpl.lstat(requestedBundlePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail6("bundle manifest must be a regular single-link file");
+    bundlePath = resolve8(await fsImpl.realpath(requestedBundlePath));
+  } catch (error2) {
+    if (error2 instanceof SourceProvenanceError) throw error2;
+    fail6("bundle manifest is missing");
+  }
   const bundleRelative = slash(relative4(repoRoot, bundlePath));
   if (bundleRelative.startsWith("../") || isAbsolute9(bundleRelative)) fail6("bundle manifest escapes the archive root");
   let bundleBytes;

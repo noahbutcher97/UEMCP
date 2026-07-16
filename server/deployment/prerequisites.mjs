@@ -75,7 +75,10 @@ export async function inspectNodeRuntime({
     return { status: 'NODE_UNSUPPORTED', executable: requestedFingerprint.real_path, version: null, fingerprint: requestedFingerprint };
   }
   const canonicalExecutable = requestedFingerprint.real_path;
-  const fingerprint = requestedFingerprint.link_kind === 'none'
+  const sameCanonicalPath = process.platform === 'win32'
+    ? requestedFingerprint.canonical_path.toLowerCase() === canonicalExecutable.toLowerCase()
+    : requestedFingerprint.canonical_path === canonicalExecutable;
+  const fingerprint = requestedFingerprint.link_kind === 'none' && sameCanonicalPath
     ? requestedFingerprint
     : await fingerprintPath(canonicalExecutable, { allowedRoots, fsImpl });
   const result = await runner.run(canonicalExecutable, ['--version'], {

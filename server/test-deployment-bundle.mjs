@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildDeploymentCli } from './build-deployment-cli.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
@@ -40,6 +40,17 @@ function runNode(entry, args) {
     encoding: 'utf8',
     windowsHide: true,
   });
+}
+
+async function runInjectedPlan(runCli, plan) {
+  let stdout = '';
+  let stderr = '';
+  const status = await runCli(['plan', '--operation', 'setup', '--json'], {
+    orchestrator: { async plan() { return structuredClone(plan); } },
+    stdout: { write(value) { stdout += value; } },
+    stderr: { write(value) { stderr += value; } },
+  });
+  return { status, stdout, stderr };
 }
 
 async function rejectsCode(callback, code) {
@@ -135,14 +146,27 @@ try {
   const bundleUsage = runNode(bundlePath, ['apply', '--json']);
   t.assert(sourceUsage.status === 64 && bundleUsage.status === 64 && bundleUsage.stdout === '', 'standalone bundle preserves usage exit 64 and JSON stdout purity');
 
-  const sourcePlanRun = runNode(sourceEntry, ['plan', '--operation', 'setup', '--json']);
-  const bundlePlanRun = runNode(bundlePath, ['plan', '--operation', 'setup', '--json']);
+  const deterministicPlan = {
+    schema_version: '1.0',
+    kind: 'uemcp.deployment.plan',
+    operation: 'setup',
+    outcome: 'ACTION_REQUIRED',
+    descriptor: { name: 'uemcp', transport: 'stdio', command: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\UEMCP\\server\\server.mjs'], env: {}, cwd: null },
+    stages: [
+      { name: 'prerequisites', status: 'READY' },
+      { name: 'clients', status: 'MANUAL_REGISTRATION_REQUIRED' },
+    ],
+  };
+  const { runCli: runSourceCli } = await import(pathToFileURL(sourceEntry).href);
+  const { runCli: runBundleCli } = await import(pathToFileURL(bundlePath).href);
+  const sourcePlanRun = await runInjectedPlan(runSourceCli, deterministicPlan);
+  const bundlePlanRun = await runInjectedPlan(runBundleCli, deterministicPlan);
   const sourcePlan = JSON.parse(sourcePlanRun.stdout);
   const bundlePlan = JSON.parse(bundlePlanRun.stdout);
-  t.assert(sourcePlanRun.status === 10 && bundlePlanRun.status === 10, 'source and bundle preserve the actionable plan exit');
+  t.assert(sourcePlanRun.status === 10 && bundlePlanRun.status === 10 && sourcePlanRun.stderr === '' && bundlePlanRun.stderr === '', 'source and bundle preserve the actionable plan exit without host prerequisites');
   t.assert(bundlePlan.schema_version === sourcePlan.schema_version && bundlePlan.kind === sourcePlan.kind && bundlePlan.operation === sourcePlan.operation && bundlePlan.outcome === sourcePlan.outcome, 'source and bundle agree on plan schema and outcome');
-  t.assert(JSON.stringify(bundlePlan.descriptor) === JSON.stringify(sourcePlan.descriptor), 'source and bundle resolve the same canonical server descriptor');
-  t.assert(JSON.stringify(bundlePlan.stages.map(row => [row.name, row.status])) === JSON.stringify(sourcePlan.stages.map(row => [row.name, row.status])), 'source and bundle agree on no-write plan stages');
+  t.assert(JSON.stringify(bundlePlan.descriptor) === JSON.stringify(sourcePlan.descriptor), 'source and bundle preserve the same injected canonical descriptor');
+  t.assert(JSON.stringify(bundlePlan.stages.map(row => [row.name, row.status])) === JSON.stringify(sourcePlan.stages.map(row => [row.name, row.status])), 'source and bundle preserve the same injected no-write stages');
 
   const trackable = artifactNames.every(name => spawnSync('git', ['check-ignore', '-q', `dist/${name}`], { cwd: repoRoot, windowsHide: true }).status === 1);
   const ignoredScratch = spawnSync('git', ['check-ignore', '-q', 'dist/scratch.txt'], { cwd: repoRoot, windowsHide: true }).status === 0;

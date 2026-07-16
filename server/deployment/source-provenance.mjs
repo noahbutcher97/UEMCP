@@ -234,7 +234,16 @@ async function collectArchiveFiles(repoRoot, fsImpl) {
 async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   if (!bundleManifestPath) fail('archive provenance requires a bundle manifest path');
   const document = await readArchiveDocument(join(repoRoot, PROVENANCE_FILE), fsImpl);
-  const bundlePath = resolve(bundleManifestPath);
+  let bundlePath;
+  try {
+    const requestedBundlePath = resolve(bundleManifestPath);
+    const stat = await fsImpl.lstat(requestedBundlePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail('bundle manifest must be a regular single-link file');
+    bundlePath = resolve(await fsImpl.realpath(requestedBundlePath));
+  } catch (error) {
+    if (error instanceof SourceProvenanceError) throw error;
+    fail('bundle manifest is missing');
+  }
   const bundleRelative = slash(relative(repoRoot, bundlePath));
   if (bundleRelative.startsWith('../') || isAbsolute(bundleRelative)) fail('bundle manifest escapes the archive root');
   let bundleBytes;

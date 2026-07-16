@@ -551,6 +551,8 @@ async function rejectsCode(fn, code) {
     t.assert(await rejectsCode(() => localState.restoreSnapshot(snapshot, { expectedCurrentHash: '0'.repeat(64) }), 'ROLLBACK_CONFLICT'), 'snapshot restore rejects concurrent content drift');
     await localState.restoreSnapshot(snapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('applied')) });
     t.assert(readFileSync(target).equals(Buffer.from([0, 1, 255])), 'snapshot restores exact original bytes');
+    t.assert(await rejectsCode(() => localState.createSnapshot(target, { transactionId: '.' }), 'LOCAL_STATE_UNAVAILABLE'), 'snapshot transaction rejects the current-directory segment');
+    t.assert(await rejectsCode(() => localState.createSnapshot(target, { transactionId: '..' }), 'LOCAL_STATE_UNAVAILABLE'), 'snapshot transaction rejects the parent-directory segment');
     const linkedSnapshotTarget = join(root, 'linked-snapshot.bin');
     const linkedSnapshotAlias = join(root, 'linked-snapshot-alias.bin');
     writeFileSync(linkedSnapshotTarget, 'linked', 'utf8');
@@ -628,9 +630,14 @@ async function rejectsCode(fn, code) {
 
 // Source provenance accepts attributable checkouts and pinned archive baselines only.
 {
-  const root = makePrimitiveRoot('uemcp-provenance-');
+  const sandbox = makePrimitiveRoot('uemcp-provenance-');
+  const root = join(sandbox, 'archive');
+  const aliasRoot = join(sandbox, 'archive-alias');
   try {
+    mkdirSync(root);
+    symlinkSync(root, aliasRoot, 'junction');
     const bundleManifest = join(root, 'deploy-uemcp.manifest.json');
+    const aliasedBundleManifest = join(aliasRoot, 'deploy-uemcp.manifest.json');
     const payload = join(root, 'server', 'server.mjs');
     mkdirSync(dirname(payload), { recursive: true });
     writeFileSync(bundleManifest, '{"schema_version":"1.0"}\n', 'utf8');
@@ -651,16 +658,16 @@ async function rejectsCode(fn, code) {
     provenance.provenance_sha256 = sha256Canonical(provenance);
     writeFileSync(join(root, '.uemcp-source-provenance.json'), `${canonicalJson(provenance)}\n`, 'utf8');
 
-    const pinned = await inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest });
+    const pinned = await inspectSourceProvenance({ repoRoot: aliasRoot, bundleManifestPath: aliasedBundleManifest });
     t.assert(pinned.kind === 'pinned_archive' && pinned.dirty === false, 'verified pinned archive is attributable and clean');
     t.assert(!JSON.stringify(pinned).includes('payload_entries'), 'pinned source result never exposes payload entries');
     writeFileSync(payload, 'export const value = 2;\n', 'utf8');
-    const changed = await inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest });
+    const changed = await inspectSourceProvenance({ repoRoot: aliasRoot, bundleManifestPath: aliasedBundleManifest });
     t.assert(changed.dirty === true && changed.archive.current_manifest_sha256 !== changed.archive.baseline_manifest_sha256, 'changed archive payload is attributable but dirty');
     writeFileSync(join(root, 'unexpected.txt'), 'extra', 'utf8');
-    t.assert(await rejectsCode(() => inspectSourceProvenance({ repoRoot: root, bundleManifestPath: bundleManifest }), 'SOURCE_PROVENANCE_UNKNOWN'), 'unrecognized archive extras fail provenance closed');
+    t.assert(await rejectsCode(() => inspectSourceProvenance({ repoRoot: aliasRoot, bundleManifestPath: aliasedBundleManifest }), 'SOURCE_PROVENANCE_UNKNOWN'), 'unrecognized archive extras fail provenance closed');
   } finally {
-    cleanupPrimitiveRoot(root, 'uemcp-provenance-');
+    cleanupPrimitiveRoot(sandbox, 'uemcp-provenance-');
   }
 }
 

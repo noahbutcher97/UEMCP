@@ -37,7 +37,7 @@ function contained(root, candidate) {
 }
 
 function safeSegment(value, label) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9._-]+$/.test(value)) {
+  if (typeof value !== 'string' || value === '.' || value === '..' || !/^[A-Za-z0-9._-]+$/.test(value)) {
     throw new LocalStateError(`${label} contains unsafe characters`);
   }
   return value;
@@ -274,6 +274,7 @@ export function createLocalState({
   async function createSnapshot(targetPath, { transactionId = randomBytes(12).toString('hex'), retainOnConflict = false } = {}) {
     const id = safeSegment(transactionId, 'transactionId');
     const directory = join(pathSet.snapshots, id, randomBytes(8).toString('hex'));
+    if (!contained(pathSet.snapshots, directory)) throw new LocalStateError('snapshot transaction escapes the snapshot root');
     await ensureDirectory(directory);
     const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: 'UNSAFE_SNAPSHOT_TARGET' });
     let stat = null;

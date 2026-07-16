@@ -6,7 +6,9 @@ import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -208,6 +210,31 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
     t.assert(blocked.status === 'DEPENDENCY_POLICY_BLOCKED' && blocked.blocked_packages[0].name === 'prod-package', 'production lifecycle script blocks before mutation');
     t.assert(!blocked.blocked_packages.some(row => row.name === 'dev-package'), 'dev-only lifecycle scripts are outside the production closure');
     t.assert(runner.calls.length === beforeBlocked, 'blocked production closure executes no npm command');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Runtime identity remains stable when Windows expands an ancestor path alias.
+{
+  const root = makeRoot();
+  try {
+    const physicalRuntimeRoot = join(root, 'physical-runtime');
+    const aliasRuntimeRoot = join(root, 'runtime-alias');
+    const serverRoot = join(root, 'server');
+    const { nodeExecutable: physicalNodeExecutable } = createRuntimeLayout(physicalRuntimeRoot);
+    symlinkSync(physicalRuntimeRoot, aliasRuntimeRoot, 'junction');
+    mkdirSync(serverRoot);
+    writeJson(join(serverRoot, 'package-lock.json'), productionLock());
+    const nodeExecutable = join(aliasRuntimeRoot, 'node.exe');
+    const localState = createMemoryState(root);
+    const runner = createRunner();
+    const node = await inspectNodeRuntime({ executable: nodeExecutable, runner, allowedRoots: [aliasRuntimeRoot] });
+    const dependencies = await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState });
+    const planned = planPrerequisiteOperations({ node, dependencies });
+    const applied = await applyDependencyOperation(planned.operations[0], { serverRoot, runner, localState });
+    t.assert(node.executable === realpathSync(physicalNodeExecutable), 'runtime inspection selects the expanded real executable path');
+    t.assert(applied.status === 'READY', 'expanded runtime identity remains stable from plan through apply');
   } finally {
     cleanup(root);
   }
