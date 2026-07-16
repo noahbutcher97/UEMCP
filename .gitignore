@@ -1,6 +1,9 @@
 # Node.js (server/)
 node_modules/
-dist/
+dist/*
+!dist/deploy-uemcp.mjs
+!dist/deploy-uemcp.manifest.json
+!dist/THIRD_PARTY_NOTICES.txt
 *.tsbuildinfo
 .env
 .env.local

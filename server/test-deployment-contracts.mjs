@@ -32,6 +32,7 @@ import {
   createStageResult,
   exitCodeForOutcome,
   reduceOutcome,
+  shouldRecordPlanDigest,
   validateMachineResult,
 } from './deployment/contracts.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
@@ -39,11 +40,12 @@ import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints
 import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
 import { createProcessRunner } from './deployment/process-runner.mjs';
 import {
+  WINDOWS_NATIVE_SCRIPTS,
   fingerprintWindowsFileMetadata,
   inspectAuthenticode,
   replaceFilePreservingMetadata,
 } from './deployment/windows-native.mjs';
-import { createLocalState } from './deployment/local-state.mjs';
+import { createLocalState, inspectLeaseOwnerProcess } from './deployment/local-state.mjs';
 import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 
 const t = new TestRunner('Deployment Contract Tests');
@@ -223,6 +225,7 @@ function validMachineInput(overrides = {}) {
   const failed = createStageResult({ name: 'four', status: 'INSTALL_FAILED', result: 'failed' });
   const committed = createStageResult({ name: 'five', status: 'CURRENT', result: 'ready', progress: 'committed', changed: true });
   const rolledBack = createStageResult({ name: 'six', status: 'ROLLED_BACK', result: 'rolled_back' });
+  const optionalSkipped = createStageResult({ name: 'seven', status: 'NOT_CHECKED', mandatory: false, result: 'skipped' });
 
   t.assert(reduceOutcome([ready, unusualReady]) === 'HEALTHY', 'status names do not determine a healthy outcome');
   t.assert(reduceOutcome([ready, restart]) === 'ACTION_REQUIRED', 'human-only action reduces to ACTION_REQUIRED');
@@ -230,6 +233,10 @@ function validMachineInput(overrides = {}) {
   t.assert(reduceOutcome([committed, failed]) === 'PARTIAL', 'committed progress plus mandatory failure reduces to PARTIAL');
   t.assert(reduceOutcome([rolledBack]) === 'FAILED', 'fully rolled-back mandatory transaction reduces to FAILED');
   t.assert(reduceOutcome([ready, createStageResult({ name: 'optional', status: 'INSTALL_FAILED', mandatory: false, result: 'failed' })]) === 'ACTION_REQUIRED', 'optional failure remains visible as ACTION_REQUIRED');
+  t.assert(reduceOutcome([ready, optionalSkipped]) === 'HEALTHY', 'optional skipped work does not make a healthy result actionable');
+  t.assert(shouldRecordPlanDigest([committed]) === true, 'committed apply progress consumes the approved plan');
+  t.assert(shouldRecordPlanDigest([rolledBack]) === true, 'fully rolled-back apply progress consumes the approved plan');
+  t.assert(shouldRecordPlanDigest([failed, restart]) === false, 'failure or action without apply progress remains retryable');
 }
 
 // Exit codes preserve nonzero machine outcomes.
@@ -454,6 +461,7 @@ async function rejectsCode(fn, code) {
     });
     t.assert(signature.status === 'valid' && signature.signer_name === 'Trusted Signer', 'bounded Authenticode evidence accepts an expected signer');
     const authCall = calls[0];
+    t.assert(WINDOWS_NATIVE_SCRIPTS.authenticode.includes('Import-Module -Name $module') && !WINDOWS_NATIVE_SCRIPTS.authenticode.includes('Import-Module -LiteralPath'), 'Authenticode helper uses the Windows PowerShell 5.1 module parameter');
     t.assert(!authCall.args.join(' ').includes(target) && !authCall.options.stdin.includes(target), 'Authenticode target is not interpolated into arguments or PowerShell source');
     t.assert(authCall.options.env.UEMCP_AUTHENTICODE_TARGET === resolve(target), 'Authenticode target crosses only a dedicated environment key');
 
@@ -481,9 +489,32 @@ async function rejectsCode(fn, code) {
     t.assert(replaced.status === 'replaced', 'replacement helper accepts a normalized success response');
     const replaceCall = calls.find(call => call.options.env.UEMCP_REPLACEMENT_PATH);
     t.assert(!replaceCall.options.stdin.includes(replacement) && !replaceCall.args.join(' ').includes(destination), 'replacement paths are not interpolated into source or arguments');
+    t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
   } finally {
     cleanupPrimitiveRoot(root);
   }
+}
+
+// Windows lease inspection distinguishes a live owner from PID reuse without interpolating input.
+{
+  const calls = [];
+  const outputs = [
+    { state: 'alive', process_start: 10_000 },
+    { state: 'alive', process_start: 30_000 },
+    { state: 'dead' },
+    { state: 'unexpected' },
+  ];
+  const runner = {
+    async run(executable, args, options) {
+      calls.push({ executable, args, options });
+      return { status: 'exited', exitCode: 0, stderr: '', stdout: JSON.stringify(outputs.shift()) };
+    },
+  };
+  t.assert(await inspectLeaseOwnerProcess({ pid: 4242, process_start: 10_100 }, { runner, platform: 'win32', systemRoot: 'C:\\Windows' }) === 'alive', 'Windows lease probe accepts a matching process start');
+  t.assert(await inspectLeaseOwnerProcess({ pid: 4242, process_start: 10_000 }, { runner, platform: 'win32', systemRoot: 'C:\\Windows' }) === 'dead', 'Windows lease probe treats a reused PID as a dead prior owner');
+  t.assert(await inspectLeaseOwnerProcess({ pid: 4242, process_start: 10_000 }, { runner, platform: 'win32', systemRoot: 'C:\\Windows' }) === 'dead', 'Windows lease probe recognizes a missing process');
+  t.assert(await inspectLeaseOwnerProcess({ pid: 4242, process_start: 10_000 }, { runner, platform: 'win32', systemRoot: 'C:\\Windows' }) === 'unknown', 'Windows lease probe fails closed on malformed evidence');
+  t.assert(calls.every(call => call.options.env.UEMCP_LEASE_PID === '4242' && !call.options.stdin.includes('4242') && call.options.stdin.endsWith('\n\n')), 'lease PID is passed only through a bounded helper environment');
 }
 
 // Local state is injectable, atomic, replay-aware, and lease protected.
@@ -520,6 +551,23 @@ async function rejectsCode(fn, code) {
     t.assert(await rejectsCode(() => localState.restoreSnapshot(snapshot, { expectedCurrentHash: '0'.repeat(64) }), 'ROLLBACK_CONFLICT'), 'snapshot restore rejects concurrent content drift');
     await localState.restoreSnapshot(snapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('applied')) });
     t.assert(readFileSync(target).equals(Buffer.from([0, 1, 255])), 'snapshot restores exact original bytes');
+    const linkedSnapshotTarget = join(root, 'linked-snapshot.bin');
+    const linkedSnapshotAlias = join(root, 'linked-snapshot-alias.bin');
+    writeFileSync(linkedSnapshotTarget, 'linked', 'utf8');
+    linkSync(linkedSnapshotTarget, linkedSnapshotAlias);
+    t.assert(await rejectsCode(() => localState.createSnapshot(linkedSnapshotTarget, { transactionId: 'tx-linked' }), 'UNSAFE_SNAPSHOT_TARGET'), 'snapshot creation rejects multiply linked targets');
+    const snapshotOutside = makePrimitiveRoot('uemcp-snapshot-outside-');
+    writeFileSync(join(snapshotOutside, 'redirected.bin'), 'outside', 'utf8');
+    symlinkSync(snapshotOutside, join(root, 'snapshot-junction'), 'junction');
+    t.assert(await rejectsCode(() => localState.createSnapshot(join(root, 'snapshot-junction', 'redirected.bin'), { transactionId: 'tx-junction' }), 'UNSAFE_SNAPSHOT_TARGET'), 'snapshot creation rejects a junction in the target ancestry');
+    cleanupPrimitiveRoot(snapshotOutside, 'uemcp-snapshot-outside-');
+    const rollbackTarget = join(root, 'rollback-link.bin');
+    const rollbackAlias = join(root, 'rollback-link-alias.bin');
+    writeFileSync(rollbackTarget, 'before', 'utf8');
+    const rollbackSnapshot = await localState.createSnapshot(rollbackTarget, { transactionId: 'tx-rollback-link' });
+    writeFileSync(rollbackTarget, 'applied', 'utf8');
+    linkSync(rollbackTarget, rollbackAlias);
+    t.assert(await rejectsCode(() => localState.restoreSnapshot(rollbackSnapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('applied')) }), 'ROLLBACK_CONFLICT'), 'snapshot rollback rejects a target that gained another hard link');
     const absentTarget = join(root, 'created-during-apply.bin');
     const absentSnapshot = await localState.createSnapshot(absentTarget, { transactionId: 'tx-absent' });
     writeFileSync(absentTarget, 'created', 'utf8');
@@ -552,6 +600,29 @@ async function rejectsCode(fn, code) {
     await reclaimed.release();
   } finally {
     cleanupPrimitiveRoot(root, 'uemcp-local-state-');
+  }
+}
+
+// Local-state containment rejects junction traversal before any escaped write.
+{
+  const root = makePrimitiveRoot('uemcp-local-link-');
+  const outside = makePrimitiveRoot('uemcp-local-outside-');
+  try {
+    symlinkSync(outside, join(root, 'state'), 'junction');
+    const localState = createLocalState({ root, aclRestrictor: async () => {} });
+    const escaped = join(root, 'state', 'escaped.json');
+    t.assert(await rejectsCode(() => localState.writeJsonAtomic(escaped, { value: true }), 'LOCAL_STATE_PATH_ESCAPE'), 'local-state junction escape is rejected');
+    t.assert(!existsSync(join(outside, 'escaped.json')), 'rejected local-state junction causes no outside write');
+
+    rmSync(join(root, 'state'), { force: true });
+    mkdirSync(join(root, 'plans'), { recursive: true });
+    const outsideLedger = join(outside, 'ledger.json');
+    writeFileSync(outsideLedger, '{"schema_version":"1.0","applied":{}}\n', 'utf8');
+    linkSync(outsideLedger, join(root, 'plans', 'applied-v1.json'));
+    t.assert(await rejectsCode(() => localState.wasDigestApplied('7'.repeat(64)), 'LOCAL_STATE_PATH_ESCAPE'), 'hard-linked replay ledger is rejected');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-local-link-');
+    cleanupPrimitiveRoot(outside, 'uemcp-local-outside-');
   }
 }
 
@@ -624,6 +695,42 @@ async function rejectsCode(fn, code) {
     t.assert(calls.every(call => call.executable === resolve(gitExecutable)), 'checkout probes only the selected absolute Git executable');
   } finally {
     cleanupPrimitiveRoot(root, 'uemcp-checkout-');
+  }
+}
+
+{
+  const root = makePrimitiveRoot('uemcp-git-discovery-');
+  try {
+    mkdirSync(join(root, '.git'));
+    const programFiles = join(root, 'Programs');
+    const discoveredGit = join(programFiles, 'Git', 'cmd', 'git.exe');
+    mkdirSync(dirname(discoveredGit), { recursive: true });
+    writeFileSync(discoveredGit, 'sample-binary', 'utf8');
+    const runner = {
+      async run(executable, args) {
+        t.assert(executable === resolve(discoveredGit), 'default discovery invokes only the absolute candidate');
+        const command = args.join(' ');
+        if (command === '--version') return { status: 'exited', exitCode: 0, stdout: 'git version 2.50.1.windows.1\n', stderr: '' };
+        if (command === 'rev-parse --show-toplevel') return { status: 'exited', exitCode: 0, stdout: `${root}\n`, stderr: '' };
+        if (command === 'config --get remote.origin.url') return { status: 'exited', exitCode: 0, stdout: 'https://github.com/owner/UEMCP.git\n', stderr: '' };
+        if (command === 'rev-parse HEAD') return { status: 'exited', exitCode: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' };
+        if (command === 'status --porcelain=v1 --untracked-files=all') return { status: 'exited', exitCode: 0, stdout: '', stderr: '' };
+        throw new Error(`unexpected git command: ${command}`);
+      },
+    };
+    const checkout = await inspectSourceProvenance({
+      repoRoot: root,
+      runner,
+      environment: { ProgramFiles: programFiles },
+      authenticodeInspector: async executable => ({
+        status: executable === resolve(discoveredGit) ? 'valid' : 'invalid',
+        signer_name: 'Git for Windows',
+        thumbprint: 'DEF',
+      }),
+    });
+    t.assert(checkout.kind === 'git_checkout' && checkout.dirty === false, 'default Git discovery accepts a verified fixed-install candidate');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-git-discovery-');
   }
 }
 

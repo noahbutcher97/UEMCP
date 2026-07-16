@@ -237,7 +237,7 @@ export async function validatePlanForApply({
       failures.push({ label: precondition.label, reason: error?.code ?? 'fingerprint_failed' });
       continue;
     }
-    if (precondition.fingerprint && sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint)) {
+    if (precondition.fingerprint && sha256Canonical(observed?.fingerprint ?? observed) !== sha256Canonical(precondition.fingerprint)) {
       failures.push({ label: precondition.label, reason: 'fingerprint_changed' });
       continue;
     }

@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { TestRunner } from './test-helpers.mjs';
 import {
   applyDependencyOperation,
+  createPrerequisiteDomain,
   inspectDependencies,
   inspectNodeRuntime,
   parseNodeVersion,
@@ -230,6 +231,63 @@ function createRunner({ nodeVersion = 'v22.13.1', npmVersion = '11.6.4', listExi
     const planned = planPrerequisiteOperations({ node, dependencies: stale });
     writeFileSync(nodeExecutable, 'changed-node-binary', 'utf8');
     t.assert(await rejectsCode(() => applyDependencyOperation(planned.operations[0], { serverRoot, nodeRuntime: node, runner, localState }), 'LOCK_DRIFT'), 'runtime byte drift invalidates the reviewed dependency operation');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// A fresh apply process consumes the saved operation without invoking the planner.
+{
+  const root = makeRoot();
+  try {
+    const runtimeRoot = join(root, 'runtime');
+    const serverRoot = join(root, 'server');
+    mkdirSync(serverRoot, { recursive: true });
+    const { nodeExecutable } = createRuntimeLayout(runtimeRoot);
+    writeJson(join(serverRoot, 'package-lock.json'), productionLock());
+    const localState = createMemoryState(root);
+    const runner = createRunner();
+    const node = await inspectNodeRuntime({ executable: nodeExecutable, runner, allowedRoots: [runtimeRoot] });
+    const dependencies = await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState });
+    const planned = planPrerequisiteOperations({ node, dependencies });
+    runner.calls.length = 0;
+    const domain = createPrerequisiteDomain({ serverRoot, runner, localState, nodeExecutable });
+    const extraOperation = { ...planned.operations[0], operation_id: 'prerequisites:unexpected-second' };
+    t.assert(await rejectsCode(() => domain.apply({}, [planned.operations[0], extraOperation]), 'INVALID_PREREQUISITE_OPERATION'), 'prerequisite domain rejects operation widening before apply');
+    t.assert(runner.calls.length === 0, 'widened prerequisite operation list causes no process or write');
+    const applied = await domain.apply({}, planned.operations);
+    const installIndex = runner.calls.findIndex(call => call.args.includes('ci'));
+    const inspectionIndex = runner.calls.findIndex(call => call.args.includes('ls'));
+    t.assert(applied.status === 'READY' && installIndex >= 0, 'fresh prerequisite domain applies the reviewed dependency operation');
+    t.assert(inspectionIndex > installIndex, 'fresh prerequisite apply does not run planner dependency inspection before the reviewed install');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Failures discovered after npm mutates dependencies return terminal committed evidence.
+{
+  const root = makeRoot();
+  try {
+    const runtimeRoot = join(root, 'runtime');
+    const serverRoot = join(root, 'server');
+    mkdirSync(serverRoot, { recursive: true });
+    const { nodeExecutable } = createRuntimeLayout(runtimeRoot);
+    writeJson(join(serverRoot, 'package-lock.json'), productionLock());
+    const localState = createMemoryState(root);
+    const runner = createRunner();
+    const baseRun = runner.run.bind(runner);
+    runner.run = async (executable, args, options) => {
+      const result = await baseRun(executable, args, options);
+      if (args.includes('ci')) writeFileSync(nodeExecutable, 'runtime-drift-after-install', 'utf8');
+      return result;
+    };
+    const node = await inspectNodeRuntime({ executable: nodeExecutable, runner, allowedRoots: [runtimeRoot] });
+    const dependencies = await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState });
+    const planned = planPrerequisiteOperations({ node, dependencies });
+    const domain = createPrerequisiteDomain({ serverRoot, runner, localState, nodeExecutable });
+    const applied = await domain.apply({}, planned.operations);
+    t.assert(applied.status === 'INSTALL_FAILED' && applied.changed, 'post-install runtime drift returns committed failure evidence instead of escaping unreceipted');
   } finally {
     cleanup(root);
   }

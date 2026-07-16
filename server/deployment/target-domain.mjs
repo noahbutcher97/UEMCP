@@ -109,6 +109,17 @@ function sameComposite(left, right) {
   return left?.composite_sha256 === right?.composite_sha256;
 }
 
+function committedSyncFailure() {
+  return createStageResult({
+    name: 'target',
+    status: 'SYNC_FAILED',
+    result: 'failed',
+    changed: true,
+    progress: 'committed',
+    actions: [{ code: 'SYNC_FAILED', message: 'The project target registry changed during apply but did not verify cleanly.', command: null }],
+  });
+}
+
 function configSyncView(asyncPath, fsImpl) {
   return {
     ...fsImpl,
@@ -151,7 +162,17 @@ export function createTargetDomain({
 
   async function inspectContext(context) {
     const requestedProject = context?.request?.requested_project ?? null;
-    if (requestedProject === null) return { requestedProject: null, configPath: resolve(configPath) };
+    if (requestedProject === null) {
+      if (!explicit) return { requestedProject: null, configPath: resolve(configPath), fingerprint: null };
+      const validatedConfigPath = await validateConfigPath(configPath, { generatedRoot, asyncFs });
+      const fingerprint = await compositeFingerprint(validatedConfigPath, {
+        asyncFs,
+        windowsNative,
+        processRunner: context?.processRunner ?? processRunner,
+        systemRoot,
+      });
+      return { requestedProject: null, configPath: validatedConfigPath, fingerprint };
+    }
     const projectPath = await validateProjectPath(requestedProject, asyncFs);
     const validatedConfigPath = await validateConfigPath(configPath, { generatedRoot, asyncFs });
     const fingerprint = await compositeFingerprint(validatedConfigPath, {
@@ -174,6 +195,20 @@ export function createTargetDomain({
     return { requestedProject: projectPath, configPath: validatedConfigPath, fingerprint, registration };
   }
 
+  async function inspectReviewedOperation(context, operation) {
+    const requestedProject = context?.request?.requested_project ?? null;
+    if (requestedProject === null) throw new TargetDomainError('reviewed target operation requires a project', 'PLAN_STALE');
+    const projectPath = await validateProjectPath(requestedProject, asyncFs);
+    const reviewedConfigPath = await validateConfigPath(operation.config_path, { generatedRoot: null, asyncFs });
+    const fingerprint = await compositeFingerprint(reviewedConfigPath, {
+      asyncFs,
+      windowsNative,
+      processRunner: context?.processRunner ?? processRunner,
+      systemRoot,
+    });
+    return { requestedProject: projectPath, configPath: reviewedConfigPath, fingerprint };
+  }
+
   return Object.freeze({
     name: 'target',
     order: 20,
@@ -184,7 +219,12 @@ export function createTargetDomain({
         return {
           stages: [createStageResult({ name: 'target', status: 'NOT_CHECKED', mandatory: false, result: 'skipped' })],
           operations: [],
-          preconditions: [],
+          preconditions: inspected.fingerprint === null ? [] : [{
+            kind: 'file',
+            label: 'project-target-registry',
+            canonical_path: inspected.configPath,
+            fingerprint: inspected.fingerprint,
+          }],
         };
       }
       if (inspected.registration.status === 'unchanged') {
@@ -229,7 +269,7 @@ export function createTargetDomain({
         throw new TargetDomainError('target domain accepts exactly one registration operation');
       }
       const operation = operations[0];
-      const inspected = await inspectContext(context);
+      const inspected = await inspectReviewedOperation(context, operation);
       if (inspected.requestedProject !== operation.project_path || inspected.configPath !== operation.config_path) {
         throw new TargetDomainError('target request differs from the reviewed operation', 'PLAN_STALE');
       }
@@ -243,6 +283,7 @@ export function createTargetDomain({
       await asyncFs.mkdir(dirname(operation.config_path), { recursive: true });
       const scratchPath = join(dirname(operation.config_path), `.${randomBytes(16).toString('hex')}.scratch`);
       let handle;
+      let committed = false;
       try {
         handle = await asyncFs.open(scratchPath, 'wx', 0o600);
         await handle.writeFile(bytes);
@@ -269,21 +310,34 @@ export function createTargetDomain({
             systemRoot,
             fsImpl: asyncFs,
           });
+          committed = true;
         } else {
           try {
             await asyncFs.link(scratchPath, operation.config_path);
+            committed = true;
           } catch (error) {
             if (error?.code === 'EEXIST') throw new TargetDomainError('target registry was created concurrently', 'PLAN_STALE');
             throw error;
           }
-          await asyncFs.unlink(scratchPath);
         }
+      } catch (error) {
+        if (!committed) {
+          const observed = await compositeFingerprint(operation.config_path, {
+            asyncFs,
+            windowsNative,
+            processRunner: context?.processRunner ?? processRunner,
+            systemRoot,
+          }).catch(() => null);
+          committed = observed !== null && !sameComposite(observed, operation.expected_fingerprint);
+        }
+        if (!committed) throw error;
+        return committedSyncFailure();
       } finally {
         if (handle) await handle.close().catch(() => {});
         await asyncFs.rm(scratchPath, { force: true }).catch(() => {});
       }
       const after = await fingerprintPath(operation.config_path, { allowedRoots: [dirname(operation.config_path)], fsImpl: asyncFs });
-      if (after.sha256 !== operation.proposed_sha256) throw new TargetDomainError('target registry verification failed', 'SYNC_FAILED');
+      if (after.sha256 !== operation.proposed_sha256) return committedSyncFailure();
       return createStageResult({ name: 'target', status: 'REGISTERED', changed: true, progress: 'committed' });
     },
 
@@ -296,6 +350,19 @@ export function createTargetDomain({
         return createStageResult({ name: 'target', status: 'ALREADY_REGISTERED' });
       }
       return createStageResult({ name: 'target', status: 'INVALID_TARGET', result: 'action_required' });
+    },
+    canFingerprintPrecondition(precondition) {
+      return precondition.label === 'project-target-registry';
+    },
+    async fingerprintPrecondition(precondition, context) {
+      return {
+        fingerprint: await compositeFingerprint(precondition.canonical_path, {
+          asyncFs,
+          windowsNative,
+          processRunner: context?.processRunner ?? processRunner,
+          systemRoot,
+        }),
+      };
     },
   });
 }

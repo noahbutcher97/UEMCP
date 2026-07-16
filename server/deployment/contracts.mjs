@@ -227,16 +227,28 @@ function readStageFacts(stage) {
   return facts;
 }
 
-export function reduceOutcome(stages) {
+function validatedStageRows(stages) {
   if (!Array.isArray(stages) || stages.length === 0) fail('stages must be a non-empty array');
-  const rows = stages.map(stage => ({ stage: validatePublicStage(stage), facts: readStageFacts(stage) }));
+  return stages.map(stage => ({ stage: validatePublicStage(stage), facts: readStageFacts(stage) }));
+}
+
+export function reduceOutcome(stages) {
+  const rows = validatedStageRows(stages);
   const mandatoryTerminalFailure = rows.some(({ stage, facts }) =>
     stage.mandatory && (facts.result === 'failed' || facts.result === 'rolled_back'));
   const committedProgress = rows.some(({ facts }) => facts.progress === 'committed' && facts.result !== 'rolled_back');
 
   if (mandatoryTerminalFailure) return committedProgress ? OUTCOMES.PARTIAL : OUTCOMES.FAILED;
-  if (rows.some(({ facts }) => facts.result !== 'ready')) return OUTCOMES.ACTION_REQUIRED;
+  if (rows.some(({ stage, facts }) => facts.result !== 'ready' && !(facts.result === 'skipped' && !stage.mandatory))) {
+    return OUTCOMES.ACTION_REQUIRED;
+  }
   return OUTCOMES.HEALTHY;
+}
+
+export function shouldRecordPlanDigest(stages) {
+  const rows = validatedStageRows(stages);
+  return rows.some(({ facts }) => facts.progress === 'committed' && facts.result !== 'rolled_back')
+    || rows.some(({ facts }) => facts.result === 'rolled_back');
 }
 
 function validateSource(source) {

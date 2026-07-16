@@ -1,2 +1,13 @@
 *.bat text eol=crlf
+.gitattributes text eol=lf
 .githooks/* text eol=lf
+server/deploy-uemcp.mjs text eol=lf
+server/deployment/*.mjs text eol=lf
+server/project-targets.mjs text eol=lf
+server/project-errors.mjs text eol=crlf
+server/project-identity.mjs text eol=crlf
+server/package.json text eol=lf
+server/package-lock.json text eol=lf
+dist/deploy-uemcp.mjs text eol=lf
+dist/deploy-uemcp.manifest.json text eol=lf
+dist/THIRD_PARTY_NOTICES.txt text eol=lf

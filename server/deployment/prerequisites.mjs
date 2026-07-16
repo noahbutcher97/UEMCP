@@ -35,7 +35,7 @@ export function parseNodeVersion(text) {
   return { major: values[0], minor: values[1], patch: values[2], raw };
 }
 
-function fingerprintIdentity(fingerprint) {
+export function prerequisiteFingerprintIdentity(fingerprint) {
   if (!fingerprint) return null;
   return {
     canonical_path: fingerprint.canonical_path,
@@ -50,7 +50,7 @@ function fingerprintIdentity(fingerprint) {
 }
 
 function sameFingerprint(left, right) {
-  return JSON.stringify(fingerprintIdentity(left)) === JSON.stringify(fingerprintIdentity(right));
+  return JSON.stringify(prerequisiteFingerprintIdentity(left)) === JSON.stringify(prerequisiteFingerprintIdentity(right));
 }
 
 export async function inspectNodeRuntime({
@@ -313,10 +313,10 @@ export function planPrerequisiteOperations({ node, dependencies }) {
     server_root: dirname(dependencies.lock_path),
     node_executable: node.executable,
     node_version: node.version.raw,
-    node_fingerprint: fingerprintIdentity(node.fingerprint),
+    node_fingerprint: prerequisiteFingerprintIdentity(node.fingerprint),
     npm_cli: dependencies.npm_cli,
     npm_version: dependencies.npm_version,
-    npm_fingerprint: fingerprintIdentity(dependencies.npm_fingerprint),
+    npm_fingerprint: prerequisiteFingerprintIdentity(dependencies.npm_fingerprint),
     lock_sha256: dependencies.lock_sha256,
   };
   return {
@@ -333,7 +333,6 @@ export function planPrerequisiteOperations({ node, dependencies }) {
 
 export async function applyDependencyOperation(operation, {
   serverRoot,
-  nodeRuntime,
   runner,
   localState,
   fsImpl = defaultFs,
@@ -373,48 +372,127 @@ export async function applyDependencyOperation(operation, {
   if (install.status !== 'exited' || install.exitCode !== 0) {
     return { status: 'INSTALL_FAILED', changed: false };
   }
-  const validation = await runner.run(operation.node_executable, [
-    operation.npm_cli,
-    'ls',
-    '--omit=dev',
-    '--all',
-    '--json',
-  ], {
-    cwd: resolve(serverRoot),
-    env: {},
-    timeoutMs: 30_000,
-    outputLimitBytes: 1024 * 1024,
-  });
-  if (validation.status !== 'exited' || validation.exitCode !== 0 || validation.stderr !== '') {
+  try {
+    const validation = await runner.run(operation.node_executable, [
+      operation.npm_cli,
+      'ls',
+      '--omit=dev',
+      '--all',
+      '--json',
+    ], {
+      cwd: resolve(serverRoot),
+      env: {},
+      timeoutMs: 30_000,
+      outputLimitBytes: 1024 * 1024,
+    });
+    if (validation.status !== 'exited' || validation.exitCode !== 0 || validation.stderr !== '') {
+      return { status: 'INSTALL_FAILED', changed: true };
+    }
+
+    const afterNode = await inspectNodeRuntime({
+      executable: operation.node_executable,
+      runner,
+      allowedRoots: [dirname(operation.node_executable)],
+      fsImpl,
+    });
+    const afterLock = await readLock(serverRoot, fsImpl);
+    const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname(dirname(operation.npm_cli))], fsImpl });
+    if (afterNode.status !== 'READY'
+      || afterNode.version.raw !== operation.node_version
+      || !sameFingerprint(afterNode.fingerprint, operation.node_fingerprint)
+      || afterLock.sha256 !== operation.lock_sha256
+      || !sameFingerprint(afterNpm, operation.npm_fingerprint)) {
+      return { status: 'INSTALL_FAILED', changed: true };
+    }
+    const stamp = {
+      ...expectedStamp({
+        lockSha256: operation.lock_sha256,
+        nodeRuntime: currentNode,
+        npm: { npmCli: operation.npm_cli, version: operation.npm_version },
+      }),
+      validated_at: new Date(Number(clock())).toISOString(),
+    };
+    await localState.writeJsonAtomic(localState.paths().dependencyStamp, stamp);
+    return { status: 'READY', changed: true, stamp };
+  } catch {
     return { status: 'INSTALL_FAILED', changed: true };
   }
-
-  const afterNode = await inspectNodeRuntime({
-    executable: operation.node_executable,
-    runner,
-    allowedRoots: [dirname(operation.node_executable)],
-    fsImpl,
-  });
-  const afterLock = await readLock(serverRoot, fsImpl);
-  const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname(dirname(operation.npm_cli))], fsImpl });
-  if (afterNode.status !== 'READY'
-    || afterNode.version.raw !== operation.node_version
-    || !sameFingerprint(afterNode.fingerprint, operation.node_fingerprint)
-    || afterLock.sha256 !== operation.lock_sha256
-    || !sameFingerprint(afterNpm, operation.npm_fingerprint)) {
-    fail('runtime or lock identity changed during dependency installation', 'LOCK_DRIFT');
-  }
-  const stamp = {
-    ...expectedStamp({
-      lockSha256: operation.lock_sha256,
-      nodeRuntime: currentNode,
-      npm: { npmCli: operation.npm_cli, version: operation.npm_version },
-    }),
-    validated_at: new Date(Number(clock())).toISOString(),
-  };
-  await localState.writeJsonAtomic(localState.paths().dependencyStamp, stamp);
-  return { status: 'READY', changed: true, stamp };
 }
 
 export const DEPENDENCY_INSTALL_MODE = INSTALL_MODE;
 export const DEPENDENCY_VALIDATION_COMMAND = VALIDATION_COMMAND;
+
+export function createPrerequisiteDomain({
+  serverRoot,
+  runner,
+  localState,
+  fsImpl = defaultFs,
+  nodeExecutable = process.execPath,
+  clock = Date.now,
+} = {}) {
+  async function inspect() {
+    const node = await inspectNodeRuntime({
+      executable: nodeExecutable,
+      runner,
+      allowedRoots: [dirname(nodeExecutable)],
+      fsImpl,
+    });
+    const dependencies = node.status === 'READY'
+      ? await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState, fsImpl })
+      : null;
+    return planPrerequisiteOperations({ node, dependencies });
+  }
+
+  return Object.freeze({
+    name: 'prerequisites',
+    order: 10,
+    async plan() {
+      return inspect();
+    },
+    async apply(context, operations) {
+      if (!Array.isArray(operations) || operations.length > 1) {
+        fail('prerequisite domain accepts at most one reviewed operation', 'INVALID_PREREQUISITE_OPERATION');
+      }
+      if (operations.length === 0) return (await inspect()).stages[0];
+      const applied = await applyDependencyOperation(operations[0], {
+        serverRoot,
+        runner,
+        localState,
+        fsImpl,
+        clock,
+      });
+      if (applied.status === 'READY') {
+        return createStageResult({ name: 'prerequisites', status: 'READY', changed: applied.changed, progress: applied.changed ? 'committed' : 'none' });
+      }
+      return createStageResult({
+        name: 'prerequisites',
+        status: 'INSTALL_FAILED',
+        result: 'failed',
+        changed: applied.changed,
+        progress: applied.changed ? 'committed' : 'none',
+        actions: [action('INSTALL_FAILED', 'Production dependency installation or validation failed.')],
+      });
+    },
+    async verify() {
+      return (await inspect()).stages[0];
+    },
+    canFingerprintPrecondition(precondition) {
+      return ['node-runtime', 'package-lock', 'npm-cli'].includes(precondition.label);
+    },
+    async fingerprintPrecondition(precondition) {
+      if (precondition.label === 'node-runtime') {
+        const node = await inspectNodeRuntime({ executable: precondition.canonical_path, runner, allowedRoots: [dirname(precondition.canonical_path)], fsImpl });
+        return { fingerprint: prerequisiteFingerprintIdentity(node.fingerprint), version: node.version?.raw ?? null };
+      }
+      if (precondition.label === 'npm-cli') {
+        const observed = await fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname(dirname(precondition.canonical_path))], fsImpl });
+        const version = await runner.run(nodeExecutable, [precondition.canonical_path, '--version'], { env: {}, timeoutMs: 10_000, outputLimitBytes: 8 * 1024 });
+        return {
+          fingerprint: prerequisiteFingerprintIdentity(observed),
+          version: version.status === 'exited' && version.exitCode === 0 ? version.stdout.trim() : null,
+        };
+      }
+      return fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname(precondition.canonical_path)], fsImpl });
+    },
+  });
+}

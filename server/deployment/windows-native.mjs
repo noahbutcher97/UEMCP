@@ -6,7 +6,7 @@ import { fingerprintPath } from './fingerprints.mjs';
 const AUTHENTICODE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $module = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
-Import-Module -LiteralPath $module -Force
+Import-Module -Name $module -Force
 $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $env:UEMCP_AUTHENTICODE_TARGET
 $name = $null
 $thumbprint = $null
@@ -140,7 +140,7 @@ export async function inspectAuthenticode(executable, {
     fingerprint = await assertRegularSinglePath(executable, { allowedRoots, fsImpl, allowMultipleLinks: true });
     const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
       env: minimalEnvironment(systemRoot, { UEMCP_AUTHENTICODE_TARGET: fingerprint.canonical_path }),
-      stdin: AUTHENTICODE_SCRIPT,
+      stdin: `${AUTHENTICODE_SCRIPT}\n\n`,
       timeoutMs: 15_000,
       outputLimitBytes: 8 * 1024,
     });
@@ -179,7 +179,7 @@ export async function fingerprintWindowsFileMetadata(path, {
       UEMCP_MAX_STREAMS: String(maxStreams),
       UEMCP_MAX_STREAM_BYTES: String(maxStreamBytes),
     }),
-    stdin: METADATA_SCRIPT,
+    stdin: `${METADATA_SCRIPT}\n\n`,
     timeoutMs: 30_000,
     outputLimitBytes: 8 * 1024,
   });
@@ -221,7 +221,7 @@ export async function replaceFilePreservingMetadata({
       UEMCP_REPLACEMENT_PATH: replacement,
       UEMCP_DESTINATION_PATH: destination,
     }),
-    stdin: REPLACE_SCRIPT,
+    stdin: `${REPLACE_SCRIPT}\n\n`,
     timeoutMs: 30_000,
     outputLimitBytes: 8 * 1024,
   });

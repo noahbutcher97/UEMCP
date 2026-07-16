@@ -86,7 +86,7 @@ function gitCandidatePaths(environment) {
     candidates.push(join(root, 'Git', 'bin', 'git.exe'));
   }
   if (environment.LOCALAPPDATA) candidates.push(join(environment.LOCALAPPDATA, 'Programs', 'Git', 'cmd', 'git.exe'));
-  return [...new Set(candidates.map(resolve))];
+  return [...new Set(candidates.map(candidate => resolve(candidate)))];
 }
 
 async function selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment }) {

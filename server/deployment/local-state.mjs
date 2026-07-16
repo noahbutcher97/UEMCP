@@ -1,11 +1,24 @@
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 import { canonicalJson, sha256Bytes } from './canonical-json.mjs';
 import { createProcessRunner } from './process-runner.mjs';
 
 const SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const LEASE_PROCESS_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+try {
+  $pidValue = [int]$env:UEMCP_LEASE_PID
+  $processValue = Get-Process -Id $pidValue -ErrorAction Stop
+  $start = [DateTimeOffset]$processValue.StartTime.ToUniversalTime()
+  [Console]::Out.Write((@{ state = 'alive'; process_start = $start.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress))
+} catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
+  [Console]::Out.Write('{"state":"dead"}')
+} catch {
+  [Console]::Out.Write('{"state":"unknown"}')
+}
+`;
 
 export class LocalStateError extends Error {
   constructor(message, code = 'LOCAL_STATE_UNAVAILABLE', details = {}) {
@@ -44,11 +57,77 @@ async function exists(fsImpl, path) {
   }
 }
 
-async function defaultProcessInspector({ pid, process_start: expectedStart }) {
+async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
+  if (typeof path !== 'string' || !isAbsolute(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+    throw new LocalStateError('snapshot target path is unsafe', code);
+  }
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  const segments = relative(root, absolute).split(sep).filter(Boolean);
+  let current = root;
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const stat = await fsImpl.lstat(current);
+      if (stat.isSymbolicLink()) throw new LocalStateError('snapshot target path contains a symbolic link or junction', code);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return absolute;
+}
+
+export async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = {}, {
+  runner = createProcessRunner(),
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+} = {}) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return 'unknown';
+  if (!Number.isFinite(expectedStart)) return 'unknown';
   if (pid === process.pid) {
     const observedStart = Math.round(Date.now() - process.uptime() * 1000);
     return Math.abs(observedStart - Number(expectedStart)) < 5_000 ? 'alive' : 'dead';
+  }
+  if (platform === 'win32') {
+    if (!systemRoot || !runner?.run) return 'unknown';
+    const powershell = resolve(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+    let result;
+    try {
+      result = await runner.run(powershell, [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        '-',
+      ], {
+        env: {
+          SystemRoot: resolve(systemRoot),
+          WINDIR: resolve(systemRoot),
+          UEMCP_LEASE_PID: String(pid),
+        },
+        stdin: `${LEASE_PROCESS_SCRIPT}\n\n`,
+        timeoutMs: 10_000,
+        outputLimitBytes: 8 * 1024,
+      });
+    } catch {
+      return 'unknown';
+    }
+    if (result.status !== 'exited' || result.exitCode !== 0 || result.stderr !== '') return 'unknown';
+    try {
+      const parsed = JSON.parse(result.stdout);
+      const keys = Object.keys(parsed).sort().join(',');
+      if (keys === 'state' && parsed.state === 'dead') return 'dead';
+      if (keys === 'process_start,state'
+        && parsed.state === 'alive'
+        && Number.isSafeInteger(parsed.process_start)) {
+        return Math.abs(parsed.process_start - Number(expectedStart)) < 5_000 ? 'alive' : 'dead';
+      }
+      return 'unknown';
+    } catch {
+      return 'unknown';
+    }
   }
   try {
     process.kill(pid, 0);
@@ -99,7 +178,7 @@ export function createLocalState({
   root,
   fsImpl = defaultFs,
   aclRestrictor = defaultAclRestrictor,
-  processInspector = defaultProcessInspector,
+  processInspector = inspectLeaseOwnerProcess,
   clock = Date.now,
   sleep = ms => new Promise(resolvePromise => setTimeout(resolvePromise, ms)),
 } = {}) {
@@ -126,9 +205,30 @@ export function createLocalState({
     return absolute;
   }
 
-  async function ensureDirectory(path) {
+  async function assertNoLinkedLocalPath(path) {
     const absolute = assertLocalPath(path);
+    const segments = relative(absoluteRoot, absolute).split(sep).filter(Boolean);
+    let current = absoluteRoot;
+    const pathSegments = [null, ...segments];
+    for (const [index, segment] of pathSegments.entries()) {
+      if (segment !== null) current = join(current, segment);
+      try {
+        const stat = await fsImpl.lstat(current);
+        if (stat.isSymbolicLink()) throw new LocalStateError('local-state path contains a symbolic link or junction', 'LOCAL_STATE_PATH_ESCAPE');
+        if (index === pathSegments.length - 1 && stat.isFile() && stat.nlink !== 1) {
+          throw new LocalStateError('local-state file has multiple hard links', 'LOCAL_STATE_PATH_ESCAPE');
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+    return absolute;
+  }
+
+  async function ensureDirectory(path) {
+    const absolute = await assertNoLinkedLocalPath(path);
     await fsImpl.mkdir(absolute, { recursive: true });
+    await assertNoLinkedLocalPath(absolute);
     const key = process.platform === 'win32' ? absolute.toLowerCase() : absolute;
     if (!restrictedDirectories.has(key)) {
       await aclRestrictor(absolute);
@@ -140,6 +240,7 @@ export function createLocalState({
   async function writeBytesAtomic(path, bytes) {
     const absolute = assertLocalPath(path);
     await ensureDirectory(dirname(absolute));
+    await assertNoLinkedLocalPath(absolute);
     const scratch = scratchName(absolute);
     let handle;
     try {
@@ -156,7 +257,7 @@ export function createLocalState({
   }
 
   async function readJson(path) {
-    const absolute = assertLocalPath(path);
+    const absolute = await assertNoLinkedLocalPath(path);
     try {
       return JSON.parse(await fsImpl.readFile(absolute, 'utf8'));
     } catch (error) {
@@ -174,12 +275,12 @@ export function createLocalState({
     const id = safeSegment(transactionId, 'transactionId');
     const directory = join(pathSet.snapshots, id, randomBytes(8).toString('hex'));
     await ensureDirectory(directory);
-    const absoluteTarget = resolve(targetPath);
+    const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: 'UNSAFE_SNAPSHOT_TARGET' });
     let stat = null;
     let bytes = null;
     try {
       stat = await fsImpl.lstat(absoluteTarget);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new LocalStateError('snapshot target must be a regular non-linked file', 'UNSAFE_SNAPSHOT_TARGET');
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new LocalStateError('snapshot target must be a regular single-link file', 'UNSAFE_SNAPSHOT_TARGET');
       bytes = await fsImpl.readFile(absoluteTarget);
       await writeBytesAtomic(join(directory, 'payload.bin'), bytes);
     } catch (error) {
@@ -211,13 +312,14 @@ export function createLocalState({
     }
     const metadata = await readJson(join(snapshot.directory, 'metadata.json'));
     if (!metadata) throw new LocalStateError('snapshot metadata is missing', 'INVALID_SNAPSHOT');
+    await assertNoLinkedTargetPath(metadata.target_path, { fsImpl, code: 'ROLLBACK_CONFLICT' });
     if (expectedCurrentHash !== null && !/^[0-9a-f]{64}$/.test(expectedCurrentHash ?? '')) {
       throw new LocalStateError('rollback requires an exact expected current hash or null', 'INVALID_ROLLBACK_PRECONDITION');
     }
     let currentHash = null;
     try {
       const currentStat = await fsImpl.lstat(metadata.target_path);
-      if (!currentStat.isFile() || currentStat.isSymbolicLink()) throw new LocalStateError('rollback target changed type', 'ROLLBACK_CONFLICT');
+      if (!currentStat.isFile() || currentStat.isSymbolicLink() || currentStat.nlink !== 1) throw new LocalStateError('rollback target changed identity', 'ROLLBACK_CONFLICT');
       currentHash = sha256Bytes(await fsImpl.readFile(metadata.target_path));
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
@@ -257,10 +359,12 @@ export function createLocalState({
     if (!snapshot?.directory || !contained(pathSet.snapshots, snapshot.directory)) {
       throw new LocalStateError('snapshot is outside the local-state root', 'INVALID_SNAPSHOT');
     }
+    await assertNoLinkedLocalPath(snapshot.directory);
     await fsImpl.rm(snapshot.directory, { recursive: true, force: true });
   }
 
   async function cleanupExpired() {
+    await assertNoLinkedLocalPath(pathSet.snapshots);
     if (!(await exists(fsImpl, pathSet.snapshots))) return { deleted: 0 };
     let deleted = 0;
     const transactions = await fsImpl.readdir(pathSet.snapshots, { withFileTypes: true });
@@ -301,6 +405,7 @@ export function createLocalState({
 
   async function inspectLease() {
     try {
+      await assertNoLinkedLocalPath(pathSet.lock);
       const stat = await fsImpl.lstat(pathSet.lock);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return { state: 'unsafe' };
       const record = JSON.parse(await fsImpl.readFile(pathSet.lock, 'utf8'));
@@ -327,6 +432,7 @@ export function createLocalState({
     await ensureDirectory(pathSet.state);
     const startedWaiting = Number(clock());
     while (true) {
+      await assertNoLinkedLocalPath(pathSet.lock);
       if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
         throw new LocalStateError('plan expired while waiting for the apply lease', 'PLAN_EXPIRED');
       }
@@ -354,6 +460,7 @@ export function createLocalState({
             if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
               throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
             }
+            await assertNoLinkedLocalPath(pathSet.lock);
             await fsImpl.unlink(pathSet.lock);
             released = true;
           },
@@ -370,6 +477,7 @@ export function createLocalState({
         if (ownerState === 'dead' && age >= staleGraceMs) {
           const quarantine = `${pathSet.lock}.${randomBytes(12).toString('hex')}.stale`;
           try {
+            await assertNoLinkedLocalPath(pathSet.lock);
             await fsImpl.rename(pathSet.lock, quarantine);
             await fsImpl.rm(quarantine, { force: true });
             continue;
