@@ -1,0 +1,109 @@
+import { win32 } from 'node:path';
+
+const frozenVersions = versions => Object.freeze([...versions]);
+
+export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
+
+export const RELEASE_GATES = Object.freeze({
+  claude: Object.freeze({ versions: frozenVersions(['2.1.209', '2.1.210']) }),
+  codex: Object.freeze({ versions: frozenVersions(['0.144.4']) }),
+  gemini: Object.freeze({ versions: frozenVersions(['0.41.2']) }),
+  vscode: Object.freeze({ versions: frozenVersions(['1.128.1']) }),
+});
+
+const PACKAGE_IDS = Object.freeze({
+  claude: '@anthropic-ai/claude-code',
+  codex: '@openai/codex',
+  gemini: '@google/gemini-cli',
+  vscode: null,
+});
+
+export class ClientContractError extends Error {
+  constructor(message, code = 'INVALID_CLIENT_LAUNCH') {
+    super(message);
+    this.name = 'ClientContractError';
+    this.code = code;
+  }
+}
+
+function invalid(message) {
+  throw new ClientContractError(message);
+}
+
+function parseVersion(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? '');
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
+}
+
+export function classifySupportedVersion(clientId, version) {
+  const gate = RELEASE_GATES[clientId];
+  if (!gate) return 'known_unsupported';
+  if (gate.versions.includes(version)) return 'release_gated';
+  const parsed = parseVersion(version);
+  if (!parsed) return 'known_unsupported';
+  const newest = parseVersion(gate.versions.at(-1));
+  return compareVersions(parsed, newest) > 0 ? 'unknown_newer' : 'known_unsupported';
+}
+
+function exactObject(value, expected) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return false;
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return JSON.stringify(actualKeys) === JSON.stringify(expectedKeys)
+    && expectedKeys.every(key => value[key] === expected[key]);
+}
+
+function isVsCodeCliTuple(command, cli) {
+  const installRoot = win32.dirname(command);
+  const relativeCli = win32.relative(installRoot, cli);
+  const parts = relativeCli.split(win32.sep);
+  return parts.length === 5
+    && parts[0] !== ''
+    && parts[0] !== '.'
+    && parts[0] !== '..'
+    && parts.slice(1).map(value => value.toLowerCase()).join('/') === 'resources/app/out/cli.js';
+}
+
+export function validateClientLaunchContract(launch) {
+  if (!launch || !CLIENT_IDS.includes(launch.client_id)) invalid('client launch ID is invalid');
+  if (typeof launch.command !== 'string' || !win32.isAbsolute(launch.command) || !/\.exe$/i.test(launch.command)) {
+    invalid('client launch command must be an absolute Windows executable');
+  }
+  if (!Array.isArray(launch.args_prefix) || launch.args_prefix.some(path => typeof path !== 'string' || !win32.isAbsolute(path))) {
+    invalid('client launch argument prefix must contain absolute paths');
+  }
+  if (!['native', 'npm_package'].includes(launch.source)) invalid('client launch source is invalid');
+  if (launch.source === 'npm_package') {
+    if (launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win32.basename(launch.command).toLowerCase() !== 'node.exe') {
+      invalid('npm client launch tuple is invalid');
+    }
+  } else if (launch.package_id !== null) {
+    invalid('native client launch cannot declare an npm package');
+  }
+  if (typeof launch.version !== 'string' || classifySupportedVersion(launch.client_id, launch.version) !== launch.compatibility) {
+    invalid('client launch version classification is invalid');
+  }
+  if (launch.write_supported !== (launch.compatibility === 'release_gated')) invalid('client write support disagrees with its version gate');
+  if (!launch.fingerprint || typeof launch.fingerprint !== 'object') invalid('client launch fingerprint is missing');
+
+  if (launch.client_id === 'vscode') {
+    if (launch.source !== 'native' || !/Code\.exe$/i.test(launch.command)
+      || launch.args_prefix.length !== 1 || !/cli\.js$/i.test(launch.args_prefix[0])
+      || !isVsCodeCliTuple(launch.command, launch.args_prefix[0])
+      || !exactObject(launch.env_overlay, { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' })) {
+      invalid('VS Code launch tuple is invalid');
+    }
+  } else if (!exactObject(launch.env_overlay, {})) {
+    invalid('non-VS Code client launch cannot alter the environment');
+  }
+  return launch;
+}
