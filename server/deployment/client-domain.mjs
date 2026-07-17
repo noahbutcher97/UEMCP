@@ -51,13 +51,17 @@ const DISCOVERY_ENVIRONMENT_NAMES = new Set([
   'GEMINI_CLI_TRUST_WORKSPACE',
   'HOME',
   'LOCALAPPDATA',
+  'NPM_CONFIG_PREFIX',
   'NODE_OPTIONS',
   'NODE_PATH',
   'PATH',
   'PATHEXT',
   'PROGRAMDATA',
   'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
   'SYSTEMROOT',
+  'TEMP',
+  'TMP',
   'USERPROFILE',
   'WINDIR',
 ]);
@@ -852,7 +856,9 @@ export function createClientDomain({
         ? await adapter.plan(currentContext, inspection, context.descriptor)
         : null;
       let smoke = { status: 'UNKNOWN' };
-      if (canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
+      if (row.compatibility === 'release_gated'
+        && row.write_supported === true
+        && canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
         const launch = typeof adapter.protocolLaunch === 'function'
           ? await adapter.protocolLaunch(currentContext, inspection)
           : { env_overlay: {}, cwd: null };

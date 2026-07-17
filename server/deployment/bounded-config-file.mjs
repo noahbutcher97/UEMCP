@@ -135,11 +135,29 @@ export async function readBoundedConfigFile({
     fail('client config changed between fingerprint and parse', 'UNSAFE_CONFIG_PATH', { scope: entry.scope });
   }
   tracker.total += bytes.length;
+  let document;
+  try {
+    document = parseBytes(bytes);
+  } catch (error) {
+    const code = typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code)
+      ? error.code
+      : 'CONFIG_INSPECTION_FAILED';
+    throw new BoundedConfigFileError('client config parse failed', code, {
+      scope: entry.scope,
+      inspected_file: {
+        ...entry,
+        fingerprint,
+        exists: true,
+        bytes: null,
+        document: null,
+      },
+    });
+  }
   return {
     ...entry,
     fingerprint,
     exists: true,
     bytes,
-    document: parseBytes(bytes),
+    document,
   };
 }

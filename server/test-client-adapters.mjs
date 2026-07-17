@@ -122,16 +122,32 @@ function throwsCode(fn, code) {
   t.assert(readWindowsEnvironmentValue({ PATH: undefined, Path: 'one' }, 'PATH') === 'one', 'undefined environment aliases do not create false ambiguity');
   t.assert(throwsCode(() => readWindowsEnvironmentValue({ PATH: 'one', Path: 'two' }, 'PATH'), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'shared client environment lookup rejects duplicate case variants');
 
-  const parent = { Node_Options: 'parent-injection', NODE_PATH: 'parent-modules', KEEP: 'parent' };
-  const clientEnvironment = clientProcessEnvironment(parent, { node_options: 'overlay-injection', EXTRA: 'client' });
+  const parent = {
+    SystemRoot: 'C:\\Windows',
+    'TEMP': 'C:\\Scratch',
+    UEMCP_PROJECT_ROOT: 'C:\\Project',
+    Node_Options: 'parent-injection',
+    NODE_PATH: 'parent-modules',
+    KEEP: 'parent',
+    SECRET_CANARY: 'parent-secret',
+  };
+  const clientEnvironment = clientProcessEnvironment(parent, { node_options: 'overlay-injection', PATH: 'reviewed-path', EXTRA: 'client' });
   t.assert(Object.keys(clientEnvironment).every(name => !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase()))
-    && clientEnvironment.KEEP === 'parent'
-    && clientEnvironment.EXTRA === 'client', 'client process environment removes ambient and overlaid Node code-loading controls');
+    && clientEnvironment.SystemRoot === 'C:\\Windows'
+    && clientEnvironment['TEMP'] === 'C:\\Scratch'
+    && clientEnvironment.UEMCP_PROJECT_ROOT === 'C:\\Project'
+    && clientEnvironment.PATH === 'reviewed-path'
+    && !Object.hasOwn(clientEnvironment, 'KEEP')
+    && !Object.hasOwn(clientEnvironment, 'SECRET_CANARY')
+    && !Object.hasOwn(clientEnvironment, 'EXTRA'), 'client process environment uses only the inherited provider allowlist');
   const protocolEnvironment = protocolProcessEnvironment(parent, { nOdE_oPtIoNs: 'reviewed-injection', EXTRA: 'protocol' });
   t.assert(protocolEnvironment.nOdE_oPtIoNs === 'reviewed-injection'
     && !Object.hasOwn(protocolEnvironment, 'Node_Options')
     && !Object.hasOwn(protocolEnvironment, 'NODE_PATH')
-    && protocolEnvironment.KEEP === 'parent', 'protocol process environment admits only reviewed Node controls from the registration overlay');
+    && protocolEnvironment.SystemRoot === 'C:\\Windows'
+    && protocolEnvironment.EXTRA === 'protocol'
+    && !Object.hasOwn(protocolEnvironment, 'KEEP')
+    && !Object.hasOwn(protocolEnvironment, 'SECRET_CANARY'), 'protocol process environment admits arbitrary values only from the reviewed registration overlay');
   t.assert(parent.Node_Options === 'parent-injection' && parent.NODE_PATH === 'parent-modules', 'process environment filtering does not mutate its parent input');
 }
 
@@ -1360,15 +1376,38 @@ async function rejectsCode(fn, code) {
   const root = makeRoot();
   try {
     const layout = npmInstall(root, 'codex', { packageName: '@openai/codex' });
+    const equivalentShim = write(join(layout.prefix, 'codex.ps1'), '# npm shim\n');
     const hostile = write(join(root, 'hostile', 'codex.exe'), 'hostile');
     const runner = runnerFor('0.144.4');
     const result = await resolveClientLaunch('codex', {
       env: layout.env,
       runner,
-      candidates: { codex: [hostile, layout.shim, layout.shim], nodeExecutable: layout.nodeExecutable },
+      candidates: { codex: [hostile, layout.shim, equivalentShim, layout.shim], nodeExecutable: layout.nodeExecutable },
     });
-    t.assert(result.source === 'npm_package' && runner.calls.length === 1, 'hostile and duplicate candidates are rejected or deduplicated before spawn');
+    t.assert(result.source === 'npm_package' && runner.calls.length === 1, 'hostile candidates are rejected and equivalent launch tuples are deduplicated before spawn');
     t.assert(runner.calls.every(call => call.executable !== hostile), 'rejected same-name executable is never launched');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Distinct viable installations are ambiguous; discovery never silently selects candidate order.
+{
+  const root = makeRoot();
+  try {
+    const first = npmInstall(join(root, 'first'), 'codex', { packageName: '@openai/codex' });
+    const second = npmInstall(join(root, 'second'), 'codex', { packageName: '@openai/codex' });
+    const runner = runnerFor('0.144.4');
+    t.assert(await rejectsCode(() => resolveClientLaunch('codex', {
+      env: first.env,
+      runner,
+      candidates: {
+        codex: [first.shim, second.shim],
+        nodeExecutable: first.nodeExecutable,
+        npmPrefixes: [first.prefix, second.prefix],
+      },
+    }), 'AMBIGUOUS_CLIENT_INSTALLATION'), 'multiple distinct viable client installations fail closed instead of selecting the first candidate');
+    t.assert(runner.calls.length === 2, 'every distinct safe installation is version-probed before ambiguity is reported');
   } finally {
     cleanup(root);
   }
@@ -1826,6 +1865,7 @@ async function rejectsCode(fn, code) {
     const unsupportedInspection = await adapter.inspect(unsupportedContext, unsupportedDetection);
     const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
     t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Claude version cannot plan a write');
+    t.assert(runner.calls.length === 2 && unsupportedInspection.native.status === 'UNKNOWN', 'unknown Claude releases use structural inspection without native provider commands');
   } finally {
     cleanup(root);
   }
@@ -2568,6 +2608,7 @@ async function rejectsCode(fn, code) {
     const unsupportedInspection = await adapter.inspect(unsupportedContext, await adapter.detect(unsupportedContext));
     const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
     t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Codex version cannot plan a write');
+    t.assert(runner.calls.length === 2 && unsupportedInspection.native.status === 'UNKNOWN', 'unknown Codex releases use structural inspection without native provider commands');
   } finally {
     cleanup(root);
   }
@@ -3140,6 +3181,7 @@ async function rejectsCode(fn, code) {
     const unsupportedInspection = await adapter.inspect(unsupportedContext, await adapter.detect(unsupportedContext));
     const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
     t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown Gemini versions cannot plan writes');
+    t.assert(runner.calls.length === 1 && unsupportedInspection.native.status === 'UNKNOWN', 'unknown Gemini releases use structural inspection without native provider commands');
   } finally {
     cleanup(root);
   }
@@ -3449,6 +3491,29 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Enabled malformed extension state blocks even an exact settings registration and remains fingerprint-bound.
+for (const malformedCase of ['enablement', 'manifest']) {
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    writeJson(locations.user.path, { mcpServers: { uemcp: physicalGeminiEntry(context.descriptor) } });
+    const malformedPath = malformedCase === 'enablement'
+      ? locations.extensions_enablement.path
+      : join(locations.extensions_root.path, 'malformed-extension', 'gemini-extension.json');
+    write(malformedPath, '{ malformed enabled extension evidence');
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    const evidence = inspection.files.find(row => row.path === resolve(malformedPath));
+    t.assert(inspection.registration === 'MALFORMED_CONFIG' && inspection.extension_evidence === 'UNKNOWN', `Gemini malformed extension ${malformedCase} invalidates otherwise exact settings evidence`);
+    t.assert(plan.status === 'MALFORMED_CONFIG' && plan.operations.length === 0, `Gemini malformed extension ${malformedCase} cannot produce an applicable plan`);
+    t.assert(evidence?.fingerprint?.content_sha256 === sha256Bytes(readFileSync(malformedPath)), `Gemini malformed extension ${malformedCase} remains bound to the inspected file bytes`);
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Duplicate Gemini extension names make host extension loading ambiguous even when only one declares UEMCP.
 {
   const root = makeRoot();
@@ -3468,8 +3533,8 @@ async function rejectsCode(fn, code) {
     const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
     const inspection = await adapter.inspect(context, await adapter.detect(context));
     const plan = await adapter.plan(context, inspection, context.descriptor);
-    t.assert(inspection.extension_evidence === 'UNKNOWN' && inspection.registration === 'UNKNOWN', 'duplicate Gemini extension names invalidate effective extension evidence');
-    t.assert(plan.status === 'POLICY_UNKNOWN' && plan.operations.length === 0, 'duplicate Gemini extension identities block writes instead of guessing precedence');
+    t.assert(inspection.extension_evidence === 'UNKNOWN' && inspection.registration === 'MALFORMED_CONFIG', 'duplicate Gemini extension names invalidate effective extension evidence');
+    t.assert(plan.status === 'MALFORMED_CONFIG' && plan.operations.length === 0, 'duplicate Gemini extension identities block writes instead of guessing precedence');
   } finally {
     cleanup(root);
   }
@@ -3868,10 +3933,47 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const failedProbeRow = failedProbe.find(row => row.client_id === 'codex');
   t.assert(failedProbeRow.compatibility === 'known_unsupported' && failedProbeRow.version === null && failedProbeRow.discovery_status === 'VERSION_PROBE_FAILED', 'version-probe failure remains inspect-only discovery evidence instead of false absence');
 
+  const ambiguousResolvers = { ...missingResolvers };
+  ambiguousResolvers.codex = async () => {
+    throw Object.assign(new Error('multiple installations'), { code: 'AMBIGUOUS_CLIENT_INSTALLATION' });
+  };
+  const ambiguous = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: ambiguousResolvers });
+  const ambiguousRow = ambiguous.find(row => row.client_id === 'codex');
+  t.assert(ambiguousRow.compatibility === 'known_unsupported' && ambiguousRow.launch === null && ambiguousRow.discovery_status === 'AMBIGUOUS_CLIENT_INSTALLATION', 'ambiguous installation evidence remains visible and cannot authorize a launch');
+
   const crashedResolvers = { ...missingResolvers };
   crashedResolvers.claude = async () => { throw new Error('unexpected resolver fault'); };
   t.assert(await rejectsCode(() => discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: crashedResolvers }), 'CLIENT_DISCOVERY_FAILED'), 'unexpected resolver faults fail aggregate discovery closed');
   cleanup(root);
+}
+
+// Unsupported releases are structural-inspection-only, regardless of selection intent.
+{
+  const root = makeRoot();
+  try {
+    const unsupportedLaunch = aggregateLaunch(root, 'claude', {
+      version: '99.0.0',
+      compatibility: 'unknown_newer',
+      write_supported: false,
+    });
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? Object.freeze({ ...unsupportedLaunch, launch: unsupportedLaunch, discovery_status: 'DETECTED' })
+      : absentClient(clientId));
+    let smokeCalls = 0;
+    const domain = createClientDomain({
+      adapters: CLIENT_IDS.map(aggregateAdapter),
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+    });
+    const observed = await domain.verify(aggregateContext(root));
+    const explicitlyIncluded = await domain.verify(aggregateContext(root, { include: ['claude'] }));
+    t.assert(smokeCalls === 0, 'unknown releases never launch protocol smoke when observed by default or explicitly included');
+    t.assert(observed.stage.evidence.clients.find(row => row.adapter === 'claude').protocol_status === 'UNKNOWN'
+      && explicitlyIncluded.stage.evidence.clients.find(row => row.adapter === 'claude').protocol_status === 'UNKNOWN', 'unsupported release protocol evidence remains explicitly unknown');
+  } finally {
+    cleanup(root);
+  }
 }
 
 // Expected discovery failures remain visible without invoking an adapter or protocol launch.
@@ -4206,6 +4308,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       env: { ...context.env, UEMCP_PROJECT_ROOT: resolve(join(root, 'changed-project')) },
       approvedPlan: plan,
     }, []), 'PLAN_STALE'), 'client apply binds ambient UEMCP and Unreal attachment inputs without serializing them');
+    t.assert(await rejectsCode(() => domain.apply({
+      ...context,
+      env: { ...context.env, NPM_CONFIG_PREFIX: resolve(join(root, 'changed-npm-prefix')) },
+      approvedPlan: plan,
+    }, []), 'PLAN_STALE'), 'client apply binds npm discovery-prefix authority into the reviewed context');
     t.assert(discoveryCalls === 1, 'discovery-context drift fails before a child version probe');
   } finally {
     cleanup(root);
@@ -4963,9 +5070,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const result = await domain.verify(aggregateContext(root, {
       env: {
+        SystemRoot: 'C:\\Windows',
         Path: 'parent-path',
         harmless: 'parent-value',
         KEEP: 'parent-keep',
+        SECRET_CANARY: 'parent-secret',
         Node_Options: '--require=C:\\outside\\inject.cjs',
         NODE_PATH: 'C:\\outside\\modules',
       },
@@ -4976,7 +5085,9 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       && !Object.hasOwn(effective, 'harmless')
       && !Object.hasOwn(effective, 'Node_Options')
       && !Object.hasOwn(effective, 'NODE_PATH')
-      && effective.KEEP === 'parent-keep', 'protocol environment merge removes case-colliding aliases and ambient Node code-loading controls');
+      && !Object.hasOwn(effective, 'KEEP')
+      && !Object.hasOwn(effective, 'SECRET_CANARY')
+      && effective.SystemRoot === 'C:\\Windows', 'protocol environment merge removes ambient unreviewed values and case-colliding aliases');
     t.assert(result.clients[0].status === 'CONFIGURED' && result.clients[0].activation === 'CONNECTED', 'harmless custom environment preserves independent structural and activation facts');
 
     const hostileValue = '--require=C:\\untrusted\\bootstrap.js';

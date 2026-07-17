@@ -10411,12 +10411,28 @@ async function readBoundedConfigFile({
     fail3("client config changed between fingerprint and parse", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
   }
   tracker.total += bytes.length;
+  let document;
+  try {
+    document = parseBytes(bytes);
+  } catch (error2) {
+    const code = typeof error2?.code === "string" && /^[A-Z0-9_]+$/.test(error2.code) ? error2.code : "CONFIG_INSPECTION_FAILED";
+    throw new BoundedConfigFileError("client config parse failed", code, {
+      scope: entry.scope,
+      inspected_file: {
+        ...entry,
+        fingerprint,
+        exists: true,
+        bytes: null,
+        document: null
+      }
+    });
+  }
   return {
     ...entry,
     fingerprint,
     exists: true,
     bytes,
-    document: parseBytes(bytes)
+    document
   };
 }
 
@@ -10465,6 +10481,29 @@ var PACKAGE_IDS = Object.freeze({
   vscode: null
 });
 var VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: "1", VSCODE_DEV: "" });
+var INHERITED_CLIENT_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
+  "APPDATA",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "COMSPEC",
+  "ELECTRON_RUN_AS_NODE",
+  "GEMINI_CLI_HOME",
+  "GEMINI_CLI_TRUSTED_FOLDERS_PATH",
+  "GEMINI_CLI_TRUST_WORKSPACE",
+  "HOME",
+  "LOCALAPPDATA",
+  "PATH",
+  "PATHEXT",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "VSCODE_DEV",
+  "WINDIR"
+]);
 var SENSITIVE_CLIENT_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
   "NODE_OPTIONS",
   "NODE_PATH",
@@ -10530,7 +10569,7 @@ function mergeWindowsEnvironmentOverlay(env, overlay) {
 }
 function clientProcessEnvironment(env, overlay = {}) {
   const merged = mergeWindowsEnvironmentOverlay(env, overlay);
-  return Object.fromEntries(Object.entries(merged).filter(([name]) => !["NODE_OPTIONS", "NODE_PATH"].includes(name.toUpperCase())));
+  return Object.fromEntries(Object.entries(merged).filter(([name]) => INHERITED_CLIENT_ENVIRONMENT_NAMES.has(name.toUpperCase()) || name.toUpperCase().startsWith("UEMCP_") || name.toUpperCase().startsWith("UNREAL_")));
 }
 function protocolProcessEnvironment(env, overlay = {}) {
   const parent = clientProcessEnvironment(env);
@@ -14886,6 +14925,16 @@ async function runNativeQuery(runner, context, detection, tail) {
   });
 }
 async function inspectNative(runner, context, detection) {
+  if (context.launch?.compatibility !== "release_gated") {
+    const unknown2 = classifyClaudeNativeStatus(null);
+    return Object.freeze({
+      ...unknown2,
+      list_status: "UNKNOWN",
+      get_status: "UNKNOWN",
+      list_output_sha256: unknown2.output_sha256,
+      get_output_sha256: unknown2.output_sha256
+    });
+  }
   const safeQuery = async (tail) => {
     await context.beforeActiveClientLaunch?.({ client_id: "claude", kind: "native" });
     try {
@@ -16259,6 +16308,10 @@ async function runNativeQuery2(runner, context, detection, tail) {
   });
 }
 async function inspectNative2(runner, context, detection, desired) {
+  if (context.launch?.compatibility !== "release_gated") {
+    const unknown2 = classifyCodexNativeStatus(null, { desired });
+    return mergeNativeStatus2(unknown2, unknown2);
+  }
   const safe = async (tail) => {
     await context.beforeActiveClientLaunch?.({ client_id: "codex", kind: "native" });
     try {
@@ -17042,6 +17095,7 @@ function environmentForLaunch3(context, launch) {
   return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
 }
 async function inspectNative3(runner, context, detection) {
+  if (context.launch?.compatibility !== "release_gated") return classifyGeminiNativeStatus(null);
   await context.beforeActiveClientLaunch?.({ client_id: "gemini", kind: "native" });
   try {
     const result2 = await runner.run(detection.launch.command, [
@@ -17372,7 +17426,7 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
   } catch (error2) {
     if (error2?.code !== "MALFORMED_CONFIG") throw error2;
     evidenceStatus = "UNKNOWN";
-    enablementFile = null;
+    enablementFile = error2?.details?.inspected_file ?? null;
   }
   let entries;
   try {
@@ -17451,6 +17505,7 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
     } catch (error2) {
       if (error2?.code !== "MALFORMED_CONFIG") throw error2;
       evidenceStatus = "UNKNOWN";
+      if (error2?.details?.inspected_file) files.push(error2.details.inspected_file);
       rows.push(Object.freeze({
         name: directory.name,
         path: manifestLocation.path,
@@ -17753,6 +17808,7 @@ function createGeminiAdapter({
         effective = Object.freeze({ scope: "extension", path: null, matching: false });
         registration = "CONFLICT";
       }
+      if (extensionInspection.evidence_status !== "READY") registration = "MALFORMED_CONFIG";
       let effectiveProtocolLaunch = Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
       if (!logicalNameConflict && activeSettingsEntry !== void 0) {
         effectiveProtocolLaunch = Object.freeze({
@@ -17778,6 +17834,7 @@ function createGeminiAdapter({
       if (activation === "PENDING_TRUST") actions.push("PENDING_TRUST");
       if (policy === "POLICY_UNKNOWN" || enablementEvidence.status !== "READY") actions.push("POLICY_UNKNOWN");
       if (registration === "CONFLICT") actions.push("CONFLICT");
+      if (registration === "MALFORMED_CONFIG") actions.push("MALFORMED_CONFIG");
       let ownership = occurrences.find((row) => row.scope === "user")?.ownership ?? null;
       if (!ownership) {
         ownership = safeOwnershipEvidence3(await inspectOwnership({
@@ -19519,6 +19576,15 @@ async function probeVersion(launch, { env, runner, fsImpl }) {
   if (!version2) fail14("client version output is unsupported", "VERSION_PROBE_FAILED");
   return version2;
 }
+function launchIdentity(launch) {
+  return sha256Canonical({
+    command: pathKey3(launch.command),
+    args_prefix: launch.args_prefix.map((value) => absoluteSafePath(value) ? pathKey3(value) : value),
+    env_overlay: launch.env_overlay,
+    package_id: launch.package_id,
+    source: launch.source
+  });
+}
 async function resolveClientLaunch(clientId, {
   env = process.env,
   fsImpl = defaultFs10,
@@ -19549,8 +19615,10 @@ async function resolveClientLaunch(clientId, {
     }
   }
   if (valid.length === 0) fail14("no safe client launch candidate was found");
+  const uniqueLaunches = [...new Map(valid.map((launch) => [launchIdentity(launch), launch])).values()];
   let lastProbeError = null;
-  for (const launch of valid) {
+  const viable = [];
+  for (const launch of uniqueLaunches) {
     try {
       const version2 = await probeVersion(launch, { env, runner, fsImpl });
       const compatibility = classifySupportedVersion(clientId, version2);
@@ -19567,12 +19635,18 @@ async function resolveClientLaunch(clientId, {
         write_supported: compatibility === "release_gated"
       };
       validateClientLaunchContract(result2);
-      return Object.freeze(result2);
+      viable.push(Object.freeze(result2));
     } catch (error2) {
       if (error2?.code !== "VERSION_PROBE_FAILED") throw error2;
       lastProbeError = error2;
     }
   }
+  if (viable.length > 1) {
+    fail14("multiple distinct client installations are viable", "AMBIGUOUS_CLIENT_INSTALLATION", {
+      candidate_count: viable.length
+    });
+  }
+  if (viable.length === 1) return viable[0];
   throw lastProbeError ?? new ClientProcessError("client version probe failed", "VERSION_PROBE_FAILED");
 }
 
@@ -19668,7 +19742,7 @@ async function discoverClients({
       }
       const code = safeErrorCode(error2);
       if (code === "NOT_INSTALLED") rows.push(absentRow(clientId));
-      else if (["VERSION_PROBE_FAILED", "CLIENT_DISCOVERY_FAILED", "AMBIGUOUS_CLIENT_ENVIRONMENT", "INSPECTION_LIMIT_EXCEEDED"].includes(code)) {
+      else if (["VERSION_PROBE_FAILED", "CLIENT_DISCOVERY_FAILED", "AMBIGUOUS_CLIENT_ENVIRONMENT", "AMBIGUOUS_CLIENT_INSTALLATION", "INSPECTION_LIMIT_EXCEEDED"].includes(code)) {
         rows.push(failedRow(clientId, code));
       } else {
         fail15("client resolver returned an unsupported failure", "CLIENT_DISCOVERY_FAILED", { client_id: clientId, resolver_code: code });
@@ -27191,13 +27265,17 @@ var DISCOVERY_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
   "GEMINI_CLI_TRUST_WORKSPACE",
   "HOME",
   "LOCALAPPDATA",
+  "NPM_CONFIG_PREFIX",
   "NODE_OPTIONS",
   "NODE_PATH",
   "PATH",
   "PATHEXT",
   "PROGRAMDATA",
   "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
   "SYSTEMROOT",
+  "TEMP",
+  "TMP",
   "USERPROFILE",
   "WINDIR"
 ]);
@@ -27875,7 +27953,7 @@ function createClientDomain({
       const inspection = await settleInspection(currentContext, adapter, detection);
       const planResult = plan2 && row.selected ? await adapter.plan(currentContext, inspection, context.descriptor) : null;
       let smoke = { status: "UNKNOWN" };
-      if (canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
+      if (row.compatibility === "release_gated" && row.write_supported === true && canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
         const launch = typeof adapter.protocolLaunch === "function" ? await adapter.protocolLaunch(currentContext, inspection) : { env_overlay: {}, cwd: null };
         if (!plainObject6(launch?.env_overlay) || Object.values(launch.env_overlay).some((value) => typeof value !== "string")) {
           fail16("adapter private protocol environment is invalid", "INVALID_CLIENT_LAUNCH");

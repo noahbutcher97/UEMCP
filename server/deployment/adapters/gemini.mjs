@@ -202,6 +202,7 @@ function environmentForLaunch(context, launch) {
 }
 
 async function inspectNative(runner, context, detection) {
+  if (context.launch?.compatibility !== 'release_gated') return classifyGeminiNativeStatus(null);
   await context.beforeActiveClientLaunch?.({ client_id: 'gemini', kind: 'native' });
   try {
     const result = await runner.run(detection.launch.command, [
@@ -563,7 +564,7 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
   } catch (error) {
     if (error?.code !== 'MALFORMED_CONFIG') throw error;
     evidenceStatus = 'UNKNOWN';
-    enablementFile = null;
+    enablementFile = error?.details?.inspected_file ?? null;
   }
 
   let entries;
@@ -646,6 +647,7 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
     } catch (error) {
       if (error?.code !== 'MALFORMED_CONFIG') throw error;
       evidenceStatus = 'UNKNOWN';
+      if (error?.details?.inspected_file) files.push(error.details.inspected_file);
       rows.push(Object.freeze({
         name: directory.name,
         path: manifestLocation.path,
@@ -977,6 +979,7 @@ export function createGeminiAdapter({
         effective = Object.freeze({ scope: 'extension', path: null, matching: false });
         registration = 'CONFLICT';
       }
+      if (extensionInspection.evidence_status !== 'READY') registration = 'MALFORMED_CONFIG';
 
       let effectiveProtocolLaunch = Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
       if (!logicalNameConflict && activeSettingsEntry !== undefined) {
@@ -1007,6 +1010,7 @@ export function createGeminiAdapter({
       if (activation === 'PENDING_TRUST') actions.push('PENDING_TRUST');
       if (policy === 'POLICY_UNKNOWN' || enablementEvidence.status !== 'READY') actions.push('POLICY_UNKNOWN');
       if (registration === 'CONFLICT') actions.push('CONFLICT');
+      if (registration === 'MALFORMED_CONFIG') actions.push('MALFORMED_CONFIG');
 
       let ownership = occurrences.find(row => row.scope === 'user')?.ownership ?? null;
       if (!ownership) {

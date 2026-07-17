@@ -687,6 +687,16 @@ async function probeVersion(launch, { env, runner, fsImpl }) {
   return version;
 }
 
+function launchIdentity(launch) {
+  return sha256Canonical({
+    command: pathKey(launch.command),
+    args_prefix: launch.args_prefix.map(value => absoluteSafePath(value) ? pathKey(value) : value),
+    env_overlay: launch.env_overlay,
+    package_id: launch.package_id,
+    source: launch.source,
+  });
+}
+
 export async function resolveClientLaunch(clientId, {
   env = process.env,
   fsImpl = defaultFs,
@@ -723,8 +733,11 @@ export async function resolveClientLaunch(clientId, {
   }
   if (valid.length === 0) fail('no safe client launch candidate was found');
 
+  const uniqueLaunches = [...new Map(valid.map(launch => [launchIdentity(launch), launch])).values()];
+
   let lastProbeError = null;
-  for (const launch of valid) {
+  const viable = [];
+  for (const launch of uniqueLaunches) {
     try {
       const version = await probeVersion(launch, { env, runner, fsImpl });
       const compatibility = classifySupportedVersion(clientId, version);
@@ -741,11 +754,17 @@ export async function resolveClientLaunch(clientId, {
         write_supported: compatibility === 'release_gated',
       };
       validateClientLaunchContract(result);
-      return Object.freeze(result);
+      viable.push(Object.freeze(result));
     } catch (error) {
       if (error?.code !== 'VERSION_PROBE_FAILED') throw error;
       lastProbeError = error;
     }
   }
+  if (viable.length > 1) {
+    fail('multiple distinct client installations are viable', 'AMBIGUOUS_CLIENT_INSTALLATION', {
+      candidate_count: viable.length,
+    });
+  }
+  if (viable.length === 1) return viable[0];
   throw lastProbeError ?? new ClientProcessError('client version probe failed', 'VERSION_PROBE_FAILED');
 }

@@ -25,6 +25,29 @@ const PACKAGE_IDS = Object.freeze({
   vscode: null,
 });
 const VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' });
+const INHERITED_CLIENT_ENVIRONMENT_NAMES = new Set([
+  'APPDATA',
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  'COMSPEC',
+  'ELECTRON_RUN_AS_NODE',
+  'GEMINI_CLI_HOME',
+  'GEMINI_CLI_TRUSTED_FOLDERS_PATH',
+  'GEMINI_CLI_TRUST_WORKSPACE',
+  'HOME',
+  'LOCALAPPDATA',
+  'PATH',
+  'PATHEXT',
+  'PROGRAMDATA',
+  'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
+  'SYSTEMROOT',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'VSCODE_DEV',
+  'WINDIR',
+]);
 const SENSITIVE_CLIENT_ENVIRONMENT_NAMES = new Set([
   'NODE_OPTIONS',
   'NODE_PATH',
@@ -106,7 +129,9 @@ export function mergeWindowsEnvironmentOverlay(env, overlay) {
 export function clientProcessEnvironment(env, overlay = {}) {
   const merged = mergeWindowsEnvironmentOverlay(env, overlay);
   return Object.fromEntries(Object.entries(merged).filter(([name]) => (
-    !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase())
+    INHERITED_CLIENT_ENVIRONMENT_NAMES.has(name.toUpperCase())
+      || name.toUpperCase().startsWith('UEMCP_')
+      || name.toUpperCase().startsWith('UNREAL_')
   )));
 }
 

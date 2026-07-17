@@ -3,7 +3,9 @@
 The deployment client domain discovers every closed client ID on every run.
 Detected release-gated clients are selected by default; absent, excluded, and
 unsupported clients remain visible. Writes are allowed only at the exact
-versions below.
+versions below. Unsupported releases receive structural file inspection only;
+UEMCP does not run release-specific native queries or protocol smoke against
+them, even when they are explicitly included.
 
 | Client | Write gate | Writable target | Read-only precedence evidence | Native verification |
 | --- | --- | --- | --- | --- |
@@ -61,6 +63,10 @@ discovery-relevant homes, PATH inputs, workspace, trust inputs, and selected
 profile roots. Apply validates those facts, reuses the reviewed launch tuple,
 and returns `PLAN_STALE` before child execution when the context changed. It
 does not rediscover a replacement same-version executable after approval.
+Discovery canonicalizes equivalent launch tuples before version probing. If
+more than one distinct safe installation remains viable, discovery reports
+`AMBIGUOUS_CLIENT_INSTALLATION` with no executable authority instead of
+selecting candidate order.
 Malformed, over-limit, or unsafe selected-client inspection cannot produce an
 applicable plan because complete path preconditions cannot be proven. During
 apply, read-only and no-op preconditions are checked again immediately before
@@ -122,6 +128,9 @@ trusted-folders rules, and the documented trust override environment. Its
 precedence is system defaults, user, trusted project, then system override;
 enabled extension declarations remain separate provenance. Persistent disable,
 administrative policy, session connection, and pending trust are independent.
+When extensions are enabled, malformed or ambiguous extension manifests and
+enablement rules make the complete registration `MALFORMED_CONFIG`, even if an
+exact settings entry also exists; the malformed file fingerprint remains bound.
 The adapter never mutates enablement or invokes native add/remove. Protocol
 smoke uses the fully deep-merged effective settings entry, including inherited
 environment and working-directory fields, rather than the physical occurrence
@@ -144,11 +153,14 @@ Sensitive launch review is case-insensitive and shared across adapters for
 `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`,
 `GEMINI_CLI_HOME`, and every `UEMCP_` or `UNREAL_` prefix.
 
-Provider CLI probes and native read commands remove ambient `NODE_OPTIONS` and
-`NODE_PATH` case-insensitively. Protocol smoke removes those controls from the
-parent process too, then applies the inspected registration overlay. An
-explicit registration value can therefore execute only after its normal
-custom-environment review is present in the approved plan.
+Provider CLI probes and native read commands inherit only a fixed operational
+allowlist: Windows runtime and path keys, provider home/trust keys, temporary
+directories, the fixed VS Code launch keys, and `UEMCP_`/`UNREAL_` prefixes.
+Unrelated parent variables and ambient `NODE_OPTIONS`/`NODE_PATH` are omitted.
+Protocol smoke starts from that same filtered parent and then applies the exact
+inspected registration overlay. An arbitrary registration value can therefore
+execute only after its normal custom-environment review is present in the
+approved plan.
 
 Standalone verify and doctor do not protocol-smoke a registration carrying
 `CUSTOM_ENV_REVIEW_REQUIRED` or `CUSTOM_LAUNCH_REVIEW_REQUIRED`. Structural and

@@ -200,6 +200,8 @@ A client row has exactly:
 
 Compatibility is one of `release_gated`, `known_unsupported`, `unknown_newer`,
 or `not_installed`. `write_supported` is true only for `release_gated` clients.
+Unknown and unsupported releases use structural inspection only: no
+release-specific native provider command or protocol smoke is launched.
 Structural registration, native-client evidence, protocol health,
 enablement/policy, and activation/trust are independent facts. The aggregate
 does not promote one fact from another. Client-stage environment evidence uses
@@ -212,7 +214,10 @@ already configured and emits no write. A secret-safe reviewed launch tuple and
 discovery-context hash bind the executable choice, client homes, relevant PATH
 inputs, invocation workspace, trust inputs, and VS Code profile root. Apply
 validates those facts and reuses the reviewed tuple; it does not perform a new
-same-version executable discovery after approval. Selected-client inspection
+same-version executable discovery after approval. Equivalent launch tuples are
+deduplicated; multiple distinct viable installations report
+`AMBIGUOUS_CLIENT_INSTALLATION` without launch authority. Selected-client
+inspection
 that is malformed, over-limit, or unsafe stops plan construction because it
 cannot bind complete evidence. Apply repeats the client-path and outer-lease
 checks immediately before every native or protocol process. Transaction-owned
@@ -283,7 +288,10 @@ plus the first `tools/list` request. Generic smoke launches this exact
 descriptor. Client smoke uses a private, in-memory effective environment and
 working directory from the inspected registration without changing or
 serializing the canonical descriptor. Windows environment overlays remove
-case-colliding parent aliases. Standalone verify and doctor do not launch
+case-colliding parent aliases. Provider processes inherit only fixed Windows,
+provider-home/trust, temporary-directory, VS Code launch, and UEMCP/Unreal
+keys; arbitrary parent variables are not forwarded. Standalone verify and
+doctor do not launch
 registrations requiring custom-environment or custom-launch review; protocol
 health remains unknown. Post-approval apply may launch those exact values only
 when the saved plan contains the corresponding review action. Protocol health

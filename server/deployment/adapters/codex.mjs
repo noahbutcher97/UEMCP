@@ -318,6 +318,10 @@ async function runNativeQuery(runner, context, detection, tail) {
 }
 
 async function inspectNative(runner, context, detection, desired) {
+  if (context.launch?.compatibility !== 'release_gated') {
+    const unknown = classifyCodexNativeStatus(null, { desired });
+    return mergeNativeStatus(unknown, unknown);
+  }
   const safe = async tail => {
     await context.beforeActiveClientLaunch?.({ client_id: 'codex', kind: 'native' });
     try {

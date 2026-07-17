@@ -195,6 +195,16 @@ async function runNativeQuery(runner, context, detection, tail) {
 }
 
 async function inspectNative(runner, context, detection) {
+  if (context.launch?.compatibility !== 'release_gated') {
+    const unknown = classifyClaudeNativeStatus(null);
+    return Object.freeze({
+      ...unknown,
+      list_status: 'UNKNOWN',
+      get_status: 'UNKNOWN',
+      list_output_sha256: unknown.output_sha256,
+      get_output_sha256: unknown.output_sha256,
+    });
+  }
   const safeQuery = async tail => {
     await context.beforeActiveClientLaunch?.({ client_id: 'claude', kind: 'native' });
     try {

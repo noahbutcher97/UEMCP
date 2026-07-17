@@ -103,7 +103,7 @@ export async function discoverClients({
       }
       const code = safeErrorCode(error);
       if (code === 'NOT_INSTALLED') rows.push(absentRow(clientId));
-      else if (['VERSION_PROBE_FAILED', 'CLIENT_DISCOVERY_FAILED', 'AMBIGUOUS_CLIENT_ENVIRONMENT', 'INSPECTION_LIMIT_EXCEEDED'].includes(code)) {
+      else if (['VERSION_PROBE_FAILED', 'CLIENT_DISCOVERY_FAILED', 'AMBIGUOUS_CLIENT_ENVIRONMENT', 'AMBIGUOUS_CLIENT_INSTALLATION', 'INSPECTION_LIMIT_EXCEEDED'].includes(code)) {
         rows.push(failedRow(clientId, code));
       } else {
         fail('client resolver returned an unsupported failure', 'CLIENT_DISCOVERY_FAILED', { client_id: clientId, resolver_code: code });
