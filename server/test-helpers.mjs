@@ -1,11 +1,67 @@
 // Test helpers for UEMCP server testing
 //
-// Provides mock TCP responders for unit-testing tools without an editor.
+// Provides guarded scratch roots and mock responders for tests without an editor.
 // Injected via config.tcpCommandFn into ConnectionManager.
 
+import { randomUUID } from 'node:crypto';
+import { lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative, sep } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import { readdir } from 'node:fs/promises';
+
+function validateScratchPrefix(prefix) {
+  if (typeof prefix !== 'string' || !/^uemcp[A-Za-z0-9 ._-]{0,96}$/i.test(prefix)) {
+    throw new Error('canonical scratch root prefix must be a bounded UEMCP label');
+  }
+}
+
+function contained(root, candidate) {
+  const rel = relative(root, candidate);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+export function createCanonicalScratchRoot(prefix, { parentRoot = tmpdir() } = {}) {
+  validateScratchPrefix(prefix);
+  const canonicalParent = realpathSync(resolve(parentRoot));
+  const root = join(canonicalParent, `${prefix}${randomUUID()}`);
+  mkdirSync(root);
+  return realpathSync(root);
+}
+
+export function cleanupCanonicalScratchRoot(root, prefix, { parentRoot = tmpdir() } = {}) {
+  validateScratchPrefix(prefix);
+  const canonicalParent = realpathSync(resolve(parentRoot));
+  const requested = resolve(root);
+  let requestedStat;
+  try {
+    requestedStat = lstatSync(requested);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    const lexicalParent = resolve(parentRoot);
+    if (!basename(requested).startsWith(prefix)
+      || (!contained(lexicalParent, requested) && !contained(canonicalParent, requested))) {
+      throw new Error(`refusing to clean unexpected path: ${root}`);
+    }
+    return;
+  }
+  if (!requestedStat.isDirectory() || requestedStat.isSymbolicLink()) {
+    throw new Error(`refusing to clean unexpected path: ${root}`);
+  }
+  const canonicalRoot = realpathSync(requested);
+  if (!contained(canonicalParent, canonicalRoot) || !basename(canonicalRoot).startsWith(prefix)) {
+    throw new Error(`refusing to clean unexpected path: ${root}`);
+  }
+  rmSync(canonicalRoot, { recursive: true, force: true });
+}
 
 /**
  * FakeTcpResponder — queues canned responses and records all calls.

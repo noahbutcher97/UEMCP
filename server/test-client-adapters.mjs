@@ -18,7 +18,11 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import {
   CLAUDE_NATIVE_MUTATION_CHARACTERIZATION,
   classifyClaudeNativeStatus,
@@ -179,16 +183,43 @@ function throwsCode(fn, code) {
 }
 
 function makeRoot() {
-  const root = join(tmpdir(), `uemcp-client-adapter-${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot('uemcp-client-adapter-');
 }
 
 function cleanup(root) {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/uemcp-client-adapter-`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, 'uemcp-client-adapter-');
+}
+
+// Shared scratch fixtures canonicalize an aliased parent before constructing test paths.
+if (process.platform === 'win32') {
+  const outerRoot = makeRoot();
+  try {
+    const physicalParent = join(outerRoot, 'physical-parent');
+    const aliasParent = join(outerRoot, 'alias-parent');
+    mkdirSync(physicalParent);
+    symlinkSync(physicalParent, aliasParent, 'junction');
+    const fixtureRoot = createCanonicalScratchRoot('uemcp-client-adapter-child-', { parentRoot: aliasParent });
+    try {
+      t.assert(dirname(fixtureRoot) === resolve(await asyncFs.realpath(physicalParent)),
+        'shared scratch fixture roots canonicalize Windows parent aliases');
+    } finally {
+      cleanupCanonicalScratchRoot(fixtureRoot, 'uemcp-client-adapter-child-', { parentRoot: aliasParent });
+    }
+
+    const linkedTarget = createCanonicalScratchRoot('uemcp-client-adapter-child-', { parentRoot: outerRoot });
+    const linkedRoot = join(outerRoot, `uemcp-client-adapter-child-link-${randomUUID()}`);
+    symlinkSync(linkedTarget, linkedRoot, 'junction');
+    let linkedCleanupRejected = false;
+    try {
+      cleanupCanonicalScratchRoot(linkedRoot, 'uemcp-client-adapter-child-', { parentRoot: outerRoot });
+    } catch {
+      linkedCleanupRejected = true;
+    }
+    t.assert(linkedCleanupRejected && existsSync(linkedTarget),
+      'shared scratch fixture cleanup refuses linked roots without deleting their targets');
+  } finally {
+    cleanup(outerRoot);
+  }
 }
 
 function write(path, content = 'sample') {
@@ -1633,6 +1664,35 @@ if (process.platform === 'win32') {
     t.assert(result.command === resolve(code) && result.args_prefix[0] === resolve(cli), 'official VS Code wrapper resolves one same-root CLI tuple');
     t.assert(runner.calls.length === 1 && runner.calls[0].executable === resolve(code), 'VS Code wrapper is never executed');
     t.assert(result.fingerprint.discovery_clue?.sha256, 'VS Code wrapper fingerprint is retained as discovery evidence');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Wrapper discovery remains valid when the standard install root is reached through a Windows junction.
+if (process.platform === 'win32') {
+  const root = makeRoot();
+  try {
+    const realHome = join(root, 'real-home');
+    const aliasHome = join(root, 'alias-home');
+    mkdirSync(realHome);
+    symlinkSync(realHome, aliasHome, 'junction');
+    const env = environment(aliasHome);
+    const installRoot = join(env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code');
+    const code = write(join(installRoot, 'Code.exe'), 'code-binary');
+    const cli = write(join(installRoot, '5264f2156c', 'resources', 'app', 'out', 'cli.js'), 'export {};\n');
+    const wrapper = vscodeWrapper(installRoot);
+    const passthroughPinner = async ({ callback }) => callback(Object.freeze({ assertPinned() {} }));
+    const result = await resolveClientLaunch('vscode', {
+      env,
+      runner: runnerFor('1.128.1'),
+      candidates: { vscode: [wrapper] },
+      authenticodeInspector: signer(),
+      launchFilePinner: passthroughPinner,
+    });
+    t.assert(result.command === resolve(await asyncFs.realpath(code))
+      && result.args_prefix[0] === resolve(await asyncFs.realpath(cli)),
+    'VS Code wrapper aliases resolve one canonical same-root CLI tuple');
   } finally {
     cleanup(root);
   }

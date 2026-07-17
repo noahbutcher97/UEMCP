@@ -2,13 +2,15 @@
 //
 // Run: cd server && node test-client-transaction.mjs
 
-import { randomUUID } from 'node:crypto';
 import * as asyncFs from 'node:fs/promises';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import {
   captureClientPathFingerprint,
@@ -66,16 +68,11 @@ function memoryLedger(initial = null) {
 }
 
 function makeTransactionRoot() {
-  const root = join(tmpdir(), `uemcp-client-transaction-${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot('uemcp-client-transaction-');
 }
 
 function cleanupTransactionRoot(root) {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/uemcp-client-transaction-`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, 'uemcp-client-transaction-');
 }
 
 function writeBytes(path, bytes) {

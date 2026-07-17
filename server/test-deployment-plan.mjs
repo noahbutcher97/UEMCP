@@ -2,7 +2,6 @@
 //
 // Run: cd server && node test-deployment-plan.mjs
 
-import { randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -18,7 +17,11 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes } from './deployment/canonical-json.mjs';
 import { createMachineResult, createStageResult } from './deployment/contracts.mjs';
 import { createCanonicalDescriptor, descriptorsEqual } from './deployment/descriptor.mjs';
@@ -50,16 +53,11 @@ function createDeploymentOrchestrator(options) {
 }
 
 function makeRoot(label = 'uemcp-plan-') {
-  const root = join(tmpdir(), `${label}${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot(label);
 }
 
 function cleanup(root, label = 'uemcp-plan-') {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, label);
 }
 
 function sameFileIdentity(left, right) {

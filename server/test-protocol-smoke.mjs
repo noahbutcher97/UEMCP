@@ -2,13 +2,15 @@
 //
 // Run: cd server && node test-protocol-smoke.mjs
 
-import { randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import {
   createGenericClientResult,
   smokeDescriptor,
@@ -32,16 +34,11 @@ const expectedManagementTools = Object.freeze([
 ]);
 
 function makeRoot() {
-  const root = join(tmpdir(), `uemcp protocol smoke ${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot('uemcp protocol smoke ');
 }
 
 function cleanup(root) {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/uemcp protocol smoke `)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, 'uemcp protocol smoke ');
 }
 
 function descriptor(script, mode = 'normal') {

@@ -734,8 +734,9 @@ async function resolveNativeCandidate(clientId, candidate, context) {
       basenameRequired: 'code.cmd',
     });
     const wrapperContent = await readUtf8(discoveryClue.path, context.fsImpl, MAX_VSCODE_WRAPPER_BYTES, 'VS Code wrapper');
-    const wrapperTuple = parseVsCodeWrapper(wrapperContent, dirname(discoveryClue.path), installRoot);
-    commandCandidate = wrapperTuple.command;
+    const canonicalInstallRoot = dirname(dirname(discoveryClue.path));
+    const wrapperTuple = parseVsCodeWrapper(wrapperContent, dirname(discoveryClue.path), canonicalInstallRoot);
+    commandCandidate = expectedCommand;
     cliCandidate = wrapperTuple.cli;
   }
   const expected = allowedPaths.find(path => pathKey(path) === pathKey(commandCandidate));

@@ -2,7 +2,7 @@
 //
 // Run: cd server && node test-deployment-contracts.mjs
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import * as asyncFs from 'node:fs/promises';
@@ -18,10 +18,13 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import {
   ACTION_CODES,
   CLIENT_COMPATIBILITY,
@@ -349,16 +352,11 @@ function validMachineInput(overrides = {}) {
 }
 
 function makePrimitiveRoot(label = 'uemcp-deployment-primitives-') {
-  const root = join(tmpdir(), `${label}${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot(label);
 }
 
 function cleanupPrimitiveRoot(root, label = 'uemcp-') {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, label);
 }
 
 function directoryChain(path) {

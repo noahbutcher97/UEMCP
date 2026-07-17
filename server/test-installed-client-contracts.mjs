@@ -48,7 +48,8 @@ import { TestRunner } from './test-helpers.mjs';
 
 const enabled = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT === '1';
 const worker = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER === '1';
-const WORKER_TIMEOUT_MS = 600_000;
+// Four provider contracts run sequentially; each nested process keeps its narrower deadline.
+const WORKER_TIMEOUT_MS = 900_000;
 
 if (!enabled) {
   console.log('  ⊘ skipped: UEMCP_INSTALLED_CLIENT_CONTRACT=1 is required for installed client contracts');
@@ -322,7 +323,9 @@ if (!worker) {
     });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
-    t.assert(result.status === 'exited' && result.exitCode === 0, 'installed contract worker exits within its bounded process-tree deadline');
+    t.assert(result.status === 'exited' && result.exitCode === 0,
+      'installed contract worker exits within its bounded process-tree deadline',
+      `status=${result.status} exit=${result.exitCode ?? 'null'} duration_ms=${result.durationMs}`);
   } finally {
     safeCleanup(root);
   }
