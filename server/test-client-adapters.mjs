@@ -190,6 +190,10 @@ function cleanup(root) {
   cleanupCanonicalScratchRoot(root, 'uemcp-client-adapter-');
 }
 
+async function canonicalPath(path) {
+  return resolve(await asyncFs.realpath(path));
+}
+
 // Shared scratch fixtures canonicalize an aliased parent before constructing test paths.
 if (process.platform === 'win32') {
   const outerRoot = makeRoot();
@@ -1237,6 +1241,10 @@ async function rejectsCode(fn, code) {
     const nestedRuntimeRoot = join(sharedRuntimeRoot, 'node_modules', 'nested-runtime');
     writeJson(join(nestedRuntimeRoot, 'package.json'), { name: 'nested-runtime', version: '1.0.0', main: 'index.mjs' });
     const nestedRuntime = write(join(nestedRuntimeRoot, 'index.mjs'), 'export const nested = true;\n');
+    const expectedNodePath = await canonicalPath(layout.nodeExecutable);
+    const expectedEntryPath = await canonicalPath(layout.entry);
+    const expectedPackageRoot = await canonicalPath(layout.packageRoot);
+    const expectedResolutionRoot = await canonicalPath(join(layout.prefix, 'node_modules'));
     layout.env.Node_Options = '--require=C:\\outside\\inject.cjs';
     layout.env.NODE_PATH = 'C:\\outside\\modules';
     const runner = runnerFor('0.144.4');
@@ -1249,7 +1257,7 @@ async function rejectsCode(fn, code) {
     };
     const launchFilePinner = async ({ paths, callback }) => {
       launchFilePinCalls += 1;
-      t.assert(paths.includes(resolve(layout.nodeExecutable)) && paths.includes(resolve(layout.entry)), 'launch file pinner binds the executable and absolute script arguments');
+      t.assert(paths.includes(expectedNodePath) && paths.includes(expectedEntryPath), 'launch file pinner binds the executable and absolute script arguments');
       return callback(Object.freeze({ assertPinned() {} }));
     };
     const result = await resolveClientLaunch('codex', {
@@ -1259,7 +1267,7 @@ async function rejectsCode(fn, code) {
       runtimeTreePinner,
       launchFilePinner,
     });
-    t.assert(result.command === resolve(layout.nodeExecutable) && JSON.stringify(result.args_prefix) === JSON.stringify([resolve(layout.entry)]), 'npm client resolves to absolute node.exe plus package bin entry');
+    t.assert(result.command === expectedNodePath && JSON.stringify(result.args_prefix) === JSON.stringify([expectedEntryPath]), 'npm client resolves to absolute node.exe plus package bin entry');
     t.assert(result.package_id === '@openai/codex' && result.source === 'npm_package', 'npm client reports allowlisted package provenance');
     t.assert(result.version === '0.144.4' && result.compatibility === 'release_gated' && result.write_supported, 'supported npm client is release gated for writes');
     t.assert(runtimePinCalls === 2, 'npm discovery and immediate pre-launch revalidation each capture the runtime closure under a tree pin');
@@ -1268,8 +1276,8 @@ async function rejectsCode(fn, code) {
     t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 10_000 && runner.calls[0].options.outputLimitBytes <= 64 * 1024, 'version probe is bounded and shell-free');
     t.assert(Object.keys(runner.calls[0].options.env).every(name => !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase())), 'npm version probe removes ambient Node code-loading controls');
     t.assert(result.fingerprint.command.sha256 && result.fingerprint.args_prefix[0].sha256, 'launch result fingerprints executable and package entry');
-    t.assert(result.fingerprint.runtime_tree.root === resolve(layout.packageRoot)
-      && result.fingerprint.runtime_tree.resolution_root === resolve(join(layout.prefix, 'node_modules'))
+    t.assert(result.fingerprint.runtime_tree.root === expectedPackageRoot
+      && result.fingerprint.runtime_tree.resolution_root === expectedResolutionRoot
       && result.fingerprint.runtime_tree.package_id === '@openai/codex'
       && result.fingerprint.runtime_tree.package_count === 3
       && result.fingerprint.runtime_tree.file_count >= 3
@@ -1325,7 +1333,7 @@ if (process.platform === 'win32') {
       runtimeTreePinner: passthroughPinner,
       launchFilePinner: passthroughPinner,
     });
-    t.assert(result.command === resolve(await asyncFs.realpath(layout.nodeExecutable)),
+    t.assert(result.command === await canonicalPath(layout.nodeExecutable),
       'canonical npm-prefix aliases retain the same allowlisted client launch');
   } finally {
     cleanup(root);
@@ -1448,7 +1456,7 @@ if (process.platform === 'win32') {
       runner,
       candidates: { gemini: [powershellShim], nodeExecutable: layout.nodeExecutable },
     });
-    t.assert(result.command === resolve(layout.nodeExecutable), 'PowerShell npm shim resolves through node.exe');
+    t.assert(result.command === await canonicalPath(layout.nodeExecutable), 'PowerShell npm shim resolves through node.exe');
     t.assert(runner.calls.length === 1 && runner.calls[0].executable !== resolve(powershellShim), 'PowerShell npm shim is never executed');
   } finally {
     cleanup(root);
@@ -1571,7 +1579,7 @@ if (process.platform === 'win32') {
       candidates: { claude: [claude] },
       authenticodeInspector: inspector,
     });
-    t.assert(result.command === resolve(claude) && result.source === 'native', 'standard native Claude path resolves');
+    t.assert(result.command === await canonicalPath(claude) && result.source === 'native', 'standard native Claude path resolves');
     t.assert(inspector.calls[0].options.expectedSignerNames[0] === 'Anthropic, PBC', 'native Claude requires exact signer identity');
     t.assert(result.version === '2.1.210' && result.write_supported, 'signed native Claude version is release gated');
 
@@ -1618,9 +1626,11 @@ if (process.platform === 'win32') {
       candidates: { vscode: [code] },
       authenticodeInspector: signer(),
     });
-    t.assert(result.command === resolve(code) && JSON.stringify(result.args_prefix) === JSON.stringify([resolve(cli)]), 'VS Code resolves Code.exe plus same-root cli.js');
+    const expectedCodePath = await canonicalPath(code);
+    const expectedCliPath = await canonicalPath(cli);
+    t.assert(result.command === expectedCodePath && JSON.stringify(result.args_prefix) === JSON.stringify([expectedCliPath]), 'VS Code resolves Code.exe plus same-root cli.js');
     t.assert(JSON.stringify(result.env_overlay) === JSON.stringify({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' }), 'VS Code launch overlay is exact');
-    t.assert(runner.calls[0].args[0] === resolve(cli) && runner.calls[0].args.at(-1) === '--version', 'VS Code version probe uses CLI script rather than direct GUI invocation');
+    t.assert(runner.calls[0].args[0] === expectedCliPath && runner.calls[0].args.at(-1) === '--version', 'VS Code version probe uses CLI script rather than direct GUI invocation');
     t.assert(runner.calls[0].options.env.ELECTRON_RUN_AS_NODE === '1' && runner.calls[0].options.env.VSCODE_DEV === '', 'fixed VS Code overlay wins in child environment');
     t.assert(!Object.keys(runner.calls[0].options.env).some(key => key === 'electron_run_as_node' || key === 'vscode_dev'), 'fixed VS Code overlay removes case-colliding parent aliases');
     t.assert(JSON.stringify(env) === JSON.stringify(parentEnv), 'version probe never mutates parent environment');
@@ -1661,8 +1671,10 @@ if (process.platform === 'win32') {
       candidates: { vscode: [wrapper] },
       authenticodeInspector: signer(),
     });
-    t.assert(result.command === resolve(code) && result.args_prefix[0] === resolve(cli), 'official VS Code wrapper resolves one same-root CLI tuple');
-    t.assert(runner.calls.length === 1 && runner.calls[0].executable === resolve(code), 'VS Code wrapper is never executed');
+    const expectedCodePath = await canonicalPath(code);
+    const expectedCliPath = await canonicalPath(cli);
+    t.assert(result.command === expectedCodePath && result.args_prefix[0] === expectedCliPath, 'official VS Code wrapper resolves one same-root CLI tuple');
+    t.assert(runner.calls.length === 1 && runner.calls[0].executable === expectedCodePath, 'VS Code wrapper is never executed');
     t.assert(result.fingerprint.discovery_clue?.sha256, 'VS Code wrapper fingerprint is retained as discovery evidence');
   } finally {
     cleanup(root);
@@ -1690,8 +1702,8 @@ if (process.platform === 'win32') {
       authenticodeInspector: signer(),
       launchFilePinner: passthroughPinner,
     });
-    t.assert(result.command === resolve(await asyncFs.realpath(code))
-      && result.args_prefix[0] === resolve(await asyncFs.realpath(cli)),
+    t.assert(result.command === await canonicalPath(code)
+      && result.args_prefix[0] === await canonicalPath(cli),
     'VS Code wrapper aliases resolve one canonical same-root CLI tuple');
   } finally {
     cleanup(root);
@@ -1815,11 +1827,18 @@ if (process.platform === 'win32') {
   const root = makeRoot();
   try {
     const layout = npmInstall(root, 'codex', { packageName: '@openai/codex' });
+    const physicalSystemRoot = layout.env.SystemRoot;
+    const aliasedSystemRoot = join(root, 'system-root-alias');
+    mkdirSync(physicalSystemRoot, { recursive: true });
+    symlinkSync(physicalSystemRoot, aliasedSystemRoot, 'junction');
+    layout.env.SystemRoot = aliasedSystemRoot;
+    layout.env.WINDIR = aliasedSystemRoot;
     const where = write(join(layout.env.SystemRoot, 'System32', 'where.exe'), 'where-binary');
     linkSync(where, join(dirname(where), 'where-hardlink.exe'));
+    const expectedWherePath = await canonicalPath(where);
     layout.env.PATHEXT = '.COM;.EXE;.BAT;.CMD';
     const runner = runnerFor('0.144.4', {
-      run: async (executable) => executable === resolve(where)
+      run: async (executable) => executable === expectedWherePath
         ? { status: 'exited', exitCode: 0, stdout: `${layout.shim}\n`, stderr: '' }
         : { status: 'exited', exitCode: 0, stdout: '0.144.4\n', stderr: '' },
     });
@@ -1829,8 +1848,8 @@ if (process.platform === 'win32') {
       candidates: { nodeExecutable: layout.nodeExecutable },
     });
     t.assert(result.write_supported && runner.calls.length === 2, 'where discovery resolves and probes one safe npm client');
-    t.assert(runner.calls[0].executable === resolve(where), 'normal multiply linked System32 where.exe remains usable');
-    t.assert(runner.calls[0].executable === resolve(where) && runner.calls[0].args[0] === 'codex', 'discovery invokes absolute System32 where.exe only');
+    t.assert(runner.calls[0].executable === expectedWherePath, 'normal multiply linked System32 where.exe remains usable');
+    t.assert(runner.calls[0].executable === expectedWherePath && runner.calls[0].args[0] === 'codex', 'discovery invokes absolute System32 where.exe only');
     t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 5_000, 'where discovery is bounded and shell-free');
     t.assert(runner.calls[0].options.env.PATH === layout.env.PATH && runner.calls[0].options.env.PATHEXT === layout.env.PATHEXT, 'where discovery receives the selected PATH and PATHEXT');
     t.assert(JSON.stringify(Object.keys(runner.calls[0].options.env).sort()) === JSON.stringify(['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR']), 'where discovery environment is minimal');
@@ -1845,6 +1864,7 @@ if (process.platform === 'win32') {
   try {
     const layout = npmInstall(root, 'codex', { packageName: '@openai/codex' });
     const where = write(join(layout.env.SystemRoot, 'System32', 'where.exe'), 'where-binary');
+    const expectedWherePath = await canonicalPath(where);
     const env = {
       ...layout.env,
       SystemRoot: undefined,
@@ -1858,7 +1878,7 @@ if (process.platform === 'win32') {
       Pathext: '.COM;.EXE;.BAT;.CMD',
     };
     const runner = runnerFor('0.144.4', {
-      run: async executable => executable === resolve(where)
+      run: async executable => executable === expectedWherePath
         ? { status: 'exited', exitCode: 0, stdout: `${layout.shim}\n`, stderr: '' }
         : { status: 'exited', exitCode: 0, stdout: '0.144.4\n', stderr: '' },
     });
