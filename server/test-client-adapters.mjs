@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import {
+  canonicalFixturePath,
   cleanupCanonicalScratchRoot,
   createCanonicalScratchRoot,
   TestRunner,
@@ -71,7 +72,11 @@ import {
 } from './deployment/client-contract.mjs';
 import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
-import { revalidateClientLaunchRuntime, resolveClientLaunch } from './deployment/client-process.mjs';
+import {
+  captureClientRuntimeFingerprint,
+  revalidateClientLaunchRuntime,
+  resolveClientLaunch,
+} from './deployment/client-process.mjs';
 import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
@@ -204,11 +209,24 @@ if (process.platform === 'win32') {
     symlinkSync(physicalParent, aliasParent, 'junction');
     const fixtureRoot = createCanonicalScratchRoot('uemcp-client-adapter-child-', { parentRoot: aliasParent });
     try {
-      t.assert(dirname(fixtureRoot) === resolve(await asyncFs.realpath(physicalParent)),
-        'shared scratch fixture roots canonicalize Windows parent aliases');
+    t.assert(dirname(fixtureRoot) === resolve(await asyncFs.realpath(physicalParent)),
+      'shared scratch fixture roots canonicalize Windows parent aliases');
     } finally {
       cleanupCanonicalScratchRoot(fixtureRoot, 'uemcp-client-adapter-child-', { parentRoot: aliasParent });
     }
+
+    const aliasedLaunch = claudeLaunch(aliasParent);
+    const recapturedRuntime = await captureClientRuntimeFingerprint(aliasedLaunch.fingerprint.runtime_tree.root, {
+      resolutionRoot: aliasedLaunch.fingerprint.runtime_tree.resolution_root,
+      packageId: aliasedLaunch.package_id,
+      runtimeTreePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
+    });
+    const changedRuntimeFields = Object.keys(recapturedRuntime)
+      .filter(field => recapturedRuntime[field] !== aliasedLaunch.fingerprint.runtime_tree[field])
+      .sort();
+    t.assert(changedRuntimeFields.length === 0,
+      'npm launch fixtures serialize the same canonical runtime paths as production recapture',
+      `changed fields: ${changedRuntimeFields.join(', ')}`);
 
     const linkedTarget = createCanonicalScratchRoot('uemcp-client-adapter-child-', { parentRoot: outerRoot });
     const linkedRoot = join(outerRoot, `uemcp-client-adapter-child-link-${randomUUID()}`);
@@ -303,7 +321,8 @@ function simpleFingerprint(path) {
 }
 
 function testRuntimeTree(root, packageId) {
-  const resolutionRoot = packageId.split('/').reduce(current => dirname(current), resolve(root));
+  const canonicalRoot = canonicalFixturePath(root);
+  const resolutionRoot = canonicalFixturePath(packageId.split('/').reduce(current => dirname(current), canonicalRoot));
   const packagePrefix = packageId.replace(/\\/g, '/');
   const entries = [];
   let entryCount = 0;
@@ -314,7 +333,7 @@ function testRuntimeTree(root, packageId) {
       if (entry.isDirectory()) visit(path);
       else if (entry.isFile()) {
         const bytes = readFileSync(path);
-        const packagePath = path.slice(resolve(root).length + 1).replace(/\\/g, '/');
+        const packagePath = path.slice(canonicalRoot.length + 1).replace(/\\/g, '/');
         entries.push({
           path: `${packagePrefix}/${packagePath}`,
           size: bytes.length,
@@ -323,10 +342,10 @@ function testRuntimeTree(root, packageId) {
       }
     }
   };
-  visit(resolve(root));
+  visit(canonicalRoot);
   entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   return Object.freeze({
-    root: resolve(root),
+    root: canonicalRoot,
     resolution_root: resolutionRoot,
     package_id: packageId,
     package_count: 1,
@@ -343,7 +362,7 @@ function testNpmRuntime(root, packageId, binPath) {
   writeJson(join(packageRoot, 'package.json'), { name: packageId, version: '1.0.0', bin: binPath });
   const entry = write(join(packageRoot, binPath), 'export {};\n');
   write(join(packageRoot, 'lib', 'runtime.mjs'), 'export const runtime = true;\n');
-  return { entry, runtimeTree: testRuntimeTree(packageRoot, packageId) };
+  return { entry: canonicalFixturePath(entry), runtimeTree: testRuntimeTree(packageRoot, packageId) };
 }
 
 function claudeLaunch(root, { version = '2.1.210', writeSupported = version === '2.1.210' } = {}) {
@@ -351,8 +370,8 @@ function claudeLaunch(root, { version = '2.1.210', writeSupported = version === 
   const { entry, runtimeTree } = testNpmRuntime(root, '@anthropic-ai/claude-code', 'cli.mjs');
   return {
     client_id: 'claude',
-    command: resolve(node),
-    args_prefix: [resolve(entry)],
+    command: canonicalFixturePath(node),
+    args_prefix: [entry],
     env_overlay: {},
     package_id: '@anthropic-ai/claude-code',
     source: 'npm_package',
@@ -364,11 +383,13 @@ function claudeLaunch(root, { version = '2.1.210', writeSupported = version === 
 }
 
 function canonicalDesired(root) {
+  const command = write(join(root, 'server-runtime', 'node.exe'), 'node');
+  const entry = write(join(root, 'server-runtime', 'server.mjs'), 'export {};\n');
   return {
     name: 'uemcp',
     transport: 'stdio',
-    command: resolve(write(join(root, 'server-runtime', 'node.exe'), 'node')),
-    args: [resolve(write(join(root, 'server-runtime', 'server.mjs'), 'export {};\n'))],
+    command: canonicalFixturePath(command),
+    args: [canonicalFixturePath(entry)],
     env: {},
     cwd: null,
   };
@@ -421,8 +442,8 @@ function codexLaunch(root, { version = '0.144.4', writeSupported = version === '
   const { entry, runtimeTree } = testNpmRuntime(root, '@openai/codex', join('bin', 'codex.js'));
   return {
     client_id: 'codex',
-    command: resolve(node),
-    args_prefix: [resolve(entry)],
+    command: canonicalFixturePath(node),
+    args_prefix: [entry],
     env_overlay: {},
     package_id: '@openai/codex',
     source: 'npm_package',
@@ -523,8 +544,8 @@ function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '
   const { entry, runtimeTree } = testNpmRuntime(root, '@google/gemini-cli', join('bundle', 'gemini.js'));
   return {
     client_id: 'gemini',
-    command: resolve(node),
-    args_prefix: [resolve(entry)],
+    command: canonicalFixturePath(node),
+    args_prefix: [entry],
     env_overlay: {},
     package_id: '@google/gemini-cli',
     source: 'npm_package',
@@ -680,8 +701,8 @@ function vscodeLaunch(root, { version = '1.128.1', writeSupported = version === 
   const cli = write(join(installRoot, '5264f2156c', 'resources', 'app', 'out', 'cli.js'), 'export {};\n');
   return {
     client_id: 'vscode',
-    command: resolve(command),
-    args_prefix: [resolve(cli)],
+    command: canonicalFixturePath(command),
+    args_prefix: [canonicalFixturePath(cli)],
     env_overlay: { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' },
     package_id: null,
     source: 'native',
@@ -3916,6 +3937,11 @@ function aggregateLaunch(root, clientId, overrides = {}) {
   });
 }
 
+function aggregateInstalledClient(root, clientId, overrides = {}) {
+  const launch = aggregateLaunch(root, clientId, overrides);
+  return Object.freeze({ ...launch, launch });
+}
+
 function absentClient(clientId) {
   return Object.freeze({
     client_id: clientId,
@@ -4074,13 +4100,16 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   t.assert(throwsCode(() => selectClients(discovered, { include: ['claude'], exclude: ['claude'] }), 'INVALID_CLIENT_SELECTION'), 'overlapping include and exclude IDs fail closed');
 
   const one = selectClients(CLIENT_IDS.map(clientId => clientId === 'codex'
-    ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+    ? aggregateInstalledClient(root, clientId)
     : absentClient(clientId)), {});
   t.assert(one.filter(row => row.selected).map(row => row.client_id).join(',') === 'codex', 'one installed client produces one default selection');
+  const installedCodex = one.find(row => row.client_id === 'codex');
+  t.assert(installedCodex.fingerprint === installedCodex.launch.fingerprint,
+    'installed-client fixtures retain one authoritative launch object');
   t.assert(selectClients(CLIENT_IDS.map(absentClient), {}).every(row => !row.selected && row.status === 'NOT_INSTALLED'), 'no installed clients remain visible and unselected');
 
   const unsupported = CLIENT_IDS.map(clientId => clientId === 'claude'
-    ? { ...aggregateLaunch(root, clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }), launch: aggregateLaunch(root, clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }) }
+    ? aggregateInstalledClient(root, clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false })
     : absentClient(clientId));
   t.assert(selectClients(unsupported, {}).every(row => !row.selected), 'unsupported versions do not default into the write selection');
   const explicitlyInspected = selectClients(unsupported, { include: ['claude'] }).find(row => row.client_id === 'claude');
@@ -4205,7 +4234,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const oneInstalled = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: CLIENT_IDS.map(aggregateAdapter),
@@ -4289,7 +4318,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: [aggregateAdapter('claude', { actions: ['FUTURE_UNMAPPED_ACTION'] }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
@@ -4310,7 +4339,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const evidencePath = write(join(root, 'client-state.json'), '{"keep":true}\n');
     const evidenceFingerprint = simpleFingerprint(evidencePath);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: [
@@ -4351,7 +4380,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     for (const registration of ['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH']) {
       const domain = createClientDomain({
@@ -4381,7 +4410,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4436,7 +4465,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     let discoveryCalls = 0;
     const domain = createClientDomain({
@@ -4494,7 +4523,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const rawValue = 'RAW_ENV_CANARY_DO_NOT_SERIALIZE';
     const valueHash = sha256Bytes(Buffer.from(rawValue));
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const scenario = {
       actions: ['CUSTOM_ENV_REVIEW_REQUIRED'],
@@ -4553,7 +4582,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
         fingerprint: simpleFingerprint(evidencePath),
       };
       const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-        ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+        ? aggregateInstalledClient(root, clientId)
         : absentClient(clientId));
       const base = aggregateAdapter('claude', { files: [evidence] });
       let mutated = false;
@@ -4642,7 +4671,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   try {
     const evidencePath = resolve(join(root, 'provider-created-state.json'));
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude');
     let inspections = 0;
@@ -4701,7 +4730,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const approvedBytes = Buffer.from('{"env":{"PATH":"approved"}}\n');
     const hostileBytes = Buffer.from('{"env":{"NODE_OPTIONS":"--require=C:\\\\untrusted\\\\bootstrap.js"}}\n');
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const privateLaunches = new WeakMap();
     let inspections = 0;
@@ -4818,7 +4847,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4886,7 +4915,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4950,7 +4979,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -5100,7 +5129,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       });
       const operation = aggregateClientOperation(caseRoot);
       const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-        ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+        ? aggregateInstalledClient(root, clientId)
         : absentClient(clientId));
       const base = aggregateAdapter('claude', {
         files: [{
@@ -5162,7 +5191,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const operation = aggregateClientOperation(root);
     const appliedBytes = Buffer.from('{"after":true}\n');
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -5226,7 +5255,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const smokeOptions = [];
     const harmless = aggregateAdapter('claude', {
@@ -5290,7 +5319,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
+      ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
     const failedProtocol = createClientDomain({
       adapters: [aggregateAdapter('claude', { nativeStatus: 'PRESENT', activation: 'UNKNOWN' }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],

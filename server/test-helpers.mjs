@@ -29,17 +29,21 @@ function contained(root, candidate) {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
+export function canonicalFixturePath(path) {
+  return resolve(realpathSync.native(resolve(path)));
+}
+
 export function createCanonicalScratchRoot(prefix, { parentRoot = tmpdir() } = {}) {
   validateScratchPrefix(prefix);
-  const canonicalParent = realpathSync(resolve(parentRoot));
+  const canonicalParent = canonicalFixturePath(parentRoot);
   const root = join(canonicalParent, `${prefix}${randomUUID()}`);
   mkdirSync(root);
-  return realpathSync(root);
+  return canonicalFixturePath(root);
 }
 
 export function cleanupCanonicalScratchRoot(root, prefix, { parentRoot = tmpdir() } = {}) {
   validateScratchPrefix(prefix);
-  const canonicalParent = realpathSync(resolve(parentRoot));
+  const canonicalParent = canonicalFixturePath(parentRoot);
   const requested = resolve(root);
   let requestedStat;
   try {
@@ -56,7 +60,7 @@ export function cleanupCanonicalScratchRoot(root, prefix, { parentRoot = tmpdir(
   if (!requestedStat.isDirectory() || requestedStat.isSymbolicLink()) {
     throw new Error(`refusing to clean unexpected path: ${root}`);
   }
-  const canonicalRoot = realpathSync(requested);
+  const canonicalRoot = canonicalFixturePath(requested);
   if (!contained(canonicalParent, canonicalRoot) || !basename(canonicalRoot).startsWith(prefix)) {
     throw new Error(`refusing to clean unexpected path: ${root}`);
   }
