@@ -5893,7 +5893,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve20.call(this, root, ref);
+      let _sch = resolve21.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -5920,7 +5920,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve20(root, ref) {
+    function resolve21(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -6551,7 +6551,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve20(baseURI, relativeURI, options) {
+    function resolve21(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse8(baseURI, schemelessOptions), parse8(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -6809,7 +6809,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve20,
+      resolve: resolve21,
       resolveComponent,
       equal,
       serialize,
@@ -9892,12 +9892,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve20, reject) {
+        return new Promise(function(resolve21, reject) {
           isexe(path, options || {}, function(er, is) {
             if (er) {
               reject(er);
             } else {
-              resolve20(is);
+              resolve21(is);
             }
           });
         });
@@ -9963,27 +9963,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i) => new Promise((resolve20, reject) => {
+      const step = (i) => new Promise((resolve21, reject) => {
         if (i === pathEnv.length)
-          return opt.all && found.length ? resolve20(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve21(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve20(subStep(p, i, 0));
+        resolve21(subStep(p, i, 0));
       });
-      const subStep = (p, i, ii) => new Promise((resolve20, reject) => {
+      const subStep = (p, i, ii) => new Promise((resolve21, reject) => {
         if (ii === pathExt.length)
-          return resolve20(step(i + 1));
+          return resolve21(step(i + 1));
         const ext = pathExt[ii];
         isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
           if (!er && is) {
             if (opt.all)
               found.push(p + ext);
             else
-              return resolve20(p + ext);
+              return resolve21(p + ext);
           }
-          return resolve20(subStep(p, i, ii + 1));
+          return resolve21(subStep(p, i, ii + 1));
         });
       });
       return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
@@ -10026,7 +10026,7 @@ var require_which = __commonJS({
 var require_path_key = __commonJS({
   "server/node_modules/path-key/index.js"(exports, module) {
     "use strict";
-    var pathKey5 = (options = {}) => {
+    var pathKey6 = (options = {}) => {
       const environment = options.env || process.env;
       const platform = options.platform || process.platform;
       if (platform !== "win32") {
@@ -10034,8 +10034,8 @@ var require_path_key = __commonJS({
       }
       return Object.keys(environment).reverse().find((key) => key.toUpperCase() === "PATH") || "Path";
     };
-    module.exports = pathKey5;
-    module.exports.default = pathKey5;
+    module.exports = pathKey6;
+    module.exports.default = pathKey6;
   }
 });
 
@@ -10298,7 +10298,7 @@ var require_cross_spawn = __commonJS({
 // server/deploy-uemcp.mjs
 import * as fsPromises from "node:fs/promises";
 import { existsSync as existsSync3 } from "node:fs";
-import { basename as basename5, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute19, join as join18, resolve as resolve19 } from "node:path";
+import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute19, join as join18, resolve as resolve20 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
 // server/deployment/contracts.mjs
@@ -10328,6 +10328,7 @@ EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
+CLIENT_APPLY_ACTION_REQUIRED
 ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
@@ -10343,6 +10344,7 @@ POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_RE
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
 PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
+CLIENT_APPLY_ACTION_REQUIRED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 function createIdentityRegistry(values) {
@@ -11223,7 +11225,7 @@ async function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
     return;
   }
   const taskkill = join2(systemRoot, "System32", "taskkill.exe");
-  await new Promise((resolve20) => {
+  await new Promise((resolve21) => {
     let killer;
     try {
       killer = spawnImpl(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
@@ -11233,14 +11235,14 @@ async function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
       });
     } catch {
       child.kill("SIGKILL");
-      resolve20();
+      resolve21();
       return;
     }
     killer.once("error", () => {
       child.kill("SIGKILL");
-      resolve20();
+      resolve21();
     });
-    killer.once("close", () => resolve20());
+    killer.once("close", () => resolve21());
   });
 }
 function createProcessRunner({
@@ -12614,6 +12616,10 @@ function createClientTransaction({
         } catch (error2) {
           hookFailed = true;
           hookErrors.push({ client_id: "transaction", code: error2?.code ?? "SNAPSHOT_DELETE_FAILED" });
+          retained.push({
+            path: record2.path,
+            retained_until: record2.snapshot.metadata.retained_until
+          });
         }
       }
     }
@@ -18515,6 +18521,7 @@ async function verifyDeploymentBundleFreshness({
 
 // server/deployment/client-domain.mjs
 import * as defaultFs11 from "node:fs/promises";
+import { posix as posix4, resolve as resolve10, win32 as win3210 } from "node:path";
 
 // server/deployment/client-process.mjs
 import * as defaultFs10 from "node:fs/promises";
@@ -24980,7 +24987,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve20) => setTimeout(resolve20, pollInterval));
+        await new Promise((resolve21) => setTimeout(resolve21, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -24997,7 +25004,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve20, reject) => {
+    return new Promise((resolve21, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -25075,7 +25082,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve20(parseResult.data);
+            resolve21(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -25336,12 +25343,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve20, reject) => {
+    return new Promise((resolve21, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve20, interval);
+      const timeoutId = setTimeout(resolve21, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -26292,7 +26299,7 @@ var StdioClientTransport = class {
     if (this._process) {
       throw new Error("StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.");
     }
-    return new Promise((resolve20, reject) => {
+    return new Promise((resolve21, reject) => {
       this._process = (0, import_cross_spawn.default)(this._serverParams.command, this._serverParams.args ?? [], {
         // merge default env with server env because mcp server needs some env vars
         env: {
@@ -26309,7 +26316,7 @@ var StdioClientTransport = class {
         this.onerror?.(error2);
       });
       this._process.on("spawn", () => {
-        resolve20();
+        resolve21();
       });
       this._process.on("close", (_code) => {
         this._process = void 0;
@@ -26368,22 +26375,22 @@ var StdioClientTransport = class {
     if (this._process) {
       const processToClose = this._process;
       this._process = void 0;
-      const closePromise = new Promise((resolve20) => {
+      const closePromise = new Promise((resolve21) => {
         processToClose.once("close", () => {
-          resolve20();
+          resolve21();
         });
       });
       try {
         processToClose.stdin?.end();
       } catch {
       }
-      await Promise.race([closePromise, new Promise((resolve20) => setTimeout(resolve20, 2e3).unref())]);
+      await Promise.race([closePromise, new Promise((resolve21) => setTimeout(resolve21, 2e3).unref())]);
       if (processToClose.exitCode === null) {
         try {
           processToClose.kill("SIGTERM");
         } catch {
         }
-        await Promise.race([closePromise, new Promise((resolve20) => setTimeout(resolve20, 2e3).unref())]);
+        await Promise.race([closePromise, new Promise((resolve21) => setTimeout(resolve21, 2e3).unref())]);
       }
       if (processToClose.exitCode === null) {
         try {
@@ -26395,15 +26402,15 @@ var StdioClientTransport = class {
     this._readBuffer.clear();
   }
   send(message) {
-    return new Promise((resolve20) => {
+    return new Promise((resolve21) => {
       if (!this._process?.stdin) {
         throw new Error("Not connected");
       }
       const json = serializeMessage(message);
       if (this._process.stdin.write(json)) {
-        resolve20();
+        resolve21();
       } else {
-        this._process.stdin.once("drain", resolve20);
+        this._process.stdin.once("drain", resolve21);
       }
     });
   }
@@ -26546,6 +26553,18 @@ var READY_REGISTRATION = /* @__PURE__ */ new Set(["CONFIGURED", "ALREADY_CONFIGU
 var BLOCKED_INSPECTION_STATUSES = /* @__PURE__ */ new Set(["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"]);
 var ROLLBACK_TERMINAL_STATUSES = /* @__PURE__ */ new Set(["ROLLED_BACK", "ROLLBACK_CONFLICT", "ROLLBACK_FAILED"]);
 var TRANSACTION_RESULT_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "ACTION_REQUIRED", ...ROLLBACK_TERMINAL_STATUSES]);
+var TRANSACTION_READY_CLIENT_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "MATCHING", "NO_OP", "READY"]);
+var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
+  "ACTION_REQUIRED",
+  "CLIENT_ENABLEMENT_REQUIRED",
+  "DISABLED",
+  "PENDING_APPROVAL",
+  "PENDING_RESTART",
+  "PENDING_TRUST",
+  "POLICY_UNKNOWN",
+  "RESTART_REQUIRED"
+]);
+var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
 var DISCOVERY_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
   "APPDATA",
   "CLAUDE_CONFIG_DIR",
@@ -26583,6 +26602,7 @@ var ACTION_ALIASES = Object.freeze({
 var ACTION_MESSAGES = Object.freeze({
   CLIENT_ENABLEMENT_REQUIRED: "Enable the UEMCP registration in the client before relying on it.",
   CLIENT_ENABLEMENT_REVIEW_REQUIRED: "Review client enablement before relying on the registration.",
+  CLIENT_APPLY_ACTION_REQUIRED: "Complete the retained client apply or cleanup action before treating the transaction as healthy.",
   CONFLICT: "Review the existing client registration before replacing owned fields.",
   CUSTOM_ENV_REVIEW_REQUIRED: "Review the custom protocol environment names and hashes before launch.",
   CUSTOM_LAUNCH_REVIEW_REQUIRED: "Review the custom protocol working directory before launch.",
@@ -26617,6 +26637,15 @@ function plainObject6(value) {
 }
 function unique5(values) {
   return [...new Set(values)];
+}
+function pathKey4(path) {
+  if (typeof path !== "string") return null;
+  if (win3210.isAbsolute(path)) return `win:${win3210.normalize(path).toLowerCase()}`;
+  if (posix4.isAbsolute(path)) return `posix:${posix4.normalize(path)}`;
+  return null;
+}
+function hasOnlyKeys(value, allowed) {
+  return plainObject6(value) && Object.keys(value).every((key) => allowed.has(key));
 }
 function actionCode(value) {
   const candidate = typeof value === "string" ? value : value?.code;
@@ -27046,17 +27075,79 @@ function publicTransactionEvidence(result2) {
     retained_snapshots: Object.freeze((result2.retained_snapshots ?? []).filter(plainObject6).map((row) => Object.freeze({
       path: typeof row.path === "string" ? row.path : "<unknown>",
       retained_until: typeof row.retained_until === "string" ? row.retained_until : null
+    }))),
+    cleanup_actions: Object.freeze((result2.cleanup_actions ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      code: stableErrorCode(row.code)
     })))
   });
 }
-function validTransactionResult(result2, operations) {
-  if (!plainObject6(result2) || !TRANSACTION_RESULT_STATUSES.has(result2.status) || !Array.isArray(result2.clients) || result2.clients.some((row) => !plainObject6(row) || !CLIENT_IDS.includes(row.client_id) || typeof row.status !== "string") || !Array.isArray(result2.touched_files) || result2.touched_files.some((row) => !plainObject6(row) || typeof row.path !== "string" || row.applied_sha256 !== null && (typeof row.applied_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.applied_sha256))) || !Array.isArray(result2.retained_snapshots)) {
+function validTransactionResult(result2, operations, writablePreconditions) {
+  const resultKeys = /* @__PURE__ */ new Set(["status", "clients", "touched_files", "rollback", "retained_snapshots", "cleanup_actions"]);
+  if (!hasOnlyKeys(result2, resultKeys) || !TRANSACTION_RESULT_STATUSES.has(result2.status) || !Array.isArray(result2.clients) || !Array.isArray(result2.touched_files) || !Array.isArray(result2.retained_snapshots) || result2.cleanup_actions !== void 0 && !Array.isArray(result2.cleanup_actions)) {
     return false;
   }
-  if (["APPLIED", "ACTION_REQUIRED"].includes(result2.status) && operations.length > 0 && result2.touched_files.length === 0) {
+  const allowedPaths = new Set(writablePreconditions.map((row) => pathKey4(row.canonical_path)).filter(Boolean));
+  const operationClients = new Set(operations.map((operation) => operation.client_id));
+  const operationPaths = new Map(operations.map((operation) => [pathKey4(operation.path), operation]));
+  const requiredWritePaths = new Set(operations.filter((operation) => operation.ledger_only !== true).map((operation) => pathKey4(operation.path)).filter(Boolean));
+  const clientIds = result2.clients.map((row) => row?.client_id);
+  if (new Set(clientIds).size !== clientIds.length || result2.clients.some((row) => !hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "status", "error_code"])) || !operationClients.has(row.client_id) || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status) && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status) && row.status !== "FAILED" || row.error_code !== void 0 && stableErrorCode(row.error_code, null) === null)) {
     return false;
   }
-  return !ROLLBACK_TERMINAL_STATUSES.has(result2.status) || plainObject6(result2.rollback);
+  const success = result2.status === "APPLIED" || result2.status === "ACTION_REQUIRED";
+  if (success && (clientIds.length !== operationClients.size || [...operationClients].some((clientId) => !clientIds.includes(clientId)))) return false;
+  if (result2.status === "APPLIED" && result2.clients.some((row) => !TRANSACTION_READY_CLIENT_STATUSES.has(row.status))) return false;
+  const touchedKeys = [];
+  for (const row of result2.touched_files) {
+    const key = pathKey4(row?.path);
+    const operation = operationPaths.get(key);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "applied_sha256"])) || !key || !allowedPaths.has(key) || row.applied_sha256 !== null && !/^[0-9a-f]{64}$/.test(row.applied_sha256 ?? "") || row.applied_sha256 === null && operation?.delete_after_verify !== true) {
+      return false;
+    }
+    touchedKeys.push(key);
+  }
+  if (new Set(touchedKeys).size !== touchedKeys.length || success && operations.length > 0 && touchedKeys.length === 0 || success && [...requiredWritePaths].some((key) => !touchedKeys.includes(key))) {
+    return false;
+  }
+  const retainedKeys = [];
+  for (const row of result2.retained_snapshots) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "retained_until"])) || !key || !allowedPaths.has(key) || row.retained_until !== null && (typeof row.retained_until !== "string" || !Number.isFinite(Date.parse(row.retained_until)))) {
+      return false;
+    }
+    retainedKeys.push(key);
+  }
+  if (new Set(retainedKeys).size !== retainedKeys.length) return false;
+  const cleanupActions = result2.cleanup_actions ?? [];
+  const cleanupKeys = [];
+  for (const row of cleanupActions) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "code"])) || !key || !allowedPaths.has(key) || stableErrorCode(row.code, null) === null) return false;
+    cleanupKeys.push(`${key}:${row.code}`);
+  }
+  if (new Set(cleanupKeys).size !== cleanupKeys.length) return false;
+  if (success) {
+    if (result2.rollback !== null) return false;
+    const hasFollowUp = result2.clients.some((row) => TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status)) || result2.retained_snapshots.length > 0 || cleanupActions.length > 0;
+    return result2.status === "ACTION_REQUIRED" ? hasFollowUp : !hasFollowUp;
+  }
+  if (!hasOnlyKeys(result2.rollback, /* @__PURE__ */ new Set(["reason_code", "paths", "hook_errors"])) || stableErrorCode(result2.rollback.reason_code, null) === null || !Array.isArray(result2.rollback.paths) || !Array.isArray(result2.rollback.hook_errors)) return false;
+  const rollbackKeys = [];
+  for (const row of result2.rollback.paths) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["status", "path", "code"])) || !ROLLBACK_PATH_STATUSES.has(row.status) || !key || !allowedPaths.has(key) || (row.status === "restored" ? row.code !== void 0 : stableErrorCode(row.code, null) === null)) return false;
+    rollbackKeys.push(key);
+  }
+  if (new Set(rollbackKeys).size !== rollbackKeys.length) return false;
+  for (const row of result2.rollback.hook_errors) {
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "code"])) || ![...CLIENT_IDS, "transaction"].includes(row.client_id) || stableErrorCode(row.code, null) === null) return false;
+  }
+  const hasConflict = result2.rollback.paths.some((row) => row.status === "conflict");
+  const hasFailure = result2.rollback.paths.some((row) => row.status === "failed") || result2.rollback.hook_errors.length > 0;
+  if (result2.status === "ROLLED_BACK") return !hasConflict && !hasFailure && result2.retained_snapshots.length === 0;
+  if (result2.status === "ROLLBACK_CONFLICT") return hasConflict;
+  return result2.status === "ROLLBACK_FAILED" && !hasConflict && hasFailure;
 }
 function ownershipLedger(fsImpl, localState, now) {
   if (!localState?.paths) {
@@ -27141,7 +27232,7 @@ function createClientDomain({
       const adapter = mappedAdapters.get(row.client_id);
       const currentContext = adapterContext(context, row, requestedProfile, planDigest, ledger);
       const detection = await adapter.detect(currentContext);
-      const inspection = await adapter.inspect(currentContext, detection);
+      const inspection = await settleInspection(currentContext, adapter, detection);
       const planResult = plan2 && row.selected ? await adapter.plan(currentContext, inspection, context.descriptor) : null;
       let smoke = { status: "UNKNOWN" };
       if (canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
@@ -27150,6 +27241,7 @@ function createClientDomain({
           fail16("adapter private protocol environment is invalid", "INVALID_CLIENT_LAUNCH");
         }
         const effectiveEnvironment = mergeWindowsEnvironmentOverlay(context.env ?? process.env, launch.env_overlay);
+        await recheckInspectionPreconditions(currentContext, inspection);
         await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
         smoke = await protocolSmoke(context.descriptor, {
           effectiveEnvironment,
@@ -27183,13 +27275,15 @@ function createClientDomain({
     const views = records.map((record2) => terminalStatus && affected.has(record2.row.client_id) ? terminalClientView(record2, terminalStatus, terminalStatus) : record2);
     const clients = Object.freeze(views.map((record2) => record2.client));
     const evidenceRows = Object.freeze(views.map((record2) => record2.evidence));
-    const transactionActions = ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? [transactionStatus] : [];
+    const transactionActions = transactionStatus === "ACTION_REQUIRED" ? ["CLIENT_APPLY_ACTION_REQUIRED"] : ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? [transactionStatus] : [];
     const actions = normalizeActions([...clients.flatMap((client) => client.actions), ...transactionActions]);
     let state = stageState(clients, evidenceRows);
     if (transactionStatus === "ROLLED_BACK" || transactionStatus === "ROLLBACK_CONFLICT") {
       state = { status: transactionStatus, result: "rolled_back" };
     } else if (transactionStatus === "ROLLBACK_FAILED") {
       state = { status: transactionStatus, result: "failed" };
+    } else if (transactionStatus === "ACTION_REQUIRED") {
+      state = { status: "CLIENT_APPLY_ACTION_REQUIRED", result: "action_required" };
     }
     const stage = createStageResult({
       name: DOMAIN_NAME,
@@ -27294,7 +27388,64 @@ function createClientDomain({
       });
     });
   }
-  async function recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites = false } = {}) {
+  function assertAuthorizedClientOperations(records, operations) {
+    const byClient = new Map(records.map((record2) => [record2.row.client_id, record2]));
+    const failures = [];
+    for (const operation of operations) {
+      const record2 = byClient.get(operation.client_id);
+      if (!record2 || record2.row.selected !== true || record2.row.compatibility !== "release_gated" || record2.row.write_supported !== true || record2.row.launch === null || !record2.inspection || BLOCKED_INSPECTION_STATUSES.has(record2.inspection.registration)) {
+        failures.push({ client_id: operation.client_id ?? "unknown" });
+      }
+    }
+    if (failures.length > 0) {
+      fail16("approved client operations no longer have complete selected-client evidence", "CLIENT_INSPECTION_UNBOUND", { clients: failures });
+    }
+  }
+  async function inspectionPreconditionFailures(context, inspection) {
+    const failures = [];
+    for (const [index, file] of (inspection?.files ?? []).entries()) {
+      if (!plainObject6(file) || typeof file.path !== "string" || typeof file.allowed_root !== "string" || !plainObject6(file.fingerprint)) {
+        failures.push({ reason: "INSPECTION_FINGERPRINT_MISSING" });
+        continue;
+      }
+      try {
+        const observed = stableClientFingerprint(await captureFingerprint(file.path, {
+          allowedRoots: [file.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: file.writable === true
+        }));
+        const expected = stableClientFingerprint(file.fingerprint);
+        if (sha256Canonical(observed) !== sha256Canonical(expected)) {
+          const changedFields = unique5([...Object.keys(expected), ...Object.keys(observed)]).filter((key) => sha256Canonical(expected[key] ?? null) !== sha256Canonical(observed[key] ?? null));
+          failures.push({ reason: "INSPECTION_FINGERPRINT_CHANGED", evidence_index: index, changed_fields: changedFields });
+        }
+      } catch (error2) {
+        failures.push({ reason: stableErrorCode(error2?.code, "FINGERPRINT_FAILED") });
+      }
+    }
+    return failures;
+  }
+  function throwInspectionPreconditionFailures(failures) {
+    if (failures.length > 0) fail16("client evidence changed after inspection", "PLAN_STALE", { failures });
+  }
+  async function recheckInspectionPreconditions(context, inspection) {
+    throwInspectionPreconditionFailures(await inspectionPreconditionFailures(context, inspection));
+  }
+  async function settleInspection(context, adapter, detection) {
+    let inspection = await adapter.inspect(context, detection);
+    const failures = await inspectionPreconditionFailures(context, inspection);
+    if (failures.length === 0) return inspection;
+    if (failures.some((row) => row.reason !== "INSPECTION_FINGERPRINT_CHANGED")) {
+      throwInspectionPreconditionFailures(failures);
+    }
+    inspection = await adapter.inspect(context, detection);
+    await recheckInspectionPreconditions(context, inspection);
+    return inspection;
+  }
+  async function recheckActiveLaunchPreconditions(context, approvedPlan, {
+    transactionOwnsWrites = false,
+    committedTouchedHashes = /* @__PURE__ */ new Map()
+  } = {}) {
     if (context.applyLease && typeof context.localState?.validateApplyLease === "function") {
       await context.localState.validateApplyLease(context.applyLease);
     }
@@ -27312,7 +27463,10 @@ function createClientDomain({
         failures.push({ label: precondition.label, reason: stableErrorCode(error2?.code, "FINGERPRINT_FAILED") });
         continue;
       }
-      if (sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint)) {
+      const committedHash = precondition.writable === true ? committedTouchedHashes.get(pathKey4(precondition.canonical_path)) : void 0;
+      const committedMismatch = committedHash !== void 0 && (observed.content_sha256 !== committedHash || observed.exists !== (committedHash !== null));
+      const plannedMismatch = committedHash === void 0 && sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint);
+      if (committedMismatch || plannedMismatch) {
         failures.push({ label: precondition.label, reason: "FINGERPRINT_CHANGED" });
       }
     }
@@ -27327,17 +27481,19 @@ function createClientDomain({
     }
     const affectedClientIds = unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId)));
     let transactionOwnsWrites = false;
+    const committedTouchedHashes = /* @__PURE__ */ new Map();
     const applyContext = {
       ...context,
       beforeActiveClientLaunch: async (evidence) => {
         if (!plainObject6(evidence) || !CLIENT_IDS.includes(evidence.client_id) || !["native", "protocol"].includes(evidence.kind)) {
           fail16("adapter active-launch guard evidence is invalid", "INVALID_CLIENT_LAUNCH");
         }
-        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites });
+        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites, committedTouchedHashes });
       }
     };
     const { rows, requestedProfile, contextSha256 } = await discover(applyContext, approvedPlan);
     const before = await inspectRows(applyContext, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    assertAuthorizedClientOperations(before, operations);
     let transactionResult = null;
     if (operations.length > 0) {
       const ownership = approvedPlan.preconditions.find((precondition) => precondition.kind === "client_path" && precondition.canonical_path === applyContext.localState.paths().ownership);
@@ -27358,7 +27514,9 @@ function createClientDomain({
         operations,
         context: applyContext
       });
-      if (!validTransactionResult(transactionResult, operations)) {
+      transactionOwnsWrites = false;
+      const writablePreconditions = approvedPlan.preconditions.filter((precondition) => precondition.kind === "client_path" && precondition.writable === true);
+      if (!validTransactionResult(transactionResult, operations, writablePreconditions)) {
         const invalidResult = Object.freeze({
           status: "UNKNOWN",
           clients: Object.freeze(unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId))).map((clientId) => Object.freeze({ client_id: clientId, status: "UNKNOWN" }))),
@@ -27374,6 +27532,9 @@ function createClientDomain({
           Object.assign(new Error("client transaction result is invalid"), { code: "INVALID_CLIENT_TRANSACTION_RESULT" }),
           affectedClientIds
         );
+      }
+      for (const row of transactionResult.touched_files) {
+        committedTouchedHashes.set(pathKey4(row.path), row.applied_sha256);
       }
     }
     const changed = (transactionResult?.touched_files?.length ?? 0) > 0;
@@ -27425,7 +27586,7 @@ function createClientDomain({
 
 // server/deployment/descriptor.mjs
 import * as defaultFs12 from "node:fs/promises";
-import { isAbsolute as isAbsolute11, posix as posix4, resolve as resolve10, win32 as win3210 } from "node:path";
+import { isAbsolute as isAbsolute11, posix as posix5, resolve as resolve11, win32 as win3211 } from "node:path";
 var DESCRIPTOR_KEYS = ["name", "transport", "command", "args", "env", "cwd"];
 var DescriptorError = class extends Error {
   constructor(message, code = "INVALID_DESCRIPTOR", details = {}) {
@@ -27436,11 +27597,11 @@ var DescriptorError = class extends Error {
   }
 };
 function normalizePath(value) {
-  const normalized = resolve10(value).replace(/\\/g, "/");
+  const normalized = resolve11(value).replace(/\\/g, "/");
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function absolutePath6(value) {
-  return typeof value === "string" && (isAbsolute11(value) || win3210.isAbsolute(value) || posix4.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute11(value) || win3211.isAbsolute(value) || posix5.isAbsolute(value));
 }
 function exactDescriptorShape(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -27487,8 +27648,9 @@ function descriptorsEqual(actual, expected) {
 // server/deployment/local-state.mjs
 import { randomBytes as randomBytes3 } from "node:crypto";
 import * as defaultFs13 from "node:fs/promises";
-import { dirname as dirname9, isAbsolute as isAbsolute12, join as join11, parse as parse6, relative as relative7, resolve as resolve11, sep as sep7 } from "node:path";
+import { basename as basename2, dirname as dirname9, isAbsolute as isAbsolute12, join as join11, parse as parse6, relative as relative7, resolve as resolve12, sep as sep7 } from "node:path";
 var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
+var SHA2562 = /^[0-9a-f]{64}$/;
 var LEASE_PROCESS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 try {
@@ -27511,8 +27673,8 @@ var LocalStateError = class extends Error {
   }
 };
 function contained6(root, candidate) {
-  const normalizedRoot = process.platform === "win32" ? resolve11(root).toLowerCase() : resolve11(root);
-  const normalizedCandidate = process.platform === "win32" ? resolve11(candidate).toLowerCase() : resolve11(candidate);
+  const normalizedRoot = process.platform === "win32" ? resolve12(root).toLowerCase() : resolve12(root);
+  const normalizedCandidate = process.platform === "win32" ? resolve12(candidate).toLowerCase() : resolve12(candidate);
   const rel = relative7(normalizedRoot, normalizedCandidate);
   return rel === "" || !rel.startsWith(`..${sep7}`) && rel !== ".." && !isAbsolute12(rel);
 }
@@ -27538,7 +27700,7 @@ async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
   if (typeof path !== "string" || !isAbsolute12(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
     throw new LocalStateError("snapshot target path is unsafe", code);
   }
-  const absolute = resolve11(path);
+  const absolute = resolve12(path);
   const root = parse6(absolute).root;
   const segments = relative7(root, absolute).split(sep7).filter(Boolean);
   let current = root;
@@ -27566,7 +27728,7 @@ async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = 
   }
   if (platform === "win32") {
     if (!systemRoot || !runner?.run) return "unknown";
-    const powershell = resolve11(join11(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+    const powershell = resolve12(join11(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
     let result2;
     try {
       result2 = await runner.run(powershell, [
@@ -27579,8 +27741,8 @@ async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = 
         "-"
       ], {
         env: {
-          SystemRoot: resolve11(systemRoot),
-          WINDIR: resolve11(systemRoot),
+          SystemRoot: resolve12(systemRoot),
+          WINDIR: resolve12(systemRoot),
           UEMCP_LEASE_PID: String(pid)
         },
         stdin: `${LEASE_PROCESS_SCRIPT}
@@ -27621,23 +27783,23 @@ async function defaultAclRestrictor(path) {
   const systemRoot = process.env.SystemRoot || process.env.WINDIR;
   if (!systemRoot) throw new LocalStateError("SystemRoot is required to restrict local state ACLs");
   const runner = createProcessRunner();
-  const whoami = resolve11(join11(systemRoot, "System32", "whoami.exe"));
-  const icacls = resolve11(join11(systemRoot, "System32", "icacls.exe"));
+  const whoami = resolve12(join11(systemRoot, "System32", "whoami.exe"));
+  const icacls = resolve12(join11(systemRoot, "System32", "icacls.exe"));
   const identity = await runner.run(whoami, ["/user", "/fo", "csv", "/nh"], {
-    env: { SystemRoot: resolve11(systemRoot), WINDIR: resolve11(systemRoot) },
+    env: { SystemRoot: resolve12(systemRoot), WINDIR: resolve12(systemRoot) },
     timeoutMs: 1e4,
     outputLimitBytes: 8 * 1024
   });
   const sid = identity.status === "exited" && identity.exitCode === 0 && identity.stderr === "" ? parseWhoamiCsv(identity.stdout) : null;
   if (!sid) throw new LocalStateError("could not resolve the current user SID");
   const restricted = await runner.run(icacls, [
-    resolve11(path),
+    resolve12(path),
     "/inheritance:r",
     "/grant:r",
     `*${sid}:(OI)(CI)F`,
     "*S-1-5-18:(OI)(CI)F"
   ], {
-    env: { SystemRoot: resolve11(systemRoot), WINDIR: resolve11(systemRoot) },
+    env: { SystemRoot: resolve12(systemRoot), WINDIR: resolve12(systemRoot) },
     timeoutMs: 15e3,
     outputLimitBytes: 16 * 1024
   });
@@ -27655,7 +27817,7 @@ function createLocalState({
 } = {}) {
   const selectedRoot = root ?? (process.env.LOCALAPPDATA ? join11(process.env.LOCALAPPDATA, "UEMCP") : null);
   if (!selectedRoot) throw new LocalStateError("LOCALAPPDATA is unavailable and no local-state root was injected");
-  const absoluteRoot = resolve11(selectedRoot);
+  const absoluteRoot = resolve12(selectedRoot);
   const pathSet = Object.freeze({
     root: absoluteRoot,
     state: join11(absoluteRoot, "state"),
@@ -27666,12 +27828,13 @@ function createLocalState({
     dependencyStamp: join11(absoluteRoot, "state", "dependency-stamp-v1.json"),
     targets: join11(absoluteRoot, "state", ".uemcp-targets.json"),
     lock: join11(absoluteRoot, "state", "deployment-apply-v1.lock"),
-    replayLedger: join11(absoluteRoot, "plans", "applied-v1.json")
+    replayLedger: join11(absoluteRoot, "plans", "applied-v1.json"),
+    applyJournals: join11(absoluteRoot, "plans", "apply-journal-v1")
   });
   const restrictedDirectories = /* @__PURE__ */ new Set();
   const activeLeaseTokens = /* @__PURE__ */ new Set();
   function assertLocalPath(path) {
-    const absolute = resolve11(path);
+    const absolute = resolve12(path);
     if (!contained6(absoluteRoot, absolute)) throw new LocalStateError("path escapes the local-state root", "LOCAL_STATE_PATH_ESCAPE");
     return absolute;
   }
@@ -27854,13 +28017,126 @@ function createLocalState({
   async function readReplayLedger() {
     return await readJson(pathSet.replayLedger) ?? { schema_version: "1.0", applied: {} };
   }
+  function validateDigest(digest) {
+    if (!SHA2562.test(digest ?? "")) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
+    return digest;
+  }
+  function applyJournalPath(digest) {
+    return join11(pathSet.applyJournals, `${validateDigest(digest)}.json`);
+  }
+  function validateJournalReceipt(receipt) {
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || receipt.kind !== "deployment" || typeof receipt.path_label !== "string" || !/^receipts\/[A-Za-z0-9._-]+\.json$/.test(receipt.path_label) || !SHA2562.test(receipt.sha256 ?? "") || !receipt.document || typeof receipt.document !== "object" || Array.isArray(receipt.document) || receipt.document.path_label !== receipt.path_label || receipt.document.receipt_sha256 !== receipt.sha256) {
+      throw new LocalStateError("apply journal receipt is invalid", "MALFORMED_LOCAL_STATE");
+    }
+    const body = { ...receipt.document };
+    delete body.receipt_sha256;
+    if (sha256Canonical(body) !== receipt.sha256) {
+      throw new LocalStateError("apply journal receipt hash is invalid", "MALFORMED_LOCAL_STATE");
+    }
+    return receipt;
+  }
+  function validateApplyJournal(record2, digest) {
+    if (!record2 || typeof record2 !== "object" || Array.isArray(record2) || record2.schema_version !== "1.0" || record2.kind !== "uemcp.deployment.apply-journal" || record2.plan_digest !== digest || !["applying", "receipt_pending", "committed"].includes(record2.state) || typeof record2.started_at !== "string" || !Number.isFinite(Date.parse(record2.started_at))) {
+      throw new LocalStateError("apply journal is malformed", "MALFORMED_LOCAL_STATE");
+    }
+    const expectedKeys = ["schema_version", "kind", "plan_digest", "state", "started_at", "receipt"];
+    if (Object.keys(record2).sort().join(",") !== expectedKeys.sort().join(",")) {
+      throw new LocalStateError("apply journal has unknown fields", "MALFORMED_LOCAL_STATE");
+    }
+    if (record2.state === "applying") {
+      if (record2.receipt !== null) throw new LocalStateError("applying journal cannot contain a receipt", "MALFORMED_LOCAL_STATE");
+    } else {
+      validateJournalReceipt(record2.receipt);
+    }
+    return record2;
+  }
+  async function readApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const record2 = await readJson(applyJournalPath(normalized));
+    return record2 === null ? null : validateApplyJournal(record2, normalized);
+  }
+  async function beginApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    if (await readApplyJournal(normalized)) throw new LocalStateError("plan digest already has an apply journal", "PLAN_REPLAYED");
+    const ledger = await readReplayLedger();
+    if (Object.hasOwn(ledger.applied ?? {}, normalized)) throw new LocalStateError("plan digest was already applied", "PLAN_REPLAYED");
+    await writeJsonAtomic(applyJournalPath(normalized), {
+      schema_version: "1.0",
+      kind: "uemcp.deployment.apply-journal",
+      plan_digest: normalized,
+      state: "applying",
+      started_at: new Date(Number(clock())).toISOString(),
+      receipt: null
+    });
+  }
+  async function stageApplyJournal(digest, preparedReceipt) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current?.state !== "applying") throw new LocalStateError("apply journal is not ready for terminal receipt staging", "MALFORMED_LOCAL_STATE");
+    const reference = preparedReceipt?.reference;
+    if (!reference || reference.path !== join11(pathSet.receipts, basename2(reference.path_label ?? ""))) {
+      throw new LocalStateError("prepared receipt path is outside the receipt root", "LOCAL_STATE_PATH_ESCAPE");
+    }
+    const receipt = validateJournalReceipt({
+      kind: reference.kind,
+      path_label: reference.path_label,
+      sha256: reference.sha256,
+      document: preparedReceipt.document
+    });
+    await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: "receipt_pending", receipt });
+  }
+  async function ensureJournalReceipt(record2) {
+    const receipt = validateJournalReceipt(record2.receipt);
+    const fileName = basename2(receipt.path_label);
+    const path = join11(pathSet.receipts, fileName);
+    if (receipt.path_label !== `receipts/${fileName}`) {
+      throw new LocalStateError("apply journal receipt path is unsafe", "LOCAL_STATE_PATH_ESCAPE");
+    }
+    const existing = await readJson(path);
+    if (existing === null) {
+      await writeJsonAtomic(path, receipt.document);
+    } else if (canonicalJson(existing) !== canonicalJson(receipt.document)) {
+      throw new LocalStateError("existing receipt differs from the apply journal", "RECEIPT_INTEGRITY_FAILED");
+    }
+    return { kind: receipt.kind, path_label: receipt.path_label, path, sha256: receipt.sha256 };
+  }
+  async function completeApplyJournal(digest, reference = null) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (!current || !["receipt_pending", "committed"].includes(current.state)) {
+      throw new LocalStateError("apply journal has no terminal receipt", "MALFORMED_LOCAL_STATE");
+    }
+    const expected = current.receipt;
+    if (reference && (reference.kind !== expected.kind || reference.path_label !== expected.path_label || reference.sha256 !== expected.sha256)) {
+      throw new LocalStateError("written receipt does not match the apply journal", "RECEIPT_INTEGRITY_FAILED");
+    }
+    const resolvedReference = await ensureJournalReceipt(current);
+    if (current.state !== "committed") {
+      await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: "committed" });
+    }
+    return resolvedReference;
+  }
+  async function clearApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current === null) return;
+    if (current.state !== "applying") throw new LocalStateError("terminal apply journal cannot be cleared", "PLAN_REPLAYED");
+    const path = applyJournalPath(normalized);
+    await assertNoLinkedLocalPath(path);
+    await fsImpl.rm(path, { force: true });
+  }
   async function wasDigestApplied(digest) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
+    validateDigest(digest);
+    const journal = await readApplyJournal(digest);
+    if (journal) {
+      if (journal.state !== "applying") await completeApplyJournal(digest);
+      return true;
+    }
     const ledger = await readReplayLedger();
     return Object.hasOwn(ledger.applied ?? {}, digest);
   }
   async function markDigestApplied(digest, evidence = {}) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
+    validateDigest(digest);
     const ledger = await readReplayLedger();
     ledger.schema_version = "1.0";
     ledger.applied ??= {};
@@ -27979,16 +28255,21 @@ function createLocalState({
     restoreSnapshot,
     deleteSnapshot,
     cleanupExpired,
+    beginApplyJournal,
+    stageApplyJournal,
+    completeApplyJournal,
+    clearApplyJournal,
+    readApplyJournal,
     markDigestApplied,
     wasDigestApplied
   });
 }
 
 // server/deployment/orchestrator.mjs
-import { dirname as dirname10, isAbsolute as isAbsolute14, resolve as resolve13 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute14, resolve as resolve14 } from "node:path";
 
 // server/deployment/plan-document.mjs
-import { isAbsolute as isAbsolute13, posix as posix5, win32 as win3211 } from "node:path";
+import { isAbsolute as isAbsolute13, posix as posix6, win32 as win3212 } from "node:path";
 
 // server/deployment/redaction.mjs
 var DEFAULT_SECRET_KEYS = Object.freeze([
@@ -28095,7 +28376,7 @@ var PLAN_KEYS = /* @__PURE__ */ new Set([
   "digest"
 ]);
 var DOMAIN_ORDERS = Object.freeze({ prerequisites: 10, target: 20, clients: 30, plugin: 40 });
-var SHA2562 = /^[0-9a-f]{64}$/;
+var SHA2563 = /^[0-9a-f]{64}$/;
 var DeploymentPlanError = class extends Error {
   constructor(message, code = "INVALID_PLAN", details = {}) {
     super(message);
@@ -28108,7 +28389,7 @@ function fail17(message, code, details) {
   throw new DeploymentPlanError(message, code, details);
 }
 function absolutePath7(value) {
-  return typeof value === "string" && (isAbsolute13(value) || win3211.isAbsolute(value) || posix5.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute13(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
 }
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
@@ -28180,12 +28461,21 @@ function validatePlanDocument(plan) {
   const operations = plan.operations.map(validateOperation);
   const preconditions = plan.preconditions.map(validatePrecondition);
   plan.actions.forEach(validateActionContract);
-  if (!SHA2562.test(plan.digest)) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
+  if (!SHA2563.test(plan.digest)) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
   if (new Set(operations.map((row) => row.operation_id)).size !== operations.length) fail17("plan operation IDs must be unique", "INVALID_PLAN");
   if (new Set(preconditions.map((row) => row.label)).size !== preconditions.length) fail17("plan precondition labels must be unique", "INVALID_PLAN");
   const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
   const clientStage = plan.stages.find((stage) => stage.name === "clients");
-  const clientEvidence2 = new Map((clientStage?.evidence?.clients ?? []).filter((row) => row && typeof row.adapter === "string").map((row) => [row.adapter, row]));
+  const rawClientEvidence = clientStage?.evidence?.clients ?? [];
+  if (!Array.isArray(rawClientEvidence)) fail17("plan client evidence must be an array", "INVALID_PLAN");
+  if (rawClientEvidence.some((row) => row === null || typeof row !== "object" || Array.isArray(row) || typeof row.adapter !== "string" || !Array.isArray(row.touched_paths))) {
+    fail17("plan client evidence rows are malformed", "INVALID_PLAN");
+  }
+  const clientEvidenceRows = rawClientEvidence;
+  const clientEvidence2 = new Map(clientEvidenceRows.map((row) => [row.adapter, row]));
+  if (clientByAdapter.size !== clients.length || clientEvidence2.size !== clientEvidenceRows.length) {
+    fail17("plan client rows and evidence must use unique adapter IDs", "INVALID_PLAN");
+  }
   const probeFailureCodes = /* @__PURE__ */ new Set([
     "VERSION_PROBE_FAILED",
     "CLIENT_DISCOVERY_FAILED",
@@ -28202,6 +28492,28 @@ function validatePlanDocument(plan) {
       fail17("requested client lacks valid detection or absence evidence", "INVALID_PLAN", { adapter });
     }
   }
+  const clientOperations = operations.filter((operation) => operation.domain === "clients");
+  const operationPaths = /* @__PURE__ */ new Map();
+  for (const operation of clientOperations) {
+    const client = clientByAdapter.get(operation.client_id);
+    const evidence = clientEvidence2.get(operation.client_id);
+    if (operation.kind !== "CLIENT_CONFIG_WRITE" || operation.selected !== true || operation.write_supported !== true || !client || client.selected !== true || client.compatibility !== "release_gated" || client.write_supported !== true || typeof client.version !== "string" || !evidence || evidence.selected !== true || evidence.launch_contract === null || ["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(evidence.structural_status) || !absolutePath7(operation.path)) {
+      fail17("client operation lacks a selected release-gated authorization row", "INVALID_PLAN", { client_id: operation.client_id ?? null });
+    }
+    const paths = operationPaths.get(operation.client_id) ?? [];
+    paths.push(operation.path);
+    operationPaths.set(operation.client_id, paths);
+  }
+  for (const [adapter, evidence] of clientEvidence2) {
+    const plannedPaths = [...new Set(operationPaths.get(adapter) ?? [])].sort();
+    const evidencePaths = Array.isArray(evidence.touched_paths) ? [...new Set(evidence.touched_paths.filter(absolutePath7))].sort() : [];
+    if (plannedPaths.length !== (operationPaths.get(adapter) ?? []).length || evidencePaths.length !== (evidence.touched_paths ?? []).length || canonicalJson(plannedPaths) !== canonicalJson(evidencePaths)) {
+      fail17("client operations do not match their reviewed touched-path evidence", "INVALID_PLAN", { adapter });
+    }
+    if (plannedPaths.length > 0 && ["INSPECT_ONLY", "NO_OP"].includes(evidence.operation)) {
+      fail17("client write operation is inconsistent with inspect-only evidence", "INVALID_PLAN", { adapter });
+    }
+  }
   assertNoSecretMaterial(plan);
   return true;
 }
@@ -28210,7 +28522,7 @@ function validatePlanStructure(plan) {
   if (plan.schema_version !== DEPLOYMENT_SCHEMA_VERSION || plan.kind !== "uemcp.deployment.plan") {
     fail17("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
   }
-  if (!SHA2562.test(plan.digest ?? "")) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
+  if (!SHA2563.test(plan.digest ?? "")) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
   canonicalJson(plan);
 }
 function computePlanDigest(planWithoutDigest) {
@@ -28262,7 +28574,7 @@ function createPlanDocument({
 function validatePlanEnvelope({ plan, approvedDigest, now = /* @__PURE__ */ new Date() }) {
   validatePlanStructure(plan);
   const computed = computePlanDigest(plan);
-  if (computed !== plan.digest || !SHA2562.test(approvedDigest) || approvedDigest !== plan.digest) {
+  if (computed !== plan.digest || !SHA2563.test(approvedDigest) || approvedDigest !== plan.digest) {
     fail17("plan digest does not match stored and approved bytes", "PLAN_DIGEST_MISMATCH");
   }
   const observedNow = Date.parse(isoTime(now, "validation time"));
@@ -28312,8 +28624,8 @@ async function validatePlanForApply({
 
 // server/deployment/receipts.mjs
 import * as defaultFs14 from "node:fs/promises";
-import { basename as basename2, join as join12, resolve as resolve12 } from "node:path";
-var SHA2563 = /^[0-9a-f]{64}$/;
+import { basename as basename3, join as join12, resolve as resolve13 } from "node:path";
+var SHA2564 = /^[0-9a-f]{64}$/;
 var ReceiptError = class extends Error {
   constructor(message, code = "RECEIPT_INTEGRITY_FAILED", details = {}) {
     super(message);
@@ -28386,21 +28698,41 @@ function receiptBody({ result: result2, plan, pathLabel }) {
     action_codes: actionCodes(result2)
   };
 }
-async function writeReceipt({ localState, result: result2, plan }) {
-  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError("local state is required to write a receipt");
-  if (!SHA2563.test(plan?.digest ?? "")) throw new ReceiptError("receipt requires a valid plan digest");
+function prepareReceipt({ localState, result: result2, plan }) {
+  if (!localState?.paths) throw new ReceiptError("local state is required to prepare a receipt");
+  if (!SHA2564.test(plan?.digest ?? "")) throw new ReceiptError("receipt requires a valid plan digest");
   const fileName = `${safeTimestamp(result2.timestamp)}-${result2.operation}-${plan.digest}.json`;
   const pathLabel = `receipts/${fileName}`;
   const path = join12(localState.paths().receipts, fileName);
   const body = receiptBody({ result: result2, plan, pathLabel });
   const receipt = { ...body, receipt_sha256: sha256Canonical(body) };
-  await localState.writeJsonAtomic(path, receipt);
-  return {
-    kind: "deployment",
-    path_label: pathLabel,
-    path,
-    sha256: receipt.receipt_sha256
-  };
+  return Object.freeze({
+    reference: Object.freeze({
+      kind: "deployment",
+      path_label: pathLabel,
+      path,
+      sha256: receipt.receipt_sha256
+    }),
+    document: Object.freeze(receipt)
+  });
+}
+async function writePreparedReceipt({ localState, prepared }) {
+  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError("local state is required to write a receipt");
+  const reference = prepared?.reference;
+  const document = prepared?.document;
+  const expectedPath = reference?.path_label ? join12(localState.paths().receipts, basename3(reference.path_label)) : null;
+  if (!reference || reference.kind !== "deployment" || reference.path !== expectedPath || reference.path_label !== `receipts/${basename3(reference.path_label ?? "")}` || !SHA2564.test(reference.sha256 ?? "") || document?.receipt_sha256 !== reference.sha256) {
+    throw new ReceiptError("prepared receipt is invalid");
+  }
+  const body = { ...document };
+  delete body.receipt_sha256;
+  if (sha256Canonical(body) !== reference.sha256) throw new ReceiptError("prepared receipt hash is invalid");
+  await localState.writeJsonAtomic(reference.path, document);
+  return reference;
+}
+async function writeReceipt({ localState, result: result2, plan, prepared = null }) {
+  const selected = prepared ?? prepareReceipt({ localState, result: result2, plan });
+  return await writePreparedReceipt({ localState, prepared: selected });
 }
 
 // server/deployment/orchestrator.mjs
@@ -28487,6 +28819,12 @@ function actionForSmoke(smoke) {
 function receiptContractReference(reference) {
   return { kind: reference.kind, path_label: reference.path_label, sha256: reference.sha256 };
 }
+function requireApplyJournal(localState) {
+  const methods = ["beginApplyJournal", "stageApplyJournal", "completeApplyJournal", "clearApplyJournal"];
+  if (methods.some((name) => typeof localState?.[name] !== "function")) {
+    throw new OrchestratorError("local state lacks the durable apply journal contract", "LOCAL_STATE_UNAVAILABLE");
+  }
+}
 function currentActions(stages, clients, domainActions = []) {
   const unique6 = /* @__PURE__ */ new Map();
   const actions = [
@@ -28531,7 +28869,7 @@ function createDeploymentOrchestrator({
   if (typeof workspaceRoot !== "string" || !isAbsolute14(workspaceRoot)) {
     throw new OrchestratorError("workspaceRoot must be an absolute path");
   }
-  const activeWorkspaceRoot = resolve13(workspaceRoot);
+  const activeWorkspaceRoot = resolve14(workspaceRoot);
   if (!localState) throw new OrchestratorError("localState is required");
   if (typeof sourceProvider !== "function" || typeof descriptorProvider !== "function") {
     throw new OrchestratorError("source and descriptor providers are required");
@@ -28669,6 +29007,12 @@ function createDeploymentOrchestrator({
       if (sha256Canonical(currentSource) !== sha256Canonical(plan.source) || !descriptorsEqual(currentDescriptor, plan.descriptor)) {
         throw new OrchestratorError("source or descriptor changed after planning", "PLAN_STALE");
       }
+      let journalStarted = false;
+      if (plan.operations.length > 0) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest);
+        journalStarted = true;
+      }
       const stages = [];
       let domainClients = [];
       const domainActions = [];
@@ -28724,7 +29068,20 @@ function createDeploymentOrchestrator({
         actions,
         now: context.now
       });
-      const receipt = await receiptWriter({ localState, result: initial, plan });
+      const consumesPlan = shouldRecordPlanDigest(stages);
+      if (consumesPlan && !journalStarted) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest);
+        journalStarted = true;
+      }
+      const prepared = prepareReceipt({ localState, result: initial, plan });
+      if (consumesPlan) await localState.stageApplyJournal(plan.digest, prepared);
+      else if (journalStarted) {
+        await localState.clearApplyJournal(plan.digest);
+        journalStarted = false;
+      }
+      const receipt = await receiptWriter({ localState, result: initial, plan, prepared });
+      if (consumesPlan) await localState.completeApplyJournal(plan.digest, receipt);
       const result2 = createMachineResult({
         operation: "apply",
         source: plan.source,
@@ -28737,9 +29094,6 @@ function createDeploymentOrchestrator({
         actions,
         now: context.now
       });
-      if (shouldRecordPlanDigest(stages)) {
-        await localState.markDigestApplied(plan.digest, { receipt_sha256: receipt.sha256 });
-      }
       return result2;
     } finally {
       await lease.release();
@@ -28783,7 +29137,7 @@ function createDeploymentOrchestrator({
 
 // server/deployment/prerequisites.mjs
 import * as defaultFs15 from "node:fs/promises";
-import { dirname as dirname11, isAbsolute as isAbsolute15, join as join13, posix as posix6, resolve as resolve14, win32 as win3212 } from "node:path";
+import { dirname as dirname11, isAbsolute as isAbsolute15, join as join13, posix as posix7, resolve as resolve15, win32 as win3213 } from "node:path";
 var INSTALL_MODE = "production-no-scripts";
 var VALIDATION_COMMAND = "npm ls --omit=dev --all --json";
 var PrerequisiteError = class extends Error {
@@ -28795,7 +29149,7 @@ var PrerequisiteError = class extends Error {
   }
 };
 function absolutePath8(value) {
-  return typeof value === "string" && (isAbsolute15(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute15(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
 }
 function fail18(message, code, details) {
   throw new PrerequisiteError(message, code, details);
@@ -28828,7 +29182,7 @@ function sameFingerprint(left, right) {
 async function inspectNodeRuntime({
   executable = process.execPath,
   runner,
-  allowedRoots = [dirname11(resolve14(executable))],
+  allowedRoots = [dirname11(resolve15(executable))],
   fsImpl = defaultFs15
 } = {}) {
   if (!runner?.run) fail18("runtime inspection requires a bounded process runner", "INVALID_PREREQUISITE_INPUT");
@@ -28837,11 +29191,11 @@ async function inspectNodeRuntime({
   try {
     requestedFingerprint = await fingerprintPath(executable, { allowedRoots, fsImpl });
   } catch (error2) {
-    if (error2?.code === "ENOENT") return { status: "NODE_MISSING", executable: resolve14(executable), version: null, fingerprint: null };
+    if (error2?.code === "ENOENT") return { status: "NODE_MISSING", executable: resolve15(executable), version: null, fingerprint: null };
     throw error2;
   }
   if (!requestedFingerprint.exists) {
-    return { status: "NODE_MISSING", executable: resolve14(executable), version: null, fingerprint: requestedFingerprint };
+    return { status: "NODE_MISSING", executable: resolve15(executable), version: null, fingerprint: requestedFingerprint };
   }
   if (requestedFingerprint.kind !== "file") {
     return { status: "NODE_UNSUPPORTED", executable: requestedFingerprint.real_path, version: null, fingerprint: requestedFingerprint };
@@ -28932,7 +29286,7 @@ async function resolveNpmCli(nodeRuntime, { runner, fsImpl }) {
   if (packageJson.name !== "npm" || typeof packageJson.version !== "string" || typeof bin !== "string") {
     fail18("the selected npm package metadata is incomplete", "LOCK_DRIFT");
   }
-  const npmCli = resolve14(npmRoot, bin);
+  const npmCli = resolve15(npmRoot, bin);
   const cliFingerprint = await fingerprintPath(npmCli, { allowedRoots: [npmRoot], fsImpl });
   if (!cliFingerprint.exists || cliFingerprint.kind !== "file" || cliFingerprint.link_kind !== "none") {
     fail18("the selected npm CLI is unavailable", "LOCK_DRIFT");
@@ -28967,7 +29321,7 @@ function stampMatches(actual, expected) {
   return sha256Canonical(comparable) === sha256Canonical(expected);
 }
 async function readLock(serverRoot, fsImpl) {
-  const lockPath = join13(resolve14(serverRoot), "package-lock.json");
+  const lockPath = join13(resolve15(serverRoot), "package-lock.json");
   let bytes;
   let lock;
   try {
@@ -28987,7 +29341,7 @@ async function inspectDependencies({
 } = {}) {
   if (nodeRuntime?.status !== "READY" || !nodeRuntime.version) fail18("dependencies cannot be inspected before Node is ready", "NODE_UNSUPPORTED");
   if (!runner?.run || !localState?.readJson || !localState?.paths) fail18("dependency inspection inputs are incomplete", "INVALID_PREREQUISITE_INPUT");
-  const root = resolve14(serverRoot);
+  const root = resolve15(serverRoot);
   const lock = await readLock(root, fsImpl);
   const blockedPackages = lock.closure.filter((row) => row.hasInstallScript).map((row) => ({ name: row.name, version: row.version }));
   if (blockedPackages.length > 0) {
@@ -29090,7 +29444,7 @@ async function applyDependencyOperation(operation, {
   clock = Date.now
 } = {}) {
   if (operation?.kind !== "INSTALL_DEPENDENCIES") fail18("unsupported prerequisite operation", "INVALID_PREREQUISITE_OPERATION");
-  if (resolve14(serverRoot) !== resolve14(operation.server_root)) fail18("server root differs from the reviewed operation", "LOCK_DRIFT");
+  if (resolve15(serverRoot) !== resolve15(operation.server_root)) fail18("server root differs from the reviewed operation", "LOCK_DRIFT");
   const currentNode = await inspectNodeRuntime({
     executable: operation.node_executable,
     runner,
@@ -29112,7 +29466,7 @@ async function applyDependencyOperation(operation, {
     "--no-audit",
     "--no-fund"
   ], {
-    cwd: resolve14(serverRoot),
+    cwd: resolve15(serverRoot),
     env: {},
     timeoutMs: 10 * 60 * 1e3,
     outputLimitBytes: 1024 * 1024
@@ -29128,7 +29482,7 @@ async function applyDependencyOperation(operation, {
       "--all",
       "--json"
     ], {
-      cwd: resolve14(serverRoot),
+      cwd: resolve15(serverRoot),
       env: {},
       timeoutMs: 3e4,
       outputLimitBytes: 1024 * 1024
@@ -29235,10 +29589,10 @@ function createPrerequisiteDomain({
 
 // server/deployment/source-provenance.mjs
 import * as defaultFs16 from "node:fs/promises";
-import { dirname as dirname12, isAbsolute as isAbsolute16, join as join14, posix as posix7, relative as relative8, resolve as resolve15, sep as sep8, win32 as win3213 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute16, join as join14, posix as posix8, relative as relative8, resolve as resolve16, sep as sep8, win32 as win3214 } from "node:path";
 var PROVENANCE_FILE = ".uemcp-source-provenance.json";
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
-var SHA2564 = /^[0-9a-f]{64}$/;
+var SHA2565 = /^[0-9a-f]{64}$/;
 var SourceProvenanceError = class extends Error {
   constructor(message, code = "SOURCE_PROVENANCE_UNKNOWN", details = {}) {
     super(message);
@@ -29303,10 +29657,10 @@ function gitCandidatePaths(environment) {
     candidates.push(join14(root, "Git", "bin", "git.exe"));
   }
   if (environment.LOCALAPPDATA) candidates.push(join14(environment.LOCALAPPDATA, "Programs", "Git", "cmd", "git.exe"));
-  return [...new Set(candidates.map((candidate) => resolve15(candidate)))];
+  return [...new Set(candidates.map((candidate) => resolve16(candidate)))];
 }
 async function selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment }) {
-  const candidates = gitExecutable ? [resolve15(gitExecutable)] : gitCandidatePaths(environment);
+  const candidates = gitExecutable ? [resolve16(gitExecutable)] : gitCandidatePaths(environment);
   for (const candidate of candidates) {
     try {
       const fingerprint = await fingerprintPath(candidate, { allowedRoots: [dirname12(candidate)], fsImpl });
@@ -29347,16 +29701,16 @@ async function runGit(runner, executable, args, repoRoot, { allowFailure = false
 async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authenticodeInspector, environment }) {
   const gitPath = await selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment });
   const reportedTopLevel = await runGit(runner, gitPath, ["rev-parse", "--show-toplevel"], repoRoot);
-  if (!(isAbsolute16(reportedTopLevel) || win3213.isAbsolute(reportedTopLevel) || posix7.isAbsolute(reportedTopLevel))) {
+  if (!(isAbsolute16(reportedTopLevel) || win3214.isAbsolute(reportedTopLevel) || posix8.isAbsolute(reportedTopLevel))) {
     fail19("Git returned a non-absolute top-level path");
   }
   let topLevel;
   try {
-    topLevel = resolve15(await fsImpl.realpath(resolve15(reportedTopLevel)));
+    topLevel = resolve16(await fsImpl.realpath(resolve16(reportedTopLevel)));
   } catch {
     fail19("Git top-level is unavailable");
   }
-  const expectedRoot = process.platform === "win32" ? resolve15(repoRoot).toLowerCase() : resolve15(repoRoot);
+  const expectedRoot = process.platform === "win32" ? resolve16(repoRoot).toLowerCase() : resolve16(repoRoot);
   const observedRoot = process.platform === "win32" ? topLevel.toLowerCase() : topLevel;
   if (expectedRoot !== observedRoot) fail19("Git top-level does not match the requested repository root");
   const remote = await runGit(runner, gitPath, ["config", "--get", "remote.origin.url"], repoRoot, { allowFailure: true });
@@ -29366,7 +29720,7 @@ async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authen
   return {
     kind: "git_checkout",
     repository: normalizeRepository(remote),
-    repo_root: resolve15(repoRoot),
+    repo_root: resolve16(repoRoot),
     git_commit: gitCommit,
     dirty: status.length > 0,
     archive: null
@@ -29400,7 +29754,7 @@ async function readArchiveDocument(path, fsImpl) {
   if (typeof parsed.requested_ref !== "string" || parsed.requested_ref.trim() === "") fail19("archive requested ref is invalid");
   if (!GIT_OBJECT_ID2.test(parsed.git_commit)) fail19("archive Git object ID is invalid");
   for (const key of ["archive_sha256", "bundle_manifest_sha256", "payload_manifest_sha256", "provenance_sha256"]) {
-    if (!SHA2564.test(parsed[key])) fail19(`archive ${key} is invalid`);
+    if (!SHA2565.test(parsed[key])) fail19(`archive ${key} is invalid`);
   }
   if (!Number.isFinite(Date.parse(parsed.downloaded_at)) || new Date(parsed.downloaded_at).toISOString() !== parsed.downloaded_at) {
     fail19("archive download timestamp is invalid");
@@ -29409,7 +29763,7 @@ async function readArchiveDocument(path, fsImpl) {
   let previous = null;
   for (const entry of parsed.payload_entries) {
     exactKeys4(entry, /* @__PURE__ */ new Set(["path", "size", "sha256"]), "archive payload entry");
-    if (!isSafePayloadPath(entry.path) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !SHA2564.test(entry.sha256)) {
+    if (!isSafePayloadPath(entry.path) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !SHA2565.test(entry.sha256)) {
       fail19("archive payload entry is invalid");
     }
     if (previous !== null && previous >= entry.path) {
@@ -29449,10 +29803,10 @@ async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   const document = await readArchiveDocument(join14(repoRoot, PROVENANCE_FILE), fsImpl);
   let bundlePath;
   try {
-    const requestedBundlePath = resolve15(bundleManifestPath);
+    const requestedBundlePath = resolve16(bundleManifestPath);
     const stat = await fsImpl.lstat(requestedBundlePath);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail19("bundle manifest must be a regular single-link file");
-    bundlePath = resolve15(await fsImpl.realpath(requestedBundlePath));
+    bundlePath = resolve16(await fsImpl.realpath(requestedBundlePath));
   } catch (error2) {
     if (error2 instanceof SourceProvenanceError) throw error2;
     fail19("bundle manifest is missing");
@@ -29469,7 +29823,7 @@ async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   const expectedPaths = new Set(document.payload_entries.map((entry) => entry.path));
   const currentEntries = [];
   for (const entry of document.payload_entries) {
-    const path = resolve15(repoRoot, ...entry.path.split("/"));
+    const path = resolve16(repoRoot, ...entry.path.split("/"));
     try {
       const stat = await fsImpl.lstat(path);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail19("archive payload path changed identity", { path: entry.path });
@@ -29488,7 +29842,7 @@ async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   return {
     kind: "pinned_archive",
     repository: document.repository,
-    repo_root: resolve15(repoRoot),
+    repo_root: resolve16(repoRoot),
     git_commit: document.git_commit,
     dirty: currentManifest !== document.payload_manifest_sha256,
     archive: {
@@ -29508,12 +29862,12 @@ async function inspectSourceProvenance({
   authenticodeInspector = inspectAuthenticode,
   environment = process.env
 } = {}) {
-  if (typeof repoRoot !== "string" || !(isAbsolute16(repoRoot) || win3213.isAbsolute(repoRoot) || posix7.isAbsolute(repoRoot))) {
+  if (typeof repoRoot !== "string" || !(isAbsolute16(repoRoot) || win3214.isAbsolute(repoRoot) || posix8.isAbsolute(repoRoot))) {
     fail19("repository root must be absolute");
   }
   let canonicalRoot;
   try {
-    canonicalRoot = resolve15(await fsImpl.realpath(resolve15(repoRoot)));
+    canonicalRoot = resolve16(await fsImpl.realpath(resolve16(repoRoot)));
   } catch {
     fail19("repository root is unavailable");
   }
@@ -29538,7 +29892,7 @@ async function inspectSourceProvenance({
 import { randomBytes as randomBytes5 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
-import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute18, join as join17, parse as parse7, posix as posix8, relative as relative9, resolve as resolve18, sep as sep9, win32 as win3214 } from "node:path";
+import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute18, join as join17, parse as parse7, posix as posix9, relative as relative9, resolve as resolve19, sep as sep9, win32 as win3215 } from "node:path";
 
 // server/project-targets.mjs
 import { createHash as createHash2, randomBytes as randomBytes4 } from "node:crypto";
@@ -29555,7 +29909,7 @@ import {
   statSync as statSync2,
   writeFileSync
 } from "node:fs";
-import { basename as basename4, dirname as dirname14, extname as extname3, isAbsolute as isAbsolute17, join as join16, resolve as resolve17 } from "node:path";
+import { basename as basename5, dirname as dirname14, extname as extname3, isAbsolute as isAbsolute17, join as join16, resolve as resolve18 } from "node:path";
 
 // server/project-errors.mjs
 var PROJECT_ERROR_CODES = Object.freeze({
@@ -29588,13 +29942,13 @@ import {
   statSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename as basename3, dirname as dirname13, extname as extname2, join as join15, resolve as resolve16 } from "node:path";
+import { basename as basename4, dirname as dirname13, extname as extname2, join as join15, resolve as resolve17 } from "node:path";
 function displayPath(pathValue) {
   return String(pathValue || "").replace(/\\/g, "/").replace(/\/+$/, "");
 }
 function normalizeComparisonPath(pathValue) {
   if (!pathValue) return "";
-  return displayPath(resolve16(pathValue)).toLowerCase();
+  return displayPath(resolve17(pathValue)).toLowerCase();
 }
 
 // server/project-targets.mjs
@@ -29644,9 +29998,9 @@ function resolveDefaultTargetsPath({
     if (!isAbsolute17(explicitTargetsPath) || extname3(explicitTargetsPath).toLowerCase() !== ".json") {
       throw new ProjectTargetPathError("Explicit target registry must be an absolute .json path.");
     }
-    return resolve17(explicitTargetsPath);
+    return resolve18(explicitTargetsPath);
   }
-  const absoluteRepoRoot = resolve17(repoRoot);
+  const absoluteRepoRoot = resolve18(repoRoot);
   let kind = sourceKind;
   if (kind === null) {
     if (fsImpl.existsSync(join16(absoluteRepoRoot, ".git"))) kind = "git_checkout";
@@ -29656,7 +30010,7 @@ function resolveDefaultTargetsPath({
   if (kind === "git_checkout") return join16(absoluteRepoRoot, ".uemcp-targets.json");
   if (kind === "pinned_archive") {
     if (!stateRoot) throw new ProjectTargetPathError("Pinned archive target registration requires stable local state.", "LOCAL_STATE_UNAVAILABLE");
-    return join16(resolve17(stateRoot), ".uemcp-targets.json");
+    return join16(resolve18(stateRoot), ".uemcp-targets.json");
   }
   throw new ProjectTargetPathError(`Unknown source kind: ${kind}`);
 }
@@ -29694,7 +30048,7 @@ function shortHash(text) {
   return createHash2("sha1").update(text).digest("hex").slice(0, 8);
 }
 function targetAliasStem(uprojectPath) {
-  const stem = basename4(uprojectPath, extname3(uprojectPath)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const stem = basename5(uprojectPath, extname3(uprojectPath)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return stem || `target-${shortHash(uprojectPath)}`;
 }
 function uniqueTargetAlias(baseAlias, targets, uprojectPath) {
@@ -29769,21 +30123,21 @@ var TargetDomainError = class extends Error {
   }
 };
 function absolutePath9(value) {
-  return typeof value === "string" && (isAbsolute18(value) || win3214.isAbsolute(value) || posix8.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute18(value) || win3215.isAbsolute(value) || posix9.isAbsolute(value));
 }
-function pathKey4(value) {
-  const normalized = resolve18(value);
+function pathKey5(value) {
+  const normalized = resolve19(value);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained7(root, candidate) {
-  const rel = relative9(pathKey4(root), pathKey4(candidate));
+  const rel = relative9(pathKey5(root), pathKey5(candidate));
   return rel === "" || !rel.startsWith(`..${sep9}`) && rel !== ".." && !isAbsolute18(rel);
 }
 function devicePath(value) {
   return /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 async function assertNoLinkedAncestors(path, asyncFs) {
-  const absolute = resolve18(path);
+  const absolute = resolve19(path);
   const root = parse7(absolute).root;
   const segments = relative9(root, absolute).split(sep9).filter(Boolean);
   let current = root;
@@ -29813,7 +30167,7 @@ async function validateConfigPath(configPath, { generatedRoot, asyncFs }) {
   if (!absolutePath9(configPath) || extname4(configPath).toLowerCase() !== ".json" || devicePath(configPath)) {
     throw new TargetDomainError("target registry must be an absolute non-device .json path");
   }
-  const absolute = resolve18(configPath);
+  const absolute = resolve19(configPath);
   if (generatedRoot && !contained7(generatedRoot, absolute)) {
     throw new TargetDomainError("generated target registry escaped its source/state root");
   }
@@ -29880,7 +30234,7 @@ function createTargetDomain({
 } = {}) {
   if (!absolutePath9(repoRoot)) throw new TargetDomainError("target domain requires an absolute repository root");
   const explicit = targetsPath !== null;
-  const inferredSourceKind = sourceKind ?? (fsImpl.existsSync(join17(resolve18(repoRoot), ".git")) ? "git_checkout" : fsImpl.existsSync(join17(resolve18(repoRoot), ".uemcp-source-provenance.json")) ? "pinned_archive" : "git_checkout");
+  const inferredSourceKind = sourceKind ?? (fsImpl.existsSync(join17(resolve19(repoRoot), ".git")) ? "git_checkout" : fsImpl.existsSync(join17(resolve19(repoRoot), ".uemcp-source-provenance.json")) ? "pinned_archive" : "git_checkout");
   const configPath = resolveDefaultTargetsPath({
     repoRoot,
     stateRoot,
@@ -29893,7 +30247,7 @@ function createTargetDomain({
   async function inspectContext(context) {
     const requestedProject = context?.request?.requested_project ?? null;
     if (requestedProject === null) {
-      if (!explicit) return { requestedProject: null, configPath: resolve18(configPath), fingerprint: null };
+      if (!explicit) return { requestedProject: null, configPath: resolve19(configPath), fingerprint: null };
       const validatedConfigPath2 = await validateConfigPath(configPath, { generatedRoot, asyncFs });
       const fingerprint2 = await compositeFingerprint(validatedConfigPath2, {
         asyncFs,
@@ -30237,7 +30591,7 @@ function locateRepository() {
     if (parent === candidate) break;
     candidate = parent;
   }
-  if (basename5(moduleDirectory).toLowerCase() === "server" && existsSync3(join18(moduleDirectory, "server.mjs"))) {
+  if (basename6(moduleDirectory).toLowerCase() === "server" && existsSync3(join18(moduleDirectory, "server.mjs"))) {
     return { repoRoot: dirname16(moduleDirectory), serverRoot: moduleDirectory };
   }
   throw new UsageError("deployment entry is not inside a UEMCP repository");
@@ -30354,7 +30708,7 @@ async function runCli(argv, {
     else {
       let plan;
       try {
-        plan = JSON.parse(await fsPromises.readFile(resolve19(parsed.planFile), "utf8"));
+        plan = JSON.parse(await fsPromises.readFile(resolve20(parsed.planFile), "utf8"));
       } catch {
         throw new UsageError("apply plan file is missing or malformed");
       }
@@ -30373,7 +30727,7 @@ async function runCli(argv, {
     return exitCode;
   }
 }
-var invokedPath = process.argv[1] ? pathToFileURL(resolve19(process.argv[1])).href : null;
+var invokedPath = process.argv[1] ? pathToFileURL(resolve20(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
   process.exitCode = await runCli(process.argv.slice(2));
 }

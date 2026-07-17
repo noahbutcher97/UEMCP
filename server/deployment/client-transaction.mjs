@@ -1082,6 +1082,10 @@ export function createClientTransaction({
         } catch (error) {
           hookFailed = true;
           hookErrors.push({ client_id: 'transaction', code: error?.code ?? 'SNAPSHOT_DELETE_FAILED' });
+          retained.push({
+            path: record.path,
+            retained_until: record.snapshot.metadata.retained_until,
+          });
         }
       }
     }

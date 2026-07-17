@@ -17,7 +17,7 @@ import {
   validatePlanEnvelope,
   validatePlanForApply,
 } from './plan-document.mjs';
-import { writeReceipt } from './receipts.mjs';
+import { prepareReceipt, writeReceipt } from './receipts.mjs';
 
 const DOMAIN_ORDERS = Object.freeze({ prerequisites: 10, target: 20, clients: 30, plugin: 40 });
 
@@ -109,6 +109,13 @@ function actionForSmoke(smoke) {
 
 function receiptContractReference(reference) {
   return { kind: reference.kind, path_label: reference.path_label, sha256: reference.sha256 };
+}
+
+function requireApplyJournal(localState) {
+  const methods = ['beginApplyJournal', 'stageApplyJournal', 'completeApplyJournal', 'clearApplyJournal'];
+  if (methods.some(name => typeof localState?.[name] !== 'function')) {
+    throw new OrchestratorError('local state lacks the durable apply journal contract', 'LOCAL_STATE_UNAVAILABLE');
+  }
 }
 
 function currentActions(stages, clients, domainActions = []) {
@@ -303,6 +310,13 @@ export function createDeploymentOrchestrator({
         throw new OrchestratorError('source or descriptor changed after planning', 'PLAN_STALE');
       }
 
+      let journalStarted = false;
+      if (plan.operations.length > 0) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest);
+        journalStarted = true;
+      }
+
       const stages = [];
       let domainClients = [];
       const domainActions = [];
@@ -360,7 +374,20 @@ export function createDeploymentOrchestrator({
         actions,
         now: context.now,
       });
-      const receipt = await receiptWriter({ localState, result: initial, plan });
+      const consumesPlan = shouldRecordPlanDigest(stages);
+      if (consumesPlan && !journalStarted) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest);
+        journalStarted = true;
+      }
+      const prepared = prepareReceipt({ localState, result: initial, plan });
+      if (consumesPlan) await localState.stageApplyJournal(plan.digest, prepared);
+      else if (journalStarted) {
+        await localState.clearApplyJournal(plan.digest);
+        journalStarted = false;
+      }
+      const receipt = await receiptWriter({ localState, result: initial, plan, prepared });
+      if (consumesPlan) await localState.completeApplyJournal(plan.digest, receipt);
       const result = createMachineResult({
         operation: 'apply',
         source: plan.source,
@@ -373,9 +400,6 @@ export function createDeploymentOrchestrator({
         actions,
         now: context.now,
       });
-      if (shouldRecordPlanDigest(stages)) {
-        await localState.markDigestApplied(plan.digest, { receipt_sha256: receipt.sha256 });
-      }
       return result;
     } finally {
       await lease.release();

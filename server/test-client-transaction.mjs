@@ -1272,6 +1272,47 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Snapshot cleanup failure after verified restoration still reports the surviving recovery artifact.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'vscode.json'), original);
+    const baseLocalState = createTestLocalState(root);
+    let rejectedSnapshotDelete = false;
+    const localState = Object.freeze({
+      ...baseLocalState,
+      async deleteSnapshot(snapshot) {
+        if (!rejectedSnapshotDelete && snapshot.metadata.target_path === path) {
+          rejectedSnapshotDelete = true;
+          throw Object.assign(new Error('injected snapshot cleanup failure'), { code: 'SNAPSHOT_DELETE_FAILED' });
+        }
+        return baseLocalState.deleteSnapshot(snapshot);
+      },
+    });
+    const operation = await transactionOperation('vscode', path, home, windowsNative);
+    const adapters = [fakeAdapter('vscode', { failAfterWrite: true })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_FAILED', 'restored snapshot cleanup failure is visible as ROLLBACK_FAILED');
+    t.assert((await asyncFs.readFile(path)).equals(original), 'snapshot cleanup failure does not obscure verified byte restoration');
+    t.assert(
+      result.retained_snapshots.length === 1
+        && result.retained_snapshots[0].path === path
+        && Number.isFinite(Date.parse(result.retained_snapshots[0].retained_until)),
+      'restored snapshot cleanup failure reports bounded retained recovery evidence',
+    );
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Planned config deletion is deferred until every adapter has verified successfully.
 {
   const root = makeTransactionRoot();

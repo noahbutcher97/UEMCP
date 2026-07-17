@@ -135,9 +135,20 @@ function validatePlanDocument(plan) {
   if (new Set(preconditions.map(row => row.label)).size !== preconditions.length) fail('plan precondition labels must be unique', 'INVALID_PLAN');
   const clientByAdapter = new Map(clients.map(client => [client.adapter, client]));
   const clientStage = plan.stages.find(stage => stage.name === 'clients');
-  const clientEvidence = new Map((clientStage?.evidence?.clients ?? [])
-    .filter(row => row && typeof row.adapter === 'string')
-    .map(row => [row.adapter, row]));
+  const rawClientEvidence = clientStage?.evidence?.clients ?? [];
+  if (!Array.isArray(rawClientEvidence)) fail('plan client evidence must be an array', 'INVALID_PLAN');
+  if (rawClientEvidence.some(row => row === null
+    || typeof row !== 'object'
+    || Array.isArray(row)
+    || typeof row.adapter !== 'string'
+    || !Array.isArray(row.touched_paths))) {
+    fail('plan client evidence rows are malformed', 'INVALID_PLAN');
+  }
+  const clientEvidenceRows = rawClientEvidence;
+  const clientEvidence = new Map(clientEvidenceRows.map(row => [row.adapter, row]));
+  if (clientByAdapter.size !== clients.length || clientEvidence.size !== clientEvidenceRows.length) {
+    fail('plan client rows and evidence must use unique adapter IDs', 'INVALID_PLAN');
+  }
   const probeFailureCodes = new Set([
     'VERSION_PROBE_FAILED',
     'CLIENT_DISCOVERY_FAILED',
@@ -166,6 +177,44 @@ function validatePlanDocument(plan) {
       && evidence?.launch_contract === null;
     if (!client || client.scope.trim() === '' || (!detectedSelection && !requestedAbsence && !requestedProbeFailure)) {
       fail('requested client lacks valid detection or absence evidence', 'INVALID_PLAN', { adapter });
+    }
+  }
+  const clientOperations = operations.filter(operation => operation.domain === 'clients');
+  const operationPaths = new Map();
+  for (const operation of clientOperations) {
+    const client = clientByAdapter.get(operation.client_id);
+    const evidence = clientEvidence.get(operation.client_id);
+    if (operation.kind !== 'CLIENT_CONFIG_WRITE'
+      || operation.selected !== true
+      || operation.write_supported !== true
+      || !client
+      || client.selected !== true
+      || client.compatibility !== 'release_gated'
+      || client.write_supported !== true
+      || typeof client.version !== 'string'
+      || !evidence
+      || evidence.selected !== true
+      || evidence.launch_contract === null
+      || ['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH'].includes(evidence.structural_status)
+      || !absolutePath(operation.path)) {
+      fail('client operation lacks a selected release-gated authorization row', 'INVALID_PLAN', { client_id: operation.client_id ?? null });
+    }
+    const paths = operationPaths.get(operation.client_id) ?? [];
+    paths.push(operation.path);
+    operationPaths.set(operation.client_id, paths);
+  }
+  for (const [adapter, evidence] of clientEvidence) {
+    const plannedPaths = [...new Set(operationPaths.get(adapter) ?? [])].sort();
+    const evidencePaths = Array.isArray(evidence.touched_paths)
+      ? [...new Set(evidence.touched_paths.filter(absolutePath))].sort()
+      : [];
+    if (plannedPaths.length !== (operationPaths.get(adapter) ?? []).length
+      || evidencePaths.length !== (evidence.touched_paths ?? []).length
+      || canonicalJson(plannedPaths) !== canonicalJson(evidencePaths)) {
+      fail('client operations do not match their reviewed touched-path evidence', 'INVALID_PLAN', { adapter });
+    }
+    if (plannedPaths.length > 0 && ['INSPECT_ONLY', 'NO_OP'].includes(evidence.operation)) {
+      fail('client write operation is inconsistent with inspect-only evidence', 'INVALID_PLAN', { adapter });
     }
   }
   assertNoSecretMaterial(plan);

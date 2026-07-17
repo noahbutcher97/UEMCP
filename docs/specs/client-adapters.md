@@ -30,6 +30,11 @@ An explicitly requested unavailable client remains a valid targeted
 records the request, while `client.selected` records whether an installed row
 can participate in apply. The plan validator binds that distinction to matching
 discovery evidence rather than inferring availability from a null version.
+Every client write operation is also bound to the matching selected,
+release-gated client row and its inspection evidence. Its exact physical paths
+must equal that row's reviewed `touched_paths`; a missing launch contract,
+blocked inspection, duplicate adapter row, or operation attached to an absent
+or inspect-only row invalidates the plan before apply.
 
 Provider workspace inspection is rooted at the directory from which the
 deployment CLI was invoked. `--project` and `--profile` select Unreal target
@@ -52,6 +57,25 @@ every client-native query and protocol launch. Once the central transaction
 owns a writable path, that path is guarded by the transaction's applied-byte
 checks while executable, server, policy, profile, and other read-only evidence
 continues to be rechecked before active execution.
+After the transaction returns, every committed writable path is rechecked
+against the exact applied content hash before post-commit native or protocol
+launch. Each launch also rechecks the inspection fingerprints that produced its
+private environment and working-directory capability. A concurrent edit cannot
+cause UEMCP to execute an unreviewed registration or report stale health.
+Some provider read commands create one-time state. If an inspection detects
+that its own evidence changed while the native query ran, UEMCP reruns the full
+inspection once and requires the second result to remain stable. Repeated drift
+or any unsafe fingerprint failure still stops before protocol launch; apply-time
+plan preconditions are never relaxed by this settlement retry.
+
+Transaction results use a closed schema. Client rows, touched paths and hashes,
+rollback rows, hook errors, retained snapshots, and cleanup actions must all be
+well formed and refer only to approved writable paths. Nominal success without
+complete touched-file evidence becomes committed `SYNC_FAILED`. A transaction
+that commits configuration but still needs provider action or snapshot cleanup
+returns `CLIENT_APPLY_ACTION_REQUIRED`; it never aggregates as healthy.
+Rollback cleanup failures retain path-only, bounded snapshot evidence even when
+the original bytes were restored successfully.
 
 ## Client Boundaries
 

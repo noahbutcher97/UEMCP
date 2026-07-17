@@ -1,4 +1,5 @@
 import * as defaultFs from 'node:fs/promises';
+import { posix, resolve, win32 } from 'node:path';
 
 import { sha256Canonical } from './canonical-json.mjs';
 import {
@@ -24,6 +25,18 @@ const READY_REGISTRATION = new Set(['CONFIGURED', 'ALREADY_CONFIGURED', 'MATCHIN
 const BLOCKED_INSPECTION_STATUSES = new Set(['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH']);
 const ROLLBACK_TERMINAL_STATUSES = new Set(['ROLLED_BACK', 'ROLLBACK_CONFLICT', 'ROLLBACK_FAILED']);
 const TRANSACTION_RESULT_STATUSES = new Set(['APPLIED', 'ACTION_REQUIRED', ...ROLLBACK_TERMINAL_STATUSES]);
+const TRANSACTION_READY_CLIENT_STATUSES = new Set(['APPLIED', 'MATCHING', 'NO_OP', 'READY']);
+const TRANSACTION_ACTION_CLIENT_STATUSES = new Set([
+  'ACTION_REQUIRED',
+  'CLIENT_ENABLEMENT_REQUIRED',
+  'DISABLED',
+  'PENDING_APPROVAL',
+  'PENDING_RESTART',
+  'PENDING_TRUST',
+  'POLICY_UNKNOWN',
+  'RESTART_REQUIRED',
+]);
+const ROLLBACK_PATH_STATUSES = new Set(['restored', 'conflict', 'failed']);
 const DISCOVERY_ENVIRONMENT_NAMES = new Set([
   'APPDATA',
   'CLAUDE_CONFIG_DIR',
@@ -62,6 +75,7 @@ const ACTION_ALIASES = Object.freeze({
 const ACTION_MESSAGES = Object.freeze({
   CLIENT_ENABLEMENT_REQUIRED: 'Enable the UEMCP registration in the client before relying on it.',
   CLIENT_ENABLEMENT_REVIEW_REQUIRED: 'Review client enablement before relying on the registration.',
+  CLIENT_APPLY_ACTION_REQUIRED: 'Complete the retained client apply or cleanup action before treating the transaction as healthy.',
   CONFLICT: 'Review the existing client registration before replacing owned fields.',
   CUSTOM_ENV_REVIEW_REQUIRED: 'Review the custom protocol environment names and hashes before launch.',
   CUSTOM_LAUNCH_REVIEW_REQUIRED: 'Review the custom protocol working directory before launch.',
@@ -100,6 +114,17 @@ function plainObject(value) {
 
 function unique(values) {
   return [...new Set(values)];
+}
+
+function pathKey(path) {
+  if (typeof path !== 'string') return null;
+  if (win32.isAbsolute(path)) return `win:${win32.normalize(path).toLowerCase()}`;
+  if (posix.isAbsolute(path)) return `posix:${posix.normalize(path)}`;
+  return null;
+}
+
+function hasOnlyKeys(value, allowed) {
+  return plainObject(value) && Object.keys(value).every(key => allowed.has(key));
 }
 
 function actionCode(value) {
@@ -582,25 +607,120 @@ function publicTransactionEvidence(result) {
       path: typeof row.path === 'string' ? row.path : '<unknown>',
       retained_until: typeof row.retained_until === 'string' ? row.retained_until : null,
     }))),
+    cleanup_actions: Object.freeze((result.cleanup_actions ?? []).filter(plainObject).map(row => Object.freeze({
+      path: typeof row.path === 'string' ? row.path : '<unknown>',
+      code: stableErrorCode(row.code),
+    }))),
   });
 }
 
-function validTransactionResult(result, operations) {
-  if (!plainObject(result) || !TRANSACTION_RESULT_STATUSES.has(result.status)
+function validTransactionResult(result, operations, writablePreconditions) {
+  const resultKeys = new Set(['status', 'clients', 'touched_files', 'rollback', 'retained_snapshots', 'cleanup_actions']);
+  if (!hasOnlyKeys(result, resultKeys) || !TRANSACTION_RESULT_STATUSES.has(result.status)
     || !Array.isArray(result.clients)
-    || result.clients.some(row => !plainObject(row) || !CLIENT_IDS.includes(row.client_id) || typeof row.status !== 'string')
     || !Array.isArray(result.touched_files)
-    || result.touched_files.some(row => !plainObject(row)
-      || typeof row.path !== 'string'
-      || (row.applied_sha256 !== null && (typeof row.applied_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(row.applied_sha256))))
-    || !Array.isArray(result.retained_snapshots)) {
+    || !Array.isArray(result.retained_snapshots)
+    || (result.cleanup_actions !== undefined && !Array.isArray(result.cleanup_actions))) {
     return false;
   }
-  if (['APPLIED', 'ACTION_REQUIRED'].includes(result.status)
-    && operations.length > 0 && result.touched_files.length === 0) {
+  const allowedPaths = new Set(writablePreconditions.map(row => pathKey(row.canonical_path)).filter(Boolean));
+  const operationClients = new Set(operations.map(operation => operation.client_id));
+  const operationPaths = new Map(operations.map(operation => [pathKey(operation.path), operation]));
+  const requiredWritePaths = new Set(operations
+    .filter(operation => operation.ledger_only !== true)
+    .map(operation => pathKey(operation.path))
+    .filter(Boolean));
+  const clientIds = result.clients.map(row => row?.client_id);
+  if (new Set(clientIds).size !== clientIds.length
+    || result.clients.some(row => !hasOnlyKeys(row, new Set(['client_id', 'status', 'error_code']))
+      || !operationClients.has(row.client_id)
+      || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status)
+        && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status)
+        && row.status !== 'FAILED'
+      || (row.error_code !== undefined && stableErrorCode(row.error_code, null) === null))) {
     return false;
   }
-  return !ROLLBACK_TERMINAL_STATUSES.has(result.status) || plainObject(result.rollback);
+  const success = result.status === 'APPLIED' || result.status === 'ACTION_REQUIRED';
+  if (success && (clientIds.length !== operationClients.size
+    || [...operationClients].some(clientId => !clientIds.includes(clientId)))) return false;
+  if (result.status === 'APPLIED' && result.clients.some(row => !TRANSACTION_READY_CLIENT_STATUSES.has(row.status))) return false;
+
+  const touchedKeys = [];
+  for (const row of result.touched_files) {
+    const key = pathKey(row?.path);
+    const operation = operationPaths.get(key);
+    if (!hasOnlyKeys(row, new Set(['path', 'applied_sha256']))
+      || !key
+      || !allowedPaths.has(key)
+      || (row.applied_sha256 !== null && !/^[0-9a-f]{64}$/.test(row.applied_sha256 ?? ''))
+      || (row.applied_sha256 === null && operation?.delete_after_verify !== true)) {
+      return false;
+    }
+    touchedKeys.push(key);
+  }
+  if (new Set(touchedKeys).size !== touchedKeys.length
+    || (success && operations.length > 0 && touchedKeys.length === 0)
+    || (success && [...requiredWritePaths].some(key => !touchedKeys.includes(key)))) {
+    return false;
+  }
+
+  const retainedKeys = [];
+  for (const row of result.retained_snapshots) {
+    const key = pathKey(row?.path);
+    if (!hasOnlyKeys(row, new Set(['path', 'retained_until']))
+      || !key
+      || !allowedPaths.has(key)
+      || (row.retained_until !== null && (typeof row.retained_until !== 'string' || !Number.isFinite(Date.parse(row.retained_until))))) {
+      return false;
+    }
+    retainedKeys.push(key);
+  }
+  if (new Set(retainedKeys).size !== retainedKeys.length) return false;
+
+  const cleanupActions = result.cleanup_actions ?? [];
+  const cleanupKeys = [];
+  for (const row of cleanupActions) {
+    const key = pathKey(row?.path);
+    if (!hasOnlyKeys(row, new Set(['path', 'code']))
+      || !key
+      || !allowedPaths.has(key)
+      || stableErrorCode(row.code, null) === null) return false;
+    cleanupKeys.push(`${key}:${row.code}`);
+  }
+  if (new Set(cleanupKeys).size !== cleanupKeys.length) return false;
+
+  if (success) {
+    if (result.rollback !== null) return false;
+    const hasFollowUp = result.clients.some(row => TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status))
+      || result.retained_snapshots.length > 0
+      || cleanupActions.length > 0;
+    return result.status === 'ACTION_REQUIRED' ? hasFollowUp : !hasFollowUp;
+  }
+  if (!hasOnlyKeys(result.rollback, new Set(['reason_code', 'paths', 'hook_errors']))
+    || stableErrorCode(result.rollback.reason_code, null) === null
+    || !Array.isArray(result.rollback.paths)
+    || !Array.isArray(result.rollback.hook_errors)) return false;
+  const rollbackKeys = [];
+  for (const row of result.rollback.paths) {
+    const key = pathKey(row?.path);
+    if (!hasOnlyKeys(row, new Set(['status', 'path', 'code']))
+      || !ROLLBACK_PATH_STATUSES.has(row.status)
+      || !key
+      || !allowedPaths.has(key)
+      || (row.status === 'restored' ? row.code !== undefined : stableErrorCode(row.code, null) === null)) return false;
+    rollbackKeys.push(key);
+  }
+  if (new Set(rollbackKeys).size !== rollbackKeys.length) return false;
+  for (const row of result.rollback.hook_errors) {
+    if (!hasOnlyKeys(row, new Set(['client_id', 'code']))
+      || ![...CLIENT_IDS, 'transaction'].includes(row.client_id)
+      || stableErrorCode(row.code, null) === null) return false;
+  }
+  const hasConflict = result.rollback.paths.some(row => row.status === 'conflict');
+  const hasFailure = result.rollback.paths.some(row => row.status === 'failed') || result.rollback.hook_errors.length > 0;
+  if (result.status === 'ROLLED_BACK') return !hasConflict && !hasFailure && result.retained_snapshots.length === 0;
+  if (result.status === 'ROLLBACK_CONFLICT') return hasConflict;
+  return result.status === 'ROLLBACK_FAILED' && !hasConflict && hasFailure;
 }
 
 function ownershipLedger(fsImpl, localState, now) {
@@ -693,7 +813,7 @@ export function createClientDomain({
       const adapter = mappedAdapters.get(row.client_id);
       const currentContext = adapterContext(context, row, requestedProfile, planDigest, ledger);
       const detection = await adapter.detect(currentContext);
-      const inspection = await adapter.inspect(currentContext, detection);
+      const inspection = await settleInspection(currentContext, adapter, detection);
       const planResult = plan && row.selected
         ? await adapter.plan(currentContext, inspection, context.descriptor)
         : null;
@@ -706,6 +826,7 @@ export function createClientDomain({
           fail('adapter private protocol environment is invalid', 'INVALID_CLIENT_LAUNCH');
         }
         const effectiveEnvironment = mergeWindowsEnvironmentOverlay(context.env ?? process.env, launch.env_overlay);
+        await recheckInspectionPreconditions(currentContext, inspection);
         await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
         smoke = await protocolSmoke(context.descriptor, {
           effectiveEnvironment,
@@ -744,15 +865,19 @@ export function createClientDomain({
       : record);
     const clients = Object.freeze(views.map(record => record.client));
     const evidenceRows = Object.freeze(views.map(record => record.evidence));
-    const transactionActions = ['ROLLBACK_CONFLICT', 'ROLLBACK_FAILED'].includes(transactionStatus)
-      ? [transactionStatus]
-      : [];
+    const transactionActions = transactionStatus === 'ACTION_REQUIRED'
+      ? ['CLIENT_APPLY_ACTION_REQUIRED']
+      : ['ROLLBACK_CONFLICT', 'ROLLBACK_FAILED'].includes(transactionStatus)
+        ? [transactionStatus]
+        : [];
     const actions = normalizeActions([...clients.flatMap(client => client.actions), ...transactionActions]);
     let state = stageState(clients, evidenceRows);
     if (transactionStatus === 'ROLLED_BACK' || transactionStatus === 'ROLLBACK_CONFLICT') {
       state = { status: transactionStatus, result: 'rolled_back' };
     } else if (transactionStatus === 'ROLLBACK_FAILED') {
       state = { status: transactionStatus, result: 'failed' };
+    } else if (transactionStatus === 'ACTION_REQUIRED') {
+      state = { status: 'CLIENT_APPLY_ACTION_REQUIRED', result: 'action_required' };
     }
     const stage = createStageResult({
       name: DOMAIN_NAME,
@@ -871,7 +996,76 @@ export function createClientDomain({
     });
   }
 
-  async function recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites = false } = {}) {
+  function assertAuthorizedClientOperations(records, operations) {
+    const byClient = new Map(records.map(record => [record.row.client_id, record]));
+    const failures = [];
+    for (const operation of operations) {
+      const record = byClient.get(operation.client_id);
+      if (!record
+        || record.row.selected !== true
+        || record.row.compatibility !== 'release_gated'
+        || record.row.write_supported !== true
+        || record.row.launch === null
+        || !record.inspection
+        || BLOCKED_INSPECTION_STATUSES.has(record.inspection.registration)) {
+        failures.push({ client_id: operation.client_id ?? 'unknown' });
+      }
+    }
+    if (failures.length > 0) {
+      fail('approved client operations no longer have complete selected-client evidence', 'CLIENT_INSPECTION_UNBOUND', { clients: failures });
+    }
+  }
+
+  async function inspectionPreconditionFailures(context, inspection) {
+    const failures = [];
+    for (const [index, file] of (inspection?.files ?? []).entries()) {
+      if (!plainObject(file) || typeof file.path !== 'string' || typeof file.allowed_root !== 'string' || !plainObject(file.fingerprint)) {
+        failures.push({ reason: 'INSPECTION_FINGERPRINT_MISSING' });
+        continue;
+      }
+      try {
+        const observed = stableClientFingerprint(await captureFingerprint(file.path, {
+          allowedRoots: [file.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: file.writable === true,
+        }));
+        const expected = stableClientFingerprint(file.fingerprint);
+        if (sha256Canonical(observed) !== sha256Canonical(expected)) {
+          const changedFields = unique([...Object.keys(expected), ...Object.keys(observed)])
+            .filter(key => sha256Canonical(expected[key] ?? null) !== sha256Canonical(observed[key] ?? null));
+          failures.push({ reason: 'INSPECTION_FINGERPRINT_CHANGED', evidence_index: index, changed_fields: changedFields });
+        }
+      } catch (error) {
+        failures.push({ reason: stableErrorCode(error?.code, 'FINGERPRINT_FAILED') });
+      }
+    }
+    return failures;
+  }
+
+  function throwInspectionPreconditionFailures(failures) {
+    if (failures.length > 0) fail('client evidence changed after inspection', 'PLAN_STALE', { failures });
+  }
+
+  async function recheckInspectionPreconditions(context, inspection) {
+    throwInspectionPreconditionFailures(await inspectionPreconditionFailures(context, inspection));
+  }
+
+  async function settleInspection(context, adapter, detection) {
+    let inspection = await adapter.inspect(context, detection);
+    const failures = await inspectionPreconditionFailures(context, inspection);
+    if (failures.length === 0) return inspection;
+    if (failures.some(row => row.reason !== 'INSPECTION_FINGERPRINT_CHANGED')) {
+      throwInspectionPreconditionFailures(failures);
+    }
+    inspection = await adapter.inspect(context, detection);
+    await recheckInspectionPreconditions(context, inspection);
+    return inspection;
+  }
+
+  async function recheckActiveLaunchPreconditions(context, approvedPlan, {
+    transactionOwnsWrites = false,
+    committedTouchedHashes = new Map(),
+  } = {}) {
     if (context.applyLease && typeof context.localState?.validateApplyLease === 'function') {
       await context.localState.validateApplyLease(context.applyLease);
     }
@@ -889,7 +1083,14 @@ export function createClientDomain({
         failures.push({ label: precondition.label, reason: stableErrorCode(error?.code, 'FINGERPRINT_FAILED') });
         continue;
       }
-      if (sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint)) {
+      const committedHash = precondition.writable === true
+        ? committedTouchedHashes.get(pathKey(precondition.canonical_path))
+        : undefined;
+      const committedMismatch = committedHash !== undefined
+        && (observed.content_sha256 !== committedHash || observed.exists !== (committedHash !== null));
+      const plannedMismatch = committedHash === undefined
+        && sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint);
+      if (committedMismatch || plannedMismatch) {
         failures.push({ label: precondition.label, reason: 'FINGERPRINT_CHANGED' });
       }
     }
@@ -905,6 +1106,7 @@ export function createClientDomain({
     }
     const affectedClientIds = unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)));
     let transactionOwnsWrites = false;
+    const committedTouchedHashes = new Map();
     const applyContext = {
       ...context,
       beforeActiveClientLaunch: async evidence => {
@@ -912,11 +1114,12 @@ export function createClientDomain({
           || !['native', 'protocol'].includes(evidence.kind)) {
           fail('adapter active-launch guard evidence is invalid', 'INVALID_CLIENT_LAUNCH');
         }
-        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites });
+        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites, committedTouchedHashes });
       },
     };
     const { rows, requestedProfile, contextSha256 } = await discover(applyContext, approvedPlan);
     const before = await inspectRows(applyContext, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    assertAuthorizedClientOperations(before, operations);
     let transactionResult = null;
     if (operations.length > 0) {
       const ownership = approvedPlan.preconditions.find(precondition => precondition.kind === 'client_path'
@@ -940,7 +1143,9 @@ export function createClientDomain({
         operations,
         context: applyContext,
       });
-      if (!validTransactionResult(transactionResult, operations)) {
+      transactionOwnsWrites = false;
+      const writablePreconditions = approvedPlan.preconditions.filter(precondition => precondition.kind === 'client_path' && precondition.writable === true);
+      if (!validTransactionResult(transactionResult, operations, writablePreconditions)) {
         const invalidResult = Object.freeze({
           status: 'UNKNOWN',
           clients: Object.freeze(unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)))
@@ -958,6 +1163,9 @@ export function createClientDomain({
           Object.assign(new Error('client transaction result is invalid'), { code: 'INVALID_CLIENT_TRANSACTION_RESULT' }),
           affectedClientIds,
         );
+      }
+      for (const row of transactionResult.touched_files) {
+        committedTouchedHashes.set(pathKey(row.path), row.applied_sha256);
       }
     }
     const changed = (transactionResult?.touched_files?.length ?? 0) > 0;

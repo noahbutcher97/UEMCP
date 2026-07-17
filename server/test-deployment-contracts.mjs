@@ -61,6 +61,7 @@ EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
+CLIENT_APPLY_ACTION_REQUIRED
 ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
@@ -77,6 +78,7 @@ POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_RE
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
 PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
+CLIENT_APPLY_ACTION_REQUIRED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 
@@ -615,6 +617,41 @@ async function rejectsCode(fn, code) {
     t.assert(!(await localState.wasDigestApplied(digest)), 'fresh digest is not replayed');
     await localState.markDigestApplied(digest, { receipt_sha256: '8'.repeat(64) });
     t.assert(await localState.wasDigestApplied(digest), 'applied digest is persisted for replay protection');
+
+    const hasApplyJournal = ['beginApplyJournal', 'stageApplyJournal', 'completeApplyJournal', 'clearApplyJournal', 'readApplyJournal']
+      .every(name => typeof localState[name] === 'function');
+    t.assert(hasApplyJournal, 'local state exposes a durable apply-journal lifecycle');
+    if (hasApplyJournal) {
+      const uncertainDigest = '6'.repeat(64);
+      await localState.beginApplyJournal(uncertainDigest);
+      t.assert(await localState.wasDigestApplied(uncertainDigest), 'an in-progress apply journal blocks ambiguous replay');
+      await localState.clearApplyJournal(uncertainDigest);
+      t.assert(!(await localState.wasDigestApplied(uncertainDigest)), 'a proven no-progress journal can be cleared without consuming the plan');
+
+      const journalDigest = '7'.repeat(64);
+      const receiptBody = {
+        schema_version: '1.0',
+        kind: 'uemcp.deployment.receipt',
+        path_label: 'receipts/journal-recovery.json',
+        plan: { digest: journalDigest },
+      };
+      const receiptDocument = { ...receiptBody, receipt_sha256: sha256Canonical(receiptBody) };
+      const preparedReceipt = {
+        reference: {
+          kind: 'deployment',
+          path_label: receiptDocument.path_label,
+          path: join(paths.receipts, 'journal-recovery.json'),
+          sha256: receiptDocument.receipt_sha256,
+        },
+        document: receiptDocument,
+      };
+      await localState.beginApplyJournal(journalDigest);
+      await localState.stageApplyJournal(journalDigest, preparedReceipt);
+      t.assert(!existsSync(preparedReceipt.reference.path), 'receipt-pending journal is durable before the receipt file exists');
+      t.assert(await localState.wasDigestApplied(journalDigest), 'replay inspection reconciles a pending terminal receipt and consumes the digest');
+      t.assert(JSON.parse(readFileSync(preparedReceipt.reference.path, 'utf8')).receipt_sha256 === receiptDocument.receipt_sha256, 'journal reconciliation recreates the exact prepared receipt');
+      t.assert((await localState.readApplyJournal(journalDigest)).state === 'committed', 'journal reconciliation reaches one committed terminal state');
+    }
 
     processStates.set('123:1000', 'alive');
     const lease = await localState.acquireApplyLease({ pid: 123, processStart: 1000, waitMs: 0 });

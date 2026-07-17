@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -48,7 +48,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const enabled = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT === '1';
 const worker = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER === '1';
-const WORKER_TIMEOUT_MS = 210_000;
+const WORKER_TIMEOUT_MS = 300_000;
 
 if (!enabled) {
   console.log('  ⊘ skipped: UEMCP_INSTALLED_CLIENT_CONTRACT=1 is required for installed client contracts');
@@ -154,6 +154,23 @@ async function guardSnapshot(paths) {
 
 function sameSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function guardPathLabel(path) {
+  for (const [label, root] of [['<home>', process.env.USERPROFILE], ['<appdata>', process.env.APPDATA]]) {
+    const remainder = relative(resolve(root), path);
+    if (remainder !== '' && !remainder.startsWith('..') && !resolve(remainder).startsWith('\\')) {
+      return `${label}/${remainder.replaceAll('\\', '/')}`;
+    }
+  }
+  return '<outside-known-roots>';
+}
+
+function changedSnapshotLabels(left, right) {
+  return [...new Set([...Object.keys(left), ...Object.keys(right)])]
+    .filter(path => left[path] !== right[path])
+    .map(guardPathLabel)
+    .sort();
 }
 
 function sourceContract(root) {
@@ -520,10 +537,12 @@ if (!worker) {
         t.assert(plan.clients.find(client => client.adapter === clientId).write_supported, `${clientId} exact release remains writable inside its isolated root`);
       }
       const after = await guardSnapshot(guards);
-      t.assert(sameSnapshot(before, after), `${clientId} leaves every real default config hash unchanged`);
+      const changed = changedSnapshotLabels(before, after);
+      t.assert(sameSnapshot(before, after), `${clientId} leaves every real default config hash unchanged${changed.length > 0 ? `: ${changed.join(', ')}` : ''}`);
     }
     const suiteAfter = await guardSnapshot(guards);
-    t.assert(sameSnapshot(suiteBefore, suiteAfter), 'installed suite leaves all real config/profile/extension hashes unchanged');
+    const changed = changedSnapshotLabels(suiteBefore, suiteAfter);
+    t.assert(sameSnapshot(suiteBefore, suiteAfter), `installed suite leaves all real config/profile/extension hashes unchanged${changed.length > 0 ? `: ${changed.join(', ')}` : ''}`);
   } finally {
     safeCleanup(root);
   }

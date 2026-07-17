@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
-import { canonicalJson, sha256Bytes } from './canonical-json.mjs';
+import { canonicalJson, sha256Bytes, sha256Canonical } from './canonical-json.mjs';
 import { createProcessRunner } from './process-runner.mjs';
 
 const SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const SHA256 = /^[0-9a-f]{64}$/;
 const LEASE_PROCESS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 try {
@@ -196,6 +197,7 @@ export function createLocalState({
     targets: join(absoluteRoot, 'state', '.uemcp-targets.json'),
     lock: join(absoluteRoot, 'state', 'deployment-apply-v1.lock'),
     replayLedger: join(absoluteRoot, 'plans', 'applied-v1.json'),
+    applyJournals: join(absoluteRoot, 'plans', 'apply-journal-v1'),
   });
   const restrictedDirectories = new Set();
   const activeLeaseTokens = new Set();
@@ -390,14 +392,154 @@ export function createLocalState({
     return await readJson(pathSet.replayLedger) ?? { schema_version: '1.0', applied: {} };
   }
 
+  function validateDigest(digest) {
+    if (!SHA256.test(digest ?? '')) throw new LocalStateError('digest must be lowercase SHA-256', 'INVALID_DIGEST');
+    return digest;
+  }
+
+  function applyJournalPath(digest) {
+    return join(pathSet.applyJournals, `${validateDigest(digest)}.json`);
+  }
+
+  function validateJournalReceipt(receipt) {
+    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+      || receipt.kind !== 'deployment'
+      || typeof receipt.path_label !== 'string'
+      || !/^receipts\/[A-Za-z0-9._-]+\.json$/.test(receipt.path_label)
+      || !SHA256.test(receipt.sha256 ?? '')
+      || !receipt.document
+      || typeof receipt.document !== 'object'
+      || Array.isArray(receipt.document)
+      || receipt.document.path_label !== receipt.path_label
+      || receipt.document.receipt_sha256 !== receipt.sha256) {
+      throw new LocalStateError('apply journal receipt is invalid', 'MALFORMED_LOCAL_STATE');
+    }
+    const body = { ...receipt.document };
+    delete body.receipt_sha256;
+    if (sha256Canonical(body) !== receipt.sha256) {
+      throw new LocalStateError('apply journal receipt hash is invalid', 'MALFORMED_LOCAL_STATE');
+    }
+    return receipt;
+  }
+
+  function validateApplyJournal(record, digest) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)
+      || record.schema_version !== '1.0'
+      || record.kind !== 'uemcp.deployment.apply-journal'
+      || record.plan_digest !== digest
+      || !['applying', 'receipt_pending', 'committed'].includes(record.state)
+      || typeof record.started_at !== 'string'
+      || !Number.isFinite(Date.parse(record.started_at))) {
+      throw new LocalStateError('apply journal is malformed', 'MALFORMED_LOCAL_STATE');
+    }
+    const expectedKeys = ['schema_version', 'kind', 'plan_digest', 'state', 'started_at', 'receipt'];
+    if (Object.keys(record).sort().join(',') !== expectedKeys.sort().join(',')) {
+      throw new LocalStateError('apply journal has unknown fields', 'MALFORMED_LOCAL_STATE');
+    }
+    if (record.state === 'applying') {
+      if (record.receipt !== null) throw new LocalStateError('applying journal cannot contain a receipt', 'MALFORMED_LOCAL_STATE');
+    } else {
+      validateJournalReceipt(record.receipt);
+    }
+    return record;
+  }
+
+  async function readApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const record = await readJson(applyJournalPath(normalized));
+    return record === null ? null : validateApplyJournal(record, normalized);
+  }
+
+  async function beginApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    if (await readApplyJournal(normalized)) throw new LocalStateError('plan digest already has an apply journal', 'PLAN_REPLAYED');
+    const ledger = await readReplayLedger();
+    if (Object.hasOwn(ledger.applied ?? {}, normalized)) throw new LocalStateError('plan digest was already applied', 'PLAN_REPLAYED');
+    await writeJsonAtomic(applyJournalPath(normalized), {
+      schema_version: '1.0',
+      kind: 'uemcp.deployment.apply-journal',
+      plan_digest: normalized,
+      state: 'applying',
+      started_at: new Date(Number(clock())).toISOString(),
+      receipt: null,
+    });
+  }
+
+  async function stageApplyJournal(digest, preparedReceipt) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current?.state !== 'applying') throw new LocalStateError('apply journal is not ready for terminal receipt staging', 'MALFORMED_LOCAL_STATE');
+    const reference = preparedReceipt?.reference;
+    if (!reference || reference.path !== join(pathSet.receipts, basename(reference.path_label ?? ''))) {
+      throw new LocalStateError('prepared receipt path is outside the receipt root', 'LOCAL_STATE_PATH_ESCAPE');
+    }
+    const receipt = validateJournalReceipt({
+      kind: reference.kind,
+      path_label: reference.path_label,
+      sha256: reference.sha256,
+      document: preparedReceipt.document,
+    });
+    await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: 'receipt_pending', receipt });
+  }
+
+  async function ensureJournalReceipt(record) {
+    const receipt = validateJournalReceipt(record.receipt);
+    const fileName = basename(receipt.path_label);
+    const path = join(pathSet.receipts, fileName);
+    if (receipt.path_label !== `receipts/${fileName}`) {
+      throw new LocalStateError('apply journal receipt path is unsafe', 'LOCAL_STATE_PATH_ESCAPE');
+    }
+    const existing = await readJson(path);
+    if (existing === null) {
+      await writeJsonAtomic(path, receipt.document);
+    } else if (canonicalJson(existing) !== canonicalJson(receipt.document)) {
+      throw new LocalStateError('existing receipt differs from the apply journal', 'RECEIPT_INTEGRITY_FAILED');
+    }
+    return { kind: receipt.kind, path_label: receipt.path_label, path, sha256: receipt.sha256 };
+  }
+
+  async function completeApplyJournal(digest, reference = null) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (!current || !['receipt_pending', 'committed'].includes(current.state)) {
+      throw new LocalStateError('apply journal has no terminal receipt', 'MALFORMED_LOCAL_STATE');
+    }
+    const expected = current.receipt;
+    if (reference && (reference.kind !== expected.kind
+      || reference.path_label !== expected.path_label
+      || reference.sha256 !== expected.sha256)) {
+      throw new LocalStateError('written receipt does not match the apply journal', 'RECEIPT_INTEGRITY_FAILED');
+    }
+    const resolvedReference = await ensureJournalReceipt(current);
+    if (current.state !== 'committed') {
+      await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: 'committed' });
+    }
+    return resolvedReference;
+  }
+
+  async function clearApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current === null) return;
+    if (current.state !== 'applying') throw new LocalStateError('terminal apply journal cannot be cleared', 'PLAN_REPLAYED');
+    const path = applyJournalPath(normalized);
+    await assertNoLinkedLocalPath(path);
+    await fsImpl.rm(path, { force: true });
+  }
+
   async function wasDigestApplied(digest) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError('digest must be lowercase SHA-256', 'INVALID_DIGEST');
+    validateDigest(digest);
+    const journal = await readApplyJournal(digest);
+    if (journal) {
+      if (journal.state !== 'applying') await completeApplyJournal(digest);
+      return true;
+    }
     const ledger = await readReplayLedger();
     return Object.hasOwn(ledger.applied ?? {}, digest);
   }
 
   async function markDigestApplied(digest, evidence = {}) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError('digest must be lowercase SHA-256', 'INVALID_DIGEST');
+    validateDigest(digest);
     const ledger = await readReplayLedger();
     ledger.schema_version = '1.0';
     ledger.applied ??= {};
@@ -523,6 +665,11 @@ export function createLocalState({
     restoreSnapshot,
     deleteSnapshot,
     cleanupExpired,
+    beginApplyJournal,
+    stageApplyJournal,
+    completeApplyJournal,
+    clearApplyJournal,
+    readApplyJournal,
     markDigestApplied,
     wasDigestApplied,
   });

@@ -57,7 +57,7 @@ significant. Plans expire exactly 30 minutes after creation.
 Apply validates, in order:
 
 1. Schema, stored digest, approved digest, and initial expiry.
-2. The exclusive apply lease and replay ledger.
+2. The exclusive apply lease and durable apply journal or legacy replay ledger.
 3. Every executable version, path identity, link state, and content precondition.
 4. Current source provenance and the canonical launch descriptor.
 5. Only the operations already present in the approved plan.
@@ -80,6 +80,17 @@ The central client transaction receives the orchestrator's already-held apply
 lease as an externally owned capability. It neither reacquires nor releases
 that lease; only the orchestrator releases it after receipts and replay state
 are durable.
+
+Mutation-capable apply uses a write-ahead journal keyed by plan digest. The
+journal enters `applying` before domain execution. A terminal result is prepared
+and self-hashed, then stored in the journal as `receipt_pending` before the
+receipt file is written; only the exact staged receipt can advance the journal
+to `committed`. On restart, replay detection reconstructs a missing receipt
+from the exact staged document or verifies an existing one before rejecting the
+digest as consumed. An `applying` journal with no terminal receipt blocks replay
+conservatively because mutation state is uncertain. A verified no-progress
+failure clears its journal and remains retryable. The prior replay ledger is
+still read for compatibility but new applies are committed through the journal.
 
 Client project/workspace inspection uses the invocation working directory. An
 Unreal `--project` or target `--profile` remains a target-registration choice
@@ -180,12 +191,27 @@ cannot bind complete evidence. Apply repeats the client-path and outer-lease
 checks immediately before every native or protocol process. Transaction-owned
 writable paths use the transaction's post-write guards; all remaining reviewed
 paths retain the immediate prelaunch check.
+Client write operations must exactly match the selected release-gated adapter
+row and its reviewed `touched_paths`. After commit, writable paths are checked
+against the transaction's exact applied hashes, and each protocol launch also
+rechecks the inspection fingerprints that produced its private launch values.
+Provider read commands that create one-time state receive at most one complete
+inspection retry, after which all evidence must be stable. The retry never
+overrides approved-plan preconditions or permits repeated drift.
+The transaction result itself is closed and path-bound: unknown fields or
+statuses, missing or foreign touched paths, null hashes for writes, malformed
+rollback evidence, and invalid retained-snapshot or cleanup rows terminalize as
+committed `SYNC_FAILED` rather than becoming healthy output.
 
 `ROLLBACK_FAILED` is distinct from `ROLLED_BACK` and `ROLLBACK_CONFLICT`. It is
 a committed terminal failure with path-only restoration, hook-error, touched
 hash, and retained-snapshot evidence. Affected client rows are downgraded to the
 terminal rollback state or `UNKNOWN`; stale pre-commit health is never reused.
 Committed and rollback terminal results write receipts and consume the plan.
+`ACTION_REQUIRED` after client apply is also non-healthy: the client stage uses
+`CLIENT_APPLY_ACTION_REQUIRED`, preserves path-only cleanup evidence, writes a
+receipt, and consumes the plan because configuration progress already
+committed.
 
 ## Outcomes And Exits
 
