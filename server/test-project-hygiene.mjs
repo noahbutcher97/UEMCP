@@ -90,6 +90,25 @@ function runGit(cwd, args) {
 {
   const root = makeTempRoot();
   try {
+    const repoRoot = join(root, 'repo');
+    const genericRoots = [
+      join(root, 'server', 'fixtures', 'uemcp-fixture'),
+      join(root, 'Fixture', 'UEMCPFixture'),
+    ];
+    const registered = genericRoots.flatMap(projectRoot => registerProjectCodenames({
+      projectRoot,
+      repoRoot,
+      stderr: { write() {} },
+    }).registered);
+    t.assert(registered.length === 0, `fixture project names are skipped (got ${registered.join(',')})`);
+  } finally {
+    cleanup(root);
+  }
+}
+
+{
+  const root = makeTempRoot();
+  try {
     const repoRoot = join(root, 'repo-file');
     writeFileSync(repoRoot, 'not a directory', 'utf8');
     const result = registerProjectCodenames({
@@ -116,6 +135,10 @@ function runGit(cwd, args) {
   for (const [name, source] of [['setup-uemcp.bat', setupBat], ['sync-plugin.bat', syncBat]]) {
     t.assert(source.includes('rev-parse --git-path info/forbidden-tokens'), `${name} resolves forbidden-tokens through git-path`);
     t.assert(source.includes('if not defined TOKENS_PATH set "TOKENS_PATH=%UEMCP_PATH%\\.git\\info\\forbidden-tokens"'), `${name} keeps a non-git fallback for forbidden-tokens`);
+    t.assert(
+      source.includes("'fixture','fixtures','uemcpfixture','uemcp-fixture'"),
+      `${name} rejects generic fixture project names`
+    );
   }
   t.assert(resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/').includes('/.git/info/known-test-targets.txt'),
     'project hygiene resolves known-test-targets through git info path');
