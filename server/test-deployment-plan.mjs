@@ -1078,6 +1078,18 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(schemaExit === 64 && stdout === '' && stderr.startsWith('INVALID_PLAN:'), 'plan schema failures use the locked usage-interface exit');
     stdout = '';
     stderr = '';
+    const blockedClientOrchestrator = {
+      ...cliOrchestrator,
+      async plan() {
+        const error = new Error('provider-specific detail');
+        error.code = 'CLIENT_INSPECTION_UNBOUND';
+        throw error;
+      },
+    };
+    const blockedClientExit = await runCli(['plan', '--operation', 'setup', '--json'], { orchestrator: blockedClientOrchestrator, ...streams });
+    t.assert(blockedClientExit === 30 && stdout === '' && stderr.startsWith('CLIENT_INSPECTION_UNBOUND:'), 'blocked client inspection has a stable redacted planning diagnostic');
+    stdout = '';
+    stderr = '';
     const diagnosticCanary = 'stderr-secret-canary';
     const failingOrchestrator = {
       ...cliOrchestrator,

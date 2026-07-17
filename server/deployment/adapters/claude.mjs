@@ -26,6 +26,7 @@ import {
 } from '../ownership-ledger.mjs';
 import { createProcessRunner } from '../process-runner.mjs';
 import {
+  isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
@@ -35,20 +36,6 @@ const DEFAULT_LIMITS = Object.freeze({
   aggregateBytes: 64 * 1024 * 1024,
   pluginRecords: 512,
 });
-const SENSITIVE_ENVIRONMENT_KEYS = new Set([
-  'NODE_OPTIONS',
-  'NODE_PATH',
-  'PATH',
-  'PATHEXT',
-  'COMSPEC',
-  'HOME',
-  'USERPROFILE',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'CODEX_HOME',
-  'CLAUDE_CONFIG_DIR',
-  'GEMINI_CLI_HOME',
-]);
 const MUTATING_MCP_SUBCOMMANDS = new Set(['add', 'add-json', 'remove', 'reset-project-choices']);
 const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
 
@@ -181,7 +168,7 @@ async function runNativeQuery(runner, context, detection, tail) {
     || !(
       (tail.length === 2 && tail[1] === 'list')
       || (tail.length === 3 && tail[1] === 'get' && tail[2] === 'uemcp')
-    )) {
+  )) {
     fail('Claude native MCP query is not read-only', 'MUTATING_NATIVE_COMMAND');
   }
   return runner.run(detection.launch.command, [...detection.launch.args_prefix, ...tail], {
@@ -195,6 +182,7 @@ async function runNativeQuery(runner, context, detection, tail) {
 
 async function inspectNative(runner, context, detection) {
   const safeQuery = async tail => {
+    await context.beforeActiveClientLaunch?.({ client_id: 'claude', kind: 'native' });
     try {
       return await runNativeQuery(runner, context, detection, tail);
     } catch (error) {
@@ -272,10 +260,7 @@ function environmentEvidence(entry) {
 function reviewActions(entry) {
   const actions = [];
   const keys = Object.keys(plainObject(entry?.env) ? entry.env : {});
-  if (keys.some(key => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith('UEMCP_') || normalized.startsWith('UNREAL_') || SENSITIVE_ENVIRONMENT_KEYS.has(normalized);
-  })) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
   if (entry?.cwd !== undefined && entry.cwd !== null) actions.push('CUSTOM_LAUNCH_REVIEW_REQUIRED');
   return actions;
 }

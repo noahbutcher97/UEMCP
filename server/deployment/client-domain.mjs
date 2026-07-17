@@ -21,6 +21,9 @@ const DOMAIN_NAME = 'clients';
 const DOMAIN_ORDER = 30;
 const REVIEW_ACTIONS = new Set(['CUSTOM_ENV_REVIEW_REQUIRED', 'CUSTOM_LAUNCH_REVIEW_REQUIRED']);
 const READY_REGISTRATION = new Set(['CONFIGURED', 'ALREADY_CONFIGURED', 'MATCHING_EFFECTIVE', 'MATCHING_SHADOWED']);
+const BLOCKED_INSPECTION_STATUSES = new Set(['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH']);
+const ROLLBACK_TERMINAL_STATUSES = new Set(['ROLLED_BACK', 'ROLLBACK_CONFLICT', 'ROLLBACK_FAILED']);
+const TRANSACTION_RESULT_STATUSES = new Set(['APPLIED', 'ACTION_REQUIRED', ...ROLLBACK_TERMINAL_STATUSES]);
 const DISCOVERY_ENVIRONMENT_NAMES = new Set([
   'APPDATA',
   'CLAUDE_CONFIG_DIR',
@@ -72,6 +75,8 @@ const ACTION_MESSAGES = Object.freeze({
   POLICY_UNKNOWN: 'Review client policy because enablement could not be proven.',
   RESTART_REQUIRED: 'Restart the client to load the reviewed registration.',
   ROLLBACK_CONFLICT: 'Resolve the client configuration conflict retained after rollback.',
+  ROLLBACK_FAILED: 'Recover the client configuration from the retained rollback evidence.',
+  SYNC_FAILED: 'Inspect the committed client configuration and retry with a new plan.',
   TOOLS_LIST_FAILED: 'The effective client launch initialized but did not complete tools/list.',
   UNSUPPORTED_VERSION: 'The installed client release is outside the exact write gate and remains inspect-only.',
 });
@@ -342,6 +347,7 @@ function approvedReviewCodes(plan, clientId) {
 }
 
 function canLaunchProtocol(inspection, approvedPlan, clientId) {
+  if (BLOCKED_INSPECTION_STATUSES.has(inspection?.registration)) return false;
   const required = reviewCodes(inspection);
   if (required.size === 0) return true;
   const approved = approvedReviewCodes(approvedPlan, clientId);
@@ -446,6 +452,25 @@ function clientEvidence(row, inspection, planResult, client, smoke) {
   });
 }
 
+function terminalClientView(record, status, actionCode) {
+  const client = Object.freeze({
+    ...record.client,
+    status,
+    enablement: 'UNKNOWN',
+    activation: 'UNKNOWN',
+    actions: normalizeActions([...record.client.actions, actionCode]),
+  });
+  const evidence = Object.freeze({
+    ...record.evidence,
+    structural_status: status,
+    native_status: 'UNKNOWN',
+    protocol_status: 'UNKNOWN',
+    enablement: 'UNKNOWN',
+    activation: 'UNKNOWN',
+  });
+  return Object.freeze({ client, evidence });
+}
+
 function stageState(clients, evidenceRows) {
   const selected = clients.filter(client => client.selected);
   const considered = selected.length > 0 ? selected : clients.filter(client => client.status !== 'NOT_SELECTED');
@@ -517,6 +542,65 @@ function planPreconditions(records, operations, ownershipFingerprint, ownershipP
     add({ path: ownershipPath, allowed_root: ownershipRoot, fingerprint: ownershipFingerprint, writable: true });
   }
   return Object.freeze(rows);
+}
+
+function stableErrorCode(value, fallback = 'UNKNOWN') {
+  return typeof value === 'string' && /^[A-Z0-9_]+$/.test(value) ? value : fallback;
+}
+
+function publicTransactionEvidence(result) {
+  if (!plainObject(result) || typeof result.status !== 'string') return null;
+  const rollback = plainObject(result.rollback)
+    ? Object.freeze({
+        reason_code: stableErrorCode(result.rollback.reason_code, 'APPLY_FAILED'),
+        paths: Object.freeze((result.rollback.paths ?? []).filter(plainObject).map(row => Object.freeze({
+          status: typeof row.status === 'string' ? row.status : 'unknown',
+          path: typeof row.path === 'string' ? row.path : '<unknown>',
+          code: stableErrorCode(row.code),
+        }))),
+        hook_errors: Object.freeze((result.rollback.hook_errors ?? []).filter(plainObject).map(row => Object.freeze({
+          client_id: typeof row.client_id === 'string' ? row.client_id : 'transaction',
+          code: stableErrorCode(row.code),
+        }))),
+      })
+    : null;
+  return Object.freeze({
+    status: stableErrorCode(result.status),
+    clients: Object.freeze((result.clients ?? []).filter(plainObject).map(row => Object.freeze({
+      client_id: CLIENT_IDS.includes(row.client_id) ? row.client_id : 'unknown',
+      status: stableErrorCode(row.status),
+      ...(row.error_code ? { error_code: stableErrorCode(row.error_code) } : {}),
+    }))),
+    touched_files: Object.freeze((result.touched_files ?? []).filter(plainObject).map(row => Object.freeze({
+      path: typeof row.path === 'string' ? row.path : '<unknown>',
+      applied_sha256: typeof row.applied_sha256 === 'string' && /^[0-9a-f]{64}$/.test(row.applied_sha256)
+        ? row.applied_sha256
+        : null,
+    }))),
+    rollback,
+    retained_snapshots: Object.freeze((result.retained_snapshots ?? []).filter(plainObject).map(row => Object.freeze({
+      path: typeof row.path === 'string' ? row.path : '<unknown>',
+      retained_until: typeof row.retained_until === 'string' ? row.retained_until : null,
+    }))),
+  });
+}
+
+function validTransactionResult(result, operations) {
+  if (!plainObject(result) || !TRANSACTION_RESULT_STATUSES.has(result.status)
+    || !Array.isArray(result.clients)
+    || result.clients.some(row => !plainObject(row) || !CLIENT_IDS.includes(row.client_id) || typeof row.status !== 'string')
+    || !Array.isArray(result.touched_files)
+    || result.touched_files.some(row => !plainObject(row)
+      || typeof row.path !== 'string'
+      || (row.applied_sha256 !== null && (typeof row.applied_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(row.applied_sha256))))
+    || !Array.isArray(result.retained_snapshots)) {
+    return false;
+  }
+  if (['APPLIED', 'ACTION_REQUIRED'].includes(result.status)
+    && operations.length > 0 && result.touched_files.length === 0) {
+    return false;
+  }
+  return !ROLLBACK_TERMINAL_STATUSES.has(result.status) || plainObject(result.rollback);
 }
 
 function ownershipLedger(fsImpl, localState, now) {
@@ -622,6 +706,7 @@ export function createClientDomain({
           fail('adapter private protocol environment is invalid', 'INVALID_CLIENT_LAUNCH');
         }
         const effectiveEnvironment = mergeWindowsEnvironmentOverlay(context.env ?? process.env, launch.env_overlay);
+        await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
         smoke = await protocolSmoke(context.descriptor, {
           effectiveEnvironment,
           effectiveCwd: launch.cwd ?? null,
@@ -643,13 +728,32 @@ export function createClientDomain({
     return records;
   }
 
-  function aggregate(records, requestedProfile, { changed = false, transactionStatus = null, contextSha256 = null } = {}) {
-    const clients = Object.freeze(records.map(record => record.client));
-    const evidenceRows = Object.freeze(records.map(record => record.evidence));
-    const actions = normalizeActions(clients.flatMap(client => client.actions));
-    const state = transactionStatus === 'ROLLED_BACK' || transactionStatus === 'ROLLBACK_CONFLICT'
-      ? { status: transactionStatus, result: 'rolled_back' }
-      : stageState(clients, evidenceRows);
+  function aggregate(records, requestedProfile, {
+    changed = false,
+    transactionResult = null,
+    contextSha256 = null,
+    affectedClientIds = [],
+  } = {}) {
+    const transactionStatus = transactionResult?.status ?? null;
+    const affected = new Set(affectedClientIds);
+    const terminalStatus = ['ROLLBACK_CONFLICT', 'ROLLBACK_FAILED'].includes(transactionStatus)
+      ? transactionStatus
+      : null;
+    const views = records.map(record => terminalStatus && affected.has(record.row.client_id)
+      ? terminalClientView(record, terminalStatus, terminalStatus)
+      : record);
+    const clients = Object.freeze(views.map(record => record.client));
+    const evidenceRows = Object.freeze(views.map(record => record.evidence));
+    const transactionActions = ['ROLLBACK_CONFLICT', 'ROLLBACK_FAILED'].includes(transactionStatus)
+      ? [transactionStatus]
+      : [];
+    const actions = normalizeActions([...clients.flatMap(client => client.actions), ...transactionActions]);
+    let state = stageState(clients, evidenceRows);
+    if (transactionStatus === 'ROLLED_BACK' || transactionStatus === 'ROLLBACK_CONFLICT') {
+      state = { status: transactionStatus, result: 'rolled_back' };
+    } else if (transactionStatus === 'ROLLBACK_FAILED') {
+      state = { status: transactionStatus, result: 'failed' };
+    }
     const stage = createStageResult({
       name: DOMAIN_NAME,
       status: state.status,
@@ -660,6 +764,36 @@ export function createClientDomain({
         discovery_context_sha256: contextSha256,
         clients: evidenceRows,
         ...(transactionStatus ? { transaction_status: transactionStatus } : {}),
+        ...(transactionResult ? { transaction: publicTransactionEvidence(transactionResult) } : {}),
+      },
+      actions,
+    });
+    return Object.freeze({ stage, clients, actions });
+  }
+
+  function committedInspectionFailure(records, requestedProfile, transactionResult, contextSha256, error, affectedClientIds) {
+    const affected = new Set(affectedClientIds);
+    const views = records.map(record => affected.has(record.row.client_id)
+      ? terminalClientView(record, 'UNKNOWN', 'SYNC_FAILED')
+      : record);
+    const clients = Object.freeze(views.map(record => record.client));
+    const evidenceRows = Object.freeze(views.map(record => record.evidence));
+    const actions = normalizeActions([...clients.flatMap(client => client.actions), 'SYNC_FAILED']);
+    const stage = createStageResult({
+      name: DOMAIN_NAME,
+      status: 'SYNC_FAILED',
+      changed: true,
+      result: 'failed',
+      progress: 'committed',
+      evidence: {
+        vscode_profile: requestedProfile,
+        discovery_context_sha256: contextSha256,
+        clients: evidenceRows,
+        transaction_status: transactionResult.status,
+        transaction: publicTransactionEvidence(transactionResult),
+        error_code: error?.code === 'INVALID_CLIENT_TRANSACTION_RESULT'
+          ? 'INVALID_CLIENT_TRANSACTION_RESULT'
+          : 'CLIENT_POST_COMMIT_INSPECTION_FAILED',
       },
       actions,
     });
@@ -677,6 +811,16 @@ export function createClientDomain({
       now: context.now instanceof Date ? context.now.toISOString() : context.now,
     });
     const records = await inspectRows(context, rows, requestedProfile, planDigest, { plan: true });
+    const blocked = records.filter(record => record.row.selected
+      && BLOCKED_INSPECTION_STATUSES.has(record.inspection?.registration));
+    if (blocked.length > 0) {
+      fail('selected client inspection cannot bind a complete apply plan', 'CLIENT_INSPECTION_UNBOUND', {
+        clients: blocked.map(record => ({
+          client_id: record.row.client_id,
+          status: record.inspection.registration,
+        })),
+      });
+    }
     const operations = Object.freeze(records
       .filter(record => record.row.selected)
       .flatMap(record => record.planResult?.operations ?? [])
@@ -727,6 +871,31 @@ export function createClientDomain({
     });
   }
 
+  async function recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites = false } = {}) {
+    if (context.applyLease && typeof context.localState?.validateApplyLease === 'function') {
+      await context.localState.validateApplyLease(context.applyLease);
+    }
+    const failures = [];
+    for (const precondition of approvedPlan.preconditions.filter(row => row.kind === 'client_path')) {
+      if (transactionOwnsWrites && precondition.writable === true) continue;
+      let observed;
+      try {
+        observed = stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
+          allowedRoots: [precondition.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: precondition.writable === true,
+        }));
+      } catch (error) {
+        failures.push({ label: precondition.label, reason: stableErrorCode(error?.code, 'FINGERPRINT_FAILED') });
+        continue;
+      }
+      if (sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint)) {
+        failures.push({ label: precondition.label, reason: 'FINGERPRINT_CHANGED' });
+      }
+    }
+    if (failures.length > 0) fail('client evidence changed before active verification', 'PLAN_STALE', { failures });
+  }
+
   async function apply(context, operations = []) {
     const approvedPlan = context.approvedPlan;
     if (!approvedPlan || !/^[0-9a-f]{64}$/.test(approvedPlan.digest ?? '')) fail('client apply requires the approved saved plan', 'INVALID_PLAN');
@@ -734,36 +903,80 @@ export function createClientDomain({
     if (sha256Canonical(operations) !== sha256Canonical(approvedOperations)) {
       fail('client apply operation set differs from the approved plan', 'UNAPPROVED_OPERATION_SET');
     }
-    const { rows, requestedProfile, contextSha256 } = await discover(context, approvedPlan);
-    const before = await inspectRows(context, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    const affectedClientIds = unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)));
+    let transactionOwnsWrites = false;
+    const applyContext = {
+      ...context,
+      beforeActiveClientLaunch: async evidence => {
+        if (!plainObject(evidence) || !CLIENT_IDS.includes(evidence.client_id)
+          || !['native', 'protocol'].includes(evidence.kind)) {
+          fail('adapter active-launch guard evidence is invalid', 'INVALID_CLIENT_LAUNCH');
+        }
+        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites });
+      },
+    };
+    const { rows, requestedProfile, contextSha256 } = await discover(applyContext, approvedPlan);
+    const before = await inspectRows(applyContext, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
     let transactionResult = null;
     if (operations.length > 0) {
       const ownership = approvedPlan.preconditions.find(precondition => precondition.kind === 'client_path'
-        && precondition.canonical_path === context.localState.paths().ownership);
+        && precondition.canonical_path === applyContext.localState.paths().ownership);
       if (!ownership?.fingerprint) fail('approved client plan lacks the ownership precondition', 'INVALID_PLAN');
       const activeTransaction = typeof transaction === 'function'
-        ? transaction({ externalLease: context.applyLease, context })
+        ? transaction({ externalLease: applyContext.applyLease, context: applyContext })
         : transaction;
       const transactionAdapters = boundAdapters(before, operations);
       await activeTransaction.snapshot({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
-        context,
+        context: applyContext,
         ownershipFingerprint: ownership.fingerprint,
       });
+      transactionOwnsWrites = true;
       transactionResult = await activeTransaction.apply({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
-        context,
+        context: applyContext,
       });
+      if (!validTransactionResult(transactionResult, operations)) {
+        const invalidResult = Object.freeze({
+          status: 'UNKNOWN',
+          clients: Object.freeze(unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)))
+            .map(clientId => Object.freeze({ client_id: clientId, status: 'UNKNOWN' }))),
+          touched_files: Object.freeze(unique(operations.map(operation => operation.path).filter(path => typeof path === 'string'))
+            .map(path => Object.freeze({ path, applied_sha256: null }))),
+          rollback: null,
+          retained_snapshots: Object.freeze([]),
+        });
+        return committedInspectionFailure(
+          before,
+          requestedProfile,
+          invalidResult,
+          contextSha256,
+          Object.assign(new Error('client transaction result is invalid'), { code: 'INVALID_CLIENT_TRANSACTION_RESULT' }),
+          affectedClientIds,
+        );
+      }
     }
-    const afterDiscovery = await discover(context, approvedPlan);
-    const after = await inspectRows(context, afterDiscovery.rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    const changed = (transactionResult?.touched_files?.length ?? 0) > 0;
+    if (ROLLBACK_TERMINAL_STATUSES.has(transactionResult?.status)) {
+      return aggregate(before, requestedProfile, { changed, transactionResult, contextSha256, affectedClientIds });
+    }
+    let after;
+    try {
+      const afterDiscovery = await discover(applyContext, approvedPlan);
+      after = await inspectRows(applyContext, afterDiscovery.rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    } catch (error) {
+      if (['APPLIED', 'ACTION_REQUIRED'].includes(transactionResult?.status)) {
+        return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error, affectedClientIds);
+      }
+      throw error;
+    }
     return aggregate(after, requestedProfile, {
-      changed: (transactionResult?.touched_files?.length ?? 0) > 0,
-      transactionStatus: transactionResult?.status ?? null,
+      changed,
+      transactionResult,
       contextSha256,
     });
   }

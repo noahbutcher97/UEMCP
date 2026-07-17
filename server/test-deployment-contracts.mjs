@@ -60,7 +60,7 @@ DEPLOYED_BUILD_REQUIRED DEPLOYED_BUILD_CURRENT BUILD_REQUIRED BUILD_FAILED UNKNO
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
-ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
+ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
 ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
@@ -76,7 +76,7 @@ CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIS
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
-PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT
+PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 
@@ -227,16 +227,19 @@ function validMachineInput(overrides = {}) {
   const committed = createStageResult({ name: 'five', status: 'CURRENT', result: 'ready', progress: 'committed', changed: true });
   const rolledBack = createStageResult({ name: 'six', status: 'ROLLED_BACK', result: 'rolled_back' });
   const optionalSkipped = createStageResult({ name: 'seven', status: 'NOT_CHECKED', mandatory: false, result: 'skipped' });
+  const rollbackFailed = createStageResult({ name: 'eight', status: 'ROLLBACK_FAILED', result: 'failed', progress: 'committed', changed: true });
 
   t.assert(reduceOutcome([ready, unusualReady]) === 'HEALTHY', 'status names do not determine a healthy outcome');
   t.assert(reduceOutcome([ready, restart]) === 'ACTION_REQUIRED', 'human-only action reduces to ACTION_REQUIRED');
   t.assert(reduceOutcome([failed]) === 'FAILED', 'mandatory failure without useful progress reduces to FAILED');
   t.assert(reduceOutcome([committed, failed]) === 'PARTIAL', 'committed progress plus mandatory failure reduces to PARTIAL');
   t.assert(reduceOutcome([rolledBack]) === 'FAILED', 'fully rolled-back mandatory transaction reduces to FAILED');
+  t.assert(reduceOutcome([rollbackFailed]) === 'PARTIAL', 'failed rollback with retained mutation reduces to PARTIAL');
   t.assert(reduceOutcome([ready, createStageResult({ name: 'optional', status: 'INSTALL_FAILED', mandatory: false, result: 'failed' })]) === 'ACTION_REQUIRED', 'optional failure remains visible as ACTION_REQUIRED');
   t.assert(reduceOutcome([ready, optionalSkipped]) === 'HEALTHY', 'optional skipped work does not make a healthy result actionable');
   t.assert(shouldRecordPlanDigest([committed]) === true, 'committed apply progress consumes the approved plan');
   t.assert(shouldRecordPlanDigest([rolledBack]) === true, 'fully rolled-back apply progress consumes the approved plan');
+  t.assert(shouldRecordPlanDigest([rollbackFailed]) === true, 'failed rollback with retained mutation consumes the approved plan');
   t.assert(shouldRecordPlanDigest([failed, restart]) === false, 'failure or action without apply progress remains retryable');
 }
 

@@ -10327,7 +10327,7 @@ DEPLOYED_BUILD_REQUIRED DEPLOYED_BUILD_CURRENT BUILD_REQUIRED BUILD_FAILED UNKNO
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
-ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
+ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
 ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
@@ -10342,7 +10342,7 @@ CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIS
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
-PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT
+PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 function createIdentityRegistry(values) {
@@ -10360,7 +10360,7 @@ var CLIENT_STATE_VALUES = Object.freeze({
   status: Object.freeze(`
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED ROLLED_BACK
-ROLLBACK_CONFLICT NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
+ROLLBACK_CONFLICT ROLLBACK_FAILED NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
   `.trim().split(/\s+/)),
   enablement: Object.freeze("ENABLED DISABLED POLICY_BLOCKED POLICY_UNKNOWN NOT_SELECTED NOT_INSTALLED UNKNOWN".split(" ")),
   activation: Object.freeze("CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED NOT_SELECTED NOT_INSTALLED UNKNOWN".split(" "))
@@ -10607,7 +10607,9 @@ function validateClient(client) {
     fail("NOT_SELECTED client state must be consistent");
   }
   if (client.compatibility === "not_installed") {
-    if (client.version !== null || client.status !== "NOT_INSTALLED" || client.enablement !== "NOT_INSTALLED" || client.activation !== "NOT_INSTALLED") {
+    const absent = client.status === "NOT_INSTALLED" && client.enablement === "NOT_INSTALLED" && client.activation === "NOT_INSTALLED";
+    const explicitlyNotSelected = client.status === "NOT_SELECTED" && client.enablement === "NOT_SELECTED" && client.activation === "NOT_SELECTED";
+    if (client.version !== null || !absent && !explicitlyNotSelected) {
       fail("not-installed client state must be consistent");
     }
   }
@@ -10929,6 +10931,25 @@ var PACKAGE_IDS = Object.freeze({
   vscode: null
 });
 var VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: "1", VSCODE_DEV: "" });
+var SENSITIVE_CLIENT_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PATH",
+  "PATHEXT",
+  "COMSPEC",
+  "HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "GEMINI_CLI_HOME"
+]);
+function isSensitiveClientEnvironmentName(name) {
+  if (typeof name !== "string") return false;
+  const normalized = name.toUpperCase();
+  return normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_") || SENSITIVE_CLIENT_ENVIRONMENT_NAMES.has(normalized);
+}
 function expectedClientLaunchOverlay(clientId) {
   if (!CLIENT_IDS.includes(clientId)) invalid("client launch overlay requires a known client ID");
   return clientId === "vscode" ? Object.freeze({ ...VSCODE_LAUNCH_OVERLAY }) : Object.freeze({});
@@ -14604,20 +14625,6 @@ var DEFAULT_LIMITS = Object.freeze({
   aggregateBytes: 64 * 1024 * 1024,
   pluginRecords: 512
 });
-var SENSITIVE_ENVIRONMENT_KEYS = /* @__PURE__ */ new Set([
-  "NODE_OPTIONS",
-  "NODE_PATH",
-  "PATH",
-  "PATHEXT",
-  "COMSPEC",
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "CODEX_HOME",
-  "CLAUDE_CONFIG_DIR",
-  "GEMINI_CLI_HOME"
-]);
 var MUTATING_MCP_SUBCOMMANDS = /* @__PURE__ */ new Set(["add", "add-json", "remove", "reset-project-choices"]);
 var PRIVATE_PROTOCOL_LAUNCH = /* @__PURE__ */ new WeakMap();
 var CLAUDE_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
@@ -14737,6 +14744,7 @@ async function runNativeQuery(runner, context, detection, tail) {
 }
 async function inspectNative(runner, context, detection) {
   const safeQuery = async (tail) => {
+    await context.beforeActiveClientLaunch?.({ client_id: "claude", kind: "native" });
     try {
       return await runNativeQuery(runner, context, detection, tail);
     } catch (error2) {
@@ -14801,10 +14809,7 @@ function environmentEvidence2(entry) {
 function reviewActions(entry) {
   const actions = [];
   const keys = Object.keys(plainObject(entry?.env) ? entry.env : {});
-  if (keys.some((key) => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_") || SENSITIVE_ENVIRONMENT_KEYS.has(normalized);
-  })) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
   if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
   return actions;
 }
@@ -15974,6 +15979,7 @@ async function runNativeQuery2(runner, context, detection, tail) {
 }
 async function inspectNative2(runner, context, detection, desired) {
   const safe = async (tail) => {
+    await context.beforeActiveClientLaunch?.({ client_id: "codex", kind: "native" });
     try {
       return await runNativeQuery2(runner, context, detection, tail);
     } catch (error2) {
@@ -16463,6 +16469,7 @@ function createCodexAdapter({
     if (!absolutePath3(stagedHome) || pathIdentity2(stagedHome) === pathIdentity2(operation.allowed_root)) {
       fail10("Codex native add requires an isolated home", "UNAPPROVED_EXTERNAL_WRITE");
     }
+    await context.beforeActiveClientLaunch?.({ client_id: "codex", kind: "native" });
     const result2 = await runner.run(context.launch.command, [
       ...context.launch.args_prefix,
       "mcp",
@@ -16599,21 +16606,8 @@ var LEDGER_FAILURES2 = /* @__PURE__ */ new Set([
   "ledger_self_hash_mismatch",
   "ledger_record_invalid"
 ]);
-var SENSITIVE_ENVIRONMENT_KEYS2 = /* @__PURE__ */ new Set([
-  "NODE_OPTIONS",
-  "NODE_PATH",
-  "PATH",
-  "PATHEXT",
-  "COMSPEC",
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "CODEX_HOME",
-  "CLAUDE_CONFIG_DIR",
-  "GEMINI_CLI_HOME"
-]);
 var PRIVATE_PROTOCOL_LAUNCH3 = /* @__PURE__ */ new WeakMap();
+var PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH = /* @__PURE__ */ new WeakMap();
 var GEMINI_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: "0.41.2",
   default_scope: "project",
@@ -16736,6 +16730,7 @@ function environmentForLaunch3(context, launch) {
   return { ...context.env ?? process.env, ...launch.env_overlay ?? {} };
 }
 async function inspectNative3(runner, context, detection) {
+  await context.beforeActiveClientLaunch?.({ client_id: "gemini", kind: "native" });
   try {
     const result2 = await runner.run(detection.launch.command, [
       ...detection.launch.args_prefix,
@@ -16898,10 +16893,7 @@ function environmentEvidence4(entry) {
 function reviewActions3(entry) {
   const actions = [];
   const keys = Object.keys(plainObject3(entry?.env) ? entry.env : {});
-  if (keys.some((key) => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_") || SENSITIVE_ENVIRONMENT_KEYS2.has(normalized);
-  })) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
   if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
   return actions;
 }
@@ -17386,6 +17378,15 @@ function createGeminiAdapter({
         effective = Object.freeze({ scope: "extension", path: null, matching: false });
         registration = "CONFLICT";
       }
+      let effectiveProtocolLaunch = Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+      if (!logicalNameConflict && activeSettingsEntry !== void 0) {
+        effectiveProtocolLaunch = Object.freeze({
+          env_overlay: Object.freeze({ ...plainObject3(activeSettingsEntry.env) ? activeSettingsEntry.env : {} }),
+          cwd: typeof activeSettingsEntry.cwd === "string" ? activeSettingsEntry.cwd : null
+        });
+      } else if (effective?.scope === "extension" && activeExtensions.length === 1) {
+        effectiveProtocolLaunch = PRIVATE_PROTOCOL_LAUNCH3.get(activeExtensions[0]) ?? effectiveProtocolLaunch;
+      }
       const policy = extensionInspection.evidence_status === "READY" ? classifyPolicy2(merged, context.invocationPolicyKnown === true) : "POLICY_UNKNOWN";
       const enablementEvidence = validateEnablement(enablementFile);
       let enablement = registration === "CONFIGURED" ? "ENABLED" : "UNKNOWN";
@@ -17416,7 +17417,7 @@ function createGeminiAdapter({
         enablementFile,
         ...extensionInspection.files
       ];
-      return Object.freeze({
+      const result2 = Object.freeze({
         client_id: "gemini",
         registration,
         enablement,
@@ -17437,6 +17438,8 @@ function createGeminiAdapter({
         ownership_ledger: ownershipLedgerStatus2(ownership),
         desired
       });
+      PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.set(result2, effectiveProtocolLaunch);
+      return result2;
     } catch (error2) {
       const status = statusFromError3(error2);
       return Object.freeze({
@@ -17640,9 +17643,7 @@ function createGeminiAdapter({
     return Object.freeze({ status: "delegated", count: records.length });
   }
   function protocolLaunch(context, inspection) {
-    const effective = inspection?.effective;
-    const occurrence3 = inspection?.occurrences?.find((row) => row.scope === effective?.scope && row.path === effective?.path);
-    return PRIVATE_PROTOCOL_LAUNCH3.get(occurrence3) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+    return PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.get(inspection) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
   }
   return Object.freeze({ id: "gemini", detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
 }
@@ -17664,20 +17665,6 @@ var DEFAULT_LIMITS4 = Object.freeze({
 });
 var ENTRY_PATH2 = Object.freeze(["servers", "uemcp"]);
 var STATIC_ACTIONS = Object.freeze(["RESTART_REQUIRED", "CLIENT_ENABLEMENT_REVIEW_REQUIRED"]);
-var SENSITIVE_ENVIRONMENT_KEYS3 = /* @__PURE__ */ new Set([
-  "NODE_OPTIONS",
-  "NODE_PATH",
-  "PATH",
-  "PATHEXT",
-  "COMSPEC",
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "CODEX_HOME",
-  "CLAUDE_CONFIG_DIR",
-  "GEMINI_CLI_HOME"
-]);
 var LEDGER_FAILURES3 = /* @__PURE__ */ new Set([
   "ledger_storage_invalid",
   "ledger_read_failed",
@@ -17817,10 +17804,7 @@ function environmentEvidence5(entry) {
 function reviewActions4(entry) {
   const actions = [];
   const keys = Object.keys(plainObject4(entry?.env) ? entry.env : {});
-  if (keys.some((key) => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_") || SENSITIVE_ENVIRONMENT_KEYS3.has(normalized);
-  })) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
   if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
   return actions;
 }
@@ -26559,6 +26543,9 @@ var DOMAIN_NAME = "clients";
 var DOMAIN_ORDER = 30;
 var REVIEW_ACTIONS = /* @__PURE__ */ new Set(["CUSTOM_ENV_REVIEW_REQUIRED", "CUSTOM_LAUNCH_REVIEW_REQUIRED"]);
 var READY_REGISTRATION = /* @__PURE__ */ new Set(["CONFIGURED", "ALREADY_CONFIGURED", "MATCHING_EFFECTIVE", "MATCHING_SHADOWED"]);
+var BLOCKED_INSPECTION_STATUSES = /* @__PURE__ */ new Set(["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"]);
+var ROLLBACK_TERMINAL_STATUSES = /* @__PURE__ */ new Set(["ROLLED_BACK", "ROLLBACK_CONFLICT", "ROLLBACK_FAILED"]);
+var TRANSACTION_RESULT_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "ACTION_REQUIRED", ...ROLLBACK_TERMINAL_STATUSES]);
 var DISCOVERY_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
   "APPDATA",
   "CLAUDE_CONFIG_DIR",
@@ -26609,6 +26596,8 @@ var ACTION_MESSAGES = Object.freeze({
   POLICY_UNKNOWN: "Review client policy because enablement could not be proven.",
   RESTART_REQUIRED: "Restart the client to load the reviewed registration.",
   ROLLBACK_CONFLICT: "Resolve the client configuration conflict retained after rollback.",
+  ROLLBACK_FAILED: "Recover the client configuration from the retained rollback evidence.",
+  SYNC_FAILED: "Inspect the committed client configuration and retry with a new plan.",
   TOOLS_LIST_FAILED: "The effective client launch initialized but did not complete tools/list.",
   UNSUPPORTED_VERSION: "The installed client release is outside the exact write gate and remains inspect-only."
 });
@@ -26841,6 +26830,7 @@ function approvedReviewCodes(plan, clientId) {
   ].map(actionCode).filter((code) => REVIEW_ACTIONS.has(code)));
 }
 function canLaunchProtocol(inspection, approvedPlan, clientId) {
+  if (BLOCKED_INSPECTION_STATUSES.has(inspection?.registration)) return false;
   const required2 = reviewCodes(inspection);
   if (required2.size === 0) return true;
   const approved = approvedReviewCodes(approvedPlan, clientId);
@@ -26941,6 +26931,24 @@ function clientEvidence(row, inspection, planResult, client, smoke) {
     activation: client.activation
   });
 }
+function terminalClientView(record2, status, actionCode2) {
+  const client = Object.freeze({
+    ...record2.client,
+    status,
+    enablement: "UNKNOWN",
+    activation: "UNKNOWN",
+    actions: normalizeActions([...record2.client.actions, actionCode2])
+  });
+  const evidence = Object.freeze({
+    ...record2.evidence,
+    structural_status: status,
+    native_status: "UNKNOWN",
+    protocol_status: "UNKNOWN",
+    enablement: "UNKNOWN",
+    activation: "UNKNOWN"
+  });
+  return Object.freeze({ client, evidence });
+}
 function stageState(clients, evidenceRows) {
   const selected = clients.filter((client) => client.selected);
   const considered = selected.length > 0 ? selected : clients.filter((client) => client.status !== "NOT_SELECTED");
@@ -27005,6 +27013,50 @@ function planPreconditions(records, operations, ownershipFingerprint, ownershipP
     add({ path: ownershipPath, allowed_root: ownershipRoot, fingerprint: ownershipFingerprint, writable: true });
   }
   return Object.freeze(rows);
+}
+function stableErrorCode(value, fallback = "UNKNOWN") {
+  return typeof value === "string" && /^[A-Z0-9_]+$/.test(value) ? value : fallback;
+}
+function publicTransactionEvidence(result2) {
+  if (!plainObject6(result2) || typeof result2.status !== "string") return null;
+  const rollback = plainObject6(result2.rollback) ? Object.freeze({
+    reason_code: stableErrorCode(result2.rollback.reason_code, "APPLY_FAILED"),
+    paths: Object.freeze((result2.rollback.paths ?? []).filter(plainObject6).map((row) => Object.freeze({
+      status: typeof row.status === "string" ? row.status : "unknown",
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      code: stableErrorCode(row.code)
+    }))),
+    hook_errors: Object.freeze((result2.rollback.hook_errors ?? []).filter(plainObject6).map((row) => Object.freeze({
+      client_id: typeof row.client_id === "string" ? row.client_id : "transaction",
+      code: stableErrorCode(row.code)
+    })))
+  }) : null;
+  return Object.freeze({
+    status: stableErrorCode(result2.status),
+    clients: Object.freeze((result2.clients ?? []).filter(plainObject6).map((row) => Object.freeze({
+      client_id: CLIENT_IDS.includes(row.client_id) ? row.client_id : "unknown",
+      status: stableErrorCode(row.status),
+      ...row.error_code ? { error_code: stableErrorCode(row.error_code) } : {}
+    }))),
+    touched_files: Object.freeze((result2.touched_files ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      applied_sha256: typeof row.applied_sha256 === "string" && /^[0-9a-f]{64}$/.test(row.applied_sha256) ? row.applied_sha256 : null
+    }))),
+    rollback,
+    retained_snapshots: Object.freeze((result2.retained_snapshots ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      retained_until: typeof row.retained_until === "string" ? row.retained_until : null
+    })))
+  });
+}
+function validTransactionResult(result2, operations) {
+  if (!plainObject6(result2) || !TRANSACTION_RESULT_STATUSES.has(result2.status) || !Array.isArray(result2.clients) || result2.clients.some((row) => !plainObject6(row) || !CLIENT_IDS.includes(row.client_id) || typeof row.status !== "string") || !Array.isArray(result2.touched_files) || result2.touched_files.some((row) => !plainObject6(row) || typeof row.path !== "string" || row.applied_sha256 !== null && (typeof row.applied_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(row.applied_sha256))) || !Array.isArray(result2.retained_snapshots)) {
+    return false;
+  }
+  if (["APPLIED", "ACTION_REQUIRED"].includes(result2.status) && operations.length > 0 && result2.touched_files.length === 0) {
+    return false;
+  }
+  return !ROLLBACK_TERMINAL_STATUSES.has(result2.status) || plainObject6(result2.rollback);
 }
 function ownershipLedger(fsImpl, localState, now) {
   if (!localState?.paths) {
@@ -27098,6 +27150,7 @@ function createClientDomain({
           fail16("adapter private protocol environment is invalid", "INVALID_CLIENT_LAUNCH");
         }
         const effectiveEnvironment = mergeWindowsEnvironmentOverlay(context.env ?? process.env, launch.env_overlay);
+        await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
         smoke = await protocolSmoke(context.descriptor, {
           effectiveEnvironment,
           effectiveCwd: launch.cwd ?? null
@@ -27118,11 +27171,26 @@ function createClientDomain({
     }
     return records;
   }
-  function aggregate(records, requestedProfile, { changed = false, transactionStatus = null, contextSha256 = null } = {}) {
-    const clients = Object.freeze(records.map((record2) => record2.client));
-    const evidenceRows = Object.freeze(records.map((record2) => record2.evidence));
-    const actions = normalizeActions(clients.flatMap((client) => client.actions));
-    const state = transactionStatus === "ROLLED_BACK" || transactionStatus === "ROLLBACK_CONFLICT" ? { status: transactionStatus, result: "rolled_back" } : stageState(clients, evidenceRows);
+  function aggregate(records, requestedProfile, {
+    changed = false,
+    transactionResult = null,
+    contextSha256 = null,
+    affectedClientIds = []
+  } = {}) {
+    const transactionStatus = transactionResult?.status ?? null;
+    const affected = new Set(affectedClientIds);
+    const terminalStatus = ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? transactionStatus : null;
+    const views = records.map((record2) => terminalStatus && affected.has(record2.row.client_id) ? terminalClientView(record2, terminalStatus, terminalStatus) : record2);
+    const clients = Object.freeze(views.map((record2) => record2.client));
+    const evidenceRows = Object.freeze(views.map((record2) => record2.evidence));
+    const transactionActions = ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? [transactionStatus] : [];
+    const actions = normalizeActions([...clients.flatMap((client) => client.actions), ...transactionActions]);
+    let state = stageState(clients, evidenceRows);
+    if (transactionStatus === "ROLLED_BACK" || transactionStatus === "ROLLBACK_CONFLICT") {
+      state = { status: transactionStatus, result: "rolled_back" };
+    } else if (transactionStatus === "ROLLBACK_FAILED") {
+      state = { status: transactionStatus, result: "failed" };
+    }
     const stage = createStageResult({
       name: DOMAIN_NAME,
       status: state.status,
@@ -27132,7 +27200,32 @@ function createClientDomain({
         vscode_profile: requestedProfile,
         discovery_context_sha256: contextSha256,
         clients: evidenceRows,
-        ...transactionStatus ? { transaction_status: transactionStatus } : {}
+        ...transactionStatus ? { transaction_status: transactionStatus } : {},
+        ...transactionResult ? { transaction: publicTransactionEvidence(transactionResult) } : {}
+      },
+      actions
+    });
+    return Object.freeze({ stage, clients, actions });
+  }
+  function committedInspectionFailure(records, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds) {
+    const affected = new Set(affectedClientIds);
+    const views = records.map((record2) => affected.has(record2.row.client_id) ? terminalClientView(record2, "UNKNOWN", "SYNC_FAILED") : record2);
+    const clients = Object.freeze(views.map((record2) => record2.client));
+    const evidenceRows = Object.freeze(views.map((record2) => record2.evidence));
+    const actions = normalizeActions([...clients.flatMap((client) => client.actions), "SYNC_FAILED"]);
+    const stage = createStageResult({
+      name: DOMAIN_NAME,
+      status: "SYNC_FAILED",
+      changed: true,
+      result: "failed",
+      progress: "committed",
+      evidence: {
+        vscode_profile: requestedProfile,
+        discovery_context_sha256: contextSha256,
+        clients: evidenceRows,
+        transaction_status: transactionResult.status,
+        transaction: publicTransactionEvidence(transactionResult),
+        error_code: error2?.code === "INVALID_CLIENT_TRANSACTION_RESULT" ? "INVALID_CLIENT_TRANSACTION_RESULT" : "CLIENT_POST_COMMIT_INSPECTION_FAILED"
       },
       actions
     });
@@ -27149,6 +27242,15 @@ function createClientDomain({
       now: context.now instanceof Date ? context.now.toISOString() : context.now
     });
     const records = await inspectRows(context, rows, requestedProfile, planDigest, { plan: true });
+    const blocked = records.filter((record2) => record2.row.selected && BLOCKED_INSPECTION_STATUSES.has(record2.inspection?.registration));
+    if (blocked.length > 0) {
+      fail16("selected client inspection cannot bind a complete apply plan", "CLIENT_INSPECTION_UNBOUND", {
+        clients: blocked.map((record2) => ({
+          client_id: record2.row.client_id,
+          status: record2.inspection.registration
+        }))
+      });
+    }
     const operations = Object.freeze(records.filter((record2) => record2.row.selected).flatMap((record2) => record2.planResult?.operations ?? []).map((operation) => Object.freeze({
       ...operation,
       domain: DOMAIN_NAME,
@@ -27192,6 +27294,30 @@ function createClientDomain({
       });
     });
   }
+  async function recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites = false } = {}) {
+    if (context.applyLease && typeof context.localState?.validateApplyLease === "function") {
+      await context.localState.validateApplyLease(context.applyLease);
+    }
+    const failures = [];
+    for (const precondition of approvedPlan.preconditions.filter((row) => row.kind === "client_path")) {
+      if (transactionOwnsWrites && precondition.writable === true) continue;
+      let observed;
+      try {
+        observed = stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
+          allowedRoots: [precondition.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: precondition.writable === true
+        }));
+      } catch (error2) {
+        failures.push({ label: precondition.label, reason: stableErrorCode(error2?.code, "FINGERPRINT_FAILED") });
+        continue;
+      }
+      if (sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint)) {
+        failures.push({ label: precondition.label, reason: "FINGERPRINT_CHANGED" });
+      }
+    }
+    if (failures.length > 0) fail16("client evidence changed before active verification", "PLAN_STALE", { failures });
+  }
   async function apply(context, operations = []) {
     const approvedPlan = context.approvedPlan;
     if (!approvedPlan || !/^[0-9a-f]{64}$/.test(approvedPlan.digest ?? "")) fail16("client apply requires the approved saved plan", "INVALID_PLAN");
@@ -27199,33 +27325,74 @@ function createClientDomain({
     if (sha256Canonical(operations) !== sha256Canonical(approvedOperations)) {
       fail16("client apply operation set differs from the approved plan", "UNAPPROVED_OPERATION_SET");
     }
-    const { rows, requestedProfile, contextSha256 } = await discover(context, approvedPlan);
-    const before = await inspectRows(context, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    const affectedClientIds = unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId)));
+    let transactionOwnsWrites = false;
+    const applyContext = {
+      ...context,
+      beforeActiveClientLaunch: async (evidence) => {
+        if (!plainObject6(evidence) || !CLIENT_IDS.includes(evidence.client_id) || !["native", "protocol"].includes(evidence.kind)) {
+          fail16("adapter active-launch guard evidence is invalid", "INVALID_CLIENT_LAUNCH");
+        }
+        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites });
+      }
+    };
+    const { rows, requestedProfile, contextSha256 } = await discover(applyContext, approvedPlan);
+    const before = await inspectRows(applyContext, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
     let transactionResult = null;
     if (operations.length > 0) {
-      const ownership = approvedPlan.preconditions.find((precondition) => precondition.kind === "client_path" && precondition.canonical_path === context.localState.paths().ownership);
+      const ownership = approvedPlan.preconditions.find((precondition) => precondition.kind === "client_path" && precondition.canonical_path === applyContext.localState.paths().ownership);
       if (!ownership?.fingerprint) fail16("approved client plan lacks the ownership precondition", "INVALID_PLAN");
-      const activeTransaction = typeof transaction === "function" ? transaction({ externalLease: context.applyLease, context }) : transaction;
+      const activeTransaction = typeof transaction === "function" ? transaction({ externalLease: applyContext.applyLease, context: applyContext }) : transaction;
       const transactionAdapters = boundAdapters(before, operations);
       await activeTransaction.snapshot({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
-        context,
+        context: applyContext,
         ownershipFingerprint: ownership.fingerprint
       });
+      transactionOwnsWrites = true;
       transactionResult = await activeTransaction.apply({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
-        context
+        context: applyContext
       });
+      if (!validTransactionResult(transactionResult, operations)) {
+        const invalidResult = Object.freeze({
+          status: "UNKNOWN",
+          clients: Object.freeze(unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId))).map((clientId) => Object.freeze({ client_id: clientId, status: "UNKNOWN" }))),
+          touched_files: Object.freeze(unique5(operations.map((operation) => operation.path).filter((path) => typeof path === "string")).map((path) => Object.freeze({ path, applied_sha256: null }))),
+          rollback: null,
+          retained_snapshots: Object.freeze([])
+        });
+        return committedInspectionFailure(
+          before,
+          requestedProfile,
+          invalidResult,
+          contextSha256,
+          Object.assign(new Error("client transaction result is invalid"), { code: "INVALID_CLIENT_TRANSACTION_RESULT" }),
+          affectedClientIds
+        );
+      }
     }
-    const afterDiscovery = await discover(context, approvedPlan);
-    const after = await inspectRows(context, afterDiscovery.rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    const changed = (transactionResult?.touched_files?.length ?? 0) > 0;
+    if (ROLLBACK_TERMINAL_STATUSES.has(transactionResult?.status)) {
+      return aggregate(before, requestedProfile, { changed, transactionResult, contextSha256, affectedClientIds });
+    }
+    let after;
+    try {
+      const afterDiscovery = await discover(applyContext, approvedPlan);
+      after = await inspectRows(applyContext, afterDiscovery.rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    } catch (error2) {
+      if (["APPLIED", "ACTION_REQUIRED"].includes(transactionResult?.status)) {
+        return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds);
+      }
+      throw error2;
+    }
     return aggregate(after, requestedProfile, {
-      changed: (transactionResult?.touched_files?.length ?? 0) > 0,
-      transactionStatus: transactionResult?.status ?? null,
+      changed,
+      transactionResult,
       contextSha256
     });
   }
@@ -28017,10 +28184,22 @@ function validatePlanDocument(plan) {
   if (new Set(operations.map((row) => row.operation_id)).size !== operations.length) fail17("plan operation IDs must be unique", "INVALID_PLAN");
   if (new Set(preconditions.map((row) => row.label)).size !== preconditions.length) fail17("plan precondition labels must be unique", "INVALID_PLAN");
   const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  const clientStage = plan.stages.find((stage) => stage.name === "clients");
+  const clientEvidence2 = new Map((clientStage?.evidence?.clients ?? []).filter((row) => row && typeof row.adapter === "string").map((row) => [row.adapter, row]));
+  const probeFailureCodes = /* @__PURE__ */ new Set([
+    "VERSION_PROBE_FAILED",
+    "CLIENT_DISCOVERY_FAILED",
+    "AMBIGUOUS_CLIENT_ENVIRONMENT",
+    "INSPECTION_LIMIT_EXCEEDED"
+  ]);
   for (const adapter of request.selected_clients) {
     const client = clientByAdapter.get(adapter);
-    if (!client || !client.selected || typeof client.version !== "string" || client.version.trim() === "" || client.scope.trim() === "") {
-      fail17("selected client lacks detected version/scope evidence", "INVALID_PLAN", { adapter });
+    const evidence = clientEvidence2.get(adapter);
+    const detectedSelection = client?.selected === true && typeof client.version === "string" && client.version.trim() !== "";
+    const requestedAbsence = client?.selected === false && client.version === null && client.compatibility === "not_installed" && client.status === "NOT_INSTALLED" && evidence?.discovery_status === "NOT_INSTALLED" && evidence?.selection === "included_not_installed" && evidence?.launch_contract === null;
+    const requestedProbeFailure = client?.selected === true && client.version === null && client.compatibility === "known_unsupported" && client.status === "UNKNOWN" && probeFailureCodes.has(evidence?.discovery_status) && evidence?.selection === "included" && evidence?.launch_contract === null;
+    if (!client || client.scope.trim() === "" || !detectedSelection && !requestedAbsence && !requestedProbeFailure) {
+      fail17("requested client lacks valid detection or absence evidence", "INVALID_PLAN", { adapter });
     }
   }
   assertNoSecretMaterial(plan);
@@ -29929,6 +30108,7 @@ var INTERFACE_ERROR_CODES = /* @__PURE__ */ new Set(["CLI_USAGE", "INVALID_CONTR
 var SAFE_DIAGNOSTICS = Object.freeze({
   APPLY_IN_PROGRESS: "another deployment apply is in progress",
   BUNDLE_FRESHNESS_FAILED: "deployment bundle freshness verification failed",
+  CLIENT_INSPECTION_UNBOUND: "selected client inspection could not produce complete apply evidence",
   DEPENDENCY_POLICY_BLOCKED: "dependency policy blocked deployment",
   INSTALL_FAILED: "dependency installation failed",
   INVALID_CONTRACT: "machine contract validation failed",

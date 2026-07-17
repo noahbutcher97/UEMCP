@@ -18,6 +18,28 @@ const PACKAGE_IDS = Object.freeze({
   vscode: null,
 });
 const VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' });
+const SENSITIVE_CLIENT_ENVIRONMENT_NAMES = new Set([
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'PATH',
+  'PATHEXT',
+  'COMSPEC',
+  'HOME',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'CODEX_HOME',
+  'CLAUDE_CONFIG_DIR',
+  'GEMINI_CLI_HOME',
+]);
+
+export function isSensitiveClientEnvironmentName(name) {
+  if (typeof name !== 'string') return false;
+  const normalized = name.toUpperCase();
+  return normalized.startsWith('UEMCP_')
+    || normalized.startsWith('UNREAL_')
+    || SENSITIVE_CLIENT_ENVIRONMENT_NAMES.has(normalized);
+}
 
 export function expectedClientLaunchOverlay(clientId) {
   if (!CLIENT_IDS.includes(clientId)) invalid('client launch overlay requires a known client ID');

@@ -315,6 +315,7 @@ async function runNativeQuery(runner, context, detection, tail) {
 
 async function inspectNative(runner, context, detection, desired) {
   const safe = async tail => {
+    await context.beforeActiveClientLaunch?.({ client_id: 'codex', kind: 'native' });
     try {
       return await runNativeQuery(runner, context, detection, tail);
     } catch (error) {
@@ -857,6 +858,7 @@ export function createCodexAdapter({
     if (!absolutePath(stagedHome) || pathIdentity(stagedHome) === pathIdentity(operation.allowed_root)) {
       fail('Codex native add requires an isolated home', 'UNAPPROVED_EXTERNAL_WRITE');
     }
+    await context.beforeActiveClientLaunch?.({ client_id: 'codex', kind: 'native' });
     const result = await runner.run(context.launch.command, [
       ...context.launch.args_prefix,
       'mcp',

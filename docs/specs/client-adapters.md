@@ -25,6 +25,11 @@ Repeatable `--include-client` values are recorded in the public
 `request.selected_clients` field and also drive exact selection. Exclusions
 remain visible as `NOT_SELECTED`. Apply accepts no selection override and
 replays only the selected rows and operations in the approved plan.
+An explicitly requested unavailable client remains a valid targeted
+`NOT_INSTALLED` or version-probe remediation row; `request.selected_clients`
+records the request, while `client.selected` records whether an installed row
+can participate in apply. The plan validator binds that distinction to matching
+discovery evidence rather than inferring availability from a null version.
 
 Provider workspace inspection is rooted at the directory from which the
 deployment CLI was invoked. `--project` and `--profile` select Unreal target
@@ -40,6 +45,13 @@ discovery-relevant homes, PATH inputs, workspace, trust inputs, and selected
 profile roots. Apply validates those facts, reuses the reviewed launch tuple,
 and returns `PLAN_STALE` before child execution when the context changed. It
 does not rediscover a replacement same-version executable after approval.
+Malformed, over-limit, or unsafe selected-client inspection cannot produce an
+applicable plan because complete path preconditions cannot be proven. During
+apply, read-only and no-op preconditions are checked again immediately before
+every client-native query and protocol launch. Once the central transaction
+owns a writable path, that path is guarded by the transaction's applied-byte
+checks while executable, server, policy, profile, and other read-only evidence
+continues to be rechecked before active execution.
 
 ## Client Boundaries
 
@@ -59,6 +71,9 @@ Gemini precedence is system defaults, user, trusted project, then system
 override; enabled extension declarations remain separate provenance. Persistent
 disable, administrative policy, session connection, and pending trust are
 independent. The adapter never mutates enablement or invokes native add/remove.
+Protocol smoke uses the fully deep-merged effective settings entry, including
+inherited environment and working-directory fields, rather than the physical
+occurrence that contributed the highest-precedence fragment.
 
 VS Code is version-probed only through `Code.exe` plus its same-install
 `resources/app/out/cli.js` and exact `ELECTRON_RUN_AS_NODE`/`VSCODE_DEV`
@@ -72,6 +87,10 @@ Public inspection retains environment names and SHA-256 values as
 `{ name, value_sha256 }` rows. Raw values and custom names as object keys are
 forbidden in plans, results, and receipts. The adapter retains effective
 environment and working-directory values only in a private in-memory capability.
+Sensitive launch review is case-insensitive and shared across adapters for
+`NODE_OPTIONS`, `NODE_PATH`, `PATH`, `PATHEXT`, `COMSPEC`, `HOME`,
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`,
+`GEMINI_CLI_HOME`, and every `UEMCP_` or `UNREAL_` prefix.
 
 Standalone verify and doctor do not protocol-smoke a registration carrying
 `CUSTOM_ENV_REVIEW_REQUIRED` or `CUSTOM_LAUNCH_REVIEW_REQUIRED`. Structural and

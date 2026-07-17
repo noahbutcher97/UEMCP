@@ -72,6 +72,10 @@ downstream planning. A prerequisite apply failure stops every downstream write.
 If a later domain throws after an earlier domain committed progress, the core
 emits a fixed `SYNC_FAILED` terminal stage, writes a `PARTIAL` receipt, and
 consumes the approved plan rather than losing the earlier mutation.
+The same rule applies when client configuration commits but post-commit client
+inspection fails. A malformed transaction result, an unknown transaction
+status, or nominal success without touched-file hash evidence also becomes a
+committed `SYNC_FAILED` stage instead of healthy or replayable output.
 The central client transaction receives the orchestrator's already-held apply
 lease as an externally owned capability. It neither reacquires nor releases
 that lease; only the orchestrator releases it after receipts and replay state
@@ -170,7 +174,18 @@ already configured and emits no write. A secret-safe reviewed launch tuple and
 discovery-context hash bind the executable choice, client homes, relevant PATH
 inputs, invocation workspace, trust inputs, and VS Code profile root. Apply
 validates those facts and reuses the reviewed tuple; it does not perform a new
-same-version executable discovery after approval.
+same-version executable discovery after approval. Selected-client inspection
+that is malformed, over-limit, or unsafe stops plan construction because it
+cannot bind complete evidence. Apply repeats the client-path and outer-lease
+checks immediately before every native or protocol process. Transaction-owned
+writable paths use the transaction's post-write guards; all remaining reviewed
+paths retain the immediate prelaunch check.
+
+`ROLLBACK_FAILED` is distinct from `ROLLED_BACK` and `ROLLBACK_CONFLICT`. It is
+a committed terminal failure with path-only restoration, hook-error, touched
+hash, and retained-snapshot evidence. Affected client rows are downgraded to the
+terminal rollback state or `UNKNOWN`; stale pre-commit health is never reused.
+Committed and rollback terminal results write receipts and consume the plan.
 
 ## Outcomes And Exits
 

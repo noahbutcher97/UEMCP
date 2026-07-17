@@ -35,6 +35,7 @@ const INTERFACE_ERROR_CODES = new Set(['CLI_USAGE', 'INVALID_CONTRACT', 'INVALID
 const SAFE_DIAGNOSTICS = Object.freeze({
   APPLY_IN_PROGRESS: 'another deployment apply is in progress',
   BUNDLE_FRESHNESS_FAILED: 'deployment bundle freshness verification failed',
+  CLIENT_INSPECTION_UNBOUND: 'selected client inspection could not produce complete apply evidence',
   DEPENDENCY_POLICY_BLOCKED: 'dependency policy blocked deployment',
   INSTALL_FAILED: 'dependency installation failed',
   INVALID_CONTRACT: 'machine contract validation failed',

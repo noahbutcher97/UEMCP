@@ -27,6 +27,7 @@ import {
 } from '../ownership-ledger.mjs';
 import { createProcessRunner } from '../process-runner.mjs';
 import {
+  isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
@@ -46,21 +47,8 @@ const LEDGER_FAILURES = new Set([
   'ledger_self_hash_mismatch',
   'ledger_record_invalid',
 ]);
-const SENSITIVE_ENVIRONMENT_KEYS = new Set([
-  'NODE_OPTIONS',
-  'NODE_PATH',
-  'PATH',
-  'PATHEXT',
-  'COMSPEC',
-  'HOME',
-  'USERPROFILE',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'CODEX_HOME',
-  'CLAUDE_CONFIG_DIR',
-  'GEMINI_CLI_HOME',
-]);
 const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
+const PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH = new WeakMap();
 
 export const GEMINI_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: '0.41.2',
@@ -206,6 +194,7 @@ function environmentForLaunch(context, launch) {
 }
 
 async function inspectNative(runner, context, detection) {
+  await context.beforeActiveClientLaunch?.({ client_id: 'gemini', kind: 'native' });
   try {
     const result = await runner.run(detection.launch.command, [
       ...detection.launch.args_prefix,
@@ -389,10 +378,7 @@ function environmentEvidence(entry) {
 function reviewActions(entry) {
   const actions = [];
   const keys = Object.keys(plainObject(entry?.env) ? entry.env : {});
-  if (keys.some(key => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith('UEMCP_') || normalized.startsWith('UNREAL_') || SENSITIVE_ENVIRONMENT_KEYS.has(normalized);
-  })) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
   if (entry?.cwd !== undefined && entry.cwd !== null) actions.push('CUSTOM_LAUNCH_REVIEW_REQUIRED');
   return actions;
 }
@@ -918,6 +904,16 @@ export function createGeminiAdapter({
         registration = 'CONFLICT';
       }
 
+      let effectiveProtocolLaunch = Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+      if (!logicalNameConflict && activeSettingsEntry !== undefined) {
+        effectiveProtocolLaunch = Object.freeze({
+          env_overlay: Object.freeze({ ...(plainObject(activeSettingsEntry.env) ? activeSettingsEntry.env : {}) }),
+          cwd: typeof activeSettingsEntry.cwd === 'string' ? activeSettingsEntry.cwd : null,
+        });
+      } else if (effective?.scope === 'extension' && activeExtensions.length === 1) {
+        effectiveProtocolLaunch = PRIVATE_PROTOCOL_LAUNCH.get(activeExtensions[0]) ?? effectiveProtocolLaunch;
+      }
+
       const policy = extensionInspection.evidence_status === 'READY'
         ? classifyPolicy(merged, context.invocationPolicyKnown === true)
         : 'POLICY_UNKNOWN';
@@ -952,7 +948,7 @@ export function createGeminiAdapter({
         enablementFile,
         ...extensionInspection.files,
       ];
-      return Object.freeze({
+      const result = Object.freeze({
         client_id: 'gemini',
         registration,
         enablement,
@@ -975,6 +971,8 @@ export function createGeminiAdapter({
         ownership_ledger: ownershipLedgerStatus(ownership),
         desired,
       });
+      PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.set(result, effectiveProtocolLaunch);
+      return result;
     } catch (error) {
       const status = statusFromError(error);
       return Object.freeze({
@@ -1187,9 +1185,8 @@ export function createGeminiAdapter({
   }
 
   function protocolLaunch(context, inspection) {
-    const effective = inspection?.effective;
-    const occurrence = inspection?.occurrences?.find(row => row.scope === effective?.scope && row.path === effective?.path);
-    return PRIVATE_PROTOCOL_LAUNCH.get(occurrence) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+    return PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.get(inspection)
+      ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
   }
 
   return Object.freeze({ id: 'gemini', detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });

@@ -48,6 +48,8 @@ import {
 import { sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import {
   ACTION_CODES,
+  reduceOutcome,
+  shouldRecordPlanDigest,
   validateClientContract,
   validateStageContract,
 } from './deployment/contracts.mjs';
@@ -55,6 +57,7 @@ import {
   CLIENT_IDS,
   RELEASE_GATES,
   classifySupportedVersion,
+  isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
@@ -90,6 +93,33 @@ function throwsCode(fn, code) {
   t.assert(readWindowsEnvironmentValue({ Path: 'one' }, 'PATH') === 'one', 'shared client environment lookup accepts a case variant');
   t.assert(readWindowsEnvironmentValue({ PATH: undefined, Path: 'one' }, 'PATH') === 'one', 'undefined environment aliases do not create false ambiguity');
   t.assert(throwsCode(() => readWindowsEnvironmentValue({ PATH: 'one', Path: 'two' }, 'PATH'), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'shared client environment lookup rejects duplicate case variants');
+}
+
+// Active-launch review uses one case-insensitive sensitive-name policy across every adapter.
+{
+  const exactNames = [
+    'NODE_OPTIONS',
+    'NODE_PATH',
+    'PATH',
+    'PATHEXT',
+    'COMSPEC',
+    'HOME',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'CODEX_HOME',
+    'CLAUDE_CONFIG_DIR',
+    'GEMINI_CLI_HOME',
+  ];
+  const prefixedNames = ['UEMCP_PROJECT_ROOT', 'UNREAL_PROJECT_ROOT'];
+  for (const name of [...exactNames, ...prefixedNames]) {
+    t.assert(isSensitiveClientEnvironmentName(name), `${name} is a sensitive client environment name`);
+    t.assert(isSensitiveClientEnvironmentName(name.toLowerCase()), `${name} remains sensitive in lowercase`);
+    const mixed = [...name].map((character, index) => index % 2 === 0 ? character.toLowerCase() : character.toUpperCase()).join('');
+    t.assert(isSensitiveClientEnvironmentName(mixed), `${name} remains sensitive with mixed casing`);
+  }
+  t.assert(!isSensitiveClientEnvironmentName('HARMLESS_SETTING'), 'unrelated client environment names do not require sensitive-launch review');
+  t.assert(!isSensitiveClientEnvironmentName('UEMC_PROJECT_ROOT'), 'near-miss client environment prefixes do not create false positives');
 }
 
 function makeRoot() {
@@ -2854,6 +2884,48 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Gemini protocol smoke uses the fully merged effective settings entry, not one physical occurrence.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root, { workspaceTrusted: true });
+    const locations = resolveGeminiLocations(context);
+    const desired = physicalGeminiEntry(context.descriptor);
+    writeJson(locations.system_defaults.path, {
+      mcpServers: {
+        uemcp: {
+          ...desired,
+          cwd: 'C:\\Defaults',
+          env: { BASE: 'defaults', SHARED: 'defaults' },
+        },
+      },
+    });
+    writeJson(locations.user.path, {
+      mcpServers: { uemcp: { env: { USER_ONLY: 'user', SHARED: 'user' } } },
+    });
+    writeJson(locations.project.path, {
+      mcpServers: { uemcp: { cwd: 'C:\\Project', env: { PROJECT_ONLY: 'project', SHARED: 'project' } } },
+    });
+    writeJson(locations.system_override.path, {
+      mcpServers: { uemcp: { env: { OVERRIDE_ONLY: 'override', SHARED: 'override' } } },
+    });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const launch = adapter.protocolLaunch(context, inspection);
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.effective.scope === 'system_override', 'Gemini merged settings retain final precedence and canonical owned fields');
+    t.assert(JSON.stringify(launch.env_overlay) === JSON.stringify({
+      BASE: 'defaults',
+      SHARED: 'override',
+      USER_ONLY: 'user',
+      PROJECT_ONLY: 'project',
+      OVERRIDE_ONLY: 'override',
+    }), 'Gemini protocol launch contains the deep-merged effective environment');
+    t.assert(launch.cwd === 'C:\\Project', 'Gemini protocol launch retains the effective inherited working directory');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Gemini treats case-colliding logical server IDs as conflicts instead of creating a duplicate canonical name.
 {
   const root = makeRoot();
@@ -3199,6 +3271,46 @@ async function rejectsCode(fn, code) {
   t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.mutating_subcommands_allowed === false, 'Gemini adapter contract forbids native mutation');
 }
 
+// Every adapter-native query invokes the apply-time guard immediately before process launch.
+for (const clientId of ['claude', 'codex', 'gemini']) {
+  const root = makeRoot();
+  try {
+    let guards = 0;
+    let launches = 0;
+    let ordered = true;
+    const baseRunner = clientId === 'claude'
+      ? claudeNativeRunner()
+      : clientId === 'codex'
+        ? codexNativeRunner(root)
+        : geminiNativeRunner();
+    const runner = {
+      async run(...args) {
+        if (guards !== launches + 1) ordered = false;
+        launches += 1;
+        return baseRunner.run(...args);
+      },
+    };
+    const beforeActiveClientLaunch = async evidence => {
+      if (evidence?.client_id !== clientId || evidence?.kind !== 'native') ordered = false;
+      guards += 1;
+    };
+    const context = clientId === 'claude'
+      ? claudeContext(root, { beforeActiveClientLaunch })
+      : clientId === 'codex'
+        ? codexContext(root, { beforeActiveClientLaunch })
+        : geminiContext(root, { beforeActiveClientLaunch });
+    const adapter = clientId === 'claude'
+      ? createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) })
+      : clientId === 'codex'
+        ? createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) })
+        : createGeminiAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    await adapter.inspect(context, await adapter.detect(context));
+    t.assert(launches > 0 && guards === launches && ordered, `${clientId} native queries are guarded immediately before every process launch`);
+  } finally {
+    cleanup(root);
+  }
+}
+
 function aggregateLaunch(clientId, overrides = {}) {
   const vscode = clientId === 'vscode';
   return Object.freeze({
@@ -3229,6 +3341,7 @@ function absentClient(clientId) {
     compatibility: 'not_installed',
     write_supported: false,
     launch: null,
+    discovery_status: 'NOT_INSTALLED',
   });
 }
 
@@ -3325,6 +3438,45 @@ function aggregateContext(root, overrides = {}) {
   };
 }
 
+function aggregateClientOperation(root, clientId = 'claude') {
+  const path = write(join(root, 'aggregate-client', `${clientId}.json`), '{"before":true}\n');
+  const fingerprint = simpleFingerprint(path);
+  return Object.freeze({
+    operation_id: `${clientId}-aggregate-write`,
+    client_id: clientId,
+    selected: true,
+    write_supported: true,
+    type: 'UPDATE_OWNED_FIELDS',
+    path: resolve(path),
+    allowed_root: resolve(root),
+    scope_kind: 'user',
+    fingerprint,
+    current_config_sha256: fingerprint.content_sha256,
+    current_entry_sha256: null,
+    owned_paths: Object.freeze(['/command', '/args']),
+    shared_resource_id: null,
+    plan_digest: TEST_PLAN_DIGEST,
+    read_only_paths: Object.freeze([]),
+    desired_entry: Object.freeze({ command: 'C:\\runtime\\node.exe', args: Object.freeze(['C:\\server\\server.mjs']) }),
+  });
+}
+
+function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
+  return createPlanDocument({
+    operation: 'setup',
+    outcome,
+    source: context.source,
+    request: context.request,
+    descriptor: context.descriptor,
+    stages: planned.stages,
+    clients: planned.clients,
+    operations: planned.operations,
+    preconditions: planned.preconditions,
+    actions: planned.actions,
+    now: context.now,
+  });
+}
+
 // Discovery always returns the closed client set; selection is exact and release-gated by default.
 {
   const resolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => aggregateLaunch(clientId)]));
@@ -3408,6 +3560,19 @@ function aggregateContext(root, overrides = {}) {
     t.assert(client.status === 'UNKNOWN' && client.actions.some(action => action.code === 'UNSUPPORTED_VERSION'), 'version-probe failure reports unknown inspect-only client state with remediation');
     t.assert(evidence.discovery_status === 'VERSION_PROBE_FAILED', 'aggregate evidence retains the stable discovery failure code');
     t.assert(detectCalls === 0 && smokeCalls === 0, 'failed discovery never invokes adapter inspection or protocol launch');
+
+    const failedProbeContext = aggregateContext(root, { operation: 'setup', include: ['codex'], selectedClients: ['codex'] });
+    let failedProbePlan = null;
+    let failedProbePlanError = null;
+    try {
+      const planned = await domain.plan(failedProbeContext);
+      failedProbePlan = aggregatePlanDocument(failedProbeContext, planned);
+    } catch (error) {
+      failedProbePlanError = error;
+    }
+    const failedProbeClient = failedProbePlan?.clients.find(row => row.adapter === 'codex');
+    t.assert(failedProbePlanError === null && failedProbeClient?.selected === true
+      && failedProbeClient.version === null && failedProbeClient.compatibility === 'known_unsupported', `an explicit failed version probe produces a valid inspect-only remediation plan (${failedProbePlanError?.code ?? 'no error'}: ${failedProbePlanError?.message ?? 'none'})`);
   } finally {
     cleanup(root);
   }
@@ -3444,6 +3609,35 @@ function aggregateContext(root, overrides = {}) {
     const missingCodex = requestedMissing.clients.find(client => client.adapter === 'codex');
     t.assert(requestedMissing.stage.status === 'NOT_INSTALLED' && missingCodex.actions.some(action => action.code === 'NOT_INSTALLED'), 'an explicitly requested missing host keeps install remediation');
     t.assert(requestedMissing.clients.filter(client => client.adapter !== 'codex').every(client => client.actions.length === 0), 'unrequested absent hosts do not duplicate missing-client remediation');
+
+    const missingContext = aggregateContext(root, { operation: 'setup', include: ['codex'], selectedClients: ['codex'] });
+    let missingPlan = null;
+    let missingPlanError = null;
+    try {
+      const plannedMissing = await missingDomain.plan(missingContext);
+      missingPlan = aggregatePlanDocument(missingContext, plannedMissing);
+    } catch (error) {
+      missingPlanError = error;
+    }
+    const plannedMissingCodex = missingPlan?.clients.find(client => client.adapter === 'codex');
+    t.assert(missingPlanError === null && plannedMissingCodex?.status === 'NOT_INSTALLED'
+      && plannedMissingCodex.selected === false, `an explicit missing-client request produces a valid targeted remediation plan (${missingPlanError?.code ?? 'no error'}: ${missingPlanError?.message ?? 'none'})`);
+    const forgedMissing = structuredClone(missingPlan);
+    forgedMissing.stages.find(stage => stage.name === 'clients').evidence.clients
+      .find(client => client.adapter === 'codex').discovery_status = 'DETECTED';
+    t.assert(throwsCode(() => createPlanDocument({
+      operation: forgedMissing.operation,
+      outcome: forgedMissing.outcome,
+      source: forgedMissing.source,
+      request: forgedMissing.request,
+      descriptor: forgedMissing.descriptor,
+      stages: forgedMissing.stages,
+      clients: forgedMissing.clients,
+      operations: forgedMissing.operations,
+      preconditions: forgedMissing.preconditions,
+      actions: forgedMissing.actions,
+      now: new Date(forgedMissing.created_at),
+    }), 'INVALID_PLAN'), 'requested missing-client relaxation requires matching discovery evidence');
   } finally {
     cleanup(root);
   }
@@ -3502,6 +3696,30 @@ function aggregateContext(root, overrides = {}) {
       && planned.preconditions[0].writable === false, 'no-op evidence is digest-bound without granting write authority');
     const observed = await domain.fingerprintPrecondition(planned.preconditions[0], aggregateContext(root));
     t.assert(sha256Canonical(observed) === sha256Canonical(planned.preconditions[0].fingerprint), 'client plan preconditions ignore read-induced atime drift while retaining stable identity evidence');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// A selected client whose inspection cannot bind complete evidence cannot emit an applicable plan.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    for (const registration of ['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH']) {
+      const domain = createClientDomain({
+        adapters: [aggregateAdapter('claude', { registration, actions: [registration] }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+        discovery: async () => rows,
+        transaction: () => { throw new Error('transaction is not expected'); },
+        protocolSmoke: async () => { throw new Error('blocked inspection must not launch protocol smoke'); },
+      });
+      t.assert(await rejectsCode(
+        () => domain.plan(aggregateContext(root, { operation: 'setup' })),
+        'CLIENT_INSPECTION_UNBOUND',
+      ), `${registration} fails plan construction instead of emitting unbound client evidence`);
+    }
   } finally {
     cleanup(root);
   }
@@ -3602,6 +3820,282 @@ function aggregateContext(root, overrides = {}) {
       now: context.now,
     });
     t.assert(plan.kind === 'uemcp.deployment.plan' && !JSON.stringify(plan).includes(rawValue), 'sensitive-name aggregate evidence passes plan validation without leaking its value');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Apply rechecks reviewed no-op evidence immediately before native and protocol execution.
+{
+  const root = makeRoot();
+  try {
+    for (const mode of ['native', 'protocol']) {
+      const caseRoot = resolve(join(root, mode));
+      mkdirSync(caseRoot, { recursive: true });
+      const evidencePath = write(join(caseRoot, 'client-state.json'), '{"reviewed":true}\n');
+      const evidence = {
+        path: resolve(evidencePath),
+        allowed_root: caseRoot,
+        scope: 'user',
+        writable: false,
+        exists: true,
+        fingerprint: simpleFingerprint(evidencePath),
+      };
+      const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+        ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+        : absentClient(clientId));
+      const base = aggregateAdapter('claude', { files: [evidence] });
+      let mutated = false;
+      const adapter = Object.freeze({
+        ...base,
+        async inspect(context, detection) {
+          if (mode === 'native' && context.approvedPlan && !mutated) {
+            write(evidencePath, '{"changed-before-native":true}\n');
+            mutated = true;
+          }
+          if (mode === 'native') await context.beforeActiveClientLaunch?.({ client_id: 'claude', kind: 'native' });
+          return base.inspect(context, detection);
+        },
+        protocolLaunch(context, inspection) {
+          if (mode === 'protocol' && context.approvedPlan && !mutated) {
+            write(evidencePath, '{"changed-before-protocol":true}\n');
+            mutated = true;
+          }
+          return base.protocolLaunch(context, inspection);
+        },
+      });
+      let smokeCalls = 0;
+      const domain = createClientDomain({
+        adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+        discovery: async () => rows,
+        transaction: () => { throw new Error('transaction is not expected'); },
+        protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+        captureFingerprint: async path => simpleFingerprint(path),
+      });
+      const context = aggregateContext(caseRoot, { operation: 'setup' });
+      const planned = await domain.plan(context);
+      const plan = aggregatePlanDocument(context, planned, 'HEALTHY');
+      const smokeCallsBeforeApply = smokeCalls;
+      t.assert(await rejectsCode(
+        () => domain.apply({ ...context, approvedPlan: plan }, []),
+        'PLAN_STALE',
+      ), `${mode} launch rejects evidence changed after global plan validation`);
+      t.assert(smokeCalls === smokeCallsBeforeApply, `${mode} launch drift is rejected before executing protocol smoke`);
+    }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Client transaction terminal states cannot be recomputed into healthy aggregate output.
+{
+  const root = makeRoot();
+  try {
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const operation = aggregateClientOperation(root);
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude', {
+      files: [{
+        path: operation.path,
+        allowed_root: operation.allowed_root,
+        scope: 'user',
+        writable: true,
+        exists: true,
+        fingerprint: operation.fingerprint,
+      }],
+    });
+    const adapter = Object.freeze({
+      ...base,
+      async plan() {
+        return Object.freeze({ client_id: 'claude', status: 'UPDATE', operations: Object.freeze([operation]), actions: Object.freeze([]) });
+      },
+    });
+    const rollbackPath = operation.path;
+    const transaction = {
+      async snapshot() {},
+      async apply() {
+        return Object.freeze({
+          status: 'ROLLBACK_FAILED',
+          clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'FAILED', error_code: 'STRUCTURAL_VERIFY_FAILED' })]),
+          touched_files: Object.freeze([Object.freeze({ path: rollbackPath, applied_sha256: 'd'.repeat(64) })]),
+          rollback: Object.freeze({
+            reason_code: 'STRUCTURAL_VERIFY_FAILED',
+            paths: Object.freeze([Object.freeze({ status: 'failed', path: rollbackPath, code: 'ROLLBACK_VERIFY_FAILED' })]),
+            hook_errors: Object.freeze([]),
+          }),
+          retained_snapshots: Object.freeze([Object.freeze({ path: rollbackPath, retained_until: '2026-07-23T12:00:00.000Z' })]),
+        });
+      },
+    };
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction,
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    const context = aggregateContext(root, { operation: 'setup', localState });
+    const planned = await domain.plan(context);
+    const plan = aggregatePlanDocument(context, planned);
+    const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
+    t.assert(applied.stage.status === 'ROLLBACK_FAILED' && applied.stage.changed === true, 'ROLLBACK_FAILED remains a committed terminal client stage');
+    t.assert(applied.actions.some(action => action.code === 'ROLLBACK_FAILED'), 'failed rollback emits explicit remediation instead of healthy output');
+    t.assert(applied.clients.find(client => client.adapter === 'claude')?.status === 'ROLLBACK_FAILED', 'affected rollback-failed client cannot retain stale healthy structural state');
+    t.assert(applied.stage.evidence.transaction?.rollback?.paths?.[0]?.code === 'ROLLBACK_VERIFY_FAILED'
+      && applied.stage.evidence.transaction?.retained_snapshots?.[0]?.path === rollbackPath, 'failed rollback preserves path-only recovery and error evidence');
+    t.assert(reduceOutcome([applied.stage]) === 'PARTIAL' && shouldRecordPlanDigest([applied.stage]), 'failed rollback consumes the plan through durable partial-progress semantics');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Inspection failure after a committed client transaction returns a receiptable terminal stage.
+{
+  const root = makeRoot();
+  try {
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const operation = aggregateClientOperation(root);
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude', {
+      files: [{
+        path: operation.path,
+        allowed_root: operation.allowed_root,
+        scope: 'user',
+        writable: true,
+        exists: true,
+        fingerprint: operation.fingerprint,
+      }],
+    });
+    let inspections = 0;
+    const adapter = Object.freeze({
+      ...base,
+      async inspect(context, detection) {
+        inspections += 1;
+        if (inspections === 3) throw Object.assign(new Error('post-commit inspection failed'), { code: 'POST_COMMIT_INSPECTION_FAILED' });
+        return base.inspect(context, detection);
+      },
+      async plan() {
+        return Object.freeze({ client_id: 'claude', status: 'UPDATE', operations: Object.freeze([operation]), actions: Object.freeze([]) });
+      },
+    });
+    const transaction = {
+      async snapshot() {},
+      async apply() {
+        return Object.freeze({
+          status: 'APPLIED',
+          clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'e'.repeat(64) })]),
+          rollback: null,
+          retained_snapshots: Object.freeze([]),
+        });
+      },
+    };
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction,
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    const context = aggregateContext(root, { operation: 'setup', localState });
+    const planned = await domain.plan(context);
+    const plan = aggregatePlanDocument(context, planned);
+    let applied = null;
+    let applyError = null;
+    try {
+      applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
+    } catch (error) {
+      applyError = error;
+    }
+    t.assert(applyError === null && applied?.stage.status === 'SYNC_FAILED' && applied.stage.changed === true, 'post-commit inspection failure becomes a committed terminal client stage');
+    t.assert(applied?.clients.find(client => client.adapter === 'claude')?.status === 'UNKNOWN'
+      && applied?.clients.find(client => client.adapter === 'claude')?.actions.some(action => action.code === 'SYNC_FAILED'), 'post-commit inspection failure invalidates stale affected-client state');
+    t.assert(applied?.stage.evidence.error_code === 'CLIENT_POST_COMMIT_INSPECTION_FAILED'
+      && applied?.stage.evidence.transaction_status === 'APPLIED', 'post-commit terminal evidence retains stable failure and transaction codes');
+    t.assert(applied && reduceOutcome([applied.stage]) === 'PARTIAL' && shouldRecordPlanDigest([applied.stage]), 'post-commit inspection failure remains receiptable and consumes the plan');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Malformed or evidence-free transaction success cannot fall through to a healthy, replayable result.
+{
+  const root = makeRoot();
+  try {
+    const cases = [
+      { label: 'unknown transaction status', result: { status: 'FUTURE_SUCCESS', touched_files: ['placeholder'] } },
+      { label: 'applied result without touched evidence', result: { status: 'APPLIED', touched_files: [] } },
+    ];
+    for (const testCase of cases) {
+      const caseRoot = resolve(join(root, testCase.label.replaceAll(' ', '-')));
+      mkdirSync(caseRoot, { recursive: true });
+      const localState = createLocalState({
+        root: join(caseRoot, 'local-state'),
+        aclRestrictor: async () => {},
+        processInspector: async () => 'alive',
+      });
+      const operation = aggregateClientOperation(caseRoot);
+      const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+        ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+        : absentClient(clientId));
+      const base = aggregateAdapter('claude', {
+        files: [{
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope: 'user',
+          writable: true,
+          exists: true,
+          fingerprint: operation.fingerprint,
+        }],
+      });
+      const adapter = Object.freeze({
+        ...base,
+        async plan() {
+          return Object.freeze({ client_id: 'claude', status: 'UPDATE', operations: Object.freeze([operation]), actions: Object.freeze([]) });
+        },
+      });
+      const transaction = {
+        async snapshot() {},
+        async apply() {
+          return Object.freeze({
+            ...testCase.result,
+            clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
+            touched_files: Object.freeze(testCase.result.touched_files.map(path => Object.freeze({
+              path: path === 'placeholder' ? operation.path : path,
+              applied_sha256: 'f'.repeat(64),
+            }))),
+            rollback: null,
+            retained_snapshots: Object.freeze([]),
+          });
+        },
+      };
+      const domain = createClientDomain({
+        adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+        discovery: async () => rows,
+        transaction,
+        protocolSmoke: async () => ({ status: 'HEALTHY' }),
+        captureFingerprint: async path => simpleFingerprint(path),
+      });
+      const context = aggregateContext(caseRoot, { operation: 'setup', localState });
+      const planned = await domain.plan(context);
+      const plan = aggregatePlanDocument(context, planned);
+      const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
+      t.assert(applied.stage.status === 'SYNC_FAILED' && applied.stage.changed === true
+        && applied.stage.evidence.error_code === 'INVALID_CLIENT_TRANSACTION_RESULT', `${testCase.label} becomes a committed terminal failure`);
+      t.assert(reduceOutcome([applied.stage]) === 'PARTIAL' && shouldRecordPlanDigest([applied.stage]), `${testCase.label} cannot leave the approved plan replayable`);
+    }
   } finally {
     cleanup(root);
   }

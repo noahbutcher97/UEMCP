@@ -134,10 +134,38 @@ function validatePlanDocument(plan) {
   if (new Set(operations.map(row => row.operation_id)).size !== operations.length) fail('plan operation IDs must be unique', 'INVALID_PLAN');
   if (new Set(preconditions.map(row => row.label)).size !== preconditions.length) fail('plan precondition labels must be unique', 'INVALID_PLAN');
   const clientByAdapter = new Map(clients.map(client => [client.adapter, client]));
+  const clientStage = plan.stages.find(stage => stage.name === 'clients');
+  const clientEvidence = new Map((clientStage?.evidence?.clients ?? [])
+    .filter(row => row && typeof row.adapter === 'string')
+    .map(row => [row.adapter, row]));
+  const probeFailureCodes = new Set([
+    'VERSION_PROBE_FAILED',
+    'CLIENT_DISCOVERY_FAILED',
+    'AMBIGUOUS_CLIENT_ENVIRONMENT',
+    'INSPECTION_LIMIT_EXCEEDED',
+  ]);
   for (const adapter of request.selected_clients) {
     const client = clientByAdapter.get(adapter);
-    if (!client || !client.selected || typeof client.version !== 'string' || client.version.trim() === '' || client.scope.trim() === '') {
-      fail('selected client lacks detected version/scope evidence', 'INVALID_PLAN', { adapter });
+    const evidence = clientEvidence.get(adapter);
+    const detectedSelection = client?.selected === true
+      && typeof client.version === 'string'
+      && client.version.trim() !== '';
+    const requestedAbsence = client?.selected === false
+      && client.version === null
+      && client.compatibility === 'not_installed'
+      && client.status === 'NOT_INSTALLED'
+      && evidence?.discovery_status === 'NOT_INSTALLED'
+      && evidence?.selection === 'included_not_installed'
+      && evidence?.launch_contract === null;
+    const requestedProbeFailure = client?.selected === true
+      && client.version === null
+      && client.compatibility === 'known_unsupported'
+      && client.status === 'UNKNOWN'
+      && probeFailureCodes.has(evidence?.discovery_status)
+      && evidence?.selection === 'included'
+      && evidence?.launch_contract === null;
+    if (!client || client.scope.trim() === '' || (!detectedSelection && !requestedAbsence && !requestedProbeFailure)) {
+      fail('requested client lacks valid detection or absence evidence', 'INVALID_PLAN', { adapter });
     }
   }
   assertNoSecretMaterial(plan);

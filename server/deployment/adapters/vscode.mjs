@@ -11,6 +11,7 @@ import { readBoundedConfigFile } from '../bounded-config-file.mjs';
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
 import {
+  isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
@@ -36,20 +37,6 @@ const DEFAULT_LIMITS = Object.freeze({
 });
 const ENTRY_PATH = Object.freeze(['servers', 'uemcp']);
 const STATIC_ACTIONS = Object.freeze(['RESTART_REQUIRED', 'CLIENT_ENABLEMENT_REVIEW_REQUIRED']);
-const SENSITIVE_ENVIRONMENT_KEYS = new Set([
-  'NODE_OPTIONS',
-  'NODE_PATH',
-  'PATH',
-  'PATHEXT',
-  'COMSPEC',
-  'HOME',
-  'USERPROFILE',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'CODEX_HOME',
-  'CLAUDE_CONFIG_DIR',
-  'GEMINI_CLI_HOME',
-]);
 const LEDGER_FAILURES = new Set([
   'ledger_storage_invalid',
   'ledger_read_failed',
@@ -221,10 +208,7 @@ function environmentEvidence(entry) {
 function reviewActions(entry) {
   const actions = [];
   const keys = Object.keys(plainObject(entry?.env) ? entry.env : {});
-  if (keys.some(key => {
-    const normalized = key.toUpperCase();
-    return normalized.startsWith('UEMCP_') || normalized.startsWith('UNREAL_') || SENSITIVE_ENVIRONMENT_KEYS.has(normalized);
-  })) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
   if (entry?.cwd !== undefined && entry.cwd !== null) actions.push('CUSTOM_LAUNCH_REVIEW_REQUIRED');
   return actions;
 }
