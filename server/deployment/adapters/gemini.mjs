@@ -11,6 +11,7 @@ import {
 
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { readBoundedConfigFile } from '../bounded-config-file.mjs';
+import { approvedOwnedReplacement, clientDecision } from '../client-decisions.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
 import {
   getJsoncValue,
@@ -123,12 +124,18 @@ export function resolveGeminiLocations(context = {}) {
   const knownProgramData = context.knownFolders?.programData ?? 'C:\\ProgramData';
   if (!absolutePath(knownProgramData)) fail('Gemini system policy root is invalid', 'INVALID_CLIENT_LOCATION');
   const systemRoot = join(resolve(knownProgramData), 'gemini-cli');
+  const trustedFoldersOverride = readWindowsEnvironmentValue(env, 'GEMINI_CLI_TRUSTED_FOLDERS_PATH');
+  if (trustedFoldersOverride !== undefined && trustedFoldersOverride !== '' && !absolutePath(trustedFoldersOverride)) {
+    fail('GEMINI_CLI_TRUSTED_FOLDERS_PATH must be an absolute non-device path', 'INVALID_CLIENT_LOCATION');
+  }
+  const trustedFoldersPath = resolve(trustedFoldersOverride || join(globalDir, 'trustedFolders.json'));
   return Object.freeze({
     home_root: resolve(homeRoot),
     global_dir: resolve(globalDir),
     custom_home: configuredHome !== undefined && configuredHome !== '',
     user: location(join(globalDir, 'settings.json'), globalDir, 'user', true),
     enablement: location(join(globalDir, 'mcp-server-enablement.json'), globalDir, 'enablement'),
+    trusted_folders: location(trustedFoldersPath, trustedFoldersOverride ? dirname(trustedFoldersPath) : globalDir, 'trusted_folders'),
     extensions_root: location(extensionsRoot, globalDir, 'extensions_root'),
     extensions_enablement: location(join(extensionsRoot, 'extension-enablement.json'), extensionsRoot, 'extensions_enablement'),
     project: location(join(workspaceRoot, '.gemini', 'settings.json'), workspaceRoot, 'project'),
@@ -247,6 +254,7 @@ function strictJsonDocument(bytes, { pathLabel, maxBytes }) {
 async function readConfigFile(fsImpl, captureFingerprint, entry, tracker, limits, {
   strict = false,
   singleLink = false,
+  parse = true,
 } = {}) {
   const file = await readBoundedConfigFile({
     fsImpl,
@@ -254,6 +262,7 @@ async function readConfigFile(fsImpl, captureFingerprint, entry, tracker, limits
     entry,
     tracker,
     limits,
+    parse,
     parseBytes: bytes => strict
       ? strictJsonDocument(bytes, { pathLabel: `Gemini ${entry.scope}`, maxBytes: limits.fileBytes })
       : parseJsoncDocument(bytes, {
@@ -321,6 +330,16 @@ function validateSettings(file) {
       }
     }
   }
+  if (Object.hasOwn(settings, 'security')) {
+    if (!plainObject(settings.security)) fail(`Gemini ${file.scope} security settings must be an object`, 'MALFORMED_CONFIG');
+    if (Object.hasOwn(settings.security, 'folderTrust')) {
+      const folderTrust = settings.security.folderTrust;
+      if (!plainObject(folderTrust)
+        || (Object.hasOwn(folderTrust, 'enabled') && typeof folderTrust.enabled !== 'boolean')) {
+        fail(`Gemini ${file.scope} folder trust settings are invalid`, 'MALFORMED_CONFIG');
+      }
+    }
+  }
   return settings;
 }
 
@@ -343,6 +362,44 @@ function mergeSettings(target, source, path = []) {
     }
   }
   return target;
+}
+
+function validateTrustedFolders(file) {
+  if (!file.exists) return {};
+  const rules = file.document.parsed_value;
+  if (!plainObject(rules)) fail('Gemini trustedFolders must contain an object', 'MALFORMED_CONFIG');
+  const normalized = new Map();
+  for (const [path, level] of Object.entries(rules)) {
+    if (!absolutePath(path) || !['TRUST_FOLDER', 'TRUST_PARENT', 'DO_NOT_TRUST'].includes(level)) {
+      fail('Gemini trustedFolders contains an invalid rule', 'MALFORMED_CONFIG');
+    }
+    const identity = pathIdentity(path);
+    if (normalized.has(identity)) fail('Gemini trustedFolders contains ambiguous path aliases', 'MALFORMED_CONFIG');
+    normalized.set(identity, { path: resolve(path), level });
+  }
+  return Object.freeze(Object.fromEntries([...normalized.values()].map(rule => [rule.path, rule.level])));
+}
+
+function workspaceTrust(context, baseSettings, trustedFolders) {
+  const forced = readWindowsEnvironmentValue(context.env ?? process.env, 'GEMINI_CLI_TRUST_WORKSPACE');
+  if (forced === 'true') return Object.freeze({ trusted: true, source: 'env', matched_path: null, trust_level: null });
+  if (baseSettings.security?.folderTrust?.enabled === false) {
+    return Object.freeze({ trusted: true, source: 'settings', matched_path: null, trust_level: null });
+  }
+  const workspace = pathIdentity(context.workspaceRoot);
+  let selected = null;
+  for (const [rulePath, level] of Object.entries(trustedFolders)) {
+    const effectivePath = level === 'TRUST_PARENT' ? dirname(rulePath) : rulePath;
+    if (!contained(effectivePath, workspace)) continue;
+    if (selected === null || rulePath.length > selected.path.length) selected = { path: rulePath, level };
+  }
+  if (selected === null) return Object.freeze({ trusted: false, source: 'trusted_folders', matched_path: null, trust_level: null });
+  return Object.freeze({
+    trusted: selected.level !== 'DO_NOT_TRUST',
+    source: 'trusted_folders',
+    matched_path: selected.path,
+    trust_level: selected.level,
+  });
 }
 
 function physicalMatches(current, desired) {
@@ -813,18 +870,34 @@ export function createGeminiAdapter({
       const tracker = { total: 0 };
       const systemDefaults = await readConfigFile(fsImpl, captureFingerprint, detection.locations.system_defaults, tracker, limits);
       const user = await readConfigFile(fsImpl, captureFingerprint, detection.locations.user, tracker, limits);
-      const project = await readConfigFile(fsImpl, captureFingerprint, detection.locations.project, tracker, limits);
       const systemOverride = await readConfigFile(fsImpl, captureFingerprint, detection.locations.system_override, tracker, limits);
+      const trustedFoldersFile = await readConfigFile(fsImpl, captureFingerprint, detection.locations.trusted_folders, tracker, limits);
       const enablementFile = await readConfigFile(fsImpl, captureFingerprint, detection.locations.enablement, tracker, limits, {
         strict: true,
         singleLink: true,
       });
+      const baseValues = {
+        system_defaults: validateSettings(systemDefaults),
+        user: validateSettings(user),
+        system_override: validateSettings(systemOverride),
+      };
+      const baseSettings = {};
+      mergeSettings(baseSettings, baseValues.system_defaults);
+      mergeSettings(baseSettings, baseValues.user);
+      mergeSettings(baseSettings, baseValues.system_override);
+      const workspaceTrustEvidence = workspaceTrust(context, baseSettings, validateTrustedFolders(trustedFoldersFile));
+      const project = await readConfigFile(fsImpl, captureFingerprint, detection.locations.project, tracker, limits, {
+        parse: workspaceTrustEvidence.trusted,
+      });
       const settingsFiles = [systemDefaults, user, project, systemOverride];
-      const values = Object.fromEntries(settingsFiles.map(file => [file.scope, validateSettings(file)]));
+      const values = {
+        ...baseValues,
+        project: workspaceTrustEvidence.trusted ? validateSettings(project) : {},
+      };
       const merged = {};
       mergeSettings(merged, values.system_defaults);
       mergeSettings(merged, values.user);
-      if (context.workspaceTrusted === true) mergeSettings(merged, values.project);
+      if (workspaceTrustEvidence.trusted) mergeSettings(merged, values.project);
       mergeSettings(merged, values.system_override);
 
       const extensionInspection = await inspectExtensions({
@@ -840,7 +913,7 @@ export function createGeminiAdapter({
       const launchEvidence = await captureLaunchEvidence(captureFingerprint, context, detection);
       const occurrences = [];
       for (const source of settingsFiles) {
-        if (source.scope === 'project' && context.workspaceTrusted !== true) continue;
+        if (source.scope === 'project' && !workspaceTrustEvidence.trusted) continue;
         const row = await settingsOccurrence({
           source,
           desired,
@@ -915,7 +988,7 @@ export function createGeminiAdapter({
       }
 
       const policy = extensionInspection.evidence_status === 'READY'
-        ? classifyPolicy(merged, context.invocationPolicyKnown === true)
+        ? classifyPolicy(merged, true)
         : 'POLICY_UNKNOWN';
       const enablementEvidence = validateEnablement(enablementFile);
       let enablement = registration === 'CONFIGURED' ? 'ENABLED' : 'UNKNOWN';
@@ -927,7 +1000,7 @@ export function createGeminiAdapter({
       let activation = native.activation;
       if (native.status === 'DISABLED') enablement = 'DISABLED';
       if (native.status === 'BLOCKED') enablement = 'POLICY_BLOCKED';
-      if (native.status === 'DISCONNECTED' && context.workspaceTrusted !== true && registration === 'CONFIGURED') activation = 'PENDING_TRUST';
+      if (native.status === 'DISCONNECTED' && !workspaceTrustEvidence.trusted && registration === 'CONFIGURED') activation = 'PENDING_TRUST';
       const actions = occurrences.flatMap(row => row.review_actions ?? []);
       if (enablement === 'DISABLED' || enablement === 'POLICY_BLOCKED') actions.push('CLIENT_ENABLEMENT_REQUIRED');
       if (activation === 'PENDING_TRUST') actions.push('PENDING_TRUST');
@@ -945,6 +1018,7 @@ export function createGeminiAdapter({
       }
       const sourceFiles = [
         ...settingsFiles,
+        trustedFoldersFile,
         enablementFile,
         ...extensionInspection.files,
       ];
@@ -962,7 +1036,8 @@ export function createGeminiAdapter({
         logical_name_conflict: logicalNameConflict,
         extension_evidence: extensionInspection.evidence_status,
         enablement_evidence: enablementEvidence,
-        ignored_project: context.workspaceTrusted !== true && project.exists
+        workspace_trust: workspaceTrustEvidence,
+        ignored_project: !workspaceTrustEvidence.trusted && project.exists
           ? Object.freeze({ path: project.path, reason: 'UNTRUSTED_PROJECT' })
           : null,
         effective,
@@ -989,6 +1064,7 @@ export function createGeminiAdapter({
         logical_name_conflict: false,
         extension_evidence: 'UNKNOWN',
         enablement_evidence: Object.freeze({ status: 'UNKNOWN', enabled: null, explicit: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: 'unknown', matched_path: null, trust_level: null }),
         ignored_project: null,
         effective: null,
         native: Object.freeze({ status: 'NOT_CHECKED', activation: 'UNKNOWN', enablement: 'UNKNOWN' }),
@@ -1035,7 +1111,7 @@ export function createGeminiAdapter({
       return Object.freeze({ client_id: 'gemini', status: 'NO_OP', operations: Object.freeze([]), actions: inspection.actions });
     }
     const extensionConflict = effectiveScope === 'extension' && inspection.registration === 'CONFLICT';
-    if (extensionConflict && context.approvedExtensionShadow !== true) {
+    if (extensionConflict && !clientDecision(context, 'shadow_gemini_extension')) {
       return Object.freeze({ client_id: 'gemini', status: 'CONFLICT', operations: Object.freeze([]), actions: inspection.actions });
     }
 
@@ -1050,7 +1126,7 @@ export function createGeminiAdapter({
       type = 'CREATE_ENTRY';
     } else if (user.matching && user.ownership?.recommended_action === 'ADOPT_EXACT_ENTRY') type = 'ADOPT_EXACT_ENTRY';
     else if (user.matching) return Object.freeze({ client_id: 'gemini', status: 'NO_OP', operations: Object.freeze([]), actions: inspection.actions });
-    else if (user.ownership?.state === 'owned_matching' || context.approvedOwnedReplacement === true) type = 'UPDATE_OWNED_FIELDS';
+    else if (user.ownership?.state === 'owned_matching' || approvedOwnedReplacement(context, user.ownership)) type = 'UPDATE_OWNED_FIELDS';
     else return Object.freeze({ client_id: 'gemini', status: 'CONFLICT', operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, 'CONFLICT'])) });
 
     const providerWrite = type !== 'ADOPT_EXACT_ENTRY';
@@ -1089,7 +1165,7 @@ export function createGeminiAdapter({
     } else {
       operation = Object.freeze({
         ...common,
-        explicit_owned_replacement: type === 'UPDATE_OWNED_FIELDS' && context.approvedOwnedReplacement === true,
+        explicit_owned_replacement: type === 'UPDATE_OWNED_FIELDS' && approvedOwnedReplacement(context, user.ownership),
         shadows_extension: extensionConflict,
       });
     }
@@ -1176,7 +1252,6 @@ export function createGeminiAdapter({
     if (operationStatus) return Object.freeze({ status: operationStatus, native });
     if (native.status === 'CONNECTED') return Object.freeze({ status: 'READY', native });
     if (native.status === 'DISABLED' || native.status === 'BLOCKED') return Object.freeze({ status: 'CLIENT_ENABLEMENT_REQUIRED', native });
-    if (native.status === 'DISCONNECTED' && context.workspaceTrusted !== true) return Object.freeze({ status: 'PENDING_TRUST', native });
     return Object.freeze({ status: 'POLICY_UNKNOWN', native });
   }
 

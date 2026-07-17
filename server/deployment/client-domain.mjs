@@ -43,6 +43,8 @@ const DISCOVERY_ENVIRONMENT_NAMES = new Set([
   'CODEX_HOME',
   'COMSPEC',
   'GEMINI_CLI_HOME',
+  'GEMINI_CLI_TRUSTED_FOLDERS_PATH',
+  'GEMINI_CLI_TRUST_WORKSPACE',
   'HOME',
   'LOCALAPPDATA',
   'NODE_OPTIONS',
@@ -196,26 +198,20 @@ function discoveryContextDigest(context, requestedProfile) {
     })
     .map(([name, value]) => Object.freeze({ name: name.toUpperCase(), value: String(value) }))
     .sort((left, right) => left.name.localeCompare(right.name) || left.value.localeCompare(right.value));
-  const optionalBoolean = value => typeof value === 'boolean' ? value : null;
   return sha256Canonical({
     active_directory: context.activeDirectory ?? null,
-    approved_extension_shadow: optionalBoolean(context.approvedExtensionShadow),
-    approved_owned_replacement: optionalBoolean(context.approvedOwnedReplacement),
+    client_decisions: context.request?.client_decisions ?? null,
     environment,
-    invocation_policy_known: optionalBoolean(context.invocationPolicyKnown),
     known_folders: {
       program_data: context.knownFolders?.programData ?? null,
       program_files: context.knownFolders?.programFiles ?? null,
     },
-    migrate_legacy_project: optionalBoolean(context.migrateLegacyProject),
-    plugin_mcp_sha256: sha256Canonical(context.pluginMcpEntries ?? []),
     project_root: context.projectRoot ?? null,
     repo_root: context.repoRoot ?? null,
     requested_profile: requestedProfile,
     state_root: context.stateRoot ?? null,
     vscode_user_data_root: context.vscodeUserDataRoot ?? null,
     workspace_root: context.workspaceRoot ?? context.repoRoot ?? null,
-    workspace_trusted: optionalBoolean(context.workspaceTrusted),
   });
 }
 

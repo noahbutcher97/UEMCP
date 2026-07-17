@@ -64,6 +64,7 @@ import {
 import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
+import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
@@ -74,6 +75,29 @@ import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/to
 const t = new TestRunner('Client Adapter Tests');
 const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
 const TEST_PLAN_DIGEST = 'a'.repeat(64);
+
+function clientRequest(decisions = {}) {
+  return {
+    requested_project: null,
+    requested_profile: null,
+    selected_clients: [],
+    client_decisions: {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+      ...decisions,
+    },
+  };
+}
+
+// Owned-field replacement authority is explicit and never applies to unowned or stale records.
+{
+  const approved = { request: clientRequest({ replace_owned_fields: true }) };
+  t.assert(approvedOwnedReplacement(approved, { state: 'owned_user_modified' }), 'explicit request authorizes replacement of user-modified owned fields');
+  t.assert(!approvedOwnedReplacement(approved, { state: 'unowned' }), 'explicit request cannot authorize replacement of an unowned entry');
+  t.assert(!approvedOwnedReplacement(approved, { state: 'stale_record' }), 'explicit request cannot authorize replacement through stale ownership evidence');
+  t.assert(!approvedOwnedReplacement({ approvedOwnedReplacement: true, request: clientRequest() }, { state: 'owned_user_modified' }), 'ambient replacement booleans grant no authority');
+}
 
 function hasOnlyContractActions(actions) {
   return actions.every(code => Object.hasOwn(ACTION_CODES, code));
@@ -266,13 +290,11 @@ function claudeContext(root, overrides = {}) {
   return {
     env,
     workspaceRoot,
-    workspaceTrusted: overrides.workspaceTrusted ?? false,
-    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    request: overrides.request ?? clientRequest(),
     planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
     launch: overrides.launch ?? claudeLaunch(root),
     descriptor,
     ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
-    pluginMcpEntries: overrides.pluginMcpEntries ?? [],
     settingsTracking: overrides.settingsTracking ?? {},
     knownFolders,
     ...overrides,
@@ -369,8 +391,7 @@ function codexContext(root, overrides = {}) {
     workspaceRoot: projectRoot,
     projectRoot,
     activeDirectory,
-    workspaceTrusted: overrides.workspaceTrusted ?? false,
-    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    request: overrides.request ?? clientRequest(),
     planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
     launch: overrides.launch ?? codexLaunch(root),
     descriptor,
@@ -425,6 +446,10 @@ function geminiContext(root, overrides = {}) {
     GEMINI_CLI_HOME: resolve(join(root, 'gemini-home')),
     ...overrides.env,
   };
+  if (overrides.workspaceTrusted === true
+    && !Object.hasOwn(overrides.env ?? {}, 'GEMINI_CLI_TRUST_WORKSPACE')) {
+    env.GEMINI_CLI_TRUST_WORKSPACE = 'true';
+  }
   const workspaceRoot = resolve(overrides.workspaceRoot ?? join(root, 'workspace'));
   mkdirSync(workspaceRoot, { recursive: true });
   const descriptor = overrides.descriptor ?? canonicalDesired(root);
@@ -432,8 +457,7 @@ function geminiContext(root, overrides = {}) {
   return {
     env,
     workspaceRoot,
-    workspaceTrusted: overrides.workspaceTrusted ?? false,
-    invocationPolicyKnown: overrides.invocationPolicyKnown ?? true,
+    request: overrides.request ?? clientRequest(),
     planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
     launch: overrides.launch ?? geminiLaunch(root),
     descriptor,
@@ -564,7 +588,7 @@ function vscodeContext(root, overrides = {}) {
     launch: overrides.launch ?? vscodeLaunch(root),
     descriptor,
     ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
-    approvedOwnedReplacement: overrides.approvedOwnedReplacement ?? false,
+    request: overrides.request ?? clientRequest(),
   };
 }
 
@@ -756,7 +780,7 @@ function vscodeContext(root, overrides = {}) {
 {
   const root = makeRoot();
   try {
-    const context = vscodeContext(root, { approvedOwnedReplacement: true });
+    const context = vscodeContext(root, { request: clientRequest({ replace_owned_fields: true }) });
     const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
     const inspection = await adapter.inspect(context, await adapter.detect(context));
     const plan = await adapter.plan(context, inspection, context.descriptor);
@@ -1652,6 +1676,71 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Claude workspace trust is derived from provider state, and injected booleans cannot override it.
+{
+  const root = makeRoot();
+  try {
+    const context = claudeContext(root, { workspaceTrusted: false });
+    const locations = resolveClaudeLocations(context);
+    const desired = physicalClaudeEntry(context.descriptor);
+    writeJson(locations.state.path, {
+      projects: {
+        [context.workspaceRoot]: { hasTrustDialogAccepted: true },
+      },
+    });
+    writeJson(locations.project_config.path, { mcpServers: { uemcp: desired } });
+    writeJson(locations.project_settings.path, { enabledMcpjsonServers: ['uemcp'] });
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.enablement === 'ENABLED' && inspection.activation !== 'PENDING_TRUST', 'Claude accepts trusted project settings from its persisted project state');
+    t.assert(inspection.workspace_trust?.trusted === true && inspection.workspace_trust?.source === 'user_state', 'Claude reports provider-derived workspace trust provenance');
+
+    writeJson(locations.state.path, {
+      projects: {
+        [context.workspaceRoot]: { hasTrustDialogAccepted: false },
+      },
+    });
+    const injected = { ...context, workspaceTrusted: true };
+    const untrusted = await adapter.inspect(injected, await adapter.detect(injected));
+    t.assert(untrusted.activation === 'PENDING_TRUST', 'Claude ignores an injected trust boolean when provider state is untrusted');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Claude plugin MCP declarations are discovered from the bounded installed-plugin registry and manifests.
+{
+  const root = makeRoot();
+  try {
+    const context = claudeContext(root, { pluginMcpEntries: [] });
+    const locations = resolveClaudeLocations(context);
+    const pluginRoot = resolve(join(locations.plugins_cache.path, 'official', 'uemcp-provider', '1.0.0'));
+    writeJson(locations.plugins_registry.path, {
+      version: 2,
+      plugins: {
+        'uemcp-provider@official': [{
+          scope: 'user',
+          installPath: pluginRoot,
+          version: '1.0.0',
+          installedAt: '2026-07-16T12:00:00.000Z',
+          lastUpdated: '2026-07-16T12:00:00.000Z',
+          gitCommitSha: 'a'.repeat(40),
+        }],
+      },
+    });
+    writeJson(locations.user_settings.path, { enabledPlugins: { 'uemcp-provider@official': true } });
+    writeJson(join(pluginRoot, '.mcp.json'), { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
+    const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'CONFIGURED' && inspection.effective?.scope === 'plugin', 'Claude discovers an enabled installed plugin MCP declaration');
+    t.assert(inspection.occurrences.some(row => row.plugin_id === 'uemcp-provider@official'), 'Claude reports installed plugin identity');
+    const boundPaths = new Set(inspection.files.map(file => file.path));
+    t.assert(boundPaths.has(locations.plugins_registry.path) && boundPaths.has(resolve(join(pluginRoot, '.mcp.json'))), 'Claude binds plugin registry and declaration bytes into inspection evidence');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Exact unowned Claude entries are adopted visibly without leaking or rewriting custom launch state.
 {
   const root = makeRoot();
@@ -1694,15 +1783,17 @@ async function rejectsCode(fn, code) {
   const root = makeRoot();
   try {
     const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
-    const context = claudeContext(root, {
-      pluginMcpEntries: [{
-        plugin_id: 'sample-plugin',
-        enabled: true,
-        mcp_servers: { uemcp: physicalClaudeEntry(canonicalDesired(root)) },
-      }],
-    });
+    const context = claudeContext(root);
     const locations = resolveClaudeLocations(context);
     const desired = physicalClaudeEntry(context.descriptor);
+    const pluginRoot = resolve(join(locations.plugins_cache.path, 'official', 'sample-plugin', '1.0.0'));
+    writeJson(locations.plugins_registry.path, {
+      version: 2,
+      plugins: {
+        'sample-plugin@official': [{ scope: 'user', installPath: pluginRoot, version: '1.0.0' }],
+      },
+    });
+    writeJson(join(pluginRoot, '.mcp.json'), { mcpServers: { uemcp: desired } });
     writeJson(locations.state.path, {
       mcpServers: { uemcp: desired },
       projects: { [context.workspaceRoot]: { mcpServers: { uemcp: desired } } },
@@ -1750,6 +1841,11 @@ async function rejectsCode(fn, code) {
       const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
       const context = claudeContext(root, { workspaceTrusted: testCase.trusted });
       const locations = resolveClaudeLocations(context);
+      if (testCase.trusted) {
+        writeJson(locations.state.path, {
+          projects: { [context.workspaceRoot]: { hasTrustDialogAccepted: true } },
+        });
+      }
       writeJson(locations.project_config.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
       const settingsPath = testCase.settings === 'user'
         ? locations.user_settings.path
@@ -1957,8 +2053,7 @@ async function rejectsCode(fn, code) {
     const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
     const context = claudeContext(root, {
       ownershipLedger: ledger,
-      migrateLegacyProject: true,
-      legacyProjectInstallerCreated: true,
+      request: clientRequest({ migrate_legacy_claude_project: true }),
     });
     const locations = resolveClaudeLocations(context);
     write(locations.project_config.path, sample('claude-old-setup.json', {
@@ -1971,7 +2066,7 @@ async function rejectsCode(fn, code) {
     const transaction = adapterTransaction(ledger);
     await adapter.apply({ ...context, transaction }, plan.operations);
     const projectAfter = JSON.parse(readFileSync(locations.project_config.path, 'utf8'));
-    t.assert(projectAfter.mcpServers.uemcp === undefined && transaction.deletes.length === 1 && transaction.deletes[0] === locations.project_config.path, 'Claude migration removes only uemcp and defers deletion of a proven installer-created empty file');
+    t.assert(projectAfter.mcpServers.uemcp === undefined && transaction.deletes.length === 0, 'Claude migration removes only uemcp and conservatively retains the emptied legacy file');
     t.assert(JSON.parse(readFileSync(locations.state.path, 'utf8')).mcpServers.uemcp.type === 'stdio', 'Claude migration creates the canonical private user entry');
   } finally {
     cleanup(root);
@@ -1985,8 +2080,7 @@ async function rejectsCode(fn, code) {
     const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
     const context = claudeContext(root, {
       ownershipLedger: ledger,
-      migrateLegacyProject: true,
-      legacyProjectInstallerCreated: true,
+      request: clientRequest({ migrate_legacy_claude_project: true }),
     });
     const locations = resolveClaudeLocations(context);
     writeJson(locations.project_config.path, {
@@ -2097,7 +2191,7 @@ async function rejectsCode(fn, code) {
       return simpleFingerprint(path);
     };
     const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: capture });
-    const context = claudeContext(root, { migrateLegacyProject: true, legacyProjectInstallerCreated: true });
+    const context = claudeContext(root, { request: clientRequest({ migrate_legacy_claude_project: true }) });
     const locations = resolveClaudeLocations(context);
     writeJson(locations.project_config.path, { mcpServers: { uemcp: physicalClaudeEntry(context.descriptor) } });
     const inspection = await adapter.inspect(context, await adapter.detect(context));
@@ -2109,12 +2203,12 @@ async function rejectsCode(fn, code) {
   }
 }
 
-// Delete authority is present only when removing uemcp leaves a proven installer-created empty document.
+// Migration never infers whole-file delete authority from an unproven legacy origin.
 {
   const root = makeRoot();
   try {
     const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
-    const context = claudeContext(root, { migrateLegacyProject: true, legacyProjectInstallerCreated: true });
+    const context = claudeContext(root, { request: clientRequest({ migrate_legacy_claude_project: true }) });
     const locations = resolveClaudeLocations(context);
     writeJson(locations.project_config.path, {
       mcpServers: {
@@ -2124,7 +2218,7 @@ async function rejectsCode(fn, code) {
     });
     const plan = await adapter.plan(context, await adapter.inspect(context, await adapter.detect(context)), context.descriptor);
     const migration = plan.operations.find(operation => operation.type === 'MIGRATE_PROJECT_ENTRY');
-    t.assert(migration.delete_after_verify === false && migration.installer_created_file === true, 'Claude nonempty project migration carries no file-delete authority');
+    t.assert(migration.delete_after_verify === false && migration.installer_created_file === false, 'Claude nonempty project migration carries no inferred file-delete authority');
   } finally {
     cleanup(root);
   }
@@ -2406,6 +2500,9 @@ async function rejectsCode(fn, code) {
     const trustedContext = codexContext(root, { projectRoot, activeDirectory, workspaceTrusted: true });
     const locations = resolveCodexLocations(trustedContext);
     write(locations.user.path, [
+      `[projects.${JSON.stringify(projectRoot)}]`,
+      'trust_level = "trusted"',
+      '',
       '[mcp_servers.uemcp]',
       `command = ${JSON.stringify(trustedContext.descriptor.command)}`,
       `args = [${JSON.stringify(trustedContext.descriptor.args[0])}]`,
@@ -2425,6 +2522,7 @@ async function rejectsCode(fn, code) {
     t.assert((await adapter.plan(trustedContext, inspection, trustedContext.descriptor)).operations.length === 0, 'effective project definition is never rewritten through the user scope');
 
     write(locations.project_layers[0].path, '[mcp_servers.uemcp\nmalformed = true\n');
+    write(locations.user.path, readFileSync(locations.user.path, 'utf8').replace('trust_level = "trusted"', 'trust_level = "untrusted"'));
     const untrustedContext = codexContext(root, { projectRoot, activeDirectory, workspaceTrusted: false });
     inspection = await adapter.inspect(untrustedContext, await adapter.detect(untrustedContext));
     t.assert(inspection.effective.path === locations.user.path && inspection.registration === 'CONFIGURED', 'untrusted Codex project layers do not shadow user config');
@@ -2437,8 +2535,8 @@ async function rejectsCode(fn, code) {
 // System requirements enforce both the uemcp name and its canonical stdio identity.
 {
   const cases = [
-    { label: 'absent', content: null, expected: 'ALLOWED', writable: true },
-    { label: 'allow', content: 'codex-requirements-allow.toml', expected: 'ALLOWED', writable: true },
+    { label: 'absent', content: null, expected: 'POLICY_UNKNOWN', writable: true },
+    { label: 'allow', content: 'codex-requirements-allow.toml', expected: 'POLICY_UNKNOWN', writable: true },
     { label: 'missing-name deny', content: 'codex-requirements-deny.toml', expected: 'POLICY_BLOCKED', writable: false },
     { label: 'identity mismatch', content: 'codex-requirements-mismatch.toml', expected: 'POLICY_BLOCKED', writable: false },
   ];
@@ -2495,6 +2593,41 @@ async function rejectsCode(fn, code) {
     t.assert(inspection.policy === 'POLICY_UNKNOWN' && plan.operations[0].verification_status === 'POLICY_UNKNOWN', 'regex requirements remain host-evaluated policy instead of executing locally');
   } finally {
     cleanup(regexRoot);
+  }
+}
+
+// Codex project trust comes from the user config projects table, not an injected context field.
+{
+  const root = makeRoot();
+  try {
+    const projectRoot = resolve(join(root, 'workspace'));
+    const context = codexContext(root, { projectRoot, activeDirectory: projectRoot, workspaceTrusted: false });
+    const locations = resolveCodexLocations(context);
+    write(locations.user.path, [
+      `[projects.${JSON.stringify(projectRoot)}]`,
+      'trust_level = "trusted"',
+      '',
+    ].join('\n'));
+    write(locations.project_layers[0].path, [
+      '[mcp_servers.uemcp]',
+      `command = ${JSON.stringify(context.descriptor.command)}`,
+      `args = [${JSON.stringify(context.descriptor.args[0])}]`,
+      '',
+    ].join('\n'));
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.effective?.scope === 'project:0' && inspection.workspace_trust?.trusted === true, 'Codex loads trusted project config from its user projects table');
+
+    write(locations.user.path, [
+      `[projects.${JSON.stringify(projectRoot)}]`,
+      'trust_level = "untrusted"',
+      '',
+    ].join('\n'));
+    const injected = { ...context, workspaceTrusted: true };
+    const untrusted = await adapter.inspect(injected, await adapter.detect(injected));
+    t.assert(untrusted.effective === null && untrusted.ignored_project_layers.length === 1, 'Codex ignores injected trust when provider config marks the project untrusted');
+  } finally {
+    cleanup(root);
   }
 }
 
@@ -2598,7 +2731,7 @@ async function rejectsCode(fn, code) {
   const root = makeRoot();
   try {
     const ledger = memoryOwnershipLedger();
-    const context = codexContext(root, { ownershipLedger: ledger, approvedOwnedReplacement: true });
+    const context = codexContext(root, { ownershipLedger: ledger, request: clientRequest({ replace_owned_fields: true }) });
     const locations = resolveCodexLocations(context);
     const oldEntry = {
       command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
@@ -2857,6 +2990,35 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Gemini workspace trust follows provider env, settings, and trustedFolders rules instead of injected booleans.
+{
+  const root = makeRoot();
+  try {
+    const envTrusted = geminiContext(root, {
+      workspaceTrusted: false,
+      env: { GEMINI_CLI_TRUST_WORKSPACE: 'true' },
+    });
+    const envLocations = resolveGeminiLocations(envTrusted);
+    writeJson(envLocations.project.path, { mcpServers: { uemcp: physicalGeminiEntry(envTrusted.descriptor) } });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+    const trusted = await adapter.inspect(envTrusted, await adapter.detect(envTrusted));
+    t.assert(trusted.effective?.scope === 'project' && trusted.workspace_trust?.source === 'env', 'Gemini trust env enables project settings regardless of injected false');
+
+    const fileContext = geminiContext(root, {
+      workspaceTrusted: true,
+      env: { GEMINI_CLI_TRUST_WORKSPACE: undefined },
+    });
+    const fileLocations = resolveGeminiLocations(fileContext);
+    writeJson(fileLocations.project.path, { mcpServers: { uemcp: physicalGeminiEntry(fileContext.descriptor) } });
+    writeJson(fileLocations.trusted_folders.path, { [fileContext.workspaceRoot]: 'DO_NOT_TRUST' });
+    const untrusted = await adapter.inspect(fileContext, await adapter.detect(fileContext));
+    t.assert(untrusted.effective === null && untrusted.ignored_project?.reason === 'UNTRUSTED_PROJECT', 'Gemini trustedFolders denial overrides an injected true');
+    t.assert(untrusted.files.some(file => file.path === fileLocations.trusted_folders.path), 'Gemini binds trustedFolders evidence into the inspection');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Exact Gemini entries are adoptable without rewriting comments, trust, launch policy, or environment state.
 {
   const root = makeRoot();
@@ -2969,7 +3131,7 @@ async function rejectsCode(fn, code) {
 {
   const root = makeRoot();
   try {
-    const context = geminiContext(root, { workspaceTrusted: true, approvedExtensionShadow: true });
+    const context = geminiContext(root, { workspaceTrusted: true, request: clientRequest({ shadow_gemini_extension: true }) });
     const locations = resolveGeminiLocations(context);
     const desired = physicalGeminiEntry(context.descriptor);
     writeJson(locations.user.path, { mcpServers: { UEMCP: desired } });
@@ -3087,7 +3249,7 @@ async function rejectsCode(fn, code) {
     const serialized = JSON.stringify(inspection);
     t.assert(inspection.registration === 'CONFLICT' && !serialized.includes('SECRET_EXTENSION_VALUE'), 'Gemini variable-bearing extension conflict is never hydrated or exposed');
     t.assert((await adapter.plan(context, inspection, context.descriptor)).operations.length === 0, 'Gemini extension shadowing requires explicit approval');
-    const approved = geminiContext(root, { workspaceTrusted: true, approvedExtensionShadow: true, ownershipLedger: context.ownershipLedger });
+    const approved = geminiContext(root, { workspaceTrusted: true, request: clientRequest({ shadow_gemini_extension: true }), ownershipLedger: context.ownershipLedger });
     const approvedPlan = await adapter.plan(approved, inspection, approved.descriptor);
     t.assert(approvedPlan.status === 'CREATE' && approvedPlan.operations[0].shadows_extension === true, 'approved Gemini extension shadow is explicit in the operation');
 
@@ -3454,6 +3616,7 @@ function aggregateContext(root, overrides = {}) {
       requested_project: null,
       requested_profile: null,
       selected_clients: overrides.selectedClients ?? [],
+      client_decisions: clientRequest().client_decisions,
     },
     clientSelection: {
       include: overrides.include ?? [],

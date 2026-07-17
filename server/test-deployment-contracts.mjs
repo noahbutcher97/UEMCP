@@ -138,6 +138,11 @@ function validRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    client_decisions: {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
     ...overrides,
   };
 }
@@ -261,7 +266,10 @@ function validMachineInput(overrides = {}) {
   t.assert(result.timestamp === '2026-07-15T12:00:00.000Z', 'machine result uses the injected timestamp');
   t.assert(validateMachineResult(result) === true, 'machine result validates against schema 1.0');
   t.assert(result.stages[0].result === 'ready' && result.stages[0].progress === 'none', 'serialized machine stages retain outcome reduction facts');
+  t.assert(result.request.client_decisions.replace_owned_fields === false, 'machine requests retain digest-bound client repair decisions');
   t.assert(throwsCode(() => validateMachineResult({ ...structuredClone(result), outcome: 'FAILED' }), 'INVALID_CONTRACT'), 'machine result validation rejects an outcome that contradicts its stages');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true } }) })), 'INVALID_CONTRACT'), 'partial client decision objects are rejected');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true, shadow_gemini_extension: false, migrate_legacy_claude_project: false, extra: false } }) })), 'INVALID_CONTRACT'), 'unknown client decisions are rejected');
 
   const archived = createMachineResult(validMachineInput({
     source: validSource({

@@ -42,6 +42,11 @@ function normalizeRequest(input, forcedOperation = null) {
     requested_project: input?.requested_project ?? null,
     requested_profile: input?.requested_profile ?? null,
     selected_clients: input?.selected_clients ?? [],
+    client_decisions: input?.client_decisions ?? {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
   });
   return {
     operation,

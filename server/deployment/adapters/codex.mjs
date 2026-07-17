@@ -11,6 +11,7 @@ import {
 
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { readBoundedConfigFile } from '../bounded-config-file.mjs';
+import { approvedOwnedReplacement } from '../client-decisions.mjs';
 import {
   adoptExactEntry,
   inspectOwnership,
@@ -413,6 +414,23 @@ function reviewActions(entry) {
   return actions;
 }
 
+function workspaceTrustFromUser(user, projectRoot) {
+  if (!user.exists) return Object.freeze({ trusted: false, source: 'user_config', project_key: null });
+  const projects = getTomlTable(user.document, ['projects']);
+  if (projects === undefined) return Object.freeze({ trusted: false, source: 'user_config', project_key: null });
+  if (!plainObject(projects)) fail('Codex projects trust table must be an object', 'MALFORMED_CONFIG');
+  const wanted = pathIdentity(projectRoot);
+  const matches = Object.keys(projects).filter(key => absolutePath(key) && pathIdentity(key) === wanted);
+  if (matches.length > 1) fail('Codex projects trust table contains ambiguous path aliases', 'MALFORMED_CONFIG');
+  const projectKey = matches[0] ?? null;
+  if (projectKey === null) return Object.freeze({ trusted: false, source: 'user_config', project_key: null });
+  const project = projects[projectKey];
+  if (!plainObject(project) || !['trusted', 'untrusted'].includes(project.trust_level)) {
+    fail('Codex project trust_level must be trusted or untrusted', 'MALFORMED_CONFIG');
+  }
+  return Object.freeze({ trusted: project.trust_level === 'trusted', source: 'user_config', project_key: projectKey });
+}
+
 async function makeOccurrence({ source, scope, desired, ledger, ownershipScope = null }) {
   if (!source.exists) return null;
   const entry = getTomlTable(source.document, TABLE_PATH);
@@ -632,10 +650,11 @@ export function createCodexAdapter({
     try {
       const tracker = { total: 0 };
       const user = await readConfigFile(fsImpl, captureFingerprint, detection.locations.user, tracker, limits);
+      const workspaceTrust = workspaceTrustFromUser(user, context.projectRoot ?? context.workspaceRoot);
       const projectFiles = [];
       for (const layer of detection.locations.project_layers) {
         projectFiles.push(await readConfigFile(fsImpl, captureFingerprint, layer, tracker, limits, {
-          parse: context.workspaceTrusted === true,
+          parse: workspaceTrust.trusted,
         }));
       }
       const requirements = await readConfigFile(fsImpl, captureFingerprint, detection.locations.system_requirements, tracker, limits);
@@ -651,17 +670,17 @@ export function createCodexAdapter({
         ownershipScope: 'user',
       });
       if (userOccurrence) occurrences.push(userOccurrence);
-      if (context.workspaceTrusted === true) {
+      if (workspaceTrust.trusted) {
         for (const project of projectFiles) {
           const row = await makeOccurrence({ source: project, scope: project.scope, desired, ledger: context.ownershipLedger });
           if (row) occurrences.push(row);
         }
       }
-      const ignoredProjectLayers = context.workspaceTrusted === true
+      const ignoredProjectLayers = workspaceTrust.trusted
         ? []
         : projectFiles.filter(file => file.exists).map(file => Object.freeze({ path: file.path, scope: file.scope, reason: 'UNTRUSTED_PROJECT' }));
       const effective = occurrences.at(-1) ?? null;
-      let policy = classifyRequirements(requirements, desired, context.invocationPolicyKnown === true);
+      let policy = classifyRequirements(requirements, desired, false);
       if (native.enablement === 'POLICY_BLOCKED') policy = 'POLICY_BLOCKED';
       let registration = effective ? (effective.matching ? 'CONFIGURED' : 'CONFLICT') : 'ABSENT';
       const nativeProvesAbsence = native.list_status === 'ABSENT' && native.get_status === 'ABSENT';
@@ -706,6 +725,7 @@ export function createCodexAdapter({
           enabled: effective.enabled,
         }) : null,
         native: Object.freeze({ ...native, disagrees_with_config: disagrees }),
+        workspace_trust: workspaceTrust,
         native_only: nativeOnly,
         native_write_blocked: nativeWriteBlocked,
         files: Object.freeze([...sourceFiles.map(publicFileEvidence), ...launchEvidence]),
@@ -725,6 +745,7 @@ export function createCodexAdapter({
         ignored_project_layers: Object.freeze([]),
         effective: null,
         native: Object.freeze({ status: 'NOT_CHECKED', identity: 'UNKNOWN', enablement: 'UNKNOWN', disagrees_with_config: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: 'unknown', project_key: null }),
         native_only: false,
         native_write_blocked: true,
         files: Object.freeze([]),
@@ -776,7 +797,7 @@ export function createCodexAdapter({
     if (!user) type = 'CREATE_ENTRY';
     else if (user.matching && user.ownership?.recommended_action === 'ADOPT_EXACT_ENTRY') type = 'ADOPT_EXACT_ENTRY';
     else if (user.matching) return Object.freeze({ client_id: 'codex', status: 'NO_OP', operations: Object.freeze([]), actions: inspection.actions });
-    else if (user.ownership?.state === 'owned_matching' || context.approvedOwnedReplacement === true) type = 'UPDATE_OWNED_FIELDS';
+    else if (user.ownership?.state === 'owned_matching' || approvedOwnedReplacement(context, user.ownership)) type = 'UPDATE_OWNED_FIELDS';
     else return Object.freeze({ client_id: 'codex', status: 'CONFLICT', operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, 'CONFLICT'])) });
 
     const requiresProviderWrite = type !== 'ADOPT_EXACT_ENTRY';
@@ -824,7 +845,7 @@ export function createCodexAdapter({
       operation = Object.freeze({
         ...common,
         external_write: false,
-        explicit_owned_replacement: context.approvedOwnedReplacement === true,
+        explicit_owned_replacement: approvedOwnedReplacement(context, user.ownership),
         requires_restart: true,
       });
     }

@@ -25,11 +25,11 @@ import { createTargetDomain } from './deployment/target-domain.mjs';
 const HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
   deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
   deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
 `;
 const INTERFACE_ERROR_CODES = new Set(['CLI_USAGE', 'INVALID_CONTRACT', 'INVALID_PLAN', 'UNSUPPORTED_INTERFACE']);
 const SAFE_DIAGNOSTICS = Object.freeze({
@@ -87,6 +87,9 @@ function parseArgs(argv) {
     includeClients: [],
     excludeClients: [],
     vscodeProfile: null,
+    replaceOwnedClientFields: false,
+    shadowGeminiExtension: false,
+    migrateLegacyClaudeProject: false,
   };
   const seen = new Set();
   for (let index = 1; index < argv.length; index += 1) {
@@ -96,6 +99,9 @@ function parseArgs(argv) {
     if (!repeatable) seen.add(flag);
     if (flag === '--json') parsed.json = true;
     else if (flag === '--non-interactive') parsed.nonInteractive = true;
+    else if (flag === '--replace-owned-client-fields') parsed.replaceOwnedClientFields = true;
+    else if (flag === '--shadow-gemini-extension') parsed.shadowGeminiExtension = true;
+    else if (flag === '--migrate-legacy-claude-project') parsed.migrateLegacyClaudeProject = true;
     else if (flag === '--operation') { parsed.operation = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--project') { parsed.project = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--profile') { parsed.profile = takeValue(argv, index, flag); index += 1; }
@@ -114,7 +120,8 @@ function parseArgs(argv) {
     else throw new UsageError('unknown flag');
   }
   const clientFlags = parsed.includeClients.length > 0 || parsed.excludeClients.length > 0 || parsed.vscodeProfile !== null;
-  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null || clientFlags;
+  const decisionFlags = parsed.replaceOwnedClientFields || parsed.shadowGeminiExtension || parsed.migrateLegacyClaudeProject;
+  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null || clientFlags || decisionFlags;
   if (command === 'plan') {
     if (!['setup', 'sync'].includes(parsed.operation)) throw new UsageError('plan requires --operation setup or sync');
     if (parsed.planFile || parsed.approveDigest || parsed.nonInteractive) throw new UsageError('plan does not accept apply flags');
@@ -123,10 +130,13 @@ function parseArgs(argv) {
       throw new UsageError('apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive');
     }
     if (requestFlags || parsed.operation !== null) throw new UsageError('apply request overrides are forbidden');
-  } else {
+  } else if (command !== 'repair') {
     if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
       throw new UsageError(`${command} does not accept plan/apply flags`);
     }
+    if (decisionFlags) throw new UsageError(`${command} does not accept repair decisions`);
+  } else if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    throw new UsageError('repair does not accept plan/apply flags');
   }
   if (parsed.targetsFile !== null && (!isAbsolute(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith('.json'))) {
     throw new UsageError('--targets-file must be an absolute .json path');
@@ -237,6 +247,11 @@ function requestFrom(parsed) {
       include: parsed.includeClients,
       exclude: parsed.excludeClients,
       vscode_profile: parsed.vscodeProfile,
+    },
+    client_decisions: {
+      replace_owned_fields: parsed.replaceOwnedClientFields,
+      shadow_gemini_extension: parsed.shadowGeminiExtension,
+      migrate_legacy_claude_project: parsed.migrateLegacyClaudeProject,
     },
   };
 }

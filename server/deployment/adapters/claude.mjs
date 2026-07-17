@@ -3,12 +3,15 @@ import {
   dirname,
   isAbsolute,
   join,
+  relative,
   resolve,
+  sep,
   win32,
 } from 'node:path';
 
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { readBoundedConfigFile } from '../bounded-config-file.mjs';
+import { approvedOwnedReplacement, clientDecision } from '../client-decisions.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
 import {
   getJsoncValue,
@@ -78,6 +81,11 @@ function pathIdentity(path) {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+function contained(root, candidate) {
+  const rel = relative(pathIdentity(root), pathIdentity(candidate));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 function location(path, allowedRoot, scope, writable = false) {
   return Object.freeze({
     path: resolve(path),
@@ -98,6 +106,7 @@ export function resolveClaudeLocations(context = {}) {
     fail('CLAUDE_CONFIG_DIR must be an absolute non-device path', 'INVALID_CLIENT_LOCATION');
   }
   const stateRoot = resolve(isolatedHome || userProfile);
+  const configRoot = resolve(isolatedHome || join(userProfile, '.claude'));
   const statePath = join(stateRoot, '.claude.json');
   const settingsPath = isolatedHome
     ? join(stateRoot, 'settings.json')
@@ -107,6 +116,8 @@ export function resolveClaudeLocations(context = {}) {
   const programFiles = resolve(knownProgramFiles);
   const managedRoot = join(programFiles, 'ClaudeCode');
   const projectRoot = resolve(workspaceRoot);
+  const pluginsRoot = join(configRoot, 'plugins');
+  const pluginsCache = join(pluginsRoot, 'cache');
   return Object.freeze({
     state: location(statePath, stateRoot, 'user', true),
     user_settings: location(settingsPath, stateRoot, 'user_settings'),
@@ -115,6 +126,8 @@ export function resolveClaudeLocations(context = {}) {
     local_settings: location(join(projectRoot, '.claude', 'settings.local.json'), projectRoot, 'local_settings'),
     managed_config: location(join(managedRoot, 'managed-mcp.json'), managedRoot, 'managed'),
     managed_settings: location(join(managedRoot, 'managed-settings.json'), managedRoot, 'managed_settings'),
+    plugins_registry: location(join(pluginsRoot, 'installed_plugins.json'), pluginsRoot, 'plugins_registry'),
+    plugins_cache: location(pluginsCache, pluginsRoot, 'plugins_cache'),
   });
 }
 
@@ -357,6 +370,11 @@ function validateSettingsFile(file) {
       return false;
     })) fail(`Claude setting ${key} has an invalid filter`, 'MALFORMED_CONFIG');
   }
+  const enabledPlugins = settingValue(file, 'enabledPlugins');
+  if (enabledPlugins !== undefined
+    && (!plainObject(enabledPlugins) || Object.values(enabledPlugins).some(value => typeof value !== 'boolean'))) {
+    fail('Claude enabledPlugins setting must be a boolean map', 'MALFORMED_CONFIG');
+  }
 }
 
 function settingValue(file, key) {
@@ -367,9 +385,9 @@ function includesName(value, name = 'uemcp') {
   return Array.isArray(value) && value.some(item => item === name);
 }
 
-function validWorkspaceSetting(context, file) {
+function validWorkspaceSetting(workspaceTrusted, file) {
   if (file.scope === 'user_settings' || file.scope === 'managed_settings') return true;
-  if (!context.workspaceTrusted) return false;
+  if (!workspaceTrusted) return false;
   return file.scope === 'project_settings' || file.scope === 'local_settings';
 }
 
@@ -383,8 +401,8 @@ function filterEntryMatches(filter, desired) {
   return false;
 }
 
-function classifyPolicy(context, settings, desired) {
-  const valid = settings.filter(file => file.exists && validWorkspaceSetting(context, file));
+function classifyPolicy(workspaceTrusted, settings, desired) {
+  const valid = settings.filter(file => file.exists && validWorkspaceSetting(workspaceTrusted, file));
   const managed = settings.find(file => file.scope === 'managed_settings');
   const managedOnly = managed?.exists && settingValue(managed, 'allowManagedMcpServersOnly') === true;
   const denied = valid.flatMap(file => settingValue(file, 'deniedMcpServers') ?? []);
@@ -392,26 +410,145 @@ function classifyPolicy(context, settings, desired) {
 
   const allowSources = managedOnly ? valid.filter(file => file.scope === 'managed_settings') : valid;
   const allowDeclarations = allowSources.filter(file => settingValue(file, 'allowedMcpServers') !== undefined);
-  if (allowDeclarations.length === 0) return { status: context.invocationPolicyKnown === true ? 'ALLOWED' : 'POLICY_UNKNOWN', reason: null };
+  if (allowDeclarations.length === 0) return { status: 'ALLOWED', reason: null };
   const allowed = allowDeclarations.flatMap(file => settingValue(file, 'allowedMcpServers'));
   const commandRules = allowed.filter(filter => plainObject(filter) && Object.hasOwn(filter, 'serverCommand'));
   const candidates = commandRules.length > 0
     ? commandRules
     : allowed.filter(filter => plainObject(filter) && Object.hasOwn(filter, 'serverName'));
   return candidates.some(filter => filterEntryMatches(filter, desired))
-    ? { status: context.invocationPolicyKnown === true ? 'ALLOWED' : 'POLICY_UNKNOWN', reason: null }
+    ? { status: 'ALLOWED', reason: null }
     : { status: 'POLICY_BLOCKED', reason: 'NOT_ALLOWED' };
 }
 
-function classifyApproval(context, settings) {
+function classifyApproval(workspaceTrusted, settings) {
   const disabled = settings.some(file => file.exists && includesName(settingValue(file, 'disabledMcpjsonServers')));
   const projectApprovalPresent = settings.some(file => file.exists
     && ['project_settings', 'local_settings'].includes(file.scope)
     && (settingValue(file, 'enableAllProjectMcpServers') === true || includesName(settingValue(file, 'enabledMcpjsonServers'))));
   const approved = settings.some(file => file.exists
-    && validWorkspaceSetting(context, file)
+    && validWorkspaceSetting(workspaceTrusted, file)
     && (settingValue(file, 'enableAllProjectMcpServers') === true || includesName(settingValue(file, 'enabledMcpjsonServers'))));
   return { disabled, approved, projectApprovalPresent };
+}
+
+function workspaceTrustFromState(state, workspaceRoot) {
+  if (!state.exists) return Object.freeze({ trusted: false, source: 'user_state', project_key: null });
+  const projects = getJsoncValue(state.document, ['projects']);
+  if (projects !== undefined && !plainObject(projects)) fail('Claude projects state must be an object', 'MALFORMED_CONFIG');
+  const projectKey = actualProjectKey(projects, workspaceRoot);
+  if (projectKey === null) return Object.freeze({ trusted: false, source: 'user_state', project_key: null });
+  const project = projects[projectKey];
+  if (!plainObject(project)) fail('Claude project state must be an object', 'MALFORMED_CONFIG');
+  const accepted = project.hasTrustDialogAccepted;
+  if (accepted !== undefined && typeof accepted !== 'boolean') {
+    fail('Claude project trust state must be boolean', 'MALFORMED_CONFIG');
+  }
+  return Object.freeze({ trusted: accepted === true, source: 'user_state', project_key: projectKey });
+}
+
+function pluginEnabled(settings, workspaceTrusted, pluginId, defaultEnabled) {
+  let enabled = defaultEnabled;
+  for (const file of settings) {
+    if (!file.exists || !validWorkspaceSetting(workspaceTrusted, file)) continue;
+    const configured = settingValue(file, 'enabledPlugins');
+    if (plainObject(configured) && Object.hasOwn(configured, pluginId)) enabled = configured[pluginId];
+  }
+  return enabled;
+}
+
+function replacePluginRoot(value, pluginRoot) {
+  return typeof value === 'string' ? value.replaceAll('${CLAUDE_PLUGIN_ROOT}', pluginRoot) : value;
+}
+
+function resolvePluginEntry(entry, pluginRoot) {
+  if (!plainObject(entry)) return entry;
+  return Object.fromEntries(Object.entries(entry).map(([key, value]) => {
+    if (typeof value === 'string') return [key, replacePluginRoot(value, pluginRoot)];
+    if (Array.isArray(value)) return [key, value.map(item => replacePluginRoot(item, pluginRoot))];
+    if (key === 'env' && plainObject(value)) {
+      return [key, Object.fromEntries(Object.entries(value).map(([name, item]) => [name, replacePluginRoot(item, pluginRoot)]))];
+    }
+    return [key, value];
+  }));
+}
+
+function pluginServers(document, label) {
+  const root = document.parsed_value;
+  if (!plainObject(root)) fail(`${label} must contain an object`, 'MALFORMED_CONFIG');
+  const servers = Object.hasOwn(root, 'mcpServers') ? root.mcpServers : root;
+  if (!plainObject(servers)) fail(`${label} MCP declaration must be an object`, 'MALFORMED_CONFIG');
+  return servers;
+}
+
+async function inspectInstalledPlugins({ fsImpl, captureFingerprint, locations, registry, settings, workspaceTrusted, tracker, limits }) {
+  if (!registry.exists) return { rows: [], files: [] };
+  const root = registry.document.parsed_value;
+  if (!plainObject(root) || root.version !== 2 || !plainObject(root.plugins)) {
+    fail('Claude installed plugin registry is invalid', 'MALFORMED_CONFIG');
+  }
+  const records = Object.entries(root.plugins).flatMap(([pluginId, value]) => {
+    if (typeof pluginId !== 'string' || pluginId === '' || !Array.isArray(value)) {
+      fail('Claude installed plugin records are invalid', 'MALFORMED_CONFIG');
+    }
+    return value.map(record => ({ pluginId, record }));
+  });
+  if (records.length > limits.pluginRecords) fail('Claude plugin evidence exceeds its record limit', 'INSPECTION_LIMIT_EXCEEDED');
+
+  const files = [];
+  const rows = [];
+  for (const { pluginId, record } of records) {
+    if (!plainObject(record) || !absolutePath(record.installPath)) fail('Claude plugin install record is invalid', 'MALFORMED_CONFIG');
+    const pluginRoot = resolve(record.installPath);
+    if (!contained(locations.plugins_cache.path, pluginRoot)) fail('Claude plugin install path escapes its cache', 'UNSAFE_CONFIG_PATH');
+    const rootDeclaration = await readConfigFile(fsImpl, captureFingerprint,
+      location(join(pluginRoot, '.mcp.json'), pluginRoot, `plugin_mcp:${pluginId}`), tracker, limits);
+    const manifest = await readConfigFile(fsImpl, captureFingerprint,
+      location(join(pluginRoot, '.claude-plugin', 'plugin.json'), pluginRoot, `plugin_manifest:${pluginId}`), tracker, limits);
+    files.push(rootDeclaration, manifest);
+
+    let defaultEnabled = true;
+    let manifestDeclaration = null;
+    if (manifest.exists) {
+      const manifestRoot = manifest.document.parsed_value;
+      if (!plainObject(manifestRoot)) fail('Claude plugin manifest must contain an object', 'MALFORMED_CONFIG');
+      if (Object.hasOwn(manifestRoot, 'defaultEnabled')) {
+        if (typeof manifestRoot.defaultEnabled !== 'boolean') fail('Claude plugin defaultEnabled must be boolean', 'MALFORMED_CONFIG');
+        defaultEnabled = manifestRoot.defaultEnabled;
+      }
+      if (Object.hasOwn(manifestRoot, 'mcpServers')) {
+        if (typeof manifestRoot.mcpServers === 'string') {
+          if (manifestRoot.mcpServers.trim() === '' || isAbsolute(manifestRoot.mcpServers) || win32.isAbsolute(manifestRoot.mcpServers)) {
+            fail('Claude plugin MCP path must be relative', 'MALFORMED_CONFIG');
+          }
+          const declarationPath = resolve(pluginRoot, manifestRoot.mcpServers);
+          if (!contained(pluginRoot, declarationPath)) fail('Claude plugin MCP path escapes its root', 'UNSAFE_CONFIG_PATH');
+          const referenced = await readConfigFile(fsImpl, captureFingerprint,
+            location(declarationPath, pluginRoot, `plugin_mcp_reference:${pluginId}`), tracker, limits);
+          files.push(referenced);
+          if (!referenced.exists) fail('Claude plugin MCP declaration is missing', 'MALFORMED_CONFIG');
+          manifestDeclaration = { source: referenced, servers: pluginServers(referenced.document, 'Claude plugin MCP file') };
+        } else if (plainObject(manifestRoot.mcpServers)) {
+          manifestDeclaration = { source: manifest, servers: manifestRoot.mcpServers };
+        } else {
+          fail('Claude plugin mcpServers declaration is invalid', 'MALFORMED_CONFIG');
+        }
+      }
+    }
+    if (rootDeclaration.exists && manifestDeclaration) fail('Claude plugin has ambiguous MCP declarations', 'MALFORMED_CONFIG');
+    const declaration = rootDeclaration.exists
+      ? { source: rootDeclaration, servers: pluginServers(rootDeclaration.document, 'Claude plugin .mcp.json') }
+      : manifestDeclaration;
+    if (!declaration || !pluginEnabled(settings, workspaceTrusted, pluginId, defaultEnabled)) continue;
+    if (Object.hasOwn(declaration.servers, 'uemcp')) {
+      rows.push({
+        plugin_id: pluginId,
+        source: declaration.source,
+        entry: resolvePluginEntry(declaration.servers.uemcp, pluginRoot),
+      });
+    }
+  }
+  return { rows, files };
 }
 
 function statusFromError(error) {
@@ -577,7 +714,7 @@ export function createClaudeAdapter({
     const tracker = { total: 0 };
     const sourceFiles = [];
     try {
-      for (const key of ['state', 'project_config', 'user_settings', 'project_settings', 'local_settings', 'managed_config', 'managed_settings']) {
+      for (const key of ['state', 'project_config', 'user_settings', 'project_settings', 'local_settings', 'managed_config', 'managed_settings', 'plugins_registry']) {
         sourceFiles.push(await readConfigFile(fsImpl, captureFingerprint, detection.locations[key], tracker, limits));
       }
       const launchEvidence = await captureLaunchEvidence(captureFingerprint, context, detection);
@@ -585,8 +722,10 @@ export function createClaudeAdapter({
       const state = byScope.user;
       const project = byScope.project;
       const managed = byScope.managed;
+      const pluginsRegistry = byScope.plugins_registry;
       const settings = sourceFiles.filter(file => file.scope.endsWith('settings'));
       for (const settingsFile of settings) validateSettingsFile(settingsFile);
+      const workspaceTrust = workspaceTrustFromState(state, context.workspaceRoot);
       const ledgerProbe = await inspectOwnership({
         ledger: context.ownershipLedger,
         currentEntry: desired,
@@ -597,7 +736,7 @@ export function createClaudeAdapter({
         ? Object.freeze({ status: 'INVALID', reason: ledgerProbe.stale_reason })
         : Object.freeze({ status: 'READY', reason: null });
       const occurrences = [];
-      const projectKey = state.exists ? actualProjectKey(getJsoncValue(state.document, ['projects']), context.workspaceRoot) : null;
+      const projectKey = workspaceTrust.project_key;
       if (projectKey !== null) {
         const current = await occurrence({
           scope: 'local',
@@ -640,26 +779,26 @@ export function createClaudeAdapter({
         if (current) occurrences.push(current);
       }
 
-      const pluginRows = context.pluginMcpEntries ?? [];
-      if (!Array.isArray(pluginRows) || pluginRows.length > limits.pluginRecords) fail('Claude plugin evidence exceeds its record limit', 'INSPECTION_LIMIT_EXCEEDED');
-      for (const plugin of pluginRows) {
-        if (!plugin?.enabled) continue;
-        const entry = plugin.mcp_servers?.uemcp;
-        if (entry === undefined) continue;
-        const synthetic = {
-          path: plugin.path ? resolve(plugin.path) : `plugin:${plugin.plugin_id ?? 'unknown'}`,
-          allowed_root: plugin.allowed_root ? resolve(plugin.allowed_root) : context.workspaceRoot,
-          scope: 'plugin',
-          bytes: Buffer.from(sha256Canonical(entry)),
-        };
+      const plugins = await inspectInstalledPlugins({
+        fsImpl,
+        captureFingerprint,
+        locations: detection.locations,
+        registry: pluginsRegistry,
+        settings,
+        workspaceTrusted: workspaceTrust.trusted,
+        tracker,
+        limits,
+      });
+      sourceFiles.push(...plugins.files);
+      for (const plugin of plugins.rows) {
         const current = await occurrence({
           scope: 'plugin',
-          source: synthetic,
-          entry,
+          source: plugin.source,
+          entry: plugin.entry,
           jsonPath: ['mcpServers', 'uemcp'],
           desired,
           ledger: context.ownershipLedger,
-          pluginId: plugin.plugin_id ?? null,
+          pluginId: plugin.plugin_id,
         });
         occurrences.push(current);
       }
@@ -678,8 +817,8 @@ export function createClaudeAdapter({
       }
 
       const effective = managed.exists ? managedOccurrence : occurrences.find(row => row.scope !== 'managed') ?? null;
-      const policy = classifyPolicy(context, settings, desired);
-      const approval = classifyApproval(context, settings);
+      const policy = classifyPolicy(workspaceTrust.trusted, settings, desired);
+      const approval = classifyApproval(workspaceTrust.trusted, settings);
       let registration;
       if (managed.exists && !managedOccurrence) registration = 'POLICY_BLOCKED';
       else if (!effective) registration = 'ABSENT';
@@ -694,7 +833,7 @@ export function createClaudeAdapter({
         else if (approval.approved) enablement = 'ENABLED';
         else {
           enablement = 'UNKNOWN';
-          activation = !context.workspaceTrusted && approval.projectApprovalPresent ? 'PENDING_TRUST' : 'PENDING_APPROVAL';
+          activation = !workspaceTrust.trusted && approval.projectApprovalPresent ? 'PENDING_TRUST' : 'PENDING_APPROVAL';
         }
       } else if (effective) enablement = policy.status === 'POLICY_UNKNOWN' ? 'POLICY_UNKNOWN' : 'ENABLED';
 
@@ -729,6 +868,7 @@ export function createClaudeAdapter({
         occurrences: Object.freeze(occurrences),
         effective: safeEffective,
         native: Object.freeze({ ...native, disagrees_with_structural_policy: disagrees }),
+        workspace_trust: workspaceTrust,
         files: Object.freeze([...sourceFiles.map(publicFileEvidence), ...launchEvidence]),
         ownership_ledger: ownershipLedger,
         desired,
@@ -745,6 +885,7 @@ export function createClaudeAdapter({
         occurrences: Object.freeze([]),
         effective: null,
         native: Object.freeze({ status: 'NOT_CHECKED', disagrees_with_structural_policy: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: 'unknown', project_key: null }),
         files: Object.freeze([]),
         ownership_ledger: Object.freeze({ status: 'UNKNOWN', reason: null }),
         desired,
@@ -777,7 +918,7 @@ export function createClaudeAdapter({
     const project = inspection.occurrences.find(row => row.scope === 'project');
     const user = inspection.occurrences.find(row => row.scope === 'user');
     const plugin = inspection.occurrences.find(row => row.scope === 'plugin');
-    const migrate = context.migrateLegacyProject === true && project && !local;
+    const migrate = clientDecision(context, 'migrate_legacy_claude_project') && project && !local;
     if (inspection.ownership_ledger?.status === 'INVALID') {
       return Object.freeze({
         client_id: 'claude',
@@ -814,7 +955,7 @@ export function createClaudeAdapter({
     let userOperationType = null;
     if (!user) userOperationType = 'CREATE_ENTRY';
     else if (user.matching && user.ownership?.recommended_action === 'ADOPT_EXACT_ENTRY') userOperationType = 'ADOPT_EXACT_ENTRY';
-    else if (!user.matching && (user.ownership?.state === 'owned_matching' || context.approvedOwnedReplacement === true)) userOperationType = 'UPDATE_OWNED_FIELDS';
+    else if (!user.matching && (user.ownership?.state === 'owned_matching' || approvedOwnedReplacement(context, user.ownership))) userOperationType = 'UPDATE_OWNED_FIELDS';
     else if (!user.matching) {
       return Object.freeze({ client_id: 'claude', status: 'CONFLICT', operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, 'CONFLICT'])) });
     }
@@ -835,7 +976,7 @@ export function createClaudeAdapter({
     }
     const operations = [];
     if (migrate) {
-      const deleteAfterVerify = context.legacyProjectInstallerCreated === true && project.deletable_after_migration === true;
+      const deleteAfterVerify = false;
       operations.push(Object.freeze({
         ...operationCommon({
           id: 'claude-migrate-project-uemcp',
@@ -847,7 +988,7 @@ export function createClaudeAdapter({
           ownedPaths: ['/mcpServers/uemcp'],
         }),
         json_path: project.json_path,
-        installer_created_file: context.legacyProjectInstallerCreated === true,
+        installer_created_file: false,
         delete_after_verify: deleteAfterVerify,
       }));
     }
@@ -904,7 +1045,7 @@ export function createClaudeAdapter({
         }),
         json_path: user.json_path,
         desired_entry: desired,
-        explicit_owned_replacement: context.approvedOwnedReplacement === true,
+        explicit_owned_replacement: approvedOwnedReplacement(context, user.ownership),
       }));
     }
 

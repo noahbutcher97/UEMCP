@@ -285,7 +285,7 @@ function validateSource(source) {
 }
 
 function validateRequest(request) {
-  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients']), 'request');
+  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients', 'client_decisions']), 'request');
   for (const key of ['requested_project', 'requested_profile']) {
     if (request[key] !== null && typeof request[key] !== 'string') fail(`request.${key} must be a string or null`);
   }
@@ -294,6 +294,14 @@ function validateRequest(request) {
   }
   if (new Set(request.selected_clients).size !== request.selected_clients.length) {
     fail('request.selected_clients must not contain duplicates');
+  }
+  assertExactKeys(request.client_decisions, new Set([
+    'replace_owned_fields',
+    'shadow_gemini_extension',
+    'migrate_legacy_claude_project',
+  ]), 'request.client_decisions');
+  for (const [key, value] of Object.entries(request.client_decisions)) {
+    if (typeof value !== 'boolean') fail(`request.client_decisions.${key} must be boolean`);
   }
   return cloneJsonValue(request, 'request');
 }

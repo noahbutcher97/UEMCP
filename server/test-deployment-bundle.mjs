@@ -181,14 +181,22 @@ try {
       '--include-client', 'codex',
       '--exclude-client', 'gemini',
       '--vscode-profile', 'Work Profile',
+      '--replace-owned-client-fields',
+      '--shadow-gemini-extension',
+      '--migrate-legacy-claude-project',
     ]);
     t.assert(JSON.stringify(selected.includeClients) === JSON.stringify(['claude', 'codex'])
       && JSON.stringify(selected.excludeClients) === JSON.stringify(['gemini'])
-      && selected.vscodeProfile === 'Work Profile', `${label} CLI preserves repeatable client selection and VS Code profile`);
+      && selected.vscodeProfile === 'Work Profile'
+      && selected.replaceOwnedClientFields === true
+      && selected.shadowGeminiExtension === true
+      && selected.migrateLegacyClaudeProject === true, `${label} CLI preserves client selection and explicit repair decisions`);
     t.assert(await rejectsCode(() => parseArgs(['verify', '--include-client', 'unknown-client']), 'CLI_USAGE'), `${label} CLI rejects an unknown include client`);
     t.assert(await rejectsCode(() => parseArgs(['doctor', '--include-client', 'claude', '--exclude-client', 'claude']), 'CLI_USAGE'), `${label} CLI rejects include/exclude overlap`);
     t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--include-client', 'claude']), 'CLI_USAGE'), `${label} apply rejects selection overrides`);
     t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--vscode-profile', 'Work']), 'CLI_USAGE'), `${label} apply rejects profile overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--replace-owned-client-fields']), 'CLI_USAGE'), `${label} apply rejects repair-decision overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['doctor', '--shadow-gemini-extension']), 'CLI_USAGE'), `${label} standalone inspection rejects repair decisions`);
   }
 
   let forwardedRequest = null;

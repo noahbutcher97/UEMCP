@@ -8,6 +8,7 @@ import {
 } from 'node:path';
 
 import { readBoundedConfigFile } from '../bounded-config-file.mjs';
+import { approvedOwnedReplacement } from '../client-decisions.mjs';
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
 import {
@@ -666,7 +667,7 @@ export function createVsCodeAdapter({
     if (current?.matching) {
       return Object.freeze({ client_id: 'vscode', status: 'NO_OP', operations: Object.freeze([]), actions: inspection.actions });
     }
-    if (current && current.ownership?.state !== 'owned_matching' && context.approvedOwnedReplacement !== true) {
+    if (current && current.ownership?.state !== 'owned_matching' && !approvedOwnedReplacement(context, current.ownership)) {
       return Object.freeze({ client_id: 'vscode', status: 'CONFLICT', operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, 'CONFLICT'])) });
     }
     let source = inspection.files.find(file => pathIdentity(file.path) === pathIdentity(inspection.selected_resource.path));
@@ -698,7 +699,7 @@ export function createVsCodeAdapter({
       json_path: ENTRY_PATH,
       external_write: false,
       verification_status: 'RESTART_REQUIRED',
-      explicit_owned_replacement: current !== undefined && context.approvedOwnedReplacement === true,
+      explicit_owned_replacement: current !== undefined && approvedOwnedReplacement(context, current.ownership),
     });
     return Object.freeze({ client_id: 'vscode', status: current ? 'UPDATE' : 'CREATE', operations: Object.freeze([operation]), actions: inspection.actions });
   }

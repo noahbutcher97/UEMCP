@@ -360,6 +360,11 @@ function sampleRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    client_decisions: {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
     ...overrides,
   };
 }
@@ -426,6 +431,16 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       },
     });
     t.assert(operationChanged.digest !== plan.digest, 'operation identity changes the plan digest');
+    const decisionChanged = createReviewedPlan({
+      root,
+      reviewed,
+      overrides: {
+        request: sampleRequest({
+          client_decisions: { ...sampleRequest().client_decisions, replace_owned_fields: true },
+        }),
+      },
+    });
+    t.assert(decisionChanged.digest !== plan.digest, 'client repair decisions change the reviewed plan digest');
     const expiryChanged = createReviewedPlan({ root, reviewed, overrides: { ttlMs: 60_000 } });
     t.assert(expiryChanged.digest !== plan.digest, 'expiry changes the plan digest');
 
@@ -1273,6 +1288,18 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     stderr = '';
     const selectedClientExit = await runCli(['verify', '--include-client', 'claude', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(selectedClientExit === 0 && JSON.stringify(dispatchedRequest.selected_clients) === JSON.stringify(['claude']), 'CLI explicit includes populate the public selected_clients request field');
+    stdout = '';
+    stderr = '';
+    const decisionExit = await runCli(['plan', '--operation', 'setup', '--replace-owned-client-fields', '--shadow-gemini-extension', '--migrate-legacy-claude-project', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(decisionExit === 10 && JSON.stringify(dispatchedRequest.client_decisions) === JSON.stringify({
+      replace_owned_fields: true,
+      shadow_gemini_extension: true,
+      migrate_legacy_claude_project: true,
+    }), 'CLI forwards explicit client repair decisions into public plan evidence');
+    stdout = '';
+    stderr = '';
+    const inspectionDecisionExit = await runCli(['verify', '--replace-owned-client-fields', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(inspectionDecisionExit === 64 && stdout === '', 'standalone inspection rejects write-authorizing client decisions');
     stdout = '';
     stderr = '';
     const planPath = join(root, 'reviewed-plan.json');

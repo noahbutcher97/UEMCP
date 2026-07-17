@@ -31,6 +31,8 @@ const SENSITIVE_CLIENT_ENVIRONMENT_NAMES = new Set([
   'CODEX_HOME',
   'CLAUDE_CONFIG_DIR',
   'GEMINI_CLI_HOME',
+  'GEMINI_CLI_TRUSTED_FOLDERS_PATH',
+  'GEMINI_CLI_TRUST_WORKSPACE',
 ]);
 
 export function isSensitiveClientEnvironmentName(name) {
