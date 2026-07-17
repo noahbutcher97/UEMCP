@@ -1,3 +1,4 @@
+import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
@@ -7,6 +8,40 @@ import { createProcessRunner } from './process-runner.mjs';
 
 const SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const SHA256 = /^[0-9a-f]{64}$/;
+const LEASE_OWNER_TOKEN = /^[0-9a-f]{48}$/;
+const LEASE_COORDINATOR_OUTPUT_LIMIT = 8 * 1024;
+const LEASE_COORDINATOR_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$mutex = $null
+$acquired = $false
+try {
+  $mutex = [System.Threading.Mutex]::new($false, $env:UEMCP_LEASE_MUTEX_NAME)
+  try {
+    $acquired = $mutex.WaitOne([int]$env:UEMCP_LEASE_MUTEX_WAIT_MS)
+  } catch [System.Threading.AbandonedMutexException] {
+    $acquired = $true
+  }
+  if (-not $acquired) {
+    [Console]::Error.Write('mutex timeout')
+    exit 73
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') {
+    throw 'invalid mutex release signal'
+  }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  if ($acquired -and $null -ne $mutex) {
+    $mutex.ReleaseMutex()
+  }
+  if ($null -ne $mutex) {
+    $mutex.Dispose()
+  }
+}
+`;
 const LEASE_PROCESS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 try {
@@ -20,6 +55,7 @@ try {
   [Console]::Out.Write('{"state":"unknown"}')
 }
 `;
+const inProcessLeaseQueues = new Map();
 
 export class LocalStateError extends Error {
   constructor(message, code = 'LOCAL_STATE_UNAVAILABLE', details = {}) {
@@ -46,6 +82,184 @@ function safeSegment(value, label) {
 
 function scratchName(path) {
   return join(dirname(path), `.${randomBytes(16).toString('hex')}.tmp`);
+}
+
+function leasePathKey(path) {
+  const absolute = resolve(path);
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute;
+}
+
+function createInProcessLeaseCoordinator(root) {
+  const key = leasePathKey(root);
+  return async callback => {
+    if (typeof callback !== 'function') throw new LocalStateError('lease coordinator callback is invalid', 'LEASE_COORDINATOR_UNAVAILABLE');
+    const previous = inProcessLeaseQueues.get(key) ?? Promise.resolve();
+    let release;
+    const current = new Promise(resolvePromise => {
+      release = resolvePromise;
+    });
+    inProcessLeaseQueues.set(key, current);
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (inProcessLeaseQueues.get(key) === current) inProcessLeaseQueues.delete(key);
+    }
+  };
+}
+
+function encodedPowerShell(script) {
+  return Buffer.from(script, 'utf16le').toString('base64');
+}
+
+export function createApplyLeaseCoordinator({
+  root,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn,
+  waitMs = 15_000,
+} = {}) {
+  if (typeof root !== 'string' || !isAbsolute(root)) {
+    throw new LocalStateError('lease coordinator root must be absolute', 'LEASE_COORDINATOR_UNAVAILABLE');
+  }
+  if (typeof spawnImpl !== 'function' || !Number.isSafeInteger(waitMs) || waitMs <= 0) {
+    throw new LocalStateError('lease coordinator options are invalid', 'LEASE_COORDINATOR_UNAVAILABLE');
+  }
+  if (platform !== 'win32') return createInProcessLeaseCoordinator(root);
+  if (typeof systemRoot !== 'string' || !isAbsolute(systemRoot)) {
+    throw new LocalStateError('SystemRoot is required for the apply-lease coordinator', 'LEASE_COORDINATOR_UNAVAILABLE');
+  }
+
+  const powershell = resolve(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+  const mutexName = `Local\\UEMCP.DeploymentApply.${sha256Bytes(Buffer.from(leasePathKey(root), 'utf8'))}`;
+  const script = encodedPowerShell(LEASE_COORDINATOR_SCRIPT);
+
+  return async callback => {
+    if (typeof callback !== 'function') throw new LocalStateError('lease coordinator callback is invalid', 'LEASE_COORDINATOR_UNAVAILABLE');
+    let child;
+    try {
+      child = spawnImpl(powershell, [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        script,
+      ], {
+        env: {
+          SystemRoot: resolve(systemRoot),
+          WINDIR: resolve(systemRoot),
+          UEMCP_LEASE_MUTEX_NAME: mutexName,
+          UEMCP_LEASE_MUTEX_WAIT_MS: String(waitMs),
+        },
+        shell: false,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      throw new LocalStateError('apply-lease coordinator could not start', 'LEASE_COORDINATOR_UNAVAILABLE');
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let outputBytes = 0;
+    let closed = false;
+    let closeCode = null;
+    let closeSignal = null;
+    let ready = false;
+    let settleReady;
+    let rejectReady;
+    const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+      settleReady = resolvePromise;
+      rejectReady = rejectPromise;
+    });
+    const closePromise = new Promise(resolvePromise => {
+      child.once('close', (code, signal) => {
+        closed = true;
+        closeCode = code;
+        closeSignal = signal;
+        if (!ready) rejectReady(new LocalStateError('apply-lease coordinator exited before acquisition', 'LEASE_COORDINATOR_UNAVAILABLE'));
+        resolvePromise();
+      });
+    });
+    const failCoordinator = message => {
+      if (!ready) rejectReady(new LocalStateError(message, 'LEASE_COORDINATOR_UNAVAILABLE'));
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // The coordinator may already have exited.
+      }
+    };
+    const capture = (chunk, stream) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      outputBytes += bytes.byteLength;
+      if (outputBytes > LEASE_COORDINATOR_OUTPUT_LIMIT) {
+        failCoordinator('apply-lease coordinator exceeded its output limit');
+        return;
+      }
+      if (stream === 'stdout') {
+        stdout += bytes.toString('utf8');
+        const newline = stdout.indexOf('\n');
+        if (!ready && newline >= 0) {
+          const line = stdout.slice(0, newline).replace(/\r$/, '');
+          if (line !== 'READY') {
+            failCoordinator('apply-lease coordinator returned an invalid handshake');
+            return;
+          }
+          ready = true;
+          settleReady();
+        }
+      } else {
+        stderr += bytes.toString('utf8');
+      }
+    };
+    child.stdout?.on('data', chunk => capture(chunk, 'stdout'));
+    child.stderr?.on('data', chunk => capture(chunk, 'stderr'));
+    child.stdin?.once('error', () => {});
+    child.once('error', () => failCoordinator('apply-lease coordinator failed to start'));
+
+    const acquisitionTimer = setTimeout(() => failCoordinator('apply-lease coordinator timed out'), waitMs + 5_000);
+    acquisitionTimer.unref?.();
+    try {
+      await readyPromise;
+    } finally {
+      clearTimeout(acquisitionTimer);
+    }
+
+    let value;
+    let callbackError = null;
+    try {
+      value = await callback();
+    } catch (error) {
+      callbackError = error;
+    }
+
+    if (!closed && child.stdin) {
+      child.stdin.end('RELEASE\n');
+    }
+    if (!closed) {
+      const releaseTimeout = new Promise(resolvePromise => {
+        const timer = setTimeout(resolvePromise, 5_000);
+        timer.unref?.();
+      });
+      await Promise.race([closePromise, releaseTimeout]);
+    }
+    if (!closed) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // The coordinator may have exited between the timeout and the kill.
+      }
+      await Promise.race([closePromise, new Promise(resolvePromise => setTimeout(resolvePromise, 250))]);
+    }
+    if (callbackError) throw callbackError;
+    if (!closed || closeCode !== 0 || closeSignal !== null || stderr !== '') {
+      throw new LocalStateError('apply-lease coordinator did not release cleanly', 'LEASE_COORDINATOR_UNAVAILABLE');
+    }
+    return value;
+  };
 }
 
 async function exists(fsImpl, path) {
@@ -180,12 +394,17 @@ export function createLocalState({
   fsImpl = defaultFs,
   aclRestrictor = defaultAclRestrictor,
   processInspector = inspectLeaseOwnerProcess,
+  leaseCoordinator,
   clock = Date.now,
   sleep = ms => new Promise(resolvePromise => setTimeout(resolvePromise, ms)),
 } = {}) {
   const selectedRoot = root ?? (process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'UEMCP') : null);
   if (!selectedRoot) throw new LocalStateError('LOCALAPPDATA is unavailable and no local-state root was injected');
   const absoluteRoot = resolve(selectedRoot);
+  const coordinateLease = leaseCoordinator ?? createApplyLeaseCoordinator({ root: absoluteRoot });
+  if (typeof coordinateLease !== 'function') {
+    throw new LocalStateError('lease coordinator is invalid', 'LEASE_COORDINATOR_UNAVAILABLE');
+  }
   const pathSet = Object.freeze({
     root: absoluteRoot,
     state: join(absoluteRoot, 'state'),
@@ -584,22 +803,107 @@ export function createLocalState({
     await writeJsonAtomic(pathSet.replayLedger, ledger);
   }
 
+  function validLeaseRecord(record) {
+    return record !== null
+      && typeof record === 'object'
+      && !Array.isArray(record)
+      && Object.keys(record).sort().join(',') === 'acquired_at,owner_token,pid,process_start'
+      && LEASE_OWNER_TOKEN.test(record.owner_token ?? '')
+      && Number.isSafeInteger(record.pid)
+      && record.pid > 0
+      && Number.isSafeInteger(record.process_start)
+      && Number.isFinite(Date.parse(record.acquired_at));
+  }
+
+  function leasePublishPath(ownerToken) {
+    return `${pathSet.lock}.${ownerToken}.publishing`;
+  }
+
+  function sameFileIdentity(left, right) {
+    return left.dev === right.dev && left.ino === right.ino;
+  }
+
   async function inspectLease() {
     try {
-      await assertNoLinkedLocalPath(pathSet.lock);
+      await assertNoLinkedLocalPath(pathSet.state);
       const stat = await fsImpl.lstat(pathSet.lock);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return { state: 'unsafe' };
+      if (!stat.isFile() || stat.isSymbolicLink() || !Number.isSafeInteger(stat.nlink) || stat.nlink < 1) return { state: 'unsafe' };
       const record = JSON.parse(await fsImpl.readFile(pathSet.lock, 'utf8'));
-      if (typeof record.owner_token !== 'string'
-        || !Number.isSafeInteger(record.pid)
-        || !Number.isFinite(record.process_start)
-        || typeof record.acquired_at !== 'string') return { state: 'malformed' };
+      if (!validLeaseRecord(record)) return { state: 'malformed' };
+      if (stat.nlink === 2) {
+        const publishPath = leasePublishPath(record.owner_token);
+        let publishStat;
+        try {
+          publishStat = await fsImpl.lstat(publishPath);
+        } catch (error) {
+          if (error?.code === 'ENOENT') return { state: 'unsafe' };
+          throw error;
+        }
+        if (!publishStat.isFile()
+          || publishStat.isSymbolicLink()
+          || publishStat.nlink !== 2
+          || !sameFileIdentity(stat, publishStat)) return { state: 'unsafe' };
+        await fsImpl.unlink(publishPath);
+        const healed = await fsImpl.lstat(pathSet.lock);
+        if (!healed.isFile() || healed.isSymbolicLink() || healed.nlink !== 1 || !sameFileIdentity(stat, healed)) {
+          return { state: 'unsafe' };
+        }
+      } else if (stat.nlink !== 1) {
+        return { state: 'unsafe' };
+      }
       return { state: 'valid', record };
     } catch (error) {
       if (error?.code === 'ENOENT') return { state: 'absent' };
       if (error instanceof SyntaxError) return { state: 'malformed' };
       throw error;
     }
+  }
+
+  async function publishLease(record) {
+    const scratch = leasePublishPath(record.owner_token);
+    let handle;
+    let published = false;
+    try {
+      handle = await fsImpl.open(scratch, 'wx', 0o600);
+      await handle.writeFile(`${canonicalJson(record)}\n`, 'utf8');
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      try {
+        await fsImpl.link(scratch, pathSet.lock);
+        published = true;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+      }
+      return published;
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+      await fsImpl.rm(scratch, { force: true }).catch(() => {});
+    }
+  }
+
+  function createLeaseCapability(ownerToken) {
+    let released = false;
+    let releasePromise = null;
+    activeLeaseTokens.add(ownerToken);
+    return Object.freeze({
+      ownerToken,
+      async release(providedToken = ownerToken) {
+        if (released) return;
+        if (providedToken !== ownerToken) throw new LocalStateError('apply lease owner token does not match', 'LEASE_OWNER_MISMATCH');
+        releasePromise ??= coordinateLease(async () => {
+          const current = await inspectLease();
+          if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
+            activeLeaseTokens.delete(ownerToken);
+            throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
+          }
+          await fsImpl.unlink(pathSet.lock);
+          activeLeaseTokens.delete(ownerToken);
+          released = true;
+        });
+        return releasePromise;
+      },
+    });
   }
 
   async function acquireApplyLease({
@@ -613,7 +917,6 @@ export function createLocalState({
     await ensureDirectory(pathSet.state);
     const startedWaiting = Number(clock());
     while (true) {
-      await assertNoLinkedLocalPath(pathSet.lock);
       if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
         throw new LocalStateError('plan expired while waiting for the apply lease', 'PLAN_EXPIRED');
       }
@@ -624,51 +927,31 @@ export function createLocalState({
         process_start: processStart,
         acquired_at: new Date(Number(clock())).toISOString(),
       };
-      let handle;
-      try {
-        handle = await fsImpl.open(pathSet.lock, 'wx', 0o600);
-        await handle.writeFile(`${canonicalJson(record)}\n`, 'utf8');
-        await handle.sync();
-        await handle.close();
-        handle = null;
-        let released = false;
-        activeLeaseTokens.add(ownerToken);
-        return Object.freeze({
-          ownerToken,
-          async release(providedToken = ownerToken) {
-            if (released) return;
-            if (providedToken !== ownerToken) throw new LocalStateError('apply lease owner token does not match', 'LEASE_OWNER_MISMATCH');
-            const current = await inspectLease();
-            if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
-              activeLeaseTokens.delete(ownerToken);
-              throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
-            }
-            await assertNoLinkedLocalPath(pathSet.lock);
-            await fsImpl.unlink(pathSet.lock);
-            activeLeaseTokens.delete(ownerToken);
-            released = true;
-          },
-        });
-      } catch (error) {
-        if (handle) await handle.close().catch(() => {});
-        if (error?.code !== 'EEXIST') throw error;
-      }
+      const attempted = await coordinateLease(async () => {
+        if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
+          throw new LocalStateError('plan expired while waiting for the apply lease', 'PLAN_EXPIRED');
+        }
+        let observed = await inspectLease();
+        if (observed.state !== 'absent') return { acquired: false, observed };
+        if (await publishLease(record)) return { acquired: true, observed: null };
+        observed = await inspectLease();
+        return { acquired: false, observed };
+      });
+      if (attempted.acquired) return createLeaseCapability(ownerToken);
 
-      const observed = await inspectLease();
+      const observed = attempted.observed;
       if (observed.state === 'valid') {
         const ownerState = await processInspector(observed.record);
         const age = Number(clock()) - Date.parse(observed.record.acquired_at);
         if (ownerState === 'dead' && age >= staleGraceMs) {
-          const quarantine = `${pathSet.lock}.${randomBytes(12).toString('hex')}.stale`;
-          try {
-            await assertNoLinkedLocalPath(pathSet.lock);
-            await fsImpl.rename(pathSet.lock, quarantine);
-            await fsImpl.rm(quarantine, { force: true });
-            continue;
-          } catch (error) {
-            if (error?.code === 'ENOENT' || error?.code === 'EEXIST') continue;
-            throw error;
-          }
+          const observedBytes = canonicalJson(observed.record);
+          const reclaimed = await coordinateLease(async () => {
+            const current = await inspectLease();
+            if (current.state !== 'valid' || canonicalJson(current.record) !== observedBytes) return false;
+            await fsImpl.unlink(pathSet.lock);
+            return true;
+          });
+          if (reclaimed) continue;
         }
       }
 
@@ -681,15 +964,17 @@ export function createLocalState({
 
   async function validateApplyLease(lease) {
     const ownerToken = lease?.ownerToken;
-    if (!/^[0-9a-f]{48}$/.test(ownerToken ?? '') || !activeLeaseTokens.has(ownerToken)) {
+    if (!LEASE_OWNER_TOKEN.test(ownerToken ?? '') || !activeLeaseTokens.has(ownerToken)) {
       throw new LocalStateError('apply lease capability is not active', 'LEASE_OWNER_MISMATCH');
     }
-    const current = await inspectLease();
-    if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
-      activeLeaseTokens.delete(ownerToken);
-      throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
-    }
-    return true;
+    return coordinateLease(async () => {
+      const current = await inspectLease();
+      if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
+        activeLeaseTokens.delete(ownerToken);
+        throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
+      }
+      return true;
+    });
   }
 
   return Object.freeze({

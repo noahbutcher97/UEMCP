@@ -46,7 +46,11 @@ import {
   inspectAuthenticode,
   replaceFilePreservingMetadata,
 } from './deployment/windows-native.mjs';
-import { createLocalState, inspectLeaseOwnerProcess } from './deployment/local-state.mjs';
+import {
+  createApplyLeaseCoordinator,
+  createLocalState,
+  inspectLeaseOwnerProcess,
+} from './deployment/local-state.mjs';
 import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 
 const t = new TestRunner('Deployment Contract Tests');
@@ -574,16 +578,40 @@ async function rejectsCode(fn, code) {
   t.assert(calls.every(call => call.options.env.UEMCP_LEASE_PID === '4242' && !call.options.stdin.includes('4242') && call.options.stdin.endsWith('\n\n')), 'lease PID is passed only through a bounded helper environment');
 }
 
+// The lease coordinator admits only one mutation callback for a local-state root at a time.
+{
+  const root = makePrimitiveRoot('uemcp-lease-coordinator-');
+  try {
+    const coordinate = createApplyLeaseCoordinator({ root });
+    let active = 0;
+    let maximumActive = 0;
+    await Promise.all([0, 1].map(() => coordinate(async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 40));
+      active -= 1;
+    })));
+    t.assert(maximumActive === 1, 'apply-lease coordinator serializes concurrent mutation callbacks');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-coordinator-');
+  }
+}
+
 // Local state is injectable, atomic, replay-aware, and lease protected.
 {
   const root = makePrimitiveRoot('uemcp-local-state-');
   const aclCalls = [];
   let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
   const processStates = new Map();
+  let coordinatedMutations = 0;
   const localState = createLocalState({
     root,
     aclRestrictor: async path => aclCalls.push(path),
     processInspector: async ({ pid, process_start }) => processStates.get(`${pid}:${process_start}`) ?? 'unknown',
+    leaseCoordinator: async callback => {
+      coordinatedMutations += 1;
+      return callback();
+    },
     clock: () => nowMs,
     sleep: async ms => {
       nowMs += ms;
@@ -695,7 +723,7 @@ async function rejectsCode(fn, code) {
     t.assert(await rejectsCode(() => localState.acquireApplyLease({ pid: 456, processStart: 2000, waitMs: 0 }), 'APPLY_IN_PROGRESS'), 'malformed lease residue is never broken automatically');
     rmSync(paths.lock, { force: true });
 
-    const deadLease = { owner_token: 'dead-owner-token', pid: 321, process_start: 3000, acquired_at: new Date(nowMs - 60_000).toISOString() };
+    const deadLease = { owner_token: 'd'.repeat(48), pid: 321, process_start: 3000, acquired_at: new Date(nowMs - 60_000).toISOString() };
     mkdirSync(dirname(paths.lock), { recursive: true });
     writeFileSync(paths.lock, canonicalJson(deadLease), 'utf8');
     processStates.set('321:3000', 'dead');
@@ -703,8 +731,118 @@ async function rejectsCode(fn, code) {
     const reclaimed = await localState.acquireApplyLease({ pid: 654, processStart: 4000, waitMs: 100, pollMs: 5, staleGraceMs: 5_000 });
     t.assert(reclaimed.ownerToken !== deadLease.owner_token, 'proven-dead lease is reclaimed after the grace period');
     await reclaimed.release();
+    t.assert(coordinatedMutations >= 6, 'lease publication, inspection, reclamation, and release use the injected coordinator');
   } finally {
     cleanupPrimitiveRoot(root, 'uemcp-local-state-');
+  }
+}
+
+// Interrupted publication never exposes a partial lease record at the canonical lock path.
+{
+  const root = makePrimitiveRoot('uemcp-lease-partial-');
+  let injected = false;
+  const fsImpl = {
+    ...asyncFs,
+    async open(path, flags, mode) {
+      const handle = await asyncFs.open(path, flags, mode);
+      if (!injected && flags === 'wx' && String(path).includes('deployment-apply-v1.lock')) {
+        injected = true;
+        return {
+          async writeFile() {
+            await handle.writeFile('{"owner_token"', 'utf8');
+            const error = new Error('injected partial lease publication');
+            error.code = 'INJECTED_PARTIAL_WRITE';
+            throw error;
+          },
+          sync: (...args) => handle.sync(...args),
+          close: (...args) => handle.close(...args),
+        };
+      }
+      return handle;
+    },
+  };
+  try {
+    const localState = createLocalState({
+      root,
+      fsImpl,
+      aclRestrictor: async () => {},
+      leaseCoordinator: callback => callback(),
+    });
+    const paths = localState.paths();
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0 }), 'INJECTED_PARTIAL_WRITE'), 'partial lease publication failure is surfaced');
+    t.assert(!existsSync(paths.lock), 'partial lease publication never creates the canonical lock');
+    const residue = existsSync(paths.state) ? await asyncFs.readdir(paths.state) : [];
+    t.assert(!residue.some(name => name.includes('deployment-apply-v1.lock')), 'failed lease publication cleans its private scratch record');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-partial-');
+  }
+}
+
+// Stale-owner reclamation revalidates identity before removing the observed lease.
+{
+  const root = makePrimitiveRoot('uemcp-lease-reclaim-race-');
+  let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
+  let paths;
+  const freshRecord = {
+    owner_token: 'f'.repeat(48),
+    pid: 777,
+    process_start: 7000,
+    acquired_at: new Date(nowMs).toISOString(),
+  };
+  const localState = createLocalState({
+    root,
+    aclRestrictor: async () => {},
+    leaseCoordinator: callback => callback(),
+    clock: () => nowMs,
+    processInspector: async () => {
+      rmSync(paths.lock, { force: true });
+      writeFileSync(paths.lock, `${canonicalJson(freshRecord)}\n`, 'utf8');
+      return 'dead';
+    },
+  });
+  try {
+    paths = localState.paths();
+    mkdirSync(dirname(paths.lock), { recursive: true });
+    const staleRecord = {
+      owner_token: 'd'.repeat(48),
+      pid: 321,
+      process_start: 3000,
+      acquired_at: new Date(nowMs - 60_000).toISOString(),
+    };
+    writeFileSync(paths.lock, `${canonicalJson(staleRecord)}\n`, 'utf8');
+    nowMs += 10_000;
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0, staleGraceMs: 5_000 }), 'APPLY_IN_PROGRESS'), 'stale claimant cannot remove a replacement owner published after inspection');
+    t.assert(JSON.parse(readFileSync(paths.lock, 'utf8')).owner_token === freshRecord.owner_token, 'replacement owner remains at the canonical lock path');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-reclaim-race-');
+  }
+}
+
+// A complete hard-link publication residue is healed without weakening malformed-lock handling.
+{
+  const root = makePrimitiveRoot('uemcp-lease-publish-recovery-');
+  try {
+    const localState = createLocalState({
+      root,
+      aclRestrictor: async () => {},
+      leaseCoordinator: callback => callback(),
+      processInspector: async () => 'alive',
+    });
+    const paths = localState.paths();
+    mkdirSync(dirname(paths.lock), { recursive: true });
+    const record = {
+      owner_token: 'c'.repeat(48),
+      pid: 888,
+      process_start: 8000,
+      acquired_at: '2026-07-15T12:00:00.000Z',
+    };
+    const scratch = `${paths.lock}.${record.owner_token}.publishing`;
+    writeFileSync(scratch, `${canonicalJson(record)}\n`, 'utf8');
+    linkSync(scratch, paths.lock);
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0 }), 'APPLY_IN_PROGRESS'), 'complete interrupted publication remains an active lease');
+    t.assert(!existsSync(scratch) && (await asyncFs.lstat(paths.lock)).nlink === 1, 'recognized publish residue is reduced to one canonical link');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-publish-recovery-');
   }
 }
 
