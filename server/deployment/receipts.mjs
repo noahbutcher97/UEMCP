@@ -35,6 +35,8 @@ function sanitizeStage(stage) {
     status: stage.status,
     mandatory: stage.mandatory,
     changed: stage.changed,
+    result: stage.result,
+    progress: stage.progress,
     evidence: redactSecrets(stage.evidence ?? {}),
     action_codes: [...new Set((stage.actions ?? []).map(action => action.code))].sort(),
   };

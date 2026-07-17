@@ -403,7 +403,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(plan.kind === 'uemcp.deployment.plan' && plan.schema_version === '1.0', 'saved plan uses the versioned public kind');
     t.assert(plan.created_at === '2026-07-15T12:00:00.000Z' && plan.expires_at === '2026-07-15T12:30:00.000Z', 'saved plan expires exactly 30 minutes after creation');
     t.assert(plan.digest === computePlanDigest({ ...plan, digest: undefined }), 'stored digest covers the canonical plan body');
-    t.assert(!Object.hasOwn(plan.stages[0], 'result') && !Object.hasOwn(plan.stages[0], 'progress'), 'saved plan stages keep the locked public schema');
+    t.assert(plan.stages[0].result === 'action_required' && plan.stages[0].progress === 'none', 'saved plan stages keep independently verifiable reduction facts');
 
     const reorderedSource = {
       orchestrator_version: '1.0.0',

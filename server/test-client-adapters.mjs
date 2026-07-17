@@ -1819,6 +1819,25 @@ async function rejectsCode(fn, code) {
     }
   }
 
+  {
+    const root = makeRoot();
+    try {
+      const adapter = createClaudeAdapter({ runner: claudeNativeRunner(), captureFingerprint: async path => simpleFingerprint(path) });
+      const context = claudeContext(root);
+      const locations = resolveClaudeLocations(context);
+      writeJson(locations.state.path, {
+        mcpServers: {
+          uemcp: { ...physicalClaudeEntry(context.descriptor), cwd: { malformed: true } },
+        },
+      });
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      const plan = await adapter.plan(context, inspection, context.descriptor);
+      t.assert(inspection.registration === 'MALFORMED_CONFIG' && plan.operations.length === 0, 'Claude malformed custom cwd blocks writes');
+    } finally {
+      cleanup(root);
+    }
+  }
+
   const root = makeRoot();
   try {
     let oversizedCaptured = false;
@@ -2663,12 +2682,32 @@ async function rejectsCode(fn, code) {
     for (const content of [
       '[mcp_servers.uemcp\ncommand = "broken"\n',
       '[mcp_servers.uemcp]\ncommand = "C:\\\\one.exe"\n[mcp_servers.uemcp]\nargs = []\n',
+      `[mcp_servers.uemcp]\ncommand = ${JSON.stringify(context.descriptor.command)}\nargs = [${JSON.stringify(context.descriptor.args[0])}]\ncwd = 42\n`,
     ]) {
       write(locations.user.path, content);
       const inspection = await adapter.inspect(context, await adapter.detect(context));
       const plan = await adapter.plan(context, inspection, context.descriptor);
       t.assert(inspection.registration === 'MALFORMED_CONFIG' && plan.operations.length === 0, 'malformed or duplicate Codex target table blocks writes');
     }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Codex custom-environment review is limited to the shared case-insensitive sensitive-name contract.
+{
+  const root = makeRoot();
+  try {
+    const context = codexContext(root);
+    const locations = resolveCodexLocations(context);
+    const desired = physicalCodexEntry(context.descriptor);
+    const adapter = createCodexAdapter({ runner: codexNativeRunner(root), captureFingerprint: async path => simpleFingerprint(path) });
+    write(locations.user.path, `[mcp_servers.uemcp]\ncommand = ${JSON.stringify(desired.command)}\nargs = [${JSON.stringify(desired.args[0])}]\nenv = { HARMLESS = "preserve" }\n`);
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(!inspection.actions.includes('CUSTOM_ENV_REVIEW_REQUIRED'), 'harmless Codex environment keys do not trigger a sensitive-launch review');
+    write(locations.user.path, `[mcp_servers.uemcp]\ncommand = ${JSON.stringify(desired.command)}\nargs = [${JSON.stringify(desired.args[0])}]\nenv = { PaTh = "preserve" }\n`);
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.actions.includes('CUSTOM_ENV_REVIEW_REQUIRED'), 'case-variant sensitive Codex environment keys trigger review');
   } finally {
     cleanup(root);
   }

@@ -19,14 +19,16 @@ import {
   recordOwnedWrite,
 } from '../ownership-ledger.mjs';
 import {
+  isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
+import { CONFIG_BYTE_LIMIT } from '../config-bytes.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from '../toml-config.mjs';
 
 const DEFAULT_LIMITS = Object.freeze({
-  fileBytes: 8 * 1024 * 1024,
-  aggregateBytes: 32 * 1024 * 1024,
+  fileBytes: CONFIG_BYTE_LIMIT,
+  aggregateBytes: 64 * 1024 * 1024,
   projectLayers: 64,
 });
 const TABLE_PATH = Object.freeze(['mcp_servers', 'uemcp']);
@@ -406,7 +408,7 @@ function safeOwnershipEvidence(value) {
 
 function reviewActions(entry) {
   const actions = [];
-  if (plainObject(entry?.env) && Object.keys(entry.env).length > 0) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
+  if (plainObject(entry?.env) && Object.keys(entry.env).some(isSensitiveClientEnvironmentName)) actions.push('CUSTOM_ENV_REVIEW_REQUIRED');
   if (entry?.cwd !== undefined && entry.cwd !== null) actions.push('CUSTOM_LAUNCH_REVIEW_REQUIRED');
   return actions;
 }
@@ -417,6 +419,12 @@ async function makeOccurrence({ source, scope, desired, ledger, ownershipScope =
   if (entry === undefined) return null;
   if (!plainObject(entry)) fail('Codex MCP entry must be a table', 'MALFORMED_CONFIG');
   if (Object.hasOwn(entry, 'enabled') && typeof entry.enabled !== 'boolean') fail('Codex enabled field must be boolean', 'MALFORMED_CONFIG');
+  if (Object.hasOwn(entry, 'cwd') && entry.cwd !== null && (typeof entry.cwd !== 'string' || entry.cwd.trim() === '')) {
+    fail('Codex cwd field must be a non-empty string or null', 'MALFORMED_CONFIG');
+  }
+  if (Object.hasOwn(entry, 'env') && (!plainObject(entry.env) || Object.values(entry.env).some(value => typeof value !== 'string'))) {
+    fail('Codex environment field must contain string values', 'MALFORMED_CONFIG');
+  }
   const ownership = ownershipScope
     ? await inspectOwnership({
       ledger,

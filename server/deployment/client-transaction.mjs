@@ -13,6 +13,7 @@ import {
 
 import { canonicalJson, sha256Bytes, sha256Canonical } from './canonical-json.mjs';
 import { CLIENT_IDS } from './client-contract.mjs';
+import { CONFIG_BYTE_LIMIT } from './config-bytes.mjs';
 import { fingerprintPath } from './fingerprints.mjs';
 import { createProcessRunner } from './process-runner.mjs';
 import {
@@ -20,7 +21,7 @@ import {
   replaceFilePreservingMetadata,
 } from './windows-native.mjs';
 
-const MAX_CONFIG_BYTES = 8 * 1024 * 1024;
+const MAX_CONFIG_BYTES = CONFIG_BYTE_LIMIT;
 const MAX_STAGE_ENTRIES = 16;
 const STAGE_QUARANTINE_PATTERN = /^\.native-staging-[0-9a-f]{24}\.stale$/;
 const STAGED_WRITE_TOKEN = Symbol('staged-write');

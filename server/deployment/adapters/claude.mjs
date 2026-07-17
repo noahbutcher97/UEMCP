@@ -296,6 +296,12 @@ function safeOwnershipEvidence(value) {
 async function occurrence({ scope, source, entry, jsonPath, desired, ledger, pluginId = null, deletableAfterMigration = false }) {
   if (entry === undefined) return null;
   if (!plainObject(entry)) fail('Claude MCP entry must be an object', 'MALFORMED_CONFIG');
+  if (Object.hasOwn(entry, 'cwd') && entry.cwd !== null && (typeof entry.cwd !== 'string' || entry.cwd.trim() === '')) {
+    fail('Claude cwd field must be a non-empty string or null', 'MALFORMED_CONFIG');
+  }
+  if (Object.hasOwn(entry, 'env') && (!plainObject(entry.env) || Object.values(entry.env).some(value => typeof value !== 'string'))) {
+    fail('Claude environment field must contain string values', 'MALFORMED_CONFIG');
+  }
   const locationInput = { clientId: 'claude', configPath: source.path, scope, entryName: 'uemcp' };
   const ownership = ['user', 'local', 'project'].includes(scope)
     ? await inspectOwnership({ ledger, currentEntry: entry, desiredEntry: desired, location: locationInput })

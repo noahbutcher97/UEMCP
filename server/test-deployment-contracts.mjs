@@ -205,7 +205,7 @@ function validMachineInput(overrides = {}) {
     actions: [validAction()],
   });
   t.assert(stage.name === 'clients' && stage.status === 'RESTART_REQUIRED', 'stage constructor preserves validated fields');
-  t.assert(!Object.hasOwn(stage, 'result') && !Object.hasOwn(stage, 'progress'), 'internal reduction facts are not serialized');
+  t.assert(stage.result === 'action_required' && stage.progress === 'none', 'stage reduction facts are serialized for independent validation');
   t.assert(throwsCode(() => createStageResult({ name: '', status: 'READY' }), 'INVALID_CONTRACT'), 'empty stage name is rejected');
   t.assert(throwsCode(() => createStageResult({ name: 'x', status: '' }), 'INVALID_CONTRACT'), 'empty stage status is rejected');
   t.assert(throwsCode(() => createStageResult({ name: 'x', status: 'NOT_A_STATUS' }), 'INVALID_CONTRACT'), 'unknown stage status is rejected');
@@ -260,7 +260,8 @@ function validMachineInput(overrides = {}) {
   t.assert(result.kind === 'uemcp.deployment.result' && result.outcome === 'HEALTHY', 'machine result is constructed with reduced outcome');
   t.assert(result.timestamp === '2026-07-15T12:00:00.000Z', 'machine result uses the injected timestamp');
   t.assert(validateMachineResult(result) === true, 'machine result validates against schema 1.0');
-  t.assert(!Object.hasOwn(result.stages[0], 'result'), 'serialized machine stages omit internal reduction facts');
+  t.assert(result.stages[0].result === 'ready' && result.stages[0].progress === 'none', 'serialized machine stages retain outcome reduction facts');
+  t.assert(throwsCode(() => validateMachineResult({ ...structuredClone(result), outcome: 'FAILED' }), 'INVALID_CONTRACT'), 'machine result validation rejects an outcome that contradicts its stages');
 
   const archived = createMachineResult(validMachineInput({
     source: validSource({
@@ -284,6 +285,17 @@ function validMachineInput(overrides = {}) {
 
   const withClient = createMachineResult(validMachineInput({ clients: [validClient()] }));
   t.assert(withClient.clients[0].status === 'CONFIGURED', 'field-specific valid client states are accepted');
+  t.assert(throwsCode(() => validateMachineResult({
+    ...structuredClone(withClient),
+    clients: [structuredClone(withClient.clients[0]), structuredClone(withClient.clients[0])],
+  }), 'INVALID_CONTRACT'), 'machine result validation rejects duplicate client adapter identities');
+  const withReceipt = createMachineResult(validMachineInput({
+    receipts: [{ kind: 'deployment', path_label: 'receipts/result.json', sha256: 'a'.repeat(64) }],
+  }));
+  t.assert(throwsCode(() => validateMachineResult({
+    ...structuredClone(withReceipt),
+    receipts: [structuredClone(withReceipt.receipts[0]), structuredClone(withReceipt.receipts[0])],
+  }), 'INVALID_CONTRACT'), 'machine result validation rejects duplicate receipt identities');
   const pendingApproval = createMachineResult(validMachineInput({
     clients: [validClient({
       activation: 'PENDING_APPROVAL',

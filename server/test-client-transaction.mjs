@@ -1640,6 +1640,30 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Transaction writes honor the advertised 16 MiB per-config ceiling rather than a narrower hidden limit.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'config.json');
+    const desiredText = `${JSON.stringify({ payload: 'x'.repeat(9 * 1024 * 1024) })}\n`;
+    const operation = await transactionOperation('codex', path, home, windowsNative, { desired_text: desiredText });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('codex');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED' && (await asyncFs.stat(path)).size === Buffer.byteLength(desiredText), 'a valid config between 8 MiB and 16 MiB commits successfully');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // A native writer that changes its stage and then fails never reaches provider config.
 {
   const root = makeTransactionRoot();
