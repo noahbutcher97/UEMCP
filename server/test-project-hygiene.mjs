@@ -14,6 +14,18 @@ import { TestRunner } from './test-helpers.mjs';
 const t = new TestRunner('Project Hygiene Tests');
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const rotationWorkflow = readFileSync(join(repoRoot, '.github', 'workflows', 'rotation.yml'), 'utf8');
+
+t.assert(/^permissions:\r?\n  contents: read$/m.test(rotationWorkflow),
+  'rotation workflow grants the GitHub token read-only repository contents access');
+t.assert(rotationWorkflow.includes('actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0')
+  && rotationWorkflow.includes('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0')
+  && !/uses:\s+actions\/(?:checkout|setup-node)@v\d+/i.test(rotationWorkflow),
+  'rotation workflow pins current GitHub actions to immutable release commits');
+t.assert(/^\s+persist-credentials: false$/m.test(rotationWorkflow),
+  'rotation checkout does not persist repository credentials');
+t.assert(/^\s+timeout-minutes: 15$/m.test(rotationWorkflow),
+  'rotation job has a bounded timeout above its hosted baseline');
 
 function makeTempRoot() {
   return mkdtempSync(join(tmpdir(), 'uemcp-project-hygiene-'));
