@@ -36,6 +36,17 @@ must equal that row's reviewed `touched_paths`; a missing launch contract,
 blocked inspection, duplicate adapter row, or operation attached to an absent
 or inspect-only row invalidates the plan before apply.
 
+Repair decisions are explicit plan inputs, not ambient adapter options.
+`--replace-owned-client-fields` permits replacement only when the ownership
+ledger proves that UEMCP previously owned the changed fields;
+`--shadow-gemini-extension` permits a reviewed user registration to shadow one
+conflicting extension registration without modifying the extension; and
+`--migrate-legacy-claude-project` permits migration of a legacy Claude project
+registration only when no higher-precedence local registration exists. These
+booleans are serialized as `request.client_decisions`, covered by the plan
+digest, and forbidden as apply-time overrides. They never authorize replacing
+an unowned conflict.
+
 Provider workspace inspection is rooted at the directory from which the
 deployment CLI was invoked. `--project` and `--profile` select Unreal target
 registration; they do not silently redefine provider project/workspace scope
@@ -68,6 +79,15 @@ inspection once and requires the second result to remain stable. Repeated drift
 or any unsafe fingerprint failure still stops before protocol launch; apply-time
 plan preconditions are never relaxed by this settlement retry.
 
+For npm-installed Claude, Codex, and Gemini clients, launch evidence also binds
+the declared installed dependency closure containing the JavaScript entrypoint.
+Nested and hoisted required, optional, and peer packages are resolved beneath
+one canonical npm module root. The closure is capped at 2,048 packages, 32,768
+traversed entries, 16,384 files, and 1 GiB of aggregate file content; links and
+multiply linked files are rejected. Its canonical manifest is recomputed before
+every native or protocol launch. A runtime changed after discovery fails closed
+even when the package version string did not change.
+
 Transaction results use a closed schema. Client rows, touched paths and hashes,
 rollback rows, hook errors, retained snapshots, and cleanup actions must all be
 well formed and refer only to approved writable paths. Nominal success without
@@ -79,25 +99,33 @@ the original bytes were restored successfully.
 
 ## Client Boundaries
 
-Claude managed policy is authoritative. Local and project registrations can
-require trust or approval even when user registration is exact. Native list/get
-evidence can report connected, pending approval, rejected, absent, or unknown;
-it does not replace structural or protocol proof. Native mutation is disabled.
+Claude managed policy is authoritative. Workspace trust is derived from the
+current project's entry in Claude user state, while project approval and
+enablement are derived from the effective settings files. Installed plugin
+registrations are read only from the bounded installed-plugin registry and
+cache, with plugin enablement and `${CLAUDE_PLUGIN_ROOT}` resolution applied.
+Local and project registrations can require trust or approval even when user
+registration is exact. Native list/get evidence can report connected, pending
+approval, rejected, absent, or unknown; it does not replace structural or
+protocol proof. Native mutation is disabled.
 
-Codex project layers are inspected root-to-leaf only for trusted workspaces; the
-deepest active layer wins over user configuration. The host CLI's MCP registry
-is shared state, while desktop activation is not proven by the CLI. A fresh
-absent user file may use release-gated `mcp add` only against transaction-owned
-staging, followed by exact-byte replacement. Existing files use parser-backed
-targeted edits. Other native mutation is disabled.
+Codex workspace trust is derived from the exact project entry in the user's
+`projects` table. Project layers are inspected root-to-leaf only for trusted
+workspaces; the deepest active layer wins over user configuration. The host
+CLI's MCP registry is shared state, while desktop activation is not proven by
+the CLI. A fresh absent user file may use release-gated `mcp add` only against
+transaction-owned staging, followed by exact-byte replacement. Existing files
+use parser-backed targeted edits. Other native mutation is disabled.
 
-Gemini precedence is system defaults, user, trusted project, then system
-override; enabled extension declarations remain separate provenance. Persistent
-disable, administrative policy, session connection, and pending trust are
-independent. The adapter never mutates enablement or invokes native add/remove.
-Protocol smoke uses the fully deep-merged effective settings entry, including
-inherited environment and working-directory fields, rather than the physical
-occurrence that contributed the highest-precedence fragment.
+Gemini workspace trust is derived from its effective folder-trust setting,
+trusted-folders rules, and the documented trust override environment. Its
+precedence is system defaults, user, trusted project, then system override;
+enabled extension declarations remain separate provenance. Persistent disable,
+administrative policy, session connection, and pending trust are independent.
+The adapter never mutates enablement or invokes native add/remove. Protocol
+smoke uses the fully deep-merged effective settings entry, including inherited
+environment and working-directory fields, rather than the physical occurrence
+that contributed the highest-precedence fragment.
 
 VS Code is version-probed only through `Code.exe` plus its same-install
 `resources/app/out/cli.js` and exact `ELECTRON_RUN_AS_NODE`/`VSCODE_DEV`
@@ -116,6 +144,12 @@ Sensitive launch review is case-insensitive and shared across adapters for
 `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`,
 `GEMINI_CLI_HOME`, and every `UEMCP_` or `UNREAL_` prefix.
 
+Provider CLI probes and native read commands remove ambient `NODE_OPTIONS` and
+`NODE_PATH` case-insensitively. Protocol smoke removes those controls from the
+parent process too, then applies the inspected registration overlay. An
+explicit registration value can therefore execute only after its normal
+custom-environment review is present in the approved plan.
+
 Standalone verify and doctor do not protocol-smoke a registration carrying
 `CUSTOM_ENV_REVIEW_REQUIRED` or `CUSTOM_LAUNCH_REVIEW_REQUIRED`. Structural and
 native facts remain visible and protocol status remains unknown. Approved apply
@@ -127,7 +161,18 @@ Protocol smoke uses a repo-owned stdio transport rather than the SDK's unbounded
 line buffer. Total child stdout is capped at 8 MiB and stderr at 64 KiB; either
 overflow terminates the child and fails the active protocol phase. Unterminated
 JSON lines are therefore bounded by the same stdout ceiling, and no provider
-output is copied into public evidence.
+output is copied into public evidence. On Windows, close invokes the absolute
+system `taskkill.exe` with `/T /F` before sending EOF and waits for the child
+`close` event. This covers the normal descendant process cases exercised by the
+smoke suite. A bounded direct-child fallback remains for failure of the system
+tree-termination primitive; kernel-enforced Job Object containment is not part
+of this release gate.
+
+The npm closure manifest is execution-drift evidence for the currently
+installed bytes, not package-registry authenticity evidence. Files reached only
+through an intentionally undeclared import from a shared module root are not in
+the declared closure. Enforcing that stronger boundary requires a future
+isolated runtime or loader policy rather than a wider filesystem hash.
 
 ## Unsupported Clients
 

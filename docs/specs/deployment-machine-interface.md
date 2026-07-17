@@ -30,6 +30,12 @@ requested. When registration is planned, the canonical registry path is also
 sealed into the operation so a later apply process does not depend on its own
 default target-path selection.
 
+`plan` and `repair` additionally accept `--replace-owned-client-fields`,
+`--shadow-gemini-extension`, and `--migrate-legacy-claude-project`. These are
+narrow repair decisions: they are serialized in `request.client_decisions`,
+bound by the plan digest, and cannot be supplied to `verify`, `doctor`, or
+`apply`. They do not authorize replacement of unowned client state.
+
 `apply` accepts no target, profile, client, or operation override. It requires
 the exact saved plan, its exact digest, and `--non-interactive`. `repair` only
 creates a reviewed repair plan; applying it uses the same `apply` command.
@@ -80,6 +86,14 @@ The central client transaction receives the orchestrator's already-held apply
 lease as an externally owned capability. It neither reacquires nor releases
 that lease; only the orchestrator releases it after receipts and replay state
 are durable.
+
+Lease publication is a create-only Windows-safe protocol. Each claimant writes
+and flushes an owner-token-specific record, then hard-links it to the canonical
+lease path. Only one claimant can publish that path. Inspection recognizes and
+heals the exact two-link residue left by interruption after publication;
+malformed, aliased, multiply linked, or otherwise ambiguous residue fails
+closed. Release requires the still-active in-memory owner capability and an
+exact on-disk owner-token match.
 
 Mutation-capable apply uses a write-ahead journal keyed by plan digest. The
 journal cannot enter `applying` until it contains a prepared, self-hashed
@@ -205,6 +219,15 @@ statuses, missing or foreign touched paths, null hashes for writes, malformed
 rollback evidence, and invalid retained-snapshot or cleanup rows terminalize as
 committed `SYNC_FAILED` rather than becoming healthy output.
 
+Npm-package launch tuples additionally bind a deterministic manifest for the
+declared installed dependency closure, including nested and hoisted required,
+optional, and peer packages. Discovery and every active launch reject links,
+multiply linked files, unsupported path types, concurrent read drift, more than
+2,048 packages, more than 32,768 traversed entries, more than 16,384 files, or
+more than 1 GiB of aggregate file content. The reviewed JavaScript entrypoint
+and every resolved package root must remain beneath the same canonical npm
+module root.
+
 `ROLLBACK_FAILED` is distinct from `ROLLED_BACK` and `ROLLBACK_CONFLICT`. It is
 a committed terminal failure with path-only restoration, hook-error, touched
 hash, and retained-snapshot evidence. Affected client rows are downgraded to the
@@ -256,6 +279,15 @@ when the saved plan contains the corresponding review action. Protocol health
 does not imply that a native client is configured, enabled, trusted, or
 restarted.
 
+The bounded stdio transport caps stdout and stderr, terminates the Windows
+process tree through the absolute system `taskkill.exe /T /F` before sending
+EOF, and waits for the child `close` event. Its independent six-second cleanup
+deadline is longer than the bounded tree-termination path and the covered
+descendant cases release their configured working directory before return.
+Ambient `NODE_OPTIONS` and `NODE_PATH` are removed from provider CLI and
+protocol-smoke processes. A registration-provided value is applied only from
+the inspected private overlay and remains subject to explicit review.
+
 ## Standalone Bundle
 
 `dist/deploy-uemcp.mjs` bundles deployment-only JavaScript and third-party
@@ -291,7 +323,9 @@ npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 ```
 
 It validates the complete production closure rather than treating a
-`node_modules` directory as proof of readiness.
+`node_modules` directory as proof of readiness. Npm-installed client CLIs use
+the same bounded runtime-tree manifest described above; package version alone
+is never execution authority.
 
 ## Security And Compatibility
 
@@ -302,6 +336,13 @@ Path checks reject device paths, unsafe links, and real-path escape before any
 write. Snapshot creation and rollback reject linked files and linked ancestor
 paths. The Windows apply lease checks both PID and process-start evidence, so a
 reused PID cannot impersonate a crashed owner.
+
+Immediately around each config creation, replacement, deferred delete,
+rollback restoration, and transaction-owned directory cleanup, the transaction
+opens and validates every existing ancestor from the volume root and holds a
+delete-denying sentinel in the destination parent. Parent identity is
+revalidated after acquisition. Directory substitution therefore becomes a
+precondition or rollback conflict rather than redirecting the approved write.
 
 CLI failures emit only closed error codes and fixed diagnostic text. Arbitrary
 provider, parser, child-process, command, flag, and exception text is never
@@ -327,5 +368,14 @@ release gates in `client-contract.mjs`. Unsupported releases remain
 inspect-only. Generic hosts still use the canonical manual descriptor and
 truthfully report `MANUAL_REGISTRATION_REQUIRED`. Plugin copy/build/load proof
 is not enabled yet; it joins the same orchestrator as a later plugin domain.
+Npm runtime manifests bind the declared installed dependency closure and detect
+plan-to-launch byte drift. They do not authenticate registry provenance or
+confine an intentionally undeclared import from a shared module root. Windows
+descendant termination uses bounded `taskkill /T`; kernel-enforced Job Object
+containment remains a follow-on for hostile early-parent-exit cases.
+The legacy `setup-uemcp.bat` onboarding entrypoint has not yet been cut over to
+this machine interface, and uninstall/retirement behavior is not part of this
+client-adapter slice. Those remain separate implementation plans rather than
+implicit behavior of `plan --operation setup`.
 See `docs/specs/client-adapters.md` for client-specific support and proof
 boundaries.
