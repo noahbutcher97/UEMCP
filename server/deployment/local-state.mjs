@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } fr
 
 import { canonicalJson, sha256Bytes, sha256Canonical } from './canonical-json.mjs';
 import { createProcessRunner } from './process-runner.mjs';
+import { deleteWindowsTreeNoFollow } from './windows-native.mjs';
 
 const SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -292,6 +293,73 @@ async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
   return absolute;
 }
 
+function stableFileIdentity(stat) {
+  return {
+    dev: Number(stat.dev),
+    ino: Number(stat.ino),
+    birthtime_ms: Number(stat.birthtimeMs),
+  };
+}
+
+function sameStableFile(left, right) {
+  return left.isFile()
+    && right.isFile()
+    && !left.isSymbolicLink()
+    && !right.isSymbolicLink()
+    && Number(left.nlink) === 1
+    && Number(right.nlink) === 1
+    && Number(left.dev) === Number(right.dev)
+    && Number(left.ino) === Number(right.ino)
+    && Number(left.birthtimeMs) === Number(right.birthtimeMs)
+    && Number(left.size) === Number(right.size)
+    && Number(left.mtimeMs) === Number(right.mtimeMs)
+    && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+
+async function readStableSingleLinkFile(path, { fsImpl, code, missingAllowed = true }) {
+  let pathBefore;
+  try {
+    pathBefore = await fsImpl.lstat(path);
+  } catch (error) {
+    if (error?.code !== 'ENOENT' || !missingAllowed) throw error;
+    try {
+      await fsImpl.lstat(path);
+    } catch (secondError) {
+      if (secondError?.code === 'ENOENT') return { exists: false, bytes: null, stat: null };
+      throw secondError;
+    }
+    throw new LocalStateError('snapshot target appeared during inspection', code);
+  }
+  if (!pathBefore.isFile() || pathBefore.isSymbolicLink() || Number(pathBefore.nlink) !== 1) {
+    throw new LocalStateError('snapshot target must be a regular single-link file', code);
+  }
+
+  let handle;
+  try {
+    handle = await fsImpl.open(path, 'r');
+    const handleBefore = await handle.stat();
+    if (!sameStableFile(pathBefore, handleBefore)) {
+      throw new LocalStateError('snapshot target changed before its read handle was secured', code);
+    }
+    const bytes = await handle.readFile();
+    const handleAfter = await handle.stat();
+    const pathAfter = await fsImpl.lstat(path);
+    if (!sameStableFile(handleBefore, handleAfter)
+      || !sameStableFile(handleAfter, pathAfter)
+      || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new LocalStateError('snapshot target changed while it was read', code);
+    }
+    return { exists: true, bytes, stat: pathBefore };
+  } catch (error) {
+    if (error?.code === 'ENOENT' && missingAllowed) {
+      throw new LocalStateError('snapshot target disappeared during inspection', code);
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 export async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = {}, {
   runner = createProcessRunner(),
   platform = process.platform,
@@ -395,6 +463,7 @@ export function createLocalState({
   aclRestrictor = defaultAclRestrictor,
   processInspector = inspectLeaseOwnerProcess,
   leaseCoordinator,
+  treeRemover,
   clock = Date.now,
   sleep = ms => new Promise(resolvePromise => setTimeout(resolvePromise, ms)),
 } = {}) {
@@ -402,6 +471,15 @@ export function createLocalState({
   if (!selectedRoot) throw new LocalStateError('LOCALAPPDATA is unavailable and no local-state root was injected');
   const absoluteRoot = resolve(selectedRoot);
   const coordinateLease = leaseCoordinator ?? createApplyLeaseCoordinator({ root: absoluteRoot });
+  if (treeRemover !== undefined && typeof treeRemover !== 'function') {
+    throw new LocalStateError('local-state tree remover is invalid');
+  }
+  const treeDeleteRunner = treeRemover === undefined ? createProcessRunner() : null;
+  const removeTree = treeRemover ?? (options => deleteWindowsTreeNoFollow({
+    ...options,
+    runner: treeDeleteRunner,
+    fsImpl,
+  }));
   if (typeof coordinateLease !== 'function') {
     throw new LocalStateError('lease coordinator is invalid', 'LEASE_COORDINATOR_UNAVAILABLE');
   }
@@ -499,21 +577,21 @@ export function createLocalState({
     if (!contained(pathSet.snapshots, directory)) throw new LocalStateError('snapshot transaction escapes the snapshot root');
     await ensureDirectory(directory);
     const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: 'UNSAFE_SNAPSHOT_TARGET' });
-    let stat = null;
-    let bytes = null;
-    try {
-      stat = await fsImpl.lstat(absoluteTarget);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new LocalStateError('snapshot target must be a regular single-link file', 'UNSAFE_SNAPSHOT_TARGET');
-      bytes = await fsImpl.readFile(absoluteTarget);
+    const captured = await readStableSingleLinkFile(absoluteTarget, {
+      fsImpl,
+      code: 'UNSAFE_SNAPSHOT_TARGET',
+    });
+    const { bytes, stat } = captured;
+    if (captured.exists) {
       await writeBytesAtomic(join(directory, 'payload.bin'), bytes);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
     }
     const metadata = {
       schema_version: '1.0',
       snapshot_id: `${id}/${directory.split(/[\\/]/).at(-1)}`,
       target_path: absoluteTarget,
-      exists: stat !== null,
+      exists: captured.exists,
+      size: stat === null ? null : Number(stat.size),
+      identity: stat === null ? null : stableFileIdentity(stat),
       mode: stat === null ? null : stat.mode,
       atime_ms: stat === null ? null : stat.atimeMs,
       mtime_ms: stat === null ? null : stat.mtimeMs,
@@ -541,9 +619,11 @@ export function createLocalState({
     }
     let currentHash = null;
     try {
-      const currentStat = await fsImpl.lstat(metadata.target_path);
-      if (!currentStat.isFile() || currentStat.isSymbolicLink() || currentStat.nlink !== 1) throw new LocalStateError('rollback target changed identity', 'ROLLBACK_CONFLICT');
-      currentHash = sha256Bytes(await fsImpl.readFile(metadata.target_path));
+      const current = await readStableSingleLinkFile(metadata.target_path, {
+        fsImpl,
+        code: 'ROLLBACK_CONFLICT',
+      });
+      currentHash = current.exists ? sha256Bytes(current.bytes) : null;
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
@@ -554,7 +634,12 @@ export function createLocalState({
       await fsImpl.rm(metadata.target_path, { force: true });
       return { status: 'restored_absent' };
     }
-    const payload = await fsImpl.readFile(join(snapshot.directory, 'payload.bin'));
+    const payloadResult = await readStableSingleLinkFile(join(snapshot.directory, 'payload.bin'), {
+      fsImpl,
+      code: 'INVALID_SNAPSHOT',
+      missingAllowed: false,
+    });
+    const payload = payloadResult.bytes;
     if (sha256Bytes(payload) !== metadata.original_sha256) {
       throw new LocalStateError('snapshot payload hash is invalid', 'INVALID_SNAPSHOT');
     }
@@ -583,7 +668,10 @@ export function createLocalState({
       throw new LocalStateError('snapshot is outside the local-state root', 'INVALID_SNAPSHOT');
     }
     await assertNoLinkedLocalPath(snapshot.directory);
-    await fsImpl.rm(snapshot.directory, { recursive: true, force: true });
+    await removeTree({ targetPath: snapshot.directory, allowedRoot: pathSet.snapshots });
+    if (await exists(fsImpl, snapshot.directory)) {
+      throw new LocalStateError('snapshot cleanup could not be verified', 'SNAPSHOT_DELETE_FAILED');
+    }
   }
 
   async function cleanupExpired() {
@@ -599,7 +687,10 @@ export function createLocalState({
         const directory = join(transactionPath, entry.name);
         const metadata = await readJson(join(directory, 'metadata.json')).catch(() => null);
         if (metadata?.retained_until && Date.parse(metadata.retained_until) <= Number(clock())) {
-          await fsImpl.rm(directory, { recursive: true, force: true });
+          await removeTree({ targetPath: directory, allowedRoot: pathSet.snapshots });
+          if (await exists(fsImpl, directory)) {
+            throw new LocalStateError('expired snapshot cleanup could not be verified', 'SNAPSHOT_DELETE_FAILED');
+          }
           deleted += 1;
         }
       }

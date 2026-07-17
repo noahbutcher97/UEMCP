@@ -125,6 +125,11 @@ function virtualWindowsMetadata() {
     async withPinnedAncestry({ callback }) {
       return callback();
     },
+    async deleteTreeNoFollow({ targetPath }) {
+      calls.push({ type: 'delete-tree', targetPath: resolve(targetPath) });
+      await asyncFs.rm(targetPath, { recursive: true, force: true });
+      return { status: 'removed' };
+    },
     async replaceFilePreservingMetadata({ replacementPath, destinationPath }) {
       calls.push({ replacementPath: resolve(replacementPath), destinationPath: resolve(destinationPath) });
       if (failReplace) {
@@ -146,6 +151,7 @@ function createTestLocalState(root, calls = []) {
     root: join(root, 'local-state'),
     aclRestrictor: async () => {},
     processInspector: async () => 'alive',
+    treeRemover: async ({ targetPath }) => asyncFs.rm(targetPath, { recursive: true, force: true }),
   });
   return Object.freeze({
     ...base,
@@ -976,6 +982,50 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Snapshot bytes and identity must still match the already-approved transaction fingerprint.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const baseLocalState = createTestLocalState(root);
+    let deleted = 0;
+    const localState = {
+      ...baseLocalState,
+      async createSnapshot(path, options) {
+        const snapshot = await baseLocalState.createSnapshot(path, options);
+        return Object.freeze({
+          ...snapshot,
+          metadata: Object.freeze({
+            ...snapshot.metadata,
+            original_sha256: '0'.repeat(64),
+          }),
+        });
+      },
+      async deleteSnapshot(snapshot) {
+        deleted += 1;
+        return baseLocalState.deleteSnapshot(snapshot);
+      },
+    };
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"before":true}\n'));
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(baseLocalState.paths().ownership, {
+      allowedRoots: [baseLocalState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    t.assert(await rejectsCode(() => transaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [fakeAdapter('claude')],
+      operations: [operation],
+      context: {},
+      ownershipFingerprint,
+    }), 'TRANSACTION_PRECONDITION_CHANGED'), 'transaction rejects snapshot bytes that do not match the approved writable fingerprint');
+    t.assert(deleted >= 1 && (await asyncFs.readFile(path, 'utf8')) === '{"before":true}\n', 'snapshot mismatch cleans restricted evidence and leaves provider bytes untouched');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Link identity, linked ancestors, and fingerprint drift fail closed before snapshots.
 {
   const root = makeTransactionRoot();
@@ -1704,6 +1754,45 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Transaction-created directory cleanup failures remain visible in the rollback result.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const createdParent = join(home, 'created');
+    const nestedParent = join(createdParent, 'nested');
+    const path = join(nestedParent, 'claude.json');
+    const guardedFs = {
+      ...asyncFs,
+      async rmdir(target, options) {
+        if (resolve(target) === resolve(nestedParent)) {
+          throw Object.assign(new Error('injected directory cleanup failure'), { code: 'EACCES' });
+        }
+        return asyncFs.rmdir(target, options);
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: guardedFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { failAfterWrite: true });
+    const transaction = createClientTransaction({ localState, fsImpl: guardedFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_FAILED', 'created-directory cleanup failure prevents a complete rollback claim');
+    t.assert(
+      result.rollback.hook_errors.some(row => row.client_id === 'transaction' && row.code === 'CREATED_DIRECTORY_CLEANUP_FAILED'),
+      'created-directory cleanup failure has a stable transaction-level diagnostic',
+    );
+    t.assert((await asyncFs.stat(nestedParent)).isDirectory(), 'failed directory cleanup leaves the unresolved owned path intact');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Exact-entry adoption treats provider config as read-only and snapshots only the ownership ledger.
 {
   const root = makeTransactionRoot();
@@ -2040,6 +2129,7 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     t.assert(result.status === 'APPLIED', 'staged native write can commit to an existing reviewed target');
     t.assert((await asyncFs.readFile(path, 'utf8')) === operation.desired_text, 'existing target receives only the parsed staged bytes');
     t.assert(windowsNative.calls.some(call => call.destinationPath === resolve(path)), 'existing staged write uses metadata-preserving replacement');
+    t.assert(windowsNative.calls.some(call => call.type === 'delete-tree'), 'native stage cleanup delegates recursive deletion to the no-follow Windows helper');
   } finally {
     cleanupTransactionRoot(root);
   }

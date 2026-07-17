@@ -17,6 +17,7 @@ import { CONFIG_BYTE_LIMIT } from './config-bytes.mjs';
 import { fingerprintPath } from './fingerprints.mjs';
 import { createProcessRunner } from './process-runner.mjs';
 import {
+  deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
   withPinnedWindowsAncestry,
@@ -40,6 +41,7 @@ const ACTION_STATUSES = new Set([
 const READY_STATUSES = new Set(['APPLIED', 'MATCHING', 'NO_OP', 'READY']);
 
 const DEFAULT_WINDOWS_NATIVE = Object.freeze({
+  deleteTreeNoFollow: deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
   withPinnedAncestry: withPinnedWindowsAncestry,
@@ -219,6 +221,19 @@ function fingerprintsEqual(left, right, options) {
   return sha256Canonical(comparableFingerprint(left, options)) === sha256Canonical(comparableFingerprint(right, options));
 }
 
+function snapshotMatchesFingerprint(snapshot, fingerprint) {
+  const metadata = snapshot?.metadata;
+  if (!metadata || metadata.exists !== fingerprint.exists) return false;
+  if (!fingerprint.exists) {
+    return metadata.original_sha256 === null
+      && metadata.size === null
+      && metadata.identity === null;
+  }
+  return metadata.original_sha256 === fingerprint.content_sha256
+    && metadata.size === fingerprint.size
+    && sha256Canonical(metadata.identity) === sha256Canonical(fingerprint.identity);
+}
+
 function validatePlanDigest(planDigest) {
   if (!/^[0-9a-f]{64}$/.test(planDigest ?? '')) fail('transaction plan digest is invalid', 'INVALID_PLAN_DIGEST');
 }
@@ -387,6 +402,7 @@ export function createClientTransaction({
     fail('transaction requires the core local-state contract', 'INVALID_LOCAL_STATE');
   }
   if (!windowsNative?.fingerprintWindowsFileMetadata
+    || !windowsNative?.deleteTreeNoFollow
     || !windowsNative?.replaceFilePreservingMetadata
     || !windowsNative?.withPinnedAncestry) {
     fail('transaction requires the Windows metadata contract', 'INVALID_WINDOWS_NATIVE');
@@ -639,24 +655,6 @@ export function createClientTransaction({
     return { stateRoot, stageParent };
   }
 
-  async function removeTreeWithoutFollowingLinks(path) {
-    let stat;
-    try {
-      stat = await fsImpl.lstat(path);
-    } catch (error) {
-      if (isMissing(error)) return;
-      throw error;
-    }
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      await fsImpl.rm(path, { force: true });
-      return;
-    }
-    for (const name of await fsImpl.readdir(path)) {
-      await removeTreeWithoutFollowingLinks(join(path, name));
-    }
-    await fsImpl.rmdir(path);
-  }
-
   async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
     if (pathKey(dirname(path)) !== pathKey(stateRoot)) fail('detached native stage path is unsafe', 'STAGED_CLEANUP_FAILED');
     let unsafe = false;
@@ -668,7 +666,13 @@ export function createClientTransaction({
         const names = await fsImpl.readdir(path);
         contaminated = names.length !== 1 || names[0] !== expectedChildName;
       }
-      await removeTreeWithoutFollowingLinks(path);
+      await windowsNative.deleteTreeNoFollow({
+        targetPath: path,
+        allowedRoot: stateRoot,
+        runner: processRunner,
+        systemRoot,
+        fsImpl,
+      });
       const remains = await fsImpl.lstat(path).then(() => true, error => {
         if (isMissing(error)) return false;
         throw error;
@@ -690,13 +694,17 @@ export function createClientTransaction({
     if (pathKey(dirname(quarantine)) !== pathKey(stateRoot)) {
       fail('native stage quarantine path is unsafe', 'STAGED_CLEANUP_FAILED');
     }
-    try {
-      await fsImpl.rename(stageParent, quarantine);
-    } catch (error) {
-      if (isMissing(error)) return { removed: false, unsafe: false, contaminated: false };
-      fail('native stage could not be detached for cleanup', 'STAGED_CLEANUP_FAILED', { cause_code: error?.code ?? 'UNKNOWN' });
-    }
-    return removeDetachedStage(quarantine, stateRoot, options);
+    return withPinnedDirectory(stateRoot, async guard => {
+      try {
+        guard?.assertPinned?.();
+        await fsImpl.rename(stageParent, quarantine);
+        guard?.assertPinned?.();
+      } catch (error) {
+        if (isMissing(error)) return { removed: false, unsafe: false, contaminated: false };
+        fail('native stage could not be detached for cleanup', 'STAGED_CLEANUP_FAILED', { cause_code: error?.code ?? 'UNKNOWN' });
+      }
+      return removeDetachedStage(quarantine, stateRoot, options);
+    });
   }
 
   async function cleanupAbandonedStages() {
@@ -991,6 +999,9 @@ export function createClientTransaction({
           transactionId: state.transactionId,
           retainOnConflict: true,
         });
+        if (!snapshotMatchesFingerprint(record.snapshot, record.currentFingerprint)) {
+          fail('snapshot differs from the approved writable fingerprint', 'TRANSACTION_PRECONDITION_CHANGED');
+        }
       }
       state.planDigest = planDigest;
       state.operationDigest = operationDigest(operations);
@@ -1063,6 +1074,7 @@ export function createClientTransaction({
 
   async function cleanupCreatedDirectories() {
     const seen = new Set();
+    const failures = [];
     for (const created of [...state.createdDirectories].reverse()) {
       const key = pathKey(created.path);
       if (seen.has(key)) continue;
@@ -1071,16 +1083,25 @@ export function createClientTransaction({
         await withPinnedDirectory(dirname(created.path), async guard => {
           guard?.assertPinned?.();
           const current = await directoryIdentity(created.path, fsImpl);
-          if (!identityEqual(current, created.identity)) return;
-          if ((await fsImpl.readdir(created.path)).length !== 0) return;
+          if (!identityEqual(current, created.identity)) {
+            failures.push({ path: created.path, code: 'CREATED_DIRECTORY_IDENTITY_CHANGED' });
+            return;
+          }
+          if ((await fsImpl.readdir(created.path)).length !== 0) {
+            failures.push({ path: created.path, code: 'CREATED_DIRECTORY_NOT_EMPTY' });
+            return;
+          }
           guard?.assertPinned?.();
           await fsImpl.rmdir(created.path);
           guard?.assertPinned?.();
         });
       } catch (error) {
-        if (!isMissing(error)) continue;
+        if (!isMissing(error)) {
+          failures.push({ path: created.path, code: 'CREATED_DIRECTORY_CLEANUP_FAILED' });
+        }
       }
     }
+    return failures;
   }
 
   async function restoreRecord(record) {
@@ -1189,7 +1210,14 @@ export function createClientTransaction({
         restoration.push({ status: 'failed', path: record.path, code: error?.code ?? 'ROLLBACK_FAILED' });
       }
     }
-    await cleanupCreatedDirectories();
+    const directoryCleanupFailures = await cleanupCreatedDirectories();
+    if (directoryCleanupFailures.length > 0) {
+      hookFailed = true;
+      hookErrors.push(...directoryCleanupFailures.map(row => ({
+        client_id: 'transaction',
+        code: row.code,
+      })));
+    }
 
     const retained = [];
     for (const record of state.records.values()) {

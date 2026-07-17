@@ -43,6 +43,7 @@ import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mj
 import { createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
 import {
   WINDOWS_NATIVE_SCRIPTS,
+  deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   inspectAuthenticode,
   replaceFilePreservingMetadata,
@@ -730,6 +731,53 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Recursive cleanup deletes reparse points as objects while preserving their targets.
+{
+  const root = makePrimitiveRoot('uemcp-delete-tree-');
+  try {
+    let runnerCalls = 0;
+    const neverRunner = {
+      async run() {
+        runnerCalls += 1;
+        throw new Error('must not run');
+      },
+    };
+    t.assert(await rejectsCode(() => deleteWindowsTreeNoFollow({
+      targetPath: root,
+      allowedRoot: root,
+      runner: neverRunner,
+    }), 'INVALID_TREE_DELETE'), 'no-follow tree deletion cannot remove its allowed root');
+    t.assert(runnerCalls === 0, 'invalid tree deletion never starts PowerShell');
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('SetFileInformationByHandle')
+        && !WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('Remove-Item')
+        && !WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('Directory.Delete'),
+      'tree deletion opens reparse points as objects and deletes by handle without pathname-recursive APIs',
+    );
+
+    if (process.platform === 'win32') {
+      const allowedRoot = join(root, 'owned');
+      const target = join(allowedRoot, 'discard');
+      const outside = join(root, 'outside');
+      mkdirSync(target, { recursive: true });
+      mkdirSync(outside);
+      writeFileSync(join(target, 'inside.txt'), 'inside', 'utf8');
+      writeFileSync(join(outside, 'sentinel.txt'), 'outside', 'utf8');
+      symlinkSync(outside, join(target, 'redirect'), 'junction');
+      const deleted = await deleteWindowsTreeNoFollow({
+        targetPath: target,
+        allowedRoot,
+        runner: createProcessRunner(),
+      });
+      t.assert(deleted.status === 'removed' && !existsSync(target), 'native no-follow tree deletion removes the owned tree');
+      t.assert(readFileSync(join(outside, 'sentinel.txt'), 'utf8') === 'outside', 'native no-follow tree deletion removes a junction without traversing its target');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-delete-tree-');
+  }
+}
+
 // Windows lease inspection distinguishes a live owner from PID reuse without interpolating input.
 {
   const calls = [];
@@ -775,6 +823,7 @@ async function rejectsCode(fn, code) {
 {
   const root = makePrimitiveRoot('uemcp-local-state-');
   const aclCalls = [];
+  const deletedTrees = [];
   let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
   const processStates = new Map();
   let coordinatedMutations = 0;
@@ -789,6 +838,10 @@ async function rejectsCode(fn, code) {
     clock: () => nowMs,
     sleep: async ms => {
       nowMs += ms;
+    },
+    treeRemover: async ({ targetPath, allowedRoot }) => {
+      deletedTrees.push({ targetPath: resolve(targetPath), allowedRoot: resolve(allowedRoot) });
+      await asyncFs.rm(targetPath, { recursive: true, force: true });
     },
   });
   try {
@@ -834,6 +887,51 @@ async function rejectsCode(fn, code) {
     writeFileSync(absentTarget, 'created', 'utf8');
     await localState.restoreSnapshot(absentSnapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('created')) });
     t.assert(!existsSync(absentTarget), 'snapshot restores an originally absent file to absence');
+
+    const unstableTarget = join(root, 'unstable-snapshot.bin');
+    writeFileSync(unstableTarget, 'before', 'utf8');
+    const unstableFs = {
+      ...asyncFs,
+      async open(path, flags, mode) {
+        const handle = await asyncFs.open(path, flags, mode);
+        if (resolve(path) !== resolve(unstableTarget) || flags !== 'r') return handle;
+        let statCalls = 0;
+        return {
+          async stat() {
+            statCalls += 1;
+            const stat = await handle.stat();
+            if (statCalls < 2) return stat;
+            return new Proxy(stat, {
+              get(targetStat, property) {
+                if (property === 'ino') return Number(targetStat.ino) + 65_536;
+                const value = Reflect.get(targetStat, property, targetStat);
+                return typeof value === 'function' ? value.bind(targetStat) : value;
+              },
+            });
+          },
+          readFile: (...args) => handle.readFile(...args),
+          close: () => handle.close(),
+        };
+      },
+    };
+    const unstableState = createLocalState({
+      root: join(root, 'unstable-local-state'),
+      fsImpl: unstableFs,
+      aclRestrictor: async () => {},
+      leaseCoordinator: async callback => callback(),
+    });
+    t.assert(await rejectsCode(
+      () => unstableState.createSnapshot(unstableTarget, { transactionId: 'unstable-read' }),
+      'UNSAFE_SNAPSHOT_TARGET',
+    ), 'snapshot creation rejects a file identity change observed through its open read handle');
+
+    const disposableSnapshot = await localState.createSnapshot(target, { transactionId: 'tx-delete' });
+    await localState.deleteSnapshot(disposableSnapshot);
+    t.assert(
+      deletedTrees.some(row => row.targetPath === resolve(disposableSnapshot.directory)
+        && row.allowedRoot === resolve(localState.paths().snapshots)),
+      'snapshot cleanup delegates recursive deletion to the no-follow tree remover within the snapshot root',
+    );
 
     const digest = '9'.repeat(64);
     t.assert(!(await localState.wasDigestApplied(digest)), 'fresh digest is not replayed');

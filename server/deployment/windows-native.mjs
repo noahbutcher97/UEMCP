@@ -1,7 +1,7 @@
 import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
-import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 import { fingerprintPath } from './fingerprints.mjs';
 
@@ -210,9 +210,206 @@ try {
 }
 `.trim();
 
+const DELETE_TREE_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpDeleteTreeNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FileDispositionInformation
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool DeleteFile;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+        SafeFileHandle file,
+        int fileInformationClass,
+        ref FileDispositionInformation information,
+        uint bufferSize);
+
+    private const uint DeleteAccess = 0x00010000;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint ShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+    private const int FileDispositionInfo = 4;
+
+    private static int entryCount;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    public static SafeFileHandle OpenPinnedDirectory(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadAttributes,
+            ShareRead | ShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe deletion ancestry entry");
+        }
+        return handle;
+    }
+
+    public static int DeleteTree(string path, int maxEntries, int maxDepth)
+    {
+        entryCount = 0;
+        DeleteEntry(ExtendedPath(path), 0, maxEntries, maxDepth);
+        return entryCount;
+    }
+
+    private static void DeleteEntry(string path, int depth, int maxEntries, int maxDepth)
+    {
+        if (depth > maxDepth) throw new InvalidOperationException("deletion depth limit");
+        entryCount += 1;
+        if (entryCount > maxEntries) throw new InvalidOperationException("deletion entry limit");
+
+        SafeFileHandle handle = CreateFileW(
+            path,
+            DeleteAccess | ReadAttributes,
+            ShareRead,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        try
+        {
+            ByHandleFileInformation information = Information(handle);
+            bool isDirectory = (information.FileAttributes & DirectoryAttribute) != 0;
+            bool isReparsePoint = (information.FileAttributes & ReparseAttribute) != 0;
+            if (isDirectory && !isReparsePoint)
+            {
+                foreach (string child in Directory.EnumerateFileSystemEntries(path))
+                {
+                    DeleteEntry(child, depth + 1, maxEntries, maxDepth);
+                }
+            }
+            FileDispositionInformation disposition = new FileDispositionInformation();
+            disposition.DeleteFile = true;
+            if (!SetFileInformationByHandle(
+                handle,
+                FileDispositionInfo,
+                ref disposition,
+                (uint)Marshal.SizeOf(typeof(FileDispositionInformation))))
+            {
+                throw LastError();
+            }
+        }
+        finally
+        {
+            handle.Dispose();
+        }
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $directories = ConvertFrom-Json -InputObject $env:UEMCP_DELETE_ANCESTRY
+  foreach ($directory in $directories) {
+    $handles.Add([UemcpDeleteTreeNative]::OpenPinnedDirectory([string]$directory))
+  }
+  $entries = [UemcpDeleteTreeNative]::DeleteTree(
+    $env:UEMCP_DELETE_TARGET,
+    [int]$env:UEMCP_DELETE_MAX_ENTRIES,
+    [int]$env:UEMCP_DELETE_MAX_DEPTH)
+  [ordered]@{ status = 'removed'; entries = $entries } | ConvertTo-Json -Compress
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+
 const ANCESTRY_PIN_MAX_DIRECTORIES = 128;
 const ANCESTRY_PIN_MAX_INPUT_BYTES = 16 * 1024;
 const ANCESTRY_PIN_OUTPUT_LIMIT = 8 * 1024;
+const DELETE_TREE_MAX_ENTRIES = 4_096;
+const DELETE_TREE_MAX_DEPTH = 64;
 
 export class WindowsNativeError extends Error {
   constructor(message, code = 'WINDOWS_NATIVE_FAILED', details = {}) {
@@ -457,6 +654,93 @@ export async function withPinnedWindowsAncestry({
   return value;
 }
 
+function containedPath(root, candidate) {
+  const rel = relative(windowsPathKey(root), windowsPathKey(candidate));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function deletionAncestry(targetPath, allowedRoot) {
+  if (typeof targetPath !== 'string'
+    || typeof allowedRoot !== 'string'
+    || !isAbsolute(targetPath)
+    || !isAbsolute(allowedRoot)
+    || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(targetPath)
+    || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(allowedRoot)) {
+    throw new WindowsNativeError('tree deletion paths are invalid', 'INVALID_TREE_DELETE');
+  }
+  const target = resolve(targetPath);
+  const allowed = resolve(allowedRoot);
+  if (!containedPath(allowed, target) || windowsPathKey(target) === windowsPathKey(allowed)) {
+    throw new WindowsNativeError('tree deletion target is outside its allowed root', 'INVALID_TREE_DELETE');
+  }
+
+  const parent = dirname(target);
+  const directories = [];
+  let current = parent;
+  while (true) {
+    directories.unshift(current);
+    const next = dirname(current);
+    if (windowsPathKey(next) === windowsPathKey(current)) break;
+    current = next;
+  }
+  const validated = validatePinnedDirectories(directories);
+  return { target, serializedAncestry: validated.serialized };
+}
+
+export async function deleteWindowsTreeNoFollow({
+  targetPath,
+  allowedRoot,
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  fsImpl = defaultFs,
+  maxEntries = DELETE_TREE_MAX_ENTRIES,
+  maxDepth = DELETE_TREE_MAX_DEPTH,
+} = {}) {
+  const { target, serializedAncestry } = deletionAncestry(targetPath, allowedRoot);
+  if (platform !== 'win32') {
+    throw new WindowsNativeError('no-follow tree deletion requires Windows', 'UNSUPPORTED_PLATFORM');
+  }
+  if (!runner?.run
+    || !Number.isSafeInteger(maxEntries)
+    || maxEntries <= 0
+    || maxEntries > DELETE_TREE_MAX_ENTRIES
+    || !Number.isSafeInteger(maxDepth)
+    || maxDepth <= 0
+    || maxDepth > DELETE_TREE_MAX_DEPTH) {
+    throw new WindowsNativeError('tree deletion options are invalid', 'INVALID_TREE_DELETE');
+  }
+  try {
+    const stat = await fsImpl.lstat(target);
+    if (!stat.isDirectory() && !stat.isSymbolicLink() && !stat.isFile()) {
+      throw new WindowsNativeError('tree deletion target has an unsupported type', 'UNSAFE_PATH_TYPE');
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { status: 'absent', entries: 0 };
+    throw error;
+  }
+
+  const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {
+      UEMCP_DELETE_TARGET: target,
+      UEMCP_DELETE_ANCESTRY: serializedAncestry,
+      UEMCP_DELETE_MAX_ENTRIES: String(maxEntries),
+      UEMCP_DELETE_MAX_DEPTH: String(maxDepth),
+    }),
+    stdin: `${DELETE_TREE_SCRIPT}\n\n`,
+    timeoutMs: 30_000,
+    outputLimitBytes: 8 * 1024,
+  });
+  const parsed = parseSingleJson(result, ['entries', 'status']);
+  if (parsed.status !== 'removed'
+    || !Number.isSafeInteger(parsed.entries)
+    || parsed.entries <= 0
+    || parsed.entries > maxEntries) {
+    throw new WindowsNativeError('tree deletion helper returned invalid evidence', 'TREE_DELETE_FAILED');
+  }
+  return { status: parsed.status, entries: parsed.entries };
+}
+
 async function assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks = false }) {
   const fingerprint = await fingerprintPath(path, { allowedRoots, fsImpl });
   if (!fingerprint.exists || fingerprint.kind !== 'file' || fingerprint.link_kind !== 'none') {
@@ -588,6 +872,7 @@ export async function replaceFilePreservingMetadata({
 export const WINDOWS_NATIVE_SCRIPTS = Object.freeze({
   ancestry_pin: ANCESTRY_PIN_SCRIPT,
   authenticode: AUTHENTICODE_SCRIPT,
+  delete_tree: DELETE_TREE_SCRIPT,
   metadata: METADATA_SCRIPT,
   replace: REPLACE_SCRIPT,
 });
