@@ -1011,7 +1011,6 @@ export async function withPinnedWindowsAncestry({
   child.once('error', () => stopHelper('pinned ancestry helper failed to start'));
 
   const acquisitionTimer = setTimeout(() => stopHelper('pinned ancestry helper timed out'), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -1049,7 +1048,6 @@ export async function withPinnedWindowsAncestry({
     let releaseTimer;
     const releaseTimeout = new Promise(resolvePromise => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);
@@ -1247,7 +1245,6 @@ export async function withPinnedWindowsTrees({
   child.stdin?.write(`${validated.serializedRequest}\n`);
 
   const acquisitionTimer = setTimeout(() => stopHelper('pinned tree helper timed out'), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -1285,7 +1282,6 @@ export async function withPinnedWindowsTrees({
     let releaseTimer;
     const releaseTimeout = new Promise(resolvePromise => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);
@@ -1452,7 +1448,6 @@ export async function withPinnedWindowsFiles({
   child.stdin?.write(`${validated.serializedRequest}\n`);
 
   const acquisitionTimer = setTimeout(() => stopHelper('pinned file helper timed out'), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -1490,7 +1485,6 @@ export async function withPinnedWindowsFiles({
     let releaseTimer;
     const releaseTimeout = new Promise(resolvePromise => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);

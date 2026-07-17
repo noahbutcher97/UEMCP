@@ -39,7 +39,6 @@ function observeClose(child) {
     let timer;
     const timeout = new Promise(resolvePromise => {
       timer = setTimeout(resolvePromise, timeoutMs);
-      timer.unref?.();
     });
     await Promise.race([closePromise, timeout]);
     clearTimeout(timer);

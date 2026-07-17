@@ -77,7 +77,6 @@ export async function terminateProcessTree(child, {
       killDirectChild(killer, 'SIGKILL');
       finish(true);
     }, timeoutMs);
-    timer.unref?.();
   });
 }
 
@@ -161,7 +160,6 @@ export function createProcessRunner({
             }
           });
           killFallbackTimer = setTimeout(() => settle(terminalStatus), 5_000);
-          killFallbackTimer.unref?.();
         };
 
         const capture = (chunk, stream) => {
@@ -201,7 +199,6 @@ export function createProcessRunner({
         child.once('close', (code, signal) => settle(terminalStatus ?? 'exited', code, signal));
 
         timer = setTimeout(() => terminateOnce('timed_out'), timeoutMs);
-        timer.unref?.();
 
         if (child.stdin) {
           child.stdin.once('error', () => {});

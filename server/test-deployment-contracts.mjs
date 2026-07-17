@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import * as asyncFs from 'node:fs/promises';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -625,6 +626,16 @@ async function rejectsCode(fn, code) {
     },
   });
   t.assert(invalidSpawned === false, 'invalid child identity never reaches taskkill');
+
+  const deadlineModules = [
+    'bounded-stdio-transport.mjs',
+    'local-state.mjs',
+    'process-runner.mjs',
+    'protocol-smoke.mjs',
+    'windows-native.mjs',
+  ];
+  t.assert(deadlineModules.every(name => !readFileSync(join(import.meta.dirname, 'deployment', name), 'utf8').includes('.unref')),
+    'awaited deployment deadlines remain event-loop referenced until settlement');
 }
 
 // Windows-native helpers use fixed stdin programs and dedicated environment values.
@@ -874,15 +885,17 @@ async function rejectsCode(fn, code) {
       });
       t.assert(fileWriteBlocked && directoryRenameBlocked, 'runtime tree pin blocks content writes and identity substitution');
 
+      const pinnedNode = join(root, 'pinned-node.exe');
+      copyFileSync(process.execPath, pinnedNode);
       let filePinWriteBlocked = false;
       let filePinRenameBlocked = false;
       await withPinnedWindowsFiles({
-        paths: [process.execPath, payload],
+        paths: [pinnedNode, payload],
         callback: async guard => {
           guard.assertPinned();
           t.assert((await asyncFs.readFile(payload, 'utf8')).includes('value = 1'), 'launch file remains readable while pinned');
           const childResult = await new Promise((resolvePromise, rejectPromise) => {
-            const child = spawn(process.execPath, [payload], {
+            const child = spawn(pinnedNode, [payload], {
               env: {},
               shell: false,
               windowsHide: true,

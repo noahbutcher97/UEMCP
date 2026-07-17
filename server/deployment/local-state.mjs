@@ -222,7 +222,6 @@ export function createApplyLeaseCoordinator({
     child.once('error', () => failCoordinator('apply-lease coordinator failed to start'));
 
     const acquisitionTimer = setTimeout(() => failCoordinator('apply-lease coordinator timed out'), waitMs + 5_000);
-    acquisitionTimer.unref?.();
     try {
       await readyPromise;
     } finally {
@@ -241,11 +240,12 @@ export function createApplyLeaseCoordinator({
       child.stdin.end('RELEASE\n');
     }
     if (!closed) {
+      let releaseTimer;
       const releaseTimeout = new Promise(resolvePromise => {
-        const timer = setTimeout(resolvePromise, 5_000);
-        timer.unref?.();
+        releaseTimer = setTimeout(resolvePromise, 5_000);
       });
       await Promise.race([closePromise, releaseTimeout]);
+      clearTimeout(releaseTimer);
     }
     if (!closed) {
       try {

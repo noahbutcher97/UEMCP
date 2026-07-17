@@ -275,11 +275,14 @@ async function setExplicitTestDacl(path) {
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 $acl = Get-Acl -LiteralPath $env:UEMCP_DACL_TARGET
-$acl.SetAccessRuleProtection($true, $false)
+$acl.SetAccessRuleProtection($true, $true)
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow')
 $acl.SetAccessRule($rule)
 Set-Acl -LiteralPath $env:UEMCP_DACL_TARGET -AclObject $acl
+$observed = Get-Acl -LiteralPath $env:UEMCP_DACL_TARGET
+if (-not $observed.AreAccessRulesProtected) { throw 'DACL_PROTECTION_NOT_APPLIED' }
+[Console]::Out.Write('READY')
 `.trim();
   const result = await createProcessRunner().run(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], {
     env: {
@@ -291,7 +294,9 @@ Set-Acl -LiteralPath $env:UEMCP_DACL_TARGET -AclObject $acl
     timeoutMs: 15_000,
     outputLimitBytes: 8 * 1024,
   });
-  if (result.status !== 'exited' || result.exitCode !== 0 || result.stderr !== '') throw new Error('could not establish explicit test DACL');
+  if (result.status !== 'exited' || result.exitCode !== 0 || result.stdout.trim() !== 'READY') {
+    throw new Error(`could not establish explicit test DACL (${result.status}, exit ${result.exitCode}, stderr bytes ${Buffer.byteLength(result.stderr)})`);
+  }
 }
 
 async function rejectsCode(fn, code) {

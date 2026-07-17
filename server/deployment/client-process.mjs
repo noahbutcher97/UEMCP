@@ -668,7 +668,10 @@ async function resolveNpmCandidate(clientId, candidate, {
       runtimeTreePinner,
     });
   } catch (error) {
-    fail('client npm runtime tree is unsafe or exceeds its inspection limits', 'NOT_INSTALLED', { cause_code: error?.code ?? 'UNKNOWN' });
+    fail('client npm runtime tree is unsafe or exceeds its inspection limits', 'NOT_INSTALLED', {
+      cause_code: error?.code ?? 'UNKNOWN',
+      cause_reason: error instanceof ClientProcessError ? error.message : null,
+    });
   }
   return {
     command: node.path,
@@ -846,6 +849,7 @@ export async function resolveClientLaunch(clientId, {
   if (unique.length === 0) fail('client is not installed');
 
   const valid = [];
+  const rejected = [];
   for (const candidate of unique) {
     try {
       valid.push(await resolveCandidate(clientId, candidate, {
@@ -858,9 +862,19 @@ export async function resolveClientLaunch(clientId, {
       }));
     } catch (error) {
       if (!(error instanceof ClientProcessError)) throw error;
+      rejected.push({
+        code: error.details?.cause_code ?? error.code,
+        reason: error.details?.cause_reason ?? error.message,
+      });
     }
   }
-  if (valid.length === 0) fail('no safe client launch candidate was found');
+  if (valid.length === 0) {
+    fail('no safe client launch candidate was found', 'NOT_INSTALLED', {
+      candidate_count: unique.length,
+      rejection_codes: [...new Set(rejected.map(row => row.code))].sort(),
+      rejection_reasons: [...new Set(rejected.map(row => row.reason))].sort(),
+    });
+  }
 
   const uniqueLaunches = [...new Map(valid.map(launch => [launchIdentity(launch), launch])).values()];
 

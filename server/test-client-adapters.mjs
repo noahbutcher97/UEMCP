@@ -1289,11 +1289,20 @@ async function rejectsCode(fn, code) {
       dependencies: { 'missing-runtime': '1.0.0' },
     });
     const requiredRunner = runnerFor('0.144.4');
-    t.assert(await rejectsCode(() => resolveClientLaunch('codex', {
-      env: required.env,
-      runner: requiredRunner,
-      candidates: { codex: [required.shim], nodeExecutable: required.nodeExecutable },
-    }), 'NOT_INSTALLED'), 'missing required npm dependency rejects the client launch');
+    let requiredError = null;
+    try {
+      await resolveClientLaunch('codex', {
+        env: required.env,
+        runner: requiredRunner,
+        candidates: { codex: [required.shim], nodeExecutable: required.nodeExecutable },
+      });
+    } catch (error) {
+      requiredError = error;
+    }
+    t.assert(requiredError?.code === 'NOT_INSTALLED', 'missing required npm dependency rejects the client launch');
+    t.assert(requiredError?.details?.rejection_reasons?.includes('required client package dependency is missing')
+      && !JSON.stringify(requiredError.details).includes(root),
+      'client discovery retains bounded candidate-rejection diagnostics');
     t.assert(requiredRunner.calls.length === 0, 'missing required npm dependency is rejected before version execution');
 
     writeJson(join(required.packageRoot, 'package.json'), {

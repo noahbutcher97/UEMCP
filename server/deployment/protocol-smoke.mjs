@@ -28,7 +28,6 @@ function withDeadline(promise, timeoutMs, phase) {
     promise,
     new Promise((resolvePromise, rejectPromise) => {
       timer = setTimeout(() => rejectPromise(new SmokeDeadlineError(phase)), timeoutMs);
-      timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));
 }

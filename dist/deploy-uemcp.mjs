@@ -11089,7 +11089,6 @@ async function terminateProcessTree(child, {
       killDirectChild(killer, "SIGKILL");
       finish(true);
     }, timeoutMs);
-    timer.unref?.();
   });
 }
 function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
@@ -11165,7 +11164,6 @@ function createProcessRunner({
             }
           });
           killFallbackTimer = setTimeout(() => settle(terminalStatus), 5e3);
-          killFallbackTimer.unref?.();
         };
         const capture = (chunk, stream) => {
           const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -11201,7 +11199,6 @@ function createProcessRunner({
         child.once("error", () => settle("spawn_failed"));
         child.once("close", (code, signal) => settle(terminalStatus ?? "exited", code, signal));
         timer = setTimeout(() => terminateOnce("timed_out"), timeoutMs);
-        timer.unref?.();
         if (child.stdin) {
           child.stdin.once("error", () => {
           });
@@ -12196,7 +12193,6 @@ async function withPinnedWindowsAncestry({
   });
   child.once("error", () => stopHelper("pinned ancestry helper failed to start"));
   const acquisitionTimer = setTimeout(() => stopHelper("pinned ancestry helper timed out"), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -12232,7 +12228,6 @@ async function withPinnedWindowsAncestry({
     let releaseTimer;
     const releaseTimeout = new Promise((resolvePromise) => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);
@@ -12409,7 +12404,6 @@ async function withPinnedWindowsTrees({
   child.stdin?.write(`${validated.serializedRequest}
 `);
   const acquisitionTimer = setTimeout(() => stopHelper("pinned tree helper timed out"), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -12445,7 +12439,6 @@ async function withPinnedWindowsTrees({
     let releaseTimer;
     const releaseTimeout = new Promise((resolvePromise) => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);
@@ -12602,7 +12595,6 @@ async function withPinnedWindowsFiles({
   child.stdin?.write(`${validated.serializedRequest}
 `);
   const acquisitionTimer = setTimeout(() => stopHelper("pinned file helper timed out"), acquisitionTimeoutMs);
-  acquisitionTimer.unref?.();
   let acquisitionError = null;
   try {
     await readyPromise;
@@ -12638,7 +12630,6 @@ async function withPinnedWindowsFiles({
     let releaseTimer;
     const releaseTimeout = new Promise((resolvePromise) => {
       releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
-      releaseTimer.unref?.();
     });
     await Promise.race([closePromise, releaseTimeout]);
     clearTimeout(releaseTimer);
@@ -20720,7 +20711,10 @@ async function resolveNpmCandidate(clientId, candidate, {
       runtimeTreePinner
     });
   } catch (error2) {
-    fail14("client npm runtime tree is unsafe or exceeds its inspection limits", "NOT_INSTALLED", { cause_code: error2?.code ?? "UNKNOWN" });
+    fail14("client npm runtime tree is unsafe or exceeds its inspection limits", "NOT_INSTALLED", {
+      cause_code: error2?.code ?? "UNKNOWN",
+      cause_reason: error2 instanceof ClientProcessError ? error2.message : null
+    });
   }
   return {
     command: node.path,
@@ -20883,6 +20877,7 @@ async function resolveClientLaunch(clientId, {
   const unique6 = [...new Map(discovered.filter((path) => typeof path === "string" && path.trim() !== "" && absoluteSafePath(path)).map((path) => [pathKey3(path), resolve9(path)])).values()];
   if (unique6.length === 0) fail14("client is not installed");
   const valid = [];
+  const rejected = [];
   for (const candidate of unique6) {
     try {
       valid.push(await resolveCandidate(clientId, candidate, {
@@ -20895,9 +20890,19 @@ async function resolveClientLaunch(clientId, {
       }));
     } catch (error2) {
       if (!(error2 instanceof ClientProcessError)) throw error2;
+      rejected.push({
+        code: error2.details?.cause_code ?? error2.code,
+        reason: error2.details?.cause_reason ?? error2.message
+      });
     }
   }
-  if (valid.length === 0) fail14("no safe client launch candidate was found");
+  if (valid.length === 0) {
+    fail14("no safe client launch candidate was found", "NOT_INSTALLED", {
+      candidate_count: unique6.length,
+      rejection_codes: [...new Set(rejected.map((row) => row.code))].sort(),
+      rejection_reasons: [...new Set(rejected.map((row) => row.reason))].sort()
+    });
+  }
   const uniqueLaunches = [...new Map(valid.map((launch) => [launchIdentity(launch), launch])).values()];
   let lastProbeError = null;
   const viable = [];
@@ -28211,7 +28216,6 @@ function observeClose(child) {
     let timer;
     const timeout = new Promise((resolvePromise) => {
       timer = setTimeout(resolvePromise, timeoutMs);
-      timer.unref?.();
     });
     await Promise.race([closePromise, timeout]);
     clearTimeout(timer);
@@ -28415,7 +28419,6 @@ function withDeadline(promise, timeoutMs, phase) {
     promise,
     new Promise((resolvePromise, rejectPromise) => {
       timer = setTimeout(() => rejectPromise(new SmokeDeadlineError(phase)), timeoutMs);
-      timer.unref?.();
     })
   ]).finally(() => clearTimeout(timer));
 }
@@ -29945,7 +29948,6 @@ function createApplyLeaseCoordinator({
     });
     child.once("error", () => failCoordinator("apply-lease coordinator failed to start"));
     const acquisitionTimer = setTimeout(() => failCoordinator("apply-lease coordinator timed out"), waitMs + 5e3);
-    acquisitionTimer.unref?.();
     try {
       await readyPromise;
     } finally {
@@ -29962,11 +29964,12 @@ function createApplyLeaseCoordinator({
       child.stdin.end("RELEASE\n");
     }
     if (!closed) {
+      let releaseTimer;
       const releaseTimeout = new Promise((resolvePromise) => {
-        const timer = setTimeout(resolvePromise, 5e3);
-        timer.unref?.();
+        releaseTimer = setTimeout(resolvePromise, 5e3);
       });
       await Promise.race([closePromise, releaseTimeout]);
+      clearTimeout(releaseTimer);
     }
     if (!closed) {
       try {

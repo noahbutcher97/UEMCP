@@ -140,16 +140,21 @@ function realGuardPaths() {
 
 async function guardSnapshot(paths) {
   const started = Date.now();
-  const rows = await Promise.race([
-    Promise.all(paths.map(async row => [
-      row.path,
-      row.kind === 'gemini_extension_state' ? await geminiExtensionStateDigest(row.path) : await pathDigest(row.path),
-    ])),
-    new Promise((resolvePromise, rejectPromise) => {
-      const timer = setTimeout(() => rejectPromise(new Error('real config hash guard exceeded 20 seconds')), 20_000);
-      timer.unref?.();
-    }),
-  ]);
+  let timeoutTimer;
+  let rows;
+  try {
+    rows = await Promise.race([
+      Promise.all(paths.map(async row => [
+        row.path,
+        row.kind === 'gemini_extension_state' ? await geminiExtensionStateDigest(row.path) : await pathDigest(row.path),
+      ])),
+      new Promise((resolvePromise, rejectPromise) => {
+        timeoutTimer = setTimeout(() => rejectPromise(new Error('real config hash guard exceeded 20 seconds')), 20_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutTimer);
+  }
   if (Date.now() - started > 20_000) throw new Error('real config hash guard exceeded 20 seconds');
   return Object.fromEntries(rows);
 }
