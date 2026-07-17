@@ -34,7 +34,7 @@ import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients } from './deployment/client-discovery.mjs';
 import {
   CLIENT_IDS,
-  mergeWindowsEnvironmentOverlay,
+  clientProcessEnvironment,
   RELEASE_GATES,
 } from './deployment/client-contract.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
@@ -283,7 +283,7 @@ async function characterizeVsCodeProfileMutation({ root, row, runner, descriptor
     '--add-mcp', definition,
   ], {
     cwd: root,
-    env: mergeWindowsEnvironmentOverlay(process.env, row.launch.env_overlay),
+    env: clientProcessEnvironment(process.env, row.launch.env_overlay),
     shell: false,
     timeoutMs: 20_000,
     outputLimitBytes: 64 * 1024,
@@ -301,11 +301,10 @@ if (!worker) {
   try {
     result = await createProcessRunner().run(process.execPath, [fileURLToPath(import.meta.url)], {
       cwd: import.meta.dirname,
-      env: {
-        ...process.env,
+      env: clientProcessEnvironment(process.env, {
         UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER: '1',
         UEMCP_INSTALLED_CLIENT_ROOT: root,
-      },
+      }),
       timeoutMs: WORKER_TIMEOUT_MS,
       outputLimitBytes: 2 * 1024 * 1024,
     });
