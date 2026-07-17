@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import {
   BoundedStdioClientTransport,
+  DEFAULT_STDIO_CLOSE_DEADLINE_MS,
   DEFAULT_STDERR_LIMIT_BYTES,
   DEFAULT_STDOUT_LIMIT_BYTES,
 } from './bounded-stdio-transport.mjs';
@@ -120,7 +121,7 @@ export async function smokeDescriptor(descriptor, {
       duration_ms: Math.max(0, nowMs() - started),
     };
   } finally {
-    await withDeadline(client.close(), Math.min(5_000, Math.max(1_000, timeoutMs)), 'close').catch(() => {});
+    await withDeadline(client.close(), DEFAULT_STDIO_CLOSE_DEADLINE_MS, 'close').catch(() => {});
   }
 }
 

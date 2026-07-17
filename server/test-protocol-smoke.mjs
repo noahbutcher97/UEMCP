@@ -3,7 +3,7 @@
 // Run: cd server && node test-protocol-smoke.mjs
 
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +49,24 @@ function descriptor(script, mode = 'normal') {
     env: {},
     cwd: null,
   };
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processIsAlive(pid)) return true;
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 25));
+  }
+  return !processIsAlive(pid);
 }
 
 // A path with spaces launches without PATH, cwd, or project environment assistance.
@@ -116,10 +134,39 @@ for (const [mode, limitOption] of [
 ]) {
   const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
     expectedServerName: 'sample-mcp',
-    timeoutMs: 2_000,
+    timeoutMs: 5_000,
     ...limitOption,
   });
-  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < 1_500, `${mode} is output-bounded before the protocol deadline`);
+  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < 3_500, `${mode} is output-bounded before the protocol deadline`);
+}
+
+// Protocol deadline cleanup terminates descendants, including when the direct peer exits on EOF.
+for (const [mode, label] of [
+  ['spawn-descendant-hang', 'hanging parent'],
+  ['spawn-descendant-exit-on-eof', 'EOF-exiting parent'],
+]) {
+  const root = makeRoot();
+  let descendantPid = null;
+  try {
+    const pidFile = join(root, 'descendant.pid');
+    const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
+      expectedServerName: 'sample-mcp',
+      timeoutMs: 250,
+      effectiveEnvironment: { PATH: '', UEMCP_DESCENDANT_PID_FILE: pidFile },
+    });
+    descendantPid = Number(readFileSync(pidFile, 'utf8'));
+    t.assert(smoke.status === 'INITIALIZE_FAILED' && Number.isSafeInteger(descendantPid), `${label} deadline scenario starts one recorded descendant process`);
+    t.assert(await waitForProcessExit(descendantPid), `${label} protocol close terminates the complete stdio process tree`);
+  } finally {
+    if (descendantPid !== null && processIsAlive(descendantPid)) {
+      try {
+        process.kill(descendantPid, 'SIGKILL');
+      } catch {
+        // The descendant may have exited during cleanup.
+      }
+    }
+    cleanup(root);
+  }
 }
 
 // The real no-project UEMCP server proves the same descriptor contract.

@@ -4,6 +4,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import * as asyncFs from 'node:fs/promises';
 import {
   chmodSync,
@@ -39,7 +40,7 @@ import {
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints.mjs';
 import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
-import { createProcessRunner } from './deployment/process-runner.mjs';
+import { createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
 import {
   WINDOWS_NATIVE_SCRIPTS,
   fingerprintWindowsFileMetadata,
@@ -509,6 +510,88 @@ async function rejectsCode(fn, code) {
   t.assert(spawnOptions === null, 'injected spawn is not invoked during runner construction');
   const probed = await probeRunner.run(process.execPath, ['-e', '']);
   t.assert(probed.status === 'exited' && spawnOptions.shell === false && spawnOptions.windowsHide === true, 'real spawn is forced to shell:false with a hidden Windows child');
+}
+
+// Process-tree termination uses one absolute Windows primitive and deterministic fallback.
+{
+  const calls = [];
+  const directSignals = [];
+  const child = {
+    pid: 4242,
+    kill(signal) {
+      directSignals.push(signal);
+    },
+  };
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl(executable, args, options) {
+      calls.push({ executable, args, options });
+      const killer = new EventEmitter();
+      killer.pid = 4343;
+      killer.kill = () => {};
+      queueMicrotask(() => killer.emit('close', 0, null));
+      return killer;
+    },
+  });
+  t.assert(calls.length === 1
+    && calls[0].executable === 'C:\\Windows\\System32\\taskkill.exe'
+    && JSON.stringify(calls[0].args) === JSON.stringify(['/PID', '4242', '/T', '/F']), 'Windows tree termination uses absolute taskkill with exact non-shell arguments');
+  t.assert(calls[0].options.shell === false
+    && calls[0].options.windowsHide === true
+    && Object.keys(calls[0].options.env).sort().join(',') === 'SystemRoot,WINDIR', 'taskkill runs hidden with a minimal fixed environment');
+  t.assert(directSignals.length === 0, 'successful tree termination does not redundantly signal the direct child');
+
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      const killer = new EventEmitter();
+      killer.pid = 4344;
+      killer.kill = () => {};
+      queueMicrotask(() => killer.emit('close', 1, null));
+      return killer;
+    },
+  });
+  t.assert(directSignals.at(-1) === 'SIGKILL', 'failed taskkill falls back to the requested direct-child signal');
+
+  let timedOutKillerSignal = null;
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    timeoutMs: 5,
+    spawnImpl() {
+      const killer = new EventEmitter();
+      killer.pid = 4345;
+      killer.kill = signal => {
+        timedOutKillerSignal = signal;
+      };
+      return killer;
+    },
+  });
+  t.assert(timedOutKillerSignal === 'SIGKILL'
+    && directSignals.at(-1) === 'SIGKILL', 'taskkill timeout kills the helper and falls back to the direct child');
+
+  const signalsBeforeSpawnFailure = directSignals.length;
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      throw new Error('injected spawn failure');
+    },
+  });
+  t.assert(directSignals.length === signalsBeforeSpawnFailure + 1
+    && directSignals.at(-1) === 'SIGKILL', 'taskkill spawn failure falls back to the direct child');
+
+  let invalidSpawned = false;
+  await terminateProcessTree({ pid: 0, kill() {} }, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      invalidSpawned = true;
+    },
+  });
+  t.assert(invalidSpawned === false, 'invalid child identity never reaches taskkill');
 }
 
 // Windows-native helpers use fixed stdin programs and dedicated environment values.

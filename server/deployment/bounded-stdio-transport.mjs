@@ -3,8 +3,11 @@ import { PassThrough } from 'node:stream';
 
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
+import { terminateProcessTree } from './process-runner.mjs';
+
 export const DEFAULT_STDOUT_LIMIT_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_STDERR_LIMIT_BYTES = 64 * 1024;
+export const DEFAULT_STDIO_CLOSE_DEADLINE_MS = 6_000;
 
 export class BoundedStdioTransportError extends Error {
   constructor(message, code = 'STDIO_TRANSPORT_FAILED') {
@@ -21,16 +24,26 @@ function validateLimit(value, maximum, label) {
   return value;
 }
 
-function waitForExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise(resolvePromise => {
-    const timer = setTimeout(resolvePromise, timeoutMs);
-    timer.unref?.();
-    child.once('close', () => {
-      clearTimeout(timer);
-      resolvePromise();
-    });
+function observeClose(child) {
+  let closed = false;
+  let resolveClose;
+  const closePromise = new Promise(resolvePromise => {
+    resolveClose = resolvePromise;
   });
+  child.once('close', () => {
+    closed = true;
+    resolveClose();
+  });
+  return async timeoutMs => {
+    if (closed) return;
+    let timer;
+    const timeout = new Promise(resolvePromise => {
+      timer = setTimeout(resolvePromise, timeoutMs);
+      timer.unref?.();
+    });
+    await Promise.race([closePromise, timeout]);
+    clearTimeout(timer);
+  };
 }
 
 export class BoundedStdioClientTransport {
@@ -38,6 +51,7 @@ export class BoundedStdioClientTransport {
     stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
     stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES,
     spawnImpl = defaultSpawn,
+    terminateTree = null,
     closeGraceMs = 250,
   } = {}) {
     if (!server || typeof server.command !== 'string' || server.command.trim() === '') {
@@ -47,6 +61,9 @@ export class BoundedStdioClientTransport {
       throw new BoundedStdioTransportError('stdio server args must be strings', 'INVALID_STDIO_SERVER');
     }
     if (typeof spawnImpl !== 'function') throw new BoundedStdioTransportError('spawnImpl must be a function', 'INVALID_STDIO_SERVER');
+    if (terminateTree !== null && typeof terminateTree !== 'function') {
+      throw new BoundedStdioTransportError('terminateTree must be a function or null', 'INVALID_STDIO_SERVER');
+    }
     if (!Number.isSafeInteger(closeGraceMs) || closeGraceMs <= 0 || closeGraceMs > 5_000) {
       throw new BoundedStdioTransportError('closeGraceMs is invalid', 'INVALID_STDIO_LIMIT');
     }
@@ -54,6 +71,7 @@ export class BoundedStdioClientTransport {
     this._stdoutLimitBytes = validateLimit(stdoutLimitBytes, DEFAULT_STDOUT_LIMIT_BYTES, 'stdoutLimitBytes');
     this._stderrLimitBytes = validateLimit(stderrLimitBytes, DEFAULT_STDERR_LIMIT_BYTES, 'stderrLimitBytes');
     this._spawn = spawnImpl;
+    this._terminateTree = terminateTree ?? (child => terminateProcessTree(child, { spawnImpl }));
     this._closeGraceMs = closeGraceMs;
     this._stderrStream = new PassThrough();
     this._stdoutChunks = [];
@@ -189,27 +207,31 @@ export class BoundedStdioClientTransport {
     this._closePromise = (async () => {
       const child = this._process;
       if (child) {
+        const waitForClose = observeClose(child);
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            await this._terminateTree(child);
+          } catch {
+            try {
+              child.kill('SIGKILL');
+            } catch {
+              // Ignore an already-exited child.
+            }
+          }
+        }
         try {
           child.stdin?.end();
         } catch {
-          // Ignore close races; termination below remains bounded.
+          // Ignore close races; tree termination has completed or fallen back.
         }
-        await waitForExit(child, this._closeGraceMs);
-        if (child.exitCode === null && child.signalCode === null) {
-          try {
-            child.kill('SIGTERM');
-          } catch {
-            // Ignore an already-exited child.
-          }
-          await waitForExit(child, this._closeGraceMs);
-        }
+        await waitForClose(this._closeGraceMs);
         if (child.exitCode === null && child.signalCode === null) {
           try {
             child.kill('SIGKILL');
           } catch {
             // Ignore an already-exited child.
           }
-          await waitForExit(child, this._closeGraceMs);
+          await waitForClose(this._closeGraceMs);
         }
       }
       this._stdoutChunks = [];
