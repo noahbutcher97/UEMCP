@@ -637,12 +637,15 @@ function validTransactionResult(result, operations, writablePreconditions) {
       || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status)
         && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status)
         && row.status !== 'FAILED'
-      || (row.error_code !== undefined && stableErrorCode(row.error_code, null) === null))) {
+      || (row.status === 'FAILED'
+        ? stableErrorCode(row.error_code, null) === null
+        : row.error_code !== undefined))) {
     return false;
   }
   const success = result.status === 'APPLIED' || result.status === 'ACTION_REQUIRED';
   if (success && (clientIds.length !== operationClients.size
-    || [...operationClients].some(clientId => !clientIds.includes(clientId)))) return false;
+    || [...operationClients].some(clientId => !clientIds.includes(clientId))
+    || result.clients.some(row => row.status === 'FAILED'))) return false;
   if (result.status === 'APPLIED' && result.clients.some(row => !TRANSACTION_READY_CLIENT_STATUSES.has(row.status))) return false;
 
   const touchedKeys = [];
@@ -1166,6 +1169,13 @@ export function createClientDomain({
       }
       for (const row of transactionResult.touched_files) {
         committedTouchedHashes.set(pathKey(row.path), row.applied_sha256);
+      }
+      if (['APPLIED', 'ACTION_REQUIRED'].includes(transactionResult.status)) {
+        try {
+          await recheckActiveLaunchPreconditions(context, approvedPlan, { committedTouchedHashes });
+        } catch (error) {
+          return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error, affectedClientIds);
+        }
       }
     }
     const changed = (transactionResult?.touched_files?.length ?? 0) > 0;

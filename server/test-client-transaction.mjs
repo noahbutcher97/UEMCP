@@ -1112,6 +1112,83 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Bytes changed between replacement and post-write capture are never adopted as the transaction baseline.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const hostile = Buffer.from('{"external":"between-replace-and-capture"}\n');
+    const path = writeBytes(join(home, 'claude.json'), original);
+    const operation = await transactionOperation('claude', path, home, baseWindowsNative);
+    let injectSubstitution = true;
+    const windowsNative = {
+      ...baseWindowsNative,
+      async replaceFilePreservingMetadata(options) {
+        const replaced = await baseWindowsNative.replaceFilePreservingMetadata(options);
+        if (injectSubstitution) {
+          injectSubstitution = false;
+          await asyncFs.writeFile(options.destinationPath, hostile);
+        }
+        return replaced;
+      },
+    };
+    const adapters = [fakeAdapter('claude')];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK', 'unexpected post-replacement bytes fail before becoming an accepted baseline');
+    t.assert(result.clients[0]?.error_code === 'TRANSACTION_POSTWRITE_CHANGED', 'post-replacement byte substitution has a stable error code');
+    t.assert((await asyncFs.readFile(path)).equals(original), 'post-replacement substitution rolls back to the exact original bytes');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Writable drift is rechecked before an adapter can launch active native verification.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    let outerLaunches = 0;
+    const adapters = [fakeAdapter('claude', {
+      beforeVerify: async context => {
+        await asyncFs.writeFile(path, Buffer.from('{"external":"before-launch"}\n'));
+        await context.beforeActiveClientLaunch({ client_id: 'claude', kind: 'native' });
+      },
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({
+      planDigest: PLAN_DIGEST,
+      adapters,
+      operations: [operation],
+      context: {
+        beforeActiveClientLaunch: async () => {
+          outerLaunches += 1;
+        },
+      },
+    });
+    t.assert(result.status === 'ROLLBACK_CONFLICT', 'prelaunch writable drift prevents commit');
+    t.assert(result.clients[0]?.error_code === 'TRANSACTION_POSTWRITE_CHANGED', 'prelaunch writable drift has a stable error code');
+    t.assert(outerLaunches === 0, 'transaction-owned writable drift is rejected before the outer launch guard delegates');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Post-write hard-link drift is a rollback conflict, not authority to replace the linked file.
 {
   const root = makeTransactionRoot();

@@ -505,6 +505,9 @@ export function createClientTransaction({
       const diskBytes = await fsImpl.readFile(record.path);
       const applied = await capture(record.path, [record.allowedRoot], true);
       markChanged(record, applied);
+      if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
+        fail('client config changed during transaction replacement', 'TRANSACTION_POSTWRITE_CHANGED');
+      }
       if (before.exists && applied.metadata_sha256 !== before.metadata_sha256) {
         fail('existing-file security metadata changed during replacement', 'METADATA_PRESERVATION_FAILED');
       }
@@ -1126,7 +1129,15 @@ export function createClientTransaction({
     try {
       await recheckBeforeApply();
       state.phase = 'applying';
-      const adapterContext = Object.freeze({ ...context, transaction: transactionCapability });
+      const outerBeforeActiveClientLaunch = context.beforeActiveClientLaunch;
+      const adapterContext = Object.freeze({
+        ...context,
+        beforeActiveClientLaunch: async evidence => {
+          await recheckAfterVerify();
+          return outerBeforeActiveClientLaunch?.(evidence);
+        },
+        transaction: transactionCapability,
+      });
       let actionRequired = false;
       for (const clientId of CLIENT_IDS) {
         const adapter = state.adapters.get(clientId);

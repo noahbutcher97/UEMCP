@@ -4410,6 +4410,16 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
           retained_snapshots: [42],
         }),
       },
+      {
+        label: 'action-required result with failed client',
+        result: operation => ({
+          status: 'ACTION_REQUIRED',
+          clients: [{ client_id: 'claude', status: 'FAILED', error_code: 'CLIENT_APPLY_FAILED' }],
+          touched_files: [{ path: operation.path, applied_sha256: operation.fingerprint.content_sha256 }],
+          rollback: null,
+          retained_snapshots: [{ path: operation.path, retained_until: null }],
+        }),
+      },
     ];
     for (const testCase of cases) {
       const caseRoot = resolve(join(root, testCase.label.replaceAll(' ', '-')));
@@ -4466,6 +4476,77 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
         && applied.stage.evidence.error_code === 'INVALID_CLIENT_TRANSACTION_RESULT', `${testCase.label} becomes a committed terminal failure`);
       t.assert(applied && reduceOutcome([applied.stage]) === 'PARTIAL' && shouldRecordPlanDigest([applied.stage]), `${testCase.label} cannot leave the approved plan replayable`);
     }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Committed touched hashes are verified against disk even when post-commit inspection blocks protocol launch.
+{
+  const root = makeRoot();
+  try {
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const operation = aggregateClientOperation(root);
+    const appliedBytes = Buffer.from('{"after":true}\n');
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude', {
+      files: [{
+        path: operation.path,
+        allowed_root: operation.allowed_root,
+        scope: 'user',
+        writable: true,
+        exists: true,
+        fingerprint: operation.fingerprint,
+      }],
+    });
+    let inspections = 0;
+    const adapter = Object.freeze({
+      ...base,
+      async inspect(context, detection) {
+        inspections += 1;
+        const inspected = await base.inspect(context, detection);
+        return inspections >= 3
+          ? Object.freeze({ ...inspected, registration: 'UNSAFE_CONFIG_PATH' })
+          : inspected;
+      },
+      async plan() {
+        return Object.freeze({ client_id: 'claude', status: 'UPDATE', operations: Object.freeze([operation]), actions: Object.freeze([]) });
+      },
+    });
+    const transaction = {
+      async snapshot() {},
+      async apply() {
+        writeFileSync(operation.path, appliedBytes);
+        return Object.freeze({
+          status: 'APPLIED',
+          clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'f'.repeat(64) })]),
+          rollback: null,
+          retained_snapshots: Object.freeze([]),
+        });
+      },
+    };
+    let smokeCalls = 0;
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction,
+      protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+      captureFingerprint: async path => simpleFingerprint(path),
+    });
+    const context = aggregateContext(root, { operation: 'setup', localState });
+    const planned = await domain.plan(context);
+    const plan = aggregatePlanDocument(context, planned);
+    const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
+    t.assert(applied.stage.status === 'SYNC_FAILED' && applied.stage.changed === true, 'wrong committed hash becomes a receiptable terminal failure without relying on protocol launch');
+    t.assert(applied.stage.evidence.error_code === 'CLIENT_POST_COMMIT_INSPECTION_FAILED', 'wrong committed hash retains a stable post-commit integrity code');
+    t.assert(smokeCalls === 2 && inspections === 2, 'wrong committed hash is rejected before post-commit inspection or another protocol launch');
   } finally {
     cleanup(root);
   }
