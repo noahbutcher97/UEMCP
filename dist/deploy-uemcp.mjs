@@ -9795,6 +9795,7 @@ var require_dist = __commonJS({
 // server/deploy-uemcp.mjs
 import * as fsPromises from "node:fs/promises";
 import { existsSync as existsSync3 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute20, join as join17, resolve as resolve20 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
@@ -18765,6 +18766,7 @@ var MANIFEST_KEYS = /* @__PURE__ */ new Set([
   "source_inputs",
   "package_lock_sha256",
   "bundled_packages",
+  "notices_sha256",
   "input_manifest_sha256",
   "bundle_sha256"
 ]);
@@ -18802,7 +18804,7 @@ function validateManifest(value) {
   exactKeys2(value, MANIFEST_KEYS, "bundle manifest");
   if (value.schema_version !== "1.0" || value.entry !== "dist/deploy-uemcp.mjs") fail13("bundle manifest interface is unsupported");
   if (value.node_minimum !== "22.0.0" || value.esbuild_version !== "0.28.1") fail13("bundle manifest toolchain identity is unsupported");
-  for (const key of ["package_lock_sha256", "input_manifest_sha256", "bundle_sha256"]) {
+  for (const key of ["package_lock_sha256", "notices_sha256", "input_manifest_sha256", "bundle_sha256"]) {
     if (!SHA256.test(value[key] ?? "")) fail13(`bundle manifest ${key} is invalid`);
   }
   if (!Array.isArray(value.source_inputs) || value.source_inputs.length === 0) fail13("bundle manifest source inputs are empty");
@@ -18828,7 +18830,8 @@ function validateManifest(value) {
   const aggregate = sha256Canonical({
     source_inputs: value.source_inputs,
     package_lock_sha256: value.package_lock_sha256,
-    bundled_packages: value.bundled_packages
+    bundled_packages: value.bundled_packages,
+    notices_sha256: value.notices_sha256
   });
   if (aggregate !== value.input_manifest_sha256) fail13("bundle aggregate input hash changed");
   return value;
@@ -18874,15 +18877,17 @@ async function verifyDeploymentBundleFreshness({
     const source = await exactFile(sourcePath, { repoRoot: canonicalRepo, fsImpl, label: `source input ${row.path}` });
     if (source.sha256 !== row.sha256) fail13("first-party bundle input changed", { path: row.path });
   }
-  await exactFile(join8(dirname7(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
+  const notices = await exactFile(join8(dirname7(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
     repoRoot: canonicalRepo,
     fsImpl,
     label: "third-party notices",
     maximumBytes: 4 * 1024 * 1024
   });
+  if (notices.sha256 !== manifest.notices_sha256) fail13("third-party notices hash changed");
   return Object.freeze({
     schema_version: manifest.schema_version,
     bundle_sha256: manifest.bundle_sha256,
+    notices_sha256: manifest.notices_sha256,
     input_manifest_sha256: manifest.input_manifest_sha256,
     source_input_count: manifest.source_inputs.length,
     bundled_package_count: manifest.bundled_packages.length
@@ -31436,11 +31441,11 @@ function createTargetDomain({
 var HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
   deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
   deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
 `;
 var INTERFACE_ERROR_CODES = /* @__PURE__ */ new Set(["CLI_USAGE", "INVALID_CONTRACT", "INVALID_PLAN", "UNSUPPORTED_INTERFACE"]);
 var SAFE_DIAGNOSTICS = Object.freeze({
@@ -31489,6 +31494,7 @@ function parseArgs(argv) {
     project: null,
     profile: null,
     targetsFile: null,
+    outputPlan: null,
     planFile: null,
     approveDigest: null,
     nonInteractive: false,
@@ -31522,6 +31528,9 @@ function parseArgs(argv) {
     } else if (flag === "--targets-file") {
       parsed.targetsFile = takeValue(argv, index, flag);
       index += 1;
+    } else if (flag === "--output-plan") {
+      parsed.outputPlan = takeValue(argv, index, flag);
+      index += 1;
     } else if (flag === "--plan-file") {
       parsed.planFile = takeValue(argv, index, flag);
       index += 1;
@@ -31550,9 +31559,9 @@ function parseArgs(argv) {
     if (!parsed.planFile || !isAbsolute20(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
       throw new UsageError("apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive");
     }
-    if (requestFlags || parsed.operation !== null) throw new UsageError("apply request overrides are forbidden");
+    if (requestFlags || parsed.operation !== null || parsed.outputPlan !== null) throw new UsageError("apply request overrides are forbidden");
   } else if (command !== "repair") {
-    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive || parsed.outputPlan !== null) {
       throw new UsageError(`${command} does not accept plan/apply flags`);
     }
     if (decisionFlags) throw new UsageError(`${command} does not accept repair decisions`);
@@ -31561,6 +31570,9 @@ function parseArgs(argv) {
   }
   if (parsed.targetsFile !== null && (!isAbsolute20(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith(".json"))) {
     throw new UsageError("--targets-file must be an absolute .json path");
+  }
+  if (parsed.outputPlan !== null && (!isAbsolute20(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith(".json"))) {
+    throw new UsageError("--output-plan must be an absolute .json path");
   }
   if (parsed.project !== null && (!isAbsolute20(parsed.project) || extname5(parsed.project).toLowerCase() !== ".uproject")) {
     throw new UsageError("--project must be an absolute .uproject path");
@@ -31685,6 +31697,30 @@ function writeHumanValue(stream, value) {
   for (const action2 of value.actions ?? []) stream.write(`action: ${action2.code} - ${action2.message}
 `);
 }
+async function publishPlanCreateOnly(targetPath, value) {
+  const resolvedTarget = resolve20(targetPath);
+  const scratchPath = join17(dirname16(resolvedTarget), `.${basename6(resolvedTarget)}.${randomUUID()}.tmp`);
+  let scratchCreated = false;
+  try {
+    const handle = await fsPromises.open(scratchPath, "wx", 384);
+    scratchCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}
+`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsPromises.link(scratchPath, resolvedTarget);
+  } catch (error2) {
+    if (error2?.code === "EEXIST") throw new UsageError("--output-plan target already exists");
+    if (error2 instanceof UsageError) throw error2;
+    throw new UsageError("--output-plan could not be published");
+  } finally {
+    if (scratchCreated) await fsPromises.unlink(scratchPath).catch(() => {
+    });
+  }
+}
 async function runCli(argv, {
   orchestrator = null,
   orchestratorFactory = createDefaultOrchestrator,
@@ -31713,6 +31749,7 @@ async function runCli(argv, {
       }
       value = await activeOrchestrator.apply({ plan, approvedDigest: parsed.approveDigest });
     }
+    if (parsed.outputPlan !== null) await publishPlanCreateOnly(parsed.outputPlan, value);
     if (parsed.json) writeMachineValue(stdout, value);
     else writeHumanValue(stdout, value);
     return exitCodeForOutcome(value.outcome);

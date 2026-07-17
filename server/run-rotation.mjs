@@ -111,8 +111,9 @@ function parseCounts(stdout, stderr) {
   }
 
   // Skipped marker (test-m1-ping when editor not running)
-  if (/⊘\s+skipped:/.test(stdout)) {
-    return { passed: 0, failed: 0, total: 0, skipped: true, skipReason: 'live-editor-gated' };
+  const explicitSkip = stdout.match(/⊘\s+skipped:\s*([^\r\n]*)/);
+  if (explicitSkip) {
+    return { passed: 0, failed: 0, total: 0, skipped: true, skipReason: explicitSkip[1].trim() || 'explicit skip' };
   }
 
   // Env-fixture skip — fixture-dependent tests print this when UNREAL_PROJECT_ROOT

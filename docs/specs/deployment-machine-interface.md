@@ -9,7 +9,7 @@ source entry at `server/deploy-uemcp.mjs`.
 Run the release entry with Node 22 or newer:
 
 ```powershell
-node dist/deploy-uemcp.mjs plan --operation setup --project "D:\Path\Game.uproject" --json
+node dist/deploy-uemcp.mjs plan --operation setup --project "D:\Path\Game.uproject" --output-plan "D:\Path\uemcp-plan.json" --json
 node dist/deploy-uemcp.mjs apply --plan-file "D:\Path\uemcp-plan.json" --approve-digest "<64-lowercase-hex>" --non-interactive --json
 node dist/deploy-uemcp.mjs verify --project "D:\Path\Game.uproject" --json
 node dist/deploy-uemcp.mjs doctor --project "D:\Path\Game.uproject" --json
@@ -35,6 +35,12 @@ default target-path selection.
 narrow repair decisions: they are serialized in `request.client_decisions`,
 bound by the plan digest, and cannot be supplied to `verify`, `doctor`, or
 `apply`. They do not authorize replacement of unowned client state.
+
+`plan` and `repair` also accept `--output-plan <absolute.json>`. The CLI writes
+one UTF-8 JSON document through a flushed sibling scratch file and atomically
+publishes it only when the destination does not already exist. It never
+replaces a reviewed plan. JSON or human output on stdout is unchanged, and
+`apply`, `verify`, and `doctor` reject this flag.
 
 `apply` accepts no target, profile, client, or operation override. It requires
 the exact saved plan, its exact digest, and `--non-interactive`. `repair` only
@@ -138,7 +144,12 @@ writes.
   request: {
     requested_project,
     requested_profile,
-    selected_clients
+    selected_clients,
+    client_decisions: {
+      replace_owned_fields,
+      shadow_gemini_extension,
+      migrate_legacy_claude_project
+    }
   },
   descriptor: {
     name,
@@ -301,7 +312,7 @@ schema_version, entry, node_minimum, esbuild_version
 source_inputs and exact SHA-256 values
 package_lock_sha256
 bundled_packages with name, version, and license
-input_manifest_sha256, bundle_sha256
+notices_sha256, input_manifest_sha256, bundle_sha256
 ```
 
 The manifest contains no timestamp or absolute build path. Two unchanged builds
@@ -373,9 +384,17 @@ plan-to-launch byte drift. They do not authenticate registry provenance or
 confine an intentionally undeclared import from a shared module root. Windows
 descendant termination uses bounded `taskkill /T`; kernel-enforced Job Object
 containment remains a follow-on for hostile early-parent-exit cases.
-The legacy `setup-uemcp.bat` onboarding entrypoint has not yet been cut over to
-this machine interface, and uninstall/retirement behavior is not part of this
-client-adapter slice. Those remain separate implementation plans rather than
-implicit behavior of `plan --operation setup`.
+The deployment surfaces have these intentionally separate boundaries:
+
+| Capability | Current entrypoint | Status |
+| --- | --- | --- |
+| Claude, Codex, Gemini, and VS Code registration | `dist/deploy-uemcp.mjs` | Implemented through reviewed plan/apply transactions at exact release gates. |
+| Structured project-target registration | `dist/deploy-uemcp.mjs` | Implemented and fingerprint-bound. |
+| Plugin copy, Unreal build, plugin load, and complete workstation onboarding | `setup-uemcp.bat` and existing sync/build helpers | Legacy workflow remains authoritative until the separate onboarding cutover plan. |
+| Uninstall and retirement | None in this machine interface | Deferred to the separate retirement plan. |
+
+The legacy `setup-uemcp.bat` onboarding entrypoint has therefore not been cut
+over to this machine interface. `plan --operation setup` does not implicitly
+copy, build, load, uninstall, or retire the Unreal plugin.
 See `docs/specs/client-adapters.md` for client-specific support and proof
 boundaries.

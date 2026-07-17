@@ -204,6 +204,8 @@ export async function buildDeploymentCli({
   const bundledPackages = packageRows.map(row => row.identity);
   const packageLockSha256 = sha256Bytes(await fsPromises.readFile(join(canonicalRepoRoot, 'server', 'package-lock.json')));
   const bundle = Buffer.from(buildResult.outputFiles[0].text.replace(/\r\n?/g, '\n'), 'utf8');
+  const notices = noticeBytes(packageRows);
+  const noticesSha256 = sha256Bytes(notices);
   const manifest = {
     schema_version: '1.0',
     entry: 'dist/deploy-uemcp.mjs',
@@ -212,17 +214,19 @@ export async function buildDeploymentCli({
     source_inputs: sourceInputs,
     package_lock_sha256: packageLockSha256,
     bundled_packages: bundledPackages,
+    notices_sha256: noticesSha256,
     input_manifest_sha256: sha256Canonical({
       source_inputs: sourceInputs,
       package_lock_sha256: packageLockSha256,
       bundled_packages: bundledPackages,
+      notices_sha256: noticesSha256,
     }),
     bundle_sha256: sha256Bytes(bundle),
   };
   const artifacts = new Map([
     ['deploy-uemcp.mjs', bundle],
     ['deploy-uemcp.manifest.json', Buffer.from(`${canonicalJson(manifest)}\n`, 'utf8')],
-    ['THIRD_PARTY_NOTICES.txt', noticeBytes(packageRows)],
+    ['THIRD_PARTY_NOTICES.txt', notices],
   ]);
   await writeArtifactsAtomically(canonicalOutput, artifacts);
   return Object.freeze({

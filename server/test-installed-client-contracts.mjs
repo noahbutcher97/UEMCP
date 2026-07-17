@@ -117,6 +117,7 @@ async function geminiExtensionStateDigest(path) {
 function realGuardPaths() {
   const home = process.env.USERPROFILE;
   const appData = process.env.APPDATA;
+  const trustedFolders = process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH || join(home, '.gemini', 'trustedFolders.json');
   return [
     join(home, '.claude.json'),
     join(home, '.claude', 'settings.json'),
@@ -125,6 +126,7 @@ function realGuardPaths() {
     join(home, '.codex', 'config.toml'),
     join(home, '.gemini', 'settings.json'),
     join(home, '.gemini', 'mcp-server-enablement.json'),
+    trustedFolders,
     { path: join(home, '.gemini', 'extensions'), kind: 'gemini_extension_state' },
     join(home, '.gemini', 'extension-enablement.json'),
     join(appData, 'Code', 'User', 'mcp.json'),
@@ -349,6 +351,7 @@ if (!worker) {
       CLAUDE_CONFIG_DIR: resolve(join(root, 'claude')),
       CODEX_HOME: resolve(join(root, 'codex')),
       GEMINI_CLI_HOME: resolve(join(root, 'gemini-home')),
+      GEMINI_CLI_TRUSTED_FOLDERS_PATH: resolve(join(root, 'gemini-trusted-folders.json')),
     },
     localState: createLocalState({
       root: resolve(join(root, 'state')),

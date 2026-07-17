@@ -1270,6 +1270,19 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(planExit === 10 && JSON.parse(stdout).kind === 'uemcp.deployment.plan' && stderr === '', 'plan JSON is stdout-only and exits for its embedded ACTION_REQUIRED outcome');
     stdout = '';
     stderr = '';
+    const outputPlanPath = join(root, 'saved-plan.json');
+    const outputPlanExit = await runCli(['plan', '--operation', 'setup', '--output-plan', outputPlanPath, '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(outputPlanExit === 10
+      && JSON.parse(readFileSync(outputPlanPath, 'utf8')).digest === plan.digest
+      && statSync(outputPlanPath).nlink === 1, 'plan writes one complete create-only UTF-8 review file for apply');
+    const savedPlanBytes = readFileSync(outputPlanPath);
+    stdout = '';
+    stderr = '';
+    const duplicateOutputExit = await runCli(['plan', '--operation', 'setup', '--output-plan', outputPlanPath, '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(duplicateOutputExit === 64
+      && readFileSync(outputPlanPath).equals(savedPlanBytes), 'plan output refuses to replace an existing reviewed file');
+    stdout = '';
+    stderr = '';
     const verifyExit = await runCli(['verify', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(verifyExit === 0 && JSON.parse(stdout).operation === 'verify' && stderr === '', 'healthy verify emits JSON-only stdout and exits zero');
     stdout = '';
@@ -1300,6 +1313,10 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     stderr = '';
     const inspectionDecisionExit = await runCli(['verify', '--replace-owned-client-fields', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(inspectionDecisionExit === 64 && stdout === '', 'standalone inspection rejects write-authorizing client decisions');
+    stdout = '';
+    stderr = '';
+    const inspectionOutputExit = await runCli(['verify', '--output-plan', join(root, 'invalid-output.json'), '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(inspectionOutputExit === 64 && stdout === '', 'standalone inspection rejects plan-output authority');
     stdout = '';
     stderr = '';
     const planPath = join(root, 'reviewed-plan.json');

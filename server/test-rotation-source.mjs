@@ -46,4 +46,10 @@ runner.assert(
   'installed-client contracts declare a rotation-recognized skip without contributing assertions',
 );
 
+runner.assert(
+  rotationSource.includes("stdout.match(/⊘\\s+skipped:\\s*([^\\r\\n]*)/)")
+    && rotationSource.includes("skipReason: explicitSkip[1].trim() || 'explicit skip'"),
+  'rotation preserves each explicit skip reason instead of relabeling every gate as live-editor-only',
+);
+
 process.exit(runner.summary());

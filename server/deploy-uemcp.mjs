@@ -2,6 +2,7 @@
 
 import * as fsPromises from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -25,11 +26,11 @@ import { createTargetDomain } from './deployment/target-domain.mjs';
 const HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
   deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
   deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
 `;
 const INTERFACE_ERROR_CODES = new Set(['CLI_USAGE', 'INVALID_CONTRACT', 'INVALID_PLAN', 'UNSUPPORTED_INTERFACE']);
 const SAFE_DIAGNOSTICS = Object.freeze({
@@ -81,6 +82,7 @@ function parseArgs(argv) {
     project: null,
     profile: null,
     targetsFile: null,
+    outputPlan: null,
     planFile: null,
     approveDigest: null,
     nonInteractive: false,
@@ -106,6 +108,7 @@ function parseArgs(argv) {
     else if (flag === '--project') { parsed.project = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--profile') { parsed.profile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--targets-file') { parsed.targetsFile = takeValue(argv, index, flag); index += 1; }
+    else if (flag === '--output-plan') { parsed.outputPlan = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--plan-file') { parsed.planFile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--approve-digest') { parsed.approveDigest = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--include-client' || flag === '--exclude-client') {
@@ -129,9 +132,9 @@ function parseArgs(argv) {
     if (!parsed.planFile || !isAbsolute(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
       throw new UsageError('apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive');
     }
-    if (requestFlags || parsed.operation !== null) throw new UsageError('apply request overrides are forbidden');
+    if (requestFlags || parsed.operation !== null || parsed.outputPlan !== null) throw new UsageError('apply request overrides are forbidden');
   } else if (command !== 'repair') {
-    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive || parsed.outputPlan !== null) {
       throw new UsageError(`${command} does not accept plan/apply flags`);
     }
     if (decisionFlags) throw new UsageError(`${command} does not accept repair decisions`);
@@ -140,6 +143,9 @@ function parseArgs(argv) {
   }
   if (parsed.targetsFile !== null && (!isAbsolute(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith('.json'))) {
     throw new UsageError('--targets-file must be an absolute .json path');
+  }
+  if (parsed.outputPlan !== null && (!isAbsolute(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith('.json'))) {
+    throw new UsageError('--output-plan must be an absolute .json path');
   }
   if (parsed.project !== null && (!isAbsolute(parsed.project) || extname(parsed.project).toLowerCase() !== '.uproject')) {
     throw new UsageError('--project must be an absolute .uproject path');
@@ -266,6 +272,29 @@ function writeHumanValue(stream, value) {
   for (const action of value.actions ?? []) stream.write(`action: ${action.code} - ${action.message}\n`);
 }
 
+async function publishPlanCreateOnly(targetPath, value) {
+  const resolvedTarget = resolve(targetPath);
+  const scratchPath = join(dirname(resolvedTarget), `.${basename(resolvedTarget)}.${randomUUID()}.tmp`);
+  let scratchCreated = false;
+  try {
+    const handle = await fsPromises.open(scratchPath, 'wx', 0o600);
+    scratchCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsPromises.link(scratchPath, resolvedTarget);
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new UsageError('--output-plan target already exists');
+    if (error instanceof UsageError) throw error;
+    throw new UsageError('--output-plan could not be published');
+  } finally {
+    if (scratchCreated) await fsPromises.unlink(scratchPath).catch(() => {});
+  }
+}
+
 export async function runCli(argv, {
   orchestrator = null,
   orchestratorFactory = createDefaultOrchestrator,
@@ -294,6 +323,7 @@ export async function runCli(argv, {
       }
       value = await activeOrchestrator.apply({ plan, approvedDigest: parsed.approveDigest });
     }
+    if (parsed.outputPlan !== null) await publishPlanCreateOnly(parsed.outputPlan, value);
     if (parsed.json) writeMachineValue(stdout, value);
     else writeHumanValue(stdout, value);
     return exitCodeForOutcome(value.outcome);
