@@ -6,13 +6,7 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-var __commonJS = (cb, mod) => function __require2() {
+var __commonJS = (cb, mod) => function __require() {
   try {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   } catch (e) {
@@ -9798,503 +9792,6 @@ var require_dist = __commonJS({
   }
 });
 
-// server/node_modules/isexe/windows.js
-var require_windows = __commonJS({
-  "server/node_modules/isexe/windows.js"(exports, module) {
-    module.exports = isexe;
-    isexe.sync = sync;
-    var fs = __require("node:fs");
-    function checkPathExt(path, options) {
-      var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
-      if (!pathext) {
-        return true;
-      }
-      pathext = pathext.split(";");
-      if (pathext.indexOf("") !== -1) {
-        return true;
-      }
-      for (var i = 0; i < pathext.length; i++) {
-        var p = pathext[i].toLowerCase();
-        if (p && path.substr(-p.length).toLowerCase() === p) {
-          return true;
-        }
-      }
-      return false;
-    }
-    function checkStat(stat, path, options) {
-      if (!stat.isSymbolicLink() && !stat.isFile()) {
-        return false;
-      }
-      return checkPathExt(path, options);
-    }
-    function isexe(path, options, cb) {
-      fs.stat(path, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, path, options));
-      });
-    }
-    function sync(path, options) {
-      return checkStat(fs.statSync(path), path, options);
-    }
-  }
-});
-
-// server/node_modules/isexe/mode.js
-var require_mode = __commonJS({
-  "server/node_modules/isexe/mode.js"(exports, module) {
-    module.exports = isexe;
-    isexe.sync = sync;
-    var fs = __require("node:fs");
-    function isexe(path, options, cb) {
-      fs.stat(path, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, options));
-      });
-    }
-    function sync(path, options) {
-      return checkStat(fs.statSync(path), options);
-    }
-    function checkStat(stat, options) {
-      return stat.isFile() && checkMode(stat, options);
-    }
-    function checkMode(stat, options) {
-      var mod = stat.mode;
-      var uid = stat.uid;
-      var gid = stat.gid;
-      var myUid = options.uid !== void 0 ? options.uid : process.getuid && process.getuid();
-      var myGid = options.gid !== void 0 ? options.gid : process.getgid && process.getgid();
-      var u = parseInt("100", 8);
-      var g = parseInt("010", 8);
-      var o = parseInt("001", 8);
-      var ug = u | g;
-      var ret = mod & o || mod & g && gid === myGid || mod & u && uid === myUid || mod & ug && myUid === 0;
-      return ret;
-    }
-  }
-});
-
-// server/node_modules/isexe/index.js
-var require_isexe = __commonJS({
-  "server/node_modules/isexe/index.js"(exports, module) {
-    var fs = __require("node:fs");
-    var core;
-    if (process.platform === "win32" || global.TESTING_WINDOWS) {
-      core = require_windows();
-    } else {
-      core = require_mode();
-    }
-    module.exports = isexe;
-    isexe.sync = sync;
-    function isexe(path, options, cb) {
-      if (typeof options === "function") {
-        cb = options;
-        options = {};
-      }
-      if (!cb) {
-        if (typeof Promise !== "function") {
-          throw new TypeError("callback not provided");
-        }
-        return new Promise(function(resolve21, reject) {
-          isexe(path, options || {}, function(er, is) {
-            if (er) {
-              reject(er);
-            } else {
-              resolve21(is);
-            }
-          });
-        });
-      }
-      core(path, options || {}, function(er, is) {
-        if (er) {
-          if (er.code === "EACCES" || options && options.ignoreErrors) {
-            er = null;
-            is = false;
-          }
-        }
-        cb(er, is);
-      });
-    }
-    function sync(path, options) {
-      try {
-        return core.sync(path, options || {});
-      } catch (er) {
-        if (options && options.ignoreErrors || er.code === "EACCES") {
-          return false;
-        } else {
-          throw er;
-        }
-      }
-    }
-  }
-});
-
-// server/node_modules/which/which.js
-var require_which = __commonJS({
-  "server/node_modules/which/which.js"(exports, module) {
-    var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path = __require("node:path");
-    var COLON = isWindows ? ";" : ":";
-    var isexe = require_isexe();
-    var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
-    var getPathInfo = (cmd, opt) => {
-      const colon = opt.colon || COLON;
-      const pathEnv = cmd.match(/\//) || isWindows && cmd.match(/\\/) ? [""] : [
-        // windows always checks the cwd first
-        ...isWindows ? [process.cwd()] : [],
-        ...(opt.path || process.env.PATH || /* istanbul ignore next: very unusual */
-        "").split(colon)
-      ];
-      const pathExtExe = isWindows ? opt.pathExt || process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM" : "";
-      const pathExt = isWindows ? pathExtExe.split(colon) : [""];
-      if (isWindows) {
-        if (cmd.indexOf(".") !== -1 && pathExt[0] !== "")
-          pathExt.unshift("");
-      }
-      return {
-        pathEnv,
-        pathExt,
-        pathExtExe
-      };
-    };
-    var which = (cmd, opt, cb) => {
-      if (typeof opt === "function") {
-        cb = opt;
-        opt = {};
-      }
-      if (!opt)
-        opt = {};
-      const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
-      const found = [];
-      const step = (i) => new Promise((resolve21, reject) => {
-        if (i === pathEnv.length)
-          return opt.all && found.length ? resolve21(found) : reject(getNotFoundError(cmd));
-        const ppRaw = pathEnv[i];
-        const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path.join(pathPart, cmd);
-        const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve21(subStep(p, i, 0));
-      });
-      const subStep = (p, i, ii) => new Promise((resolve21, reject) => {
-        if (ii === pathExt.length)
-          return resolve21(step(i + 1));
-        const ext = pathExt[ii];
-        isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
-          if (!er && is) {
-            if (opt.all)
-              found.push(p + ext);
-            else
-              return resolve21(p + ext);
-          }
-          return resolve21(subStep(p, i, ii + 1));
-        });
-      });
-      return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
-    };
-    var whichSync = (cmd, opt) => {
-      opt = opt || {};
-      const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
-      const found = [];
-      for (let i = 0; i < pathEnv.length; i++) {
-        const ppRaw = pathEnv[i];
-        const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path.join(pathPart, cmd);
-        const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        for (let j = 0; j < pathExt.length; j++) {
-          const cur = p + pathExt[j];
-          try {
-            const is = isexe.sync(cur, { pathExt: pathExtExe });
-            if (is) {
-              if (opt.all)
-                found.push(cur);
-              else
-                return cur;
-            }
-          } catch (ex) {
-          }
-        }
-      }
-      if (opt.all && found.length)
-        return found;
-      if (opt.nothrow)
-        return null;
-      throw getNotFoundError(cmd);
-    };
-    module.exports = which;
-    which.sync = whichSync;
-  }
-});
-
-// server/node_modules/path-key/index.js
-var require_path_key = __commonJS({
-  "server/node_modules/path-key/index.js"(exports, module) {
-    "use strict";
-    var pathKey6 = (options = {}) => {
-      const environment = options.env || process.env;
-      const platform = options.platform || process.platform;
-      if (platform !== "win32") {
-        return "PATH";
-      }
-      return Object.keys(environment).reverse().find((key) => key.toUpperCase() === "PATH") || "Path";
-    };
-    module.exports = pathKey6;
-    module.exports.default = pathKey6;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/resolveCommand.js
-var require_resolveCommand = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module) {
-    "use strict";
-    var path = __require("node:path");
-    var which = require_which();
-    var getPathKey = require_path_key();
-    function resolveCommandAttempt(parsed, withoutPathExt) {
-      const env = parsed.options.env || process.env;
-      const cwd = process.cwd();
-      const hasCustomCwd = parsed.options.cwd != null;
-      const shouldSwitchCwd = hasCustomCwd && process.chdir !== void 0 && !process.chdir.disabled;
-      if (shouldSwitchCwd) {
-        try {
-          process.chdir(parsed.options.cwd);
-        } catch (err) {
-        }
-      }
-      let resolved;
-      try {
-        resolved = which.sync(parsed.command, {
-          path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path.delimiter : void 0
-        });
-      } catch (e) {
-      } finally {
-        if (shouldSwitchCwd) {
-          process.chdir(cwd);
-        }
-      }
-      if (resolved) {
-        resolved = path.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
-      }
-      return resolved;
-    }
-    function resolveCommand(parsed) {
-      return resolveCommandAttempt(parsed) || resolveCommandAttempt(parsed, true);
-    }
-    module.exports = resolveCommand;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/escape.js
-var require_escape = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/escape.js"(exports, module) {
-    "use strict";
-    var metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
-    function escapeCommand(arg) {
-      arg = arg.replace(metaCharsRegExp, "^$1");
-      return arg;
-    }
-    function escapeArgument(arg, doubleEscapeMetaChars) {
-      arg = `${arg}`;
-      arg = arg.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"');
-      arg = arg.replace(/(?=(\\+?)?)\1$/, "$1$1");
-      arg = `"${arg}"`;
-      arg = arg.replace(metaCharsRegExp, "^$1");
-      if (doubleEscapeMetaChars) {
-        arg = arg.replace(metaCharsRegExp, "^$1");
-      }
-      return arg;
-    }
-    module.exports.command = escapeCommand;
-    module.exports.argument = escapeArgument;
-  }
-});
-
-// server/node_modules/shebang-regex/index.js
-var require_shebang_regex = __commonJS({
-  "server/node_modules/shebang-regex/index.js"(exports, module) {
-    "use strict";
-    module.exports = /^#!(.*)/;
-  }
-});
-
-// server/node_modules/shebang-command/index.js
-var require_shebang_command = __commonJS({
-  "server/node_modules/shebang-command/index.js"(exports, module) {
-    "use strict";
-    var shebangRegex = require_shebang_regex();
-    module.exports = (string3 = "") => {
-      const match = string3.match(shebangRegex);
-      if (!match) {
-        return null;
-      }
-      const [path, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path.split("/").pop();
-      if (binary === "env") {
-        return argument;
-      }
-      return argument ? `${binary} ${argument}` : binary;
-    };
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/readShebang.js
-var require_readShebang = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/readShebang.js"(exports, module) {
-    "use strict";
-    var fs = __require("node:fs");
-    var shebangCommand = require_shebang_command();
-    function readShebang(command) {
-      const size = 150;
-      const buffer = Buffer.alloc(size);
-      let fd;
-      try {
-        fd = fs.openSync(command, "r");
-        fs.readSync(fd, buffer, 0, size, 0);
-        fs.closeSync(fd);
-      } catch (e) {
-      }
-      return shebangCommand(buffer.toString());
-    }
-    module.exports = readShebang;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/parse.js
-var require_parse = __commonJS({
-  "server/node_modules/cross-spawn/lib/parse.js"(exports, module) {
-    "use strict";
-    var path = __require("node:path");
-    var resolveCommand = require_resolveCommand();
-    var escape2 = require_escape();
-    var readShebang = require_readShebang();
-    var isWin = process.platform === "win32";
-    var isExecutableRegExp = /\.(?:com|exe)$/i;
-    var isCmdShimRegExp = /node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i;
-    function detectShebang(parsed) {
-      parsed.file = resolveCommand(parsed);
-      const shebang = parsed.file && readShebang(parsed.file);
-      if (shebang) {
-        parsed.args.unshift(parsed.file);
-        parsed.command = shebang;
-        return resolveCommand(parsed);
-      }
-      return parsed.file;
-    }
-    function parseNonShell(parsed) {
-      if (!isWin) {
-        return parsed;
-      }
-      const commandFile = detectShebang(parsed);
-      const needsShell = !isExecutableRegExp.test(commandFile);
-      if (parsed.options.forceShell || needsShell) {
-        const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path.normalize(parsed.command);
-        parsed.command = escape2.command(parsed.command);
-        parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
-        const shellCommand = [parsed.command].concat(parsed.args).join(" ");
-        parsed.args = ["/d", "/s", "/c", `"${shellCommand}"`];
-        parsed.command = process.env.comspec || "cmd.exe";
-        parsed.options.windowsVerbatimArguments = true;
-      }
-      return parsed;
-    }
-    function parse8(command, args, options) {
-      if (args && !Array.isArray(args)) {
-        options = args;
-        args = null;
-      }
-      args = args ? args.slice(0) : [];
-      options = Object.assign({}, options);
-      const parsed = {
-        command,
-        args,
-        options,
-        file: void 0,
-        original: {
-          command,
-          args
-        }
-      };
-      return options.shell ? parsed : parseNonShell(parsed);
-    }
-    module.exports = parse8;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/enoent.js
-var require_enoent = __commonJS({
-  "server/node_modules/cross-spawn/lib/enoent.js"(exports, module) {
-    "use strict";
-    var isWin = process.platform === "win32";
-    function notFoundError(original, syscall) {
-      return Object.assign(new Error(`${syscall} ${original.command} ENOENT`), {
-        code: "ENOENT",
-        errno: "ENOENT",
-        syscall: `${syscall} ${original.command}`,
-        path: original.command,
-        spawnargs: original.args
-      });
-    }
-    function hookChildProcess(cp, parsed) {
-      if (!isWin) {
-        return;
-      }
-      const originalEmit = cp.emit;
-      cp.emit = function(name, arg1) {
-        if (name === "exit") {
-          const err = verifyENOENT(arg1, parsed);
-          if (err) {
-            return originalEmit.call(cp, "error", err);
-          }
-        }
-        return originalEmit.apply(cp, arguments);
-      };
-    }
-    function verifyENOENT(status, parsed) {
-      if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, "spawn");
-      }
-      return null;
-    }
-    function verifyENOENTSync(status, parsed) {
-      if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, "spawnSync");
-      }
-      return null;
-    }
-    module.exports = {
-      hookChildProcess,
-      verifyENOENT,
-      verifyENOENTSync,
-      notFoundError
-    };
-  }
-});
-
-// server/node_modules/cross-spawn/index.js
-var require_cross_spawn = __commonJS({
-  "server/node_modules/cross-spawn/index.js"(exports, module) {
-    "use strict";
-    var cp = __require("node:child_process");
-    var parse8 = require_parse();
-    var enoent = require_enoent();
-    function spawn2(command, args, options) {
-      const parsed = parse8(command, args, options);
-      const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
-      enoent.hookChildProcess(spawned, parsed);
-      return spawned;
-    }
-    function spawnSync(command, args, options) {
-      const parsed = parse8(command, args, options);
-      const result2 = cp.spawnSync(parsed.command, parsed.args, parsed.options);
-      result2.error = result2.error || enoent.verifyENOENTSync(result2.status, parsed);
-      return result2;
-    }
-    module.exports = spawn2;
-    module.exports.spawn = spawn2;
-    module.exports.sync = spawnSync;
-    module.exports._parse = parse8;
-    module.exports._enoent = enoent;
-  }
-});
-
 // server/deploy-uemcp.mjs
 import * as fsPromises from "node:fs/promises";
 import { existsSync as existsSync3 } from "node:fs";
@@ -12062,6 +11559,9 @@ function createClientTransaction({
       const diskBytes = await fsImpl.readFile(record2.path);
       const applied = await capture(record2.path, [record2.allowedRoot], true);
       markChanged(record2, applied);
+      if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
+        fail4("client config changed during transaction replacement", "TRANSACTION_POSTWRITE_CHANGED");
+      }
       if (before.exists && applied.metadata_sha256 !== before.metadata_sha256) {
         fail4("existing-file security metadata changed during replacement", "METADATA_PRESERVATION_FAILED");
       }
@@ -12656,7 +12156,15 @@ function createClientTransaction({
     try {
       await recheckBeforeApply();
       state.phase = "applying";
-      const adapterContext = Object.freeze({ ...context, transaction: transactionCapability });
+      const outerBeforeActiveClientLaunch = context.beforeActiveClientLaunch;
+      const adapterContext = Object.freeze({
+        ...context,
+        beforeActiveClientLaunch: async (evidence) => {
+          await recheckAfterVerify();
+          return outerBeforeActiveClientLaunch?.(evidence);
+        },
+        transaction: transactionCapability
+      });
       let actionRequired = false;
       for (const clientId of CLIENT_IDS) {
         const adapter = state.adapters.get(clientId);
@@ -12685,7 +12193,11 @@ function createClientTransaction({
         try {
           await deleteSnapshot(record2);
         } catch (error2) {
-          cleanupFailures.push({ path: record2.path, code: error2?.code ?? "SNAPSHOT_DELETE_FAILED" });
+          cleanupFailures.push({
+            path: record2.path,
+            code: error2?.code ?? "SNAPSHOT_DELETE_FAILED",
+            retained_until: record2.snapshot.metadata.retained_until
+          });
         }
       }
       state.phase = "complete";
@@ -12694,8 +12206,11 @@ function createClientTransaction({
         status: actionRequired || cleanupFailures.length > 0 || deferredDeleteFailures.length > 0 ? "ACTION_REQUIRED" : "APPLIED",
         ...transactionResultBase(state),
         rollback: null,
-        retained_snapshots: cleanupFailures.map((row) => ({ path: row.path, retained_until: null })),
-        cleanup_actions: deferredDeleteFailures
+        retained_snapshots: cleanupFailures.map((row) => ({ path: row.path, retained_until: row.retained_until })),
+        cleanup_actions: [
+          ...cleanupFailures.map((row) => ({ path: row.path, code: row.code })),
+          ...deferredDeleteFailures
+        ]
       };
     } catch (error2) {
       return rollbackInternal({ reason: error2?.code ?? "APPLY_FAILED" });
@@ -26218,201 +25733,204 @@ var Client = class extends Protocol {
   }
 };
 
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
-var import_cross_spawn = __toESM(require_cross_spawn(), 1);
-import process2 from "node:process";
+// server/deployment/bounded-stdio-transport.mjs
+import { spawn as defaultSpawn2 } from "node:child_process";
 import { PassThrough } from "node:stream";
-
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
-var ReadBuffer = class {
-  append(chunk) {
-    this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
-  }
-  readMessage() {
-    if (!this._buffer) {
-      return null;
-    }
-    const index = this._buffer.indexOf("\n");
-    if (index === -1) {
-      return null;
-    }
-    const line = this._buffer.toString("utf8", 0, index).replace(/\r$/, "");
-    this._buffer = this._buffer.subarray(index + 1);
-    return deserializeMessage(line);
-  }
-  clear() {
-    this._buffer = void 0;
+var DEFAULT_STDOUT_LIMIT_BYTES = 8 * 1024 * 1024;
+var DEFAULT_STDERR_LIMIT_BYTES = 64 * 1024;
+var BoundedStdioTransportError = class extends Error {
+  constructor(message, code = "STDIO_TRANSPORT_FAILED") {
+    super(message);
+    this.name = "BoundedStdioTransportError";
+    this.code = code;
   }
 };
-function deserializeMessage(line) {
-  return JSONRPCMessageSchema.parse(JSON.parse(line));
-}
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
-}
-
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
-var DEFAULT_INHERITED_ENV_VARS = process2.platform === "win32" ? [
-  "APPDATA",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "LOCALAPPDATA",
-  "PATH",
-  "PROCESSOR_ARCHITECTURE",
-  "SYSTEMDRIVE",
-  "SYSTEMROOT",
-  "TEMP",
-  "USERNAME",
-  "USERPROFILE",
-  "PROGRAMFILES"
-] : (
-  /* list inspired by the default env inheritance of sudo */
-  ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
-);
-function getDefaultEnvironment() {
-  const env = {};
-  for (const key of DEFAULT_INHERITED_ENV_VARS) {
-    const value = process2.env[key];
-    if (value === void 0) {
-      continue;
-    }
-    if (value.startsWith("()")) {
-      continue;
-    }
-    env[key] = value;
+function validateLimit(value, maximum, label) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new BoundedStdioTransportError(`${label} must be a positive integer no larger than ${maximum}`, "INVALID_STDIO_LIMIT");
   }
-  return env;
+  return value;
 }
-var StdioClientTransport = class {
-  constructor(server) {
-    this._readBuffer = new ReadBuffer();
-    this._stderrStream = null;
-    this._serverParams = server;
-    if (server.stderr === "pipe" || server.stderr === "overlapped") {
-      this._stderrStream = new PassThrough();
-    }
-  }
-  /**
-   * Starts the server process and prepares to communicate with it.
-   */
-  async start() {
-    if (this._process) {
-      throw new Error("StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.");
-    }
-    return new Promise((resolve21, reject) => {
-      this._process = (0, import_cross_spawn.default)(this._serverParams.command, this._serverParams.args ?? [], {
-        // merge default env with server env because mcp server needs some env vars
-        env: {
-          ...getDefaultEnvironment(),
-          ...this._serverParams.env
-        },
-        stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
-        shell: false,
-        windowsHide: process2.platform === "win32",
-        cwd: this._serverParams.cwd
-      });
-      this._process.on("error", (error2) => {
-        reject(error2);
-        this.onerror?.(error2);
-      });
-      this._process.on("spawn", () => {
-        resolve21();
-      });
-      this._process.on("close", (_code) => {
-        this._process = void 0;
-        this.onclose?.();
-      });
-      this._process.stdin?.on("error", (error2) => {
-        this.onerror?.(error2);
-      });
-      this._process.stdout?.on("data", (chunk) => {
-        this._readBuffer.append(chunk);
-        this.processReadBuffer();
-      });
-      this._process.stdout?.on("error", (error2) => {
-        this.onerror?.(error2);
-      });
-      if (this._stderrStream && this._process.stderr) {
-        this._process.stderr.pipe(this._stderrStream);
-      }
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolvePromise) => {
+    const timer = setTimeout(resolvePromise, timeoutMs);
+    timer.unref?.();
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolvePromise();
     });
-  }
-  /**
-   * The stderr stream of the child process, if `StdioServerParameters.stderr` was set to "pipe" or "overlapped".
-   *
-   * If stderr piping was requested, a PassThrough stream is returned _immediately_, allowing callers to
-   * attach listeners before the start method is invoked. This prevents loss of any early
-   * error output emitted by the child process.
-   */
-  get stderr() {
-    if (this._stderrStream) {
-      return this._stderrStream;
+  });
+}
+var BoundedStdioClientTransport = class {
+  constructor(server, {
+    stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+    stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES,
+    spawnImpl = defaultSpawn2,
+    closeGraceMs = 250
+  } = {}) {
+    if (!server || typeof server.command !== "string" || server.command.trim() === "") {
+      throw new BoundedStdioTransportError("stdio server command is required", "INVALID_STDIO_SERVER");
     }
-    return this._process?.stderr ?? null;
+    if (!Array.isArray(server.args ?? []) || !(server.args ?? []).every((arg) => typeof arg === "string")) {
+      throw new BoundedStdioTransportError("stdio server args must be strings", "INVALID_STDIO_SERVER");
+    }
+    if (typeof spawnImpl !== "function") throw new BoundedStdioTransportError("spawnImpl must be a function", "INVALID_STDIO_SERVER");
+    if (!Number.isSafeInteger(closeGraceMs) || closeGraceMs <= 0 || closeGraceMs > 5e3) {
+      throw new BoundedStdioTransportError("closeGraceMs is invalid", "INVALID_STDIO_LIMIT");
+    }
+    this._server = server;
+    this._stdoutLimitBytes = validateLimit(stdoutLimitBytes, DEFAULT_STDOUT_LIMIT_BYTES, "stdoutLimitBytes");
+    this._stderrLimitBytes = validateLimit(stderrLimitBytes, DEFAULT_STDERR_LIMIT_BYTES, "stderrLimitBytes");
+    this._spawn = spawnImpl;
+    this._closeGraceMs = closeGraceMs;
+    this._stderrStream = new PassThrough();
+    this._stdoutChunks = [];
+    this._pendingStdoutBytes = 0;
+    this._stdoutBytes = 0;
+    this._stderrBytes = 0;
+    this._process = null;
+    this._started = false;
+    this._failed = false;
+    this._closePromise = null;
   }
-  /**
-   * The child process pid spawned by this transport.
-   *
-   * This is only available after the transport has been started.
-   */
+  get stderr() {
+    return this._stderrStream;
+  }
   get pid() {
     return this._process?.pid ?? null;
   }
-  processReadBuffer() {
-    while (true) {
-      try {
-        const message = this._readBuffer.readMessage();
-        if (message === null) {
-          break;
-        }
-        this.onmessage?.(message);
-      } catch (error2) {
-        this.onerror?.(error2);
-      }
+  _fail(error2) {
+    if (this._failed) return;
+    this._failed = true;
+    this.onerror?.(error2);
+    void this.close();
+  }
+  _parseLine(lineBytes) {
+    const end = lineBytes.at(-1) === 13 ? lineBytes.length - 1 : lineBytes.length;
+    try {
+      const message = JSONRPCMessageSchema.parse(JSON.parse(lineBytes.toString("utf8", 0, end)));
+      this.onmessage?.(message);
+    } catch (error2) {
+      this._fail(error2);
     }
+  }
+  _handleStdout(value) {
+    if (this._failed || this._closePromise) return;
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    this._stdoutBytes += chunk.length;
+    if (this._stdoutBytes > this._stdoutLimitBytes) {
+      this._fail(new BoundedStdioTransportError("stdio stdout limit exceeded", "STDOUT_LIMIT_EXCEEDED"));
+      return;
+    }
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf(10, start);
+      if (newline === -1) break;
+      const tail = chunk.subarray(start, newline);
+      const line = this._stdoutChunks.length === 0 ? tail : Buffer.concat([...this._stdoutChunks, tail], this._pendingStdoutBytes + tail.length);
+      this._stdoutChunks = [];
+      this._pendingStdoutBytes = 0;
+      this._parseLine(line);
+      if (this._failed) return;
+      start = newline + 1;
+    }
+    if (start < chunk.length) {
+      const remaining = Buffer.from(chunk.subarray(start));
+      this._stdoutChunks.push(remaining);
+      this._pendingStdoutBytes += remaining.length;
+    }
+  }
+  _handleStderr(value) {
+    if (this._failed || this._closePromise) return;
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    const remaining = Math.max(0, this._stderrLimitBytes - this._stderrBytes);
+    if (remaining > 0) this._stderrStream.write(chunk.subarray(0, remaining));
+    this._stderrBytes += chunk.length;
+    if (this._stderrBytes > this._stderrLimitBytes) {
+      this._fail(new BoundedStdioTransportError("stdio stderr limit exceeded", "STDERR_LIMIT_EXCEEDED"));
+    }
+  }
+  async start() {
+    if (this._started) throw new BoundedStdioTransportError("stdio transport already started", "STDIO_ALREADY_STARTED");
+    this._started = true;
+    return await new Promise((resolvePromise, rejectPromise) => {
+      let spawned = false;
+      let child;
+      try {
+        child = this._spawn(this._server.command, this._server.args ?? [], {
+          env: { ...this._server.env ?? {} },
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
+          windowsHide: process.platform === "win32",
+          ...this._server.cwd ? { cwd: this._server.cwd } : {}
+        });
+      } catch (error2) {
+        rejectPromise(error2);
+        return;
+      }
+      this._process = child;
+      child.once("spawn", () => {
+        spawned = true;
+        resolvePromise();
+      });
+      child.once("error", (error2) => {
+        if (!spawned) rejectPromise(error2);
+        this._fail(error2);
+      });
+      child.once("close", () => {
+        if (this._process === child) this._process = null;
+        this._stderrStream.end();
+        this.onclose?.();
+      });
+      child.stdin?.on("error", (error2) => this._fail(error2));
+      child.stdout?.on("data", (chunk) => this._handleStdout(chunk));
+      child.stdout?.on("error", (error2) => this._fail(error2));
+      child.stderr?.on("data", (chunk) => this._handleStderr(chunk));
+      child.stderr?.on("error", (error2) => this._fail(error2));
+    });
+  }
+  async send(message) {
+    const stdin = this._process?.stdin;
+    if (!stdin || this._closePromise) throw new BoundedStdioTransportError("stdio transport is not connected", "STDIO_NOT_CONNECTED");
+    const bytes = `${JSON.stringify(message)}
+`;
+    await new Promise((resolvePromise, rejectPromise) => {
+      stdin.write(bytes, (error2) => {
+        if (error2) rejectPromise(error2);
+        else resolvePromise();
+      });
+    });
   }
   async close() {
-    if (this._process) {
-      const processToClose = this._process;
-      this._process = void 0;
-      const closePromise = new Promise((resolve21) => {
-        processToClose.once("close", () => {
-          resolve21();
-        });
-      });
-      try {
-        processToClose.stdin?.end();
-      } catch {
-      }
-      await Promise.race([closePromise, new Promise((resolve21) => setTimeout(resolve21, 2e3).unref())]);
-      if (processToClose.exitCode === null) {
+    if (this._closePromise) return await this._closePromise;
+    this._closePromise = (async () => {
+      const child = this._process;
+      if (child) {
         try {
-          processToClose.kill("SIGTERM");
+          child.stdin?.end();
         } catch {
         }
-        await Promise.race([closePromise, new Promise((resolve21) => setTimeout(resolve21, 2e3).unref())]);
-      }
-      if (processToClose.exitCode === null) {
-        try {
-          processToClose.kill("SIGKILL");
-        } catch {
+        await waitForExit(child, this._closeGraceMs);
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill("SIGTERM");
+          } catch {
+          }
+          await waitForExit(child, this._closeGraceMs);
+        }
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+          }
+          await waitForExit(child, this._closeGraceMs);
         }
       }
-    }
-    this._readBuffer.clear();
-  }
-  send(message) {
-    return new Promise((resolve21) => {
-      if (!this._process?.stdin) {
-        throw new Error("Not connected");
-      }
-      const json = serializeMessage(message);
-      if (this._process.stdin.write(json)) {
-        resolve21();
-      } else {
-        this._process.stdin.once("drain", resolve21);
-      }
-    });
+      this._stdoutChunks = [];
+      this._pendingStdoutBytes = 0;
+    })();
+    return await this._closePromise;
   }
 };
 
@@ -26454,13 +25972,15 @@ async function smokeDescriptor(descriptor, {
   clientInfo = { name: "uemcp-deployment-smoke", version: "1.0.0" },
   timeoutMs = 15e3,
   expectedServerName = "uemcp",
-  transportFactory = (parameters) => new StdioClientTransport(parameters),
+  transportFactory = null,
   effectiveEnvironment = null,
-  effectiveCwd = null
+  effectiveCwd = null,
+  stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+  stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES
 } = {}) {
   const validatedDescriptor = validateDescriptorContract(descriptor);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("timeoutMs must be a positive integer");
-  if (typeof transportFactory !== "function") throw new Error("transportFactory must be a function");
+  if (transportFactory !== null && typeof transportFactory !== "function") throw new Error("transportFactory must be a function or null");
   if (effectiveEnvironment !== null && (!effectiveEnvironment || typeof effectiveEnvironment !== "object" || Array.isArray(effectiveEnvironment) || Object.values(effectiveEnvironment).some((value) => typeof value !== "string"))) {
     throw new Error("effectiveEnvironment must be a string map or null");
   }
@@ -26476,11 +25996,9 @@ async function smokeDescriptor(descriptor, {
   };
   const launchCwd = effectiveCwd ?? validatedDescriptor.cwd;
   if (launchCwd !== null) parameters.cwd = launchCwd;
-  const transport = transportFactory(parameters);
+  const transport = transportFactory === null ? new BoundedStdioClientTransport(parameters, { stdoutLimitBytes, stderrLimitBytes }) : transportFactory(parameters);
   const client = new Client(clientInfo, { capabilities: {} });
-  let stderrBytes = 0;
-  transport.stderr?.on?.("data", (chunk) => {
-    stderrBytes = Math.min(8 * 1024, stderrBytes + Buffer.byteLength(chunk));
+  transport.stderr?.on?.("data", () => {
   });
   try {
     try {
@@ -27092,11 +26610,11 @@ function validTransactionResult(result2, operations, writablePreconditions) {
   const operationPaths = new Map(operations.map((operation) => [pathKey4(operation.path), operation]));
   const requiredWritePaths = new Set(operations.filter((operation) => operation.ledger_only !== true).map((operation) => pathKey4(operation.path)).filter(Boolean));
   const clientIds = result2.clients.map((row) => row?.client_id);
-  if (new Set(clientIds).size !== clientIds.length || result2.clients.some((row) => !hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "status", "error_code"])) || !operationClients.has(row.client_id) || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status) && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status) && row.status !== "FAILED" || row.error_code !== void 0 && stableErrorCode(row.error_code, null) === null)) {
+  if (new Set(clientIds).size !== clientIds.length || result2.clients.some((row) => !hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "status", "error_code"])) || !operationClients.has(row.client_id) || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status) && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status) && row.status !== "FAILED" || (row.status === "FAILED" ? stableErrorCode(row.error_code, null) === null : row.error_code !== void 0))) {
     return false;
   }
   const success = result2.status === "APPLIED" || result2.status === "ACTION_REQUIRED";
-  if (success && (clientIds.length !== operationClients.size || [...operationClients].some((clientId) => !clientIds.includes(clientId)))) return false;
+  if (success && (clientIds.length !== operationClients.size || [...operationClients].some((clientId) => !clientIds.includes(clientId)) || result2.clients.some((row) => row.status === "FAILED"))) return false;
   if (result2.status === "APPLIED" && result2.clients.some((row) => !TRANSACTION_READY_CLIENT_STATUSES.has(row.status))) return false;
   const touchedKeys = [];
   for (const row of result2.touched_files) {
@@ -27535,6 +27053,13 @@ function createClientDomain({
       }
       for (const row of transactionResult.touched_files) {
         committedTouchedHashes.set(pathKey4(row.path), row.applied_sha256);
+      }
+      if (["APPLIED", "ACTION_REQUIRED"].includes(transactionResult.status)) {
+        try {
+          await recheckActiveLaunchPreconditions(context, approvedPlan, { committedTouchedHashes });
+        } catch (error2) {
+          return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds);
+        }
       }
     }
     const changed = (transactionResult?.touched_files?.length ?? 0) > 0;
@@ -28015,7 +27540,18 @@ function createLocalState({
     return { deleted };
   }
   async function readReplayLedger() {
-    return await readJson(pathSet.replayLedger) ?? { schema_version: "1.0", applied: {} };
+    const ledger = await readJson(pathSet.replayLedger);
+    if (ledger === null) return { schema_version: "1.0", applied: {} };
+    if (!ledger || typeof ledger !== "object" || Array.isArray(ledger) || Object.keys(ledger).sort().join(",") !== "applied,schema_version" || ledger.schema_version !== "1.0" || !ledger.applied || typeof ledger.applied !== "object" || Array.isArray(ledger.applied)) {
+      throw new LocalStateError("replay ledger is malformed", "MALFORMED_LOCAL_STATE");
+    }
+    for (const [digest, record2] of Object.entries(ledger.applied)) {
+      const keys = record2 && typeof record2 === "object" && !Array.isArray(record2) ? Object.keys(record2).sort().join(",") : "";
+      if (!SHA2562.test(digest) || keys !== "applied_at" && keys !== "applied_at,receipt_sha256" || typeof record2.applied_at !== "string" || !Number.isFinite(Date.parse(record2.applied_at)) || record2.receipt_sha256 !== void 0 && !SHA2562.test(record2.receipt_sha256)) {
+        throw new LocalStateError("replay ledger applied record is malformed", "MALFORMED_LOCAL_STATE");
+      }
+    }
+    return ledger;
   }
   function validateDigest(digest) {
     if (!SHA2562.test(digest ?? "")) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
@@ -28035,6 +27571,21 @@ function createLocalState({
     }
     return receipt;
   }
+  function journalReceiptFromPrepared(preparedReceipt) {
+    const reference = preparedReceipt?.reference;
+    if (!reference || !preparedReceipt?.document) {
+      throw new LocalStateError("prepared recovery receipt is required", "MALFORMED_LOCAL_STATE");
+    }
+    if (reference.path !== join11(pathSet.receipts, basename2(reference.path_label ?? ""))) {
+      throw new LocalStateError("prepared receipt path is outside the receipt root", "LOCAL_STATE_PATH_ESCAPE");
+    }
+    return validateJournalReceipt({
+      kind: reference.kind,
+      path_label: reference.path_label,
+      sha256: reference.sha256,
+      document: preparedReceipt.document
+    });
+  }
   function validateApplyJournal(record2, digest) {
     if (!record2 || typeof record2 !== "object" || Array.isArray(record2) || record2.schema_version !== "1.0" || record2.kind !== "uemcp.deployment.apply-journal" || record2.plan_digest !== digest || !["applying", "receipt_pending", "committed"].includes(record2.state) || typeof record2.started_at !== "string" || !Number.isFinite(Date.parse(record2.started_at))) {
       throw new LocalStateError("apply journal is malformed", "MALFORMED_LOCAL_STATE");
@@ -28044,7 +27595,7 @@ function createLocalState({
       throw new LocalStateError("apply journal has unknown fields", "MALFORMED_LOCAL_STATE");
     }
     if (record2.state === "applying") {
-      if (record2.receipt !== null) throw new LocalStateError("applying journal cannot contain a receipt", "MALFORMED_LOCAL_STATE");
+      if (record2.receipt !== null) validateJournalReceipt(record2.receipt);
     } else {
       validateJournalReceipt(record2.receipt);
     }
@@ -28055,34 +27606,26 @@ function createLocalState({
     const record2 = await readJson(applyJournalPath(normalized));
     return record2 === null ? null : validateApplyJournal(record2, normalized);
   }
-  async function beginApplyJournal(digest) {
+  async function beginApplyJournal(digest, preparedReceipt) {
     const normalized = validateDigest(digest);
     if (await readApplyJournal(normalized)) throw new LocalStateError("plan digest already has an apply journal", "PLAN_REPLAYED");
     const ledger = await readReplayLedger();
     if (Object.hasOwn(ledger.applied ?? {}, normalized)) throw new LocalStateError("plan digest was already applied", "PLAN_REPLAYED");
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
     await writeJsonAtomic(applyJournalPath(normalized), {
       schema_version: "1.0",
       kind: "uemcp.deployment.apply-journal",
       plan_digest: normalized,
       state: "applying",
       started_at: new Date(Number(clock())).toISOString(),
-      receipt: null
+      receipt
     });
   }
   async function stageApplyJournal(digest, preparedReceipt) {
     const normalized = validateDigest(digest);
     const current = await readApplyJournal(normalized);
     if (current?.state !== "applying") throw new LocalStateError("apply journal is not ready for terminal receipt staging", "MALFORMED_LOCAL_STATE");
-    const reference = preparedReceipt?.reference;
-    if (!reference || reference.path !== join11(pathSet.receipts, basename2(reference.path_label ?? ""))) {
-      throw new LocalStateError("prepared receipt path is outside the receipt root", "LOCAL_STATE_PATH_ESCAPE");
-    }
-    const receipt = validateJournalReceipt({
-      kind: reference.kind,
-      path_label: reference.path_label,
-      sha256: reference.sha256,
-      document: preparedReceipt.document
-    });
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
     await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: "receipt_pending", receipt });
   }
   async function ensureJournalReceipt(record2) {
@@ -28103,7 +27646,7 @@ function createLocalState({
   async function completeApplyJournal(digest, reference = null) {
     const normalized = validateDigest(digest);
     const current = await readApplyJournal(normalized);
-    if (!current || !["receipt_pending", "committed"].includes(current.state)) {
+    if (!current || !["applying", "receipt_pending", "committed"].includes(current.state) || current.state === "applying" && current.receipt === null) {
       throw new LocalStateError("apply journal has no terminal receipt", "MALFORMED_LOCAL_STATE");
     }
     const expected = current.receipt;
@@ -28129,7 +27672,10 @@ function createLocalState({
     validateDigest(digest);
     const journal = await readApplyJournal(digest);
     if (journal) {
-      if (journal.state !== "applying") await completeApplyJournal(digest);
+      if (journal.state === "applying" && journal.receipt === null) {
+        throw new LocalStateError("interrupted apply journal lacks recovery evidence", "MALFORMED_LOCAL_STATE");
+      }
+      if (journal.state !== "committed") await completeApplyJournal(digest);
       return true;
     }
     const ledger = await readReplayLedger();
@@ -28137,6 +27683,9 @@ function createLocalState({
   }
   async function markDigestApplied(digest, evidence = {}) {
     validateDigest(digest);
+    if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) || Object.keys(evidence).some((key) => key !== "receipt_sha256") || evidence.receipt_sha256 !== void 0 && !SHA2562.test(evidence.receipt_sha256)) {
+      throw new LocalStateError("replay evidence is invalid", "INVALID_REPLAY_EVIDENCE");
+    }
     const ledger = await readReplayLedger();
     ledger.schema_version = "1.0";
     ledger.applied ??= {};
@@ -28825,6 +28374,43 @@ function requireApplyJournal(localState) {
     throw new OrchestratorError("local state lacks the durable apply journal contract", "LOCAL_STATE_UNAVAILABLE");
   }
 }
+function prepareInterruptedApplyReceipt(localState, plan, now) {
+  const action2 = {
+    code: "SYNC_FAILED",
+    message: "A prior apply was interrupted; inspect current deployment state and create a new plan.",
+    command: null
+  };
+  const stage = createStageResult({
+    name: "orchestrator",
+    status: "SYNC_FAILED",
+    changed: true,
+    result: "failed",
+    progress: "committed",
+    evidence: {
+      error_code: "APPLY_INTERRUPTED",
+      mutation_state: "unknown"
+    },
+    actions: [action2]
+  });
+  const result2 = createMachineResult({
+    operation: "apply",
+    source: plan.source,
+    request: plan.request,
+    descriptor: plan.descriptor,
+    plan: {
+      digest: plan.digest,
+      created_at: plan.created_at,
+      expires_at: plan.expires_at,
+      preconditions_valid: true
+    },
+    stages: [stage],
+    clients: plan.clients,
+    receipts: [],
+    actions: [action2],
+    now
+  });
+  return prepareReceipt({ localState, result: result2, plan });
+}
 function currentActions(stages, clients, domainActions = []) {
   const unique6 = /* @__PURE__ */ new Map();
   const actions = [
@@ -29008,9 +28594,10 @@ function createDeploymentOrchestrator({
         throw new OrchestratorError("source or descriptor changed after planning", "PLAN_STALE");
       }
       let journalStarted = false;
+      const interruptedReceipt = prepareInterruptedApplyReceipt(localState, plan, context.now);
       if (plan.operations.length > 0) {
         requireApplyJournal(localState);
-        await localState.beginApplyJournal(plan.digest);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
         journalStarted = true;
       }
       const stages = [];
@@ -29071,7 +28658,7 @@ function createDeploymentOrchestrator({
       const consumesPlan = shouldRecordPlanDigest(stages);
       if (consumesPlan && !journalStarted) {
         requireApplyJournal(localState);
-        await localState.beginApplyJournal(plan.digest);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
         journalStarted = true;
       }
       const prepared = prepareReceipt({ localState, result: initial, plan });
