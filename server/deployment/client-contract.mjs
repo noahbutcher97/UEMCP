@@ -4,6 +4,12 @@ const frozenVersions = versions => Object.freeze([...versions]);
 
 export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
 
+export const NPM_RUNTIME_LIMITS = Object.freeze({
+  max_entries: 32_768,
+  max_files: 16_384,
+  max_bytes: 1024 * 1024 * 1024,
+});
+
 export const RELEASE_GATES = Object.freeze({
   claude: Object.freeze({ versions: frozenVersions(['2.1.209', '2.1.210']) }),
   codex: Object.freeze({ versions: frozenVersions(['0.144.4']) }),
@@ -139,6 +145,39 @@ function isVsCodeCliTuple(command, cli) {
     && parts.slice(1).map(value => value.toLowerCase()).join('/') === 'resources/app/out/cli.js';
 }
 
+function validNpmRuntimeFingerprint(runtime, launch) {
+  if (!runtime || Array.isArray(runtime) || typeof runtime !== 'object') return false;
+  if (JSON.stringify(Object.keys(runtime).sort()) !== JSON.stringify([
+    'entry_count',
+    'file_count',
+    'manifest_sha256',
+    'max_bytes',
+    'max_entries',
+    'max_files',
+    'root',
+    'total_bytes',
+  ])) return false;
+  if (!win32.isAbsolute(runtime.root)
+    || !/^[0-9a-f]{64}$/.test(runtime.manifest_sha256 ?? '')
+    || runtime.max_entries !== NPM_RUNTIME_LIMITS.max_entries
+    || runtime.max_files !== NPM_RUNTIME_LIMITS.max_files
+    || runtime.max_bytes !== NPM_RUNTIME_LIMITS.max_bytes
+    || !Number.isSafeInteger(runtime.entry_count)
+    || !Number.isSafeInteger(runtime.file_count)
+    || !Number.isSafeInteger(runtime.total_bytes)
+    || runtime.entry_count < runtime.file_count
+    || runtime.file_count < 1
+    || runtime.total_bytes < 1
+    || runtime.entry_count > runtime.max_entries
+    || runtime.file_count > runtime.max_files
+    || runtime.total_bytes > runtime.max_bytes) return false;
+  const relativeEntry = win32.relative(runtime.root, launch.args_prefix[0]);
+  return relativeEntry !== ''
+    && relativeEntry !== '..'
+    && !relativeEntry.startsWith(`..${win32.sep}`)
+    && !win32.isAbsolute(relativeEntry);
+}
+
 export function validateClientLaunchContract(launch) {
   if (!launch || !CLIENT_IDS.includes(launch.client_id)) invalid('client launch ID is invalid');
   if (typeof launch.command !== 'string' || !win32.isAbsolute(launch.command) || !/\.exe$/i.test(launch.command)) {
@@ -152,8 +191,13 @@ export function validateClientLaunchContract(launch) {
     if (launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win32.basename(launch.command).toLowerCase() !== 'node.exe') {
       invalid('npm client launch tuple is invalid');
     }
+    if (!validNpmRuntimeFingerprint(launch.fingerprint?.runtime_tree, launch)) {
+      invalid('npm client runtime fingerprint is invalid');
+    }
   } else if (launch.package_id !== null) {
     invalid('native client launch cannot declare an npm package');
+  } else if (launch.fingerprint?.runtime_tree !== undefined) {
+    invalid('native client launch cannot declare an npm runtime tree');
   }
   if (typeof launch.version !== 'string' || classifySupportedVersion(launch.client_id, launch.version) !== launch.compatibility) {
     invalid('client launch version classification is invalid');

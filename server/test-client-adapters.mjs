@@ -9,6 +9,7 @@ import {
   linkSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -55,6 +56,7 @@ import {
 } from './deployment/contracts.mjs';
 import {
   CLIENT_IDS,
+  NPM_RUNTIME_LIMITS,
   RELEASE_GATES,
   classifySupportedVersion,
   isSensitiveClientEnvironmentName,
@@ -63,7 +65,7 @@ import {
 } from './deployment/client-contract.mjs';
 import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
-import { resolveClientLaunch } from './deployment/client-process.mjs';
+import { revalidateClientLaunchRuntime, resolveClientLaunch } from './deployment/client-process.mjs';
 import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
@@ -235,9 +237,47 @@ function simpleFingerprint(path) {
   };
 }
 
+function testRuntimeTree(root) {
+  const entries = [];
+  let entryCount = 0;
+  const visit = directory => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      entryCount += 1;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(path);
+        entries.push({
+          path: path.slice(resolve(root).length + 1).replace(/\\/g, '/'),
+          size: bytes.length,
+          sha256: sha256Bytes(bytes),
+        });
+      }
+    }
+  };
+  visit(resolve(root));
+  entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return Object.freeze({
+    root: resolve(root),
+    entry_count: entryCount,
+    file_count: entries.length,
+    total_bytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+    manifest_sha256: sha256Canonical(entries),
+    ...NPM_RUNTIME_LIMITS,
+  });
+}
+
+function testNpmRuntime(root, packageId, binPath) {
+  const packageRoot = join(root, 'npm', 'node_modules', ...packageId.split('/'));
+  writeJson(join(packageRoot, 'package.json'), { name: packageId, version: '1.0.0', bin: binPath });
+  const entry = write(join(packageRoot, binPath), 'export {};\n');
+  write(join(packageRoot, 'lib', 'runtime.mjs'), 'export const runtime = true;\n');
+  return { entry, runtimeTree: testRuntimeTree(packageRoot) };
+}
+
 function claudeLaunch(root, { version = '2.1.210', writeSupported = version === '2.1.210' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const entry = write(join(root, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.mjs'), 'export {};\n');
+  const { entry, runtimeTree } = testNpmRuntime(root, '@anthropic-ai/claude-code', 'cli.mjs');
   return {
     client_id: 'claude',
     command: resolve(node),
@@ -248,7 +288,7 @@ function claudeLaunch(root, { version = '2.1.210', writeSupported = version === 
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
   };
 }
 
@@ -307,7 +347,7 @@ function claudeContext(root, overrides = {}) {
 
 function codexLaunch(root, { version = '0.144.4', writeSupported = version === '0.144.4' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const entry = write(join(root, 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), 'export {};\n');
+  const { entry, runtimeTree } = testNpmRuntime(root, '@openai/codex', join('bin', 'codex.js'));
   return {
     client_id: 'codex',
     command: resolve(node),
@@ -318,7 +358,7 @@ function codexLaunch(root, { version = '0.144.4', writeSupported = version === '
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
   };
 }
 
@@ -409,7 +449,7 @@ function codexContext(root, overrides = {}) {
 
 function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '0.41.2' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const entry = write(join(root, 'npm', 'node_modules', '@google', 'gemini-cli', 'bundle', 'gemini.js'), 'export {};\n');
+  const { entry, runtimeTree } = testNpmRuntime(root, '@google/gemini-cli', join('bundle', 'gemini.js'));
   return {
     client_id: 'gemini',
     command: resolve(node),
@@ -420,7 +460,7 @@ function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
   };
 }
 
@@ -1073,8 +1113,9 @@ function npmInstall(root, clientId, {
   });
   const entry = resolve(packageRoot, bin);
   if (entry.toLowerCase().startsWith(`${resolve(packageRoot).toLowerCase()}\\`)) write(entry, 'export {};\n');
+  const runtime = write(join(packageRoot, 'lib', 'runtime.mjs'), 'export const runtime = true;\n');
   const nodeExecutable = write(join(root, 'runtime', 'node.exe'), 'node-binary');
-  return { env, prefix, shim, packageRoot, entry, nodeExecutable };
+  return { env, prefix, shim, packageRoot, entry, runtime, nodeExecutable };
 }
 
 async function rejectsCode(fn, code) {
@@ -1117,6 +1158,14 @@ async function rejectsCode(fn, code) {
     t.assert(runner.calls.length === 1 && runner.calls[0].executable.endsWith('node.exe') && runner.calls[0].args.at(-1) === '--version', 'npm wrapper is never executed during version probing');
     t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 10_000 && runner.calls[0].options.outputLimitBytes <= 64 * 1024, 'version probe is bounded and shell-free');
     t.assert(result.fingerprint.command.sha256 && result.fingerprint.args_prefix[0].sha256, 'launch result fingerprints executable and package entry');
+    t.assert(result.fingerprint.runtime_tree.root === resolve(layout.packageRoot)
+      && result.fingerprint.runtime_tree.file_count >= 3
+      && result.fingerprint.runtime_tree.total_bytes > 0
+      && /^[0-9a-f]{64}$/.test(result.fingerprint.runtime_tree.manifest_sha256), 'npm launch binds a bounded aggregate fingerprint of its complete package runtime');
+    write(layout.runtime, 'export const runtime = false;\n');
+    t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(result), 'CLIENT_RUNTIME_CHANGED'), 'runtime sibling drift invalidates the resolved npm launch');
+    const { runtime_tree: ignoredRuntime, ...incompleteFingerprint } = result.fingerprint;
+    t.assert(await rejectsCode(() => validateClientLaunchContract({ ...result, fingerprint: incompleteFingerprint }), 'INVALID_CLIENT_LAUNCH'), 'npm launch contract cannot omit its bounded runtime tree');
     t.assert(await rejectsCode(() => validateClientLaunchContract({ ...result, command: 'node.exe' }), 'INVALID_CLIENT_LAUNCH'), 'client contract rejects a relative executable');
   } finally {
     cleanup(root);
@@ -3512,25 +3561,18 @@ for (const clientId of ['claude', 'codex', 'gemini']) {
   }
 }
 
-function aggregateLaunch(clientId, overrides = {}) {
-  const vscode = clientId === 'vscode';
+function aggregateLaunch(root, clientId, overrides = {}) {
+  const base = {
+    claude: claudeLaunch,
+    codex: codexLaunch,
+    gemini: geminiLaunch,
+    vscode: vscodeLaunch,
+  }[clientId](root);
   return Object.freeze({
-    client_id: clientId,
-    command: vscode ? 'C:\\Program Files\\Microsoft VS Code\\Code.exe' : 'C:\\Program Files\\nodejs\\node.exe',
-    args_prefix: Object.freeze([vscode
-      ? 'C:\\Program Files\\Microsoft VS Code\\resources\\app\\out\\cli.js'
-      : `C:\\isolated\\${clientId}.mjs`]),
-    env_overlay: Object.freeze(vscode ? { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' } : {}),
-    package_id: vscode ? null : {
-      claude: '@anthropic-ai/claude-code',
-      codex: '@openai/codex',
-      gemini: '@google/gemini-cli',
-    }[clientId],
-    source: vscode ? 'native' : 'npm_package',
-    version: RELEASE_GATES[clientId].versions.at(-1),
-    compatibility: 'release_gated',
-    write_supported: true,
-    fingerprint: Object.freeze({ command: Object.freeze({ content_sha256: 'a'.repeat(64) }) }),
+    ...base,
+    args_prefix: Object.freeze([...base.args_prefix]),
+    env_overlay: Object.freeze({ ...base.env_overlay }),
+    fingerprint: Object.freeze({ ...base.fingerprint }),
     ...overrides,
   });
 }
@@ -3681,7 +3723,8 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
 
 // Discovery always returns the closed client set; selection is exact and release-gated by default.
 {
-  const resolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => aggregateLaunch(clientId)]));
+  const root = makeRoot();
+  const resolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => aggregateLaunch(root, clientId)]));
   const discovered = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers });
   t.assert(JSON.stringify(discovered.map(row => row.client_id)) === JSON.stringify(CLIENT_IDS), 'aggregate discovery returns every closed client ID in order');
   t.assert(selectClients(discovered, {}).every(row => row.selected), 'all detected release-gated clients default selected');
@@ -3692,13 +3735,13 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   t.assert(throwsCode(() => selectClients(discovered, { include: ['claude'], exclude: ['claude'] }), 'INVALID_CLIENT_SELECTION'), 'overlapping include and exclude IDs fail closed');
 
   const one = selectClients(CLIENT_IDS.map(clientId => clientId === 'codex'
-    ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+    ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
     : absentClient(clientId)), {});
   t.assert(one.filter(row => row.selected).map(row => row.client_id).join(',') === 'codex', 'one installed client produces one default selection');
   t.assert(selectClients(CLIENT_IDS.map(absentClient), {}).every(row => !row.selected && row.status === 'NOT_INSTALLED'), 'no installed clients remain visible and unselected');
 
   const unsupported = CLIENT_IDS.map(clientId => clientId === 'claude'
-    ? { ...aggregateLaunch(clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }), launch: aggregateLaunch(clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }) }
+    ? { ...aggregateLaunch(root, clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }), launch: aggregateLaunch(root, clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }) }
     : absentClient(clientId));
   t.assert(selectClients(unsupported, {}).every(row => !row.selected), 'unsupported versions do not default into the write selection');
   const explicitlyInspected = selectClients(unsupported, { include: ['claude'] }).find(row => row.client_id === 'claude');
@@ -3722,6 +3765,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const crashedResolvers = { ...missingResolvers };
   crashedResolvers.claude = async () => { throw new Error('unexpected resolver fault'); };
   t.assert(await rejectsCode(() => discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: crashedResolvers }), 'CLIENT_DISCOVERY_FAILED'), 'unexpected resolver faults fail aggregate discovery closed');
+  cleanup(root);
 }
 
 // Expected discovery failures remain visible without invoking an adapter or protocol launch.
@@ -3785,7 +3829,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const oneInstalled = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: CLIENT_IDS.map(aggregateAdapter),
@@ -3869,7 +3913,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: [aggregateAdapter('claude', { actions: ['FUTURE_UNMAPPED_ACTION'] }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
@@ -3890,7 +3934,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const evidencePath = write(join(root, 'client-state.json'), '{"keep":true}\n');
     const evidenceFingerprint = simpleFingerprint(evidencePath);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const domain = createClientDomain({
       adapters: [
@@ -3912,11 +3956,15 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       captureFingerprint: async () => ({ ...evidenceFingerprint, atime_ms: evidenceFingerprint.atime_ms + 10_000 }),
     });
     const planned = await domain.plan(aggregateContext(root, { operation: 'setup' }));
-    t.assert(planned.operations.length === 0 && planned.preconditions.length === 1, 'a configured no-op client still emits its inspected path precondition');
-    t.assert(planned.preconditions[0].canonical_path === resolve(evidencePath)
-      && planned.preconditions[0].writable === false, 'no-op evidence is digest-bound without granting write authority');
-    const observed = await domain.fingerprintPrecondition(planned.preconditions[0], aggregateContext(root));
-    t.assert(sha256Canonical(observed) === sha256Canonical(planned.preconditions[0].fingerprint), 'client plan preconditions ignore read-induced atime drift while retaining stable identity evidence');
+    const pathPrecondition = planned.preconditions.find(row => row.kind === 'client_path');
+    const runtimePrecondition = planned.preconditions.find(row => row.kind === 'client_runtime_tree');
+    t.assert(planned.operations.length === 0 && pathPrecondition && runtimePrecondition, 'a configured no-op client binds both inspected state and its npm runtime tree');
+    t.assert(pathPrecondition.canonical_path === resolve(evidencePath)
+      && pathPrecondition.writable === false, 'no-op evidence is digest-bound without granting write authority');
+    const observed = await domain.fingerprintPrecondition(pathPrecondition, aggregateContext(root));
+    t.assert(sha256Canonical(observed) === sha256Canonical(pathPrecondition.fingerprint), 'client plan preconditions ignore read-induced atime drift while retaining stable identity evidence');
+    const observedRuntime = await domain.fingerprintPrecondition(runtimePrecondition, aggregateContext(root));
+    t.assert(sha256Canonical(observedRuntime) === sha256Canonical(runtimePrecondition.fingerprint), 'npm runtime precondition rehashes the complete bounded package tree');
   } finally {
     cleanup(root);
   }
@@ -3927,7 +3975,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     for (const registration of ['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH']) {
       const domain = createClientDomain({
@@ -3957,7 +4005,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4012,7 +4060,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     let discoveryCalls = 0;
     const domain = createClientDomain({
@@ -4065,7 +4113,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const rawValue = 'RAW_ENV_CANARY_DO_NOT_SERIALIZE';
     const valueHash = sha256Bytes(Buffer.from(rawValue));
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const scenario = {
       actions: ['CUSTOM_ENV_REVIEW_REQUIRED'],
@@ -4124,7 +4172,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
         fingerprint: simpleFingerprint(evidencePath),
       };
       const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-        ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+        ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
         : absentClient(clientId));
       const base = aggregateAdapter('claude', { files: [evidence] });
       let mutated = false;
@@ -4169,13 +4217,45 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   }
 }
 
+// Every npm-backed active launch rehashes the complete runtime tree immediately before execution.
+{
+  const root = makeRoot();
+  try {
+    const launch = aggregateLaunch(root, 'claude');
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...launch, launch }
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude');
+    let reachedLaunch = false;
+    const adapter = Object.freeze({
+      ...base,
+      async inspect(context, detection) {
+        write(join(launch.fingerprint.runtime_tree.root, 'lib', 'runtime.mjs'), 'export const runtime = "changed";\n');
+        await context.beforeActiveClientLaunch?.({ client_id: 'claude', kind: 'native' });
+        reachedLaunch = true;
+        return base.inspect(context, detection);
+      },
+    });
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { throw new Error('runtime drift must block protocol smoke'); },
+    });
+    t.assert(await rejectsCode(() => domain.verify(aggregateContext(root)), 'PLAN_STALE'), 'npm runtime drift is rejected by the immediate native-launch guard');
+    t.assert(!reachedLaunch, 'runtime drift is rejected before the guarded client process executes');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // A provider may create one-time state during a read-only native query; inspection must settle and then remain stable.
 {
   const root = makeRoot();
   try {
     const evidencePath = resolve(join(root, 'provider-created-state.json'));
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude');
     let inspections = 0;
@@ -4234,7 +4314,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const approvedBytes = Buffer.from('{"env":{"PATH":"approved"}}\n');
     const hostileBytes = Buffer.from('{"env":{"NODE_OPTIONS":"--require=C:\\\\untrusted\\\\bootstrap.js"}}\n');
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const privateLaunches = new WeakMap();
     let inspections = 0;
@@ -4351,7 +4431,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4419,7 +4499,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4483,7 +4563,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     });
     const operation = aggregateClientOperation(root);
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4633,7 +4713,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       });
       const operation = aggregateClientOperation(caseRoot);
       const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-        ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+        ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
         : absentClient(clientId));
       const base = aggregateAdapter('claude', {
         files: [{
@@ -4695,7 +4775,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const operation = aggregateClientOperation(root);
     const appliedBytes = Buffer.from('{"after":true}\n');
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const base = aggregateAdapter('claude', {
       files: [{
@@ -4759,7 +4839,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const smokeOptions = [];
     const harmless = aggregateAdapter('claude', {
@@ -4809,7 +4889,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const root = makeRoot();
   try {
     const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
-      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      ? { ...aggregateLaunch(root, clientId), launch: aggregateLaunch(root, clientId) }
       : absentClient(clientId));
     const failedProtocol = createClientDomain({
       adapters: [aggregateAdapter('claude', { nativeStatus: 'PRESENT', activation: 'UNKNOWN' }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],

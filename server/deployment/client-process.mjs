@@ -16,10 +16,11 @@ import {
   CLIENT_IDS,
   expectedClientLaunchOverlay,
   mergeWindowsEnvironmentOverlay,
+  NPM_RUNTIME_LIMITS,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './client-contract.mjs';
-import { fingerprintPath } from './fingerprints.mjs';
+import { fingerprintDirectory, fingerprintPath } from './fingerprints.mjs';
 import { inspectAuthenticode } from './windows-native.mjs';
 
 const CLIENTS = Object.freeze({
@@ -70,6 +71,46 @@ function pathKey(path) {
 function contained(root, candidate) {
   const rel = relative(pathKey(root), pathKey(candidate));
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function runtimeFingerprint(manifest) {
+  return Object.freeze({
+    root: resolve(manifest.root),
+    entry_count: manifest.entry_count,
+    file_count: manifest.file_count,
+    total_bytes: manifest.total_bytes,
+    manifest_sha256: manifest.manifest_sha256,
+    ...NPM_RUNTIME_LIMITS,
+  });
+}
+
+async function captureNpmRuntime(packageRoot, fsImpl) {
+  const manifest = await fingerprintDirectory(packageRoot, {
+    allowedRoots: [packageRoot],
+    fsImpl,
+    maxEntries: NPM_RUNTIME_LIMITS.max_entries,
+    maxFiles: NPM_RUNTIME_LIMITS.max_files,
+    maxBytes: NPM_RUNTIME_LIMITS.max_bytes,
+  });
+  return runtimeFingerprint(manifest);
+}
+
+export async function captureClientRuntimeFingerprint(packageRoot, { fsImpl = defaultFs } = {}) {
+  return captureNpmRuntime(packageRoot, fsImpl);
+}
+
+export async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs } = {}) {
+  if (launch?.source !== 'npm_package') return true;
+  let observed;
+  try {
+    observed = await captureClientRuntimeFingerprint(launch.fingerprint?.runtime_tree?.root, { fsImpl });
+  } catch (error) {
+    fail('client npm runtime tree is no longer safe', 'CLIENT_RUNTIME_CHANGED', { cause_code: error?.code ?? 'UNKNOWN' });
+  }
+  if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
+    fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+  }
+  return true;
 }
 
 function absoluteSafePath(path) {
@@ -321,6 +362,12 @@ async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidate
   if (!contained(packageRoot, requestedEntry)) fail('client package bin entry escapes its package root');
   const entry = await canonicalFile(requestedEntry, { fsImpl, allowedRoots: [packageRoot] });
   const node = await resolveNodeExecutable(candidates, fsImpl);
+  let runtimeTree;
+  try {
+    runtimeTree = await captureClientRuntimeFingerprint(packageRoot, { fsImpl });
+  } catch (error) {
+    fail('client npm runtime tree is unsafe or exceeds its inspection limits', 'NOT_INSTALLED', { cause_code: error?.code ?? 'UNKNOWN' });
+  }
   return {
     command: node.path,
     args_prefix: [entry.path],
@@ -331,6 +378,7 @@ async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidate
       command: node.fingerprint,
       args_prefix: [entry.fingerprint],
       package_manifest: manifestFile.fingerprint,
+      runtime_tree: runtimeTree,
       env_overlay_sha256: sha256Canonical({}),
     },
   };
@@ -438,7 +486,8 @@ function parseVersionOutput(stdout) {
   return null;
 }
 
-async function probeVersion(launch, { env, runner }) {
+async function probeVersion(launch, { env, runner, fsImpl }) {
+  await revalidateClientLaunchRuntime(launch, { fsImpl });
   const childEnv = mergeWindowsEnvironmentOverlay(env, launch.env_overlay);
   const result = await runner.run(launch.command, [...launch.args_prefix, '--version'], {
     env: childEnv,
@@ -491,7 +540,7 @@ export async function resolveClientLaunch(clientId, {
   let lastProbeError = null;
   for (const launch of valid) {
     try {
-      const version = await probeVersion(launch, { env, runner });
+      const version = await probeVersion(launch, { env, runner, fsImpl });
       const compatibility = classifySupportedVersion(clientId, version);
       const result = {
         client_id: clientId,

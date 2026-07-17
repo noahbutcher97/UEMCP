@@ -11,6 +11,10 @@ import {
 import { captureClientPathFingerprint } from './client-transaction.mjs';
 import { discoverClients, selectClients } from './client-discovery.mjs';
 import {
+  captureClientRuntimeFingerprint,
+  revalidateClientLaunchRuntime,
+} from './client-process.mjs';
+import {
   ACTION_CODES,
   CLIENT_STATE_VALUES,
   STAGE_STATUSES,
@@ -558,6 +562,21 @@ function planPreconditions(records, operations, ownershipFingerprint, ownershipP
     for (const file of record.inspection?.files ?? []) {
       add({ ...file, writable: writablePaths.has(file.path.toLowerCase()) });
     }
+    const runtime = record.inspection === null ? null : record.row.launch?.fingerprint?.runtime_tree;
+    if (runtime) {
+      const key = `runtime:${runtime.root.toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        rows.push(Object.freeze({
+          kind: 'client_runtime_tree',
+          label: `clients:runtime:${record.row.client_id}`,
+          canonical_path: runtime.root,
+          allowed_root: runtime.root,
+          writable: false,
+          fingerprint: runtime,
+        }));
+      }
+    }
   }
   if (operations.length > 0) {
     add({ path: ownershipPath, allowed_root: ownershipRoot, fingerprint: ownershipFingerprint, writable: true });
@@ -746,13 +765,17 @@ export function createClientDomain({
   discovery = discoverClients,
   protocolSmoke = smokeDescriptor,
   captureFingerprint = captureClientPathFingerprint,
+  captureRuntimeFingerprint = captureClientRuntimeFingerprint,
   fsImpl = defaultFs,
 } = {}) {
   const mappedAdapters = adapterMap(adapters);
   if (typeof transaction !== 'function' && (!transaction || typeof transaction.snapshot !== 'function' || typeof transaction.apply !== 'function')) {
     fail('client domain requires a transaction factory or transaction');
   }
-  if (typeof discovery !== 'function' || typeof protocolSmoke !== 'function' || typeof captureFingerprint !== 'function') {
+  if (typeof discovery !== 'function'
+    || typeof protocolSmoke !== 'function'
+    || typeof captureFingerprint !== 'function'
+    || typeof captureRuntimeFingerprint !== 'function') {
     fail('client domain dependencies are invalid');
   }
 
@@ -787,12 +810,24 @@ export function createClientDomain({
   }
 
   function adapterContext(context, row, requestedProfile, planDigest, ledger) {
+    const outerGuard = context.beforeActiveClientLaunch;
     return Object.freeze({
       ...context,
       launch: row.launch,
       planDigest,
       ownershipLedger: ledger,
       vscodeProfile: requestedProfile,
+      beforeActiveClientLaunch: async evidence => {
+        try {
+          await revalidateClientLaunchRuntime(row.launch, { fsImpl: context.fsImpl ?? fsImpl });
+        } catch (error) {
+          fail('client runtime changed before active launch', 'PLAN_STALE', {
+            client_id: row.client_id,
+            cause_code: error?.code ?? 'CLIENT_RUNTIME_CHANGED',
+          });
+        }
+        await outerGuard?.(evidence);
+      },
     });
   }
 
@@ -1069,20 +1104,22 @@ export function createClientDomain({
       await context.localState.validateApplyLease(context.applyLease);
     }
     const failures = [];
-    for (const precondition of approvedPlan.preconditions.filter(row => row.kind === 'client_path')) {
+    for (const precondition of approvedPlan.preconditions.filter(row => ['client_path', 'client_runtime_tree'].includes(row.kind))) {
       if (transactionOwnsWrites && precondition.writable === true) continue;
       let observed;
       try {
-        observed = stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
-          allowedRoots: [precondition.allowed_root],
-          fsImpl: context.fsImpl ?? fsImpl,
-          writable: precondition.writable === true,
-        }));
+        observed = precondition.kind === 'client_runtime_tree'
+          ? await captureRuntimeFingerprint(precondition.canonical_path, { fsImpl: context.fsImpl ?? fsImpl })
+          : stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
+              allowedRoots: [precondition.allowed_root],
+              fsImpl: context.fsImpl ?? fsImpl,
+              writable: precondition.writable === true,
+            }));
       } catch (error) {
         failures.push({ label: precondition.label, reason: stableErrorCode(error?.code, 'FINGERPRINT_FAILED') });
         continue;
       }
-      const committedHash = precondition.writable === true
+      const committedHash = precondition.kind === 'client_path' && precondition.writable === true
         ? committedTouchedHashes.get(pathKey(precondition.canonical_path))
         : undefined;
       const committedMismatch = committedHash !== undefined
@@ -1203,10 +1240,13 @@ export function createClientDomain({
   }
 
   function canFingerprintPrecondition(precondition) {
-    return precondition?.kind === 'client_path';
+    return ['client_path', 'client_runtime_tree'].includes(precondition?.kind);
   }
 
   async function fingerprintPrecondition(precondition, context) {
+    if (precondition.kind === 'client_runtime_tree') {
+      return captureRuntimeFingerprint(precondition.canonical_path, { fsImpl: context.fsImpl ?? fsImpl });
+    }
     return stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
       allowedRoots: [precondition.allowed_root],
       fsImpl: context.fsImpl ?? fsImpl,

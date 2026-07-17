@@ -171,18 +171,41 @@ function selected(path, include, exclude) {
   return included && !excluded;
 }
 
-export async function fingerprintDirectory(root, { include, exclude, allowedRoots = [root], fsImpl = defaultFs } = {}) {
+export async function fingerprintDirectory(root, {
+  include,
+  exclude,
+  allowedRoots = [root],
+  fsImpl = defaultFs,
+  maxEntries = null,
+  maxFiles = null,
+  maxBytes = null,
+} = {}) {
+  for (const [label, value] of [['entry', maxEntries], ['file', maxFiles], ['byte', maxBytes]]) {
+    if (value !== null && (!Number.isSafeInteger(value) || value < 0)) {
+      throw new FingerprintError(`directory manifest ${label} limit is invalid`, 'INVALID_FINGERPRINT_LIMIT');
+    }
+  }
   const absoluteRoot = resolve(root);
   const rootFingerprint = await fingerprintPath(absoluteRoot, { allowedRoots, fsImpl });
   if (!rootFingerprint.exists || rootFingerprint.kind !== 'directory' || rootFingerprint.link_kind !== 'none') {
     throw new FingerprintError('directory manifest root must be an existing non-linked directory', 'INVALID_DIRECTORY_ROOT');
   }
   const entries = [];
+  let visitedEntries = 0;
+  let selectedFiles = 0;
+  let selectedBytes = 0;
 
   async function visit(directory) {
     const children = await fsImpl.readdir(directory, { withFileTypes: true });
     children.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (const child of children) {
+      visitedEntries += 1;
+      if (maxEntries !== null && visitedEntries > maxEntries) {
+        throw new FingerprintError('directory manifest exceeds its traversal entry limit', 'FINGERPRINT_ENTRY_LIMIT', {
+          maximum_entries: maxEntries,
+          observed_entries: visitedEntries,
+        });
+      }
       const childPath = join(directory, child.name);
       const rel = slashRelative(absoluteRoot, childPath);
       const childLstat = await fsImpl.lstat(childPath);
@@ -192,9 +215,51 @@ export async function fingerprintDirectory(root, { include, exclude, allowedRoot
       if (childLstat.isDirectory()) {
         await visit(childPath);
       } else if (childLstat.isFile() && selected(rel, include, exclude)) {
-        const bytes = await fsImpl.readFile(childPath);
+        if (childLstat.nlink !== 1) {
+          throw new FingerprintError('directory manifest contains a multiply linked file', 'UNSAFE_LINK_TYPE', { path: rel });
+        }
+        selectedFiles += 1;
+        if (maxFiles !== null && selectedFiles > maxFiles) {
+          throw new FingerprintError('directory manifest exceeds its file limit', 'FINGERPRINT_FILE_LIMIT', {
+            maximum_files: maxFiles,
+            observed_files: selectedFiles,
+          });
+        }
+        const remaining = maxBytes === null ? null : maxBytes - selectedBytes;
+        if (remaining !== null && Number(childLstat.size) > remaining) {
+          throw new FingerprintError('directory manifest exceeds its aggregate byte limit', 'FINGERPRINT_BYTE_LIMIT', {
+            maximum_bytes: maxBytes,
+            observed_bytes: selectedBytes + Number(childLstat.size),
+          });
+        }
+        let bytes;
+        try {
+          bytes = remaining === null
+            ? await fsImpl.readFile(childPath)
+            : await readFileWithinLimit(childPath, { fsImpl, maxBytes: remaining, scope: 'directory manifest' });
+        } catch (error) {
+          if (error?.code === 'INSPECTION_LIMIT_EXCEEDED') {
+            throw new FingerprintError('directory manifest exceeds its aggregate byte limit', 'FINGERPRINT_BYTE_LIMIT', error.details);
+          }
+          throw error;
+        }
+        const after = await fsImpl.lstat(childPath);
+        if (!after.isFile()
+          || after.isSymbolicLink()
+          || after.nlink !== 1
+          || after.dev !== childLstat.dev
+          || after.ino !== childLstat.ino
+          || Number(after.size) !== bytes.byteLength
+          || Number(after.mtimeMs) !== Number(childLstat.mtimeMs)) {
+          throw new FingerprintError('directory manifest file changed while hashing', 'FINGERPRINT_CHANGED_DURING_READ', { path: rel });
+        }
+        selectedBytes += bytes.byteLength;
         entries.push({ path: rel, size: bytes.byteLength, sha256: sha256Bytes(bytes) });
-      } else if (!childLstat.isFile()) {
+      } else if (childLstat.isFile()) {
+        if (childLstat.nlink !== 1) {
+          throw new FingerprintError('directory manifest contains a multiply linked file', 'UNSAFE_LINK_TYPE', { path: rel });
+        }
+      } else {
         throw new FingerprintError('directory manifest contains an unsupported path type', 'UNSAFE_PATH_TYPE', { path: rel });
       }
     }
@@ -205,6 +270,9 @@ export async function fingerprintDirectory(root, { include, exclude, allowedRoot
   return {
     root: absoluteRoot,
     entries,
+    entry_count: visitedEntries,
+    file_count: selectedFiles,
+    total_bytes: selectedBytes,
     manifest_sha256: sha256Canonical(entries),
   };
 }

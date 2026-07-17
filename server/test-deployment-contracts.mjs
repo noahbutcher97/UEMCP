@@ -422,6 +422,14 @@ async function rejectsCode(fn, code) {
     const directory = await fingerprintDirectory(tree, { allowedRoots: [root] });
     t.assert(directory.entries.map(entry => entry.path).join(',') === 'a.txt,b.txt', 'directory manifest paths are slash-normalized and ordinal sorted');
     t.assert(directory.manifest_sha256 === sha256Canonical(directory.entries), 'directory manifest hash covers exact entry rows');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxFiles: 1 }), 'FINGERPRINT_FILE_LIMIT'), 'directory manifest rejects a runtime tree above its file ceiling');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxEntries: 1 }), 'FINGERPRINT_ENTRY_LIMIT'), 'directory manifest rejects a runtime tree above its traversal ceiling');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxBytes: 1 }), 'FINGERPRINT_BYTE_LIMIT'), 'directory manifest rejects aggregate runtime bytes above their ceiling');
+    const linkedTree = join(root, 'linked-tree');
+    mkdirSync(linkedTree);
+    writeFileSync(join(linkedTree, 'runtime.mjs'), 'runtime', 'utf8');
+    linkSync(join(linkedTree, 'runtime.mjs'), join(linkedTree, 'runtime-alias.mjs'));
+    t.assert(await rejectsCode(() => fingerprintDirectory(linkedTree, { allowedRoots: [root], maxFiles: 10, maxEntries: 10, maxBytes: 1024 }), 'UNSAFE_LINK_TYPE'), 'directory manifest rejects multiply linked runtime files');
     t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: ['relative-root'] }), 'INVALID_ALLOWED_ROOT'), 'relative allowed roots are rejected');
 
     const outside = makePrimitiveRoot('uemcp-outside-');
