@@ -28,6 +28,7 @@ import {
 } from '../ownership-ledger.mjs';
 import { createProcessRunner } from '../process-runner.mjs';
 import {
+  clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
@@ -197,7 +198,7 @@ export function classifyGeminiNativeStatus(result) {
 }
 
 function environmentForLaunch(context, launch) {
-  return { ...(context.env ?? process.env), ...(launch.env_overlay ?? {}) };
+  return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
 }
 
 async function inspectNative(runner, context, detection) {

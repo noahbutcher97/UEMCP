@@ -5,6 +5,7 @@ const frozenVersions = versions => Object.freeze([...versions]);
 export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
 
 export const NPM_RUNTIME_LIMITS = Object.freeze({
+  max_packages: 2_048,
   max_entries: 32_768,
   max_files: 16_384,
   max_bytes: 1024 * 1024 * 1024,
@@ -102,6 +103,18 @@ export function mergeWindowsEnvironmentOverlay(env, overlay) {
   ]);
 }
 
+export function clientProcessEnvironment(env, overlay = {}) {
+  const merged = mergeWindowsEnvironmentOverlay(env, overlay);
+  return Object.fromEntries(Object.entries(merged).filter(([name]) => (
+    !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase())
+  )));
+}
+
+export function protocolProcessEnvironment(env, overlay = {}) {
+  const parent = clientProcessEnvironment(env);
+  return mergeWindowsEnvironmentOverlay(parent, overlay);
+}
+
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? '');
   if (!match) return null;
@@ -154,25 +167,41 @@ function validNpmRuntimeFingerprint(runtime, launch) {
     'max_bytes',
     'max_entries',
     'max_files',
+    'max_packages',
+    'package_count',
+    'package_id',
+    'resolution_root',
     'root',
     'total_bytes',
   ])) return false;
   if (!win32.isAbsolute(runtime.root)
+    || !win32.isAbsolute(runtime.resolution_root)
+    || runtime.package_id !== launch.package_id
     || !/^[0-9a-f]{64}$/.test(runtime.manifest_sha256 ?? '')
+    || runtime.max_packages !== NPM_RUNTIME_LIMITS.max_packages
     || runtime.max_entries !== NPM_RUNTIME_LIMITS.max_entries
     || runtime.max_files !== NPM_RUNTIME_LIMITS.max_files
     || runtime.max_bytes !== NPM_RUNTIME_LIMITS.max_bytes
+    || !Number.isSafeInteger(runtime.package_count)
     || !Number.isSafeInteger(runtime.entry_count)
     || !Number.isSafeInteger(runtime.file_count)
     || !Number.isSafeInteger(runtime.total_bytes)
+    || runtime.package_count < 1
+    || runtime.package_count > runtime.max_packages
     || runtime.entry_count < runtime.file_count
     || runtime.file_count < 1
     || runtime.total_bytes < 1
     || runtime.entry_count > runtime.max_entries
     || runtime.file_count > runtime.max_files
     || runtime.total_bytes > runtime.max_bytes) return false;
+  const relativePackage = win32.relative(runtime.resolution_root, runtime.root);
   const relativeEntry = win32.relative(runtime.root, launch.args_prefix[0]);
-  return relativeEntry !== ''
+  const expectedPackageRoot = win32.resolve(runtime.resolution_root, ...runtime.package_id.split('/'));
+  return win32.resolve(runtime.root).toLowerCase() === expectedPackageRoot.toLowerCase()
+    && relativePackage !== '..'
+    && !relativePackage.startsWith(`..${win32.sep}`)
+    && !win32.isAbsolute(relativePackage)
+    && relativeEntry !== ''
     && relativeEntry !== '..'
     && !relativeEntry.startsWith(`..${win32.sep}`)
     && !win32.isAbsolute(relativeEntry);

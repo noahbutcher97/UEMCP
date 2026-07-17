@@ -5,7 +5,7 @@ import { sha256Canonical } from './canonical-json.mjs';
 import {
   CLIENT_IDS,
   expectedClientLaunchOverlay,
-  mergeWindowsEnvironmentOverlay,
+  protocolProcessEnvironment,
   validateClientLaunchContract,
 } from './client-contract.mjs';
 import { captureClientPathFingerprint } from './client-transaction.mjs';
@@ -571,7 +571,7 @@ function planPreconditions(records, operations, ownershipFingerprint, ownershipP
           kind: 'client_runtime_tree',
           label: `clients:runtime:${record.row.client_id}`,
           canonical_path: runtime.root,
-          allowed_root: runtime.root,
+          allowed_root: runtime.resolution_root,
           writable: false,
           fingerprint: runtime,
         }));
@@ -859,7 +859,7 @@ export function createClientDomain({
         if (!plainObject(launch?.env_overlay) || Object.values(launch.env_overlay).some(value => typeof value !== 'string')) {
           fail('adapter private protocol environment is invalid', 'INVALID_CLIENT_LAUNCH');
         }
-        const effectiveEnvironment = mergeWindowsEnvironmentOverlay(context.env ?? process.env, launch.env_overlay);
+        const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
         await recheckInspectionPreconditions(currentContext, inspection);
         await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
         smoke = await protocolSmoke(context.descriptor, {
@@ -1109,7 +1109,11 @@ export function createClientDomain({
       let observed;
       try {
         observed = precondition.kind === 'client_runtime_tree'
-          ? await captureRuntimeFingerprint(precondition.canonical_path, { fsImpl: context.fsImpl ?? fsImpl })
+          ? await captureRuntimeFingerprint(precondition.canonical_path, {
+              resolutionRoot: precondition.fingerprint.resolution_root,
+              packageId: precondition.fingerprint.package_id,
+              fsImpl: context.fsImpl ?? fsImpl,
+            })
           : stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
               allowedRoots: [precondition.allowed_root],
               fsImpl: context.fsImpl ?? fsImpl,
@@ -1245,7 +1249,11 @@ export function createClientDomain({
 
   async function fingerprintPrecondition(precondition, context) {
     if (precondition.kind === 'client_runtime_tree') {
-      return captureRuntimeFingerprint(precondition.canonical_path, { fsImpl: context.fsImpl ?? fsImpl });
+      return captureRuntimeFingerprint(precondition.canonical_path, {
+        resolutionRoot: precondition.fingerprint.resolution_root,
+        packageId: precondition.fingerprint.package_id,
+        fsImpl: context.fsImpl ?? fsImpl,
+      });
     }
     return stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
       allowedRoots: [precondition.allowed_root],

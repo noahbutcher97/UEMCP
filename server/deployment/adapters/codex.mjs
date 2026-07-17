@@ -20,6 +20,7 @@ import {
   recordOwnedWrite,
 } from '../ownership-ledger.mjs';
 import {
+  clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
@@ -300,7 +301,7 @@ function mergeNativeStatus(list, get) {
 }
 
 function environmentForLaunch(context, launch) {
-  return { ...(context.env ?? process.env), ...(launch.env_overlay ?? {}) };
+  return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
 }
 
 async function runNativeQuery(runner, context, detection, tail) {

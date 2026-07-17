@@ -10,12 +10,12 @@ import {
   sep,
 } from 'node:path';
 
-import { sha256Canonical } from './canonical-json.mjs';
+import { sha256Bytes, sha256Canonical } from './canonical-json.mjs';
 import {
   classifySupportedVersion,
   CLIENT_IDS,
+  clientProcessEnvironment,
   expectedClientLaunchOverlay,
-  mergeWindowsEnvironmentOverlay,
   NPM_RUNTIME_LIMITS,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
@@ -49,6 +49,7 @@ const CLIENTS = Object.freeze({
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_VSCODE_WRAPPER_BYTES = 64 * 1024;
 const MAX_CLIENT_CANDIDATES = 64;
+const PACKAGE_ID = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
 
 export class ClientProcessError extends Error {
   constructor(message, code = 'NOT_INSTALLED', details = {}) {
@@ -73,37 +74,230 @@ function contained(root, candidate) {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-function runtimeFingerprint(manifest) {
+function runtimeFingerprint({
+  packageRoot,
+  resolutionRoot,
+  packageId,
+  packageCount,
+  entryCount,
+  fileCount,
+  totalBytes,
+  manifestSha256,
+}) {
   return Object.freeze({
-    root: resolve(manifest.root),
-    entry_count: manifest.entry_count,
-    file_count: manifest.file_count,
-    total_bytes: manifest.total_bytes,
-    manifest_sha256: manifest.manifest_sha256,
+    root: resolve(packageRoot),
+    resolution_root: resolve(resolutionRoot),
+    package_id: packageId,
+    package_count: packageCount,
+    entry_count: entryCount,
+    file_count: fileCount,
+    total_bytes: totalBytes,
+    manifest_sha256: manifestSha256,
     ...NPM_RUNTIME_LIMITS,
   });
 }
 
-async function captureNpmRuntime(packageRoot, fsImpl) {
-  const manifest = await fingerprintDirectory(packageRoot, {
-    allowedRoots: [packageRoot],
-    fsImpl,
-    maxEntries: NPM_RUNTIME_LIMITS.max_entries,
-    maxFiles: NPM_RUNTIME_LIMITS.max_files,
-    maxBytes: NPM_RUNTIME_LIMITS.max_bytes,
-  });
-  return runtimeFingerprint(manifest);
+function packageParts(packageId) {
+  if (typeof packageId !== 'string' || !PACKAGE_ID.test(packageId)) {
+    fail('client package dependency name is invalid');
+  }
+  return packageId.split('/');
 }
 
-export async function captureClientRuntimeFingerprint(packageRoot, { fsImpl = defaultFs } = {}) {
-  return captureNpmRuntime(packageRoot, fsImpl);
+function dependencyRows(manifest) {
+  const dependencies = new Map();
+  const add = (value, required, label) => {
+    if (value === undefined) return;
+    if (!value || Array.isArray(value) || typeof value !== 'object') {
+      fail(`client package ${label} must be an object`);
+    }
+    const rows = Object.entries(value);
+    if (rows.length > NPM_RUNTIME_LIMITS.max_packages) fail('client package dependency list exceeds its limit');
+    for (const [name, version] of rows) {
+      packageParts(name);
+      if (typeof version !== 'string' || version.trim() === '') fail(`client package ${label} version is invalid`);
+      dependencies.set(name, required);
+    }
+  };
+  add(manifest.dependencies, true, 'dependencies');
+  add(manifest.optionalDependencies, false, 'optionalDependencies');
+
+  const peerMeta = manifest.peerDependenciesMeta;
+  if (peerMeta !== undefined && (!peerMeta || Array.isArray(peerMeta) || typeof peerMeta !== 'object')) {
+    fail('client package peerDependenciesMeta must be an object');
+  }
+  if (peerMeta && Object.keys(peerMeta).length > NPM_RUNTIME_LIMITS.max_packages) {
+    fail('client package peer dependency metadata exceeds its limit');
+  }
+  if (peerMeta) {
+    for (const [name, value] of Object.entries(peerMeta)) {
+      packageParts(name);
+      if (!value || Array.isArray(value) || typeof value !== 'object'
+        || (value.optional !== undefined && typeof value.optional !== 'boolean')) {
+        fail('client package peer dependency metadata is invalid');
+      }
+    }
+  }
+  if (manifest.peerDependencies !== undefined) {
+    const peers = manifest.peerDependencies;
+    if (!peers || Array.isArray(peers) || typeof peers !== 'object') fail('client package peerDependencies must be an object');
+    if (Object.keys(peers).length > NPM_RUNTIME_LIMITS.max_packages) fail('client package peer dependency list exceeds its limit');
+    for (const [name, version] of Object.entries(peers)) {
+      packageParts(name);
+      if (typeof version !== 'string' || version.trim() === '') fail('client package peer dependency version is invalid');
+      if (!dependencies.has(name)) dependencies.set(name, peerMeta?.[name]?.optional !== true);
+    }
+  }
+  return [...dependencies].map(([name, required]) => ({ name, required }));
+}
+
+async function packageDocument(path, fsImpl) {
+  let bytes;
+  try {
+    bytes = await fsImpl.readFile(path);
+  } catch {
+    fail('client package manifest is missing');
+  }
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
+  if (bytes.length > MAX_PACKAGE_JSON_BYTES) fail('client package manifest exceeds its byte limit');
+  try {
+    return {
+      bytes,
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+    };
+  } catch {
+    fail('client package manifest is malformed');
+  }
+}
+
+async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot, fsImpl) {
+  const boundary = dirname(resolutionRoot);
+  const parts = packageParts(dependencyName);
+  let current = packageRoot;
+  while (true) {
+    if (basename(current).toLowerCase() !== 'node_modules') {
+      const candidate = join(current, 'node_modules', ...parts);
+      if (contained(resolutionRoot, candidate)) {
+        try {
+          await fsImpl.lstat(candidate);
+          return await canonicalDirectory(candidate, { fsImpl, allowedRoots: [resolutionRoot] });
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+      }
+    }
+    if (pathKey(current) === pathKey(boundary)) break;
+    const parent = dirname(current);
+    if (parent === current || !contained(boundary, parent)) break;
+    current = parent;
+  }
+  return null;
+}
+
+async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl) {
+  const canonicalResolutionRoot = await canonicalDirectory(resolutionRoot, {
+    fsImpl,
+    allowedRoots: [resolutionRoot],
+  });
+  const canonicalPackageRoot = await canonicalDirectory(packageRoot, {
+    fsImpl,
+    allowedRoots: [canonicalResolutionRoot],
+  });
+  if (!contained(canonicalResolutionRoot, canonicalPackageRoot)) fail('client package root escapes its resolution root');
+
+  const packages = new Map();
+  const queue = [{ root: canonicalPackageRoot, expectedName: packageId }];
+  const manifestProofs = [];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const key = pathKey(current.root);
+    if (packages.has(key)) continue;
+    if (packages.size >= NPM_RUNTIME_LIMITS.max_packages) fail('client package runtime exceeds its package limit');
+    const manifestPath = join(current.root, 'package.json');
+    const document = await packageDocument(manifestPath, fsImpl);
+    if (!document.value || Array.isArray(document.value) || typeof document.value !== 'object'
+      || typeof document.value.name !== 'string' || document.value.name.trim() === '') {
+      fail('client package manifest identity is invalid');
+    }
+    if (current.expectedName !== null && document.value.name !== current.expectedName) {
+      fail('client package identity changed during runtime inspection');
+    }
+    packages.set(key, current.root);
+    manifestProofs.push({ path: manifestPath, sha256: sha256Bytes(document.bytes) });
+
+    for (const dependency of dependencyRows(document.value)) {
+      const dependencyRoot = await resolveDependencyRoot(current.root, dependency.name, canonicalResolutionRoot, fsImpl);
+      if (dependencyRoot === null) {
+        if (dependency.required) fail('required client package dependency is missing');
+        continue;
+      }
+      queue.push({ root: dependencyRoot, expectedName: null });
+    }
+  }
+
+  const packageRoots = [...packages.values()].sort((left, right) => left.length - right.length
+    || (left < right ? -1 : left > right ? 1 : 0));
+  const disjointRoots = [];
+  for (const root of packageRoots) {
+    if (!disjointRoots.some(parent => contained(parent, root))) disjointRoots.push(root);
+  }
+
+  let entryCount = 0;
+  let fileCount = 0;
+  let totalBytes = 0;
+  const entries = [];
+  for (const root of disjointRoots) {
+    const tree = await fingerprintDirectory(root, {
+      allowedRoots: [canonicalResolutionRoot],
+      fsImpl,
+      maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
+      maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
+      maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes,
+    });
+    const prefix = relative(canonicalResolutionRoot, root).replace(/\\/g, '/');
+    if (prefix === '..' || prefix.startsWith('../') || isAbsolute(prefix)) fail('client package tree escapes its resolution root');
+    entryCount += tree.entry_count;
+    fileCount += tree.file_count;
+    totalBytes += tree.total_bytes;
+    for (const entry of tree.entries) {
+      entries.push({ ...entry, path: prefix === '' ? entry.path : `${prefix}/${entry.path}` });
+    }
+  }
+  entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const entryByPath = new Map(entries.map(entry => [entry.path, entry]));
+  for (const proof of manifestProofs) {
+    const path = relative(canonicalResolutionRoot, proof.path).replace(/\\/g, '/');
+    if (entryByPath.get(path)?.sha256 !== proof.sha256) fail('client package manifest changed during runtime inspection');
+  }
+  return runtimeFingerprint({
+    packageRoot: canonicalPackageRoot,
+    resolutionRoot: canonicalResolutionRoot,
+    packageId,
+    packageCount: packages.size,
+    entryCount,
+    fileCount,
+    totalBytes,
+    manifestSha256: sha256Canonical(entries),
+  });
+}
+
+export async function captureClientRuntimeFingerprint(packageRoot, {
+  resolutionRoot = packageRoot,
+  packageId,
+  fsImpl = defaultFs,
+} = {}) {
+  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl);
 }
 
 export async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs } = {}) {
   if (launch?.source !== 'npm_package') return true;
   let observed;
   try {
-    observed = await captureClientRuntimeFingerprint(launch.fingerprint?.runtime_tree?.root, { fsImpl });
+    observed = await captureClientRuntimeFingerprint(launch.fingerprint?.runtime_tree?.root, {
+      resolutionRoot: launch.fingerprint?.runtime_tree?.resolution_root,
+      packageId: launch.package_id,
+      fsImpl,
+    });
   } catch (error) {
     fail('client npm runtime tree is no longer safe', 'CLIENT_RUNTIME_CHANGED', { cause_code: error?.code ?? 'UNKNOWN' });
   }
@@ -237,19 +431,7 @@ async function discoverWithWhere(clientId, { env, runner, fsImpl }) {
 }
 
 async function readPackageJson(path, fsImpl) {
-  let bytes;
-  try {
-    bytes = await fsImpl.readFile(path);
-  } catch {
-    fail('client package manifest is missing');
-  }
-  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
-  if (bytes.length > MAX_PACKAGE_JSON_BYTES) fail('client package manifest exceeds its byte limit');
-  try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  } catch {
-    fail('client package manifest is malformed');
-  }
+  return (await packageDocument(path, fsImpl)).value;
 }
 
 async function readUtf8(path, fsImpl, byteLimit, label) {
@@ -364,7 +546,11 @@ async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidate
   const node = await resolveNodeExecutable(candidates, fsImpl);
   let runtimeTree;
   try {
-    runtimeTree = await captureClientRuntimeFingerprint(packageRoot, { fsImpl });
+    runtimeTree = await captureClientRuntimeFingerprint(packageRoot, {
+      resolutionRoot: modulesRoot,
+      packageId: config.package_id,
+      fsImpl,
+    });
   } catch (error) {
     fail('client npm runtime tree is unsafe or exceeds its inspection limits', 'NOT_INSTALLED', { cause_code: error?.code ?? 'UNKNOWN' });
   }
@@ -488,7 +674,7 @@ function parseVersionOutput(stdout) {
 
 async function probeVersion(launch, { env, runner, fsImpl }) {
   await revalidateClientLaunchRuntime(launch, { fsImpl });
-  const childEnv = mergeWindowsEnvironmentOverlay(env, launch.env_overlay);
+  const childEnv = clientProcessEnvironment(env, launch.env_overlay);
   const result = await runner.run(launch.command, [...launch.args_prefix, '--version'], {
     env: childEnv,
     shell: false,

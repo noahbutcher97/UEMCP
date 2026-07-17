@@ -59,7 +59,9 @@ import {
   NPM_RUNTIME_LIMITS,
   RELEASE_GATES,
   classifySupportedVersion,
+  clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
+  protocolProcessEnvironment,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
@@ -119,6 +121,18 @@ function throwsCode(fn, code) {
   t.assert(readWindowsEnvironmentValue({ Path: 'one' }, 'PATH') === 'one', 'shared client environment lookup accepts a case variant');
   t.assert(readWindowsEnvironmentValue({ PATH: undefined, Path: 'one' }, 'PATH') === 'one', 'undefined environment aliases do not create false ambiguity');
   t.assert(throwsCode(() => readWindowsEnvironmentValue({ PATH: 'one', Path: 'two' }, 'PATH'), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'shared client environment lookup rejects duplicate case variants');
+
+  const parent = { Node_Options: 'parent-injection', NODE_PATH: 'parent-modules', KEEP: 'parent' };
+  const clientEnvironment = clientProcessEnvironment(parent, { node_options: 'overlay-injection', EXTRA: 'client' });
+  t.assert(Object.keys(clientEnvironment).every(name => !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase()))
+    && clientEnvironment.KEEP === 'parent'
+    && clientEnvironment.EXTRA === 'client', 'client process environment removes ambient and overlaid Node code-loading controls');
+  const protocolEnvironment = protocolProcessEnvironment(parent, { nOdE_oPtIoNs: 'reviewed-injection', EXTRA: 'protocol' });
+  t.assert(protocolEnvironment.nOdE_oPtIoNs === 'reviewed-injection'
+    && !Object.hasOwn(protocolEnvironment, 'Node_Options')
+    && !Object.hasOwn(protocolEnvironment, 'NODE_PATH')
+    && protocolEnvironment.KEEP === 'parent', 'protocol process environment admits only reviewed Node controls from the registration overlay');
+  t.assert(parent.Node_Options === 'parent-injection' && parent.NODE_PATH === 'parent-modules', 'process environment filtering does not mutate its parent input');
 }
 
 // Active-launch review uses one case-insensitive sensitive-name policy across every adapter.
@@ -237,7 +251,9 @@ function simpleFingerprint(path) {
   };
 }
 
-function testRuntimeTree(root) {
+function testRuntimeTree(root, packageId) {
+  const resolutionRoot = packageId.split('/').reduce(current => dirname(current), resolve(root));
+  const packagePrefix = packageId.replace(/\\/g, '/');
   const entries = [];
   let entryCount = 0;
   const visit = directory => {
@@ -247,8 +263,9 @@ function testRuntimeTree(root) {
       if (entry.isDirectory()) visit(path);
       else if (entry.isFile()) {
         const bytes = readFileSync(path);
+        const packagePath = path.slice(resolve(root).length + 1).replace(/\\/g, '/');
         entries.push({
-          path: path.slice(resolve(root).length + 1).replace(/\\/g, '/'),
+          path: `${packagePrefix}/${packagePath}`,
           size: bytes.length,
           sha256: sha256Bytes(bytes),
         });
@@ -259,6 +276,9 @@ function testRuntimeTree(root) {
   entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   return Object.freeze({
     root: resolve(root),
+    resolution_root: resolutionRoot,
+    package_id: packageId,
+    package_count: 1,
     entry_count: entryCount,
     file_count: entries.length,
     total_bytes: entries.reduce((sum, entry) => sum + entry.size, 0),
@@ -272,7 +292,7 @@ function testNpmRuntime(root, packageId, binPath) {
   writeJson(join(packageRoot, 'package.json'), { name: packageId, version: '1.0.0', bin: binPath });
   const entry = write(join(packageRoot, binPath), 'export {};\n');
   write(join(packageRoot, 'lib', 'runtime.mjs'), 'export const runtime = true;\n');
-  return { entry, runtimeTree: testRuntimeTree(packageRoot) };
+  return { entry, runtimeTree: testRuntimeTree(packageRoot, packageId) };
 }
 
 function claudeLaunch(root, { version = '2.1.210', writeSupported = version === '2.1.210' } = {}) {
@@ -1149,6 +1169,25 @@ async function rejectsCode(fn, code) {
   const root = makeRoot();
   try {
     const layout = npmInstall(root, 'codex', { packageName: '@openai/codex' });
+    writeJson(join(layout.packageRoot, 'package.json'), {
+      name: '@openai/codex',
+      version: '1.0.0',
+      bin: { codex: 'bin/codex.mjs' },
+      dependencies: { 'shared-runtime': '1.0.0' },
+    });
+    const sharedRuntimeRoot = join(layout.prefix, 'node_modules', 'shared-runtime');
+    writeJson(join(sharedRuntimeRoot, 'package.json'), {
+      name: 'shared-runtime',
+      version: '1.0.0',
+      main: 'index.mjs',
+      dependencies: { 'nested-runtime': '1.0.0' },
+    });
+    const sharedRuntime = write(join(sharedRuntimeRoot, 'index.mjs'), 'export const shared = true;\n');
+    const nestedRuntimeRoot = join(sharedRuntimeRoot, 'node_modules', 'nested-runtime');
+    writeJson(join(nestedRuntimeRoot, 'package.json'), { name: 'nested-runtime', version: '1.0.0', main: 'index.mjs' });
+    const nestedRuntime = write(join(nestedRuntimeRoot, 'index.mjs'), 'export const nested = true;\n');
+    layout.env.Node_Options = '--require=C:\\outside\\inject.cjs';
+    layout.env.NODE_PATH = 'C:\\outside\\modules';
     const runner = runnerFor('0.144.4');
     const result = await resolveClientLaunch('codex', {
       env: layout.env,
@@ -1160,20 +1199,84 @@ async function rejectsCode(fn, code) {
     t.assert(result.version === '0.144.4' && result.compatibility === 'release_gated' && result.write_supported, 'supported npm client is release gated for writes');
     t.assert(runner.calls.length === 1 && runner.calls[0].executable.endsWith('node.exe') && runner.calls[0].args.at(-1) === '--version', 'npm wrapper is never executed during version probing');
     t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 10_000 && runner.calls[0].options.outputLimitBytes <= 64 * 1024, 'version probe is bounded and shell-free');
+    t.assert(Object.keys(runner.calls[0].options.env).every(name => !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase())), 'npm version probe removes ambient Node code-loading controls');
     t.assert(result.fingerprint.command.sha256 && result.fingerprint.args_prefix[0].sha256, 'launch result fingerprints executable and package entry');
     t.assert(result.fingerprint.runtime_tree.root === resolve(layout.packageRoot)
+      && result.fingerprint.runtime_tree.resolution_root === resolve(join(layout.prefix, 'node_modules'))
+      && result.fingerprint.runtime_tree.package_id === '@openai/codex'
+      && result.fingerprint.runtime_tree.package_count === 3
       && result.fingerprint.runtime_tree.file_count >= 3
       && result.fingerprint.runtime_tree.total_bytes > 0
-      && /^[0-9a-f]{64}$/.test(result.fingerprint.runtime_tree.manifest_sha256), 'npm launch binds a bounded aggregate fingerprint of its complete package runtime');
+      && /^[0-9a-f]{64}$/.test(result.fingerprint.runtime_tree.manifest_sha256), 'npm launch binds a bounded aggregate fingerprint of its declared package runtime closure');
     write(layout.runtime, 'export const runtime = false;\n');
     t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(result), 'CLIENT_RUNTIME_CHANGED'), 'runtime sibling drift invalidates the resolved npm launch');
+    const refreshed = await resolveClientLaunch('codex', {
+      env: layout.env,
+      runner: runnerFor('0.144.4'),
+      candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
+    });
+    write(sharedRuntime, 'export const shared = false;\n');
+    t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(refreshed), 'CLIENT_RUNTIME_CHANGED'), 'hoisted declared dependency drift invalidates the resolved npm launch');
+    const nestedRefresh = await resolveClientLaunch('codex', {
+      env: layout.env,
+      runner: runnerFor('0.144.4'),
+      candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
+    });
+    write(nestedRuntime, 'export const nested = false;\n');
+    t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(nestedRefresh), 'CLIENT_RUNTIME_CHANGED'), 'transitive nested dependency drift invalidates the resolved npm launch');
     const { runtime_tree: ignoredRuntime, ...incompleteFingerprint } = result.fingerprint;
     t.assert(await rejectsCode(() => validateClientLaunchContract({ ...result, fingerprint: incompleteFingerprint }), 'INVALID_CLIENT_LAUNCH'), 'npm launch contract cannot omit its bounded runtime tree');
+    const widenedRuntime = {
+      ...result.fingerprint.runtime_tree,
+      root: result.fingerprint.runtime_tree.resolution_root,
+    };
+    t.assert(await rejectsCode(() => validateClientLaunchContract({
+      ...result,
+      fingerprint: { ...result.fingerprint, runtime_tree: widenedRuntime },
+    }), 'INVALID_CLIENT_LAUNCH'), 'npm launch contract requires the exact package root beneath its resolution root');
     t.assert(await rejectsCode(() => validateClientLaunchContract({ ...result, command: 'node.exe' }), 'INVALID_CLIENT_LAUNCH'), 'client contract rejects a relative executable');
   } finally {
     cleanup(root);
   }
 
+}
+
+// Declared dependency closure fails closed for required gaps while permitting absent optional platform packages.
+{
+  const root = makeRoot();
+  try {
+    const required = npmInstall(root, 'codex', { packageName: '@openai/codex' });
+    writeJson(join(required.packageRoot, 'package.json'), {
+      name: '@openai/codex',
+      version: '1.0.0',
+      bin: { codex: 'bin/codex.mjs' },
+      dependencies: { 'missing-runtime': '1.0.0' },
+    });
+    const requiredRunner = runnerFor('0.144.4');
+    t.assert(await rejectsCode(() => resolveClientLaunch('codex', {
+      env: required.env,
+      runner: requiredRunner,
+      candidates: { codex: [required.shim], nodeExecutable: required.nodeExecutable },
+    }), 'NOT_INSTALLED'), 'missing required npm dependency rejects the client launch');
+    t.assert(requiredRunner.calls.length === 0, 'missing required npm dependency is rejected before version execution');
+
+    writeJson(join(required.packageRoot, 'package.json'), {
+      name: '@openai/codex',
+      version: '1.0.0',
+      bin: { codex: 'bin/codex.mjs' },
+      optionalDependencies: { 'missing-platform-runtime': '1.0.0' },
+      peerDependencies: { 'missing-peer-runtime': '1.0.0' },
+      peerDependenciesMeta: { 'missing-peer-runtime': { optional: true } },
+    });
+    const optional = await resolveClientLaunch('codex', {
+      env: required.env,
+      runner: runnerFor('0.144.4'),
+      candidates: { codex: [required.shim], nodeExecutable: required.nodeExecutable },
+    });
+    t.assert(optional.fingerprint.runtime_tree.package_count === 1, 'absent optional npm dependency and optional peer remain a valid bounded runtime closure');
+  } finally {
+    cleanup(root);
+  }
 }
 
 // Candidate paths must already be absolute and discovery work is explicitly bounded.
@@ -3967,7 +4070,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const observed = await domain.fingerprintPrecondition(pathPrecondition, aggregateContext(root));
     t.assert(sha256Canonical(observed) === sha256Canonical(pathPrecondition.fingerprint), 'client plan preconditions ignore read-induced atime drift while retaining stable identity evidence');
     const observedRuntime = await domain.fingerprintPrecondition(runtimePrecondition, aggregateContext(root));
-    t.assert(sha256Canonical(observedRuntime) === sha256Canonical(runtimePrecondition.fingerprint), 'npm runtime precondition rehashes the complete bounded package tree');
+    t.assert(sha256Canonical(observedRuntime) === sha256Canonical(runtimePrecondition.fingerprint), 'npm runtime precondition rehashes the bounded declared package closure');
   } finally {
     cleanup(root);
   }
@@ -4220,7 +4323,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   }
 }
 
-// Every npm-backed active launch rehashes the complete runtime tree immediately before execution.
+// Every npm-backed active launch rehashes the declared runtime closure immediately before execution.
 {
   const root = makeRoot();
   try {
@@ -4859,11 +4962,21 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       },
     });
     const result = await domain.verify(aggregateContext(root, {
-      env: { Path: 'parent-path', harmless: 'parent-value', KEEP: 'parent-keep' },
+      env: {
+        Path: 'parent-path',
+        harmless: 'parent-value',
+        KEEP: 'parent-keep',
+        Node_Options: '--require=C:\\outside\\inject.cjs',
+        NODE_PATH: 'C:\\outside\\modules',
+      },
     }));
     const effective = smokeOptions[0].options.effectiveEnvironment;
     t.assert(smokeOptions.length === 1 && effective.PATH === 'overlay-path' && effective.HARMLESS === 'overlay-value', 'protocol smoke receives exact private environment overlay values in memory');
-    t.assert(!Object.hasOwn(effective, 'Path') && !Object.hasOwn(effective, 'harmless') && effective.KEEP === 'parent-keep', 'protocol environment merge removes case-colliding parent aliases');
+    t.assert(!Object.hasOwn(effective, 'Path')
+      && !Object.hasOwn(effective, 'harmless')
+      && !Object.hasOwn(effective, 'Node_Options')
+      && !Object.hasOwn(effective, 'NODE_PATH')
+      && effective.KEEP === 'parent-keep', 'protocol environment merge removes case-colliding aliases and ambient Node code-loading controls');
     t.assert(result.clients[0].status === 'CONFIGURED' && result.clients[0].activation === 'CONNECTED', 'harmless custom environment preserves independent structural and activation facts');
 
     const hostileValue = '--require=C:\\untrusted\\bootstrap.js';
