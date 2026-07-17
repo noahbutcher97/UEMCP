@@ -636,6 +636,10 @@ async function rejectsCode(fn, code) {
   ];
   t.assert(deadlineModules.every(name => !readFileSync(join(import.meta.dirname, 'deployment', name), 'utf8').includes('.unref')),
     'awaited deployment deadlines remain event-loop referenced until settlement');
+  const windowsNativeSource = readFileSync(join(import.meta.dirname, 'deployment', 'windows-native.mjs'), 'utf8');
+  t.assert((windowsNativeSource.match(/acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS/g) ?? []).length === 3
+    && windowsNativeSource.includes('const PIN_ACQUISITION_TIMEOUT_MS = 30_000;'),
+    'all Windows pin helpers share one bounded cold-start acquisition deadline');
 }
 
 // Windows-native helpers use fixed stdin programs and dedicated environment values.

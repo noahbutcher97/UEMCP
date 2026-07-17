@@ -1277,6 +1277,30 @@ async function rejectsCode(fn, code) {
 
 }
 
+// Canonical Windows aliases remain inside the same allowlisted npm prefix.
+if (process.platform === 'win32') {
+  const root = makeRoot();
+  try {
+    const realHome = join(root, 'real-home');
+    const aliasHome = join(root, 'alias-home');
+    mkdirSync(realHome);
+    symlinkSync(realHome, aliasHome, 'junction');
+    const layout = npmInstall(aliasHome, 'codex', { packageName: '@openai/codex' });
+    const passthroughPinner = async ({ callback }) => callback(Object.freeze({ assertPinned() {} }));
+    const result = await resolveClientLaunch('codex', {
+      env: layout.env,
+      runner: runnerFor('0.144.4'),
+      candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
+      runtimeTreePinner: passthroughPinner,
+      launchFilePinner: passthroughPinner,
+    });
+    t.assert(result.command === resolve(await asyncFs.realpath(layout.nodeExecutable)),
+      'canonical npm-prefix aliases retain the same allowlisted client launch');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Declared dependency closure fails closed for required gaps while permitting absent optional platform packages.
 {
   const root = makeRoot();

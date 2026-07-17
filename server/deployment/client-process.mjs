@@ -421,6 +421,19 @@ function absoluteSafePath(path) {
   return typeof path === 'string' && isAbsolute(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
 }
 
+async function canonicalAllowlistedRoots(allowedRoots, fsImpl) {
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) {
+    fail('client launch allowlisted roots are invalid');
+  }
+  const canonical = [];
+  try {
+    for (const root of allowedRoots) canonical.push(resolve(await fsImpl.realpath(resolve(root))));
+  } catch {
+    fail('client launch allowlisted root is unavailable');
+  }
+  return canonical;
+}
+
 async function canonicalFile(path, {
   fsImpl,
   allowedRoots,
@@ -445,8 +458,9 @@ async function canonicalFile(path, {
     fail(`client launch candidate must be a regular ${allowHardLinks ? 'non-symbolic' : 'single-link'} file`);
   }
   if (basenameRequired && basename(canonical).toLowerCase() !== basenameRequired.toLowerCase()) fail('client launch candidate basename is invalid');
-  if (!allowedRoots.some(root => contained(root, canonical))) fail('client launch candidate escapes its allowlisted root');
-  const fingerprint = await fingerprintPath(canonical, { allowedRoots, fsImpl });
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some(root => contained(root, canonical))) fail('client launch candidate escapes its allowlisted root');
+  const fingerprint = await fingerprintPath(canonical, { allowedRoots: canonicalRoots, fsImpl });
   if (!fingerprint.exists || fingerprint.kind !== 'file' || fingerprint.link_kind !== 'none'
     || fingerprint.link_count < 1 || (!allowHardLinks && fingerprint.link_count !== 1)) {
     fail('client launch candidate fingerprint is unsafe');
@@ -470,7 +484,8 @@ async function canonicalDirectory(path, { fsImpl, allowedRoots }) {
     fail('client package directory is missing');
   }
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail('client package path is not a directory');
-  if (!allowedRoots.some(root => contained(root, canonical))) fail('client package directory escapes its allowlisted root');
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some(root => contained(root, canonical))) fail('client package directory escapes its allowlisted root');
   return canonical;
 }
 

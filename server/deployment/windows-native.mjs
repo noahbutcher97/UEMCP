@@ -801,6 +801,7 @@ const TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
 const TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
 const FILE_PIN_MAX_PATHS = 64;
 const FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
+const PIN_ACQUISITION_TIMEOUT_MS = 30_000;
 
 export class WindowsNativeError extends Error {
   constructor(message, code = 'WINDOWS_NATIVE_FAILED', details = {}) {
@@ -911,7 +912,7 @@ export async function withPinnedWindowsAncestry({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn,
-  acquisitionTimeoutMs = 15_000,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5_000,
 } = {}) {
   if (typeof callback !== 'function'
@@ -1143,7 +1144,7 @@ export async function withPinnedWindowsTrees({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn,
-  acquisitionTimeoutMs = 30_000,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5_000,
 } = {}) {
   if (typeof callback !== 'function'
@@ -1346,7 +1347,7 @@ export async function withPinnedWindowsFiles({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn,
-  acquisitionTimeoutMs = 15_000,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5_000,
 } = {}) {
   if (typeof callback !== 'function'

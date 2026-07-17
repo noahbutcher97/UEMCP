@@ -12004,6 +12004,7 @@ var TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
 var TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
 var FILE_PIN_MAX_PATHS = 64;
 var FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
+var PIN_ACQUISITION_TIMEOUT_MS = 3e4;
 var WindowsNativeError = class extends Error {
   constructor(message, code = "WINDOWS_NATIVE_FAILED", details = {}) {
     super(message);
@@ -12099,7 +12100,7 @@ async function withPinnedWindowsAncestry({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn2,
-  acquisitionTimeoutMs = 15e3,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5e3
 } = {}) {
   if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
@@ -12308,7 +12309,7 @@ async function withPinnedWindowsTrees({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn2,
-  acquisitionTimeoutMs = 3e4,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5e3
 } = {}) {
   if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
@@ -12499,7 +12500,7 @@ async function withPinnedWindowsFiles({
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   spawnImpl = defaultSpawn2,
-  acquisitionTimeoutMs = 15e3,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
   releaseTimeoutMs = 5e3
 } = {}) {
   if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
@@ -20487,6 +20488,18 @@ async function withPinnedClientLaunch(launch, {
 function absoluteSafePath(path) {
   return typeof path === "string" && isAbsolute11(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
 }
+async function canonicalAllowlistedRoots(allowedRoots, fsImpl) {
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) {
+    fail14("client launch allowlisted roots are invalid");
+  }
+  const canonical = [];
+  try {
+    for (const root of allowedRoots) canonical.push(resolve9(await fsImpl.realpath(resolve9(root))));
+  } catch {
+    fail14("client launch allowlisted root is unavailable");
+  }
+  return canonical;
+}
 async function canonicalFile(path, {
   fsImpl,
   allowedRoots,
@@ -20511,8 +20524,9 @@ async function canonicalFile(path, {
     fail14(`client launch candidate must be a regular ${allowHardLinks ? "non-symbolic" : "single-link"} file`);
   }
   if (basenameRequired && basename(canonical).toLowerCase() !== basenameRequired.toLowerCase()) fail14("client launch candidate basename is invalid");
-  if (!allowedRoots.some((root) => contained6(root, canonical))) fail14("client launch candidate escapes its allowlisted root");
-  const fingerprint = await fingerprintPath(canonical, { allowedRoots, fsImpl });
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some((root) => contained6(root, canonical))) fail14("client launch candidate escapes its allowlisted root");
+  const fingerprint = await fingerprintPath(canonical, { allowedRoots: canonicalRoots, fsImpl });
   if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count < 1 || !allowHardLinks && fingerprint.link_count !== 1) {
     fail14("client launch candidate fingerprint is unsafe");
   }
@@ -20534,7 +20548,8 @@ async function canonicalDirectory(path, { fsImpl, allowedRoots }) {
     fail14("client package directory is missing");
   }
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail14("client package path is not a directory");
-  if (!allowedRoots.some((root) => contained6(root, canonical))) fail14("client package directory escapes its allowlisted root");
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some((root) => contained6(root, canonical))) fail14("client package directory escapes its allowlisted root");
   return canonical;
 }
 function candidateRows(clientId, candidates) {

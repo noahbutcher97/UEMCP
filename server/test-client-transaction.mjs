@@ -271,31 +271,30 @@ async function transactionOperation(clientId, path, root, windowsNative, overrid
 
 async function setExplicitTestDacl(path) {
   const systemRoot = process.env.SystemRoot || process.env.WINDIR;
-  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const script = String.raw`
-$ErrorActionPreference = 'Stop'
-$acl = Get-Acl -LiteralPath $env:UEMCP_DACL_TARGET
-$acl.SetAccessRuleProtection($true, $true)
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow')
-$acl.SetAccessRule($rule)
-Set-Acl -LiteralPath $env:UEMCP_DACL_TARGET -AclObject $acl
-$observed = Get-Acl -LiteralPath $env:UEMCP_DACL_TARGET
-if (-not $observed.AreAccessRulesProtected) { throw 'DACL_PROTECTION_NOT_APPLIED' }
-[Console]::Out.Write('READY')
-`.trim();
-  const result = await createProcessRunner().run(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], {
-    env: {
-      SystemRoot: resolve(systemRoot),
-      WINDIR: resolve(systemRoot),
-      UEMCP_DACL_TARGET: resolve(path),
-    },
-    stdin: `${script}\n\n`,
+  const commandEnv = { SystemRoot: resolve(systemRoot), WINDIR: resolve(systemRoot) };
+  const runner = createProcessRunner();
+  const identity = await runner.run(join(systemRoot, 'System32', 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], {
+    env: commandEnv,
     timeoutMs: 15_000,
     outputLimitBytes: 8 * 1024,
   });
-  if (result.status !== 'exited' || result.exitCode !== 0 || result.stdout.trim() !== 'READY') {
-    throw new Error(`could not establish explicit test DACL (${result.status}, exit ${result.exitCode}, stderr bytes ${Buffer.byteLength(result.stderr)})`);
+  const sid = /"(S-\d+(?:-\d+)+)"/.exec(identity.stdout)?.[1];
+  if (identity.status !== 'exited' || identity.exitCode !== 0 || !sid) {
+    throw new Error(`could not resolve test SID (${identity.status}, exit ${identity.exitCode})`);
+  }
+  const result = await runner.run(join(systemRoot, 'System32', 'icacls.exe'), [
+    resolve(path),
+    '/inheritancelevel:d',
+    '/grant:r',
+    `*${sid}:(F)`,
+    '/Q',
+  ], {
+    env: commandEnv,
+    timeoutMs: 15_000,
+    outputLimitBytes: 8 * 1024,
+  });
+  if (result.status !== 'exited' || result.exitCode !== 0) {
+    throw new Error(`could not establish explicit test DACL (${result.status}, exit ${result.exitCode})`);
   }
 }
 
