@@ -12,6 +12,7 @@ import {
   parseJsoncDocument,
   removeJsoncValue,
   setJsoncValue,
+  setJsoncValues,
 } from './deployment/jsonc-config.mjs';
 import {
   getTomlTable,
@@ -118,6 +119,15 @@ function count(source, needle) {
     pathLabel: 'json-with-comments.json',
     allowTrailingComma: false,
   }).parsed_value.a === 1, 'provider subset can retain comments while rejecting trailing commas');
+
+  const partialDriftBytes = Buffer.from('{"owned":{"first":"old","last":"same"},"keep":true}\n');
+  const partialDrift = setJsoncValues(parseJsoncDocument(partialDriftBytes, { pathLabel: 'partial-drift.jsonc' }), [
+    { path: ['owned', 'first'], value: 'new' },
+    { path: ['owned', 'last'], value: 'same' },
+  ]);
+  const partialDriftDocument = parseJsoncDocument(partialDrift.after_bytes, { pathLabel: 'partial-drift-updated.jsonc' });
+  t.assert(partialDrift.changed && partialDrift.before_bytes === partialDriftBytes, 'JSONC multi-edit reports cumulative change when a later field is already equal');
+  t.assert(getJsoncValue(partialDriftDocument, ['owned', 'first']) === 'new' && getJsoncValue(partialDriftDocument, ['owned', 'last']) === 'same', 'JSONC multi-edit retains earlier edits across later no-op fields');
 }
 
 // TOML parsing and AST range edits preserve comments, tables, and client-owned keys.

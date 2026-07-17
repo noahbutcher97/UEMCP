@@ -14,6 +14,7 @@ import { sha256Canonical } from './canonical-json.mjs';
 import {
   classifySupportedVersion,
   CLIENT_IDS,
+  mergeWindowsEnvironmentOverlay,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './client-contract.mjs';
@@ -438,7 +439,7 @@ function parseVersionOutput(stdout) {
 }
 
 async function probeVersion(launch, { env, runner }) {
-  const childEnv = { ...env, ...launch.env_overlay };
+  const childEnv = mergeWindowsEnvironmentOverlay(env, launch.env_overlay);
   const result = await runner.run(launch.command, [...launch.args_prefix, '--version'], {
     env: childEnv,
     shell: false,

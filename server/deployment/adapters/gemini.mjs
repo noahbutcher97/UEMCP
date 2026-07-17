@@ -12,7 +12,12 @@ import {
 import { sha256Bytes, sha256Canonical } from '../canonical-json.mjs';
 import { readBoundedConfigFile } from '../bounded-config-file.mjs';
 import { captureClientPathFingerprint } from '../client-transaction.mjs';
-import { getJsoncValue, parseJsoncDocument, setJsoncValue } from '../jsonc-config.mjs';
+import {
+  getJsoncValue,
+  parseJsoncDocument,
+  setJsoncValue,
+  setJsoncValues,
+} from '../jsonc-config.mjs';
 import {
   adoptExactEntry,
   inspectOwnership,
@@ -770,13 +775,10 @@ function assertOperationPrecondition(operation, bytes, entry) {
 
 function applyOwnedFields(document, desired, replaceWhole) {
   if (replaceWhole) return setJsoncValue(document, ENTRY_PATH, desired);
-  let current = document;
-  let result = null;
-  for (const key of ['command', 'args']) {
-    result = setJsoncValue(current, [...ENTRY_PATH, key], desired[key]);
-    current = parseJsoncDocument(result.after_bytes, { pathLabel: document.path_label, allowTrailingComma: false });
-  }
-  return result;
+  return setJsoncValues(document, ['command', 'args'].map(key => ({
+    path: [...ENTRY_PATH, key],
+    value: desired[key],
+  })));
 }
 
 export function createGeminiAdapter({

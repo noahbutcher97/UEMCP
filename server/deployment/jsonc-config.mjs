@@ -187,6 +187,37 @@ export function setJsoncValue(document, jsonPath, value) {
   return result(document, afterText, safeEdits);
 }
 
+export function setJsoncValues(document, changes) {
+  if (document?.kind !== 'jsonc_document') fail('JSONC document is invalid');
+  if (!Array.isArray(changes) || changes.some(change => (
+    !change || Array.isArray(change) || typeof change !== 'object'
+    || !Object.hasOwn(change, 'path') || !Object.hasOwn(change, 'value')
+  ))) fail('JSONC multi-edit list is invalid');
+  let current = document;
+  const steps = [];
+  for (const change of changes) {
+    const edit = setJsoncValue(current, change.path, change.value);
+    if (!edit.changed) continue;
+    steps.push(Object.freeze({
+      path: Object.freeze([...change.path]),
+      edits: edit.edits,
+    }));
+    current = parseJsoncDocument(edit.after_bytes, {
+      pathLabel: document.path_label,
+      maxBytes: document.max_bytes,
+      allowTrailingComma: document.allow_trailing_comma,
+    });
+  }
+  if (steps.length === 0) return noChange(document);
+  return Object.freeze({
+    before_bytes: document.bytes,
+    after_bytes: current.bytes,
+    changed: true,
+    parsed_value: current.parsed_value,
+    edit_steps: Object.freeze(steps),
+  });
+}
+
 export function removeJsoncValue(document, jsonPath) {
   if (document?.kind !== 'jsonc_document') fail('JSONC document is invalid');
   validatePath(jsonPath);

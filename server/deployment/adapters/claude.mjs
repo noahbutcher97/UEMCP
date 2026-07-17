@@ -15,6 +15,7 @@ import {
   parseJsoncDocument,
   removeJsoncValue,
   setJsoncValue,
+  setJsoncValues,
 } from '../jsonc-config.mjs';
 import {
   adoptExactEntry,
@@ -538,13 +539,10 @@ function assertOperationPrecondition(operation, bytes, entry) {
 
 function applyOwnedFields(document, jsonPath, desired, replaceWhole) {
   if (replaceWhole) return setJsoncValue(document, jsonPath, desired);
-  let current = document;
-  let result = null;
-  for (const key of ['type', 'command', 'args']) {
-    result = setJsoncValue(current, [...jsonPath, key], desired[key]);
-    current = parseJsoncDocument(result.after_bytes, { pathLabel: document.path_label });
-  }
-  return result;
+  return setJsoncValues(document, ['type', 'command', 'args'].map(key => ({
+    path: [...jsonPath, key],
+    value: desired[key],
+  })));
 }
 
 function resultStatus(native, operationStatus) {

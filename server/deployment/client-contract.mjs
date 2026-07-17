@@ -45,6 +45,25 @@ export function readWindowsEnvironmentValue(env, name) {
   return matches[0]?.[1];
 }
 
+export function mergeWindowsEnvironmentOverlay(env, overlay) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)
+    || !overlay || typeof overlay !== 'object' || Array.isArray(overlay)) {
+    throw new ClientContractError('Windows environment overlay input is invalid', 'INVALID_CLIENT_ENVIRONMENT');
+  }
+  const overlayNames = new Set();
+  for (const key of Object.keys(overlay)) {
+    const normalized = key.toUpperCase();
+    if (overlayNames.has(normalized)) {
+      throw new ClientContractError(`${normalized} has ambiguous overlay definitions`, 'AMBIGUOUS_CLIENT_ENVIRONMENT');
+    }
+    overlayNames.add(normalized);
+  }
+  return Object.fromEntries([
+    ...Object.entries(env).filter(([key]) => !overlayNames.has(key.toUpperCase())),
+    ...Object.entries(overlay),
+  ]);
+}
+
 function parseVersion(value) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? '');
   if (!match) return null;

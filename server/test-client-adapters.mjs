@@ -39,6 +39,12 @@ import {
   physicalGeminiEntry,
   resolveGeminiLocations,
 } from './deployment/adapters/gemini.mjs';
+import {
+  VSCODE_NATIVE_MUTATION_CHARACTERIZATION,
+  createVsCodeAdapter,
+  physicalVsCodeEntry,
+  resolveVsCodeLocations,
+} from './deployment/adapters/vscode.mjs';
 import { sha256Bytes } from './deployment/canonical-json.mjs';
 import { ACTION_CODES } from './deployment/contracts.mjs';
 import {
@@ -50,6 +56,7 @@ import {
 } from './deployment/client-contract.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
+import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/toml-config.mjs';
@@ -488,6 +495,479 @@ function environment(root) {
   };
 }
 
+function vscodeLaunch(root, { version = '1.128.1', writeSupported = version === '1.128.1' } = {}) {
+  const installRoot = resolve(join(root, 'vscode-install'));
+  const command = write(join(installRoot, 'Code.exe'), 'code');
+  const cli = write(join(installRoot, '5264f2156c', 'resources', 'app', 'out', 'cli.js'), 'export {};\n');
+  return {
+    client_id: 'vscode',
+    command: resolve(command),
+    args_prefix: [resolve(cli)],
+    env_overlay: { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' },
+    package_id: null,
+    source: 'native',
+    version,
+    compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
+    write_supported: writeSupported,
+    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+  };
+}
+
+function vscodeContext(root, overrides = {}) {
+  const env = { ...environment(root), ...overrides.env };
+  const workspaceRoot = resolve(overrides.workspaceRoot ?? join(root, 'workspace'));
+  mkdirSync(workspaceRoot, { recursive: true });
+  const descriptor = overrides.descriptor ?? canonicalDesired(root);
+  return {
+    env,
+    workspaceRoot,
+    vscodeUserDataRoot: overrides.vscodeUserDataRoot,
+    vscodeProfile: overrides.vscodeProfile ?? null,
+    planDigest: overrides.planDigest ?? TEST_PLAN_DIGEST,
+    launch: overrides.launch ?? vscodeLaunch(root),
+    descriptor,
+    ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
+    approvedOwnedReplacement: overrides.approvedOwnedReplacement ?? false,
+  };
+}
+
+// VS Code defaults to the stable user-data and workspace MCP resources.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const locations = resolveVsCodeLocations(context);
+    const userDataRoot = resolve(join(context.env.APPDATA, 'Code'));
+    t.assert(locations.default_user.path === resolve(join(userDataRoot, 'User', 'mcp.json')), 'VS Code default MCP resource is rooted in APPDATA');
+    t.assert(locations.profile_metadata.path === resolve(join(userDataRoot, 'User', 'globalStorage', 'storage.json')), 'VS Code profile metadata is read from globalStorage');
+    t.assert(locations.workspace.path === resolve(join(context.workspaceRoot, '.vscode', 'mcp.json')), 'VS Code workspace MCP resource remains workspace scoped');
+    t.assert(JSON.stringify(physicalVsCodeEntry(context.descriptor)) === JSON.stringify({
+      type: 'stdio',
+      command: context.descriptor.command,
+      args: context.descriptor.args,
+    }), 'VS Code canonical projection owns only type, command, and args');
+    const customRoot = resolve(join(root, 'isolated-vscode-data'));
+    t.assert(resolveVsCodeLocations(vscodeContext(root, { vscodeUserDataRoot: customRoot })).default_user.path === resolve(join(customRoot, 'User', 'mcp.json')), 'VS Code explicit isolated user-data root is honored');
+    const lowerAppData = resolve(join(root, 'lower-appdata'));
+    t.assert(resolveVsCodeLocations(vscodeContext(root, { env: { APPDATA: undefined, appdata: lowerAppData } })).default_user.path === resolve(join(lowerAppData, 'Code', 'User', 'mcp.json')), 'VS Code APPDATA lookup is case-insensitive');
+    t.assert(throwsCode(() => resolveVsCodeLocations(vscodeContext(root, {
+      env: { APPDATA: lowerAppData, appdata: resolve(join(root, 'other-appdata')) },
+    })), 'AMBIGUOUS_CLIENT_ENVIRONMENT'), 'VS Code rejects duplicate case-variant APPDATA definitions');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code adapter detection validates the complete native launch tuple.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const detection = await adapter.detect(context);
+    t.assert(detection.client_id === 'vscode' && detection.locations.default_user.path === resolve(join(context.env.APPDATA, 'Code', 'User', 'mcp.json')), 'VS Code detection retains validated launch and config locations');
+    t.assert(await rejectsCode(() => adapter.detect(vscodeContext(root, {
+      launch: { ...vscodeLaunch(root), args_prefix: [] },
+    })), 'INVALID_CLIENT_LAUNCH'), 'VS Code detection rejects direct GUI launch evidence');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code default-profile inspection keeps structural, enablement, and activation evidence separate.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'ABSENT', 'VS Code inspection distinguishes an absent registration');
+    t.assert(inspection.enablement === 'UNKNOWN' && inspection.activation === 'UNKNOWN', 'VS Code file absence does not infer host enablement or activation');
+    t.assert(inspection.selected_resource.scope === 'user:default', 'VS Code default context selects the default user resource');
+    t.assert(inspection.actions.includes('RESTART_REQUIRED') && inspection.actions.includes('CLIENT_ENABLEMENT_REVIEW_REQUIRED'), 'VS Code static inspection requires restart and client enablement review');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code resolves one explicit existing profile and honors mcpResource inheritance.
+{
+  const root = makeRoot();
+  try {
+    const workContext = vscodeContext(root, { vscodeProfile: 'Work' });
+    const locations = resolveVsCodeLocations(workContext);
+    write(locations.profile_metadata.path, sample('vscode-profile-storage.json'));
+    writeJson(join(locations.profiles_root, 'work-profile-id', 'mcp.json'), {
+      servers: { uemcp: physicalVsCodeEntry(workContext.descriptor) },
+    });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    let workInspection = await adapter.inspect(workContext, await adapter.detect(workContext));
+    t.assert(workInspection?.selected_resource.path === resolve(join(locations.profiles_root, 'work-profile-id', 'mcp.json')), 'VS Code selected profile resolves its validated profile mcpResource');
+    t.assert(workInspection?.registration === 'CONFIGURED' && workInspection.profiles.length === 2, 'VS Code selected profile inspection retains bounded profile metadata evidence');
+
+    const sharedContext = vscodeContext(root, { vscodeProfile: 'Shared' });
+    writeJson(locations.default_user.path, { servers: { uemcp: physicalVsCodeEntry(sharedContext.descriptor) } });
+    const sharedInspection = await adapter.inspect(sharedContext, await adapter.detect(sharedContext));
+    t.assert(sharedInspection?.selected_resource.path === locations.default_user.path && sharedInspection.selected_resource.inherited_default === true, 'VS Code useDefaultFlags.mcp profile reuses the default physical resource');
+    t.assert(sharedInspection?.selected_resource.scope === 'user:default', 'VS Code inherited profile retains the default ownership scope');
+
+    workInspection = await adapter.inspect(workContext, await adapter.detect(workContext));
+    const defaultOccurrences = workInspection.occurrences.filter(row => row.path === locations.default_user.path);
+    t.assert(defaultOccurrences.length === 1, 'VS Code default and inherited profile contexts deduplicate to one physical occurrence');
+    t.assert(defaultOccurrences[0]?.requested_contexts?.includes('default') && defaultOccurrences[0]?.requested_contexts?.includes('profile:Shared (useDefaultFlags.mcp)'), 'VS Code deduplicated resource retains every requested profile context');
+
+    const unknownContext = vscodeContext(root, { vscodeProfile: 'Missing' });
+    t.assert(await rejectsCode(async () => adapter.inspect(unknownContext, await adapter.detect(unknownContext)), 'VSCODE_PROFILE_NOT_FOUND'), 'VS Code rejects an unknown requested profile without launching it');
+    const emptyContext = vscodeContext(root, { vscodeProfile: '' });
+    t.assert(await rejectsCode(async () => adapter.inspect(emptyContext, await adapter.detect(emptyContext)), 'VSCODE_PROFILE_NOT_FOUND'), 'VS Code rejects an explicitly empty profile name instead of selecting default');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code profile metadata is structurally bounded and rejects ambiguous identities.
+{
+  const malformedCases = [
+    { label: 'non-array profile list', value: { userDataProfiles: {} } },
+    { label: 'duplicate profile names', value: { userDataProfiles: [{ name: 'Work', location: 'one' }, { name: 'work', location: 'two' }] } },
+    { label: 'duplicate profile locations', value: { userDataProfiles: [{ name: 'One', location: 'Same' }, { name: 'Two', location: 'same' }] } },
+    { label: 'invalid default flags', value: { userDataProfiles: [{ name: 'Work', location: 'one', useDefaultFlags: { mcp: 'yes' } }] } },
+    { label: 'missing profile name', value: { userDataProfiles: [{ location: 'one' }] } },
+  ];
+  for (const testCase of malformedCases) {
+    const root = makeRoot();
+    try {
+      const context = vscodeContext(root);
+      const locations = resolveVsCodeLocations(context);
+      writeJson(locations.profile_metadata.path, testCase.value);
+      const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      t.assert(inspection.registration === 'MALFORMED_CONFIG', `VS Code ${testCase.label} blocks configuration writes`);
+    } finally {
+      cleanup(root);
+    }
+  }
+
+  for (const profileLocation of ['..', 'nested/path', 'nested\\path', 'C:\\absolute', '\\\\?\\C:\\device', 'NUL', 'trailing.']) {
+    const root = makeRoot();
+    try {
+      const context = vscodeContext(root);
+      const locations = resolveVsCodeLocations(context);
+      writeJson(locations.profile_metadata.path, { userDataProfiles: [{ name: 'Unsafe', location: profileLocation }] });
+      const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+      const inspection = await adapter.inspect(context, await adapter.detect(context));
+      t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH', `VS Code rejects unsafe profile location ${profileLocation}`);
+    } finally {
+      cleanup(root);
+    }
+  }
+
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root, { vscodeProfile: 'Internal' });
+    const locations = resolveVsCodeLocations(context);
+    writeJson(locations.profile_metadata.path, { userDataProfiles: [{ name: 'Internal', location: 'agents' }] });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH', 'VS Code reserved internal agents profile cannot become a writable user target');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code rejects missing, oversized, over-count, and linked profile evidence.
+{
+  const root = makeRoot();
+  try {
+    const missingContext = vscodeContext(root, { vscodeProfile: 'Missing' });
+    let adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    t.assert(await rejectsCode(async () => adapter.inspect(missingContext, await adapter.detect(missingContext)), 'VSCODE_PROFILE_NOT_FOUND'), 'VS Code named profile selection requires existing metadata');
+
+    const context = vscodeContext(root);
+    const locations = resolveVsCodeLocations(context);
+    writeJson(locations.profile_metadata.path, { userDataProfiles: [{ name: 'One', location: 'one' }, { name: 'Two', location: 'two' }] });
+    adapter = createVsCodeAdapter({
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { fileBytes: 1024, aggregateBytes: 8192, metadataBytes: 1024, profileRecords: 1 },
+    });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'VS Code profile count overflow fails closed');
+
+    write(locations.profile_metadata.path, JSON.stringify({ padding: 'x'.repeat(256) }));
+    adapter = createVsCodeAdapter({
+      captureFingerprint: async path => simpleFingerprint(path),
+      limits: { fileBytes: 1024, aggregateBytes: 8192, metadataBytes: 64, profileRecords: 8 },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'INSPECTION_LIMIT_EXCEEDED', 'VS Code profile metadata byte overflow fails closed');
+
+    writeJson(locations.profile_metadata.path, { userDataProfiles: [] });
+    adapter = createVsCodeAdapter({ captureFingerprint: async path => {
+      const fingerprint = simpleFingerprint(path);
+      return resolve(path) === locations.profile_metadata.path && fingerprint.exists
+        ? { ...fingerprint, link_kind: 'hardlink', link_count: 2 }
+        : fingerprint;
+    } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH', 'VS Code linked profile metadata cannot authorize a target');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code absence plans one parser-backed selected-resource create and unknown versions stay inspect-only.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root, { approvedOwnedReplacement: true });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'CREATE' && plan.operations.length === 1 && plan.operations[0].type === 'CREATE_ENTRY', 'VS Code absence plans one selected-resource create');
+    t.assert(plan.operations[0].path === resolveVsCodeLocations(context).default_user.path && JSON.stringify(plan.operations[0].owned_paths) === JSON.stringify(['/type', '/command', '/args']), 'VS Code create targets only the selected physical resource and owned fields');
+    t.assert(plan.operations[0].external_write === false && plan.operations[0].verification_status === 'RESTART_REQUIRED', 'VS Code create remains parser-backed with static restart verification');
+    t.assert(plan.operations[0].explicit_owned_replacement === false, 'VS Code fresh create never carries replacement authority');
+    const bound = new Set(plan.operations[0].read_only_paths.map(row => row.path));
+    t.assert([context.launch.command, ...context.launch.args_prefix, context.descriptor.command, ...context.descriptor.args].every(path => bound.has(resolve(path))), 'VS Code plan binds client and server launch evidence');
+
+    const unsupportedContext = vscodeContext(root, { launch: vscodeLaunch(root, { version: '1.129.0', writeSupported: false }) });
+    const unsupportedInspection = await adapter.inspect(unsupportedContext, await adapter.detect(unsupportedContext));
+    const unsupportedPlan = await adapter.plan(unsupportedContext, unsupportedInspection, unsupportedContext.descriptor);
+    t.assert(unsupportedPlan.status === 'UNSUPPORTED_VERSION' && unsupportedPlan.operations.length === 0, 'unknown VS Code versions cannot plan writes');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code workspace precedence blocks user shadowing, while inactive profiles remain evidence only.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const locations = resolveVsCodeLocations(context);
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    writeJson(locations.workspace.path, { servers: { uemcp: physicalVsCodeEntry(context.descriptor) } });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.effective.scope === 'workspace' && inspection.registration === 'CONFIGURED', 'VS Code workspace entry is the effective definition');
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0 && plan.actions.includes('SHADOWED'), 'matching VS Code workspace entry is never redundantly shadowed in user scope');
+
+    writeJson(locations.workspace.path, { servers: { uemcp: { type: 'stdio', command: 'C:\\Other\\node.exe', args: [] } } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFLICT' && plan.status === 'CONFLICT' && plan.operations.length === 0, 'conflicting VS Code workspace entry blocks user writes');
+
+    rmSync(locations.workspace.path);
+    writeJson(locations.profile_metadata.path, { userDataProfiles: [{ name: 'Other', location: 'other-profile' }] });
+    writeJson(join(locations.profiles_root, 'other-profile', 'mcp.json'), {
+      servers: { uemcp: { type: 'stdio', command: 'C:\\Other\\node.exe', args: [] } },
+    });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.occurrences.some(row => row.profile_name === 'Other' && row.active === false), 'VS Code reports same-name entries in non-selected profiles');
+    t.assert(plan.status === 'CREATE' && plan.operations[0].path === locations.default_user.path, 'inactive VS Code profile conflicts do not block the selected default resource');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// An unowned conflicting selected VS Code entry cannot be replaced by name alone.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const locations = resolveVsCodeLocations(context);
+    writeJson(locations.default_user.path, {
+      servers: { uemcp: { type: 'stdio', command: 'C:\\User\\custom.exe', args: ['--keep'] } },
+    });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'CONFLICT' && plan.status === 'CONFLICT' && plan.operations.length === 0, 'VS Code unowned selected-resource conflict requires explicit resolution');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Exact VS Code entries require visible ownership adoption before becoming idempotent.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = vscodeContext(root, { ownershipLedger: ledger });
+    const locations = resolveVsCodeLocations(context);
+    writeJson(locations.default_user.path, {
+      servers: {
+        uemcp: {
+          ...physicalVsCodeEntry(context.descriptor),
+          env: { SECRET_TOKEN: 'never-serialize' },
+          sandbox: { enabled: false },
+        },
+      },
+    });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'ADOPT' && plan.operations[0].type === 'ADOPT_EXACT_ENTRY' && plan.operations[0].ledger_only === true, 'VS Code exact unowned entry requires visible adoption');
+    t.assert(!JSON.stringify(plan).includes('never-serialize'), 'VS Code adoption plan never serializes environment values');
+    const before = readFileSync(locations.default_user.path);
+    await adapter.apply({ ...context, transaction: adapterTransaction(ledger) }, plan.operations);
+    t.assert(readFileSync(locations.default_user.path).equals(before), 'VS Code adoption preserves provider config bytes exactly');
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'owned exact VS Code entry becomes an idempotent no-op');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code create applies through the central transaction and records current-config-bound ownership.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = vscodeContext(root, { ownershipLedger: ledger });
+    const locations = resolveVsCodeLocations(context);
+    const runner = {
+      calls: [],
+      async run(executable, args) {
+        this.calls.push({ executable, args: [...args] });
+        throw new Error('VS Code adapter must not invoke native mutation');
+      },
+    };
+    const adapter = createVsCodeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    const createPlan = plan;
+    const snapshot = await adapter.snapshot(context, createPlan.operations);
+    t.assert(snapshot.writable_paths.length === 1 && snapshot.writable_paths[0].path === locations.default_user.path, 'VS Code snapshot includes only the selected resource as writable');
+    t.assert(snapshot.read_only_paths.some(row => row.path === locations.profile_metadata.path), 'VS Code snapshot binds profile metadata as read-only evidence');
+    await adapter.apply({ ...context, transaction: adapterTransaction(ledger) }, plan.operations);
+    const written = JSON.parse(readFileSync(locations.default_user.path, 'utf8'));
+    t.assert(JSON.stringify(written.servers.uemcp) === JSON.stringify(physicalVsCodeEntry(context.descriptor)), 'VS Code create writes the canonical selected-resource projection');
+    const verified = await adapter.verify(context, createPlan.operations);
+    t.assert(verified.registration === 'CONFIGURED' && verified.status === 'RESTART_REQUIRED', 'VS Code static verification proves configuration while requiring restart');
+    t.assert(verified.enablement === 'UNKNOWN' && verified.activation === 'UNKNOWN' && verified.actions.includes('CLIENT_ENABLEMENT_REVIEW_REQUIRED'), 'VS Code static verification never infers enablement or activation');
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'VS Code created entry becomes an owned idempotent no-op');
+    t.assert(runner.calls.length === 0, 'VS Code create, apply, and verify never invoke profile or add-mcp mutation');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Owned VS Code updates patch only installer-owned fields and preserve all client-owned JSONC bytes semantically.
+{
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = vscodeContext(root, { ownershipLedger: ledger });
+    const locations = resolveVsCodeLocations(context);
+    const oldCommand = resolve(write(join(root, 'old-runtime', 'node.exe'), 'node'));
+    const oldArg = context.descriptor.args[0];
+    write(locations.default_user.path, sample('vscode-user-preservation.jsonc', {
+      OLD_COMMAND: oldCommand,
+      OLD_ARG: oldArg,
+    }));
+    const before = readFileSync(locations.default_user.path);
+    const beforeDocument = parseJsoncDocument(before, { pathLabel: 'VS Code update sample' });
+    const oldEntry = getJsoncValue(beforeDocument, ['servers', 'uemcp']);
+    await recordOwnedWrite({
+      ledger,
+      location: { clientId: 'vscode', configPath: locations.default_user.path, scope: 'user:default', entryName: 'uemcp' },
+      beforeEntry: null,
+      afterEntry: oldEntry,
+      ownedPaths: ownedPathsForClient('vscode', oldEntry),
+      appliedConfigHash: sha256Bytes(before),
+      planDigest: TEST_PLAN_DIGEST,
+    });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'UPDATE' && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'VS Code owned stale projection plans a targeted update');
+    t.assert(inspection.actions.includes('CUSTOM_ENV_REVIEW_REQUIRED') && inspection.actions.includes('CUSTOM_LAUNCH_REVIEW_REQUIRED'), 'VS Code custom environment and cwd remain explicit review actions');
+    t.assert(!JSON.stringify(inspection).includes('keep-this-value'), 'VS Code inspection never serializes environment values');
+    await adapter.apply({ ...context, transaction: adapterTransaction(ledger) }, plan.operations);
+    const afterBytes = readFileSync(locations.default_user.path);
+    const afterDocument = parseJsoncDocument(afterBytes, { pathLabel: 'VS Code updated sample' });
+    const after = afterDocument.parsed_value;
+    const entry = after.servers.uemcp;
+    t.assert(entry.type === 'stdio' && entry.command === context.descriptor.command && JSON.stringify(entry.args) === JSON.stringify(context.descriptor.args), 'VS Code update writes the canonical owned projection');
+    t.assert(entry.env.UEMCP_SECRET_TOKEN === 'keep-this-value' && entry.cwd === 'C:\\Preserve\\Workspace' && entry.sandbox.network === 'host', 'VS Code update preserves environment, cwd, and sandbox policy');
+    t.assert(entry.unknownProviderField === 'preserve' && after.inputs[0].id === 'project-token' && after.servers.other.url && after.unknownTopLevel.preserve, 'VS Code update preserves unknown fields, inputs, unrelated servers, and top-level state');
+    t.assert(afterDocument.text.includes('// Inputs belong to VS Code'), 'VS Code targeted update preserves JSONC comments');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// VS Code malformed, linked, and read-only selected resources fail closed before apply.
+{
+  const root = makeRoot();
+  try {
+    const context = vscodeContext(root);
+    const locations = resolveVsCodeLocations(context);
+    write(locations.default_user.path, '{ malformed');
+    let adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    let inspection = await adapter.inspect(context, await adapter.detect(context));
+    let plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(inspection.registration === 'MALFORMED_CONFIG' && plan.operations.length === 0, 'VS Code malformed selected config blocks writes');
+
+    writeJson(locations.default_user.path, { servers: {} });
+    adapter = createVsCodeAdapter({ captureFingerprint: async (path, options = {}) => {
+      if (options.writable === true && resolve(path) === locations.default_user.path) {
+        throw Object.assign(new Error('read only'), { code: 'READ_ONLY_TARGET' });
+      }
+      return simpleFingerprint(path);
+    } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'READ_ONLY_TARGET' && plan.operations.length === 0, 'VS Code read-only selected resource blocks planning');
+
+    adapter = createVsCodeAdapter({ captureFingerprint: async path => {
+      const fingerprint = simpleFingerprint(path);
+      return resolve(path) === locations.default_user.path && fingerprint.exists
+        ? { ...fingerprint, link_kind: 'symbolic' }
+        : fingerprint;
+    } });
+    inspection = await adapter.inspect(context, await adapter.detect(context));
+    t.assert(inspection.registration === 'UNSAFE_CONFIG_PATH', 'VS Code linked selected resource cannot authorize a write');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Invalid ownership storage cannot yield a VS Code operation that is guaranteed to fail at apply.
+{
+  const root = makeRoot();
+  try {
+    const ledger = {
+      async read() { return '{broken'; },
+      async write() { throw new Error('must not write invalid ownership storage'); },
+      now: () => '2026-07-16T12:00:00.000Z',
+    };
+    const context = vscodeContext(root, { ownershipLedger: ledger });
+    const locations = resolveVsCodeLocations(context);
+    writeJson(locations.default_user.path, { servers: { uemcp: physicalVsCodeEntry(context.descriptor) } });
+    const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'OWNERSHIP_LEDGER_INVALID' && plan.operations.length === 0, 'VS Code invalid ownership storage blocks adoption before apply');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Installed VS Code 1.128.1 behavior permanently forbids production CLI mutation.
+{
+  t.assert(VSCODE_NATIVE_MUTATION_CHARACTERIZATION.version === '1.128.1', 'VS Code mutation characterization is release-bound');
+  t.assert(VSCODE_NATIVE_MUTATION_CHARACTERIZATION.profile_can_create_missing === true, 'VS Code profile launch can create a missing profile');
+  t.assert(VSCODE_NATIVE_MUTATION_CHARACTERIZATION.add_mcp_profile_writes_default === true, 'VS Code add-mcp profile targeting hazard remains locked');
+  t.assert(VSCODE_NATIVE_MUTATION_CHARACTERIZATION.same_name_replaces_full_object === true, 'VS Code same-name add replacement hazard remains locked');
+  t.assert(VSCODE_NATIVE_MUTATION_CHARACTERIZATION.mutating_cli_allowed === false, 'VS Code adapter contract forbids native mutation');
+}
+
 function runnerFor(version = '0.144.4', overrides = {}) {
   const calls = [];
   return {
@@ -783,7 +1263,11 @@ async function rejectsCode(fn, code) {
 {
   const root = makeRoot();
   try {
-    const env = environment(root);
+    const env = {
+      ...environment(root),
+      electron_run_as_node: 'hostile-parent-value',
+      vscode_dev: 'hostile-parent-value',
+    };
     const installRoot = join(env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code');
     const code = write(join(installRoot, 'Code.exe'), 'code-binary');
     const cli = write(join(installRoot, '5264f2156c', 'resources', 'app', 'out', 'cli.js'), 'export {};\n');
@@ -799,6 +1283,7 @@ async function rejectsCode(fn, code) {
     t.assert(JSON.stringify(result.env_overlay) === JSON.stringify({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' }), 'VS Code launch overlay is exact');
     t.assert(runner.calls[0].args[0] === resolve(cli) && runner.calls[0].args.at(-1) === '--version', 'VS Code version probe uses CLI script rather than direct GUI invocation');
     t.assert(runner.calls[0].options.env.ELECTRON_RUN_AS_NODE === '1' && runner.calls[0].options.env.VSCODE_DEV === '', 'fixed VS Code overlay wins in child environment');
+    t.assert(!Object.keys(runner.calls[0].options.env).some(key => key === 'electron_run_as_node' || key === 'vscode_dev'), 'fixed VS Code overlay removes case-colliding parent aliases');
     t.assert(JSON.stringify(env) === JSON.stringify(parentEnv), 'version probe never mutates parent environment');
     t.assert(result.fingerprint.env_overlay_sha256 && result.fingerprint.args_prefix[0].sha256, 'VS Code fingerprint includes overlay and cli.js');
     t.assert(result.version === '1.128.1' && result.write_supported, 'supported VS Code tuple is release gated');
@@ -1377,7 +1862,7 @@ async function rejectsCode(fn, code) {
     const oldEntry = {
       type: 'stdio',
       command: resolve(write(join(root, 'old', 'node.exe'), 'node')),
-      args: [resolve(write(join(root, 'old', 'server.mjs'), 'export {};\n'))],
+      args: [...context.descriptor.args],
       cwd: resolve(join(root, 'pinned-workspace')),
       env: { UEMCP_PRIVATE_TOKEN: 'secret-value', HARMLESS: 'keep-value' },
       startup_timeout_sec: 45,
@@ -2061,7 +2546,7 @@ async function rejectsCode(fn, code) {
     const locations = resolveCodexLocations(context);
     const oldEntry = {
       command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
-      args: [resolve(write(join(root, 'old-runtime', 'server.mjs'), 'export {};\n'))],
+      args: [...context.descriptor.args],
     };
     write(locations.user.path, sample('codex-user-owned-old.toml', {
       OLD_NODE: oldEntry.command,
@@ -2664,7 +3149,7 @@ async function rejectsCode(fn, code) {
     const locations = resolveGeminiLocations(context);
     const oldEntry = {
       command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
-      args: [resolve(write(join(root, 'old-runtime', 'server.mjs'), 'export {};\n'))],
+      args: [...context.descriptor.args],
       trust: false,
       cwd: 'C:\\Preserve\\Workspace',
       env: { API_TOKEN: 'secret', HARMLESS: 'keep' },
