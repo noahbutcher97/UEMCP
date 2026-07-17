@@ -1,6 +1,9 @@
 const mode = process.argv[2] ?? 'normal';
 let buffer = '';
 
+if (mode === 'flood-stdout') process.stdout.write(Buffer.alloc(256 * 1024, 0x78));
+if (mode === 'flood-stderr') process.stderr.write(Buffer.alloc(256 * 1024, 0x78));
+
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }

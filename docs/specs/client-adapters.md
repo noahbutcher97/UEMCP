@@ -123,6 +123,12 @@ may smoke the exact in-memory launch only when those actions were present in the
 saved plan. The canonical machine descriptor remains provider-neutral with an
 empty environment and null working directory.
 
+Protocol smoke uses a repo-owned stdio transport rather than the SDK's unbounded
+line buffer. Total child stdout is capped at 8 MiB and stderr at 64 KiB; either
+overflow terminates the child and fails the active protocol phase. Unterminated
+JSON lines are therefore bounded by the same stdout ceiling, and no provider
+output is copied into public evidence.
+
 ## Unsupported Clients
 
 Newer and older releases are inspect-only and cannot emit write operations.

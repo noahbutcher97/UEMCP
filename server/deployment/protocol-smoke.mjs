@@ -1,6 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+import {
+  BoundedStdioClientTransport,
+  DEFAULT_STDERR_LIMIT_BYTES,
+  DEFAULT_STDOUT_LIMIT_BYTES,
+} from './bounded-stdio-transport.mjs';
 import { validateDescriptorContract } from './contracts.mjs';
 
 class SmokeDeadlineError extends Error {
@@ -45,13 +49,15 @@ export async function smokeDescriptor(descriptor, {
   clientInfo = { name: 'uemcp-deployment-smoke', version: '1.0.0' },
   timeoutMs = 15_000,
   expectedServerName = 'uemcp',
-  transportFactory = parameters => new StdioClientTransport(parameters),
+  transportFactory = null,
   effectiveEnvironment = null,
   effectiveCwd = null,
+  stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+  stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES,
 } = {}) {
   const validatedDescriptor = validateDescriptorContract(descriptor);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be a positive integer');
-  if (typeof transportFactory !== 'function') throw new Error('transportFactory must be a function');
+  if (transportFactory !== null && typeof transportFactory !== 'function') throw new Error('transportFactory must be a function or null');
   if (effectiveEnvironment !== null
     && (!effectiveEnvironment || typeof effectiveEnvironment !== 'object' || Array.isArray(effectiveEnvironment)
       || Object.values(effectiveEnvironment).some(value => typeof value !== 'string'))) {
@@ -71,12 +77,11 @@ export async function smokeDescriptor(descriptor, {
   };
   const launchCwd = effectiveCwd ?? validatedDescriptor.cwd;
   if (launchCwd !== null) parameters.cwd = launchCwd;
-  const transport = transportFactory(parameters);
+  const transport = transportFactory === null
+    ? new BoundedStdioClientTransport(parameters, { stdoutLimitBytes, stderrLimitBytes })
+    : transportFactory(parameters);
   const client = new Client(clientInfo, { capabilities: {} });
-  let stderrBytes = 0;
-  transport.stderr?.on?.('data', chunk => {
-    stderrBytes = Math.min(8 * 1024, stderrBytes + Buffer.byteLength(chunk));
-  });
+  transport.stderr?.on?.('data', () => {});
 
   try {
     try {

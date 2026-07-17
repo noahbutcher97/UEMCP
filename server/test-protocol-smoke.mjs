@@ -109,6 +109,19 @@ for (const [mode, expectedStatus] of [
   t.assert(smoke.status === expectedStatus, `${mode} is bounded as ${expectedStatus}`);
 }
 
+// Oversized unterminated stdout and excessive stderr terminate before the protocol deadline.
+for (const [mode, limitOption] of [
+  ['flood-stdout', { stdoutLimitBytes: 16 * 1024 }],
+  ['flood-stderr', { stderrLimitBytes: 16 * 1024 }],
+]) {
+  const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
+    expectedServerName: 'sample-mcp',
+    timeoutMs: 2_000,
+    ...limitOption,
+  });
+  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < 1_500, `${mode} is output-bounded before the protocol deadline`);
+}
+
 // The real no-project UEMCP server proves the same descriptor contract.
 {
   const smoke = await smokeDescriptor({
