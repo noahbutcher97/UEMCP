@@ -48,7 +48,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const enabled = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT === '1';
 const worker = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER === '1';
-const WORKER_TIMEOUT_MS = 300_000;
+const WORKER_TIMEOUT_MS = 420_000;
 
 if (!enabled) {
   console.log('  ⊘ skipped: UEMCP_INSTALLED_CLIENT_CONTRACT=1 is required for installed client contracts');
@@ -323,7 +323,19 @@ if (!worker) {
     throw new Error('installed contract worker root is invalid');
   }
   mkdirSync(root, { recursive: true });
-  const runner = createProcessRunner();
+  const baseRunner = createProcessRunner();
+  const runnerCalls = [];
+  const runner = Object.freeze({
+    async run(command, args, options) {
+      runnerCalls.push(Object.freeze({
+        command,
+        args: Object.freeze([...(args ?? [])]),
+        cwd: options?.cwd ?? null,
+        codex_home: options?.env?.CODEX_HOME ?? null,
+      }));
+      return await baseRunner.run(command, args, options);
+    },
+  });
   const vscodeData = resolve(join(root, 'vscode-data'));
   const isolated = {
     runner,
@@ -451,6 +463,53 @@ if (!worker) {
         t.assert(await pathDigest(locations.user.path) === configBefore, 'Codex adoption preserves unrelated and same-table policy bytes');
         const noOp = await createApprovedPlan(domain, context);
         t.assert(noOp.operations.every(operation => operation.client_id !== 'codex'), 'Codex second plan is a no-op');
+
+        const nativeRoot = resolve(join(root, 'codex-native-create'));
+        const nativeIsolated = {
+          ...isolated,
+          env: { ...isolated.env, CODEX_HOME: resolve(join(nativeRoot, 'codex')) },
+          localState: createLocalState({
+            root: resolve(join(nativeRoot, 'state')),
+            aclRestrictor: async () => {},
+            processInspector: async () => 'alive',
+          }),
+        };
+        const nativeDomain = createClientDomain({
+          adapters,
+          discovery: async () => discovered,
+          transaction: ({ externalLease }) => createClientTransaction({
+            localState: nativeIsolated.localState,
+            fsImpl: fs,
+            externalLease,
+          }),
+        });
+        const nativeContext = contextFor(nativeRoot, nativeIsolated, 'codex');
+        const nativeLocations = resolveCodexLocations(nativeContext);
+        mkdirSync(nativeIsolated.env.CODEX_HOME, { recursive: true });
+        t.assert(!existsSync(nativeLocations.user.path), 'Codex native-create scenario starts with an absent isolated user config');
+        const nativePlan = await createApprovedPlan(nativeDomain, nativeContext);
+        const nativeOperation = nativePlan.operations.find(operation => operation.client_id === 'codex');
+        const nativeClient = nativePlan.clients.find(client => client.adapter === 'codex');
+        t.assert(nativeOperation?.type === 'CREATE_ENTRY' && nativeOperation.external_write === true, `Codex exact release plans its native create capability only for the absent isolated file (status=${nativeClient?.status ?? 'missing'})`);
+        const callsBeforeNativeApply = runnerCalls.length;
+        const nativeApplied = nativeOperation
+          ? await runIsolatedApply(nativeDomain, nativeContext, nativePlan)
+          : null;
+        const nativeCalls = runnerCalls.slice(callsBeforeNativeApply);
+        const addCalls = nativeCalls.filter(call => call.args.includes('mcp') && call.args.includes('add') && call.args.includes('uemcp'));
+        t.assert(addCalls.length === 1, 'Codex exact release executes one real native mcp add for isolated creation');
+        t.assert(addCalls.length === 1
+          && resolve(addCalls[0].cwd) === resolve(addCalls[0].codex_home)
+          && resolve(addCalls[0].cwd) !== resolve(nativeOperation.allowed_root), 'Codex native add receives only the transaction-owned staging home');
+        const nativeDocument = existsSync(nativeLocations.user.path)
+          ? parseTomlDocument(await fs.readFile(nativeLocations.user.path), { pathLabel: 'installed Codex native-created config' })
+          : null;
+        const nativeEntry = nativeDocument?.parsed_value?.mcp_servers?.uemcp;
+        t.assert(nativeEntry?.command === nativeContext.descriptor.command
+          && JSON.stringify(nativeEntry?.args) === JSON.stringify(nativeContext.descriptor.args), 'Codex native-created final config contains the canonical owned launch identity');
+        t.assert(nativeApplied?.stage.evidence.transaction.touched_files.some(file => resolve(file.path) === resolve(nativeLocations.user.path)), 'Codex native create reports the final provider config as transaction-touched');
+        const nativeNoOp = nativeApplied ? await createApprovedPlan(nativeDomain, nativeContext) : null;
+        t.assert(nativeNoOp?.operations.every(operation => operation.client_id !== 'codex'), 'Codex native-created registration is idempotent on the second plan');
       } else if (clientId === 'gemini') {
         const locations = resolveGeminiLocations(context);
         const desired = physicalGeminiEntry(context.descriptor);
