@@ -19,6 +19,7 @@ import { createProcessRunner } from './process-runner.mjs';
 import {
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
+  withPinnedWindowsAncestry,
 } from './windows-native.mjs';
 
 const MAX_CONFIG_BYTES = CONFIG_BYTE_LIMIT;
@@ -41,6 +42,7 @@ const READY_STATUSES = new Set(['APPLIED', 'MATCHING', 'NO_OP', 'READY']);
 const DEFAULT_WINDOWS_NATIVE = Object.freeze({
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
+  withPinnedAncestry: withPinnedWindowsAncestry,
 });
 
 export class ClientTransactionError extends Error {
@@ -332,6 +334,31 @@ async function inspectParentPlan(targetPath, allowedRoot, fsImpl) {
   }
 }
 
+async function inspectExistingDirectoryAncestry(directory, fsImpl) {
+  const absolute = resolve(directory);
+  const volumeRoot = parse(absolute).root;
+  const segments = relative(volumeRoot, absolute).split(sep).filter(Boolean);
+  const directories = [volumeRoot];
+  let current = volumeRoot;
+  for (const segment of segments) {
+    current = join(current, segment);
+    directories.push(current);
+  }
+  for (const path of directories) {
+    let stat;
+    try {
+      stat = await fsImpl.lstat(path);
+    } catch (error) {
+      if (isMissing(error)) fail('pinned ancestry entry disappeared', 'TRANSACTION_PRECONDITION_CHANGED');
+      throw error;
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      fail('pinned ancestry contains an unsafe directory', 'UNSAFE_WRITABLE_PATH');
+    }
+  }
+  return directories;
+}
+
 function transactionResultBase(state) {
   return {
     clients: [...state.clientResults],
@@ -359,7 +386,9 @@ export function createClientTransaction({
     || typeof localState.deleteSnapshot !== 'function') {
     fail('transaction requires the core local-state contract', 'INVALID_LOCAL_STATE');
   }
-  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.replaceFilePreservingMetadata) {
+  if (!windowsNative?.fingerprintWindowsFileMetadata
+    || !windowsNative?.replaceFilePreservingMetadata
+    || !windowsNative?.withPinnedAncestry) {
     fail('transaction requires the Windows metadata contract', 'INVALID_WINDOWS_NATIVE');
   }
   if (externalLease !== null
@@ -412,12 +441,58 @@ export function createClientTransaction({
     record.snapshot = null;
   }
 
+  async function withPinnedDirectory(directory, callback) {
+    const directories = await inspectExistingDirectoryAncestry(directory, fsImpl);
+    return windowsNative.withPinnedAncestry({
+      directories,
+      callback,
+      systemRoot,
+    });
+  }
+
+  async function revalidateRecordParents(record) {
+    let nearest;
+    try {
+      nearest = await directoryIdentity(record.parentPlan.nearest_existing, fsImpl);
+    } catch (error) {
+      if (isMissing(error)) fail('nearest existing parent disappeared', 'TRANSACTION_PRECONDITION_CHANGED');
+      throw error;
+    }
+    if (!identityEqual(nearest, record.parentPlan.nearest_identity)) {
+      fail('nearest existing parent changed identity', 'TRANSACTION_PRECONDITION_CHANGED');
+    }
+    for (const created of record.createdDirectories) {
+      let current;
+      try {
+        current = await directoryIdentity(created.path, fsImpl);
+      } catch (error) {
+        if (isMissing(error)) fail('transaction-created parent disappeared', 'TRANSACTION_PRECONDITION_CHANGED');
+        throw error;
+      }
+      if (!identityEqual(current, created.identity)) {
+        fail('transaction-created parent changed identity', 'TRANSACTION_PRECONDITION_CHANGED');
+      }
+    }
+  }
+
+  async function withPinnedRecord(record, expectedFingerprint, callback) {
+    return withPinnedDirectory(dirname(record.path), async guard => {
+      guard?.assertPinned?.();
+      await revalidateRecordParents(record);
+      const current = await capture(record.path, [record.allowedRoot], true);
+      if (!fingerprintsEqual(current, expectedFingerprint)) {
+        fail('writable path changed before pinned mutation', 'TRANSACTION_PRECONDITION_CHANGED');
+      }
+      guard?.assertPinned?.();
+      return callback({
+        current,
+        assertPinned: () => guard?.assertPinned?.(),
+      });
+    });
+  }
+
   async function createMissingParents(record) {
     if (record.parentPlan.missing_parents.length === 0) return;
-    const nearest = await directoryIdentity(record.parentPlan.nearest_existing, fsImpl);
-    if (!identityEqual(nearest, record.parentPlan.nearest_identity)) {
-      fail('nearest existing parent changed before directory creation', 'TRANSACTION_PRECONDITION_CHANGED');
-    }
     for (const path of record.parentPlan.missing_parents) {
       try {
         const existing = await fsImpl.lstat(path);
@@ -428,10 +503,22 @@ export function createClientTransaction({
         }
       } catch (error) {
         if (!isMissing(error)) throw error;
-        await fsImpl.mkdir(path);
-        const created = { path, identity: await directoryIdentity(path, fsImpl) };
-        record.createdDirectories.push(created);
-        state.createdDirectories.push(created);
+        await withPinnedDirectory(dirname(path), async guard => {
+          guard?.assertPinned?.();
+          await revalidateRecordParents(record);
+          try {
+            await fsImpl.lstat(path);
+            fail('planned-missing parent was created outside this transaction', 'TRANSACTION_PRECONDITION_CHANGED');
+          } catch (inspectionError) {
+            if (!isMissing(inspectionError)) throw inspectionError;
+          }
+          guard?.assertPinned?.();
+          await fsImpl.mkdir(path);
+          guard?.assertPinned?.();
+          const created = { path, identity: await directoryIdentity(path, fsImpl) };
+          record.createdDirectories.push(created);
+          state.createdDirectories.push(created);
+        });
       }
     }
   }
@@ -480,48 +567,61 @@ export function createClientTransaction({
     const afterParents = await capture(record.path, [record.allowedRoot], true);
     if (!fingerprintsEqual(afterParents, before)) fail('writable path changed during parent creation', 'TRANSACTION_PRECONDITION_CHANGED');
 
-    const scratch = join(dirname(record.path), `.${randomBytes(16).toString('hex')}.uemcp-write`);
-    let handle = null;
-    try {
-      handle = await fsImpl.open(scratch, 'wx', record.snapshot.metadata.mode ?? 0o600);
-      await handle.writeFile(content);
-      await handle.sync();
-      await handle.close();
-      handle = null;
-
+    return withPinnedRecord(record, before, async ({ current, assertPinned }) => {
+      const scratch = join(dirname(record.path), `.${randomBytes(16).toString('hex')}.uemcp-write`);
+      let handle = null;
       try {
-        if (before.exists) {
-          await replaceExisting(scratch, record.path);
-        } else {
-          const stillAbsent = await capture(record.path, [record.allowedRoot], true);
-          if (!fingerprintsEqual(stillAbsent, before)) fail('missing target changed before create', 'TRANSACTION_PRECONDITION_CHANGED');
-          await fsImpl.rename(scratch, record.path);
-        }
-      } catch (error) {
-        const observed = await capture(record.path, [record.allowedRoot], true).catch(() => null);
-        if (observed && !fingerprintsEqual(observed, before)) markChanged(record, observed);
-        throw error;
-      }
+        assertPinned();
+        handle = await fsImpl.open(scratch, 'wx', record.snapshot.metadata.mode ?? 0o600);
+        await handle.writeFile(content);
+        await handle.sync();
+        await handle.close();
+        handle = null;
+        assertPinned();
 
-      const diskBytes = await fsImpl.readFile(record.path);
-      const applied = await capture(record.path, [record.allowedRoot], true);
-      markChanged(record, applied);
-      if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
-        fail('client config changed during transaction replacement', 'TRANSACTION_POSTWRITE_CHANGED');
+        try {
+          if (current.exists) {
+            await replaceExisting(scratch, record.path);
+          } else {
+            const stillAbsent = await capture(record.path, [record.allowedRoot], true);
+            if (!fingerprintsEqual(stillAbsent, current)) fail('missing target changed before create', 'TRANSACTION_PRECONDITION_CHANGED');
+            assertPinned();
+            await fsImpl.rename(scratch, record.path);
+          }
+          assertPinned();
+        } catch (error) {
+          const observed = await capture(record.path, [record.allowedRoot], true).catch(() => null);
+          if (observed && !fingerprintsEqual(observed, current)) markChanged(record, observed);
+          throw error;
+        }
+
+        const diskBytes = await fsImpl.readFile(record.path);
+        const applied = await capture(record.path, [record.allowedRoot], true);
+        assertPinned();
+        markChanged(record, applied);
+        if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
+          fail('client config changed during transaction replacement', 'TRANSACTION_POSTWRITE_CHANGED');
+        }
+        if (current.exists && applied.metadata_sha256 !== current.metadata_sha256) {
+          fail('existing-file security metadata changed during replacement', 'METADATA_PRESERVATION_FAILED');
+        }
+        if (typeof parseResult === 'function') await parseResult(diskBytes);
+        return {
+          path: record.path,
+          content_sha256: applied.content_sha256,
+          metadata_sha256: applied.metadata_sha256,
+        };
+      } finally {
+        if (handle) await handle.close().catch(() => {});
+        try {
+          assertPinned();
+          await fsImpl.rm(scratch, { force: true });
+          assertPinned();
+        } catch {
+          // A consumed scratch path or lost pin is safer to leave untouched.
+        }
       }
-      if (before.exists && applied.metadata_sha256 !== before.metadata_sha256) {
-        fail('existing-file security metadata changed during replacement', 'METADATA_PRESERVATION_FAILED');
-      }
-      if (typeof parseResult === 'function') await parseResult(diskBytes);
-      return {
-        path: record.path,
-        content_sha256: applied.content_sha256,
-        metadata_sha256: applied.metadata_sha256,
-      };
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-      await fsImpl.rm(scratch, { force: true }).catch(() => {});
-    }
+    });
   }
 
   function safeStageRelativePath(value) {
@@ -940,32 +1040,22 @@ export function createClientTransaction({
     const ordered = [...state.deferredDeletes.values()].sort((left, right) => left.key.localeCompare(right.key));
     for (const deferred of ordered) {
       const record = state.records.get(deferred.key);
-      let current;
       try {
-        current = await capture(record.path, [record.allowedRoot], true);
+        await withPinnedRecord(record, record.appliedFingerprint, async ({ assertPinned }) => {
+          assertPinned();
+          await fsImpl.rm(record.path);
+          assertPinned();
+          const after = await capture(record.path, [record.allowedRoot], true);
+          if (after.exists) fail('deferred delete did not produce absence', 'DEFERRED_DELETE_CONFLICT');
+          assertPinned();
+          markChanged(record, after);
+        });
       } catch (error) {
-        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_INSPECTION_FAILED' });
-        continue;
-      }
-      if (!fingerprintsEqual(current, record.appliedFingerprint)) {
-        failures.push({ path: record.path, code: 'DEFERRED_DELETE_CONFLICT' });
-        continue;
-      }
-      try {
-        await fsImpl.rm(record.path);
-      } catch (error) {
-        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_FAILED' });
-        continue;
-      }
-      try {
-        const after = await capture(record.path, [record.allowedRoot], true);
-        if (after.exists) {
-          failures.push({ path: record.path, code: 'DEFERRED_DELETE_CONFLICT' });
-          continue;
-        }
-        markChanged(record, after);
-      } catch (error) {
-        failures.push({ path: record.path, code: error?.code ?? 'DEFERRED_DELETE_VERIFY_FAILED' });
+        const conflictCodes = new Set(['TRANSACTION_PRECONDITION_CHANGED', 'UNSAFE_WRITABLE_PATH', 'DEFERRED_DELETE_CONFLICT']);
+        failures.push({
+          path: record.path,
+          code: conflictCodes.has(error?.code) ? 'DEFERRED_DELETE_CONFLICT' : error?.code ?? 'DEFERRED_DELETE_FAILED',
+        });
       }
     }
     return failures;
@@ -978,9 +1068,15 @@ export function createClientTransaction({
       if (seen.has(key)) continue;
       seen.add(key);
       try {
-        const current = await directoryIdentity(created.path, fsImpl);
-        if (!identityEqual(current, created.identity)) continue;
-        if ((await fsImpl.readdir(created.path)).length === 0) await fsImpl.rmdir(created.path);
+        await withPinnedDirectory(dirname(created.path), async guard => {
+          guard?.assertPinned?.();
+          const current = await directoryIdentity(created.path, fsImpl);
+          if (!identityEqual(current, created.identity)) return;
+          if ((await fsImpl.readdir(created.path)).length !== 0) return;
+          guard?.assertPinned?.();
+          await fsImpl.rmdir(created.path);
+          guard?.assertPinned?.();
+        });
       } catch (error) {
         if (!isMissing(error)) continue;
       }
@@ -988,59 +1084,82 @@ export function createClientTransaction({
   }
 
   async function restoreRecord(record) {
-    let current;
     try {
-      current = await capture(record.path, [record.allowedRoot], true);
+      return await withPinnedDirectory(dirname(record.path), async guard => {
+        guard?.assertPinned?.();
+        await revalidateRecordParents(record);
+        let current;
+        try {
+          current = await capture(record.path, [record.allowedRoot], true);
+        } catch (error) {
+          if (['UNSAFE_WRITABLE_PATH', 'METADATA_INSPECTION_FAILED', 'READ_ONLY_TARGET'].includes(error?.code)) {
+            return { status: 'conflict', path: record.path, code: 'ROLLBACK_CONFLICT' };
+          }
+          throw error;
+        }
+        if (!fingerprintsEqual(current, record.appliedFingerprint)) {
+          return { status: 'conflict', path: record.path, code: 'ROLLBACK_CONFLICT' };
+        }
+        guard?.assertPinned?.();
+        const metadata = record.snapshot.metadata;
+        if (!metadata.exists) {
+          await fsImpl.rm(record.path, { force: true });
+          guard?.assertPinned?.();
+          const absent = await capture(record.path, [record.allowedRoot], true);
+          if (absent.exists) return { status: 'failed', path: record.path, code: 'ROLLBACK_VERIFY_FAILED' };
+          return { status: 'restored', path: record.path };
+        }
+
+        const payloadPath = join(record.snapshot.directory, 'payload.bin');
+        const payload = await fsImpl.readFile(payloadPath);
+        if (sha256Bytes(payload) !== metadata.original_sha256) return { status: 'failed', path: record.path, code: 'INVALID_SNAPSHOT' };
+        const scratch = join(dirname(record.path), `.${randomBytes(16).toString('hex')}.uemcp-rollback`);
+        let handle = null;
+        try {
+          guard?.assertPinned?.();
+          handle = await fsImpl.open(scratch, 'wx', metadata.mode ?? 0o600);
+          await handle.writeFile(payload);
+          await handle.sync();
+          await handle.close();
+          handle = null;
+          guard?.assertPinned?.();
+          await replaceExisting(scratch, record.path);
+          guard?.assertPinned?.();
+          if (metadata.mode !== null) await fsImpl.chmod(record.path, metadata.mode);
+          if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
+            await fsImpl.utimes(record.path, metadata.atime_ms / 1000, metadata.mtime_ms / 1000);
+          }
+          const restored = await capture(record.path, [record.allowedRoot], true);
+          if (!fingerprintsEqual(restored, record.originalFingerprint, { includeIdentity: false, includeMutable: false })) {
+            return { status: 'failed', path: record.path, code: 'ROLLBACK_VERIFY_FAILED' };
+          }
+          if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
+            await fsImpl.utimes(record.path, metadata.atime_ms / 1000, metadata.mtime_ms / 1000);
+          }
+          const finalStat = await fsImpl.lstat(record.path);
+          guard?.assertPinned?.();
+          if ((metadata.mode !== null && Number(finalStat.mode) !== Number(metadata.mode))
+            || (metadata.atime_ms !== null && Math.abs(Number(finalStat.atimeMs) - Number(metadata.atime_ms)) > 2)
+            || (metadata.mtime_ms !== null && Math.abs(Number(finalStat.mtimeMs) - Number(metadata.mtime_ms)) > 2)) {
+            return { status: 'failed', path: record.path, code: 'ROLLBACK_METADATA_VERIFY_FAILED' };
+          }
+          return { status: 'restored', path: record.path };
+        } finally {
+          if (handle) await handle.close().catch(() => {});
+          try {
+            guard?.assertPinned?.();
+            await fsImpl.rm(scratch, { force: true });
+            guard?.assertPinned?.();
+          } catch {
+            // A consumed scratch path or lost pin is safer to leave untouched.
+          }
+        }
+      });
     } catch (error) {
-      if (['UNSAFE_WRITABLE_PATH', 'METADATA_INSPECTION_FAILED', 'READ_ONLY_TARGET'].includes(error?.code)) {
+      if (['UNSAFE_WRITABLE_PATH', 'METADATA_INSPECTION_FAILED', 'READ_ONLY_TARGET', 'TRANSACTION_PRECONDITION_CHANGED'].includes(error?.code)) {
         return { status: 'conflict', path: record.path, code: 'ROLLBACK_CONFLICT' };
       }
       throw error;
-    }
-    if (!fingerprintsEqual(current, record.appliedFingerprint)) {
-      return { status: 'conflict', path: record.path, code: 'ROLLBACK_CONFLICT' };
-    }
-    const metadata = record.snapshot.metadata;
-    if (!metadata.exists) {
-      await fsImpl.rm(record.path, { force: true });
-      const absent = await capture(record.path, [record.allowedRoot], true);
-      if (absent.exists) return { status: 'failed', path: record.path, code: 'ROLLBACK_VERIFY_FAILED' };
-      return { status: 'restored', path: record.path };
-    }
-
-    const payloadPath = join(record.snapshot.directory, 'payload.bin');
-    const payload = await fsImpl.readFile(payloadPath);
-    if (sha256Bytes(payload) !== metadata.original_sha256) return { status: 'failed', path: record.path, code: 'INVALID_SNAPSHOT' };
-    const scratch = join(dirname(record.path), `.${randomBytes(16).toString('hex')}.uemcp-rollback`);
-    let handle = null;
-    try {
-      handle = await fsImpl.open(scratch, 'wx', metadata.mode ?? 0o600);
-      await handle.writeFile(payload);
-      await handle.sync();
-      await handle.close();
-      handle = null;
-      await replaceExisting(scratch, record.path);
-      if (metadata.mode !== null) await fsImpl.chmod(record.path, metadata.mode);
-      if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
-        await fsImpl.utimes(record.path, metadata.atime_ms / 1000, metadata.mtime_ms / 1000);
-      }
-      const restored = await capture(record.path, [record.allowedRoot], true);
-      if (!fingerprintsEqual(restored, record.originalFingerprint, { includeIdentity: false, includeMutable: false })) {
-        return { status: 'failed', path: record.path, code: 'ROLLBACK_VERIFY_FAILED' };
-      }
-      if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
-        await fsImpl.utimes(record.path, metadata.atime_ms / 1000, metadata.mtime_ms / 1000);
-      }
-      const finalStat = await fsImpl.lstat(record.path);
-      if ((metadata.mode !== null && Number(finalStat.mode) !== Number(metadata.mode))
-        || (metadata.atime_ms !== null && Math.abs(Number(finalStat.atimeMs) - Number(metadata.atime_ms)) > 2)
-        || (metadata.mtime_ms !== null && Math.abs(Number(finalStat.mtimeMs) - Number(metadata.mtime_ms)) > 2)) {
-        return { status: 'failed', path: record.path, code: 'ROLLBACK_METADATA_VERIFY_FAILED' };
-      }
-      return { status: 'restored', path: record.path };
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-      await fsImpl.rm(scratch, { force: true }).catch(() => {});
     }
   }
 

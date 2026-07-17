@@ -122,6 +122,9 @@ function virtualWindowsMetadata() {
         stream_bytes: streamValues.reduce((total, value) => total + Buffer.byteLength(value), 0),
       };
     },
+    async withPinnedAncestry({ callback }) {
+      return callback();
+    },
     async replaceFilePreservingMetadata({ replacementPath, destinationPath }) {
       calls.push({ replacementPath: resolve(replacementPath), destinationPath: resolve(destinationPath) });
       if (failReplace) {
@@ -1279,6 +1282,153 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Existing-file replacement and exact-byte rollback both run inside one pinned ancestry lifetime.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'claude.json'), original);
+    let pinDepth = 0;
+    const pinCalls = [];
+    const replacementPinStates = [];
+    const windowsNative = {
+      ...baseWindowsNative,
+      async withPinnedAncestry({ directories, callback }) {
+        pinCalls.push(directories.map(directory => resolve(directory)));
+        pinDepth += 1;
+        try {
+          return await callback();
+        } finally {
+          pinDepth -= 1;
+        }
+      },
+      async replaceFilePreservingMetadata(options) {
+        replacementPinStates.push(pinDepth > 0);
+        return baseWindowsNative.replaceFilePreservingMetadata(options);
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { failAfterWrite: true });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && (await asyncFs.readFile(path)).equals(original), 'pinned replacement scenario reaches verified rollback');
+    t.assert(replacementPinStates.length === 2 && replacementPinStates.every(Boolean), 'apply and rollback replacements execute while ancestry is pinned');
+    t.assert(pinCalls.some(call => call.at(-1) === resolve(dirname(path))), 'replacement pins every existing directory through the destination parent');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Pin acquisition revalidates the planned parent identity before creating a missing child.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const displacedHome = join(root, 'displaced-client-home');
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = join(home, 'created', 'claude.json');
+    let injected = false;
+    const windowsNative = {
+      ...baseWindowsNative,
+      async withPinnedAncestry({ directories, callback }) {
+        if (!injected && resolve(directories.at(-1)) === resolve(home)) {
+          await asyncFs.rename(home, displacedHome);
+          await asyncFs.mkdir(home);
+          injected = true;
+        }
+        return callback();
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(injected, 'missing-parent creation acquires a pin through its nearest existing parent');
+    t.assert(result.status === 'ROLLED_BACK' && result.rollback.reason_code === 'TRANSACTION_PRECONDITION_CHANGED', 'parent substitution at pin acquisition invalidates the transaction');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'parent substitution cannot redirect a config write');
+    t.assert(await asyncFs.stat(join(displacedHome, 'created', 'claude.json')).then(() => false, error => error.code === 'ENOENT'), 'parent substitution also leaves the displaced tree untouched');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A pin-acquisition failure is a no-write transaction failure rather than permission to continue unguarded.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'claude.json'), original);
+    const windowsNative = {
+      ...baseWindowsNative,
+      async withPinnedAncestry() {
+        throw Object.assign(new Error('injected pin failure'), { code: 'ANCESTRY_PIN_FAILED' });
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude');
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && result.rollback.reason_code === 'ANCESTRY_PIN_FAILED', 'pin-acquisition failure aborts with stable evidence');
+    t.assert((await asyncFs.readFile(path)).equals(original), 'pin-acquisition failure leaves original bytes untouched');
+    t.assert(!(await asyncFs.readdir(home)).some(name => name.endsWith('.uemcp-write')), 'pin-acquisition failure leaves no replacement scratch file');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Parent substitution after a write is a rollback conflict and never redirects restoration.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const displacedHome = join(root, 'displaced-client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const original = Buffer.from('{"state":"original"}\n');
+    const path = writeBytes(join(home, 'claude.json'), original);
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', {
+      afterWrite: async () => {
+        await asyncFs.rename(home, displacedHome);
+        await asyncFs.mkdir(home);
+      },
+      failAfterWrite: true,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLBACK_CONFLICT', 'post-write parent substitution is classified as a rollback conflict');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'rollback conflict does not write through the replacement parent');
+    t.assert((await asyncFs.readFile(join(displacedHome, 'claude.json'), 'utf8')).includes('applied'), 'rollback conflict preserves the displaced applied file');
+    t.assert(result.retained_snapshots.length === 1, 'parent-substitution conflict retains bounded recovery evidence');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // A directory-creation failure removes only parents already created by this transaction.
 {
   const root = makeTransactionRoot();
@@ -1451,6 +1601,104 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
     t.assert(result.status === 'APPLIED', 'approved deferred client-config deletion commits with the transaction');
     t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'approved empty client config is deleted only after verification');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Deferred deletion remains pinned through delete and absence verification.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'project', '.mcp.json'), Buffer.from('{"mcpServers":{"uemcp":{}}}\n'));
+    let pinDepth = 0;
+    const deletePinStates = [];
+    const windowsNative = {
+      ...baseWindowsNative,
+      async withPinnedAncestry({ callback }) {
+        pinDepth += 1;
+        try {
+          return await callback();
+        } finally {
+          pinDepth -= 1;
+        }
+      },
+    };
+    const guardedFs = {
+      ...asyncFs,
+      async rm(target, options) {
+        if (resolve(target) === resolve(path)) deletePinStates.push(pinDepth > 0);
+        return asyncFs.rm(target, options);
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative, {
+      desired_text: '{"mcpServers":{}}\n',
+      delete_after_verify: true,
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: guardedFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { deferDelete: true });
+    const transaction = createClientTransaction({ localState, fsImpl: guardedFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'APPLIED' && deletePinStates.length === 1 && deletePinStates[0] === true, 'deferred config deletion executes while ancestry is pinned');
+    t.assert(await asyncFs.stat(path).then(() => false, error => error.code === 'ENOENT'), 'pinned deferred deletion commits exact absence');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// Rollback removal and transaction-created directory cleanup pin their surviving parents.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    mkdirSync(home, { recursive: true });
+    const baseWindowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const createdParent = join(home, 'created');
+    const nestedParent = join(createdParent, 'nested');
+    const path = join(nestedParent, 'claude.json');
+    let pinDepth = 0;
+    const removalPinStates = [];
+    const directoryPinStates = [];
+    const windowsNative = {
+      ...baseWindowsNative,
+      async withPinnedAncestry({ callback }) {
+        pinDepth += 1;
+        try {
+          return await callback();
+        } finally {
+          pinDepth -= 1;
+        }
+      },
+    };
+    const guardedFs = {
+      ...asyncFs,
+      async rm(target, options) {
+        if (resolve(target) === resolve(path)) removalPinStates.push(pinDepth > 0);
+        return asyncFs.rm(target, options);
+      },
+      async rmdir(target, options) {
+        if ([resolve(createdParent), resolve(nestedParent)].includes(resolve(target))) directoryPinStates.push(pinDepth > 0);
+        return asyncFs.rmdir(target, options);
+      },
+    };
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: guardedFs, windowsNative,
+    });
+    const adapter = fakeAdapter('claude', { failAfterWrite: true });
+    const transaction = createClientTransaction({ localState, fsImpl: guardedFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    t.assert(result.status === 'ROLLED_BACK' && removalPinStates.length === 1 && removalPinStates[0] === true, 'rollback removes an originally absent config while ancestry is pinned');
+    t.assert(directoryPinStates.length === 2 && directoryPinStates.every(Boolean), 'rollback removes only owned empty directories while each surviving parent is pinned');
+    t.assert((await asyncFs.stat(home)).isDirectory() && await asyncFs.stat(createdParent).then(() => false, error => error.code === 'ENOENT'), 'pinned rollback cleanup preserves the original root and removes its owned empty descendants');
   } finally {
     cleanupTransactionRoot(root);
   }

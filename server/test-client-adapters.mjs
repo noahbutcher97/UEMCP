@@ -554,6 +554,9 @@ function adapterTransaction(ledger) {
 
 function transactionWindowsNative() {
   return {
+    async withPinnedAncestry({ callback }) {
+      return callback();
+    },
     async fingerprintWindowsFileMetadata(path) {
       const stat = await asyncFs.lstat(path);
       return {

@@ -1,6 +1,7 @@
+import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
-import { dirname, join, parse, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
 
 import { fingerprintPath } from './fingerprints.mjs';
 
@@ -95,6 +96,124 @@ try {
 }
 `.trim();
 
+const ANCESTRY_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedAncestryNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+}
+'@
+
+function Convert-ToExtendedPath([string]$Path) {
+  if ($Path.StartsWith('\\')) { return '\\?\UNC\' + $Path.Substring(2) }
+  return '\\?\' + $Path
+}
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $directories = ConvertFrom-Json -InputObject $env:UEMCP_ANCESTRY_DIRECTORIES
+  foreach ($directory in $directories) {
+    $handle = [UemcpPinnedAncestryNative]::CreateFileW(
+      (Convert-ToExtendedPath ([string]$directory)),
+      0x80,
+      0x3,
+      [IntPtr]::Zero,
+      3,
+      0x02200000,
+      [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      $handle.Dispose()
+      throw [System.ComponentModel.Win32Exception]::new($errorCode)
+    }
+    $handles.Add($handle)
+    $information = [UemcpPinnedAncestryNative+ByHandleFileInformation]::new()
+    if (-not [UemcpPinnedAncestryNative]::GetFileInformationByHandle($handle, [ref]$information)) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw [System.ComponentModel.Win32Exception]::new($errorCode)
+    }
+    if (($information.FileAttributes -band 0x400) -ne 0 -or ($information.FileAttributes -band 0x10) -eq 0) {
+      throw 'unsafe pinned ancestry entry'
+    }
+  }
+
+  $sentinelName = '.uemcp-pin-' + [Guid]::NewGuid().ToString('N') + '.tmp'
+  $sentinelPath = [System.IO.Path]::Combine([string]$directories[-1], $sentinelName)
+  $sentinelHandle = [UemcpPinnedAncestryNative]::CreateFileW(
+    (Convert-ToExtendedPath $sentinelPath),
+    0x10080,
+    0x3,
+    [IntPtr]::Zero,
+    1,
+    0x04200100,
+    [IntPtr]::Zero)
+  if ($sentinelHandle.IsInvalid) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    $sentinelHandle.Dispose()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
+  $handles.Add($sentinelHandle)
+  $sentinelInformation = [UemcpPinnedAncestryNative+ByHandleFileInformation]::new()
+  if (-not [UemcpPinnedAncestryNative]::GetFileInformationByHandle($sentinelHandle, [ref]$sentinelInformation)) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
+  if (($sentinelInformation.FileAttributes -band 0x400) -ne 0 -or ($sentinelInformation.FileAttributes -band 0x10) -ne 0) {
+    throw 'unsafe ancestry sentinel'
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid ancestry release signal' }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+
+const ANCESTRY_PIN_MAX_DIRECTORIES = 128;
+const ANCESTRY_PIN_MAX_INPUT_BYTES = 16 * 1024;
+const ANCESTRY_PIN_OUTPUT_LIMIT = 8 * 1024;
+
 export class WindowsNativeError extends Error {
   constructor(message, code = 'WINDOWS_NATIVE_FAILED', details = {}) {
     super(message);
@@ -113,6 +232,10 @@ function powershellPath(systemRoot) {
 
 function powershellArgs() {
   return ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'];
+}
+
+function encodedPowerShell(script) {
+  return Buffer.from(script, 'utf16le').toString('base64');
 }
 
 function minimalEnvironment(systemRoot, extra) {
@@ -147,6 +270,191 @@ function parseSingleJson(result, expectedKeys) {
     throw new WindowsNativeError('PowerShell helper returned an unexpected schema');
   }
   return parsed;
+}
+
+function windowsPathKey(path) {
+  return resolve(path).toLowerCase();
+}
+
+function validatePinnedDirectories(directories) {
+  if (!Array.isArray(directories)
+    || directories.length === 0
+    || directories.length > ANCESTRY_PIN_MAX_DIRECTORIES
+    || !directories.every(path => typeof path === 'string'
+      && isAbsolute(path)
+      && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new WindowsNativeError('pinned ancestry is invalid', 'INVALID_ANCESTRY_PIN');
+  }
+  const normalized = directories.map(path => resolve(path));
+  if (windowsPathKey(normalized[0]) !== windowsPathKey(parse(normalized[0]).root)) {
+    throw new WindowsNativeError('pinned ancestry must start at its volume root', 'INVALID_ANCESTRY_PIN');
+  }
+  const seen = new Set();
+  for (let index = 0; index < normalized.length; index += 1) {
+    const key = windowsPathKey(normalized[index]);
+    if (seen.has(key)) throw new WindowsNativeError('pinned ancestry contains a duplicate', 'INVALID_ANCESTRY_PIN');
+    seen.add(key);
+    if (index > 0 && windowsPathKey(dirname(normalized[index])) !== windowsPathKey(normalized[index - 1])) {
+      throw new WindowsNativeError('pinned ancestry is not a direct directory chain', 'INVALID_ANCESTRY_PIN');
+    }
+  }
+  const serialized = JSON.stringify(normalized);
+  if (Buffer.byteLength(serialized, 'utf8') > ANCESTRY_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError('pinned ancestry exceeds its input limit', 'INVALID_ANCESTRY_PIN');
+  }
+  return { normalized, serialized };
+}
+
+export async function withPinnedWindowsAncestry({
+  directories,
+  callback,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn,
+  acquisitionTimeoutMs = 15_000,
+  releaseTimeoutMs = 5_000,
+} = {}) {
+  if (typeof callback !== 'function'
+    || typeof spawnImpl !== 'function'
+    || !Number.isSafeInteger(acquisitionTimeoutMs)
+    || acquisitionTimeoutMs <= 0
+    || !Number.isSafeInteger(releaseTimeoutMs)
+    || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError('pinned ancestry options are invalid', 'INVALID_ANCESTRY_PIN');
+  }
+  const { normalized, serialized } = validatePinnedDirectories(directories);
+  if (platform !== 'win32') {
+    return callback(Object.freeze({ assertPinned() {} }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
+  try {
+    child = spawnImpl(executable, [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+      encodedPowerShell(ANCESTRY_PIN_SCRIPT),
+    ], {
+      env: minimalEnvironment(systemRoot, { UEMCP_ANCESTRY_DIRECTORIES: serialized }),
+      shell: false,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch {
+    throw new WindowsNativeError('pinned ancestry helper could not start', 'ANCESTRY_PIN_FAILED');
+  }
+
+  let stdout = '';
+  let stderr = '';
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise(resolvePromise => {
+    child.once('close', (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError('pinned ancestry helper exited before acquisition', 'ANCESTRY_PIN_FAILED'));
+      resolvePromise();
+    });
+  });
+  const stopHelper = message => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, 'ANCESTRY_PIN_FAILED');
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // The helper may already have exited.
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > ANCESTRY_PIN_OUTPUT_LIMIT) {
+      stopHelper('pinned ancestry helper exceeded its output limit');
+      return;
+    }
+    if (stream === 'stdout') {
+      stdout += bytes.toString('utf8');
+      const newline = stdout.indexOf('\n');
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, '');
+        if (line !== 'READY' || stdout.slice(newline + 1) !== '') {
+          stopHelper('pinned ancestry helper returned an invalid handshake');
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== 'READY\n' && stdout !== 'READY\r\n') {
+        stopHelper('pinned ancestry helper returned extra output');
+      }
+    } else {
+      stderr += bytes.toString('utf8');
+      stopHelper('pinned ancestry helper returned an error');
+    }
+  };
+  child.stdout?.on('data', chunk => capture(chunk, 'stdout'));
+  child.stderr?.on('data', chunk => capture(chunk, 'stderr'));
+  child.stdin?.once('error', () => {});
+  child.once('error', () => stopHelper('pinned ancestry helper failed to start'));
+
+  const acquisitionTimer = setTimeout(() => stopHelper('pinned ancestry helper timed out'), acquisitionTimeoutMs);
+  acquisitionTimer.unref?.();
+  try {
+    await readyPromise;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+
+  const guard = Object.freeze({
+    directories: Object.freeze([...normalized]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError('pinned ancestry helper was lost', 'ANCESTRY_PIN_FAILED');
+      }
+    },
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error) {
+    callbackError = error;
+  }
+
+  if (!closed && child.stdin) child.stdin.end('RELEASE\n');
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise(resolvePromise => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+      releaseTimer.unref?.();
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper('pinned ancestry helper did not release in time');
+    await Promise.race([closePromise, new Promise(resolvePromise => setTimeout(resolvePromise, 250))]);
+  }
+  if (callbackError) throw callbackError;
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== '') {
+    throw protocolError ?? new WindowsNativeError('pinned ancestry helper did not release cleanly', 'ANCESTRY_PIN_FAILED');
+  }
+  return value;
 }
 
 async function assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks = false }) {
@@ -278,6 +586,7 @@ export async function replaceFilePreservingMetadata({
 }
 
 export const WINDOWS_NATIVE_SCRIPTS = Object.freeze({
+  ancestry_pin: ANCESTRY_PIN_SCRIPT,
   authenticode: AUTHENTICODE_SCRIPT,
   metadata: METADATA_SCRIPT,
   replace: REPLACE_SCRIPT,

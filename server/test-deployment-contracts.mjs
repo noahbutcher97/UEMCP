@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 
 import { TestRunner } from './test-helpers.mjs';
 import {
@@ -45,6 +45,7 @@ import {
   fingerprintWindowsFileMetadata,
   inspectAuthenticode,
   replaceFilePreservingMetadata,
+  withPinnedWindowsAncestry,
 } from './deployment/windows-native.mjs';
 import {
   createApplyLeaseCoordinator,
@@ -354,6 +355,18 @@ function cleanupPrimitiveRoot(root, label = 'uemcp-') {
   rmSync(root, { recursive: true, force: true });
 }
 
+function directoryChain(path) {
+  const absolute = resolve(path);
+  const volume = parse(absolute).root;
+  const result = [volume];
+  let current = volume;
+  for (const part of relative(volume, absolute).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    result.push(current);
+  }
+  return result;
+}
+
 async function rejectsCode(fn, code) {
   try {
     await fn();
@@ -561,6 +574,76 @@ async function rejectsCode(fn, code) {
     t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
   } finally {
     cleanupPrimitiveRoot(root);
+  }
+}
+
+// The ancestry holder validates a direct chain and proves real Windows rename containment.
+{
+  const root = makePrimitiveRoot('uemcp-ancestry-pin-');
+  try {
+    const volume = parse(resolve(root)).root;
+    let spawnCalls = 0;
+    const invalid = [volume, join(volume, 'first'), join(volume, 'unrelated')];
+    t.assert(await rejectsCode(() => withPinnedWindowsAncestry({
+      directories: invalid,
+      callback: async () => {},
+      spawnImpl() {
+        spawnCalls += 1;
+      },
+    }), 'INVALID_ANCESTRY_PIN'), 'non-contiguous ancestry is rejected before helper spawn');
+    t.assert(spawnCalls === 0, 'invalid ancestry never starts PowerShell');
+    t.assert(WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x10080')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x3')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x02200000')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x04200100')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('GetFileInformationByHandle'), 'ancestry helper requests delete access without delete sharing and checks reparse attributes by handle');
+
+    if (process.platform === 'win32') {
+      const pinRoot = join(root, 'owned-root');
+      const destinationParent = join(pinRoot, 'nested', 'destination');
+      mkdirSync(destinationParent, { recursive: true });
+      let parentRenameBlocked = false;
+      let ancestorRenameBlocked = false;
+      await withPinnedWindowsAncestry({
+        directories: directoryChain(destinationParent),
+        callback: async guard => {
+          guard.assertPinned();
+          try {
+            await asyncFs.rename(destinationParent, join(dirname(destinationParent), 'moved-destination'));
+          } catch {
+            parentRenameBlocked = true;
+          }
+          try {
+            await asyncFs.rename(pinRoot, join(root, 'moved-owned-root'));
+          } catch {
+            ancestorRenameBlocked = true;
+          }
+          const scratch = join(destinationParent, '.publish.tmp');
+          const target = join(destinationParent, 'published.json');
+          await asyncFs.writeFile(scratch, Buffer.from('{}\n'));
+          await asyncFs.rename(scratch, target);
+          guard.assertPinned();
+          t.assert((await asyncFs.readFile(target, 'utf8')) === '{}\n', 'pinned parent still permits intended child-file publication');
+        },
+      });
+      t.assert(parentRenameBlocked && ancestorRenameBlocked, 'held delete handles block direct-parent and ancestor substitution');
+      t.assert(!(await asyncFs.readdir(destinationParent)).some(name => name.startsWith('.uemcp-pin-')), 'delete-on-close pin leaves no sentinel residue');
+
+      const outside = join(root, 'outside');
+      const linked = join(root, 'linked');
+      mkdirSync(outside);
+      symlinkSync(outside, linked, 'junction');
+      let linkedCallback = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsAncestry({
+        directories: directoryChain(linked),
+        callback: async () => {
+          linkedCallback = true;
+        },
+      }), 'ANCESTRY_PIN_FAILED'), 'native ancestry acquisition rejects a junction by its opened handle');
+      t.assert(linkedCallback === false, 'junction rejection occurs before the mutation callback');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-ancestry-pin-');
   }
 }
 
