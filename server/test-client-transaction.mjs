@@ -769,6 +769,41 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Successful commit cleanup failures retain bounded recovery evidence and the production error code.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const baseLocalState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const localState = Object.freeze({
+      ...baseLocalState,
+      async deleteSnapshot(snapshot) {
+        if (resolve(snapshot.metadata.target_path) === resolve(path)) {
+          throw Object.assign(new Error('injected successful-commit cleanup failure'), { code: 'SNAPSHOT_DELETE_FAILED' });
+        }
+        return baseLocalState.deleteSnapshot(snapshot);
+      },
+    });
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const adapter = fakeAdapter('claude');
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
+    const retained = result.retained_snapshots.find(row => resolve(row.path) === resolve(path));
+    const cleanup = result.cleanup_actions.find(row => resolve(row.path) === resolve(path));
+    t.assert(result.status === 'ACTION_REQUIRED', 'successful commit cleanup failure remains an actionable committed result');
+    t.assert(cleanup?.code === 'SNAPSHOT_DELETE_FAILED', 'successful commit cleanup failure exposes its stable production error code');
+    t.assert(typeof retained?.retained_until === 'string' && Number.isFinite(Date.parse(retained.retained_until)), 'successful commit cleanup failure retains a bounded recovery deadline');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Concurrent content, DACL, attribute, or stream edits survive rollback and retain bounded recovery evidence.
 {
   const mutations = [

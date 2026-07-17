@@ -1167,7 +1167,11 @@ export function createClientTransaction({
         try {
           await deleteSnapshot(record);
         } catch (error) {
-          cleanupFailures.push({ path: record.path, code: error?.code ?? 'SNAPSHOT_DELETE_FAILED' });
+          cleanupFailures.push({
+            path: record.path,
+            code: error?.code ?? 'SNAPSHOT_DELETE_FAILED',
+            retained_until: record.snapshot.metadata.retained_until,
+          });
         }
       }
       state.phase = 'complete';
@@ -1176,8 +1180,11 @@ export function createClientTransaction({
         status: actionRequired || cleanupFailures.length > 0 || deferredDeleteFailures.length > 0 ? 'ACTION_REQUIRED' : 'APPLIED',
         ...transactionResultBase(state),
         rollback: null,
-        retained_snapshots: cleanupFailures.map(row => ({ path: row.path, retained_until: null })),
-        cleanup_actions: deferredDeleteFailures,
+        retained_snapshots: cleanupFailures.map(row => ({ path: row.path, retained_until: row.retained_until })),
+        cleanup_actions: [
+          ...cleanupFailures.map(row => ({ path: row.path, code: row.code })),
+          ...deferredDeleteFailures,
+        ],
       };
     } catch (error) {
       return rollbackInternal({ reason: error?.code ?? 'APPLY_FAILED' });

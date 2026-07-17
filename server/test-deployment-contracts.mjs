@@ -677,6 +677,25 @@ async function rejectsCode(fn, code) {
   }
 }
 
+// Parseable replay-ledger corruption fails closed instead of silently becoming an empty ledger.
+for (const [label, document] of [
+  ['missing schema and applied map', {}],
+  ['unknown schema version', { schema_version: '2.0', applied: {} }],
+  ['invalid digest key', { schema_version: '1.0', applied: { not_a_digest: { applied_at: '2026-07-15T12:00:00.000Z' } } }],
+  ['invalid applied record', { schema_version: '1.0', applied: { ['1'.repeat(64)]: {} } }],
+]) {
+  const root = makePrimitiveRoot('uemcp-replay-ledger-');
+  try {
+    const localState = createLocalState({ root, aclRestrictor: async () => {} });
+    const paths = localState.paths();
+    mkdirSync(dirname(paths.replayLedger), { recursive: true });
+    writeFileSync(paths.replayLedger, `${JSON.stringify(document)}\n`, 'utf8');
+    t.assert(await rejectsCode(() => localState.wasDigestApplied('2'.repeat(64)), 'MALFORMED_LOCAL_STATE'), `${label} replay ledger fails closed`);
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-replay-ledger-');
+  }
+}
+
 // Local-state containment rejects junction traversal before any escaped write.
 {
   const root = makePrimitiveRoot('uemcp-local-link-');

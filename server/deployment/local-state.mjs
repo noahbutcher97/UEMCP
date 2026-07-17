@@ -389,7 +389,27 @@ export function createLocalState({
   }
 
   async function readReplayLedger() {
-    return await readJson(pathSet.replayLedger) ?? { schema_version: '1.0', applied: {} };
+    const ledger = await readJson(pathSet.replayLedger);
+    if (ledger === null) return { schema_version: '1.0', applied: {} };
+    if (!ledger || typeof ledger !== 'object' || Array.isArray(ledger)
+      || Object.keys(ledger).sort().join(',') !== 'applied,schema_version'
+      || ledger.schema_version !== '1.0'
+      || !ledger.applied || typeof ledger.applied !== 'object' || Array.isArray(ledger.applied)) {
+      throw new LocalStateError('replay ledger is malformed', 'MALFORMED_LOCAL_STATE');
+    }
+    for (const [digest, record] of Object.entries(ledger.applied)) {
+      const keys = record && typeof record === 'object' && !Array.isArray(record)
+        ? Object.keys(record).sort().join(',')
+        : '';
+      if (!SHA256.test(digest)
+        || (keys !== 'applied_at' && keys !== 'applied_at,receipt_sha256')
+        || typeof record.applied_at !== 'string'
+        || !Number.isFinite(Date.parse(record.applied_at))
+        || (record.receipt_sha256 !== undefined && !SHA256.test(record.receipt_sha256))) {
+        throw new LocalStateError('replay ledger applied record is malformed', 'MALFORMED_LOCAL_STATE');
+      }
+    }
+    return ledger;
   }
 
   function validateDigest(digest) {
@@ -540,6 +560,11 @@ export function createLocalState({
 
   async function markDigestApplied(digest, evidence = {}) {
     validateDigest(digest);
+    if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+      || Object.keys(evidence).some(key => key !== 'receipt_sha256')
+      || (evidence.receipt_sha256 !== undefined && !SHA256.test(evidence.receipt_sha256))) {
+      throw new LocalStateError('replay evidence is invalid', 'INVALID_REPLAY_EVIDENCE');
+    }
     const ledger = await readReplayLedger();
     ledger.schema_version = '1.0';
     ledger.applied ??= {};
