@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { TestRunner } from './test-helpers.mjs';
 import {
@@ -590,6 +590,10 @@ function adapterTransaction(ledger) {
 
 function transactionWindowsNative() {
   return {
+    async deleteTreeNoFollow({ targetPath }) {
+      await asyncFs.rm(targetPath, { recursive: true, force: true });
+      return { status: 'removed' };
+    },
     async withPinnedAncestry({ callback }) {
       return callback();
     },
@@ -1205,14 +1209,30 @@ async function rejectsCode(fn, code) {
     layout.env.Node_Options = '--require=C:\\outside\\inject.cjs';
     layout.env.NODE_PATH = 'C:\\outside\\modules';
     const runner = runnerFor('0.144.4');
+    let runtimePinCalls = 0;
+    let launchFilePinCalls = 0;
+    const runtimeTreePinner = async ({ roots, callback }) => {
+      runtimePinCalls += 1;
+      t.assert(roots.every(root => isAbsolute(root)), 'runtime tree pinner receives only absolute package roots');
+      return callback(Object.freeze({ assertPinned() {} }));
+    };
+    const launchFilePinner = async ({ paths, callback }) => {
+      launchFilePinCalls += 1;
+      t.assert(paths.includes(resolve(layout.nodeExecutable)) && paths.includes(resolve(layout.entry)), 'launch file pinner binds the executable and absolute script arguments');
+      return callback(Object.freeze({ assertPinned() {} }));
+    };
     const result = await resolveClientLaunch('codex', {
       env: layout.env,
       runner,
       candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
+      runtimeTreePinner,
+      launchFilePinner,
     });
     t.assert(result.command === resolve(layout.nodeExecutable) && JSON.stringify(result.args_prefix) === JSON.stringify([resolve(layout.entry)]), 'npm client resolves to absolute node.exe plus package bin entry');
     t.assert(result.package_id === '@openai/codex' && result.source === 'npm_package', 'npm client reports allowlisted package provenance');
     t.assert(result.version === '0.144.4' && result.compatibility === 'release_gated' && result.write_supported, 'supported npm client is release gated for writes');
+    t.assert(runtimePinCalls === 2, 'npm discovery and immediate pre-launch revalidation each capture the runtime closure under a tree pin');
+    t.assert(launchFilePinCalls === 1, 'version probe holds exact launch files through child completion');
     t.assert(runner.calls.length === 1 && runner.calls[0].executable.endsWith('node.exe') && runner.calls[0].args.at(-1) === '--version', 'npm wrapper is never executed during version probing');
     t.assert(runner.calls[0].options.shell === false && runner.calls[0].options.timeoutMs <= 10_000 && runner.calls[0].options.outputLimitBytes <= 64 * 1024, 'version probe is bounded and shell-free');
     t.assert(Object.keys(runner.calls[0].options.env).every(name => !['NODE_OPTIONS', 'NODE_PATH'].includes(name.toUpperCase())), 'npm version probe removes ambient Node code-loading controls');
@@ -3699,6 +3719,7 @@ for (const clientId of ['claude', 'codex', 'gemini']) {
     let guards = 0;
     let launches = 0;
     let ordered = true;
+    let pinDepth = 0;
     const baseRunner = clientId === 'claude'
       ? claudeNativeRunner()
       : clientId === 'codex'
@@ -3706,7 +3727,7 @@ for (const clientId of ['claude', 'codex', 'gemini']) {
         : geminiNativeRunner();
     const runner = {
       async run(...args) {
-        if (guards !== launches + 1) ordered = false;
+        if (guards !== launches + 1 || pinDepth !== 1) ordered = false;
         launches += 1;
         return baseRunner.run(...args);
       },
@@ -3715,18 +3736,28 @@ for (const clientId of ['claude', 'codex', 'gemini']) {
       if (evidence?.client_id !== clientId || evidence?.kind !== 'native') ordered = false;
       guards += 1;
     };
-    const context = clientId === 'claude'
-      ? claudeContext(root, { beforeActiveClientLaunch })
+    let context;
+    const withActiveClientLaunch = async (evidence, callback) => {
+      await beforeActiveClientLaunch(evidence);
+      pinDepth += 1;
+      try {
+        return await callback(Object.freeze({ assertPinned() {} }), context.launch);
+      } finally {
+        pinDepth -= 1;
+      }
+    };
+    context = clientId === 'claude'
+      ? claudeContext(root, { beforeActiveClientLaunch, withActiveClientLaunch })
       : clientId === 'codex'
-        ? codexContext(root, { beforeActiveClientLaunch })
-        : geminiContext(root, { beforeActiveClientLaunch });
+        ? codexContext(root, { beforeActiveClientLaunch, withActiveClientLaunch })
+        : geminiContext(root, { beforeActiveClientLaunch, withActiveClientLaunch });
     const adapter = clientId === 'claude'
       ? createClaudeAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) })
       : clientId === 'codex'
         ? createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) })
         : createGeminiAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
     await adapter.inspect(context, await adapter.detect(context));
-    t.assert(launches > 0 && guards === launches && ordered, `${clientId} native queries are guarded immediately before every process launch`);
+    t.assert(launches > 0 && guards === launches && ordered && pinDepth === 0, `${clientId} native queries hold the active-launch pin through every child completion`);
   } finally {
     cleanup(root);
   }

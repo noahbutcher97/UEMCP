@@ -18,6 +18,22 @@ export const RELEASE_GATES = Object.freeze({
   vscode: Object.freeze({ versions: frozenVersions(['1.128.1']) }),
 });
 
+export async function runActiveClientLaunch(context, evidence, callback) {
+  if (!context || typeof context !== 'object'
+    || !evidence || !CLIENT_IDS.includes(evidence.client_id)
+    || !['native', 'protocol'].includes(evidence.kind)
+    || typeof callback !== 'function') {
+    const error = new Error('active client launch contract is invalid');
+    error.code = 'INVALID_CLIENT_LAUNCH';
+    throw error;
+  }
+  if (typeof context.withActiveClientLaunch === 'function') {
+    return context.withActiveClientLaunch(evidence, callback);
+  }
+  await context.beforeActiveClientLaunch?.(evidence);
+  return callback(Object.freeze({ assertPinned() {} }), context.launch ?? null);
+}
+
 const PACKAGE_IDS = Object.freeze({
   claude: '@anthropic-ai/claude-code',
   codex: '@openai/codex',

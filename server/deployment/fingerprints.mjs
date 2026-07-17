@@ -2,7 +2,6 @@ import * as defaultFs from 'node:fs/promises';
 import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 
 import { sha256Bytes, sha256Canonical } from './canonical-json.mjs';
-import { readFileWithinLimit } from './bounded-config-file.mjs';
 
 export class FingerprintError extends Error {
   constructor(message, code = 'FINGERPRINT_FAILED', details = {}) {
@@ -81,6 +80,88 @@ function kindFor(stat) {
   return 'other';
 }
 
+function sameStableFile(left, right) {
+  return left.isFile()
+    && right.isFile()
+    && Number(left.dev) === Number(right.dev)
+    && Number(left.ino) === Number(right.ino)
+    && Number(left.birthtimeMs) === Number(right.birthtimeMs)
+    && Number(left.nlink) === Number(right.nlink)
+    && Number(left.size) === Number(right.size)
+    && Number(left.mtimeMs) === Number(right.mtimeMs)
+    && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+
+function sameStableLink(left, right) {
+  return left.isSymbolicLink()
+    && right.isSymbolicLink()
+    && Number(left.dev) === Number(right.dev)
+    && Number(left.ino) === Number(right.ino)
+    && Number(left.birthtimeMs) === Number(right.birthtimeMs)
+    && Number(left.size) === Number(right.size)
+    && Number(left.mtimeMs) === Number(right.mtimeMs)
+    && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+
+function byteLimitError(maxBytes, observedBytes) {
+  return new FingerprintError('file exceeds its fingerprint byte limit', 'FINGERPRINT_BYTE_LIMIT', {
+    maximum_bytes: maxBytes,
+    observed_bytes: observedBytes,
+  });
+}
+
+async function readHandleWithinLimit(handle, maxBytes) {
+  if (maxBytes === null) return handle.readFile();
+  const chunks = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const remaining = maxBytes + 1 - total;
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  if (total > maxBytes) throw byteLimitError(maxBytes, total);
+  return Buffer.concat(chunks, total);
+}
+
+async function readStableFingerprintFile(path, {
+  fsImpl,
+  initialStat,
+  initialLink = null,
+  maxBytes,
+  evidencePath = resolve(path),
+}) {
+  if (maxBytes !== null && Number(initialStat.size) > maxBytes) {
+    throw byteLimitError(maxBytes, Number(initialStat.size));
+  }
+  let handle;
+  try {
+    handle = await fsImpl.open(path, 'r');
+    const handleBefore = await handle.stat();
+    if (maxBytes !== null && Number(handleBefore.size) > maxBytes) {
+      throw byteLimitError(maxBytes, Number(handleBefore.size));
+    }
+    if (!sameStableFile(initialStat, handleBefore)) {
+      throw new FingerprintError('file changed before its fingerprint read handle was secured', 'FINGERPRINT_CHANGED_DURING_READ', { path: evidencePath });
+    }
+    const bytes = await readHandleWithinLimit(handle, maxBytes);
+    const handleAfter = await handle.stat();
+    const pathAfter = initialLink === null ? await fsImpl.lstat(path) : await fsImpl.stat(path);
+    const linkAfter = initialLink === null ? null : await fsImpl.lstat(path);
+    if (!sameStableFile(handleBefore, handleAfter)
+      || !sameStableFile(handleAfter, pathAfter)
+      || (initialLink !== null && !sameStableLink(initialLink, linkAfter))
+      || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new FingerprintError('file changed while hashing', 'FINGERPRINT_CHANGED_DURING_READ', { path: evidencePath });
+    }
+    return bytes;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs, maxBytes = null } = {}) {
   if (typeof requestedPath !== 'string' || requestedPath.trim() === '') {
     throw new FingerprintError('path must be a non-empty string', 'INVALID_PATH');
@@ -117,23 +198,12 @@ export async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = de
   let observedSize = Number(stat.size);
   let sha256 = null;
   if (kind === 'file') {
-    if (maxBytes !== null && Number(stat.size) > maxBytes) {
-      throw new FingerprintError('file exceeds its fingerprint byte limit', 'FINGERPRINT_BYTE_LIMIT', {
-        maximum_bytes: maxBytes,
-        observed_bytes: Number(stat.size),
-      });
-    }
-    let bytes;
-    try {
-      bytes = maxBytes === null
-        ? await fsImpl.readFile(canonicalPath)
-        : await readFileWithinLimit(canonicalPath, { fsImpl, maxBytes, scope: 'fingerprint' });
-    } catch (error) {
-      if (error?.code === 'INSPECTION_LIMIT_EXCEEDED') {
-        throw new FingerprintError('file exceeds its fingerprint byte limit', 'FINGERPRINT_BYTE_LIMIT', error.details);
-      }
-      throw error;
-    }
+    const bytes = await readStableFingerprintFile(canonicalPath, {
+      fsImpl,
+      initialStat: stat,
+      initialLink: lstat.isSymbolicLink() ? lstat : null,
+      maxBytes,
+    });
     sha256 = sha256Bytes(bytes);
     if (maxBytes !== null) observedSize = bytes.length;
   }
@@ -232,27 +302,12 @@ export async function fingerprintDirectory(root, {
             observed_bytes: selectedBytes + Number(childLstat.size),
           });
         }
-        let bytes;
-        try {
-          bytes = remaining === null
-            ? await fsImpl.readFile(childPath)
-            : await readFileWithinLimit(childPath, { fsImpl, maxBytes: remaining, scope: 'directory manifest' });
-        } catch (error) {
-          if (error?.code === 'INSPECTION_LIMIT_EXCEEDED') {
-            throw new FingerprintError('directory manifest exceeds its aggregate byte limit', 'FINGERPRINT_BYTE_LIMIT', error.details);
-          }
-          throw error;
-        }
-        const after = await fsImpl.lstat(childPath);
-        if (!after.isFile()
-          || after.isSymbolicLink()
-          || after.nlink !== 1
-          || after.dev !== childLstat.dev
-          || after.ino !== childLstat.ino
-          || Number(after.size) !== bytes.byteLength
-          || Number(after.mtimeMs) !== Number(childLstat.mtimeMs)) {
-          throw new FingerprintError('directory manifest file changed while hashing', 'FINGERPRINT_CHANGED_DURING_READ', { path: rel });
-        }
+        const bytes = await readStableFingerprintFile(childPath, {
+          fsImpl,
+          initialStat: childLstat,
+          maxBytes: remaining,
+          evidencePath: rel,
+        });
         selectedBytes += bytes.byteLength;
         entries.push({ path: rel, size: bytes.byteLength, sha256: sha256Bytes(bytes) });
       } else if (childLstat.isFile()) {

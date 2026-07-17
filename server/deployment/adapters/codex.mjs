@@ -23,6 +23,7 @@ import {
   clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
+  runActiveClientLaunch,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
 import { CONFIG_BYTE_LIMIT } from '../config-bytes.mjs';
@@ -323,13 +324,14 @@ async function inspectNative(runner, context, detection, desired) {
     return mergeNativeStatus(unknown, unknown);
   }
   const safe = async tail => {
-    await context.beforeActiveClientLaunch?.({ client_id: 'codex', kind: 'native' });
-    try {
-      return await runNativeQuery(runner, context, detection, tail);
-    } catch (error) {
-      if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
-      return { status: 'launch_failed', exitCode: null, stdout: '', stderr: '', errorCode: error?.code ?? 'PROCESS_LAUNCH_FAILED' };
-    }
+    return runActiveClientLaunch(context, { client_id: 'codex', kind: 'native' }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error) {
+        if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
+        return { status: 'launch_failed', exitCode: null, stdout: '', stderr: '', errorCode: error?.code ?? 'PROCESS_LAUNCH_FAILED' };
+      }
+    });
   };
   const listResult = await safe(['mcp', 'list', '--json']);
   const getResult = await safe(['mcp', 'get', 'uemcp', '--json']);
@@ -892,22 +894,21 @@ export function createCodexAdapter({
     if (!absolutePath(stagedHome) || pathIdentity(stagedHome) === pathIdentity(operation.allowed_root)) {
       fail('Codex native add requires an isolated home', 'UNAPPROVED_EXTERNAL_WRITE');
     }
-    await context.beforeActiveClientLaunch?.({ client_id: 'codex', kind: 'native' });
-    const result = await runner.run(context.launch.command, [
-      ...context.launch.args_prefix,
-      'mcp',
-      'add',
-      'uemcp',
-      '--',
-      operation.desired_entry.command,
-      ...operation.desired_entry.args,
-    ], {
-      cwd: stagedHome,
-      env: { ...environmentForLaunch(context, context.launch), CODEX_HOME: stagedHome },
-      shell: false,
-      timeoutMs: 10_000,
-      outputLimitBytes: 64 * 1024,
-    });
+    const result = await runActiveClientLaunch(context, { client_id: 'codex', kind: 'native' }, (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [
+        ...pinnedLaunch.args_prefix,
+        'mcp',
+        'add',
+        'uemcp',
+        '--',
+        operation.desired_entry.command,
+        ...operation.desired_entry.args,
+      ], {
+        cwd: stagedHome,
+        env: { ...environmentForLaunch(context, pinnedLaunch), CODEX_HOME: stagedHome },
+        shell: false,
+        timeoutMs: 10_000,
+        outputLimitBytes: 64 * 1024,
+      }));
     if (result?.status !== 'exited' || result.exitCode !== 0) fail('Codex native add failed', 'NATIVE_WRITE_FAILED', { output_sha256: outputHash(result) });
     return Object.freeze({ status: 'ADDED', output_sha256: outputHash(result) });
   }

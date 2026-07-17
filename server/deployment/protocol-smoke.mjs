@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { isAbsolute, posix, win32 } from 'node:path';
 
 import {
   BoundedStdioClientTransport,
@@ -7,6 +8,7 @@ import {
   DEFAULT_STDOUT_LIMIT_BYTES,
 } from './bounded-stdio-transport.mjs';
 import { validateDescriptorContract } from './contracts.mjs';
+import { withPinnedWindowsFiles } from './windows-native.mjs';
 
 class SmokeDeadlineError extends Error {
   constructor(phase) {
@@ -44,6 +46,44 @@ function baseEvidence(status, started) {
     initial_tool_names: [],
     duration_ms: Math.max(0, nowMs() - started),
   };
+}
+
+function absoluteDescriptorPath(value) {
+  return typeof value === 'string'
+    && (isAbsolute(value) || win32.isAbsolute(value) || posix.isAbsolute(value));
+}
+
+export async function withPinnedDescriptorLaunch(descriptor, {
+  callback,
+  launchFilePinner = withPinnedWindowsFiles,
+} = {}) {
+  if (typeof callback !== 'function' || typeof launchFilePinner !== 'function') {
+    const error = new Error('descriptor launch pin contract is invalid');
+    error.code = 'INVALID_DESCRIPTOR_LAUNCH';
+    throw error;
+  }
+  const validated = validateDescriptorContract(descriptor);
+  const validatedDescriptor = Object.freeze({
+    ...validated,
+    args: Object.freeze([...validated.args]),
+    env: Object.freeze({ ...validated.env }),
+  });
+  const paths = [...new Set([
+    validatedDescriptor.command,
+    ...validatedDescriptor.args.filter(absoluteDescriptorPath),
+  ])];
+  return launchFilePinner({
+    paths,
+    callback: async guard => {
+      guard?.assertPinned?.();
+      const value = await callback(
+        guard ?? Object.freeze({ assertPinned() {} }),
+        validatedDescriptor,
+      );
+      guard?.assertPinned?.();
+      return value;
+    },
+  });
 }
 
 export async function smokeDescriptor(descriptor, {

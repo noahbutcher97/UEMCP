@@ -39,6 +39,7 @@ import {
 } from './deployment/contracts.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints.mjs';
+import { withPinnedClientLaunch } from './deployment/client-process.mjs';
 import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
 import { createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
 import {
@@ -48,6 +49,8 @@ import {
   inspectAuthenticode,
   replaceFilePreservingMetadata,
   withPinnedWindowsAncestry,
+  withPinnedWindowsFiles,
+  withPinnedWindowsTrees,
 } from './deployment/windows-native.mjs';
 import {
   createApplyLeaseCoordinator,
@@ -432,6 +435,35 @@ async function rejectsCode(fn, code) {
       },
     };
     t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: [root], fsImpl: growthFs, maxBytes: 3 }), 'FINGERPRINT_BYTE_LIMIT'), 'file growth after the initial stat remains bounded by the fingerprint read');
+    const unstableFingerprintFs = {
+      ...asyncFs,
+      async open(path, flags, mode) {
+        const handle = await asyncFs.open(path, flags, mode);
+        if (resolve(path) !== resolve(payload) || flags !== 'r') return handle;
+        let statCalls = 0;
+        return {
+          async stat() {
+            statCalls += 1;
+            const stat = await handle.stat();
+            if (statCalls < 2) return stat;
+            return new Proxy(stat, {
+              get(targetStat, property) {
+                if (property === 'ino') return Number(targetStat.ino) + 65_536;
+                const value = Reflect.get(targetStat, property, targetStat);
+                return typeof value === 'function' ? value.bind(targetStat) : value;
+              },
+            });
+          },
+          readFile: (...args) => handle.readFile(...args),
+          read: (...args) => handle.read(...args),
+          close: () => handle.close(),
+        };
+      },
+    };
+    t.assert(await rejectsCode(
+      () => fingerprintPath(payload, { allowedRoots: [root], fsImpl: unstableFingerprintFs }),
+      'FINGERPRINT_CHANGED_DURING_READ',
+    ), 'file fingerprint rejects identity drift observed through its open read handle');
     const missing = await fingerprintPath(join(root, 'missing.txt'), { allowedRoots: [root] });
     t.assert(!missing.exists && missing.kind === 'missing' && missing.sha256 === null, 'missing path has an explicit fingerprint');
     const directory = await fingerprintDirectory(tree, { allowedRoots: [root] });
@@ -728,6 +760,199 @@ async function rejectsCode(fn, code) {
     }
   } finally {
     cleanupPrimitiveRoot(root, 'uemcp-ancestry-pin-');
+  }
+}
+
+// Runtime manifests hold every package-tree identity stable for their complete hash pass.
+{
+  const root = makePrimitiveRoot('uemcp-tree-pin-');
+  try {
+    const pinnedScript = join(root, 'pinned-launch.mjs');
+    writeFileSync(pinnedScript, 'export const pinned = true;\n', 'utf8');
+    const mutableLaunch = {
+      command: resolve(process.execPath),
+      args_prefix: [resolve(pinnedScript)],
+      source: 'native',
+      fingerprint: {
+        command: await fingerprintPath(process.execPath, { allowedRoots: [dirname(process.execPath)] }),
+        args_prefix: [await fingerprintPath(pinnedScript, { allowedRoots: [root] })],
+      },
+    };
+    await withPinnedClientLaunch(mutableLaunch, {
+      launchFilePinner: async ({ paths, callback }) => {
+        t.assert(paths.includes(resolve(process.execPath)) && paths.includes(resolve(pinnedScript)), 'client launch pinner receives the validated executable and script tuple');
+        mutableLaunch.command = join(root, 'replaced-node.exe');
+        mutableLaunch.args_prefix[0] = join(root, 'replaced-script.mjs');
+        return callback(Object.freeze({ assertPinned() {} }));
+      },
+      callback: async (guard, pinnedLaunch) => {
+        guard.assertPinned();
+        t.assert(pinnedLaunch?.command === resolve(process.execPath)
+          && pinnedLaunch.args_prefix[0] === resolve(pinnedScript)
+          && Object.isFrozen(pinnedLaunch)
+          && Object.isFrozen(pinnedLaunch.args_prefix)
+          && Object.isFrozen(pinnedLaunch.fingerprint), 'client callback receives the frozen launch tuple whose files were pinned');
+      },
+    });
+    const nonClosingChild = () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = new EventEmitter();
+      child.stdin.write = () => true;
+      child.stdin.end = () => {};
+      child.kill = () => true;
+      return child;
+    };
+    for (const [label, expectedCode, invoke] of [
+      ['runtime tree', 'TREE_PIN_FAILED', child => withPinnedWindowsTrees({
+        roots: [root],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {},
+        platform: 'win32',
+        spawnImpl: () => child,
+        acquisitionTimeoutMs: 5,
+        releaseTimeoutMs: 5,
+      })],
+      ['launch file', 'FILE_PIN_FAILED', child => withPinnedWindowsFiles({
+        paths: [join(root, 'launch.mjs')],
+        callback: async () => {},
+        platform: 'win32',
+        spawnImpl: () => child,
+        acquisitionTimeoutMs: 5,
+        releaseTimeoutMs: 5,
+      })],
+    ]) {
+      const outcome = await Promise.race([
+        invoke(nonClosingChild()).then(() => 'UNEXPECTED_SUCCESS', error => error?.code ?? 'UNKNOWN_ERROR'),
+        new Promise(resolvePromise => setTimeout(() => resolvePromise('UNBOUNDED_WAIT'), 150)),
+      ]);
+      t.assert(outcome === expectedCode, `${label} acquisition cleanup remains bounded when its helper never closes`);
+    }
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('ShareRead')
+        && !WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('ShareWrite'),
+      'runtime tree pin opens every descendant without write or delete sharing',
+    );
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.file_pin.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.file_pin.includes('ShareRead'),
+      'launch file pin opens exact files as reparse-point objects without write or delete sharing',
+    );
+    if (process.platform === 'win32') {
+      const tree = join(root, 'runtime');
+      const nested = join(tree, 'nested');
+      const payload = join(nested, 'runtime.mjs');
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(payload, 'export const value = 1;\n', 'utf8');
+      let fileWriteBlocked = false;
+      let directoryRenameBlocked = false;
+      await withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async guard => {
+          guard.assertPinned();
+          const fingerprint = await fingerprintDirectory(tree, { allowedRoots: [root] });
+          t.assert(fingerprint.file_count === 1, 'runtime tree remains readable while its identities are pinned');
+          try {
+            await asyncFs.writeFile(payload, 'changed', 'utf8');
+          } catch {
+            fileWriteBlocked = true;
+          }
+          try {
+            await asyncFs.rename(nested, join(tree, 'moved'));
+          } catch {
+            directoryRenameBlocked = true;
+          }
+          guard.assertPinned();
+        },
+      });
+      t.assert(fileWriteBlocked && directoryRenameBlocked, 'runtime tree pin blocks content writes and identity substitution');
+
+      let filePinWriteBlocked = false;
+      let filePinRenameBlocked = false;
+      await withPinnedWindowsFiles({
+        paths: [process.execPath, payload],
+        callback: async guard => {
+          guard.assertPinned();
+          t.assert((await asyncFs.readFile(payload, 'utf8')).includes('value = 1'), 'launch file remains readable while pinned');
+          const childResult = await new Promise((resolvePromise, rejectPromise) => {
+            const child = spawn(process.execPath, [payload], {
+              env: {},
+              shell: false,
+              windowsHide: true,
+              stdio: 'ignore',
+            });
+            child.once('error', rejectPromise);
+            child.once('close', (code, signal) => resolvePromise({ code, signal }));
+          });
+          t.assert(childResult.code === 0 && childResult.signal === null, 'exact file pins permit the intended child process to load and exit');
+          try {
+            await asyncFs.writeFile(payload, 'changed', 'utf8');
+          } catch {
+            filePinWriteBlocked = true;
+          }
+          try {
+            await asyncFs.rename(payload, join(nested, 'moved.mjs'));
+          } catch {
+            filePinRenameBlocked = true;
+          }
+        },
+      });
+      t.assert(filePinWriteBlocked && filePinRenameBlocked, 'launch file pin blocks byte mutation and path substitution through process completion');
+
+      const addedPath = join(tree, 'new-runtime.mjs');
+      let childCreationObserved = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          await asyncFs.writeFile(addedPath, 'new', 'utf8');
+          childCreationObserved = true;
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree pin rejects namespace growth observed during the hash pass');
+      t.assert(childCreationObserved, 'runtime tree watcher detects namespace growth that Windows permits beneath an open directory handle');
+      await asyncFs.rm(addedPath, { force: true });
+
+      const racedPath = join(tree, 'raced-runtime.mjs');
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          await asyncFs.writeFile(racedPath, 'new', 'utf8');
+          await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
+          throw Object.assign(new Error('callback also failed'), { code: 'CALLBACK_FAILED' });
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree integrity failure outranks a concurrent callback failure');
+      await asyncFs.rm(racedPath, { force: true });
+
+      const outside = join(root, 'outside-tree');
+      const linked = join(root, 'linked-tree-root');
+      mkdirSync(outside);
+      symlinkSync(outside, linked, 'junction');
+      let linkedCallback = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [linked],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          linkedCallback = true;
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree pin rejects a junction root by its opened handle');
+      t.assert(linkedCallback === false, 'linked runtime tree is rejected before hashing starts');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-tree-pin-');
   }
 }
 

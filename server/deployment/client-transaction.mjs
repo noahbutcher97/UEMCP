@@ -1278,11 +1278,21 @@ export function createClientTransaction({
       await recheckBeforeApply();
       state.phase = 'applying';
       const outerBeforeActiveClientLaunch = context.beforeActiveClientLaunch;
+      const outerWithActiveClientLaunch = context.withActiveClientLaunch;
       const adapterContext = Object.freeze({
         ...context,
         beforeActiveClientLaunch: async evidence => {
           await recheckAfterVerify();
           return outerBeforeActiveClientLaunch?.(evidence);
+        },
+        withActiveClientLaunch: async (evidence, callback) => {
+          if (typeof callback !== 'function') fail('active launch callback is invalid', 'INVALID_CLIENT_LAUNCH');
+          await recheckAfterVerify();
+          if (typeof outerWithActiveClientLaunch === 'function') {
+            return outerWithActiveClientLaunch(evidence, callback);
+          }
+          await outerBeforeActiveClientLaunch?.(evidence);
+          return callback(Object.freeze({ assertPinned() {} }), context.launch ?? null);
         },
         transaction: transactionCapability,
       });

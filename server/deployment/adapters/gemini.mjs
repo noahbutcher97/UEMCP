@@ -31,6 +31,7 @@ import {
   clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
+  runActiveClientLaunch,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
 
@@ -203,31 +204,32 @@ function environmentForLaunch(context, launch) {
 
 async function inspectNative(runner, context, detection) {
   if (context.launch?.compatibility !== 'release_gated') return classifyGeminiNativeStatus(null);
-  await context.beforeActiveClientLaunch?.({ client_id: 'gemini', kind: 'native' });
-  try {
-    const result = await runner.run(detection.launch.command, [
-      ...detection.launch.args_prefix,
-      'mcp',
-      'list',
-    ], {
-      cwd: context.workspaceRoot,
-      env: environmentForLaunch(context, detection.launch),
-      shell: false,
-      timeoutMs: 10_000,
-      outputLimitBytes: 64 * 1024,
-    });
-    return classifyGeminiNativeStatus(result);
-  } catch (error) {
-    if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
-    return Object.freeze({
-      status: 'UNKNOWN',
-      exit_code: null,
-      output_sha256: null,
-      activation: 'UNKNOWN',
-      enablement: 'UNKNOWN',
-      error_code: error?.code ?? 'PROCESS_LAUNCH_FAILED',
-    });
-  }
+  return runActiveClientLaunch(context, { client_id: 'gemini', kind: 'native' }, async (guard, pinnedLaunch) => {
+    try {
+      const result = await runner.run(pinnedLaunch.command, [
+        ...pinnedLaunch.args_prefix,
+        'mcp',
+        'list',
+      ], {
+        cwd: context.workspaceRoot,
+        env: environmentForLaunch(context, pinnedLaunch),
+        shell: false,
+        timeoutMs: 10_000,
+        outputLimitBytes: 64 * 1024,
+      });
+      return classifyGeminiNativeStatus(result);
+    } catch (error) {
+      if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
+      return Object.freeze({
+        status: 'UNKNOWN',
+        exit_code: null,
+        output_sha256: null,
+        activation: 'UNKNOWN',
+        enablement: 'UNKNOWN',
+        error_code: error?.code ?? 'PROCESS_LAUNCH_FAILED',
+      });
+    }
+  });
 }
 
 function normalizedLimits(input = {}) {

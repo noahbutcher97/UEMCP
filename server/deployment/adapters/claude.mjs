@@ -32,6 +32,7 @@ import {
   clientProcessEnvironment,
   isSensitiveClientEnvironmentName,
   readWindowsEnvironmentValue,
+  runActiveClientLaunch,
   validateClientLaunchContract,
 } from '../client-contract.mjs';
 
@@ -206,13 +207,14 @@ async function inspectNative(runner, context, detection) {
     });
   }
   const safeQuery = async tail => {
-    await context.beforeActiveClientLaunch?.({ client_id: 'claude', kind: 'native' });
-    try {
-      return await runNativeQuery(runner, context, detection, tail);
-    } catch (error) {
-      if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
-      return { status: 'launch_failed', exitCode: null, stdout: '', stderr: '', errorCode: error?.code ?? 'PROCESS_LAUNCH_FAILED' };
-    }
+    return runActiveClientLaunch(context, { client_id: 'claude', kind: 'native' }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error) {
+        if (error?.code === 'MUTATING_NATIVE_COMMAND') throw error;
+        return { status: 'launch_failed', exitCode: null, stdout: '', stderr: '', errorCode: error?.code ?? 'PROCESS_LAUNCH_FAILED' };
+      }
+    });
   };
   const listResult = await safeQuery(['mcp', 'list']);
   const getResult = await safeQuery(['mcp', 'get', 'uemcp']);

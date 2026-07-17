@@ -13,6 +13,7 @@ import { discoverClients, selectClients } from './client-discovery.mjs';
 import {
   captureClientRuntimeFingerprint,
   revalidateClientLaunchRuntime,
+  withPinnedClientLaunch,
 } from './client-process.mjs';
 import {
   ACTION_CODES,
@@ -20,7 +21,7 @@ import {
   STAGE_STATUSES,
   createStageResult,
 } from './contracts.mjs';
-import { smokeDescriptor } from './protocol-smoke.mjs';
+import { smokeDescriptor, withPinnedDescriptorLaunch } from './protocol-smoke.mjs';
 
 const DOMAIN_NAME = 'clients';
 const DOMAIN_ORDER = 30;
@@ -770,6 +771,8 @@ export function createClientDomain({
   protocolSmoke = smokeDescriptor,
   captureFingerprint = captureClientPathFingerprint,
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+  pinClientLaunch = withPinnedClientLaunch,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   fsImpl = defaultFs,
 } = {}) {
   const mappedAdapters = adapterMap(adapters);
@@ -779,7 +782,9 @@ export function createClientDomain({
   if (typeof discovery !== 'function'
     || typeof protocolSmoke !== 'function'
     || typeof captureFingerprint !== 'function'
-    || typeof captureRuntimeFingerprint !== 'function') {
+    || typeof captureRuntimeFingerprint !== 'function'
+    || typeof pinClientLaunch !== 'function'
+    || typeof descriptorLaunchPinner !== 'function') {
     fail('client domain dependencies are invalid');
   }
 
@@ -832,6 +837,28 @@ export function createClientDomain({
         }
         await outerGuard?.(evidence);
       },
+      withActiveClientLaunch: async (evidence, callback) => {
+        if (!plainObject(evidence)
+          || evidence.client_id !== row.client_id
+          || evidence.kind !== 'native'
+          || typeof callback !== 'function') {
+          fail('adapter active-launch pin evidence is invalid', 'INVALID_CLIENT_LAUNCH');
+        }
+        await outerGuard?.(evidence);
+        try {
+          return await pinClientLaunch(row.launch, {
+            callback,
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner,
+            launchFilePinner: context.launchFilePinner,
+          });
+        } catch (error) {
+          fail('client launch changed before process completion', 'PLAN_STALE', {
+            client_id: row.client_id,
+            cause_code: error?.code ?? 'CLIENT_RUNTIME_CHANGED',
+          });
+        }
+      },
     });
   }
 
@@ -868,9 +895,16 @@ export function createClientDomain({
         const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
         await recheckInspectionPreconditions(currentContext, inspection);
         await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
-        smoke = await protocolSmoke(context.descriptor, {
-          effectiveEnvironment,
-          effectiveCwd: launch.cwd ?? null,
+        smoke = await descriptorLaunchPinner(context.descriptor, {
+          launchFilePinner: context.launchFilePinner,
+          callback: async (guard, pinnedDescriptor) => {
+            await recheckInspectionPreconditions(currentContext, inspection);
+            guard?.assertPinned?.();
+            return protocolSmoke(pinnedDescriptor, {
+              effectiveEnvironment,
+              effectiveCwd: launch.cwd ?? null,
+            });
+          },
         });
       }
       const client = publicClient(row, inspection, planResult, requestedProfile, smoke);

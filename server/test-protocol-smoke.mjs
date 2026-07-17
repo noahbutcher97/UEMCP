@@ -9,7 +9,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { TestRunner } from './test-helpers.mjs';
-import { createGenericClientResult, smokeDescriptor } from './deployment/protocol-smoke.mjs';
+import {
+  createGenericClientResult,
+  smokeDescriptor,
+  withPinnedDescriptorLaunch,
+} from './deployment/protocol-smoke.mjs';
 
 const t = new TestRunner('Deployment Protocol Smoke Tests');
 const here = dirname(fileURLToPath(import.meta.url));
@@ -58,6 +62,38 @@ function processIsAlive(pid) {
   } catch {
     return false;
   }
+}
+
+// Every descriptor process holds its exact executable and absolute script paths through completion.
+{
+  let pinDepth = 0;
+  const mutableDescriptor = descriptor(sampleServer);
+  const value = await withPinnedDescriptorLaunch(mutableDescriptor, {
+    launchFilePinner: async ({ paths, callback }) => {
+      t.assert(paths.includes(resolve(process.execPath)) && paths.includes(resolve(sampleServer)), 'descriptor launch pin receives the executable and absolute script paths');
+      mutableDescriptor.command = join(dirname(process.execPath), 'replaced-node.exe');
+      pinDepth += 1;
+      try {
+        return await callback(Object.freeze({
+          assertPinned() {
+            if (pinDepth !== 1) throw new Error('descriptor launch pin was lost');
+          },
+        }));
+      } finally {
+        pinDepth -= 1;
+      }
+    },
+    callback: async (guard, pinnedDescriptor) => {
+      guard.assertPinned();
+      t.assert(pinDepth === 1, 'descriptor launch callback runs while exact files remain pinned');
+      t.assert(pinnedDescriptor?.command === resolve(process.execPath)
+        && pinnedDescriptor.args[0] === resolve(sampleServer)
+        && Object.isFrozen(pinnedDescriptor)
+        && Object.isFrozen(pinnedDescriptor.args), 'descriptor launch callback receives the frozen tuple whose files were pinned');
+      return 'pinned';
+    },
+  });
+  t.assert(value === 'pinned' && pinDepth === 0, 'descriptor launch pin returns callback results and releases afterward');
 }
 
 async function waitForProcessExit(pid, timeoutMs = 2_000) {

@@ -24,7 +24,7 @@ import { createMachineResult, createStageResult } from './deployment/contracts.m
 import { createCanonicalDescriptor, descriptorsEqual } from './deployment/descriptor.mjs';
 import { fingerprintPath } from './deployment/fingerprints.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
-import { createDeploymentOrchestrator } from './deployment/orchestrator.mjs';
+import { createDeploymentOrchestrator as createProductionDeploymentOrchestrator } from './deployment/orchestrator.mjs';
 import {
   computePlanDigest,
   createPlanDocument,
@@ -41,6 +41,13 @@ import {
 } from './project-targets.mjs';
 
 const t = new TestRunner('Deployment Plan Tests');
+
+function createDeploymentOrchestrator(options) {
+  return createProductionDeploymentOrchestrator({
+    ...options,
+    descriptorLaunchPinner: options.descriptorLaunchPinner ?? (async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor)),
+  });
+}
 
 function makeRoot(label = 'uemcp-plan-') {
   const root = join(tmpdir(), `${label}${randomUUID()}`);
@@ -1503,6 +1510,8 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         async verify() { return execution(); },
       };
     };
+    let descriptorPinCalls = 0;
+    let descriptorPinDepth = 0;
     const makeOrchestrator = supported => createDeploymentOrchestrator({
       repoRoot: root,
       stateRoot: join(root, supported ? 'supported-state' : 'generic-state'),
@@ -1514,14 +1523,27 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       }),
       sourceProvider: async () => sampleSource(root),
       descriptorProvider: async () => sampleDescriptor(root),
-      protocolSmoke: async () => ({
-        status: 'HEALTHY',
-        initialize: { server_name: 'uemcp', server_version: '1.0.0' },
-        instruction_bytes: 10,
-        tool_count: 1,
-        initial_tool_names: ['one'],
-        duration_ms: 1,
-      }),
+      descriptorLaunchPinner: async (descriptor, { callback }) => {
+        t.assert(descriptor.command === sampleDescriptor(root).command, 'generic descriptor pinner receives the canonical launch descriptor');
+        descriptorPinCalls += 1;
+        descriptorPinDepth += 1;
+        try {
+          return await callback(Object.freeze({ assertPinned() {} }), descriptor);
+        } finally {
+          descriptorPinDepth -= 1;
+        }
+      },
+      protocolSmoke: async () => {
+        t.assert(descriptorPinDepth === 1, 'generic protocol smoke runs while its exact launch files remain pinned');
+        return {
+          status: 'HEALTHY',
+          initialize: { server_name: 'uemcp', server_version: '1.0.0' },
+          instruction_bytes: 10,
+          tool_count: 1,
+          initial_tool_names: ['one'],
+          duration_ms: 1,
+        };
+      },
       receiptWriter: async ({ prepared }) => prepared.reference,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
@@ -1535,9 +1557,11 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(applied.clients.length === 5 && applied.clients.at(-1)?.adapter === 'generic-mcp-host', 'apply refresh retains known rows and the saved generic fallback');
     const verified = await genericOrchestrator.verify(request);
     t.assert(verified.clients.length === 5 && verified.clients.at(-1)?.adapter === 'generic-mcp-host', 'standalone verification retains known rows and generic fallback');
+    t.assert(descriptorPinCalls === 3 && descriptorPinDepth === 0, 'generic protocol launch is pinned once for plan, apply refresh, and verify');
 
     const supportedPlan = await makeOrchestrator(true).plan(request);
     t.assert(supportedPlan.clients.length === 4 && !supportedPlan.clients.some(client => client.adapter === 'generic-mcp-host'), 'a detected release-gated host suppresses generic manual registration');
+    t.assert(descriptorPinCalls === 3, 'release-gated client support does not run duplicate generic descriptor smoke');
   } finally {
     cleanup(root);
   }

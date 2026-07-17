@@ -6551,49 +6551,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative11, options, skipNormalization) {
+    function resolveComponent(base, relative12, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse8(serialize(base, options), options);
-        relative11 = parse8(serialize(relative11, options), options);
+        relative12 = parse8(serialize(relative12, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative11.scheme) {
-        target.scheme = relative11.scheme;
-        target.userinfo = relative11.userinfo;
-        target.host = relative11.host;
-        target.port = relative11.port;
-        target.path = removeDotSegments(relative11.path || "");
-        target.query = relative11.query;
+      if (!options.tolerant && relative12.scheme) {
+        target.scheme = relative12.scheme;
+        target.userinfo = relative12.userinfo;
+        target.host = relative12.host;
+        target.port = relative12.port;
+        target.path = removeDotSegments(relative12.path || "");
+        target.query = relative12.query;
       } else {
-        if (relative11.userinfo !== void 0 || relative11.host !== void 0 || relative11.port !== void 0) {
-          target.userinfo = relative11.userinfo;
-          target.host = relative11.host;
-          target.port = relative11.port;
-          target.path = removeDotSegments(relative11.path || "");
-          target.query = relative11.query;
+        if (relative12.userinfo !== void 0 || relative12.host !== void 0 || relative12.port !== void 0) {
+          target.userinfo = relative12.userinfo;
+          target.host = relative12.host;
+          target.port = relative12.port;
+          target.path = removeDotSegments(relative12.path || "");
+          target.query = relative12.query;
         } else {
-          if (!relative11.path) {
+          if (!relative12.path) {
             target.path = base.path;
-            if (relative11.query !== void 0) {
-              target.query = relative11.query;
+            if (relative12.query !== void 0) {
+              target.query = relative12.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative11.path[0] === "/") {
-              target.path = removeDotSegments(relative11.path);
+            if (relative12.path[0] === "/") {
+              target.path = removeDotSegments(relative12.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative11.path;
+                target.path = "/" + relative12.path;
               } else if (!base.path) {
-                target.path = relative11.path;
+                target.path = relative12.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative11.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative12.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative11.query;
+            target.query = relative12.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -6601,7 +6601,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative11.fragment;
+      target.fragment = relative12.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -9796,7 +9796,7 @@ var require_dist = __commonJS({
 import * as fsPromises from "node:fs/promises";
 import { existsSync as existsSync3 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute20, join as join17, resolve as resolve20 } from "node:path";
+import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute21, join as join17, resolve as resolve20 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
 // server/deployment/contracts.mjs
@@ -10229,9 +10229,9 @@ import {
   dirname as dirname3,
   isAbsolute as isAbsolute6,
   join as join4,
-  relative as relative3,
+  relative as relative4,
   resolve as resolve4,
-  sep as sep3,
+  sep as sep4,
   win32 as win326
 } from "node:path";
 
@@ -10453,9 +10453,9 @@ import {
   isAbsolute as isAbsolute5,
   join as join3,
   parse as parse2,
-  relative as relative2,
+  relative as relative3,
   resolve as resolve3,
-  sep as sep2
+  sep as sep3
 } from "node:path";
 
 // server/deployment/client-contract.mjs
@@ -10474,6 +10474,19 @@ var RELEASE_GATES = Object.freeze({
   gemini: Object.freeze({ versions: frozenVersions(["0.41.2"]) }),
   vscode: Object.freeze({ versions: frozenVersions(["1.128.1"]) })
 });
+async function runActiveClientLaunch(context, evidence, callback) {
+  if (!context || typeof context !== "object" || !evidence || !CLIENT_IDS.includes(evidence.client_id) || !["native", "protocol"].includes(evidence.kind) || typeof callback !== "function") {
+    const error2 = new Error("active client launch contract is invalid");
+    error2.code = "INVALID_CLIENT_LAUNCH";
+    throw error2;
+  }
+  if (typeof context.withActiveClientLaunch === "function") {
+    return context.withActiveClientLaunch(evidence, callback);
+  }
+  await context.beforeActiveClientLaunch?.(evidence);
+  return callback(Object.freeze({ assertPinned() {
+  } }), context.launch ?? null);
+}
 var PACKAGE_IDS = Object.freeze({
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
@@ -10781,6 +10794,66 @@ function kindFor(stat) {
   if (stat.isDirectory()) return "directory";
   return "other";
 }
+function sameStableFile(left, right) {
+  return left.isFile() && right.isFile() && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.nlink) === Number(right.nlink) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+function sameStableLink(left, right) {
+  return left.isSymbolicLink() && right.isSymbolicLink() && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+function byteLimitError(maxBytes, observedBytes) {
+  return new FingerprintError("file exceeds its fingerprint byte limit", "FINGERPRINT_BYTE_LIMIT", {
+    maximum_bytes: maxBytes,
+    observed_bytes: observedBytes
+  });
+}
+async function readHandleWithinLimit(handle, maxBytes) {
+  if (maxBytes === null) return handle.readFile();
+  const chunks = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const remaining = maxBytes + 1 - total;
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  if (total > maxBytes) throw byteLimitError(maxBytes, total);
+  return Buffer.concat(chunks, total);
+}
+async function readStableFingerprintFile(path, {
+  fsImpl,
+  initialStat,
+  initialLink = null,
+  maxBytes,
+  evidencePath = resolve(path)
+}) {
+  if (maxBytes !== null && Number(initialStat.size) > maxBytes) {
+    throw byteLimitError(maxBytes, Number(initialStat.size));
+  }
+  let handle;
+  try {
+    handle = await fsImpl.open(path, "r");
+    const handleBefore = await handle.stat();
+    if (maxBytes !== null && Number(handleBefore.size) > maxBytes) {
+      throw byteLimitError(maxBytes, Number(handleBefore.size));
+    }
+    if (!sameStableFile(initialStat, handleBefore)) {
+      throw new FingerprintError("file changed before its fingerprint read handle was secured", "FINGERPRINT_CHANGED_DURING_READ", { path: evidencePath });
+    }
+    const bytes = await readHandleWithinLimit(handle, maxBytes);
+    const handleAfter = await handle.stat();
+    const pathAfter = initialLink === null ? await fsImpl.lstat(path) : await fsImpl.stat(path);
+    const linkAfter = initialLink === null ? null : await fsImpl.lstat(path);
+    if (!sameStableFile(handleBefore, handleAfter) || !sameStableFile(handleAfter, pathAfter) || initialLink !== null && !sameStableLink(initialLink, linkAfter) || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new FingerprintError("file changed while hashing", "FINGERPRINT_CHANGED_DURING_READ", { path: evidencePath });
+    }
+    return bytes;
+  } finally {
+    await handle?.close().catch(() => {
+    });
+  }
+}
 async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs2, maxBytes = null } = {}) {
   if (typeof requestedPath !== "string" || requestedPath.trim() === "") {
     throw new FingerprintError("path must be a non-empty string", "INVALID_PATH");
@@ -10816,21 +10889,12 @@ async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs
   let observedSize = Number(stat.size);
   let sha256 = null;
   if (kind === "file") {
-    if (maxBytes !== null && Number(stat.size) > maxBytes) {
-      throw new FingerprintError("file exceeds its fingerprint byte limit", "FINGERPRINT_BYTE_LIMIT", {
-        maximum_bytes: maxBytes,
-        observed_bytes: Number(stat.size)
-      });
-    }
-    let bytes;
-    try {
-      bytes = maxBytes === null ? await fsImpl.readFile(canonicalPath) : await readFileWithinLimit(canonicalPath, { fsImpl, maxBytes, scope: "fingerprint" });
-    } catch (error2) {
-      if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") {
-        throw new FingerprintError("file exceeds its fingerprint byte limit", "FINGERPRINT_BYTE_LIMIT", error2.details);
-      }
-      throw error2;
-    }
+    const bytes = await readStableFingerprintFile(canonicalPath, {
+      fsImpl,
+      initialStat: stat,
+      initialLink: lstat.isSymbolicLink() ? lstat : null,
+      maxBytes
+    });
     sha256 = sha256Bytes(bytes);
     if (maxBytes !== null) observedSize = bytes.length;
   }
@@ -10924,19 +10988,12 @@ async function fingerprintDirectory(root, {
             observed_bytes: selectedBytes + Number(childLstat.size)
           });
         }
-        let bytes;
-        try {
-          bytes = remaining === null ? await fsImpl.readFile(childPath) : await readFileWithinLimit(childPath, { fsImpl, maxBytes: remaining, scope: "directory manifest" });
-        } catch (error2) {
-          if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") {
-            throw new FingerprintError("directory manifest exceeds its aggregate byte limit", "FINGERPRINT_BYTE_LIMIT", error2.details);
-          }
-          throw error2;
-        }
-        const after = await fsImpl.lstat(childPath);
-        if (!after.isFile() || after.isSymbolicLink() || after.nlink !== 1 || after.dev !== childLstat.dev || after.ino !== childLstat.ino || Number(after.size) !== bytes.byteLength || Number(after.mtimeMs) !== Number(childLstat.mtimeMs)) {
-          throw new FingerprintError("directory manifest file changed while hashing", "FINGERPRINT_CHANGED_DURING_READ", { path: rel });
-        }
+        const bytes = await readStableFingerprintFile(childPath, {
+          fsImpl,
+          initialStat: childLstat,
+          maxBytes: remaining,
+          evidencePath: rel
+        });
         selectedBytes += bytes.byteLength;
         entries.push({ path: rel, size: bytes.byteLength, sha256: sha256Bytes(bytes) });
       } else if (childLstat.isFile()) {
@@ -11160,7 +11217,7 @@ function createProcessRunner({
 import { spawn as defaultSpawn2 } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import * as defaultFs3 from "node:fs/promises";
-import { dirname, isAbsolute as isAbsolute4, join as join2, parse, resolve as resolve2 } from "node:path";
+import { dirname, isAbsolute as isAbsolute4, join as join2, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 var AUTHENTICODE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $module = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
@@ -11362,9 +11419,594 @@ try {
   }
 }
 `.trim();
+var DELETE_TREE_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpDeleteTreeNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FileDispositionInformation
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool DeleteFile;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+        SafeFileHandle file,
+        int fileInformationClass,
+        ref FileDispositionInformation information,
+        uint bufferSize);
+
+    private const uint DeleteAccess = 0x00010000;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint ShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+    private const int FileDispositionInfo = 4;
+
+    private static int entryCount;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    public static SafeFileHandle OpenPinnedDirectory(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadAttributes,
+            ShareRead | ShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe deletion ancestry entry");
+        }
+        return handle;
+    }
+
+    public static int DeleteTree(string path, int maxEntries, int maxDepth)
+    {
+        entryCount = 0;
+        DeleteEntry(ExtendedPath(path), 0, maxEntries, maxDepth);
+        return entryCount;
+    }
+
+    private static void DeleteEntry(string path, int depth, int maxEntries, int maxDepth)
+    {
+        if (depth > maxDepth) throw new InvalidOperationException("deletion depth limit");
+        entryCount += 1;
+        if (entryCount > maxEntries) throw new InvalidOperationException("deletion entry limit");
+
+        SafeFileHandle handle = CreateFileW(
+            path,
+            DeleteAccess | ReadAttributes,
+            ShareRead,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        try
+        {
+            ByHandleFileInformation information = Information(handle);
+            bool isDirectory = (information.FileAttributes & DirectoryAttribute) != 0;
+            bool isReparsePoint = (information.FileAttributes & ReparseAttribute) != 0;
+            if (isDirectory && !isReparsePoint)
+            {
+                foreach (string child in Directory.EnumerateFileSystemEntries(path))
+                {
+                    DeleteEntry(child, depth + 1, maxEntries, maxDepth);
+                }
+            }
+            FileDispositionInformation disposition = new FileDispositionInformation();
+            disposition.DeleteFile = true;
+            if (!SetFileInformationByHandle(
+                handle,
+                FileDispositionInfo,
+                ref disposition,
+                (uint)Marshal.SizeOf(typeof(FileDispositionInformation))))
+            {
+                throw LastError();
+            }
+        }
+        finally
+        {
+            handle.Dispose();
+        }
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $directories = ConvertFrom-Json -InputObject $env:UEMCP_DELETE_ANCESTRY
+  foreach ($directory in $directories) {
+    $handles.Add([UemcpDeleteTreeNative]::OpenPinnedDirectory([string]$directory))
+  }
+  $entries = [UemcpDeleteTreeNative]::DeleteTree(
+    $env:UEMCP_DELETE_TARGET,
+    [int]$env:UEMCP_DELETE_MAX_ENTRIES,
+    [int]$env:UEMCP_DELETE_MAX_DEPTH)
+  [ordered]@{ status = 'removed'; entries = $entries } | ConvertTo-Json -Compress
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var TREE_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedTreeNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    private const uint ReadDataOrListDirectory = 0x00000001;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+
+    private static int entryCount;
+    private static int fileCount;
+    private static long totalBytes;
+    private static volatile bool treeChanged;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    private static SafeFileHandle Open(string path, uint shareMode)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadDataOrListDirectory | ReadAttributes,
+            shareMode,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenAncestry(string path)
+    {
+        SafeFileHandle handle = Open(path, 0x3);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned tree ancestry");
+        }
+        return handle;
+    }
+
+    public static void PinRoots(
+        string[] roots,
+        List<SafeFileHandle> handles,
+        int maxEntries,
+        int maxFiles,
+        long maxBytes)
+    {
+        entryCount = 0;
+        fileCount = 0;
+        totalBytes = 0;
+        foreach (string root in roots)
+        {
+            SafeFileHandle rootHandle = Open(root, ShareRead);
+            ByHandleFileInformation rootInformation = Information(rootHandle);
+            if ((rootInformation.FileAttributes & ReparseAttribute) != 0
+                || (rootInformation.FileAttributes & DirectoryAttribute) == 0)
+            {
+                rootHandle.Dispose();
+                throw new InvalidOperationException("unsafe pinned tree root");
+            }
+            handles.Add(rootHandle);
+            Visit(ExtendedPath(root), handles, maxEntries, maxFiles, maxBytes);
+        }
+    }
+
+    private static void Visit(
+        string directory,
+        List<SafeFileHandle> handles,
+        int maxEntries,
+        int maxFiles,
+        long maxBytes)
+    {
+        foreach (string child in Directory.EnumerateFileSystemEntries(directory))
+        {
+            entryCount += 1;
+            if (entryCount > maxEntries) throw new InvalidOperationException("pinned tree entry limit");
+            SafeFileHandle handle = Open(child, ShareRead);
+            ByHandleFileInformation information = Information(handle);
+            if ((information.FileAttributes & ReparseAttribute) != 0)
+            {
+                handle.Dispose();
+                throw new InvalidOperationException("pinned tree contains a reparse point");
+            }
+            handles.Add(handle);
+            if ((information.FileAttributes & DirectoryAttribute) != 0)
+            {
+                Visit(child, handles, maxEntries, maxFiles, maxBytes);
+                continue;
+            }
+            if (information.NumberOfLinks != 1)
+            {
+                throw new InvalidOperationException("pinned tree contains a multiply linked file");
+            }
+            fileCount += 1;
+            if (fileCount > maxFiles) throw new InvalidOperationException("pinned tree file limit");
+            long size = ((long)information.FileSizeHigh << 32) | information.FileSizeLow;
+            totalBytes += size;
+            if (totalBytes > maxBytes) throw new InvalidOperationException("pinned tree byte limit");
+        }
+    }
+
+    private static void MarkChanged(object sender, FileSystemEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    private static void MarkRenamed(object sender, RenamedEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    private static void MarkError(object sender, ErrorEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    public static List<FileSystemWatcher> StartWatchers(string[] roots)
+    {
+        treeChanged = false;
+        List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        foreach (string root in roots)
+        {
+            FileSystemWatcher watcher = new FileSystemWatcher(root);
+            watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 65536;
+            watcher.NotifyFilter = NotifyFilters.FileName
+                | NotifyFilters.DirectoryName;
+            watcher.Changed += MarkChanged;
+            watcher.Created += MarkChanged;
+            watcher.Deleted += MarkChanged;
+            watcher.Renamed += MarkRenamed;
+            watcher.Error += MarkError;
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+        }
+        return watchers;
+    }
+
+    public static bool TreeChanged
+    {
+        get { return treeChanged; }
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+$watchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
+try {
+  $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
+  $ancestry = @($request.ancestry)
+  foreach ($directory in $ancestry) {
+    $handles.Add([UemcpPinnedTreeNative]::OpenAncestry([string]$directory))
+  }
+  [string[]]$roots = @($request.roots)
+  $watchers = [UemcpPinnedTreeNative]::StartWatchers($roots)
+  [UemcpPinnedTreeNative]::PinRoots(
+    $roots,
+    $handles,
+    [int]$request.max_entries,
+    [int]$request.max_files,
+    [long]$request.max_bytes)
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid tree pin release signal' }
+  [System.Threading.Thread]::Sleep(100)
+  if ([UemcpPinnedTreeNative]::TreeChanged) { throw 'pinned tree changed during inspection' }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $watchers.Count - 1; $index -ge 0; $index--) {
+    $watchers[$index].Dispose()
+  }
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var FILE_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedFileNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    private const uint ReadDataOrListDirectory = 0x00000001;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    private static SafeFileHandle Open(string path, uint shareMode)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadDataOrListDirectory | ReadAttributes,
+            shareMode,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenAncestry(string path)
+    {
+        SafeFileHandle handle = Open(path, 0x3);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned file ancestry");
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenFile(string path)
+    {
+        SafeFileHandle handle = Open(path, ShareRead);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) != 0
+            || information.NumberOfLinks != 1)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned launch file");
+        }
+        return handle;
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
+  foreach ($directory in @($request.ancestry)) {
+    $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
+  }
+  foreach ($path in @($request.paths)) {
+    $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
 var ANCESTRY_PIN_MAX_DIRECTORIES = 128;
 var ANCESTRY_PIN_MAX_INPUT_BYTES = 16 * 1024;
 var ANCESTRY_PIN_OUTPUT_LIMIT = 8 * 1024;
+var DELETE_TREE_MAX_ENTRIES = 4096;
+var DELETE_TREE_MAX_DEPTH = 64;
+var TREE_PIN_MAX_ROOTS = 2048;
+var TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
+var TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
+var FILE_PIN_MAX_PATHS = 64;
+var FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
 var WindowsNativeError = class extends Error {
   constructor(message, code = "WINDOWS_NATIVE_FAILED", details = {}) {
     super(message);
@@ -11419,6 +12061,17 @@ function parseSingleJson(result2, expectedKeys) {
 }
 function windowsPathKey(path) {
   return resolve2(path).toLowerCase();
+}
+async function waitForHelperClose(closePromise, timeoutMs) {
+  let timer;
+  const closed = await Promise.race([
+    closePromise.then(() => true),
+    new Promise((resolvePromise) => {
+      timer = setTimeout(() => resolvePromise(false), timeoutMs);
+    })
+  ]);
+  clearTimeout(timer);
+  return closed;
 }
 function validatePinnedDirectories(directories) {
   if (!Array.isArray(directories) || directories.length === 0 || directories.length > ANCESTRY_PIN_MAX_DIRECTORIES || !directories.every((path) => typeof path === "string" && isAbsolute4(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
@@ -11544,10 +12197,18 @@ async function withPinnedWindowsAncestry({
   child.once("error", () => stopHelper("pinned ancestry helper failed to start"));
   const acquisitionTimer = setTimeout(() => stopHelper("pinned ancestry helper timed out"), acquisitionTimeoutMs);
   acquisitionTimer.unref?.();
+  let acquisitionError = null;
   try {
     await readyPromise;
+  } catch (error2) {
+    acquisitionError = error2;
   } finally {
     clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
   }
   const guard = Object.freeze({
     directories: Object.freeze([...normalized]),
@@ -11580,11 +12241,483 @@ async function withPinnedWindowsAncestry({
     stopHelper("pinned ancestry helper did not release in time");
     await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
   }
-  if (callbackError) throw callbackError;
   if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
     throw protocolError ?? new WindowsNativeError("pinned ancestry helper did not release cleanly", "ANCESTRY_PIN_FAILED");
   }
+  if (callbackError) throw callbackError;
   return value;
+}
+function containedPath(root, candidate) {
+  const rel = relative2(windowsPathKey(root), windowsPathKey(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute4(rel);
+}
+function validatePinnedTreeOptions({ roots, maxEntries, maxFiles, maxBytes }) {
+  if (!Array.isArray(roots) || roots.length === 0 || roots.length > TREE_PIN_MAX_ROOTS || !Number.isSafeInteger(maxEntries) || maxEntries <= 0 || !Number.isSafeInteger(maxFiles) || maxFiles <= 0 || maxFiles > maxEntries || !Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new WindowsNativeError("pinned tree options are invalid", "INVALID_TREE_PIN");
+  }
+  const normalized = roots.map((root) => {
+    if (typeof root !== "string" || !isAbsolute4(root) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(root)) {
+      throw new WindowsNativeError("pinned tree root is invalid", "INVALID_TREE_PIN");
+    }
+    return resolve2(root);
+  });
+  const seen = /* @__PURE__ */ new Set();
+  for (const root of normalized) {
+    const key = windowsPathKey(root);
+    if (seen.has(key)) throw new WindowsNativeError("pinned tree roots contain a duplicate", "INVALID_TREE_PIN");
+    seen.add(key);
+  }
+  for (let left = 0; left < normalized.length; left += 1) {
+    for (let right = left + 1; right < normalized.length; right += 1) {
+      if (containedPath(normalized[left], normalized[right]) || containedPath(normalized[right], normalized[left])) {
+        throw new WindowsNativeError("pinned tree roots overlap", "INVALID_TREE_PIN");
+      }
+    }
+  }
+  const ancestryByKey = /* @__PURE__ */ new Map();
+  for (const root of normalized) {
+    let current = dirname(root);
+    const chain = [];
+    while (true) {
+      chain.unshift(current);
+      const next = dirname(current);
+      if (windowsPathKey(next) === windowsPathKey(current)) break;
+      current = next;
+    }
+    validatePinnedDirectories(chain);
+    for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  }
+  const ancestry = [...ancestryByKey.values()].sort((left, right) => {
+    const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
+    const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
+    return leftDepth - rightDepth || left.localeCompare(right);
+  });
+  const serializedRequest = JSON.stringify({
+    roots: normalized,
+    ancestry,
+    max_entries: maxEntries,
+    max_files: maxFiles,
+    max_bytes: maxBytes
+  });
+  if (Buffer.byteLength(serializedRequest, "utf8") > TREE_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError("pinned tree roots exceed the input limit", "INVALID_TREE_PIN");
+  }
+  return { normalized, serializedRequest };
+}
+async function withPinnedWindowsTrees({
+  roots,
+  callback,
+  maxEntries,
+  maxFiles,
+  maxBytes,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn2,
+  acquisitionTimeoutMs = 3e4,
+  releaseTimeoutMs = 5e3
+} = {}) {
+  if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError("pinned tree callback options are invalid", "INVALID_TREE_PIN");
+  }
+  const validated = validatePinnedTreeOptions({ roots, maxEntries, maxFiles, maxBytes });
+  if (platform !== "win32") {
+    return callback(Object.freeze({ roots: Object.freeze([...validated.normalized]), assertPinned() {
+    } }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
+  try {
+    child = spawnImpl(executable, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedPowerShell(TREE_PIN_SCRIPT)
+    ], {
+      env: minimalEnvironment(systemRoot, {}),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch {
+    throw new WindowsNativeError("pinned tree helper could not start", "TREE_PIN_FAILED");
+  }
+  let stdout = "";
+  let stderr = "";
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise((resolvePromise) => {
+    child.once("close", (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError("pinned tree helper exited before acquisition", "TREE_PIN_FAILED"));
+      resolvePromise();
+    });
+  });
+  const stopHelper = (message) => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, "TREE_PIN_FAILED");
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > TREE_PIN_OUTPUT_LIMIT) {
+      stopHelper("pinned tree helper exceeded its output limit");
+      return;
+    }
+    if (stream === "stdout") {
+      stdout += bytes.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, "");
+        if (line !== "READY" || stdout.slice(newline + 1) !== "") {
+          stopHelper("pinned tree helper returned an invalid handshake");
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== "READY\n" && stdout !== "READY\r\n") {
+        stopHelper("pinned tree helper returned extra output");
+      }
+    } else {
+      stderr += bytes.toString("utf8");
+      stopHelper("pinned tree helper returned an error");
+    }
+  };
+  child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+  child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+  child.stdin?.once("error", () => {
+  });
+  child.once("error", () => stopHelper("pinned tree helper failed to start"));
+  child.stdin?.write(`${validated.serializedRequest}
+`);
+  const acquisitionTimer = setTimeout(() => stopHelper("pinned tree helper timed out"), acquisitionTimeoutMs);
+  acquisitionTimer.unref?.();
+  let acquisitionError = null;
+  try {
+    await readyPromise;
+  } catch (error2) {
+    acquisitionError = error2;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
+  }
+  const guard = Object.freeze({
+    roots: Object.freeze([...validated.normalized]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError("pinned tree helper was lost", "TREE_PIN_FAILED");
+      }
+    }
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error2) {
+    callbackError = error2;
+  }
+  if (!closed && child.stdin) child.stdin.end("RELEASE\n");
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise((resolvePromise) => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+      releaseTimer.unref?.();
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper("pinned tree helper did not release in time");
+    await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+  }
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+    throw protocolError ?? new WindowsNativeError("pinned tree helper did not release cleanly", "TREE_PIN_FAILED");
+  }
+  if (callbackError) throw callbackError;
+  return value;
+}
+function validatePinnedFilePaths(paths) {
+  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FILE_PIN_MAX_PATHS) {
+    throw new WindowsNativeError("pinned file paths are invalid", "INVALID_FILE_PIN");
+  }
+  const normalized = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const path of paths) {
+    if (typeof path !== "string" || !isAbsolute4(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+      throw new WindowsNativeError("pinned file path is invalid", "INVALID_FILE_PIN");
+    }
+    const absolute = resolve2(path);
+    const key = windowsPathKey(absolute);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(absolute);
+  }
+  const ancestryByKey = /* @__PURE__ */ new Map();
+  for (const path of normalized) {
+    let current = dirname(path);
+    const chain = [];
+    while (true) {
+      chain.unshift(current);
+      const next = dirname(current);
+      if (windowsPathKey(next) === windowsPathKey(current)) break;
+      current = next;
+    }
+    validatePinnedDirectories(chain);
+    for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  }
+  const ancestry = [...ancestryByKey.values()].sort((left, right) => {
+    const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
+    const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
+    return leftDepth - rightDepth || left.localeCompare(right);
+  });
+  const serializedRequest = JSON.stringify({ paths: normalized, ancestry });
+  if (Buffer.byteLength(serializedRequest, "utf8") > FILE_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError("pinned file paths exceed the input limit", "INVALID_FILE_PIN");
+  }
+  return { normalized, serializedRequest };
+}
+async function withPinnedWindowsFiles({
+  paths,
+  callback,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn2,
+  acquisitionTimeoutMs = 15e3,
+  releaseTimeoutMs = 5e3
+} = {}) {
+  if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError("pinned file callback options are invalid", "INVALID_FILE_PIN");
+  }
+  const validated = validatePinnedFilePaths(paths);
+  if (platform !== "win32") {
+    return callback(Object.freeze({ paths: Object.freeze([...validated.normalized]), assertPinned() {
+    } }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
+  try {
+    child = spawnImpl(executable, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedPowerShell(FILE_PIN_SCRIPT)
+    ], {
+      env: minimalEnvironment(systemRoot, {}),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch {
+    throw new WindowsNativeError("pinned file helper could not start", "FILE_PIN_FAILED");
+  }
+  let stdout = "";
+  let stderr = "";
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise((resolvePromise) => {
+    child.once("close", (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError("pinned file helper exited before acquisition", "FILE_PIN_FAILED"));
+      resolvePromise();
+    });
+  });
+  const stopHelper = (message) => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, "FILE_PIN_FAILED");
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > TREE_PIN_OUTPUT_LIMIT) {
+      stopHelper("pinned file helper exceeded its output limit");
+      return;
+    }
+    if (stream === "stdout") {
+      stdout += bytes.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, "");
+        if (line !== "READY" || stdout.slice(newline + 1) !== "") {
+          stopHelper("pinned file helper returned an invalid handshake");
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== "READY\n" && stdout !== "READY\r\n") {
+        stopHelper("pinned file helper returned extra output");
+      }
+    } else {
+      stderr += bytes.toString("utf8");
+      stopHelper("pinned file helper returned an error");
+    }
+  };
+  child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+  child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+  child.stdin?.once("error", () => {
+  });
+  child.once("error", () => stopHelper("pinned file helper failed to start"));
+  child.stdin?.write(`${validated.serializedRequest}
+`);
+  const acquisitionTimer = setTimeout(() => stopHelper("pinned file helper timed out"), acquisitionTimeoutMs);
+  acquisitionTimer.unref?.();
+  let acquisitionError = null;
+  try {
+    await readyPromise;
+  } catch (error2) {
+    acquisitionError = error2;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
+  }
+  const guard = Object.freeze({
+    paths: Object.freeze([...validated.normalized]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError("pinned file helper was lost", "FILE_PIN_FAILED");
+      }
+    }
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error2) {
+    callbackError = error2;
+  }
+  if (!closed && child.stdin) child.stdin.end("RELEASE\n");
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise((resolvePromise) => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+      releaseTimer.unref?.();
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper("pinned file helper did not release in time");
+    await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+  }
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+    throw protocolError ?? new WindowsNativeError("pinned file helper did not release cleanly", "FILE_PIN_FAILED");
+  }
+  if (callbackError) throw callbackError;
+  return value;
+}
+function deletionAncestry(targetPath, allowedRoot) {
+  if (typeof targetPath !== "string" || typeof allowedRoot !== "string" || !isAbsolute4(targetPath) || !isAbsolute4(allowedRoot) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(targetPath) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(allowedRoot)) {
+    throw new WindowsNativeError("tree deletion paths are invalid", "INVALID_TREE_DELETE");
+  }
+  const target = resolve2(targetPath);
+  const allowed = resolve2(allowedRoot);
+  if (!containedPath(allowed, target) || windowsPathKey(target) === windowsPathKey(allowed)) {
+    throw new WindowsNativeError("tree deletion target is outside its allowed root", "INVALID_TREE_DELETE");
+  }
+  const parent = dirname(target);
+  const directories = [];
+  let current = parent;
+  while (true) {
+    directories.unshift(current);
+    const next = dirname(current);
+    if (windowsPathKey(next) === windowsPathKey(current)) break;
+    current = next;
+  }
+  const validated = validatePinnedDirectories(directories);
+  return { target, serializedAncestry: validated.serialized };
+}
+async function deleteWindowsTreeNoFollow({
+  targetPath,
+  allowedRoot,
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  fsImpl = defaultFs3,
+  maxEntries = DELETE_TREE_MAX_ENTRIES,
+  maxDepth = DELETE_TREE_MAX_DEPTH
+} = {}) {
+  const { target, serializedAncestry } = deletionAncestry(targetPath, allowedRoot);
+  if (platform !== "win32") {
+    throw new WindowsNativeError("no-follow tree deletion requires Windows", "UNSUPPORTED_PLATFORM");
+  }
+  if (!runner?.run || !Number.isSafeInteger(maxEntries) || maxEntries <= 0 || maxEntries > DELETE_TREE_MAX_ENTRIES || !Number.isSafeInteger(maxDepth) || maxDepth <= 0 || maxDepth > DELETE_TREE_MAX_DEPTH) {
+    throw new WindowsNativeError("tree deletion options are invalid", "INVALID_TREE_DELETE");
+  }
+  try {
+    const stat = await fsImpl.lstat(target);
+    if (!stat.isDirectory() && !stat.isSymbolicLink() && !stat.isFile()) {
+      throw new WindowsNativeError("tree deletion target has an unsupported type", "UNSAFE_PATH_TYPE");
+    }
+  } catch (error2) {
+    if (error2?.code === "ENOENT") return { status: "absent", entries: 0 };
+    throw error2;
+  }
+  const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {
+      UEMCP_DELETE_TARGET: target,
+      UEMCP_DELETE_ANCESTRY: serializedAncestry,
+      UEMCP_DELETE_MAX_ENTRIES: String(maxEntries),
+      UEMCP_DELETE_MAX_DEPTH: String(maxDepth)
+    }),
+    stdin: `${DELETE_TREE_SCRIPT}
+
+`,
+    timeoutMs: 3e4,
+    outputLimitBytes: 8 * 1024
+  });
+  const parsed = parseSingleJson(result2, ["entries", "status"]);
+  if (parsed.status !== "removed" || !Number.isSafeInteger(parsed.entries) || parsed.entries <= 0 || parsed.entries > maxEntries) {
+    throw new WindowsNativeError("tree deletion helper returned invalid evidence", "TREE_DELETE_FAILED");
+  }
+  return { status: parsed.status, entries: parsed.entries };
 }
 async function assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks = false }) {
   const fingerprint = await fingerprintPath(path, { allowedRoots, fsImpl });
@@ -11711,8 +12844,11 @@ async function replaceFilePreservingMetadata({
 var WINDOWS_NATIVE_SCRIPTS = Object.freeze({
   ancestry_pin: ANCESTRY_PIN_SCRIPT,
   authenticode: AUTHENTICODE_SCRIPT,
+  delete_tree: DELETE_TREE_SCRIPT,
+  file_pin: FILE_PIN_SCRIPT,
   metadata: METADATA_SCRIPT,
-  replace: REPLACE_SCRIPT
+  replace: REPLACE_SCRIPT,
+  tree_pin: TREE_PIN_SCRIPT
 });
 
 // server/deployment/client-transaction.mjs
@@ -11733,6 +12869,7 @@ var ACTION_STATUSES = /* @__PURE__ */ new Set([
 ]);
 var READY_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "MATCHING", "NO_OP", "READY"]);
 var DEFAULT_WINDOWS_NATIVE = Object.freeze({
+  deleteTreeNoFollow: deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
   withPinnedAncestry: withPinnedWindowsAncestry
@@ -11753,8 +12890,8 @@ function pathKey2(path) {
   return process.platform === "win32" ? absolute.toLowerCase() : absolute;
 }
 function contained(root, candidate) {
-  const rel = relative2(pathKey2(root), pathKey2(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute5(rel);
+  const rel = relative3(pathKey2(root), pathKey2(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep3}`) && !isAbsolute5(rel);
 }
 function safeAbsolutePath(path) {
   return typeof path === "string" && isAbsolute5(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
@@ -11769,7 +12906,7 @@ async function assertWritableAncestry(path, allowedRoot, fsImpl) {
   const absoluteRoot = resolve3(allowedRoot);
   if (!contained(absoluteRoot, absolutePath10)) fail5("transaction path is outside its writable root", "PATH_OUTSIDE_WRITABLE_ROOT");
   const volumeRoot = parse2(absolutePath10).root;
-  const segments = relative2(volumeRoot, absolutePath10).split(sep2).filter(Boolean);
+  const segments = relative3(volumeRoot, absolutePath10).split(sep3).filter(Boolean);
   let current = volumeRoot;
   for (const segment of segments) {
     current = join3(current, segment);
@@ -11893,6 +13030,14 @@ function comparableFingerprint(fingerprint, { includeIdentity = true, includeMut
 function fingerprintsEqual(left, right, options) {
   return sha256Canonical(comparableFingerprint(left, options)) === sha256Canonical(comparableFingerprint(right, options));
 }
+function snapshotMatchesFingerprint(snapshot, fingerprint) {
+  const metadata = snapshot?.metadata;
+  if (!metadata || metadata.exists !== fingerprint.exists) return false;
+  if (!fingerprint.exists) {
+    return metadata.original_sha256 === null && metadata.size === null && metadata.identity === null;
+  }
+  return metadata.original_sha256 === fingerprint.content_sha256 && metadata.size === fingerprint.size && sha256Canonical(metadata.identity) === sha256Canonical(fingerprint.identity);
+}
 function validatePlanDigest(planDigest) {
   if (!/^[0-9a-f]{64}$/.test(planDigest ?? "")) fail5("transaction plan digest is invalid", "INVALID_PLAN_DIGEST");
 }
@@ -11996,7 +13141,7 @@ async function inspectParentPlan(targetPath, allowedRoot, fsImpl) {
 async function inspectExistingDirectoryAncestry(directory, fsImpl) {
   const absolute = resolve3(directory);
   const volumeRoot = parse2(absolute).root;
-  const segments = relative2(volumeRoot, absolute).split(sep2).filter(Boolean);
+  const segments = relative3(volumeRoot, absolute).split(sep3).filter(Boolean);
   const directories = [volumeRoot];
   let current = volumeRoot;
   for (const segment of segments) {
@@ -12041,7 +13186,7 @@ function createClientTransaction({
   if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
     fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
   }
-  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry) {
+  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry) {
     fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
   }
   if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
@@ -12268,23 +13413,6 @@ function createClientTransaction({
     }
     return { stateRoot, stageParent };
   }
-  async function removeTreeWithoutFollowingLinks(path) {
-    let stat;
-    try {
-      stat = await fsImpl.lstat(path);
-    } catch (error2) {
-      if (isMissing2(error2)) return;
-      throw error2;
-    }
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      await fsImpl.rm(path, { force: true });
-      return;
-    }
-    for (const name of await fsImpl.readdir(path)) {
-      await removeTreeWithoutFollowingLinks(join3(path, name));
-    }
-    await fsImpl.rmdir(path);
-  }
   async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
     if (pathKey2(dirname2(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
     let unsafe = false;
@@ -12296,7 +13424,13 @@ function createClientTransaction({
         const names = await fsImpl.readdir(path);
         contaminated = names.length !== 1 || names[0] !== expectedChildName;
       }
-      await removeTreeWithoutFollowingLinks(path);
+      await windowsNative.deleteTreeNoFollow({
+        targetPath: path,
+        allowedRoot: stateRoot,
+        runner: processRunner,
+        systemRoot,
+        fsImpl
+      });
       const remains = await fsImpl.lstat(path).then(() => true, (error2) => {
         if (isMissing2(error2)) return false;
         throw error2;
@@ -12317,13 +13451,17 @@ function createClientTransaction({
     if (pathKey2(dirname2(quarantine)) !== pathKey2(stateRoot)) {
       fail5("native stage quarantine path is unsafe", "STAGED_CLEANUP_FAILED");
     }
-    try {
-      await fsImpl.rename(stageParent, quarantine);
-    } catch (error2) {
-      if (isMissing2(error2)) return { removed: false, unsafe: false, contaminated: false };
-      fail5("native stage could not be detached for cleanup", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
-    }
-    return removeDetachedStage(quarantine, stateRoot, options);
+    return withPinnedDirectory(stateRoot, async (guard) => {
+      try {
+        guard?.assertPinned?.();
+        await fsImpl.rename(stageParent, quarantine);
+        guard?.assertPinned?.();
+      } catch (error2) {
+        if (isMissing2(error2)) return { removed: false, unsafe: false, contaminated: false };
+        fail5("native stage could not be detached for cleanup", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
+      }
+      return removeDetachedStage(quarantine, stateRoot, options);
+    });
   }
   async function cleanupAbandonedStages() {
     const { stateRoot, stageParent } = nativeStagePaths();
@@ -12377,8 +13515,8 @@ function createClientTransaction({
     if (pathKey2(dirname2(stageRoot)) !== pathKey2(stageParent)) {
       fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
     }
-    const expectedChildName = relative2(stageParent, stageRoot);
-    if (!expectedChildName || expectedChildName.includes(sep2)) fail5("native stage child name is unsafe", "STAGED_CLEANUP_FAILED");
+    const expectedChildName = relative3(stageParent, stageRoot);
+    if (!expectedChildName || expectedChildName.includes(sep3)) fail5("native stage child name is unsafe", "STAGED_CLEANUP_FAILED");
     const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot, { expectedChildName });
     if (!cleanup.removed || cleanup.unsafe) fail5("native stage cleanup identity changed", "STAGED_CLEANUP_FAILED");
     if (cleanup.contaminated) fail5("native stage contains undeclared sibling output", "UNEXPECTED_STAGED_OUTPUT");
@@ -12605,6 +13743,9 @@ function createClientTransaction({
           transactionId: state.transactionId,
           retainOnConflict: true
         });
+        if (!snapshotMatchesFingerprint(record2.snapshot, record2.currentFingerprint)) {
+          fail5("snapshot differs from the approved writable fingerprint", "TRANSACTION_PRECONDITION_CHANGED");
+        }
       }
       state.planDigest = planDigest;
       state.operationDigest = operationDigest(operations);
@@ -12675,6 +13816,7 @@ function createClientTransaction({
   }
   async function cleanupCreatedDirectories() {
     const seen = /* @__PURE__ */ new Set();
+    const failures = [];
     for (const created of [...state.createdDirectories].reverse()) {
       const key = pathKey2(created.path);
       if (seen.has(key)) continue;
@@ -12683,16 +13825,25 @@ function createClientTransaction({
         await withPinnedDirectory(dirname2(created.path), async (guard) => {
           guard?.assertPinned?.();
           const current = await directoryIdentity(created.path, fsImpl);
-          if (!identityEqual(current, created.identity)) return;
-          if ((await fsImpl.readdir(created.path)).length !== 0) return;
+          if (!identityEqual(current, created.identity)) {
+            failures.push({ path: created.path, code: "CREATED_DIRECTORY_IDENTITY_CHANGED" });
+            return;
+          }
+          if ((await fsImpl.readdir(created.path)).length !== 0) {
+            failures.push({ path: created.path, code: "CREATED_DIRECTORY_NOT_EMPTY" });
+            return;
+          }
           guard?.assertPinned?.();
           await fsImpl.rmdir(created.path);
           guard?.assertPinned?.();
         });
       } catch (error2) {
-        if (!isMissing2(error2)) continue;
+        if (!isMissing2(error2)) {
+          failures.push({ path: created.path, code: "CREATED_DIRECTORY_CLEANUP_FAILED" });
+        }
       }
     }
+    return failures;
   }
   async function restoreRecord(record2) {
     try {
@@ -12795,7 +13946,14 @@ function createClientTransaction({
         restoration.push({ status: "failed", path: record2.path, code: error2?.code ?? "ROLLBACK_FAILED" });
       }
     }
-    await cleanupCreatedDirectories();
+    const directoryCleanupFailures = await cleanupCreatedDirectories();
+    if (directoryCleanupFailures.length > 0) {
+      hookFailed = true;
+      hookErrors.push(...directoryCleanupFailures.map((row) => ({
+        client_id: "transaction",
+        code: row.code
+      })));
+    }
     const retained = [];
     for (const record2 of state.records.values()) {
       const outcome = restoration.find((row) => pathKey2(row.path) === record2.key);
@@ -12851,11 +14009,22 @@ function createClientTransaction({
       await recheckBeforeApply();
       state.phase = "applying";
       const outerBeforeActiveClientLaunch = context.beforeActiveClientLaunch;
+      const outerWithActiveClientLaunch = context.withActiveClientLaunch;
       const adapterContext = Object.freeze({
         ...context,
         beforeActiveClientLaunch: async (evidence) => {
           await recheckAfterVerify();
           return outerBeforeActiveClientLaunch?.(evidence);
+        },
+        withActiveClientLaunch: async (evidence, callback) => {
+          if (typeof callback !== "function") fail5("active launch callback is invalid", "INVALID_CLIENT_LAUNCH");
+          await recheckAfterVerify();
+          if (typeof outerWithActiveClientLaunch === "function") {
+            return outerWithActiveClientLaunch(evidence, callback);
+          }
+          await outerBeforeActiveClientLaunch?.(evidence);
+          return callback(Object.freeze({ assertPinned() {
+          } }), context.launch ?? null);
         },
         transaction: transactionCapability
       });
@@ -13653,11 +14822,11 @@ function parseTree(text, errors = [], options = ParseOptions.DEFAULT) {
       onValue({ type: getNodeType(value), offset, length, parent: currentParent, value });
       ensurePropertyComplete(offset + length);
     },
-    onSeparator: (sep11, offset, length) => {
+    onSeparator: (sep12, offset, length) => {
       if (currentParent.type === "property") {
-        if (sep11 === ":") {
+        if (sep12 === ":") {
           currentParent.colonOffset = offset;
-        } else if (sep11 === ",") {
+        } else if (sep12 === ",") {
           ensurePropertyComplete(offset);
         }
       }
@@ -14831,8 +16000,8 @@ function pathIdentity(path) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained2(root, candidate) {
-  const rel = relative3(pathIdentity(root), pathIdentity(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep3}`) && !isAbsolute6(rel);
+  const rel = relative4(pathIdentity(root), pathIdentity(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep4}`) && !isAbsolute6(rel);
 }
 function location(path, allowedRoot, scope, writable = false) {
   return Object.freeze({
@@ -14936,13 +16105,14 @@ async function inspectNative(runner, context, detection) {
     });
   }
   const safeQuery = async (tail) => {
-    await context.beforeActiveClientLaunch?.({ client_id: "claude", kind: "native" });
-    try {
-      return await runNativeQuery(runner, context, detection, tail);
-    } catch (error2) {
-      if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
-      return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
-    }
+    return runActiveClientLaunch(context, { client_id: "claude", kind: "native" }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error2) {
+        if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+        return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
+      }
+    });
   };
   const listResult = await safeQuery(["mcp", "list"]);
   const getResult = await safeQuery(["mcp", "get", "uemcp"]);
@@ -15845,9 +17015,9 @@ import {
   dirname as dirname4,
   isAbsolute as isAbsolute7,
   join as join5,
-  relative as relative4,
+  relative as relative5,
   resolve as resolve5,
-  sep as sep4,
+  sep as sep5,
   win32 as win327
 } from "node:path";
 
@@ -16109,8 +17279,8 @@ function pathIdentity2(path) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained3(root, candidate) {
-  const rel = relative4(pathIdentity2(root), pathIdentity2(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep4}`) && !isAbsolute7(rel);
+  const rel = relative5(pathIdentity2(root), pathIdentity2(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute7(rel);
 }
 function location2(path, allowedRoot, scope, writable = false, extras = {}) {
   return Object.freeze({
@@ -16137,7 +17307,7 @@ function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS2.p
   }
   const root = resolve5(projectRoot);
   const active = resolve5(activeDirectory);
-  const segments = relative4(root, active).split(sep4).filter(Boolean);
+  const segments = relative5(root, active).split(sep5).filter(Boolean);
   const directories = [root];
   for (const segment of segments) directories.push(join5(directories.at(-1), segment));
   if (!Number.isSafeInteger(projectLayers) || projectLayers <= 0) fail10("Codex project layer limit is invalid", "INVALID_INSPECTION_LIMIT");
@@ -16313,13 +17483,14 @@ async function inspectNative2(runner, context, detection, desired) {
     return mergeNativeStatus2(unknown2, unknown2);
   }
   const safe = async (tail) => {
-    await context.beforeActiveClientLaunch?.({ client_id: "codex", kind: "native" });
-    try {
-      return await runNativeQuery2(runner, context, detection, tail);
-    } catch (error2) {
-      if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
-      return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
-    }
+    return runActiveClientLaunch(context, { client_id: "codex", kind: "native" }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery2(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error2) {
+        if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+        return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
+      }
+    });
   };
   const listResult = await safe(["mcp", "list", "--json"]);
   const getResult = await safe(["mcp", "get", "uemcp", "--json"]);
@@ -16828,9 +17999,8 @@ function createCodexAdapter({
     if (!absolutePath3(stagedHome) || pathIdentity2(stagedHome) === pathIdentity2(operation.allowed_root)) {
       fail10("Codex native add requires an isolated home", "UNAPPROVED_EXTERNAL_WRITE");
     }
-    await context.beforeActiveClientLaunch?.({ client_id: "codex", kind: "native" });
-    const result2 = await runner.run(context.launch.command, [
-      ...context.launch.args_prefix,
+    const result2 = await runActiveClientLaunch(context, { client_id: "codex", kind: "native" }, (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [
+      ...pinnedLaunch.args_prefix,
       "mcp",
       "add",
       "uemcp",
@@ -16839,11 +18009,11 @@ function createCodexAdapter({
       ...operation.desired_entry.args
     ], {
       cwd: stagedHome,
-      env: { ...environmentForLaunch2(context, context.launch), CODEX_HOME: stagedHome },
+      env: { ...environmentForLaunch2(context, pinnedLaunch), CODEX_HOME: stagedHome },
       shell: false,
       timeoutMs: 1e4,
       outputLimitBytes: 64 * 1024
-    });
+    }));
     if (result2?.status !== "exited" || result2.exitCode !== 0) fail10("Codex native add failed", "NATIVE_WRITE_FAILED", { output_sha256: outputHash2(result2) });
     return Object.freeze({ status: "ADDED", output_sha256: outputHash2(result2) });
   }
@@ -16945,9 +18115,9 @@ import {
   dirname as dirname5,
   isAbsolute as isAbsolute8,
   join as join6,
-  relative as relative5,
+  relative as relative6,
   resolve as resolve6,
-  sep as sep5,
+  sep as sep6,
   win32 as win328
 } from "node:path";
 var DEFAULT_LIMITS3 = Object.freeze({
@@ -17002,8 +18172,8 @@ function pathIdentity3(path) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained4(root, candidate) {
-  const rel = relative5(pathIdentity3(root), pathIdentity3(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute8(rel);
+  const rel = relative6(pathIdentity3(root), pathIdentity3(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep6}`) && !isAbsolute8(rel);
 }
 function location3(path, allowedRoot, scope, writable = false) {
   return Object.freeze({
@@ -17096,31 +18266,32 @@ function environmentForLaunch3(context, launch) {
 }
 async function inspectNative3(runner, context, detection) {
   if (context.launch?.compatibility !== "release_gated") return classifyGeminiNativeStatus(null);
-  await context.beforeActiveClientLaunch?.({ client_id: "gemini", kind: "native" });
-  try {
-    const result2 = await runner.run(detection.launch.command, [
-      ...detection.launch.args_prefix,
-      "mcp",
-      "list"
-    ], {
-      cwd: context.workspaceRoot,
-      env: environmentForLaunch3(context, detection.launch),
-      shell: false,
-      timeoutMs: 1e4,
-      outputLimitBytes: 64 * 1024
-    });
-    return classifyGeminiNativeStatus(result2);
-  } catch (error2) {
-    if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
-    return Object.freeze({
-      status: "UNKNOWN",
-      exit_code: null,
-      output_sha256: null,
-      activation: "UNKNOWN",
-      enablement: "UNKNOWN",
-      error_code: error2?.code ?? "PROCESS_LAUNCH_FAILED"
-    });
-  }
+  return runActiveClientLaunch(context, { client_id: "gemini", kind: "native" }, async (guard, pinnedLaunch) => {
+    try {
+      const result2 = await runner.run(pinnedLaunch.command, [
+        ...pinnedLaunch.args_prefix,
+        "mcp",
+        "list"
+      ], {
+        cwd: context.workspaceRoot,
+        env: environmentForLaunch3(context, pinnedLaunch),
+        shell: false,
+        timeoutMs: 1e4,
+        outputLimitBytes: 64 * 1024
+      });
+      return classifyGeminiNativeStatus(result2);
+    } catch (error2) {
+      if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+      return Object.freeze({
+        status: "UNKNOWN",
+        exit_code: null,
+        output_sha256: null,
+        activation: "UNKNOWN",
+        enablement: "UNKNOWN",
+        error_code: error2?.code ?? "PROCESS_LAUNCH_FAILED"
+      });
+    }
+  });
 }
 function normalizedLimits3(input = {}) {
   const limits = { ...DEFAULT_LIMITS3, ...input };
@@ -18813,7 +19984,7 @@ function createVsCodeAdapter({
 
 // server/deployment/bundle-freshness.mjs
 import * as defaultFs9 from "node:fs/promises";
-import { dirname as dirname7, isAbsolute as isAbsolute10, join as join8, relative as relative6, resolve as resolve8, sep as sep6 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute10, join as join8, relative as relative7, resolve as resolve8, sep as sep7 } from "node:path";
 var SHA256 = /^[0-9a-f]{64}$/;
 var MANIFEST_KEYS = /* @__PURE__ */ new Set([
   "schema_version",
@@ -18894,8 +20065,8 @@ function validateManifest(value) {
   return value;
 }
 function contained5(root, path) {
-  const rel = relative6(resolve8(root), resolve8(path));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep6}`) && !isAbsolute10(rel);
+  const rel = relative7(resolve8(root), resolve8(path));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep7}`) && !isAbsolute10(rel);
 }
 async function exactFile(path, { repoRoot, fsImpl, label, maximumBytes = null }) {
   if (!contained5(repoRoot, path)) fail13(`${label} escaped the repository root`);
@@ -18953,7 +20124,7 @@ async function verifyDeploymentBundleFreshness({
 
 // server/deployment/client-domain.mjs
 import * as defaultFs11 from "node:fs/promises";
-import { posix as posix4, resolve as resolve10, win32 as win3210 } from "node:path";
+import { posix as posix5, resolve as resolve10, win32 as win3211 } from "node:path";
 
 // server/deployment/client-process.mjs
 import * as defaultFs10 from "node:fs/promises";
@@ -18963,9 +20134,9 @@ import {
   extname,
   isAbsolute as isAbsolute11,
   join as join9,
-  relative as relative7,
+  relative as relative8,
   resolve as resolve9,
-  sep as sep7
+  sep as sep8
 } from "node:path";
 var CLIENTS = Object.freeze({
   claude: Object.freeze({
@@ -19009,8 +20180,8 @@ function pathKey3(path) {
   return process.platform === "win32" ? value.toLowerCase() : value;
 }
 function contained6(root, candidate) {
-  const rel = relative7(pathKey3(root), pathKey3(candidate));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep7}`) && !isAbsolute11(rel);
+  const rel = relative8(pathKey3(root), pathKey3(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep8}`) && !isAbsolute11(rel);
 }
 function runtimeFingerprint({
   packageRoot,
@@ -19125,7 +20296,7 @@ async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot
   }
   return null;
 }
-async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl) {
+async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner) {
   const canonicalResolutionRoot = await canonicalDirectory(resolutionRoot, {
     fsImpl,
     allowedRoots: [resolutionRoot]
@@ -19167,59 +20338,76 @@ async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl)
   for (const root of packageRoots) {
     if (!disjointRoots.some((parent) => contained6(parent, root))) disjointRoots.push(root);
   }
-  let entryCount = 0;
-  let fileCount = 0;
-  let totalBytes = 0;
-  const entries = [];
-  for (const root of disjointRoots) {
-    const tree = await fingerprintDirectory(root, {
-      allowedRoots: [canonicalResolutionRoot],
-      fsImpl,
-      maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
-      maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
-      maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes
-    });
-    const prefix = relative7(canonicalResolutionRoot, root).replace(/\\/g, "/");
-    if (prefix === ".." || prefix.startsWith("../") || isAbsolute11(prefix)) fail14("client package tree escapes its resolution root");
-    entryCount += tree.entry_count;
-    fileCount += tree.file_count;
-    totalBytes += tree.total_bytes;
-    for (const entry of tree.entries) {
-      entries.push({ ...entry, path: prefix === "" ? entry.path : `${prefix}/${entry.path}` });
+  return runtimeTreePinner({
+    roots: disjointRoots,
+    maxEntries: NPM_RUNTIME_LIMITS.max_entries,
+    maxFiles: NPM_RUNTIME_LIMITS.max_files,
+    maxBytes: NPM_RUNTIME_LIMITS.max_bytes,
+    callback: async (guard) => {
+      guard?.assertPinned?.();
+      let entryCount = 0;
+      let fileCount = 0;
+      let totalBytes = 0;
+      const entries = [];
+      for (const root of disjointRoots) {
+        const tree = await fingerprintDirectory(root, {
+          allowedRoots: [canonicalResolutionRoot],
+          fsImpl,
+          maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
+          maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
+          maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes
+        });
+        guard?.assertPinned?.();
+        const prefix = relative8(canonicalResolutionRoot, root).replace(/\\/g, "/");
+        if (prefix === ".." || prefix.startsWith("../") || isAbsolute11(prefix)) fail14("client package tree escapes its resolution root");
+        entryCount += tree.entry_count;
+        fileCount += tree.file_count;
+        totalBytes += tree.total_bytes;
+        for (const entry of tree.entries) {
+          entries.push({ ...entry, path: prefix === "" ? entry.path : `${prefix}/${entry.path}` });
+        }
+      }
+      entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      const entryByPath = new Map(entries.map((entry) => [entry.path, entry]));
+      for (const proof of manifestProofs) {
+        const path = relative8(canonicalResolutionRoot, proof.path).replace(/\\/g, "/");
+        if (entryByPath.get(path)?.sha256 !== proof.sha256) fail14("client package manifest changed during runtime inspection");
+      }
+      guard?.assertPinned?.();
+      return runtimeFingerprint({
+        packageRoot: canonicalPackageRoot,
+        resolutionRoot: canonicalResolutionRoot,
+        packageId,
+        packageCount: packages.size,
+        entryCount,
+        fileCount,
+        totalBytes,
+        manifestSha256: sha256Canonical(entries)
+      });
     }
-  }
-  entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-  const entryByPath = new Map(entries.map((entry) => [entry.path, entry]));
-  for (const proof of manifestProofs) {
-    const path = relative7(canonicalResolutionRoot, proof.path).replace(/\\/g, "/");
-    if (entryByPath.get(path)?.sha256 !== proof.sha256) fail14("client package manifest changed during runtime inspection");
-  }
-  return runtimeFingerprint({
-    packageRoot: canonicalPackageRoot,
-    resolutionRoot: canonicalResolutionRoot,
-    packageId,
-    packageCount: packages.size,
-    entryCount,
-    fileCount,
-    totalBytes,
-    manifestSha256: sha256Canonical(entries)
   });
 }
 async function captureClientRuntimeFingerprint(packageRoot, {
   resolutionRoot = packageRoot,
   packageId,
-  fsImpl = defaultFs10
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees
 } = {}) {
-  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl);
+  if (typeof runtimeTreePinner !== "function") fail14("client runtime tree pinner is invalid");
+  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner);
 }
-async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs10 } = {}) {
+async function revalidateClientLaunchRuntime(launch, {
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees
+} = {}) {
   if (launch?.source !== "npm_package") return true;
   let observed;
   try {
     observed = await captureClientRuntimeFingerprint(launch.fingerprint?.runtime_tree?.root, {
       resolutionRoot: launch.fingerprint?.runtime_tree?.resolution_root,
       packageId: launch.package_id,
-      fsImpl
+      fsImpl,
+      runtimeTreePinner
     });
   } catch (error2) {
     fail14("client npm runtime tree is no longer safe", "CLIENT_RUNTIME_CHANGED", { cause_code: error2?.code ?? "UNKNOWN" });
@@ -19228,6 +20416,82 @@ async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs10 } = 
     fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED");
   }
   return true;
+}
+function launchFileEvidence(launch) {
+  const paths = [launch.command];
+  const fingerprints = [launch.fingerprint?.command];
+  for (let index = 0; index < launch.args_prefix.length; index += 1) {
+    const value = launch.args_prefix[index];
+    if (!isAbsolute11(value)) continue;
+    paths.push(value);
+    fingerprints.push(launch.fingerprint?.args_prefix?.[index]);
+  }
+  return { paths, fingerprints };
+}
+function frozenLaunchCopy(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenLaunchCopy));
+  if (value !== null && typeof value === "object") {
+    return Object.freeze(Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, frozenLaunchCopy(child)])
+    ));
+  }
+  return value;
+}
+async function withPinnedClientLaunch(launch, {
+  callback,
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles
+} = {}) {
+  if (typeof callback !== "function" || typeof runtimeTreePinner !== "function" || typeof launchFilePinner !== "function") {
+    fail14("client launch pin contract is invalid", "INVALID_CLIENT_LAUNCH");
+  }
+  if (!launch || !absoluteSafePath(launch.command) || !Array.isArray(launch.args_prefix) || launch.args_prefix.some((path) => !absoluteSafePath(path)) || !launch.fingerprint?.command || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !["native", "npm_package"].includes(launch.source)) {
+    fail14("client launch pin evidence is invalid", "INVALID_CLIENT_LAUNCH");
+  }
+  const pinnedLaunch = frozenLaunchCopy(launch);
+  const evidence = launchFileEvidence(pinnedLaunch);
+  const runWithFilesPinned = (treeGuard) => launchFilePinner({
+    paths: evidence.paths,
+    callback: async (fileGuard) => {
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      for (let index = 0; index < evidence.paths.length; index += 1) {
+        const path = evidence.paths[index];
+        const observed = await fingerprintPath(path, { allowedRoots: [dirname8(path)], fsImpl });
+        if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
+          fail14("client launch file changed after discovery", "CLIENT_RUNTIME_CHANGED");
+        }
+      }
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      return callback(Object.freeze({
+        assertPinned() {
+          treeGuard?.assertPinned?.();
+          fileGuard?.assertPinned?.();
+        }
+      }), pinnedLaunch);
+    }
+  });
+  if (pinnedLaunch.source !== "npm_package") return runWithFilesPinned(null);
+  const expectedRuntime = pinnedLaunch.fingerprint?.runtime_tree;
+  return captureNpmRuntime(
+    expectedRuntime?.root,
+    expectedRuntime?.resolution_root,
+    pinnedLaunch.package_id,
+    fsImpl,
+    (pinOptions) => runtimeTreePinner({
+      ...pinOptions,
+      callback: async (treeGuard) => {
+        const observed = await pinOptions.callback(treeGuard);
+        if (sha256Canonical(observed) !== sha256Canonical(expectedRuntime)) {
+          fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED");
+        }
+        treeGuard?.assertPinned?.();
+        return runWithFilesPinned(treeGuard);
+      }
+    })
+  );
 }
 function absoluteSafePath(path) {
   return typeof path === "string" && isAbsolute11(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
@@ -19362,7 +20626,7 @@ async function readUtf8(path, fsImpl, byteLimit, label) {
   }
 }
 function parseVsCodeWrapper(content, wrapperDir, installRoot) {
-  const references = [...content.matchAll(/"%~dp0([^"\r\n]+)"/gi)].map((match) => resolve9(wrapperDir, match[1].replace(/[\\/]/g, sep7)));
+  const references = [...content.matchAll(/"%~dp0([^"\r\n]+)"/gi)].map((match) => resolve9(wrapperDir, match[1].replace(/[\\/]/g, sep8)));
   const expectedCommand = join9(installRoot, "Code.exe");
   if (references.length !== 2 || references.some((path) => !contained6(installRoot, path)) || pathKey3(references[0]) !== pathKey3(expectedCommand) || !isVersionedVsCodeCli(installRoot, references[1])) {
     fail14("VS Code wrapper does not describe one canonical same-root CLI tuple");
@@ -19370,8 +20634,8 @@ function parseVsCodeWrapper(content, wrapperDir, installRoot) {
   return { command: expectedCommand, cli: references[1] };
 }
 function isVersionedVsCodeCli(installRoot, cliPath) {
-  const rel = relative7(installRoot, cliPath);
-  const parts = rel.split(sep7);
+  const rel = relative8(installRoot, cliPath);
+  const parts = rel.split(sep8);
   return parts.length === 5 && parts[0] !== "" && parts[0] !== "." && parts[0] !== ".." && parts.slice(1).map((value) => value.toLowerCase()).join("/") === "resources/app/out/cli.js";
 }
 async function discoverVersionedVsCodeCli(installRoot, fsImpl) {
@@ -19411,7 +20675,12 @@ async function resolveNodeExecutable(candidates, fsImpl) {
     basenameRequired: process.platform === "win32" ? "node.exe" : basename(process.execPath)
   });
 }
-async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidates }) {
+async function resolveNpmCandidate(clientId, candidate, {
+  env,
+  fsImpl,
+  candidates,
+  runtimeTreePinner
+}) {
   const config2 = CLIENTS[clientId];
   if (!config2.package_id) fail14("client does not support npm package resolution");
   const prefixes = npmPrefixes(env, candidates);
@@ -19447,7 +20716,8 @@ async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidate
     runtimeTree = await captureClientRuntimeFingerprint(packageRoot, {
       resolutionRoot: modulesRoot,
       packageId: config2.package_id,
-      fsImpl
+      fsImpl,
+      runtimeTreePinner
     });
   } catch (error2) {
     fail14("client npm runtime tree is unsafe or exceeds its inspection limits", "NOT_INSTALLED", { cause_code: error2?.code ?? "UNKNOWN" });
@@ -19562,14 +20832,24 @@ function parseVersionOutput(stdout) {
   }
   return null;
 }
-async function probeVersion(launch, { env, runner, fsImpl }) {
-  await revalidateClientLaunchRuntime(launch, { fsImpl });
+async function probeVersion(launch, {
+  env,
+  runner,
+  fsImpl,
+  runtimeTreePinner,
+  launchFilePinner
+}) {
   const childEnv = clientProcessEnvironment(env, launch.env_overlay);
-  const result2 = await runner.run(launch.command, [...launch.args_prefix, "--version"], {
-    env: childEnv,
-    shell: false,
-    timeoutMs: 1e4,
-    outputLimitBytes: 64 * 1024
+  const result2 = await withPinnedClientLaunch(launch, {
+    fsImpl,
+    runtimeTreePinner,
+    launchFilePinner,
+    callback: (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [...pinnedLaunch.args_prefix, "--version"], {
+      env: childEnv,
+      shell: false,
+      timeoutMs: 1e4,
+      outputLimitBytes: 64 * 1024
+    })
   });
   if (result2.status !== "exited" || result2.exitCode !== 0) fail14("client version probe failed", "VERSION_PROBE_FAILED");
   const version2 = parseVersionOutput(result2.stdout);
@@ -19590,7 +20870,9 @@ async function resolveClientLaunch(clientId, {
   fsImpl = defaultFs10,
   runner,
   candidates = null,
-  authenticodeInspector = inspectAuthenticode
+  authenticodeInspector = inspectAuthenticode,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles
 } = {}) {
   if (!CLIENT_IDS.includes(clientId)) fail14("client ID is unsupported", "UNSUPPORTED_CLIENT");
   if (!runner?.run) fail14("client resolution requires a bounded process runner", "CLIENT_DISCOVERY_FAILED");
@@ -19608,7 +20890,8 @@ async function resolveClientLaunch(clientId, {
         fsImpl,
         runner,
         candidates,
-        authenticodeInspector
+        authenticodeInspector,
+        runtimeTreePinner
       }));
     } catch (error2) {
       if (!(error2 instanceof ClientProcessError)) throw error2;
@@ -19620,7 +20903,13 @@ async function resolveClientLaunch(clientId, {
   const viable = [];
   for (const launch of uniqueLaunches) {
     try {
-      const version2 = await probeVersion(launch, { env, runner, fsImpl });
+      const version2 = await probeVersion(launch, {
+        env,
+        runner,
+        fsImpl,
+        runtimeTreePinner,
+        launchFilePinner
+      });
       const compatibility = classifySupportedVersion(clientId, version2);
       const result2 = {
         client_id: clientId,
@@ -26885,6 +28174,9 @@ var Client = class extends Protocol {
   }
 };
 
+// server/deployment/protocol-smoke.mjs
+import { isAbsolute as isAbsolute12, posix as posix4, win32 as win3210 } from "node:path";
+
 // server/deployment/bounded-stdio-transport.mjs
 import { spawn as defaultSpawn3 } from "node:child_process";
 import { PassThrough } from "node:stream";
@@ -27140,6 +28432,42 @@ function baseEvidence(status, started) {
     duration_ms: Math.max(0, nowMs() - started)
   };
 }
+function absoluteDescriptorPath(value) {
+  return typeof value === "string" && (isAbsolute12(value) || win3210.isAbsolute(value) || posix4.isAbsolute(value));
+}
+async function withPinnedDescriptorLaunch(descriptor, {
+  callback,
+  launchFilePinner = withPinnedWindowsFiles
+} = {}) {
+  if (typeof callback !== "function" || typeof launchFilePinner !== "function") {
+    const error2 = new Error("descriptor launch pin contract is invalid");
+    error2.code = "INVALID_DESCRIPTOR_LAUNCH";
+    throw error2;
+  }
+  const validated = validateDescriptorContract(descriptor);
+  const validatedDescriptor = Object.freeze({
+    ...validated,
+    args: Object.freeze([...validated.args]),
+    env: Object.freeze({ ...validated.env })
+  });
+  const paths = [.../* @__PURE__ */ new Set([
+    validatedDescriptor.command,
+    ...validatedDescriptor.args.filter(absoluteDescriptorPath)
+  ])];
+  return launchFilePinner({
+    paths,
+    callback: async (guard) => {
+      guard?.assertPinned?.();
+      const value = await callback(
+        guard ?? Object.freeze({ assertPinned() {
+        } }),
+        validatedDescriptor
+      );
+      guard?.assertPinned?.();
+      return value;
+    }
+  });
+}
 async function smokeDescriptor(descriptor, {
   clientInfo = { name: "uemcp-deployment-smoke", version: "1.0.0" },
   timeoutMs = 15e3,
@@ -27336,8 +28664,8 @@ function unique5(values) {
 }
 function pathKey4(path) {
   if (typeof path !== "string") return null;
-  if (win3210.isAbsolute(path)) return `win:${win3210.normalize(path).toLowerCase()}`;
-  if (posix4.isAbsolute(path)) return `posix:${posix4.normalize(path)}`;
+  if (win3211.isAbsolute(path)) return `win:${win3211.normalize(path).toLowerCase()}`;
+  if (posix5.isAbsolute(path)) return `posix:${posix5.normalize(path)}`;
   return null;
 }
 function hasOnlyKeys(value, allowed) {
@@ -27878,13 +29206,15 @@ function createClientDomain({
   protocolSmoke = smokeDescriptor,
   captureFingerprint = captureClientPathFingerprint,
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+  pinClientLaunch = withPinnedClientLaunch,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   fsImpl = defaultFs11
 } = {}) {
   const mappedAdapters = adapterMap2(adapters);
   if (typeof transaction !== "function" && (!transaction || typeof transaction.snapshot !== "function" || typeof transaction.apply !== "function")) {
     fail16("client domain requires a transaction factory or transaction");
   }
-  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function") {
+  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function") {
     fail16("client domain dependencies are invalid");
   }
   async function discover(context, approvedPlan = null) {
@@ -27932,6 +29262,25 @@ function createClientDomain({
           });
         }
         await outerGuard?.(evidence);
+      },
+      withActiveClientLaunch: async (evidence, callback) => {
+        if (!plainObject6(evidence) || evidence.client_id !== row.client_id || evidence.kind !== "native" || typeof callback !== "function") {
+          fail16("adapter active-launch pin evidence is invalid", "INVALID_CLIENT_LAUNCH");
+        }
+        await outerGuard?.(evidence);
+        try {
+          return await pinClientLaunch(row.launch, {
+            callback,
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner,
+            launchFilePinner: context.launchFilePinner
+          });
+        } catch (error2) {
+          fail16("client launch changed before process completion", "PLAN_STALE", {
+            client_id: row.client_id,
+            cause_code: error2?.code ?? "CLIENT_RUNTIME_CHANGED"
+          });
+        }
       }
     });
   }
@@ -27961,9 +29310,16 @@ function createClientDomain({
         const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
         await recheckInspectionPreconditions(currentContext, inspection);
         await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
-        smoke = await protocolSmoke(context.descriptor, {
-          effectiveEnvironment,
-          effectiveCwd: launch.cwd ?? null
+        smoke = await descriptorLaunchPinner(context.descriptor, {
+          launchFilePinner: context.launchFilePinner,
+          callback: async (guard, pinnedDescriptor) => {
+            await recheckInspectionPreconditions(currentContext, inspection);
+            guard?.assertPinned?.();
+            return protocolSmoke(pinnedDescriptor, {
+              effectiveEnvironment,
+              effectiveCwd: launch.cwd ?? null
+            });
+          }
         });
       }
       const client = publicClient(row, inspection, planResult, requestedProfile, smoke);
@@ -28322,7 +29678,7 @@ function createClientDomain({
 
 // server/deployment/descriptor.mjs
 import * as defaultFs12 from "node:fs/promises";
-import { isAbsolute as isAbsolute12, posix as posix5, resolve as resolve11, win32 as win3211 } from "node:path";
+import { isAbsolute as isAbsolute13, posix as posix6, resolve as resolve11, win32 as win3212 } from "node:path";
 var DESCRIPTOR_KEYS = ["name", "transport", "command", "args", "env", "cwd"];
 var DescriptorError = class extends Error {
   constructor(message, code = "INVALID_DESCRIPTOR", details = {}) {
@@ -28337,7 +29693,7 @@ function normalizePath(value) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function absolutePath6(value) {
-  return typeof value === "string" && (isAbsolute12(value) || win3211.isAbsolute(value) || posix5.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute13(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
 }
 function exactDescriptorShape(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -28385,7 +29741,7 @@ function descriptorsEqual(actual, expected) {
 import { spawn as defaultSpawn4 } from "node:child_process";
 import { randomBytes as randomBytes3 } from "node:crypto";
 import * as defaultFs13 from "node:fs/promises";
-import { basename as basename2, dirname as dirname9, isAbsolute as isAbsolute13, join as join10, parse as parse6, relative as relative8, resolve as resolve12, sep as sep8 } from "node:path";
+import { basename as basename2, dirname as dirname9, isAbsolute as isAbsolute14, join as join10, parse as parse6, relative as relative9, resolve as resolve12, sep as sep9 } from "node:path";
 var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
 var SHA2562 = /^[0-9a-f]{64}$/;
 var LEASE_OWNER_TOKEN = /^[0-9a-f]{48}$/;
@@ -28447,8 +29803,8 @@ var LocalStateError = class extends Error {
 function contained7(root, candidate) {
   const normalizedRoot = process.platform === "win32" ? resolve12(root).toLowerCase() : resolve12(root);
   const normalizedCandidate = process.platform === "win32" ? resolve12(candidate).toLowerCase() : resolve12(candidate);
-  const rel = relative8(normalizedRoot, normalizedCandidate);
-  return rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !isAbsolute13(rel);
+  const rel = relative9(normalizedRoot, normalizedCandidate);
+  return rel === "" || !rel.startsWith(`..${sep9}`) && rel !== ".." && !isAbsolute14(rel);
 }
 function safeSegment(value, label) {
   if (typeof value !== "string" || value === "." || value === ".." || !/^[A-Za-z0-9._-]+$/.test(value)) {
@@ -28492,14 +29848,14 @@ function createApplyLeaseCoordinator({
   spawnImpl = defaultSpawn4,
   waitMs = 15e3
 } = {}) {
-  if (typeof root !== "string" || !isAbsolute13(root)) {
+  if (typeof root !== "string" || !isAbsolute14(root)) {
     throw new LocalStateError("lease coordinator root must be absolute", "LEASE_COORDINATOR_UNAVAILABLE");
   }
   if (typeof spawnImpl !== "function" || !Number.isSafeInteger(waitMs) || waitMs <= 0) {
     throw new LocalStateError("lease coordinator options are invalid", "LEASE_COORDINATOR_UNAVAILABLE");
   }
   if (platform !== "win32") return createInProcessLeaseCoordinator(root);
-  if (typeof systemRoot !== "string" || !isAbsolute13(systemRoot)) {
+  if (typeof systemRoot !== "string" || !isAbsolute14(systemRoot)) {
     throw new LocalStateError("SystemRoot is required for the apply-lease coordinator", "LEASE_COORDINATOR_UNAVAILABLE");
   }
   const powershell = resolve12(join10(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
@@ -28636,12 +29992,12 @@ async function exists(fsImpl, path) {
   }
 }
 async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
-  if (typeof path !== "string" || !isAbsolute13(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+  if (typeof path !== "string" || !isAbsolute14(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
     throw new LocalStateError("snapshot target path is unsafe", code);
   }
   const absolute = resolve12(path);
   const root = parse6(absolute).root;
-  const segments = relative8(root, absolute).split(sep8).filter(Boolean);
+  const segments = relative9(root, absolute).split(sep9).filter(Boolean);
   let current = root;
   for (const segment of segments) {
     current = join10(current, segment);
@@ -28653,6 +30009,57 @@ async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
     }
   }
   return absolute;
+}
+function stableFileIdentity(stat) {
+  return {
+    dev: Number(stat.dev),
+    ino: Number(stat.ino),
+    birthtime_ms: Number(stat.birthtimeMs)
+  };
+}
+function sameStableFile2(left, right) {
+  return left.isFile() && right.isFile() && !left.isSymbolicLink() && !right.isSymbolicLink() && Number(left.nlink) === 1 && Number(right.nlink) === 1 && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+async function readStableSingleLinkFile(path, { fsImpl, code, missingAllowed = true }) {
+  let pathBefore;
+  try {
+    pathBefore = await fsImpl.lstat(path);
+  } catch (error2) {
+    if (error2?.code !== "ENOENT" || !missingAllowed) throw error2;
+    try {
+      await fsImpl.lstat(path);
+    } catch (secondError) {
+      if (secondError?.code === "ENOENT") return { exists: false, bytes: null, stat: null };
+      throw secondError;
+    }
+    throw new LocalStateError("snapshot target appeared during inspection", code);
+  }
+  if (!pathBefore.isFile() || pathBefore.isSymbolicLink() || Number(pathBefore.nlink) !== 1) {
+    throw new LocalStateError("snapshot target must be a regular single-link file", code);
+  }
+  let handle;
+  try {
+    handle = await fsImpl.open(path, "r");
+    const handleBefore = await handle.stat();
+    if (!sameStableFile2(pathBefore, handleBefore)) {
+      throw new LocalStateError("snapshot target changed before its read handle was secured", code);
+    }
+    const bytes = await handle.readFile();
+    const handleAfter = await handle.stat();
+    const pathAfter = await fsImpl.lstat(path);
+    if (!sameStableFile2(handleBefore, handleAfter) || !sameStableFile2(handleAfter, pathAfter) || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new LocalStateError("snapshot target changed while it was read", code);
+    }
+    return { exists: true, bytes, stat: pathBefore };
+  } catch (error2) {
+    if (error2?.code === "ENOENT" && missingAllowed) {
+      throw new LocalStateError("snapshot target disappeared during inspection", code);
+    }
+    throw error2;
+  } finally {
+    await handle?.close().catch(() => {
+    });
+  }
 }
 async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = {}, {
   runner = createProcessRunner(),
@@ -28752,6 +30159,7 @@ function createLocalState({
   aclRestrictor = defaultAclRestrictor,
   processInspector = inspectLeaseOwnerProcess,
   leaseCoordinator,
+  treeRemover,
   clock = Date.now,
   sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 } = {}) {
@@ -28759,6 +30167,15 @@ function createLocalState({
   if (!selectedRoot) throw new LocalStateError("LOCALAPPDATA is unavailable and no local-state root was injected");
   const absoluteRoot = resolve12(selectedRoot);
   const coordinateLease = leaseCoordinator ?? createApplyLeaseCoordinator({ root: absoluteRoot });
+  if (treeRemover !== void 0 && typeof treeRemover !== "function") {
+    throw new LocalStateError("local-state tree remover is invalid");
+  }
+  const treeDeleteRunner = treeRemover === void 0 ? createProcessRunner() : null;
+  const removeTree = treeRemover ?? ((options) => deleteWindowsTreeNoFollow({
+    ...options,
+    runner: treeDeleteRunner,
+    fsImpl
+  }));
   if (typeof coordinateLease !== "function") {
     throw new LocalStateError("lease coordinator is invalid", "LEASE_COORDINATOR_UNAVAILABLE");
   }
@@ -28784,7 +30201,7 @@ function createLocalState({
   }
   async function assertNoLinkedLocalPath(path) {
     const absolute = assertLocalPath(path);
-    const segments = relative8(absoluteRoot, absolute).split(sep8).filter(Boolean);
+    const segments = relative9(absoluteRoot, absolute).split(sep9).filter(Boolean);
     let current = absoluteRoot;
     const pathSegments = [null, ...segments];
     for (const [index, segment] of pathSegments.entries()) {
@@ -28852,21 +30269,21 @@ function createLocalState({
     if (!contained7(pathSet.snapshots, directory)) throw new LocalStateError("snapshot transaction escapes the snapshot root");
     await ensureDirectory(directory);
     const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: "UNSAFE_SNAPSHOT_TARGET" });
-    let stat = null;
-    let bytes = null;
-    try {
-      stat = await fsImpl.lstat(absoluteTarget);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new LocalStateError("snapshot target must be a regular single-link file", "UNSAFE_SNAPSHOT_TARGET");
-      bytes = await fsImpl.readFile(absoluteTarget);
+    const captured = await readStableSingleLinkFile(absoluteTarget, {
+      fsImpl,
+      code: "UNSAFE_SNAPSHOT_TARGET"
+    });
+    const { bytes, stat } = captured;
+    if (captured.exists) {
       await writeBytesAtomic(join10(directory, "payload.bin"), bytes);
-    } catch (error2) {
-      if (error2?.code !== "ENOENT") throw error2;
     }
     const metadata = {
       schema_version: "1.0",
       snapshot_id: `${id}/${directory.split(/[\\/]/).at(-1)}`,
       target_path: absoluteTarget,
-      exists: stat !== null,
+      exists: captured.exists,
+      size: stat === null ? null : Number(stat.size),
+      identity: stat === null ? null : stableFileIdentity(stat),
       mode: stat === null ? null : stat.mode,
       atime_ms: stat === null ? null : stat.atimeMs,
       mtime_ms: stat === null ? null : stat.mtimeMs,
@@ -28893,9 +30310,11 @@ function createLocalState({
     }
     let currentHash = null;
     try {
-      const currentStat = await fsImpl.lstat(metadata.target_path);
-      if (!currentStat.isFile() || currentStat.isSymbolicLink() || currentStat.nlink !== 1) throw new LocalStateError("rollback target changed identity", "ROLLBACK_CONFLICT");
-      currentHash = sha256Bytes(await fsImpl.readFile(metadata.target_path));
+      const current = await readStableSingleLinkFile(metadata.target_path, {
+        fsImpl,
+        code: "ROLLBACK_CONFLICT"
+      });
+      currentHash = current.exists ? sha256Bytes(current.bytes) : null;
     } catch (error2) {
       if (error2?.code !== "ENOENT") throw error2;
     }
@@ -28906,7 +30325,12 @@ function createLocalState({
       await fsImpl.rm(metadata.target_path, { force: true });
       return { status: "restored_absent" };
     }
-    const payload = await fsImpl.readFile(join10(snapshot.directory, "payload.bin"));
+    const payloadResult = await readStableSingleLinkFile(join10(snapshot.directory, "payload.bin"), {
+      fsImpl,
+      code: "INVALID_SNAPSHOT",
+      missingAllowed: false
+    });
+    const payload = payloadResult.bytes;
     if (sha256Bytes(payload) !== metadata.original_sha256) {
       throw new LocalStateError("snapshot payload hash is invalid", "INVALID_SNAPSHOT");
     }
@@ -28936,7 +30360,10 @@ function createLocalState({
       throw new LocalStateError("snapshot is outside the local-state root", "INVALID_SNAPSHOT");
     }
     await assertNoLinkedLocalPath(snapshot.directory);
-    await fsImpl.rm(snapshot.directory, { recursive: true, force: true });
+    await removeTree({ targetPath: snapshot.directory, allowedRoot: pathSet.snapshots });
+    if (await exists(fsImpl, snapshot.directory)) {
+      throw new LocalStateError("snapshot cleanup could not be verified", "SNAPSHOT_DELETE_FAILED");
+    }
   }
   async function cleanupExpired() {
     await assertNoLinkedLocalPath(pathSet.snapshots);
@@ -28951,7 +30378,10 @@ function createLocalState({
         const directory = join10(transactionPath, entry.name);
         const metadata = await readJson(join10(directory, "metadata.json")).catch(() => null);
         if (metadata?.retained_until && Date.parse(metadata.retained_until) <= Number(clock())) {
-          await fsImpl.rm(directory, { recursive: true, force: true });
+          await removeTree({ targetPath: directory, allowedRoot: pathSet.snapshots });
+          if (await exists(fsImpl, directory)) {
+            throw new LocalStateError("expired snapshot cleanup could not be verified", "SNAPSHOT_DELETE_FAILED");
+          }
           deleted += 1;
         }
       }
@@ -29288,10 +30718,10 @@ function createLocalState({
 }
 
 // server/deployment/orchestrator.mjs
-import { dirname as dirname10, isAbsolute as isAbsolute15, resolve as resolve14 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute16, resolve as resolve14 } from "node:path";
 
 // server/deployment/plan-document.mjs
-import { isAbsolute as isAbsolute14, posix as posix6, win32 as win3212 } from "node:path";
+import { isAbsolute as isAbsolute15, posix as posix7, win32 as win3213 } from "node:path";
 
 // server/deployment/redaction.mjs
 var DEFAULT_SECRET_KEYS = Object.freeze([
@@ -29411,7 +30841,7 @@ function fail17(message, code, details) {
   throw new DeploymentPlanError(message, code, details);
 }
 function absolutePath7(value) {
-  return typeof value === "string" && (isAbsolute14(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute15(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
 }
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
@@ -29928,16 +31358,17 @@ function createDeploymentOrchestrator({
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   includeGenericClient = true,
   applyWaitMs = 3e4
 } = {}) {
   if (!repoRoot || !stateRoot) throw new OrchestratorError("repoRoot and stateRoot are required");
-  if (typeof workspaceRoot !== "string" || !isAbsolute15(workspaceRoot)) {
+  if (typeof workspaceRoot !== "string" || !isAbsolute16(workspaceRoot)) {
     throw new OrchestratorError("workspaceRoot must be an absolute path");
   }
   const activeWorkspaceRoot = resolve14(workspaceRoot);
   if (!localState) throw new OrchestratorError("localState is required");
-  if (typeof sourceProvider !== "function" || typeof descriptorProvider !== "function") {
+  if (typeof sourceProvider !== "function" || typeof descriptorProvider !== "function" || typeof protocolSmoke !== "function" || typeof descriptorLaunchPinner !== "function") {
     throw new OrchestratorError("source and descriptor providers are required");
   }
   const orderedDomains = validateDomains(domains);
@@ -29965,7 +31396,10 @@ function createDeploymentOrchestrator({
     const hasGeneric = aggregate.clients.some((client2) => client2.adapter === "generic-mcp-host");
     const hasReleaseGatedClient = aggregate.clients.some((client2) => client2.adapter !== "generic-mcp-host" && client2.compatibility === "release_gated");
     if (!includeGenericClient || hasGeneric || hasReleaseGatedClient) return;
-    const smoke = await protocolSmoke(context.descriptor);
+    const smoke = await descriptorLaunchPinner(context.descriptor, {
+      launchFilePinner: context.launchFilePinner,
+      callback: (guard, pinnedDescriptor) => protocolSmoke(pinnedDescriptor)
+    });
     const client = createGenericClientResult({ descriptor: context.descriptor, smoke });
     aggregate.clients = [...aggregate.clients, client];
     aggregate.actions.push(...client.actions);
@@ -30204,7 +31638,7 @@ function createDeploymentOrchestrator({
 
 // server/deployment/prerequisites.mjs
 import * as defaultFs15 from "node:fs/promises";
-import { dirname as dirname11, isAbsolute as isAbsolute16, join as join12, posix as posix7, resolve as resolve15, win32 as win3213 } from "node:path";
+import { dirname as dirname11, isAbsolute as isAbsolute17, join as join12, posix as posix8, resolve as resolve15, win32 as win3214 } from "node:path";
 var INSTALL_MODE = "production-no-scripts";
 var VALIDATION_COMMAND = "npm ls --omit=dev --all --json";
 var PrerequisiteError = class extends Error {
@@ -30216,7 +31650,7 @@ var PrerequisiteError = class extends Error {
   }
 };
 function absolutePath8(value) {
-  return typeof value === "string" && (isAbsolute16(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute17(value) || win3214.isAbsolute(value) || posix8.isAbsolute(value));
 }
 function fail18(message, code, details) {
   throw new PrerequisiteError(message, code, details);
@@ -30656,7 +32090,7 @@ function createPrerequisiteDomain({
 
 // server/deployment/source-provenance.mjs
 import * as defaultFs16 from "node:fs/promises";
-import { dirname as dirname12, isAbsolute as isAbsolute17, join as join13, posix as posix8, relative as relative9, resolve as resolve16, sep as sep9, win32 as win3214 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute18, join as join13, posix as posix9, relative as relative10, resolve as resolve16, sep as sep10, win32 as win3215 } from "node:path";
 var PROVENANCE_FILE = ".uemcp-source-provenance.json";
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var SHA2565 = /^[0-9a-f]{64}$/;
@@ -30678,7 +32112,7 @@ function exactKeys4(value, expected, label) {
   if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail19(`${label} has an unexpected schema`);
 }
 function slash(value) {
-  return value.split(sep9).join("/");
+  return value.split(sep10).join("/");
 }
 function isSafePayloadPath(value) {
   return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && !value.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
@@ -30768,7 +32202,7 @@ async function runGit(runner, executable, args, repoRoot, { allowFailure = false
 async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authenticodeInspector, environment }) {
   const gitPath = await selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment });
   const reportedTopLevel = await runGit(runner, gitPath, ["rev-parse", "--show-toplevel"], repoRoot);
-  if (!(isAbsolute17(reportedTopLevel) || win3214.isAbsolute(reportedTopLevel) || posix8.isAbsolute(reportedTopLevel))) {
+  if (!(isAbsolute18(reportedTopLevel) || win3215.isAbsolute(reportedTopLevel) || posix9.isAbsolute(reportedTopLevel))) {
     fail19("Git returned a non-absolute top-level path");
   }
   let topLevel;
@@ -30854,7 +32288,7 @@ async function collectArchiveFiles(repoRoot, fsImpl) {
     entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (const entry of entries) {
       const path = join13(directory, entry.name);
-      const rel = slash(relative9(repoRoot, path));
+      const rel = slash(relative10(repoRoot, path));
       const stat = await fsImpl.lstat(path);
       if (stat.isSymbolicLink()) fail19("archive contains a linked path", { path: rel });
       if (stat.isDirectory()) await visit2(path);
@@ -30878,8 +32312,8 @@ async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
     if (error2 instanceof SourceProvenanceError) throw error2;
     fail19("bundle manifest is missing");
   }
-  const bundleRelative = slash(relative9(repoRoot, bundlePath));
-  if (bundleRelative.startsWith("../") || isAbsolute17(bundleRelative)) fail19("bundle manifest escapes the archive root");
+  const bundleRelative = slash(relative10(repoRoot, bundlePath));
+  if (bundleRelative.startsWith("../") || isAbsolute18(bundleRelative)) fail19("bundle manifest escapes the archive root");
   let bundleBytes;
   try {
     bundleBytes = await fsImpl.readFile(bundlePath);
@@ -30929,7 +32363,7 @@ async function inspectSourceProvenance({
   authenticodeInspector = inspectAuthenticode,
   environment = process.env
 } = {}) {
-  if (typeof repoRoot !== "string" || !(isAbsolute17(repoRoot) || win3214.isAbsolute(repoRoot) || posix8.isAbsolute(repoRoot))) {
+  if (typeof repoRoot !== "string" || !(isAbsolute18(repoRoot) || win3215.isAbsolute(repoRoot) || posix9.isAbsolute(repoRoot))) {
     fail19("repository root must be absolute");
   }
   let canonicalRoot;
@@ -30959,7 +32393,7 @@ async function inspectSourceProvenance({
 import { randomBytes as randomBytes5 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
-import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute19, join as join16, parse as parse7, posix as posix9, relative as relative10, resolve as resolve19, sep as sep10, win32 as win3215 } from "node:path";
+import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute20, join as join16, parse as parse7, posix as posix10, relative as relative11, resolve as resolve19, sep as sep11, win32 as win3216 } from "node:path";
 
 // server/project-targets.mjs
 import { createHash as createHash2, randomBytes as randomBytes4 } from "node:crypto";
@@ -30976,7 +32410,7 @@ import {
   statSync as statSync2,
   writeFileSync
 } from "node:fs";
-import { basename as basename5, dirname as dirname14, extname as extname3, isAbsolute as isAbsolute18, join as join15, resolve as resolve18 } from "node:path";
+import { basename as basename5, dirname as dirname14, extname as extname3, isAbsolute as isAbsolute19, join as join15, resolve as resolve18 } from "node:path";
 
 // server/project-errors.mjs
 var PROJECT_ERROR_CODES = Object.freeze({
@@ -31062,7 +32496,7 @@ function resolveDefaultTargetsPath({
 } = {}) {
   if (!repoRoot) throw new ProjectTargetPathError("resolveDefaultTargetsPath requires repoRoot");
   if (explicitTargetsPath) {
-    if (!isAbsolute18(explicitTargetsPath) || extname3(explicitTargetsPath).toLowerCase() !== ".json") {
+    if (!isAbsolute19(explicitTargetsPath) || extname3(explicitTargetsPath).toLowerCase() !== ".json") {
       throw new ProjectTargetPathError("Explicit target registry must be an absolute .json path.");
     }
     return resolve18(explicitTargetsPath);
@@ -31190,15 +32624,15 @@ var TargetDomainError = class extends Error {
   }
 };
 function absolutePath9(value) {
-  return typeof value === "string" && (isAbsolute19(value) || win3215.isAbsolute(value) || posix9.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute20(value) || win3216.isAbsolute(value) || posix10.isAbsolute(value));
 }
 function pathKey5(value) {
   const normalized = resolve19(value);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained8(root, candidate) {
-  const rel = relative10(pathKey5(root), pathKey5(candidate));
-  return rel === "" || !rel.startsWith(`..${sep10}`) && rel !== ".." && !isAbsolute19(rel);
+  const rel = relative11(pathKey5(root), pathKey5(candidate));
+  return rel === "" || !rel.startsWith(`..${sep11}`) && rel !== ".." && !isAbsolute20(rel);
 }
 function devicePath(value) {
   return /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
@@ -31206,7 +32640,7 @@ function devicePath(value) {
 async function assertNoLinkedAncestors(path, asyncFs) {
   const absolute = resolve19(path);
   const root = parse7(absolute).root;
-  const segments = relative10(root, absolute).split(sep10).filter(Boolean);
+  const segments = relative11(root, absolute).split(sep11).filter(Boolean);
   let current = root;
   for (const segment of segments) {
     current = join16(current, segment);
@@ -31634,7 +33068,7 @@ function parseArgs(argv) {
     if (!["setup", "sync"].includes(parsed.operation)) throw new UsageError("plan requires --operation setup or sync");
     if (parsed.planFile || parsed.approveDigest || parsed.nonInteractive) throw new UsageError("plan does not accept apply flags");
   } else if (command === "apply") {
-    if (!parsed.planFile || !isAbsolute20(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
+    if (!parsed.planFile || !isAbsolute21(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
       throw new UsageError("apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive");
     }
     if (requestFlags || parsed.operation !== null || parsed.outputPlan !== null) throw new UsageError("apply request overrides are forbidden");
@@ -31646,13 +33080,13 @@ function parseArgs(argv) {
   } else if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
     throw new UsageError("repair does not accept plan/apply flags");
   }
-  if (parsed.targetsFile !== null && (!isAbsolute20(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith(".json"))) {
+  if (parsed.targetsFile !== null && (!isAbsolute21(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith(".json"))) {
     throw new UsageError("--targets-file must be an absolute .json path");
   }
-  if (parsed.outputPlan !== null && (!isAbsolute20(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith(".json"))) {
+  if (parsed.outputPlan !== null && (!isAbsolute21(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith(".json"))) {
     throw new UsageError("--output-plan must be an absolute .json path");
   }
-  if (parsed.project !== null && (!isAbsolute20(parsed.project) || extname5(parsed.project).toLowerCase() !== ".uproject")) {
+  if (parsed.project !== null && (!isAbsolute21(parsed.project) || extname5(parsed.project).toLowerCase() !== ".uproject")) {
     throw new UsageError("--project must be an absolute .uproject path");
   }
   if (parsed.profile !== null && parsed.profile.trim() === "") throw new UsageError("--profile must be non-empty");

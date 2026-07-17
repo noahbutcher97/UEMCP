@@ -11,7 +11,11 @@ import {
 import { sha256Canonical } from './canonical-json.mjs';
 import { descriptorsEqual } from './descriptor.mjs';
 import { fingerprintPath } from './fingerprints.mjs';
-import { createGenericClientResult, smokeDescriptor } from './protocol-smoke.mjs';
+import {
+  createGenericClientResult,
+  smokeDescriptor,
+  withPinnedDescriptorLaunch,
+} from './protocol-smoke.mjs';
 import {
   createPlanDocument,
   validatePlanEnvelope,
@@ -200,6 +204,7 @@ export function createDeploymentOrchestrator({
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   includeGenericClient = true,
   applyWaitMs = 30_000,
 } = {}) {
@@ -209,7 +214,10 @@ export function createDeploymentOrchestrator({
   }
   const activeWorkspaceRoot = resolve(workspaceRoot);
   if (!localState) throw new OrchestratorError('localState is required');
-  if (typeof sourceProvider !== 'function' || typeof descriptorProvider !== 'function') {
+  if (typeof sourceProvider !== 'function'
+    || typeof descriptorProvider !== 'function'
+    || typeof protocolSmoke !== 'function'
+    || typeof descriptorLaunchPinner !== 'function') {
     throw new OrchestratorError('source and descriptor providers are required');
   }
   const orderedDomains = validateDomains(domains);
@@ -240,7 +248,10 @@ export function createDeploymentOrchestrator({
     const hasReleaseGatedClient = aggregate.clients.some(client =>
       client.adapter !== 'generic-mcp-host' && client.compatibility === 'release_gated');
     if (!includeGenericClient || hasGeneric || hasReleaseGatedClient) return;
-    const smoke = await protocolSmoke(context.descriptor);
+    const smoke = await descriptorLaunchPinner(context.descriptor, {
+      launchFilePinner: context.launchFilePinner,
+      callback: (guard, pinnedDescriptor) => protocolSmoke(pinnedDescriptor),
+    });
     const client = createGenericClientResult({ descriptor: context.descriptor, smoke });
     aggregate.clients = [...aggregate.clients, client];
     aggregate.actions.push(...client.actions);

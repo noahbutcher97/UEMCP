@@ -353,8 +353,12 @@ Plans and receipts reject secret-bearing fields. Child processes use absolute
 executables, argument arrays, bounded output, deadlines, and `shell: false`.
 Path checks reject device paths, unsafe links, and real-path escape before any
 write. Snapshot creation and rollback reject linked files and linked ancestor
-paths. The Windows apply lease checks both PID and process-start evidence, so a
-reused PID cannot impersonate a crashed owner.
+paths. Snapshot bytes are read through one open handle and accepted only when
+the before/after handle identity, pathname identity, size, and timestamps stay
+stable; the transaction then binds snapshot existence, size, hash, and file
+identity back to the approved fingerprint. The Windows apply lease checks both
+PID and process-start evidence, so a reused PID cannot impersonate a crashed
+owner.
 
 Immediately around each config creation, replacement, deferred delete,
 rollback restoration, and transaction-owned directory cleanup, the transaction
@@ -362,6 +366,22 @@ opens and validates every existing ancestor from the volume root and holds a
 delete-denying sentinel in the destination parent. Parent identity is
 revalidated after acquisition. Directory substitution therefore becomes a
 precondition or rollback conflict rather than redirecting the approved write.
+Recursive snapshot and native-stage cleanup uses a bounded Windows handle
+walker. It opens reparse points as objects, pins the complete parent ancestry,
+never invokes pathname-recursive deletion, and verifies absence afterward.
+Rollback cannot report `ROLLED_BACK` when transaction-owned directory cleanup
+fails, finds a replacement identity, or encounters new contents.
+
+Npm runtime manifests are captured while every declared package-tree file and
+directory is open without write or delete sharing. A recursive directory-change
+watch invalidates the pass on namespace growth, including transient changes.
+Before every supported client process starts, the runtime manifest and exact
+executable/script fingerprints are revalidated under those pins, and the
+handles remain held until the child closes. The callback receives the frozen,
+validated launch tuple used to acquire those handles. Native client queries and protocol
+smoke use the same process-lifetime launch contract. The shared descriptor
+guard covers both release-gated client verification and the generic-host
+fallback, so neither path can bypass exact executable/script pinning.
 
 CLI failures emit only closed error codes and fixed diagnostic text. Arbitrary
 provider, parser, child-process, command, flag, and exception text is never
@@ -387,11 +407,17 @@ release gates in `client-contract.mjs`. Unsupported releases remain
 inspect-only. Generic hosts still use the canonical manual descriptor and
 truthfully report `MANUAL_REGISTRATION_REQUIRED`. Plugin copy/build/load proof
 is not enabled yet; it joins the same orchestrator as a later plugin domain.
-Npm runtime manifests bind the declared installed dependency closure and detect
-plan-to-launch byte drift. They do not authenticate registry provenance or
-confine an intentionally undeclared import from a shared module root. Windows
-descendant termination uses bounded `taskkill /T`; kernel-enforced Job Object
-containment remains a follow-on for hostile early-parent-exit cases.
+Npm runtime manifests bind and process-pin the declared installed dependency
+closure. They do not authenticate registry provenance or confine an
+intentionally undeclared import from a shared module root. Exact launch-file
+pins also do not recursively attest sibling content loaded by a native
+application or by the server's module graph; a provider-authenticated complete
+runtime closure remains a follow-on. Windows descendant termination uses
+bounded `taskkill /T`; kernel-enforced Job Object containment remains a
+follow-on for hostile early-parent-exit cases. Node/npm prerequisite probes,
+Git provenance probes, and fixed Windows helper launches retain their separate
+canonical-path and precondition contracts; extending process-lifetime handle
+pins to every non-client child is a separate hardening lane.
 The deployment surfaces have these intentionally separate boundaries:
 
 | Capability | Current entrypoint | Status |

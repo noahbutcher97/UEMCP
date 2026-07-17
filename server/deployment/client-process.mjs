@@ -21,7 +21,11 @@ import {
   validateClientLaunchContract,
 } from './client-contract.mjs';
 import { fingerprintDirectory, fingerprintPath } from './fingerprints.mjs';
-import { inspectAuthenticode } from './windows-native.mjs';
+import {
+  inspectAuthenticode,
+  withPinnedWindowsFiles,
+  withPinnedWindowsTrees,
+} from './windows-native.mjs';
 
 const CLIENTS = Object.freeze({
   claude: Object.freeze({
@@ -194,7 +198,7 @@ async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot
   return null;
 }
 
-async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl) {
+async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner) {
   const canonicalResolutionRoot = await canonicalDirectory(resolutionRoot, {
     fsImpl,
     allowedRoots: [resolutionRoot],
@@ -242,42 +246,53 @@ async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl)
     if (!disjointRoots.some(parent => contained(parent, root))) disjointRoots.push(root);
   }
 
-  let entryCount = 0;
-  let fileCount = 0;
-  let totalBytes = 0;
-  const entries = [];
-  for (const root of disjointRoots) {
-    const tree = await fingerprintDirectory(root, {
-      allowedRoots: [canonicalResolutionRoot],
-      fsImpl,
-      maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
-      maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
-      maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes,
-    });
-    const prefix = relative(canonicalResolutionRoot, root).replace(/\\/g, '/');
-    if (prefix === '..' || prefix.startsWith('../') || isAbsolute(prefix)) fail('client package tree escapes its resolution root');
-    entryCount += tree.entry_count;
-    fileCount += tree.file_count;
-    totalBytes += tree.total_bytes;
-    for (const entry of tree.entries) {
-      entries.push({ ...entry, path: prefix === '' ? entry.path : `${prefix}/${entry.path}` });
-    }
-  }
-  entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-  const entryByPath = new Map(entries.map(entry => [entry.path, entry]));
-  for (const proof of manifestProofs) {
-    const path = relative(canonicalResolutionRoot, proof.path).replace(/\\/g, '/');
-    if (entryByPath.get(path)?.sha256 !== proof.sha256) fail('client package manifest changed during runtime inspection');
-  }
-  return runtimeFingerprint({
-    packageRoot: canonicalPackageRoot,
-    resolutionRoot: canonicalResolutionRoot,
-    packageId,
-    packageCount: packages.size,
-    entryCount,
-    fileCount,
-    totalBytes,
-    manifestSha256: sha256Canonical(entries),
+  return runtimeTreePinner({
+    roots: disjointRoots,
+    maxEntries: NPM_RUNTIME_LIMITS.max_entries,
+    maxFiles: NPM_RUNTIME_LIMITS.max_files,
+    maxBytes: NPM_RUNTIME_LIMITS.max_bytes,
+    callback: async guard => {
+      guard?.assertPinned?.();
+      let entryCount = 0;
+      let fileCount = 0;
+      let totalBytes = 0;
+      const entries = [];
+      for (const root of disjointRoots) {
+        const tree = await fingerprintDirectory(root, {
+          allowedRoots: [canonicalResolutionRoot],
+          fsImpl,
+          maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
+          maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
+          maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes,
+        });
+        guard?.assertPinned?.();
+        const prefix = relative(canonicalResolutionRoot, root).replace(/\\/g, '/');
+        if (prefix === '..' || prefix.startsWith('../') || isAbsolute(prefix)) fail('client package tree escapes its resolution root');
+        entryCount += tree.entry_count;
+        fileCount += tree.file_count;
+        totalBytes += tree.total_bytes;
+        for (const entry of tree.entries) {
+          entries.push({ ...entry, path: prefix === '' ? entry.path : `${prefix}/${entry.path}` });
+        }
+      }
+      entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      const entryByPath = new Map(entries.map(entry => [entry.path, entry]));
+      for (const proof of manifestProofs) {
+        const path = relative(canonicalResolutionRoot, proof.path).replace(/\\/g, '/');
+        if (entryByPath.get(path)?.sha256 !== proof.sha256) fail('client package manifest changed during runtime inspection');
+      }
+      guard?.assertPinned?.();
+      return runtimeFingerprint({
+        packageRoot: canonicalPackageRoot,
+        resolutionRoot: canonicalResolutionRoot,
+        packageId,
+        packageCount: packages.size,
+        entryCount,
+        fileCount,
+        totalBytes,
+        manifestSha256: sha256Canonical(entries),
+      });
+    },
   });
 }
 
@@ -285,11 +300,16 @@ export async function captureClientRuntimeFingerprint(packageRoot, {
   resolutionRoot = packageRoot,
   packageId,
   fsImpl = defaultFs,
+  runtimeTreePinner = withPinnedWindowsTrees,
 } = {}) {
-  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl);
+  if (typeof runtimeTreePinner !== 'function') fail('client runtime tree pinner is invalid');
+  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner);
 }
 
-export async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs } = {}) {
+export async function revalidateClientLaunchRuntime(launch, {
+  fsImpl = defaultFs,
+  runtimeTreePinner = withPinnedWindowsTrees,
+} = {}) {
   if (launch?.source !== 'npm_package') return true;
   let observed;
   try {
@@ -297,6 +317,7 @@ export async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs
       resolutionRoot: launch.fingerprint?.runtime_tree?.resolution_root,
       packageId: launch.package_id,
       fsImpl,
+      runtimeTreePinner,
     });
   } catch (error) {
     fail('client npm runtime tree is no longer safe', 'CLIENT_RUNTIME_CHANGED', { cause_code: error?.code ?? 'UNKNOWN' });
@@ -305,6 +326,95 @@ export async function revalidateClientLaunchRuntime(launch, { fsImpl = defaultFs
     fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED');
   }
   return true;
+}
+
+function launchFileEvidence(launch) {
+  const paths = [launch.command];
+  const fingerprints = [launch.fingerprint?.command];
+  for (let index = 0; index < launch.args_prefix.length; index += 1) {
+    const value = launch.args_prefix[index];
+    if (!isAbsolute(value)) continue;
+    paths.push(value);
+    fingerprints.push(launch.fingerprint?.args_prefix?.[index]);
+  }
+  return { paths, fingerprints };
+}
+
+function frozenLaunchCopy(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenLaunchCopy));
+  if (value !== null && typeof value === 'object') {
+    return Object.freeze(Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, frozenLaunchCopy(child)]),
+    ));
+  }
+  return value;
+}
+
+export async function withPinnedClientLaunch(launch, {
+  callback,
+  fsImpl = defaultFs,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles,
+} = {}) {
+  if (typeof callback !== 'function'
+    || typeof runtimeTreePinner !== 'function'
+    || typeof launchFilePinner !== 'function') {
+    fail('client launch pin contract is invalid', 'INVALID_CLIENT_LAUNCH');
+  }
+  if (!launch
+    || !absoluteSafePath(launch.command)
+    || !Array.isArray(launch.args_prefix)
+    || launch.args_prefix.some(path => !absoluteSafePath(path))
+    || !launch.fingerprint?.command
+    || !Array.isArray(launch.fingerprint.args_prefix)
+    || launch.fingerprint.args_prefix.length !== launch.args_prefix.length
+    || !['native', 'npm_package'].includes(launch.source)) {
+    fail('client launch pin evidence is invalid', 'INVALID_CLIENT_LAUNCH');
+  }
+  const pinnedLaunch = frozenLaunchCopy(launch);
+  const evidence = launchFileEvidence(pinnedLaunch);
+  const runWithFilesPinned = treeGuard => launchFilePinner({
+    paths: evidence.paths,
+    callback: async fileGuard => {
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      for (let index = 0; index < evidence.paths.length; index += 1) {
+        const path = evidence.paths[index];
+        const observed = await fingerprintPath(path, { allowedRoots: [dirname(path)], fsImpl });
+        if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
+          fail('client launch file changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+        }
+      }
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      return callback(Object.freeze({
+        assertPinned() {
+          treeGuard?.assertPinned?.();
+          fileGuard?.assertPinned?.();
+        },
+      }), pinnedLaunch);
+    },
+  });
+
+  if (pinnedLaunch.source !== 'npm_package') return runWithFilesPinned(null);
+  const expectedRuntime = pinnedLaunch.fingerprint?.runtime_tree;
+  return captureNpmRuntime(
+    expectedRuntime?.root,
+    expectedRuntime?.resolution_root,
+    pinnedLaunch.package_id,
+    fsImpl,
+    pinOptions => runtimeTreePinner({
+      ...pinOptions,
+      callback: async treeGuard => {
+        const observed = await pinOptions.callback(treeGuard);
+        if (sha256Canonical(observed) !== sha256Canonical(expectedRuntime)) {
+          fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+        }
+        treeGuard?.assertPinned?.();
+        return runWithFilesPinned(treeGuard);
+      },
+    }),
+  );
 }
 
 function absoluteSafePath(path) {
@@ -512,7 +622,12 @@ async function resolveNodeExecutable(candidates, fsImpl) {
   });
 }
 
-async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidates }) {
+async function resolveNpmCandidate(clientId, candidate, {
+  env,
+  fsImpl,
+  candidates,
+  runtimeTreePinner,
+}) {
   const config = CLIENTS[clientId];
   if (!config.package_id) fail('client does not support npm package resolution');
   const prefixes = npmPrefixes(env, candidates);
@@ -550,6 +665,7 @@ async function resolveNpmCandidate(clientId, candidate, { env, fsImpl, candidate
       resolutionRoot: modulesRoot,
       packageId: config.package_id,
       fsImpl,
+      runtimeTreePinner,
     });
   } catch (error) {
     fail('client npm runtime tree is unsafe or exceeds its inspection limits', 'NOT_INSTALLED', { cause_code: error?.code ?? 'UNKNOWN' });
@@ -672,14 +788,24 @@ function parseVersionOutput(stdout) {
   return null;
 }
 
-async function probeVersion(launch, { env, runner, fsImpl }) {
-  await revalidateClientLaunchRuntime(launch, { fsImpl });
+async function probeVersion(launch, {
+  env,
+  runner,
+  fsImpl,
+  runtimeTreePinner,
+  launchFilePinner,
+}) {
   const childEnv = clientProcessEnvironment(env, launch.env_overlay);
-  const result = await runner.run(launch.command, [...launch.args_prefix, '--version'], {
-    env: childEnv,
-    shell: false,
-    timeoutMs: 10_000,
-    outputLimitBytes: 64 * 1024,
+  const result = await withPinnedClientLaunch(launch, {
+    fsImpl,
+    runtimeTreePinner,
+    launchFilePinner,
+    callback: (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [...pinnedLaunch.args_prefix, '--version'], {
+      env: childEnv,
+      shell: false,
+      timeoutMs: 10_000,
+      outputLimitBytes: 64 * 1024,
+    }),
   });
   if (result.status !== 'exited' || result.exitCode !== 0) fail('client version probe failed', 'VERSION_PROBE_FAILED');
   const version = parseVersionOutput(result.stdout);
@@ -703,6 +829,8 @@ export async function resolveClientLaunch(clientId, {
   runner,
   candidates = null,
   authenticodeInspector = inspectAuthenticode,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles,
 } = {}) {
   if (!CLIENT_IDS.includes(clientId)) fail('client ID is unsupported', 'UNSUPPORTED_CLIENT');
   if (!runner?.run) fail('client resolution requires a bounded process runner', 'CLIENT_DISCOVERY_FAILED');
@@ -726,6 +854,7 @@ export async function resolveClientLaunch(clientId, {
         runner,
         candidates,
         authenticodeInspector,
+        runtimeTreePinner,
       }));
     } catch (error) {
       if (!(error instanceof ClientProcessError)) throw error;
@@ -739,7 +868,13 @@ export async function resolveClientLaunch(clientId, {
   const viable = [];
   for (const launch of uniqueLaunches) {
     try {
-      const version = await probeVersion(launch, { env, runner, fsImpl });
+      const version = await probeVersion(launch, {
+        env,
+        runner,
+        fsImpl,
+        runtimeTreePinner,
+        launchFilePinner,
+      });
       const compatibility = classifySupportedVersion(clientId, version);
       const result = {
         client_id: clientId,
