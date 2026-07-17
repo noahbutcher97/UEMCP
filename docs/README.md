@@ -52,6 +52,8 @@ docs/
 | [tool-surface.md](specs/tool-surface.md) | Tool count summary, toolset registry |
 | [blueprint-introspection.md](specs/blueprint-introspection.md) | Graph serialization design, visual capture |
 | [configuration.md](specs/configuration.md) | `.mcp.json` config, env vars, ConnectionManager |
+| [deployment-machine-interface.md](specs/deployment-machine-interface.md) | Transactional deployment CLI, plan/apply contract, receipts, and outcomes |
+| [client-adapters.md](specs/client-adapters.md) | Claude, Codex, Gemini, and VS Code support gates and proof boundaries |
 | [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | Archival Phase 2 conformance reference; not a current setup or runtime guide |
 | [tcp-protocol.md](specs/tcp-protocol.md) | Archival retired-bridge wire-format reference; not a current setup or runtime guide |
 | [phase3-plugin-design-inputs.md](specs/phase3-plugin-design-inputs.md) | Phase 3 plugin-layer design inputs (P0 helpers, envelope) |

@@ -17,6 +17,14 @@ const PACKAGE_IDS = Object.freeze({
   gemini: '@google/gemini-cli',
   vscode: null,
 });
+const VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' });
+
+export function expectedClientLaunchOverlay(clientId) {
+  if (!CLIENT_IDS.includes(clientId)) invalid('client launch overlay requires a known client ID');
+  return clientId === 'vscode'
+    ? Object.freeze({ ...VSCODE_LAUNCH_OVERLAY })
+    : Object.freeze({});
+}
 
 export class ClientContractError extends Error {
   constructor(message, code = 'INVALID_CLIENT_LAUNCH') {
@@ -133,7 +141,7 @@ export function validateClientLaunchContract(launch) {
     if (launch.source !== 'native' || !/Code\.exe$/i.test(launch.command)
       || launch.args_prefix.length !== 1 || !/cli\.js$/i.test(launch.args_prefix[0])
       || !isVsCodeCliTuple(launch.command, launch.args_prefix[0])
-      || !exactObject(launch.env_overlay, { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' })) {
+      || !exactObject(launch.env_overlay, expectedClientLaunchOverlay('vscode'))) {
       invalid('VS Code launch tuple is invalid');
     }
   } else if (!exactObject(launch.env_overlay, {})) {

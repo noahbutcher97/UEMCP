@@ -198,6 +198,7 @@ export function createLocalState({
     replayLedger: join(absoluteRoot, 'plans', 'applied-v1.json'),
   });
   const restrictedDirectories = new Set();
+  const activeLeaseTokens = new Set();
 
   function assertLocalPath(path) {
     const absolute = resolve(path);
@@ -452,6 +453,7 @@ export function createLocalState({
         await handle.close();
         handle = null;
         let released = false;
+        activeLeaseTokens.add(ownerToken);
         return Object.freeze({
           ownerToken,
           async release(providedToken = ownerToken) {
@@ -459,10 +461,12 @@ export function createLocalState({
             if (providedToken !== ownerToken) throw new LocalStateError('apply lease owner token does not match', 'LEASE_OWNER_MISMATCH');
             const current = await inspectLease();
             if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
+              activeLeaseTokens.delete(ownerToken);
               throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
             }
             await assertNoLinkedLocalPath(pathSet.lock);
             await fsImpl.unlink(pathSet.lock);
+            activeLeaseTokens.delete(ownerToken);
             released = true;
           },
         });
@@ -496,11 +500,25 @@ export function createLocalState({
     }
   }
 
+  async function validateApplyLease(lease) {
+    const ownerToken = lease?.ownerToken;
+    if (!/^[0-9a-f]{48}$/.test(ownerToken ?? '') || !activeLeaseTokens.has(ownerToken)) {
+      throw new LocalStateError('apply lease capability is not active', 'LEASE_OWNER_MISMATCH');
+    }
+    const current = await inspectLease();
+    if (current.state !== 'valid' || current.record.owner_token !== ownerToken) {
+      activeLeaseTokens.delete(ownerToken);
+      throw new LocalStateError('apply lease ownership changed', 'LEASE_OWNER_MISMATCH');
+    }
+    return true;
+  }
+
   return Object.freeze({
     paths: () => pathSet,
     readJson,
     writeJsonAtomic,
     acquireApplyLease,
+    validateApplyLease,
     createSnapshot,
     restoreSnapshot,
     deleteSnapshot,

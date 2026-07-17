@@ -158,6 +158,7 @@ export async function buildDeploymentCli({
     bundle: true,
     platform: 'node',
     format: 'esm',
+    mainFields: ['module', 'main'],
     target: ['node22'],
     packages: 'bundle',
     external: ['node:*'],

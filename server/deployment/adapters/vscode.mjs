@@ -58,6 +58,7 @@ const LEDGER_FAILURES = new Set([
   'ledger_self_hash_mismatch',
   'ledger_record_invalid',
 ]);
+const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
 
 export const VSCODE_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: '1.128.1',
@@ -282,7 +283,7 @@ async function occurrence(source, desired, {
     desiredEntry: desired,
     location: { clientId: 'vscode', configPath: source.path, scope: source.scope, entryName: 'uemcp' },
   }) : null;
-  return Object.freeze({
+  const result = Object.freeze({
     scope: source.scope,
     path: source.path,
     allowed_root: source.allowed_root,
@@ -298,6 +299,11 @@ async function occurrence(source, desired, {
     review_actions: Object.freeze(reviewActions(entry)),
     ownership: safeOwnershipEvidence(owned),
   });
+  PRIVATE_PROTOCOL_LAUNCH.set(result, Object.freeze({
+    env_overlay: Object.freeze({ ...(plainObject(entry.env) ? entry.env : {}) }),
+    cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
+  }));
+  return result;
 }
 
 function publicFileEvidence(file) {
@@ -809,6 +815,13 @@ export function createVsCodeAdapter({
   async function rollback(context, records) {
     return Object.freeze({ status: 'delegated', count: records.length });
   }
+
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.effective;
+    const occurrence = inspection?.occurrences?.find(row => row.scope === effective?.scope && row.path === effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH.get(occurrence) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+
   return Object.freeze({
     id: 'vscode',
     detect,
@@ -817,6 +830,7 @@ export function createVsCodeAdapter({
     snapshot,
     apply,
     verify,
+    protocolLaunch,
     rollback,
   });
 }

@@ -60,6 +60,7 @@ const SENSITIVE_ENVIRONMENT_KEYS = new Set([
   'CLAUDE_CONFIG_DIR',
   'GEMINI_CLI_HOME',
 ]);
+const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
 
 export const GEMINI_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: '0.41.2',
@@ -431,7 +432,7 @@ async function settingsOccurrence({ source, desired, ledger, ownership = false }
     desiredEntry: desired,
     location: { clientId: 'gemini', configPath: source.path, scope: 'user', entryName: 'uemcp' },
   }) : null;
-  return Object.freeze({
+  const result = Object.freeze({
     scope: source.scope,
     path: source.path,
     allowed_root: source.allowed_root,
@@ -446,6 +447,11 @@ async function settingsOccurrence({ source, desired, ledger, ownership = false }
     review_actions: Object.freeze(reviewActions(entry)),
     ownership: safeOwnershipEvidence(owned),
   });
+  PRIVATE_PROTOCOL_LAUNCH.set(result, Object.freeze({
+    env_overlay: Object.freeze({ ...(plainObject(entry.env) ? entry.env : {}) }),
+    cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
+  }));
+  return result;
 }
 
 function ensureSlashPath(path) {
@@ -572,7 +578,7 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
         if (error?.code !== 'MALFORMED_CONFIG') throw error;
         evidenceStatus = 'UNKNOWN';
       }
-      rows.push(Object.freeze({
+      const row = Object.freeze({
         name: root.name,
         path: manifest.path,
         enabled,
@@ -582,7 +588,17 @@ async function inspectExtensions({ fsImpl, captureFingerprint, locations, worksp
         matching: entry === undefined ? null : !logicalNameConflict && physicalMatches(entry, desired),
         physical_entry: entry === undefined ? null : physicalEvidence(entry),
         entry_sha256: entry === undefined ? null : sha256Canonical(entry),
-      }));
+        environment: entry === undefined ? environmentEvidence(null) : environmentEvidence(entry),
+        custom_launch: entry?.cwd !== undefined && entry?.cwd !== null,
+        review_actions: Object.freeze(entry === undefined ? [] : reviewActions(entry)),
+      });
+      if (entry !== undefined) {
+        PRIVATE_PROTOCOL_LAUNCH.set(row, Object.freeze({
+          env_overlay: Object.freeze({ ...(plainObject(entry.env) ? entry.env : {}) }),
+          cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
+        }));
+      }
+      rows.push(row);
     } catch (error) {
       if (error?.code !== 'MALFORMED_CONFIG') throw error;
       evidenceStatus = 'UNKNOWN';
@@ -849,7 +865,7 @@ export function createGeminiAdapter({
       }
       for (const extension of extensionInspection.rows) {
         if (extension.declares_uemcp !== true || extension.enabled !== true) continue;
-        occurrences.push(Object.freeze({
+        const occurrence = Object.freeze({
           scope: 'extension',
           path: extension.path,
           matching: extension.matching,
@@ -858,9 +874,14 @@ export function createGeminiAdapter({
           entry_sha256: extension.entry_sha256,
           entry_name: extension.entry_name,
           logical_name_conflict: extension.logical_name_conflict,
-          review_actions: Object.freeze([]),
+          environment: extension.environment,
+          custom_launch: extension.custom_launch,
+          review_actions: extension.review_actions,
           ownership: null,
-        }));
+        });
+        const privateLaunch = PRIVATE_PROTOCOL_LAUNCH.get(extension);
+        if (privateLaunch) PRIVATE_PROTOCOL_LAUNCH.set(occurrence, privateLaunch);
+        occurrences.push(occurrence);
       }
 
       const activeSettingsEntry = merged.mcpServers?.uemcp;
@@ -1165,5 +1186,11 @@ export function createGeminiAdapter({
     return Object.freeze({ status: 'delegated', count: records.length });
   }
 
-  return Object.freeze({ id: 'gemini', detect, inspect, plan, snapshot, apply, verify, rollback });
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.effective;
+    const occurrence = inspection?.occurrences?.find(row => row.scope === effective?.scope && row.path === effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH.get(occurrence) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+
+  return Object.freeze({ id: 'gemini', detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
 }

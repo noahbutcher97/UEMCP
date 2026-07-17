@@ -6,6 +6,9 @@ function send(value) {
 }
 
 function initializeResult(request) {
+  const version = mode === 'report-launch'
+    ? `${process.env.SMOKE_ENV_PROBE ?? 'missing'}|${process.cwd()}`
+    : process.env.PATH ? '1.0.0-path-present' : '1.0.0-no-path';
   return {
     jsonrpc: '2.0',
     id: request.id,
@@ -14,7 +17,7 @@ function initializeResult(request) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: {
         name: 'sample-mcp',
-        version: process.env.PATH ? '1.0.0-path-present' : '1.0.0-no-path',
+        version,
       },
       instructions: 'Sample MCP peer for bounded deployment protocol checks.',
     },

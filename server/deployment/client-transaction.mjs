@@ -351,6 +351,7 @@ export function createClientTransaction({
   windowsNative = DEFAULT_WINDOWS_NATIVE,
   processRunner = createProcessRunner(),
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  externalLease = null,
 } = {}) {
   if (!localState?.paths || typeof localState.acquireApplyLease !== 'function'
     || typeof localState.createSnapshot !== 'function'
@@ -360,10 +361,18 @@ export function createClientTransaction({
   if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.replaceFilePreservingMetadata) {
     fail('transaction requires the Windows metadata contract', 'INVALID_WINDOWS_NATIVE');
   }
+  if (externalLease !== null
+    && (typeof externalLease !== 'object'
+      || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? '')
+      || typeof externalLease.release !== 'function'
+      || typeof localState.validateApplyLease !== 'function')) {
+    fail('external apply lease capability is invalid', 'INVALID_APPLY_LEASE');
+  }
 
   const state = {
     phase: 'new',
     lease: null,
+    ownsLease: false,
     planDigest: null,
     operationDigest: null,
     adapters: new Map(),
@@ -390,8 +399,10 @@ export function createClientTransaction({
   async function releaseLease() {
     if (!state.lease) return;
     const lease = state.lease;
+    const ownsLease = state.ownsLease;
     state.lease = null;
-    await lease.release();
+    state.ownsLease = false;
+    if (ownsLease) await lease.release();
   }
 
   async function deleteSnapshot(record) {
@@ -763,11 +774,18 @@ export function createClientTransaction({
     validatePlanDigest(planDigest);
     const mappedAdapters = adapterMap(adapters);
     validateOperations(operations, mappedAdapters);
-    state.lease = await localState.acquireApplyLease({
-      pid: process.pid,
-      processStart: Math.round(Date.now() - process.uptime() * 1000),
-      waitMs: 0,
-    });
+    if (externalLease) {
+      await localState.validateApplyLease(externalLease);
+      state.lease = externalLease;
+      state.ownsLease = false;
+    } else {
+      state.lease = await localState.acquireApplyLease({
+        pid: process.pid,
+        processStart: Math.round(Date.now() - process.uptime() * 1000),
+        waitMs: 0,
+      });
+      state.ownsLease = true;
+    }
     state.phase = 'preflight';
     try {
       await cleanupAbandonedStages();
@@ -1088,6 +1106,7 @@ export function createClientTransaction({
     if (state.phase !== 'snapshotted') fail('transaction must be snapshotted before apply', 'TRANSACTION_STATE_INVALID');
     let suppliedAdapters;
     try {
+      if (externalLease) await localState.validateApplyLease(externalLease);
       validatePlanDigest(planDigest);
       suppliedAdapters = adapterMap(adapters);
       if (planDigest !== state.planDigest

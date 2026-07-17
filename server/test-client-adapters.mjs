@@ -45,8 +45,12 @@ import {
   physicalVsCodeEntry,
   resolveVsCodeLocations,
 } from './deployment/adapters/vscode.mjs';
-import { sha256Bytes } from './deployment/canonical-json.mjs';
-import { ACTION_CODES } from './deployment/contracts.mjs';
+import { sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
+import {
+  ACTION_CODES,
+  validateClientContract,
+  validateStageContract,
+} from './deployment/contracts.mjs';
 import {
   CLIENT_IDS,
   RELEASE_GATES,
@@ -54,11 +58,14 @@ import {
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
+import { createClientDomain } from './deployment/client-domain.mjs';
+import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
 import { resolveClientLaunch } from './deployment/client-process.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
+import { createPlanDocument } from './deployment/plan-document.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/toml-config.mjs';
 
 const t = new TestRunner('Client Adapter Tests');
@@ -3190,6 +3197,493 @@ async function rejectsCode(fn, code) {
   t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.same_name_replaced === true, 'Gemini native add replaces a same-name server');
   t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.unrelated_settings_preserved === false, 'Gemini native add is forbidden because it can discard unrelated settings');
   t.assert(GEMINI_NATIVE_MUTATION_CHARACTERIZATION.mutating_subcommands_allowed === false, 'Gemini adapter contract forbids native mutation');
+}
+
+function aggregateLaunch(clientId, overrides = {}) {
+  const vscode = clientId === 'vscode';
+  return Object.freeze({
+    client_id: clientId,
+    command: vscode ? 'C:\\Program Files\\Microsoft VS Code\\Code.exe' : 'C:\\Program Files\\nodejs\\node.exe',
+    args_prefix: Object.freeze([vscode
+      ? 'C:\\Program Files\\Microsoft VS Code\\resources\\app\\out\\cli.js'
+      : `C:\\isolated\\${clientId}.mjs`]),
+    env_overlay: Object.freeze(vscode ? { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' } : {}),
+    package_id: vscode ? null : {
+      claude: '@anthropic-ai/claude-code',
+      codex: '@openai/codex',
+      gemini: '@google/gemini-cli',
+    }[clientId],
+    source: vscode ? 'native' : 'npm_package',
+    version: RELEASE_GATES[clientId].versions.at(-1),
+    compatibility: 'release_gated',
+    write_supported: true,
+    fingerprint: Object.freeze({ command: Object.freeze({ content_sha256: 'a'.repeat(64) }) }),
+    ...overrides,
+  });
+}
+
+function absentClient(clientId) {
+  return Object.freeze({
+    client_id: clientId,
+    version: null,
+    compatibility: 'not_installed',
+    write_supported: false,
+    launch: null,
+  });
+}
+
+function aggregateAdapter(clientId, scenario = {}) {
+  return Object.freeze({
+    id: clientId,
+    async detect(context) {
+      return Object.freeze({ client_id: clientId, launch: context.launch });
+    },
+    async inspect() {
+      const environment = scenario.environment ?? [];
+      return Object.freeze({
+        client_id: clientId,
+        registration: scenario.registration ?? 'CONFIGURED',
+        enablement: scenario.enablement ?? 'ENABLED',
+        activation: scenario.activation ?? 'CONNECTED',
+        actions: Object.freeze([...(scenario.actions ?? [])]),
+        occurrences: Object.freeze([Object.freeze({
+          scope: scenario.scope ?? 'user',
+          path: `C:\\isolated\\${clientId}.json`,
+          matching: true,
+          environment: Object.freeze({
+            keys: Object.freeze(environment.map(row => row.name)),
+            value_hashes: Object.freeze(Object.fromEntries(environment.map(row => [row.name, row.value_sha256]))),
+          }),
+          custom_launch: scenario.cwd !== null && scenario.cwd !== undefined,
+          ownership: scenario.ownedDiff ? Object.freeze({ owned_diff: scenario.ownedDiff }) : null,
+        })]),
+        effective: Object.freeze({
+          scope: scenario.scope ?? 'user',
+          path: `C:\\isolated\\${clientId}.json`,
+          matching: true,
+        }),
+        native: Object.freeze({ status: scenario.nativeStatus ?? 'PRESENT' }),
+        files: Object.freeze([...(scenario.files ?? [])]),
+      });
+    },
+    async plan() {
+      return Object.freeze({
+        client_id: clientId,
+        status: scenario.operation ?? 'NO_OP',
+        operations: Object.freeze([]),
+        actions: Object.freeze([...(scenario.actions ?? [])]),
+      });
+    },
+    async snapshot() {
+      return Object.freeze({ writable_paths: Object.freeze([]), read_only_paths: Object.freeze([]) });
+    },
+    async apply() {
+      return Object.freeze({ status: 'NO_OP' });
+    },
+    async verify() {
+      return Object.freeze({ status: scenario.verifyStatus ?? 'READY', native: Object.freeze({ status: scenario.nativeStatus ?? 'PRESENT' }) });
+    },
+    async rollback() {
+      return Object.freeze({ status: 'delegated', count: 0 });
+    },
+    protocolLaunch() {
+      return Object.freeze({
+        env_overlay: Object.freeze({ ...(scenario.privateEnvironment ?? {}) }),
+        cwd: scenario.cwd ?? null,
+      });
+    },
+  });
+}
+
+function aggregateContext(root, overrides = {}) {
+  return {
+    operation: overrides.operation ?? 'verify',
+    request: {
+      requested_project: null,
+      requested_profile: null,
+      selected_clients: overrides.selectedClients ?? [],
+    },
+    clientSelection: {
+      include: overrides.include ?? [],
+      exclude: overrides.exclude ?? [],
+      vscodeProfile: overrides.vscodeProfile ?? null,
+    },
+    descriptor: canonicalDesired(root),
+    env: overrides.env ?? environment(root),
+    workspaceRoot: resolve(join(root, 'workspace')),
+    now: new Date('2026-07-16T12:00:00.000Z'),
+    source: {
+      kind: 'git_checkout',
+      repository: 'https://example.invalid/uemcp.git',
+      repo_root: resolve(root),
+      git_commit: 'a'.repeat(40),
+      dirty: false,
+      archive: null,
+      orchestrator_version: '1.0.0',
+    },
+    ...overrides,
+  };
+}
+
+// Discovery always returns the closed client set; selection is exact and release-gated by default.
+{
+  const resolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => aggregateLaunch(clientId)]));
+  const discovered = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers });
+  t.assert(JSON.stringify(discovered.map(row => row.client_id)) === JSON.stringify(CLIENT_IDS), 'aggregate discovery returns every closed client ID in order');
+  t.assert(selectClients(discovered, {}).every(row => row.selected), 'all detected release-gated clients default selected');
+  t.assert(selectClients(discovered, { include: ['codex'] }).filter(row => row.selected).map(row => row.client_id).join(',') === 'codex', 'exact include selects only the requested client');
+  const excluded = selectClients(discovered, { exclude: ['gemini'] });
+  t.assert(excluded.find(row => row.client_id === 'gemini').status === 'NOT_SELECTED', 'exact exclude retains an explicit NOT_SELECTED row');
+  t.assert(throwsCode(() => selectClients(discovered, { include: ['unknown-client'] }), 'INVALID_CLIENT_SELECTION'), 'unknown include IDs fail closed');
+  t.assert(throwsCode(() => selectClients(discovered, { include: ['claude'], exclude: ['claude'] }), 'INVALID_CLIENT_SELECTION'), 'overlapping include and exclude IDs fail closed');
+
+  const one = selectClients(CLIENT_IDS.map(clientId => clientId === 'codex'
+    ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+    : absentClient(clientId)), {});
+  t.assert(one.filter(row => row.selected).map(row => row.client_id).join(',') === 'codex', 'one installed client produces one default selection');
+  t.assert(selectClients(CLIENT_IDS.map(absentClient), {}).every(row => !row.selected && row.status === 'NOT_INSTALLED'), 'no installed clients remain visible and unselected');
+
+  const unsupported = CLIENT_IDS.map(clientId => clientId === 'claude'
+    ? { ...aggregateLaunch(clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }), launch: aggregateLaunch(clientId, { version: '99.0.0', compatibility: 'unknown_newer', write_supported: false }) }
+    : absentClient(clientId));
+  t.assert(selectClients(unsupported, {}).every(row => !row.selected), 'unsupported versions do not default into the write selection');
+  const explicitlyInspected = selectClients(unsupported, { include: ['claude'] }).find(row => row.client_id === 'claude');
+  t.assert(explicitlyInspected.selected && explicitlyInspected.write_supported === false && explicitlyInspected.compatibility === 'unknown_newer', 'explicit unsupported selection remains inspectable but cannot write');
+
+  const missingResolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => {
+    throw Object.assign(new Error('not installed'), { code: 'NOT_INSTALLED' });
+  }]));
+  missingResolvers.unrecognized = async () => ({ client_id: 'unrecognized' });
+  const unknownOnly = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: missingResolvers });
+  t.assert(unknownOnly.length === CLIENT_IDS.length && unknownOnly.every(row => row.compatibility === 'not_installed'), 'an unknown client does not displace closed NOT_INSTALLED rows');
+
+  const failedProbeResolvers = { ...missingResolvers };
+  failedProbeResolvers.codex = async () => {
+    throw Object.assign(new Error('installed client version probe failed'), { code: 'VERSION_PROBE_FAILED' });
+  };
+  const failedProbe = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: failedProbeResolvers });
+  const failedProbeRow = failedProbe.find(row => row.client_id === 'codex');
+  t.assert(failedProbeRow.compatibility === 'known_unsupported' && failedProbeRow.version === null && failedProbeRow.discovery_status === 'VERSION_PROBE_FAILED', 'version-probe failure remains inspect-only discovery evidence instead of false absence');
+
+  const crashedResolvers = { ...missingResolvers };
+  crashedResolvers.claude = async () => { throw new Error('unexpected resolver fault'); };
+  t.assert(await rejectsCode(() => discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: crashedResolvers }), 'CLIENT_DISCOVERY_FAILED'), 'unexpected resolver faults fail aggregate discovery closed');
+}
+
+// Expected discovery failures remain visible without invoking an adapter or protocol launch.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'codex'
+      ? Object.freeze({
+          client_id: clientId,
+          version: null,
+          compatibility: 'known_unsupported',
+          write_supported: false,
+          launch: null,
+          discovery_status: 'VERSION_PROBE_FAILED',
+        })
+      : absentClient(clientId));
+    let detectCalls = 0;
+    let smokeCalls = 0;
+    const adapters = CLIENT_IDS.map(clientId => {
+      const adapter = aggregateAdapter(clientId);
+      return Object.freeze({
+        ...adapter,
+        async detect(context) {
+          detectCalls += 1;
+          return adapter.detect(context);
+        },
+      });
+    });
+    const domain = createClientDomain({
+      adapters,
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+    });
+    const result = await domain.verify(aggregateContext(root, { include: ['codex'] }));
+    const client = result.clients.find(row => row.adapter === 'codex');
+    const evidence = result.stage.evidence.clients.find(row => row.adapter === 'codex');
+    t.assert(client.status === 'UNKNOWN' && client.actions.some(action => action.code === 'UNSUPPORTED_VERSION'), 'version-probe failure reports unknown inspect-only client state with remediation');
+    t.assert(evidence.discovery_status === 'VERSION_PROBE_FAILED', 'aggregate evidence retains the stable discovery failure code');
+    t.assert(detectCalls === 0 && smokeCalls === 0, 'failed discovery never invokes adapter inspection or protocol launch');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Optional absent providers are informational unless no gated host exists or the user requested one explicitly.
+{
+  const root = makeRoot();
+  try {
+    const oneInstalled = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const domain = createClientDomain({
+      adapters: CLIENT_IDS.map(aggregateAdapter),
+      discovery: async () => oneInstalled,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY', instruction_bytes: 0, tool_count: 1, initial_tool_names: ['connection_info'], duration_ms: 1 }),
+    });
+    const healthy = await domain.verify(aggregateContext(root));
+    t.assert(healthy.stage.status === 'HEALTHY' && !healthy.actions.some(action => action.code === 'NOT_INSTALLED'), 'one healthy selected host is not polluted by optional provider install actions');
+    t.assert(healthy.clients.filter(client => client.status === 'NOT_INSTALLED').every(client => client.actions.length === 0), 'optional absent client rows remain informational');
+
+    const excluded = await domain.verify(aggregateContext(root, { exclude: ['claude'] }));
+    t.assert(excluded.stage.status === 'NOT_SELECTED' && excluded.actions.length === 0, 'explicitly excluding every detected gated host is a clean no-client selection');
+
+    const allAbsent = CLIENT_IDS.map(absentClient);
+    const missingDomain = createClientDomain({
+      adapters: CLIENT_IDS.map(aggregateAdapter),
+      discovery: async () => allAbsent,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { throw new Error('protocol launch is not expected'); },
+    });
+    const requestedMissing = await missingDomain.verify(aggregateContext(root, { include: ['codex'] }));
+    const missingCodex = requestedMissing.clients.find(client => client.adapter === 'codex');
+    t.assert(requestedMissing.stage.status === 'NOT_INSTALLED' && missingCodex.actions.some(action => action.code === 'NOT_INSTALLED'), 'an explicitly requested missing host keeps install remediation');
+    t.assert(requestedMissing.clients.filter(client => client.adapter !== 'codex').every(client => client.actions.length === 0), 'unrequested absent hosts do not duplicate missing-client remediation');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Aggregate action normalization fails closed when an adapter adds an unmapped action.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const domain = createClientDomain({
+      adapters: [aggregateAdapter('claude', { actions: ['FUTURE_UNMAPPED_ACTION'] }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+    });
+    t.assert(await rejectsCode(() => domain.verify(aggregateContext(root)), 'INVALID_CLIENT_ACTION'), 'unmapped adapter actions cannot disappear from aggregate output');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// No-op client plans still bind every inspected path before apply can execute native queries.
+{
+  const root = makeRoot();
+  try {
+    const evidencePath = write(join(root, 'client-state.json'), '{"keep":true}\n');
+    const evidenceFingerprint = simpleFingerprint(evidencePath);
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const domain = createClientDomain({
+      adapters: [
+        aggregateAdapter('claude', {
+          files: [{
+            path: resolve(evidencePath),
+            allowed_root: resolve(root),
+            scope: 'user',
+            writable: true,
+            exists: true,
+            fingerprint: evidenceFingerprint,
+          }],
+        }),
+        ...CLIENT_IDS.slice(1).map(aggregateAdapter),
+      ],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      captureFingerprint: async () => ({ ...evidenceFingerprint, atime_ms: evidenceFingerprint.atime_ms + 10_000 }),
+    });
+    const planned = await domain.plan(aggregateContext(root, { operation: 'setup' }));
+    t.assert(planned.operations.length === 0 && planned.preconditions.length === 1, 'a configured no-op client still emits its inspected path precondition');
+    t.assert(planned.preconditions[0].canonical_path === resolve(evidencePath)
+      && planned.preconditions[0].writable === false, 'no-op evidence is digest-bound without granting write authority');
+    const observed = await domain.fingerprintPrecondition(planned.preconditions[0], aggregateContext(root));
+    t.assert(sha256Canonical(observed) === sha256Canonical(planned.preconditions[0].fingerprint), 'client plan preconditions ignore read-induced atime drift while retaining stable identity evidence');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Apply reuses the reviewed launch tuple and rejects discovery-context drift before any new probe.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    let discoveryCalls = 0;
+    const domain = createClientDomain({
+      adapters: CLIENT_IDS.map(aggregateAdapter),
+      discovery: async () => { discoveryCalls += 1; return rows; },
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY', instruction_bytes: 0, tool_count: 1, initial_tool_names: ['connection_info'], duration_ms: 1 }),
+    });
+    const context = aggregateContext(root, { operation: 'setup' });
+    const planned = await domain.plan(context);
+    const plan = createPlanDocument({
+      operation: 'setup',
+      outcome: 'HEALTHY',
+      source: context.source,
+      request: context.request,
+      descriptor: context.descriptor,
+      stages: planned.stages,
+      clients: planned.clients,
+      operations: planned.operations,
+      preconditions: planned.preconditions,
+      actions: planned.actions,
+      now: context.now,
+    });
+    await domain.apply({ ...context, approvedPlan: plan }, []);
+    t.assert(discoveryCalls === 1, 'client apply reuses the saved launch tuple without another executable discovery probe');
+    const forged = structuredClone(plan);
+    forged.stages.find(stage => stage.name === 'clients').evidence.clients
+      .find(client => client.adapter === 'claude').launch_contract.command = 'relative-client.exe';
+    t.assert(await rejectsCode(() => domain.apply({ ...context, approvedPlan: forged }, []), 'INVALID_PLAN'), 'saved launch tuples are revalidated before they can become executable authority');
+    t.assert(await rejectsCode(() => domain.apply({
+      ...context,
+      env: { ...context.env, PATH: resolve(join(root, 'changed-path')) },
+      approvedPlan: plan,
+    }, []), 'PLAN_STALE'), 'client apply rejects changed discovery context before executing a replacement launch candidate');
+    t.assert(await rejectsCode(() => domain.apply({
+      ...context,
+      env: { ...context.env, UEMCP_PROJECT_ROOT: resolve(join(root, 'changed-project')) },
+      approvedPlan: plan,
+    }, []), 'PLAN_STALE'), 'client apply binds ambient UEMCP and Unreal attachment inputs without serializing them');
+    t.assert(discoveryCalls === 1, 'discovery-context drift fails before a child version probe');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Aggregate evidence uses safe fixed keys, preserves key names/hashes, and never serializes raw values.
+{
+  const root = makeRoot();
+  try {
+    const rawValue = 'RAW_ENV_CANARY_DO_NOT_SERIALIZE';
+    const valueHash = sha256Bytes(Buffer.from(rawValue));
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const scenario = {
+      actions: ['CUSTOM_ENV_REVIEW_REQUIRED'],
+      environment: [{ name: 'API_TOKEN', value_sha256: valueHash }],
+      privateEnvironment: { API_TOKEN: rawValue },
+      activation: 'UNKNOWN',
+    };
+    let smokeCalls = 0;
+    const domain = createClientDomain({
+      adapters: [aggregateAdapter('claude', scenario), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction must not run during planning'); },
+      protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+    });
+    const context = aggregateContext(root, { operation: 'setup' });
+    const planned = await domain.plan(context);
+    planned.clients.forEach(validateClientContract);
+    planned.stages.forEach(validateStageContract);
+    const serialized = JSON.stringify(planned);
+    t.assert(serialized.includes('"environment":[{"name":"API_TOKEN","value_sha256"'), 'aggregate environment evidence is an array with fixed safe keys');
+    t.assert(!serialized.includes(rawValue) && !serialized.includes('"value_hashes"'), 'aggregate output excludes raw values and custom-name object keys');
+    t.assert(smokeCalls === 0, 'planning does not launch a descriptor with sensitive environment review pending');
+    const plan = createPlanDocument({
+      operation: 'setup',
+      outcome: 'ACTION_REQUIRED',
+      source: context.source,
+      request: context.request,
+      descriptor: context.descriptor,
+      stages: planned.stages,
+      clients: planned.clients,
+      operations: planned.operations,
+      preconditions: planned.preconditions,
+      actions: planned.actions,
+      now: context.now,
+    });
+    t.assert(plan.kind === 'uemcp.deployment.plan' && !JSON.stringify(plan).includes(rawValue), 'sensitive-name aggregate evidence passes plan validation without leaking its value');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Private protocol launch data is merged case-insensitively in memory and custom launch controls require approval.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const smokeOptions = [];
+    const harmless = aggregateAdapter('claude', {
+      environment: [{ name: 'PATH', value_sha256: 'b'.repeat(64) }],
+      privateEnvironment: { PATH: 'overlay-path', HARMLESS: 'overlay-value' },
+    });
+    const domain = createClientDomain({
+      adapters: [harmless, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async (descriptor, options) => {
+        smokeOptions.push({ descriptor, options });
+        return { status: 'HEALTHY', instruction_bytes: 0, tool_count: 1, initial_tool_names: ['connection_info'], duration_ms: 1 };
+      },
+    });
+    const result = await domain.verify(aggregateContext(root, {
+      env: { Path: 'parent-path', harmless: 'parent-value', KEEP: 'parent-keep' },
+    }));
+    const effective = smokeOptions[0].options.effectiveEnvironment;
+    t.assert(smokeOptions.length === 1 && effective.PATH === 'overlay-path' && effective.HARMLESS === 'overlay-value', 'protocol smoke receives exact private environment overlay values in memory');
+    t.assert(!Object.hasOwn(effective, 'Path') && !Object.hasOwn(effective, 'harmless') && effective.KEEP === 'parent-keep', 'protocol environment merge removes case-colliding parent aliases');
+    t.assert(result.clients[0].status === 'CONFIGURED' && result.clients[0].activation === 'CONNECTED', 'harmless custom environment preserves independent structural and activation facts');
+
+    const hostileValue = '--require=C:\\untrusted\\bootstrap.js';
+    const hostileCalls = [];
+    const hostileDomain = createClientDomain({
+      adapters: [aggregateAdapter('claude', {
+        actions: ['CUSTOM_ENV_REVIEW_REQUIRED'],
+        environment: [{ name: 'nOdE_oPtIoNs', value_sha256: sha256Bytes(Buffer.from(hostileValue)) }],
+        privateEnvironment: { nOdE_oPtIoNs: hostileValue },
+        activation: 'UNKNOWN',
+      }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async (descriptor, options) => { hostileCalls.push(options); return { status: 'HEALTHY' }; },
+    });
+    const standalone = await hostileDomain.verify(aggregateContext(root));
+    t.assert(hostileCalls.length === 0, 'standalone inspection never passes hostile NODE_OPTIONS to protocol smoke');
+    t.assert(standalone.stage.status !== 'HEALTHY' && standalone.stage.evidence.clients[0].protocol_status === 'UNKNOWN', 'standalone custom launch review leaves protocol health unproven');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Native, protocol, enablement, and activation facts cannot promote one another.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...aggregateLaunch(clientId), launch: aggregateLaunch(clientId) }
+      : absentClient(clientId));
+    const failedProtocol = createClientDomain({
+      adapters: [aggregateAdapter('claude', { nativeStatus: 'PRESENT', activation: 'UNKNOWN' }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'INITIALIZE_FAILED', instruction_bytes: 0, tool_count: 0, initial_tool_names: [], duration_ms: 1 }),
+    });
+    const nativeOnly = await failedProtocol.verify(aggregateContext(root));
+    t.assert(nativeOnly.stage.status === 'INITIALIZE_FAILED' && nativeOnly.clients[0].status === 'CONFIGURED', 'native presence and structural config do not mask protocol initialize failure');
+
+    const pendingActivation = createClientDomain({
+      adapters: [aggregateAdapter('claude', { activation: 'PENDING_TRUST' }), ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY', instruction_bytes: 0, tool_count: 1, initial_tool_names: ['connection_info'], duration_ms: 1 }),
+    });
+    const protocolOnly = await pendingActivation.verify(aggregateContext(root));
+    t.assert(protocolOnly.stage.status === 'PENDING_TRUST' && protocolOnly.clients[0].activation === 'PENDING_TRUST', 'healthy protocol smoke does not promote pending host trust to healthy');
+  } finally {
+    cleanup(root);
+  }
 }
 
 process.exitCode = t.summary();

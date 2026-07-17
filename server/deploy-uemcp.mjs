@@ -6,7 +6,14 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { exitCodeForOutcome } from './deployment/contracts.mjs';
+import { createClaudeAdapter } from './deployment/adapters/claude.mjs';
+import { createCodexAdapter } from './deployment/adapters/codex.mjs';
+import { createGeminiAdapter } from './deployment/adapters/gemini.mjs';
+import { createVsCodeAdapter } from './deployment/adapters/vscode.mjs';
 import { verifyDeploymentBundleFreshness } from './deployment/bundle-freshness.mjs';
+import { CLIENT_IDS } from './deployment/client-contract.mjs';
+import { createClientDomain } from './deployment/client-domain.mjs';
+import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { createCanonicalDescriptor } from './deployment/descriptor.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { createDeploymentOrchestrator } from './deployment/orchestrator.mjs';
@@ -18,11 +25,11 @@ import { createTargetDomain } from './deployment/target-domain.mjs';
 const HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
-  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
 `;
 const INTERFACE_ERROR_CODES = new Set(['CLI_USAGE', 'INVALID_CONTRACT', 'INVALID_PLAN', 'UNSUPPORTED_INTERFACE']);
 const SAFE_DIAGNOSTICS = Object.freeze({
@@ -76,12 +83,16 @@ function parseArgs(argv) {
     planFile: null,
     approveDigest: null,
     nonInteractive: false,
+    includeClients: [],
+    excludeClients: [],
+    vscodeProfile: null,
   };
   const seen = new Set();
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (seen.has(flag)) throw new UsageError('duplicate flag');
-    seen.add(flag);
+    const repeatable = flag === '--include-client' || flag === '--exclude-client';
+    if (!repeatable && seen.has(flag)) throw new UsageError('duplicate flag');
+    if (!repeatable) seen.add(flag);
     if (flag === '--json') parsed.json = true;
     else if (flag === '--non-interactive') parsed.nonInteractive = true;
     else if (flag === '--operation') { parsed.operation = takeValue(argv, index, flag); index += 1; }
@@ -90,9 +101,19 @@ function parseArgs(argv) {
     else if (flag === '--targets-file') { parsed.targetsFile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--plan-file') { parsed.planFile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--approve-digest') { parsed.approveDigest = takeValue(argv, index, flag); index += 1; }
+    else if (flag === '--include-client' || flag === '--exclude-client') {
+      const value = takeValue(argv, index, flag);
+      if (!CLIENT_IDS.includes(value)) throw new UsageError('unknown client ID');
+      const target = flag === '--include-client' ? parsed.includeClients : parsed.excludeClients;
+      if (target.includes(value)) throw new UsageError('duplicate client selection');
+      target.push(value);
+      index += 1;
+    }
+    else if (flag === '--vscode-profile') { parsed.vscodeProfile = takeValue(argv, index, flag); index += 1; }
     else throw new UsageError('unknown flag');
   }
-  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null;
+  const clientFlags = parsed.includeClients.length > 0 || parsed.excludeClients.length > 0 || parsed.vscodeProfile !== null;
+  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null || clientFlags;
   if (command === 'plan') {
     if (!['setup', 'sync'].includes(parsed.operation)) throw new UsageError('plan requires --operation setup or sync');
     if (parsed.planFile || parsed.approveDigest || parsed.nonInteractive) throw new UsageError('plan does not accept apply flags');
@@ -113,7 +134,11 @@ function parseArgs(argv) {
     throw new UsageError('--project must be an absolute .uproject path');
   }
   if (parsed.profile !== null && parsed.profile.trim() === '') throw new UsageError('--profile must be non-empty');
+  if (parsed.vscodeProfile !== null && parsed.vscodeProfile.trim() === '') throw new UsageError('--vscode-profile must be non-empty');
   if (parsed.project !== null && parsed.profile !== null) throw new UsageError('--project and --profile are mutually exclusive');
+  if (parsed.includeClients.some(clientId => parsed.excludeClients.includes(clientId))) {
+    throw new UsageError('client include and exclude selections overlap');
+  }
   return parsed;
 }
 
@@ -135,7 +160,7 @@ function locateRepository() {
   throw new UsageError('deployment entry is not inside a UEMCP repository');
 }
 
-export function createDefaultOrchestrator({ targetsFile = null } = {}) {
+export function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process.cwd() } = {}) {
   const { repoRoot, serverRoot } = locateRepository();
   const activeEntryPath = fileURLToPath(import.meta.url);
   const processRunner = createProcessRunner();
@@ -155,10 +180,26 @@ export function createDefaultOrchestrator({ targetsFile = null } = {}) {
       targetsPath: targetsFile,
       processRunner,
     }),
+    createClientDomain({
+      adapters: [
+        createClaudeAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createCodexAdapter({ fsImpl: fsPromises, runner: processRunner, captureFingerprint: captureClientPathFingerprint }),
+        createGeminiAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createVsCodeAdapter({ fsImpl: fsPromises }),
+      ],
+      transaction: ({ externalLease }) => createClientTransaction({
+        localState,
+        fsImpl: fsPromises,
+        processRunner,
+        externalLease,
+      }),
+      fsImpl: fsPromises,
+    }),
   ];
   const manifestPath = join(repoRoot, 'dist', 'deploy-uemcp.manifest.json');
   return createDeploymentOrchestrator({
     repoRoot,
+    workspaceRoot,
     stateRoot,
     fsImpl: fsPromises,
     processRunner,
@@ -190,7 +231,12 @@ function requestFrom(parsed) {
     ...(parsed.operation ? { operation: parsed.operation } : {}),
     requested_project: parsed.project,
     requested_profile: parsed.profile,
-    selected_clients: [],
+    selected_clients: parsed.includeClients,
+    client_selection: {
+      include: parsed.includeClients,
+      exclude: parsed.excludeClients,
+      vscode_profile: parsed.vscodeProfile,
+    },
   };
 }
 

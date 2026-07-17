@@ -1738,4 +1738,92 @@ if (process.platform === 'win32') {
   }
 }
 
+// External lease reuse is a live local-state capability, not a shape-only bypass.
+for (const leaseCase of ['fabricated', 'released']) {
+  const root = makeTransactionRoot();
+  try {
+    const calls = [];
+    const home = join(root, 'client-home');
+    const localState = createTestLocalState(root, calls);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const windowsNative = virtualWindowsMetadata();
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state],
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    let externalLease;
+    if (leaseCase === 'fabricated') {
+      externalLease = { ownerToken: 'f'.repeat(48), async release() {} };
+    } else {
+      externalLease = await localState.acquireApplyLease({ waitMs: 0 });
+      await externalLease.release();
+    }
+    const transaction = createClientTransaction({
+      localState,
+      fsImpl: asyncFs,
+      windowsNative,
+      externalLease,
+    });
+    const adapter = fakeAdapter('claude');
+    t.assert(await rejectsCode(() => transaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [adapter],
+      operations: [operation],
+      context: {},
+      ownershipFingerprint,
+    }), 'LEASE_OWNER_MISMATCH'), `${leaseCase} external lease cannot bypass local apply serialization`);
+    t.assert(calls.filter(call => call.type === 'snapshot').length === 0, `${leaseCase} external lease is rejected before snapshots`);
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
+// A transaction nested under the orchestrator's lease must not reacquire or release that lease.
+{
+  const root = makeTransactionRoot();
+  try {
+    const calls = [];
+    const home = join(root, 'client-home');
+    const localState = createTestLocalState(root, calls);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const windowsNative = virtualWindowsMetadata();
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state],
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    const outerLease = await localState.acquireApplyLease({ waitMs: 0 });
+    const transaction = createClientTransaction({
+      localState,
+      fsImpl: asyncFs,
+      windowsNative,
+      externalLease: outerLease,
+    });
+    const adapter = fakeAdapter('claude');
+    await transaction.snapshot({
+      planDigest: PLAN_DIGEST,
+      adapters: [adapter],
+      operations: [operation],
+      context: {},
+      ownershipFingerprint,
+    });
+    const result = await transaction.apply({
+      planDigest: PLAN_DIGEST,
+      adapters: [adapter],
+      operations: [operation],
+      context: {},
+    });
+    t.assert(result.status === 'APPLIED', 'externally leased transaction applies successfully');
+    t.assert(calls.filter(call => call.type === 'lease').length === 1, 'externally leased transaction does not reacquire the apply lease');
+    t.assert(calls.filter(call => call.type === 'lease-release').length === 0, 'transaction cleanup does not release the orchestrator lease');
+    await outerLease.release();
+    t.assert(calls.filter(call => call.type === 'lease-release').length === 1, 'outer lease owner remains responsible for release');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 process.exitCode = t.summary();

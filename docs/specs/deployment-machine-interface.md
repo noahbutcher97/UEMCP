@@ -16,9 +16,14 @@ node dist/deploy-uemcp.mjs doctor --project "D:\Path\Game.uproject" --json
 node dist/deploy-uemcp.mjs repair --project "D:\Path\Game.uproject" --json
 ```
 
-`plan`, `verify`, `doctor`, and `repair` accept `--project`, `--profile`, and
-`--targets-file <absolute.json>`. A direct project and a profile are mutually
-exclusive. Direct projects must be absolute `.uproject` paths. An explicit
+`plan`, `verify`, `doctor`, and `repair` accept `--project`, `--profile`,
+repeatable `--include-client <id>` and `--exclude-client <id>`,
+`--vscode-profile <name>`, and `--targets-file <absolute.json>`. Client IDs are
+limited to `claude`, `codex`, `gemini`, and `vscode`; include/exclude overlap is
+invalid. Explicit includes are also retained in
+`request.selected_clients`. Release-gated detected clients are selected by
+default. A direct project and a profile are mutually exclusive. Direct projects
+must be absolute `.uproject` paths. An explicit
 targets file is path-validated by the target domain and its composite
 fingerprint is bound into a plan even when no direct project registration is
 requested. When registration is planned, the canonical registry path is also
@@ -67,6 +72,16 @@ downstream planning. A prerequisite apply failure stops every downstream write.
 If a later domain throws after an earlier domain committed progress, the core
 emits a fixed `SYNC_FAILED` terminal stage, writes a `PARTIAL` receipt, and
 consumes the approved plan rather than losing the earlier mutation.
+The central client transaction receives the orchestrator's already-held apply
+lease as an externally owned capability. It neither reacquires nor releases
+that lease; only the orchestrator releases it after receipts and replay state
+are durable.
+
+Client project/workspace inspection uses the invocation working directory. An
+Unreal `--project` or target `--profile` remains a target-registration choice
+and cannot silently redirect provider project scope to the `.uproject` parent
+or the UEMCP source checkout. Default client writes remain private user-scope
+writes.
 
 ## Result Schema
 
@@ -143,8 +158,19 @@ A client row has exactly:
 
 Compatibility is one of `release_gated`, `known_unsupported`, `unknown_newer`,
 or `not_installed`. `write_supported` is true only for `release_gated` clients.
-Structural registration, enablement/policy, and activation/trust are independent
-state fields.
+Structural registration, native-client evidence, protocol health,
+enablement/policy, and activation/trust are independent facts. The aggregate
+does not promote one fact from another. Client-stage environment evidence uses
+an array of fixed-key rows `{ name, value_sha256 }`; environment names are
+never dynamic object keys and values are never serialized.
+
+Client plans fingerprint every inspected config, policy, enablement,
+profile-metadata, executable, and canonical server path even when the client is
+already configured and emits no write. A secret-safe reviewed launch tuple and
+discovery-context hash bind the executable choice, client homes, relevant PATH
+inputs, invocation workspace, trust inputs, and VS Code profile root. Apply
+validates those facts and reuses the reviewed tuple; it does not perform a new
+same-version executable discovery after approval.
 
 ## Outcomes And Exits
 
@@ -175,10 +201,17 @@ The descriptor is provider-neutral and exact:
 ```
 
 It does not pin an Unreal project, enable Python execution, or inherit a
-deployment-specific working directory. Protocol smoke launches this exact
-descriptor and verifies MCP initialize plus the first `tools/list` request.
-Protocol health does not imply that a native client is configured, enabled,
-trusted, or restarted.
+deployment-specific working directory. Protocol smoke verifies MCP initialize
+plus the first `tools/list` request. Generic smoke launches this exact
+descriptor. Client smoke uses a private, in-memory effective environment and
+working directory from the inspected registration without changing or
+serializing the canonical descriptor. Windows environment overlays remove
+case-colliding parent aliases. Standalone verify and doctor do not launch
+registrations requiring custom-environment or custom-launch review; protocol
+health remains unknown. Post-approval apply may launch those exact values only
+when the saved plan contains the corresponding review action. Protocol health
+does not imply that a native client is configured, enabled, trusted, or
+restarted.
 
 ## Standalone Bundle
 
@@ -231,6 +264,11 @@ CLI failures emit only closed error codes and fixed diagnostic text. Arbitrary
 provider, parser, child-process, command, flag, and exception text is never
 echoed to stderr.
 
+Client inspection exposes environment key names and hashes only. Sensitive
+launch controls such as `NODE_OPTIONS`, case variants, UEMCP/Unreal prefixes,
+and custom working directories require explicit review. They cannot execute
+during standalone inspection.
+
 Schema 1.0 is closed for required fields, status values, and action codes. A
 future additive field is backward-compatible only when it is optional and old
 consumers can safely ignore it. A major schema mismatch is
@@ -241,8 +279,10 @@ healthy or partially compatible result.
 
 This core enables prerequisite inspection/install, structured project-target
 registration, deterministic plans, apply leases, replay protection, receipts,
-and generic MCP protocol smoke. Automatic Claude, Codex, Gemini, and VS Code
-configuration is not enabled yet. Plugin copy/build/load proof is also not
-enabled yet. Those capabilities join the same orchestrator as later client and
-plugin domains; until then generic clients truthfully report
-`MANUAL_REGISTRATION_REQUIRED`.
+and transactional Claude, Codex, Gemini, and VS Code configuration at the exact
+release gates in `client-contract.mjs`. Unsupported releases remain
+inspect-only. Generic hosts still use the canonical manual descriptor and
+truthfully report `MANUAL_REGISTRATION_REQUIRED`. Plugin copy/build/load proof
+is not enabled yet; it joins the same orchestrator as a later plugin domain.
+See `docs/specs/client-adapters.md` for client-specific support and proof
+boundaries.

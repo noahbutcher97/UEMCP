@@ -14,6 +14,7 @@ import { sha256Canonical } from './canonical-json.mjs';
 import {
   classifySupportedVersion,
   CLIENT_IDS,
+  expectedClientLaunchOverlay,
   mergeWindowsEnvironmentOverlay,
   readWindowsEnvironmentValue,
   validateClientLaunchContract,
@@ -44,7 +45,6 @@ const CLIENTS = Object.freeze({
   }),
 });
 
-const VSCODE_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' });
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_VSCODE_WRAPPER_BYTES = 64 * 1024;
 const MAX_CLIENT_CANDIDATES = 64;
@@ -406,14 +406,14 @@ async function resolveNativeCandidate(clientId, candidate, context) {
   return {
     command: command.path,
     args_prefix: [cli.path],
-    env_overlay: { ...VSCODE_OVERLAY },
+    env_overlay: expectedClientLaunchOverlay('vscode'),
     package_id: null,
     source: 'native',
     fingerprint: {
       command: command.fingerprint,
       args_prefix: [cli.fingerprint],
       authenticode: signature,
-      env_overlay_sha256: sha256Canonical(VSCODE_OVERLAY),
+      env_overlay_sha256: sha256Canonical(expectedClientLaunchOverlay('vscode')),
       ...(discoveryClue ? { discovery_clue: discoveryClue.fingerprint } : {}),
     },
   };

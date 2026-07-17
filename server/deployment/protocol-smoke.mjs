@@ -46,18 +46,31 @@ export async function smokeDescriptor(descriptor, {
   timeoutMs = 15_000,
   expectedServerName = 'uemcp',
   transportFactory = parameters => new StdioClientTransport(parameters),
+  effectiveEnvironment = null,
+  effectiveCwd = null,
 } = {}) {
   const validatedDescriptor = validateDescriptorContract(descriptor);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be a positive integer');
   if (typeof transportFactory !== 'function') throw new Error('transportFactory must be a function');
+  if (effectiveEnvironment !== null
+    && (!effectiveEnvironment || typeof effectiveEnvironment !== 'object' || Array.isArray(effectiveEnvironment)
+      || Object.values(effectiveEnvironment).some(value => typeof value !== 'string'))) {
+    throw new Error('effectiveEnvironment must be a string map or null');
+  }
+  if (effectiveCwd !== null && (typeof effectiveCwd !== 'string' || effectiveCwd.trim() === '')) {
+    throw new Error('effectiveCwd must be a non-empty string or null');
+  }
   const started = nowMs();
   const parameters = {
     command: validatedDescriptor.command,
     args: [...validatedDescriptor.args],
-    env: exactChildEnvironment(validatedDescriptor.env),
+    env: effectiveEnvironment === null
+      ? exactChildEnvironment(validatedDescriptor.env)
+      : { ...effectiveEnvironment },
     stderr: 'pipe',
   };
-  if (validatedDescriptor.cwd !== null) parameters.cwd = validatedDescriptor.cwd;
+  const launchCwd = effectiveCwd ?? validatedDescriptor.cwd;
+  if (launchCwd !== null) parameters.cwd = launchCwd;
   const transport = transportFactory(parameters);
   const client = new Client(clientInfo, { capabilities: {} });
   let stderrBytes = 0;

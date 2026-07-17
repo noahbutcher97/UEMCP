@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 import {
   ACTION_CODES,
@@ -43,7 +43,15 @@ function normalizeRequest(input, forcedOperation = null) {
     requested_profile: input?.requested_profile ?? null,
     selected_clients: input?.selected_clients ?? [],
   });
-  return { operation, request };
+  return {
+    operation,
+    request,
+    clientSelection: {
+      include: input?.client_selection?.include ?? input?.includeClients ?? request.selected_clients,
+      exclude: input?.client_selection?.exclude ?? input?.excludeClients ?? [],
+      vscodeProfile: input?.client_selection?.vscode_profile ?? input?.vscodeProfile ?? null,
+    },
+  };
 }
 
 function validateDomains(domains) {
@@ -79,6 +87,16 @@ function normalizeDomainPlan(value, domain) {
   };
 }
 
+function normalizeDomainExecution(value) {
+  if (value?.stage) {
+    if (!Array.isArray(value.clients ?? []) || !Array.isArray(value.actions ?? [])) {
+      throw new OrchestratorError('domain execution result is incomplete');
+    }
+    return { stage: value.stage, clients: value.clients ?? [], actions: value.actions ?? [] };
+  }
+  return { stage: value, clients: [], actions: [] };
+}
+
 function actionForSmoke(smoke) {
   if (smoke.status === 'INITIALIZE_FAILED') {
     return { code: 'INITIALIZE_FAILED', message: 'The canonical descriptor did not complete MCP initialize.', command: null };
@@ -93,11 +111,12 @@ function receiptContractReference(reference) {
   return { kind: reference.kind, path_label: reference.path_label, sha256: reference.sha256 };
 }
 
-function currentActions(stages, clients) {
+function currentActions(stages, clients, domainActions = []) {
   const unique = new Map();
   const actions = [
     ...stages.flatMap(stage => stage.actions),
     ...clients.flatMap(client => client.actions),
+    ...domainActions,
   ];
   for (const action of actions) unique.set(sha256Canonical(action), action);
   return [...unique.values()];
@@ -119,6 +138,7 @@ function terminalDomainException(domain, error) {
 
 export function createDeploymentOrchestrator({
   repoRoot,
+  workspaceRoot = process.cwd(),
   stateRoot,
   fsImpl,
   processRunner,
@@ -134,6 +154,10 @@ export function createDeploymentOrchestrator({
   applyWaitMs = 30_000,
 } = {}) {
   if (!repoRoot || !stateRoot) throw new OrchestratorError('repoRoot and stateRoot are required');
+  if (typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot)) {
+    throw new OrchestratorError('workspaceRoot must be an absolute path');
+  }
+  const activeWorkspaceRoot = resolve(workspaceRoot);
   if (!localState) throw new OrchestratorError('localState is required');
   if (typeof sourceProvider !== 'function' || typeof descriptorProvider !== 'function') {
     throw new OrchestratorError('source and descriptor providers are required');
@@ -151,24 +175,38 @@ export function createDeploymentOrchestrator({
       localState,
       operation: normalized.operation,
       request: normalized.request,
+      clientSelection: normalized.clientSelection,
+      env: process.env,
+      workspaceRoot: activeWorkspaceRoot,
       source,
       descriptor,
       now: normalizeClock(clock),
+      ...(overrides.privateContext ?? {}),
     };
   }
 
   async function appendGenericSupport(context, aggregate) {
-    if (!includeGenericClient || aggregate.clients.length > 0) return;
+    const hasGeneric = aggregate.clients.some(client => client.adapter === 'generic-mcp-host');
+    const hasReleaseGatedClient = aggregate.clients.some(client =>
+      client.adapter !== 'generic-mcp-host' && client.compatibility === 'release_gated');
+    if (!includeGenericClient || hasGeneric || hasReleaseGatedClient) return;
     const smoke = await protocolSmoke(context.descriptor);
     const client = createGenericClientResult({ descriptor: context.descriptor, smoke });
-    aggregate.clients.push(client);
+    aggregate.clients = [...aggregate.clients, client];
     aggregate.actions.push(...client.actions);
-    aggregate.stages.push(createStageResult({
+    const clientStageIndex = aggregate.stages.findIndex(stage => stage.name === 'clients');
+    const existingClientStage = aggregate.stages[clientStageIndex];
+    const clientStage = createStageResult({
       name: 'clients',
       status: 'MANUAL_REGISTRATION_REQUIRED',
+      mandatory: existingClientStage?.mandatory ?? true,
+      changed: existingClientStage?.changed ?? false,
+      evidence: existingClientStage?.evidence ?? {},
       result: 'action_required',
-      actions: client.actions,
-    }));
+      actions: [...(existingClientStage?.actions ?? []), ...client.actions],
+    });
+    if (clientStageIndex >= 0) aggregate.stages[clientStageIndex] = clientStage;
+    else aggregate.stages.push(clientStage);
     const smokeAction = actionForSmoke(smoke);
     aggregate.stages.push(createStageResult({
       name: 'protocol',
@@ -247,7 +285,11 @@ export function createDeploymentOrchestrator({
     });
     try {
       const normalized = normalizeRequest({ operation: plan.operation, ...plan.request });
-      const context = await buildContext(normalized, { source: plan.source, descriptor: plan.descriptor });
+      const context = await buildContext(normalized, {
+        source: plan.source,
+        descriptor: plan.descriptor,
+        privateContext: { approvedPlan: plan, applyLease: lease },
+      });
       await validatePlanForApply({
         plan,
         approvedDigest,
@@ -262,36 +304,44 @@ export function createDeploymentOrchestrator({
       }
 
       const stages = [];
+      let domainClients = [];
+      const domainActions = [];
       let prerequisitesBlocked = false;
       for (const domain of orderedDomains) {
         const operations = plan.operations.filter(operation => operation.domain === domain.name);
-        let stage;
+        let execution;
         let stageOutcome;
         try {
-          stage = operations.length > 0
+          const value = operations.length > 0 || domain.name === 'clients'
             ? await domain.apply(context, operations)
             : await domain.verify(context);
-          stageOutcome = reduceOutcome([stage]);
+          execution = normalizeDomainExecution(value);
+          stageOutcome = reduceOutcome([execution.stage]);
         } catch (error) {
           if (!shouldRecordPlanDigest(stages)) throw error;
           stages.push(terminalDomainException(domain, error));
           break;
         }
-        stages.push(stage);
+        stages.push(execution.stage);
+        if (execution.clients.length > 0) domainClients = execution.clients;
+        domainActions.push(...execution.actions);
         if (domain.name === 'prerequisites' && stageOutcome !== 'HEALTHY') {
           prerequisitesBlocked = true;
           break;
         }
       }
       if (stages.length === 0) stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));
-      let clients = prerequisitesBlocked ? [] : plan.clients;
+      let clients = prerequisitesBlocked ? [] : (domainClients.length > 0 ? domainClients : plan.clients);
       if (!prerequisitesBlocked && includeGenericClient && plan.clients.some(client => client.adapter === 'generic-mcp-host')) {
-        const generic = { stages: [], clients: [], actions: [] };
-        await appendGenericSupport(context, generic);
-        stages.push(...generic.stages);
-        clients = generic.clients;
+        const fallback = {
+          stages,
+          clients: clients.filter(client => client.adapter !== 'generic-mcp-host'),
+          actions: domainActions,
+        };
+        await appendGenericSupport(context, fallback);
+        clients = fallback.clients;
       }
-      const actions = currentActions(stages, clients);
+      const actions = currentActions(stages, clients, domainActions);
       const planSummary = {
         digest: plan.digest,
         created_at: plan.created_at,
@@ -338,10 +388,11 @@ export function createDeploymentOrchestrator({
     const aggregate = { stages: [], clients: [], actions: [] };
     let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
-      const stage = await domain.verify(context);
-      aggregate.stages.push(stage);
-      aggregate.actions.push(...stage.actions);
-      if (domain.name === 'prerequisites' && reduceOutcome([stage]) !== 'HEALTHY') prerequisitesBlocked = true;
+      const execution = normalizeDomainExecution(await domain.verify(context));
+      aggregate.stages.push(execution.stage);
+      if (execution.clients.length > 0) aggregate.clients = execution.clients;
+      aggregate.actions.push(...execution.stage.actions, ...execution.actions);
+      if (domain.name === 'prerequisites' && reduceOutcome([execution.stage]) !== 'HEALTHY') prerequisitesBlocked = true;
     }
     if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) aggregate.stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));

@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { TestRunner } from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes } from './deployment/canonical-json.mjs';
@@ -589,6 +589,53 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
   }
 }
 
+// Client workspace inspection follows the invocation workspace, not Unreal target selection.
+{
+  const root = makeRoot();
+  try {
+    const activeWorkspace = join(root, 'active-workspace');
+    const unrealProject = writeProject(join(root, 'UnrealProject'));
+    mkdirSync(activeWorkspace, { recursive: true });
+    const observed = [];
+    const clients = {
+      name: 'clients',
+      order: 30,
+      async plan(context) {
+        observed.push({ operation: 'plan', workspaceRoot: context.workspaceRoot, request: context.request });
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'NOT_SELECTED', result: 'ready' })],
+          operations: [],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() { throw new Error('apply is not expected'); },
+      async verify(context) {
+        observed.push({ operation: 'verify', workspaceRoot: context.workspaceRoot, request: context.request });
+        return { stage: createStageResult({ name: 'clients', status: 'NOT_SELECTED', result: 'ready' }), clients: [], actions: [] };
+      },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      workspaceRoot: activeWorkspace,
+      stateRoot: join(root, 'state'),
+      domains: [clients],
+      localState: { wasDigestApplied: async () => false },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    await orchestrator.plan({ operation: 'setup', requested_project: unrealProject, requested_profile: null, selected_clients: [] });
+    await orchestrator.verify({ requested_project: null, requested_profile: 'smoke', selected_clients: [] });
+    t.assert(observed.every(row => row.workspaceRoot === resolve(activeWorkspace)), 'client domains retain the explicit invocation workspace for project and profile requests');
+    t.assert(observed[0].workspaceRoot !== dirname(unrealProject) && observed[1].workspaceRoot !== root, 'Unreal target selection and the UEMCP source root cannot silently redefine provider workspace scope');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Domain planners cannot emit operations owned by another domain.
 {
   const root = makeRoot();
@@ -979,10 +1026,11 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       stages: [createStageResult({ name: 'prerequisites', status: 'READY' })],
       now: new Date('2026-07-15T12:00:00.000Z'),
     });
+    let dispatchedRequest = null;
     const cliOrchestrator = {
-      async plan() { return plan; },
+      async plan(request) { dispatchedRequest = structuredClone(request); return plan; },
       async repair() { return { ...plan, operation: 'repair', digest: computePlanDigest({ ...plan, operation: 'repair' }) }; },
-      async verify() { return result; },
+      async verify(request) { dispatchedRequest = structuredClone(request); return result; },
       async doctor() { return { ...result, operation: 'doctor' }; },
       async apply() { return { ...result, operation: 'apply', plan: { digest: plan.digest, created_at: plan.created_at, expires_at: plan.expires_at, preconditions_valid: true } }; },
     };
@@ -1010,6 +1058,10 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     stderr = '';
     const conflictingTargetExit = await runCli(['plan', '--operation', 'setup', '--project', join(root, 'Game.uproject'), '--profile', 'smoke', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(conflictingTargetExit === 64 && stdout === '', 'direct project and profile selectors are mutually exclusive');
+    stdout = '';
+    stderr = '';
+    const selectedClientExit = await runCli(['verify', '--include-client', 'claude', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(selectedClientExit === 0 && JSON.stringify(dispatchedRequest.selected_clients) === JSON.stringify(['claude']), 'CLI explicit includes populate the public selected_clients request field');
     stdout = '';
     stderr = '';
     const planPath = join(root, 'reviewed-plan.json');
@@ -1045,6 +1097,180 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     stderr = '';
     const repairExit = await runCli(['repair', '--yes', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(repairExit === 64 && stdout === '', 'repair rejects direct-apply flags');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Client domains may return post-operation rows/actions while legacy domains keep returning a bare stage.
+{
+  const root = makeRoot();
+  try {
+    const action = {
+      code: 'PENDING_TRUST',
+      message: 'Review client trust before activation.',
+      command: null,
+    };
+    const clientRow = overrides => ({
+      adapter: 'claude',
+      version: '2.1.210',
+      compatibility: 'release_gated',
+      write_supported: true,
+      selected: true,
+      scope: 'user',
+      status: 'CONFIGURED',
+      enablement: 'ENABLED',
+      activation: 'UNKNOWN',
+      actions: [],
+      ...overrides,
+    });
+    let applyCalls = 0;
+    const clientDomain = {
+      name: 'clients',
+      order: 30,
+      async plan() {
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'READY' })],
+          operations: [],
+          preconditions: [],
+          clients: [clientRow({ status: 'ABSENT' })],
+          actions: [],
+        };
+      },
+      async apply() {
+        applyCalls += 1;
+        return {
+          stage: createStageResult({ name: 'clients', status: 'READY' }),
+          clients: [clientRow({ activation: 'CONNECTED' })],
+          actions: [],
+        };
+      },
+      async verify() {
+        return {
+          stage: createStageResult({ name: 'clients', status: 'PENDING_TRUST', result: 'action_required', actions: [action] }),
+          clients: [clientRow({ activation: 'PENDING_TRUST', actions: [action] })],
+          actions: [action],
+        };
+      },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      domains: [clientDomain],
+      localState: {
+        async acquireApplyLease() { return { ownerToken: 'a'.repeat(48), async release() {} }; },
+        async wasDigestApplied() { return false; },
+        async markDigestApplied() {},
+      },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/sample.json', sha256: 'd'.repeat(64) }),
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: ['claude'] };
+    const plan = await orchestrator.plan(request);
+    const applied = await orchestrator.apply({ plan, approvedDigest: plan.digest });
+    t.assert(applyCalls === 1, 'client apply runs even when the saved selection has no write operation');
+    t.assert(applied.clients[0].activation === 'CONNECTED' && plan.clients[0].activation === 'UNKNOWN', 'apply returns fresh client rows without mutating saved plan clients');
+    const verified = await orchestrator.verify(request);
+    t.assert(verified.clients[0].activation === 'PENDING_TRUST' && verified.actions.some(row => row.code === 'PENDING_TRUST'), 'standalone inspection consumes normalized client rows and actions');
+
+    const bareDomain = {
+      name: 'prerequisites',
+      order: 10,
+      async plan() { return { stages: [createStageResult({ name: 'prerequisites', status: 'READY' })], operations: [], preconditions: [] }; },
+      async apply() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+      async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+    };
+    const legacy = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'legacy-state'),
+      domains: [bareDomain],
+      localState: { async wasDigestApplied() { return false; } },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+    });
+    const legacyResult = await legacy.verify({ requested_project: null, requested_profile: null, selected_clients: [] });
+    t.assert(legacyResult.stages[0].status === 'READY' && legacyResult.clients.length === 0, 'orchestrator preserves bare-stage compatibility for existing domains');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Known client rows do not suppress the generic descriptor when no release-gated host exists.
+{
+  const root = makeRoot();
+  try {
+    const knownRows = supported => ['claude', 'codex', 'gemini', 'vscode'].map((adapter, index) => ({
+      adapter,
+      version: supported && index === 0 ? '2.1.210' : null,
+      compatibility: supported && index === 0 ? 'release_gated' : 'not_installed',
+      write_supported: supported && index === 0,
+      selected: supported && index === 0,
+      scope: 'user',
+      status: supported && index === 0 ? 'CONFIGURED' : 'NOT_INSTALLED',
+      enablement: supported && index === 0 ? 'ENABLED' : 'NOT_INSTALLED',
+      activation: supported && index === 0 ? 'CONNECTED' : 'NOT_INSTALLED',
+      actions: [],
+    }));
+    const makeClientDomain = supported => {
+      const execution = () => ({
+        stage: createStageResult({
+          name: 'clients',
+          status: supported ? 'HEALTHY' : 'NOT_INSTALLED',
+          result: supported ? 'ready' : 'action_required',
+        }),
+        clients: knownRows(supported),
+        actions: [],
+      });
+      return {
+        name: 'clients',
+        order: 30,
+        async plan() {
+          const value = execution();
+          return { stages: [value.stage], operations: [], preconditions: [], clients: value.clients, actions: [] };
+        },
+        async apply() { return execution(); },
+        async verify() { return execution(); },
+      };
+    };
+    const makeOrchestrator = supported => createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, supported ? 'supported-state' : 'generic-state'),
+      domains: [makeClientDomain(supported)],
+      localState: {
+        async acquireApplyLease() { return { ownerToken: 'b'.repeat(48), async release() {} }; },
+        async wasDigestApplied() { return false; },
+        async markDigestApplied() {},
+      },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      protocolSmoke: async () => ({
+        status: 'HEALTHY',
+        initialize: { server_name: 'uemcp', server_version: '1.0.0' },
+        instruction_bytes: 10,
+        tool_count: 1,
+        initial_tool_names: ['one'],
+        duration_ms: 1,
+      }),
+      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/client-fallback.json', sha256: '3'.repeat(64) }),
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] };
+    const genericOrchestrator = makeOrchestrator(false);
+    const plan = await genericOrchestrator.plan(request);
+    t.assert(plan.clients.length === 5 && plan.clients.slice(0, 4).every(client => client.status === 'NOT_INSTALLED'), 'generic fallback retains every known client row');
+    t.assert(plan.clients.at(-1)?.adapter === 'generic-mcp-host' && plan.clients.at(-1)?.status === 'MANUAL_REGISTRATION_REQUIRED', 'no release-gated host appends the generic manual descriptor');
+    t.assert(plan.stages.filter(stage => stage.name === 'clients').length === 1, 'generic fallback keeps one aggregate clients stage');
+    const applied = await genericOrchestrator.apply({ plan, approvedDigest: plan.digest });
+    t.assert(applied.clients.length === 5 && applied.clients.at(-1)?.adapter === 'generic-mcp-host', 'apply refresh retains known rows and the saved generic fallback');
+    const verified = await genericOrchestrator.verify(request);
+    t.assert(verified.clients.length === 5 && verified.clients.at(-1)?.adapter === 'generic-mcp-host', 'standalone verification retains known rows and generic fallback');
+
+    const supportedPlan = await makeOrchestrator(true).plan(request);
+    t.assert(supportedPlan.clients.length === 4 && !supportedPlan.clients.some(client => client.adapter === 'generic-mcp-host'), 'a detected release-gated host suppresses generic manual registration');
   } finally {
     cleanup(root);
   }

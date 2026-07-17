@@ -157,8 +157,14 @@ try {
       { name: 'clients', status: 'MANUAL_REGISTRATION_REQUIRED' },
     ],
   };
-  const { runCli: runSourceCli } = await import(pathToFileURL(sourceEntry).href);
-  const { runCli: runBundleCli } = await import(pathToFileURL(bundlePath).href);
+  const {
+    parseDeploymentCliArgs: parseSourceArgs,
+    runCli: runSourceCli,
+  } = await import(pathToFileURL(sourceEntry).href);
+  const {
+    parseDeploymentCliArgs: parseBundleArgs,
+    runCli: runBundleCli,
+  } = await import(pathToFileURL(bundlePath).href);
   const sourcePlanRun = await runInjectedPlan(runSourceCli, deterministicPlan);
   const bundlePlanRun = await runInjectedPlan(runBundleCli, deterministicPlan);
   const sourcePlan = JSON.parse(sourcePlanRun.stdout);
@@ -167,6 +173,45 @@ try {
   t.assert(bundlePlan.schema_version === sourcePlan.schema_version && bundlePlan.kind === sourcePlan.kind && bundlePlan.operation === sourcePlan.operation && bundlePlan.outcome === sourcePlan.outcome, 'source and bundle agree on plan schema and outcome');
   t.assert(JSON.stringify(bundlePlan.descriptor) === JSON.stringify(sourcePlan.descriptor), 'source and bundle preserve the same injected canonical descriptor');
   t.assert(JSON.stringify(bundlePlan.stages.map(row => [row.name, row.status])) === JSON.stringify(sourcePlan.stages.map(row => [row.name, row.status])), 'source and bundle preserve the same injected no-write stages');
+
+  for (const [label, parseArgs] of [['source', parseSourceArgs], ['bundle', parseBundleArgs]]) {
+    const selected = parseArgs([
+      'plan', '--operation', 'setup',
+      '--include-client', 'claude',
+      '--include-client', 'codex',
+      '--exclude-client', 'gemini',
+      '--vscode-profile', 'Work Profile',
+    ]);
+    t.assert(JSON.stringify(selected.includeClients) === JSON.stringify(['claude', 'codex'])
+      && JSON.stringify(selected.excludeClients) === JSON.stringify(['gemini'])
+      && selected.vscodeProfile === 'Work Profile', `${label} CLI preserves repeatable client selection and VS Code profile`);
+    t.assert(await rejectsCode(() => parseArgs(['verify', '--include-client', 'unknown-client']), 'CLI_USAGE'), `${label} CLI rejects an unknown include client`);
+    t.assert(await rejectsCode(() => parseArgs(['doctor', '--include-client', 'claude', '--exclude-client', 'claude']), 'CLI_USAGE'), `${label} CLI rejects include/exclude overlap`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--include-client', 'claude']), 'CLI_USAGE'), `${label} apply rejects selection overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--vscode-profile', 'Work']), 'CLI_USAGE'), `${label} apply rejects profile overrides`);
+  }
+
+  let forwardedRequest = null;
+  let cliStdout = '';
+  let cliStderr = '';
+  const verifyExit = await runSourceCli([
+    'verify', '--include-client', 'claude', '--exclude-client', 'gemini', '--vscode-profile', 'Work', '--json',
+  ], {
+    orchestrator: {
+      async verify(request) {
+        forwardedRequest = structuredClone(request);
+        return { operation: 'verify', outcome: 'HEALTHY', actions: [] };
+      },
+    },
+    stdout: { write(value) { cliStdout += value; } },
+    stderr: { write(value) { cliStderr += value; } },
+  });
+  t.assert(verifyExit === 0 && cliStderr === '' && cliStdout !== '', 'CLI dispatch accepts client selection on standalone inspection');
+  t.assert(JSON.stringify(forwardedRequest.client_selection) === JSON.stringify({
+    include: ['claude'],
+    exclude: ['gemini'],
+    vscode_profile: 'Work',
+  }) && JSON.stringify(forwardedRequest.selected_clients) === JSON.stringify(['claude']), 'CLI forwards selection as public request evidence and private orchestration input');
 
   const trackable = artifactNames.every(name => spawnSync('git', ['check-ignore', '-q', `dist/${name}`], { cwd: repoRoot, windowsHide: true }).status === 1);
   const ignoredScratch = spawnSync('git', ['check-ignore', '-q', 'dist/scratch.txt'], { cwd: repoRoot, windowsHide: true }).status === 0;

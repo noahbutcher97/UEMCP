@@ -50,6 +50,7 @@ const SENSITIVE_ENVIRONMENT_KEYS = new Set([
   'GEMINI_CLI_HOME',
 ]);
 const MUTATING_MCP_SUBCOMMANDS = new Set(['add', 'add-json', 'remove', 'reset-project-choices']);
+const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
 
 export const CLAUDE_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: '2.1.210',
@@ -314,7 +315,7 @@ async function occurrence({ scope, source, entry, jsonPath, desired, ledger, plu
   const ownership = ['user', 'local', 'project'].includes(scope)
     ? await inspectOwnership({ ledger, currentEntry: entry, desiredEntry: desired, location: locationInput })
     : null;
-  return Object.freeze({
+  const result = Object.freeze({
     scope,
     path_label: source.scope,
     path: source.path,
@@ -331,6 +332,11 @@ async function occurrence({ scope, source, entry, jsonPath, desired, ledger, plu
     plugin_id: pluginId,
     deletable_after_migration: deletableAfterMigration,
   });
+  PRIVATE_PROTOCOL_LAUNCH.set(result, Object.freeze({
+    env_overlay: Object.freeze({ ...(plainObject(entry.env) ? entry.env : {}) }),
+    cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
+  }));
+  return result;
 }
 
 function validateSettingsFile(file) {
@@ -1025,9 +1031,15 @@ export function createClaudeAdapter({
     return Object.freeze({ status: resultStatus(native, operationStatus), native });
   }
 
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.occurrences?.find(row => row.scope === inspection.effective?.scope
+      && row.path === inspection.effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH.get(effective) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+
   async function rollback(context, records) {
     return Object.freeze({ status: 'delegated', count: records.length });
   }
 
-  return Object.freeze({ id: 'claude', detect, inspect, plan, snapshot, apply, verify, rollback });
+  return Object.freeze({ id: 'claude', detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
 }

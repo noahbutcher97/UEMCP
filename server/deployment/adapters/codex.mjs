@@ -38,6 +38,7 @@ const LEDGER_FAILURES = new Set([
   'ledger_self_hash_mismatch',
   'ledger_record_invalid',
 ]);
+const PRIVATE_PROTOCOL_LAUNCH = new WeakMap();
 
 export const CODEX_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
   version: '0.144.4',
@@ -423,7 +424,7 @@ async function makeOccurrence({ source, scope, desired, ledger, ownershipScope =
       location: { clientId: 'codex', configPath: source.path, scope: ownershipScope, entryName: 'uemcp' },
     })
     : null;
-  return Object.freeze({
+  const result = Object.freeze({
     scope,
     path: source.path,
     allowed_root: source.allowed_root,
@@ -438,6 +439,11 @@ async function makeOccurrence({ source, scope, desired, ledger, ownershipScope =
     review_actions: Object.freeze(reviewActions(entry)),
     ownership: safeOwnershipEvidence(ownership),
   });
+  PRIVATE_PROTOCOL_LAUNCH.set(result, Object.freeze({
+    env_overlay: Object.freeze({ ...(plainObject(entry.env) ? entry.env : {}) }),
+    cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
+  }));
+  return result;
 }
 
 function matchArgumentRule(rule, argument) {
@@ -955,9 +961,15 @@ export function createCodexAdapter({
     return Object.freeze({ status: 'READY', restart_required: false, native });
   }
 
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.occurrences?.find(row => row.scope === inspection.effective?.scope
+      && row.path === inspection.effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH.get(effective) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+
   async function rollback(context, records) {
     return Object.freeze({ status: 'delegated', count: records.length });
   }
 
-  return Object.freeze({ id: 'codex', detect, inspect, plan, snapshot, apply, verify, rollback });
+  return Object.freeze({ id: 'codex', detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
 }

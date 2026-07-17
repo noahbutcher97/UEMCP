@@ -74,6 +74,24 @@ function descriptor(script, mode = 'normal') {
   }
 }
 
+// Private launch overrides do not weaken the serialized canonical descriptor.
+{
+  const root = makeRoot();
+  try {
+    const canonical = descriptor(sampleServer, 'report-launch');
+    const smoke = await smokeDescriptor(canonical, {
+      expectedServerName: 'sample-mcp',
+      timeoutMs: 2_000,
+      effectiveEnvironment: { PATH: '', SMOKE_ENV_PROBE: 'private-value' },
+      effectiveCwd: root,
+    });
+    t.assert(smoke.status === 'HEALTHY' && smoke.initialize?.server_version === `private-value|${resolve(root)}`, 'protocol smoke uses the exact private environment and cwd');
+    t.assert(JSON.stringify(canonical) === JSON.stringify(descriptor(sampleServer, 'report-launch')), 'private launch overrides do not mutate the canonical descriptor');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Initialize and list failures remain bounded and separately classified.
 for (const [mode, expectedStatus] of [
   ['hang-initialize', 'INITIALIZE_FAILED'],
