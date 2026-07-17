@@ -70,13 +70,21 @@ if [[ ! -s "$literals" && ! -s "$regexes" ]]; then
 fi
 
 zero="0000000000000000000000000000000000000000"
+remote_name="${1:-}"
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue   # branch deletion
 
   if [[ "$remote_sha" == "$zero" ]]; then
-    content="$(git log -p --no-color "$local_sha" 2>/dev/null; git log --format='%B' "$local_sha" 2>/dev/null)"
-    range_label="new-branch $local_sha"
+    # A new branch has no remote tip for a simple A..B range. Exclude only
+    # commits already reachable from this destination remote. Excluding every
+    # configured remote could let a private mirror weaken a public push gate.
+    scan_args=("$local_sha")
+    while IFS= read -r ref; do
+      [[ -n "$ref" ]] && scan_args+=("^$ref")
+    done < <(git for-each-ref --format='%(refname)' "refs/remotes/$remote_name/" 2>/dev/null)
+    content="$(git log -p --no-color "${scan_args[@]}" 2>/dev/null; git log --format='%B' "${scan_args[@]}" 2>/dev/null)"
+    range_label="new-branch unpublished commits from $local_sha"
   else
     content="$(git log -p --no-color "${remote_sha}..${local_sha}" 2>/dev/null; git log --format='%B' "${remote_sha}..${local_sha}" 2>/dev/null)"
     range_label="${remote_sha}..${local_sha}"
