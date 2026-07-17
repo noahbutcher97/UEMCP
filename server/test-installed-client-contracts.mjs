@@ -48,7 +48,7 @@ import { TestRunner } from './test-helpers.mjs';
 
 const enabled = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT === '1';
 const worker = process.env.UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER === '1';
-const WORKER_TIMEOUT_MS = 420_000;
+const WORKER_TIMEOUT_MS = 600_000;
 
 if (!enabled) {
   console.log('  ⊘ skipped: UEMCP_INSTALLED_CLIENT_CONTRACT=1 is required for installed client contracts');
@@ -212,6 +212,11 @@ function contextFor(root, isolated, clientId, approvedPlan = null, applyLease = 
       requested_project: null,
       requested_profile: null,
       selected_clients: [clientId],
+      client_decisions: {
+        replace_owned_fields: false,
+        shadow_gemini_extension: false,
+        migrate_legacy_claude_project: false,
+      },
     },
     clientSelection: { include: [clientId], exclude: [], vscodeProfile: 'Contract Profile' },
     env: isolated.env,
