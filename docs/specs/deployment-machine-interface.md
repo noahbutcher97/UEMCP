@@ -82,15 +82,17 @@ that lease; only the orchestrator releases it after receipts and replay state
 are durable.
 
 Mutation-capable apply uses a write-ahead journal keyed by plan digest. The
-journal enters `applying` before domain execution. A terminal result is prepared
-and self-hashed, then stored in the journal as `receipt_pending` before the
-receipt file is written; only the exact staged receipt can advance the journal
-to `committed`. On restart, replay detection reconstructs a missing receipt
-from the exact staged document or verifies an existing one before rejecting the
-digest as consumed. An `applying` journal with no terminal receipt blocks replay
-conservatively because mutation state is uncertain. A verified no-progress
-failure clears its journal and remains retryable. The prior replay ledger is
-still read for compatibility but new applies are committed through the journal.
+journal cannot enter `applying` until it contains a prepared, self-hashed
+recovery receipt. That receipt reports `APPLY_INTERRUPTED`, marks mutation state
+as unknown, and consumes the digest conservatively if execution stops before a
+terminal result can be staged. Normal completion replaces the recovery document
+with the exact terminal receipt in `receipt_pending` before the receipt file is
+written; only the staged receipt can advance the journal to `committed`. On
+restart, replay detection reconstructs either missing receipt from the journal
+or verifies an existing one before rejecting the digest as consumed. A verified
+no-progress failure may clear its still-owned journal and remain retryable. The
+prior replay ledger is validated and read for compatibility, but new applies are
+committed through the receipt-bearing journal.
 
 Client project/workspace inspection uses the invocation working directory. An
 Unreal `--project` or target `--profile` remains a target-registration choice

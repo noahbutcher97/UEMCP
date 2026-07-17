@@ -118,6 +118,44 @@ function requireApplyJournal(localState) {
   }
 }
 
+function prepareInterruptedApplyReceipt(localState, plan, now) {
+  const action = {
+    code: 'SYNC_FAILED',
+    message: 'A prior apply was interrupted; inspect current deployment state and create a new plan.',
+    command: null,
+  };
+  const stage = createStageResult({
+    name: 'orchestrator',
+    status: 'SYNC_FAILED',
+    changed: true,
+    result: 'failed',
+    progress: 'committed',
+    evidence: {
+      error_code: 'APPLY_INTERRUPTED',
+      mutation_state: 'unknown',
+    },
+    actions: [action],
+  });
+  const result = createMachineResult({
+    operation: 'apply',
+    source: plan.source,
+    request: plan.request,
+    descriptor: plan.descriptor,
+    plan: {
+      digest: plan.digest,
+      created_at: plan.created_at,
+      expires_at: plan.expires_at,
+      preconditions_valid: true,
+    },
+    stages: [stage],
+    clients: plan.clients,
+    receipts: [],
+    actions: [action],
+    now,
+  });
+  return prepareReceipt({ localState, result, plan });
+}
+
 function currentActions(stages, clients, domainActions = []) {
   const unique = new Map();
   const actions = [
@@ -311,9 +349,10 @@ export function createDeploymentOrchestrator({
       }
 
       let journalStarted = false;
+      const interruptedReceipt = prepareInterruptedApplyReceipt(localState, plan, context.now);
       if (plan.operations.length > 0) {
         requireApplyJournal(localState);
-        await localState.beginApplyJournal(plan.digest);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
         journalStarted = true;
       }
 
@@ -377,7 +416,7 @@ export function createDeploymentOrchestrator({
       const consumesPlan = shouldRecordPlanDigest(stages);
       if (consumesPlan && !journalStarted) {
         requireApplyJournal(localState);
-        await localState.beginApplyJournal(plan.digest);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
         journalStarted = true;
       }
       const prepared = prepareReceipt({ localState, result: initial, plan });

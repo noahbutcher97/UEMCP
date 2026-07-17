@@ -442,6 +442,22 @@ export function createLocalState({
     return receipt;
   }
 
+  function journalReceiptFromPrepared(preparedReceipt) {
+    const reference = preparedReceipt?.reference;
+    if (!reference || !preparedReceipt?.document) {
+      throw new LocalStateError('prepared recovery receipt is required', 'MALFORMED_LOCAL_STATE');
+    }
+    if (reference.path !== join(pathSet.receipts, basename(reference.path_label ?? ''))) {
+      throw new LocalStateError('prepared receipt path is outside the receipt root', 'LOCAL_STATE_PATH_ESCAPE');
+    }
+    return validateJournalReceipt({
+      kind: reference.kind,
+      path_label: reference.path_label,
+      sha256: reference.sha256,
+      document: preparedReceipt.document,
+    });
+  }
+
   function validateApplyJournal(record, digest) {
     if (!record || typeof record !== 'object' || Array.isArray(record)
       || record.schema_version !== '1.0'
@@ -457,7 +473,7 @@ export function createLocalState({
       throw new LocalStateError('apply journal has unknown fields', 'MALFORMED_LOCAL_STATE');
     }
     if (record.state === 'applying') {
-      if (record.receipt !== null) throw new LocalStateError('applying journal cannot contain a receipt', 'MALFORMED_LOCAL_STATE');
+      if (record.receipt !== null) validateJournalReceipt(record.receipt);
     } else {
       validateJournalReceipt(record.receipt);
     }
@@ -470,18 +486,19 @@ export function createLocalState({
     return record === null ? null : validateApplyJournal(record, normalized);
   }
 
-  async function beginApplyJournal(digest) {
+  async function beginApplyJournal(digest, preparedReceipt) {
     const normalized = validateDigest(digest);
     if (await readApplyJournal(normalized)) throw new LocalStateError('plan digest already has an apply journal', 'PLAN_REPLAYED');
     const ledger = await readReplayLedger();
     if (Object.hasOwn(ledger.applied ?? {}, normalized)) throw new LocalStateError('plan digest was already applied', 'PLAN_REPLAYED');
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
     await writeJsonAtomic(applyJournalPath(normalized), {
       schema_version: '1.0',
       kind: 'uemcp.deployment.apply-journal',
       plan_digest: normalized,
       state: 'applying',
       started_at: new Date(Number(clock())).toISOString(),
-      receipt: null,
+      receipt,
     });
   }
 
@@ -489,16 +506,7 @@ export function createLocalState({
     const normalized = validateDigest(digest);
     const current = await readApplyJournal(normalized);
     if (current?.state !== 'applying') throw new LocalStateError('apply journal is not ready for terminal receipt staging', 'MALFORMED_LOCAL_STATE');
-    const reference = preparedReceipt?.reference;
-    if (!reference || reference.path !== join(pathSet.receipts, basename(reference.path_label ?? ''))) {
-      throw new LocalStateError('prepared receipt path is outside the receipt root', 'LOCAL_STATE_PATH_ESCAPE');
-    }
-    const receipt = validateJournalReceipt({
-      kind: reference.kind,
-      path_label: reference.path_label,
-      sha256: reference.sha256,
-      document: preparedReceipt.document,
-    });
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
     await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: 'receipt_pending', receipt });
   }
 
@@ -521,7 +529,8 @@ export function createLocalState({
   async function completeApplyJournal(digest, reference = null) {
     const normalized = validateDigest(digest);
     const current = await readApplyJournal(normalized);
-    if (!current || !['receipt_pending', 'committed'].includes(current.state)) {
+    if (!current || !['applying', 'receipt_pending', 'committed'].includes(current.state)
+      || (current.state === 'applying' && current.receipt === null)) {
       throw new LocalStateError('apply journal has no terminal receipt', 'MALFORMED_LOCAL_STATE');
     }
     const expected = current.receipt;
@@ -551,7 +560,10 @@ export function createLocalState({
     validateDigest(digest);
     const journal = await readApplyJournal(digest);
     if (journal) {
-      if (journal.state !== 'applying') await completeApplyJournal(digest);
+      if (journal.state === 'applying' && journal.receipt === null) {
+        throw new LocalStateError('interrupted apply journal lacks recovery evidence', 'MALFORMED_LOCAL_STATE');
+      }
+      if (journal.state !== 'committed') await completeApplyJournal(digest);
       return true;
     }
     const ledger = await readReplayLedger();

@@ -89,9 +89,10 @@ function withApplyJournal(localState, onEvent = () => {}) {
         ? await localState.wasDigestApplied(digest)
         : false;
     },
-    async beginApplyJournal(digest) {
+    async beginApplyJournal(digest, prepared) {
       if (journals.has(digest)) throw Object.assign(new Error('replayed journal'), { code: 'PLAN_REPLAYED' });
-      journals.set(digest, { state: 'applying', prepared: null });
+      if (!prepared?.reference || !prepared?.document) throw new Error('journal recovery receipt is missing');
+      journals.set(digest, { state: 'applying', prepared });
       onEvent('journal:begun');
     },
     async stageApplyJournal(digest, prepared) {
@@ -710,6 +711,87 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         'PLAN_REPLAYED',
       ) && applyCalls === 1, `${failureMode} reconciliation rejects replay before another domain mutation`);
     }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// A crash boundary after domain commit but before terminal receipt staging publishes the prewritten recovery receipt.
+{
+  const root = makeRoot();
+  try {
+    const baseLocalState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+      clock: () => Date.parse('2026-07-15T12:00:00.000Z'),
+    });
+    let failStage = true;
+    const localState = Object.freeze({
+      ...baseLocalState,
+      async stageApplyJournal(digest, prepared) {
+        if (failStage) {
+          failStage = false;
+          throw Object.assign(new Error('injected crash before terminal receipt staging'), { code: 'LOCAL_STATE_UNAVAILABLE' });
+        }
+        return baseLocalState.stageApplyJournal(digest, prepared);
+      },
+    });
+    const marker = join(root, 'committed-domain-state.txt');
+    let applyCalls = 0;
+    const domain = {
+      name: 'prerequisites',
+      order: 10,
+      async plan() {
+        return {
+          stages: [createStageResult({ name: 'prerequisites', status: 'STALE', result: 'action_required' })],
+          operations: [{ operation_id: 'prerequisites:crash-recovery', domain: 'prerequisites', domain_order: 10, kind: 'JOURNALED_WRITE' }],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() {
+        applyCalls += 1;
+        writeFileSync(marker, 'committed\n', 'utf8');
+        return createStageResult({ name: 'prerequisites', status: 'READY', changed: true, progress: 'committed' });
+      },
+      async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      domains: [domain],
+      localState,
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      receiptWriter: writeReceipt,
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] };
+    const plan = await orchestrator.plan(request);
+    const failed = await orchestrator.apply({ plan, approvedDigest: plan.digest }).then(
+      value => ({ value }),
+      error => ({ error }),
+    );
+    const interrupted = await baseLocalState.readApplyJournal(plan.digest);
+    t.assert(failed.error && applyCalls === 1 && existsSync(marker), 'terminal staging interruption occurs only after observable committed domain progress');
+    t.assert(interrupted?.state === 'applying' && interrupted.receipt?.document, 'applying journal already contains a durable recovery receipt');
+    t.assert(await baseLocalState.wasDigestApplied(plan.digest), 'restart reconciliation consumes an interrupted apply without replaying mutation');
+    const reconciled = await baseLocalState.readApplyJournal(plan.digest);
+    let receipt = null;
+    if (reconciled?.receipt) {
+      const receiptPath = join(baseLocalState.paths().receipts, reconciled.receipt.path_label.split('/').at(-1));
+      receipt = await readAndVerifyReceipt(receiptPath);
+    }
+    t.assert(reconciled.state === 'committed' && receipt.outcome === 'PARTIAL', 'interrupted apply reconciliation publishes a committed partial receipt');
+    t.assert(receipt?.stages?.[0]?.evidence?.error_code === 'APPLY_INTERRUPTED'
+      && receipt?.stages?.[0]?.evidence?.mutation_state === 'unknown', 'interrupted apply receipt states the conservative mutation uncertainty explicitly');
+    t.assert(await rejectsCode(
+      () => orchestrator.apply({ plan, approvedDigest: plan.digest }),
+      'PLAN_REPLAYED',
+    ) && applyCalls === 1, 'interrupted apply recovery rejects replay before another domain mutation');
   } finally {
     cleanup(root);
   }

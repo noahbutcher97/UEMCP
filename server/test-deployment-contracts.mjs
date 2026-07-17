@@ -622,30 +622,41 @@ async function rejectsCode(fn, code) {
       .every(name => typeof localState[name] === 'function');
     t.assert(hasApplyJournal, 'local state exposes a durable apply-journal lifecycle');
     if (hasApplyJournal) {
+      const preparedReceiptFor = (planDigest, fileName) => {
+        const receiptBody = {
+          schema_version: '1.0',
+          kind: 'uemcp.deployment.receipt',
+          path_label: `receipts/${fileName}`,
+          plan: { digest: planDigest },
+        };
+        const receiptDocument = { ...receiptBody, receipt_sha256: sha256Canonical(receiptBody) };
+        return {
+          reference: {
+            kind: 'deployment',
+            path_label: receiptDocument.path_label,
+            path: join(paths.receipts, fileName),
+            sha256: receiptDocument.receipt_sha256,
+          },
+          document: receiptDocument,
+        };
+      };
+      const unreceiptedDigest = '4'.repeat(64);
+      t.assert(await rejectsCode(() => localState.beginApplyJournal(unreceiptedDigest), 'MALFORMED_LOCAL_STATE'), 'apply journal cannot begin without durable recovery evidence');
+      t.assert((await localState.readApplyJournal(unreceiptedDigest)) === null, 'rejected unreceipted apply journal leaves no replay residue');
       const uncertainDigest = '6'.repeat(64);
-      await localState.beginApplyJournal(uncertainDigest);
+      await localState.beginApplyJournal(uncertainDigest, preparedReceiptFor(uncertainDigest, 'journal-uncertain.json'));
       t.assert(await localState.wasDigestApplied(uncertainDigest), 'an in-progress apply journal blocks ambiguous replay');
-      await localState.clearApplyJournal(uncertainDigest);
-      t.assert(!(await localState.wasDigestApplied(uncertainDigest)), 'a proven no-progress journal can be cleared without consuming the plan');
+      t.assert((await localState.readApplyJournal(uncertainDigest)).state === 'committed', 'an interrupted apply publishes its prepared recovery receipt during replay inspection');
+
+      const clearableDigest = '5'.repeat(64);
+      await localState.beginApplyJournal(clearableDigest, preparedReceiptFor(clearableDigest, 'journal-clearable.json'));
+      await localState.clearApplyJournal(clearableDigest);
+      t.assert(!(await localState.wasDigestApplied(clearableDigest)), 'a proven no-progress journal can be cleared without consuming the plan');
 
       const journalDigest = '7'.repeat(64);
-      const receiptBody = {
-        schema_version: '1.0',
-        kind: 'uemcp.deployment.receipt',
-        path_label: 'receipts/journal-recovery.json',
-        plan: { digest: journalDigest },
-      };
-      const receiptDocument = { ...receiptBody, receipt_sha256: sha256Canonical(receiptBody) };
-      const preparedReceipt = {
-        reference: {
-          kind: 'deployment',
-          path_label: receiptDocument.path_label,
-          path: join(paths.receipts, 'journal-recovery.json'),
-          sha256: receiptDocument.receipt_sha256,
-        },
-        document: receiptDocument,
-      };
-      await localState.beginApplyJournal(journalDigest);
+      const preparedReceipt = preparedReceiptFor(journalDigest, 'journal-recovery.json');
+      const receiptDocument = preparedReceipt.document;
+      await localState.beginApplyJournal(journalDigest, preparedReceiptFor(journalDigest, 'journal-interrupted.json'));
       await localState.stageApplyJournal(journalDigest, preparedReceipt);
       t.assert(!existsSync(preparedReceipt.reference.path), 'receipt-pending journal is durable before the receipt file exists');
       t.assert(await localState.wasDigestApplied(journalDigest), 'replay inspection reconciles a pending terminal receipt and consumes the digest');
