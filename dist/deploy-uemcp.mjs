@@ -20156,6 +20156,20 @@ var MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 var MAX_VSCODE_WRAPPER_BYTES = 64 * 1024;
 var MAX_CLIENT_CANDIDATES = 64;
 var PACKAGE_ID = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
+var RUNTIME_FINGERPRINT_FIELDS = Object.freeze([
+  "entry_count",
+  "file_count",
+  "manifest_sha256",
+  "max_bytes",
+  "max_entries",
+  "max_files",
+  "max_packages",
+  "package_count",
+  "package_id",
+  "resolution_root",
+  "root",
+  "total_bytes"
+]);
 var ClientProcessError = class extends Error {
   constructor(message, code = "NOT_INSTALLED", details = {}) {
     super(message);
@@ -20402,10 +20416,17 @@ async function revalidateClientLaunchRuntime(launch, {
       runtimeTreePinner
     });
   } catch (error2) {
-    fail14("client npm runtime tree is no longer safe", "CLIENT_RUNTIME_CHANGED", { cause_code: error2?.code ?? "UNKNOWN" });
+    fail14("client npm runtime tree is no longer safe", "CLIENT_RUNTIME_CHANGED", {
+      reason: "RUNTIME_CAPTURE_FAILED",
+      cause_code: error2?.code ?? "UNKNOWN"
+    });
   }
   if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
-    fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED");
+    const changedFields = RUNTIME_FINGERPRINT_FIELDS.filter((field) => observed?.[field] !== launch.fingerprint.runtime_tree?.[field]);
+    fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED", {
+      reason: "RUNTIME_FINGERPRINT_MISMATCH",
+      changed_fields: changedFields
+    });
   }
   return true;
 }
@@ -28602,6 +28623,21 @@ var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
   "RESTART_REQUIRED"
 ]);
 var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
+var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
+var RUNTIME_FINGERPRINT_FIELDS2 = /* @__PURE__ */ new Set([
+  "entry_count",
+  "file_count",
+  "manifest_sha256",
+  "max_bytes",
+  "max_entries",
+  "max_files",
+  "max_packages",
+  "package_count",
+  "package_id",
+  "resolution_root",
+  "root",
+  "total_bytes"
+]);
 var DISCOVERY_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
   "APPDATA",
   "CLAUDE_CONFIG_DIR",
@@ -29098,6 +29134,19 @@ function planPreconditions(records, operations, ownershipFingerprint, ownershipP
 function stableErrorCode(value, fallback = "UNKNOWN") {
   return typeof value === "string" && /^[A-Z0-9_]+$/.test(value) ? value : fallback;
 }
+function clientRuntimeFailureDetails(clientId, error2) {
+  const nested = plainObject6(error2?.details) ? error2.details : {};
+  const details = {
+    client_id: clientId,
+    cause_code: stableErrorCode(nested.cause_code, stableErrorCode(error2?.code, "CLIENT_RUNTIME_CHANGED"))
+  };
+  if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
+  if (Array.isArray(nested.changed_fields)) {
+    const changedFields = [...new Set(nested.changed_fields.filter((field) => RUNTIME_FINGERPRINT_FIELDS2.has(field)))].sort();
+    if (changedFields.length > 0) details.changed_fields = changedFields;
+  }
+  return details;
+}
 function publicTransactionEvidence(result2) {
   if (!plainObject6(result2) || typeof result2.status !== "string") return null;
   const rollback = plainObject6(result2.rollback) ? Object.freeze({
@@ -29275,10 +29324,7 @@ function createClientDomain({
         try {
           await revalidateClientLaunchRuntime(row.launch, { fsImpl: context.fsImpl ?? fsImpl });
         } catch (error2) {
-          fail16("client runtime changed before active launch", "PLAN_STALE", {
-            client_id: row.client_id,
-            cause_code: error2?.code ?? "CLIENT_RUNTIME_CHANGED"
-          });
+          fail16("client runtime changed before active launch", "PLAN_STALE", clientRuntimeFailureDetails(row.client_id, error2));
         }
         await outerGuard?.(evidence);
       },
@@ -29295,10 +29341,7 @@ function createClientDomain({
             launchFilePinner: context.launchFilePinner
           });
         } catch (error2) {
-          fail16("client launch changed before process completion", "PLAN_STALE", {
-            client_id: row.client_id,
-            cause_code: error2?.code ?? "CLIENT_RUNTIME_CHANGED"
-          });
+          fail16("client launch changed before process completion", "PLAN_STALE", clientRuntimeFailureDetails(row.client_id, error2));
         }
       }
     });

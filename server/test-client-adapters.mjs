@@ -1205,6 +1205,15 @@ async function rejectsCode(fn, code) {
   }
 }
 
+async function rejectedError(fn) {
+  try {
+    await fn();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 // Closed client IDs and exact release gates.
 {
   t.assert(Object.isFrozen(CLIENT_IDS) && JSON.stringify(CLIENT_IDS) === JSON.stringify(['claude', 'codex', 'gemini', 'vscode']), 'client IDs are closed, ordered, and frozen');
@@ -1283,8 +1292,23 @@ async function rejectsCode(fn, code) {
       && result.fingerprint.runtime_tree.file_count >= 3
       && result.fingerprint.runtime_tree.total_bytes > 0
       && /^[0-9a-f]{64}$/.test(result.fingerprint.runtime_tree.manifest_sha256), 'npm launch binds a bounded aggregate fingerprint of its declared package runtime closure');
-    write(layout.runtime, 'export const runtime = false;\n');
-    t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(result), 'CLIENT_RUNTIME_CHANGED'), 'runtime sibling drift invalidates the resolved npm launch');
+    write(layout.runtime, 'export const runtime = null;\n');
+    const runtimeDriftError = await rejectedError(() => revalidateClientLaunchRuntime(result));
+    t.assert(runtimeDriftError?.code === 'CLIENT_RUNTIME_CHANGED', 'runtime sibling drift invalidates the resolved npm launch');
+    t.assert(runtimeDriftError?.details?.reason === 'RUNTIME_FINGERPRINT_MISMATCH'
+      && JSON.stringify(runtimeDriftError.details.changed_fields) === JSON.stringify(['manifest_sha256']),
+      'runtime drift diagnostics expose only the mismatched fingerprint field names');
+    const runtimeCaptureError = await rejectedError(() => revalidateClientLaunchRuntime(result, {
+      runtimeTreePinner: async () => {
+        const error = new Error('fixture tree pin failed');
+        error.code = 'TREE_PIN_FAILED';
+        throw error;
+      },
+    }));
+    t.assert(runtimeCaptureError?.details?.reason === 'RUNTIME_CAPTURE_FAILED'
+      && runtimeCaptureError.details.cause_code === 'TREE_PIN_FAILED'
+      && runtimeCaptureError.details.changed_fields === undefined,
+      'runtime capture diagnostics distinguish safe nested cause codes from fingerprint drift');
     const refreshed = await resolveClientLaunch('codex', {
       env: layout.env,
       runner: runnerFor('0.144.4'),
@@ -4599,7 +4623,13 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       transaction: () => { throw new Error('transaction is not expected'); },
       protocolSmoke: async () => { throw new Error('runtime drift must block protocol smoke'); },
     });
-    t.assert(await rejectsCode(() => domain.verify(aggregateContext(root)), 'PLAN_STALE'), 'npm runtime drift is rejected by the immediate native-launch guard');
+    const activeLaunchError = await rejectedError(() => domain.verify(aggregateContext(root)));
+    t.assert(activeLaunchError?.code === 'PLAN_STALE', 'npm runtime drift is rejected by the immediate native-launch guard');
+    t.assert(activeLaunchError?.details?.client_id === 'claude'
+      && activeLaunchError.details.cause_code === 'CLIENT_RUNTIME_CHANGED'
+      && activeLaunchError.details.runtime_reason === 'RUNTIME_FINGERPRINT_MISMATCH'
+      && JSON.stringify(activeLaunchError.details.changed_fields) === JSON.stringify(['manifest_sha256', 'total_bytes']),
+      'active-launch drift preserves secret-safe nested runtime diagnostics');
     t.assert(!reachedLaunch, 'runtime drift is rejected before the guarded client process executes');
   } finally {
     cleanup(root);

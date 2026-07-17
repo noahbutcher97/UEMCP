@@ -54,6 +54,20 @@ const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_VSCODE_WRAPPER_BYTES = 64 * 1024;
 const MAX_CLIENT_CANDIDATES = 64;
 const PACKAGE_ID = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
+const RUNTIME_FINGERPRINT_FIELDS = Object.freeze([
+  'entry_count',
+  'file_count',
+  'manifest_sha256',
+  'max_bytes',
+  'max_entries',
+  'max_files',
+  'max_packages',
+  'package_count',
+  'package_id',
+  'resolution_root',
+  'root',
+  'total_bytes',
+]);
 
 export class ClientProcessError extends Error {
   constructor(message, code = 'NOT_INSTALLED', details = {}) {
@@ -320,10 +334,17 @@ export async function revalidateClientLaunchRuntime(launch, {
       runtimeTreePinner,
     });
   } catch (error) {
-    fail('client npm runtime tree is no longer safe', 'CLIENT_RUNTIME_CHANGED', { cause_code: error?.code ?? 'UNKNOWN' });
+    fail('client npm runtime tree is no longer safe', 'CLIENT_RUNTIME_CHANGED', {
+      reason: 'RUNTIME_CAPTURE_FAILED',
+      cause_code: error?.code ?? 'UNKNOWN',
+    });
   }
   if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
-    fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+    const changedFields = RUNTIME_FINGERPRINT_FIELDS.filter(field => observed?.[field] !== launch.fingerprint.runtime_tree?.[field]);
+    fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED', {
+      reason: 'RUNTIME_FINGERPRINT_MISMATCH',
+      changed_fields: changedFields,
+    });
   }
   return true;
 }

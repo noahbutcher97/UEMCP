@@ -42,6 +42,21 @@ const TRANSACTION_ACTION_CLIENT_STATUSES = new Set([
   'RESTART_REQUIRED',
 ]);
 const ROLLBACK_PATH_STATUSES = new Set(['restored', 'conflict', 'failed']);
+const RUNTIME_DIAGNOSTIC_REASONS = new Set(['RUNTIME_CAPTURE_FAILED', 'RUNTIME_FINGERPRINT_MISMATCH']);
+const RUNTIME_FINGERPRINT_FIELDS = new Set([
+  'entry_count',
+  'file_count',
+  'manifest_sha256',
+  'max_bytes',
+  'max_entries',
+  'max_files',
+  'max_packages',
+  'package_count',
+  'package_id',
+  'resolution_root',
+  'root',
+  'total_bytes',
+]);
 const DISCOVERY_ENVIRONMENT_NAMES = new Set([
   'APPDATA',
   'CLAUDE_CONFIG_DIR',
@@ -593,6 +608,20 @@ function stableErrorCode(value, fallback = 'UNKNOWN') {
   return typeof value === 'string' && /^[A-Z0-9_]+$/.test(value) ? value : fallback;
 }
 
+function clientRuntimeFailureDetails(clientId, error) {
+  const nested = plainObject(error?.details) ? error.details : {};
+  const details = {
+    client_id: clientId,
+    cause_code: stableErrorCode(nested.cause_code, stableErrorCode(error?.code, 'CLIENT_RUNTIME_CHANGED')),
+  };
+  if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
+  if (Array.isArray(nested.changed_fields)) {
+    const changedFields = [...new Set(nested.changed_fields.filter(field => RUNTIME_FINGERPRINT_FIELDS.has(field)))].sort();
+    if (changedFields.length > 0) details.changed_fields = changedFields;
+  }
+  return details;
+}
+
 function publicTransactionEvidence(result) {
   if (!plainObject(result) || typeof result.status !== 'string') return null;
   const rollback = plainObject(result.rollback)
@@ -830,10 +859,7 @@ export function createClientDomain({
         try {
           await revalidateClientLaunchRuntime(row.launch, { fsImpl: context.fsImpl ?? fsImpl });
         } catch (error) {
-          fail('client runtime changed before active launch', 'PLAN_STALE', {
-            client_id: row.client_id,
-            cause_code: error?.code ?? 'CLIENT_RUNTIME_CHANGED',
-          });
+          fail('client runtime changed before active launch', 'PLAN_STALE', clientRuntimeFailureDetails(row.client_id, error));
         }
         await outerGuard?.(evidence);
       },
@@ -853,10 +879,7 @@ export function createClientDomain({
             launchFilePinner: context.launchFilePinner,
           });
         } catch (error) {
-          fail('client launch changed before process completion', 'PLAN_STALE', {
-            client_id: row.client_id,
-            cause_code: error?.code ?? 'CLIENT_RUNTIME_CHANGED',
-          });
+          fail('client launch changed before process completion', 'PLAN_STALE', clientRuntimeFailureDetails(row.client_id, error));
         }
       },
     });
