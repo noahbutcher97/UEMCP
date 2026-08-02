@@ -12145,10 +12145,10 @@ try {
   foreach ($directory in @($request.ancestry)) {
     $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
   }
-  [string[]]$absentPaths = @($request.absent_paths)
+  [string[]]$absentComponents = @($request.absent_components)
   [string[]]$absentWatchRoots = @($request.absent_watch_roots)
-  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentPaths, $absentWatchRoots)
-  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
+  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentComponents, $absentWatchRoots)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
   foreach ($path in @($request.paths)) {
     $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
   }
@@ -12156,7 +12156,7 @@ try {
   [Console]::Out.Flush()
   if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
   [System.Threading.Thread]::Sleep(100)
-  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
 } catch {
   [Console]::Error.Write($_.Exception.GetType().FullName)
   exit 74
@@ -12178,6 +12178,7 @@ var TREE_PIN_MAX_ROOTS = 2048;
 var TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
 var TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
 var FILE_PIN_MAX_PATHS = 64;
+var FILE_PIN_MAX_ABSENT_COMPONENTS = 512;
 var FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
 var PIN_ACQUISITION_TIMEOUT_MS = 3e4;
 var WindowsNativeError = class extends Error {
@@ -12665,7 +12666,8 @@ function validatePinnedFilePaths(paths, absentPaths) {
     for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
   };
   for (const path of normalized) addAncestry(path);
-  const absentWatchRoots = [];
+  const absentWatchRootsByKey = /* @__PURE__ */ new Map();
+  const absentComponentsByKey = /* @__PURE__ */ new Map();
   for (const path of normalizedAbsent) {
     let watchRoot = dirname(path);
     while (!existsSync(watchRoot)) {
@@ -12675,9 +12677,20 @@ function validatePinnedFilePaths(paths, absentPaths) {
       }
       watchRoot = next;
     }
-    absentWatchRoots.push(watchRoot);
+    absentWatchRootsByKey.set(windowsPathKey(watchRoot), watchRoot);
     addAncestry(watchRoot, true);
+    const relativeTarget = relative2(watchRoot, path);
+    let component = watchRoot;
+    for (const name of relativeTarget.split(/[\\/]/).filter(Boolean)) {
+      component = resolve2(component, name);
+      absentComponentsByKey.set(windowsPathKey(component), component);
+    }
   }
+  if (absentComponentsByKey.size > FILE_PIN_MAX_ABSENT_COMPONENTS) {
+    throw new WindowsNativeError("absent file pin has too many missing components", "INVALID_FILE_PIN");
+  }
+  const absentWatchRoots = [...absentWatchRootsByKey.values()];
+  const absentComponents = [...absentComponentsByKey.values()];
   const ancestry = [...ancestryByKey.values()].sort((left, right) => {
     const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
     const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
@@ -12686,6 +12699,7 @@ function validatePinnedFilePaths(paths, absentPaths) {
   const serializedRequest = JSON.stringify({
     paths: normalized,
     absent_paths: normalizedAbsent,
+    absent_components: absentComponents,
     absent_watch_roots: absentWatchRoots,
     ancestry
   });
@@ -20706,6 +20720,9 @@ function frozenLaunchCopy(value) {
 }
 async function withPinnedClientLaunch(launch, {
   callback,
+  env = process.env,
+  runner = null,
+  authenticodeInspector = inspectAuthenticode,
   fsImpl = defaultFs10,
   runtimeTreePinner = withPinnedWindowsTrees,
   launchFilePinner = withPinnedWindowsFiles
@@ -20735,6 +20752,14 @@ async function withPinnedClientLaunch(launch, {
         fail14("client launch file changed after discovery", "CLIENT_RUNTIME_CHANGED", {
           reason: "RUNTIME_FINGERPRINT_MISMATCH",
           changed_fields: [...changedFields]
+        });
+      }
+      if (pinnedLaunch.source === "native" && CLIENT_NATIVE_IDENTITIES[pinnedLaunch.client_id]) {
+        await revalidatePinnedNativeAuthority(pinnedLaunch, {
+          env,
+          runner,
+          fsImpl,
+          authenticodeInspector
         });
       }
       treeGuard?.assertPinned?.();
@@ -20770,6 +20795,53 @@ async function withPinnedClientLaunch(launch, {
       }
     })
   );
+}
+async function revalidatePinnedNativeAuthority(launch, {
+  env,
+  runner,
+  fsImpl,
+  authenticodeInspector
+}) {
+  if (!env || typeof env !== "object" || !runner?.run || typeof authenticodeInspector !== "function") {
+    fail14("native client authority dependencies are unavailable", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED"
+    });
+  }
+  let canonicalAllowedPaths;
+  try {
+    canonicalAllowedPaths = (await Promise.all(expectedNativePaths(launch.client_id, env).map(async (path) => {
+      try {
+        return resolve9(await fsImpl.realpath(resolve9(path)));
+      } catch {
+        return null;
+      }
+    }))).filter(Boolean);
+  } catch {
+    canonicalAllowedPaths = [];
+  }
+  if (!canonicalAllowedPaths.some((path) => pathKey3(path) === pathKey3(launch.command))) {
+    fail14("native client path is no longer authorized", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED",
+      changed_fields: ["command"]
+    });
+  }
+  let observed = null;
+  try {
+    observed = await validAuthenticode(launch.command, launch.client_id, {
+      env,
+      runner,
+      fsImpl,
+      authenticodeInspector
+    });
+  } catch {
+    observed = null;
+  }
+  if (observed === null || sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.authenticode)) {
+    fail14("native client signature changed after discovery", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED",
+      changed_fields: ["authenticode"]
+    });
+  }
 }
 function absoluteSafePath(path) {
   return typeof path === "string" && isAbsolute11(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
@@ -21132,11 +21204,15 @@ async function probeVersion(launch, {
   env,
   runner,
   fsImpl,
+  authenticodeInspector,
   runtimeTreePinner,
   launchFilePinner
 }) {
   const childEnv = clientProcessEnvironment(env, launch.env_overlay);
   const result2 = await withPinnedClientLaunch(launch, {
+    env,
+    runner,
+    authenticodeInspector,
     fsImpl,
     runtimeTreePinner,
     launchFilePinner,
@@ -21214,6 +21290,7 @@ async function resolveClientLaunch(clientId, {
         env,
         runner,
         fsImpl,
+        authenticodeInspector,
         runtimeTreePinner,
         launchFilePinner
       });
@@ -28888,7 +28965,7 @@ var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
   "RESTART_REQUIRED"
 ]);
 var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
-var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
+var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["NATIVE_AUTHORITY_CHANGED", "RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
 var RUNTIME_CAUSE_CODES = /* @__PURE__ */ new Set([
   "CLIENT_RUNTIME_CHANGED",
   "FILE_PIN_FAILED",
@@ -28901,6 +28978,7 @@ var RUNTIME_CAUSE_CODES = /* @__PURE__ */ new Set([
 ]);
 var CLIENT_LAUNCH_FINGERPRINT_FIELDS = /* @__PURE__ */ new Set([
   "args_prefix",
+  "authenticode",
   "command",
   "entry_count",
   "file_count",
@@ -29659,6 +29737,9 @@ function createClientDomain({
         try {
           return await pinClientLaunch(row.launch, {
             callback,
+            env: context.env ?? process.env,
+            runner: context.processRunner,
+            authenticodeInspector: context.authenticodeInspector,
             fsImpl: context.fsImpl ?? fsImpl,
             runtimeTreePinner: context.runtimeTreePinner,
             launchFilePinner: context.launchFilePinner
@@ -31303,9 +31384,12 @@ var CLIENT_SELECTION_VALUES = /* @__PURE__ */ new Set([
   "not_installed"
 ]);
 var CLIENT_SELECTED_SELECTION_VALUES = /* @__PURE__ */ new Set(["included", "default"]);
-var CLIENT_NOT_INSTALLED_SELECTION_VALUES = /* @__PURE__ */ new Set([
+var CLIENT_MISSING_SELECTION_VALUES = /* @__PURE__ */ new Set([
   "included_not_installed",
-  "not_installed",
+  "not_installed"
+]);
+var CLIENT_NOT_INSTALLED_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  ...CLIENT_MISSING_SELECTION_VALUES,
   "excluded",
   "not_included"
 ]);
@@ -31428,7 +31512,7 @@ function validateClientEvidenceRow(row, client, label) {
   if (!CLIENT_IDS.includes(row.adapter) || typeof row.selected !== "boolean" || !CLIENT_SELECTION_VALUES.has(row.selection) || !CLIENT_DISCOVERY_STATUS_VALUES.has(row.discovery_status) || !CLIENT_OPERATION_VALUES.has(row.operation) || typeof row.custom_working_directory !== "boolean" || !CLIENT_STATE_VALUES.status.includes(row.structural_status) || !CLIENT_NATIVE_STATUS_VALUES.has(row.native_status) || !CLIENT_PROTOCOL_STATUS_VALUES.has(row.protocol_status) || !Number.isSafeInteger(row.instruction_bytes) || row.instruction_bytes < 0 || !Number.isSafeInteger(row.tool_count) || row.tool_count < 0 || !Number.isFinite(row.duration_ms) || row.duration_ms < 0 || !CLIENT_STATE_VALUES.enablement.includes(row.enablement) || !CLIENT_STATE_VALUES.activation.includes(row.activation)) {
     fail17(`${label} has invalid values`, "INVALID_PLAN");
   }
-  if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection) || row.launch_contract === null && row.discovery_status === "DETECTED" || row.launch_contract !== null && row.discovery_status !== "DETECTED" || row.discovery_status === "NOT_INSTALLED" !== CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
+  if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection) || row.launch_contract === null && row.discovery_status === "DETECTED" || row.launch_contract !== null && row.discovery_status !== "DETECTED" || CLIENT_MISSING_SELECTION_VALUES.has(row.selection) && row.discovery_status !== "NOT_INSTALLED" || row.discovery_status === "NOT_INSTALLED" && !CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
     fail17(`${label} has contradictory selection or discovery evidence`, "INVALID_PLAN");
   }
   uniqueStrings(row.current_scopes, `${label}.current_scopes`);

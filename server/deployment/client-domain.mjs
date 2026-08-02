@@ -44,7 +44,7 @@ const TRANSACTION_ACTION_CLIENT_STATUSES = new Set([
   'RESTART_REQUIRED',
 ]);
 const ROLLBACK_PATH_STATUSES = new Set(['restored', 'conflict', 'failed']);
-const RUNTIME_DIAGNOSTIC_REASONS = new Set(['RUNTIME_CAPTURE_FAILED', 'RUNTIME_FINGERPRINT_MISMATCH']);
+const RUNTIME_DIAGNOSTIC_REASONS = new Set(['NATIVE_AUTHORITY_CHANGED', 'RUNTIME_CAPTURE_FAILED', 'RUNTIME_FINGERPRINT_MISMATCH']);
 const RUNTIME_CAUSE_CODES = new Set([
   'CLIENT_RUNTIME_CHANGED',
   'FILE_PIN_FAILED',
@@ -57,6 +57,7 @@ const RUNTIME_CAUSE_CODES = new Set([
 ]);
 const CLIENT_LAUNCH_FINGERPRINT_FIELDS = new Set([
   'args_prefix',
+  'authenticode',
   'command',
   'entry_count',
   'file_count',
@@ -935,6 +936,9 @@ export function createClientDomain({
         try {
           return await pinClientLaunch(row.launch, {
             callback,
+            env: context.env ?? process.env,
+            runner: context.processRunner,
+            authenticodeInspector: context.authenticodeInspector,
             fsImpl: context.fsImpl ?? fsImpl,
             runtimeTreePinner: context.runtimeTreePinner,
             launchFilePinner: context.launchFilePinner,

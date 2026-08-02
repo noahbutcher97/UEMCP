@@ -820,6 +820,64 @@ function vscodeContext(root, overrides = {}) {
     const mismatchedPath = structuredClone(vscode);
     mismatchedPath.fingerprint.command = structuredClone(vscode.fingerprint.args_prefix[0]);
     t.assert(throwsCode(() => validatePublicClientLaunchContract(mismatchedPath), 'INVALID_CLIENT_LAUNCH'), 'saved launch fingerprints must bind the exact executable tuple paths');
+
+    const env = environment(root);
+    const nativeCommand = write(join(env.USERPROFILE, '.local', 'bin', 'claude.exe'), 'unsigned-claude');
+    const nativeLaunch = {
+      client_id: 'claude',
+      command: canonicalFixturePath(nativeCommand),
+      args_prefix: [],
+      env_overlay: {},
+      package_id: null,
+      source: 'native',
+      version: '2.1.210',
+      compatibility: 'release_gated',
+      write_supported: true,
+      fingerprint: {
+        command: launchFileFingerprint(nativeCommand),
+        args_prefix: [],
+        authenticode: { status: 'valid', signer_name: 'Anthropic, PBC', thumbprint: 'AA11' },
+        env_overlay_sha256: sha256Canonical({}),
+      },
+    };
+    let forgedSignerCallback = false;
+    let launchPinActive = false;
+    let signerInspectedWhilePinned = false;
+    t.assert(await rejectsCode(() => withPinnedClientLaunch(nativeLaunch, {
+      env,
+      runner: runnerFor('2.1.210'),
+      authenticodeInspector: async () => {
+        signerInspectedWhilePinned = launchPinActive;
+        return { status: 'invalid', signer_name: 'Unknown', thumbprint: null };
+      },
+      launchFilePinner: async ({ callback }) => {
+        launchPinActive = true;
+        try {
+          return await callback(Object.freeze({ assertPinned() {} }));
+        } finally {
+          launchPinActive = false;
+        }
+      },
+      callback: async () => { forgedSignerCallback = true; },
+    }), 'CLIENT_RUNTIME_CHANGED') && !forgedSignerCallback && signerInspectedWhilePinned, 'saved native signer claims are re-inspected inside the pinned launch window before execution');
+
+    const outsideCommand = write(join(root, 'outside-native', 'claude.exe'), 'signed-but-unapproved-claude');
+    const outsideLaunch = {
+      ...nativeLaunch,
+      command: canonicalFixturePath(outsideCommand),
+      fingerprint: {
+        ...nativeLaunch.fingerprint,
+        command: launchFileFingerprint(outsideCommand),
+      },
+    };
+    let outsidePathCallback = false;
+    t.assert(await rejectsCode(() => withPinnedClientLaunch(outsideLaunch, {
+      env,
+      runner: runnerFor('2.1.210'),
+      authenticodeInspector: signer(),
+      launchFilePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
+      callback: async () => { outsidePathCallback = true; },
+    }), 'CLIENT_RUNTIME_CHANGED') && !outsidePathCallback, 'saved native launch authority cannot escape environment-derived standard paths');
   } finally {
     cleanup(root);
   }
@@ -4321,6 +4379,28 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const explicitlyInspected = selectClients(unsupported, { include: ['claude'] }).find(row => row.client_id === 'claude');
   t.assert(explicitlyInspected.selected && explicitlyInspected.write_supported === false && explicitlyInspected.compatibility === 'unknown_newer', 'explicit unsupported selection remains inspectable but cannot write');
 
+  const twoInstalled = CLIENT_IDS.map(clientId => ['claude', 'codex'].includes(clientId)
+    ? aggregateInstalledClient(root, clientId)
+    : absentClient(clientId));
+  const subsetDomain = createClientDomain({
+    adapters: CLIENT_IDS.map(aggregateAdapter),
+    discovery: async () => twoInstalled,
+    transaction: () => { throw new Error('transaction is not expected'); },
+    protocolSmoke: async () => ({ status: 'HEALTHY' }),
+    descriptorLaunchPinner: async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor),
+  });
+  const subsetContext = aggregateContext(root, { operation: 'setup', include: ['claude'], selectedClients: ['claude'] });
+  let subsetPlan = null;
+  let subsetPlanError = null;
+  try {
+    subsetPlan = aggregatePlanDocument(subsetContext, await subsetDomain.plan(subsetContext));
+  } catch (error) {
+    subsetPlanError = error;
+  }
+  t.assert(subsetPlanError === null
+    && subsetPlan?.clients.find(row => row.adapter === 'codex')?.status === 'NOT_SELECTED',
+  `an installed client excluded by an exact include remains valid plan evidence (${subsetPlanError?.code ?? 'no error'}: ${subsetPlanError?.message ?? 'none'})`);
+
   const missingResolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => {
     throw Object.assign(new Error('not installed'), { code: 'NOT_INSTALLED' });
   }]));
@@ -4749,6 +4829,70 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       approvedPlan: plan,
     }, []), 'PLAN_STALE'), 'client apply binds npm discovery-prefix authority into the reviewed context');
     t.assert(discoveryCalls === 1, 'discovery-context drift fails before a child version probe');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Saved native plans re-establish live path and signer authority inside apply.
+{
+  const root = makeRoot();
+  try {
+    const env = environment(root);
+    const command = write(join(env.USERPROFILE, '.local', 'bin', 'claude.exe'), 'saved-native-claude');
+    const launch = Object.freeze({
+      client_id: 'claude',
+      command: canonicalFixturePath(command),
+      args_prefix: Object.freeze([]),
+      env_overlay: Object.freeze({}),
+      package_id: null,
+      source: 'native',
+      version: '2.1.210',
+      compatibility: 'release_gated',
+      write_supported: true,
+      fingerprint: Object.freeze({
+        command: launchFileFingerprint(command),
+        args_prefix: Object.freeze([]),
+        authenticode: Object.freeze({ status: 'valid', signer_name: 'Anthropic, PBC', thumbprint: 'AA11' }),
+        env_overlay_sha256: sha256Canonical({}),
+      }),
+    });
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? Object.freeze({ ...launch, launch })
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude');
+    let nativeCallbackReached = false;
+    const adapter = Object.freeze({
+      ...base,
+      async inspect(context, detection) {
+        if (context.approvedPlan) {
+          await context.withActiveClientLaunch({ client_id: 'claude', kind: 'native' }, async guard => {
+            guard.assertPinned();
+            nativeCallbackReached = true;
+          });
+        }
+        return base.inspect(context, detection);
+      },
+    });
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      descriptorLaunchPinner: async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor),
+    });
+    const context = aggregateContext(root, {
+      operation: 'setup',
+      env,
+      processRunner: runnerFor('2.1.210'),
+      authenticodeInspector: signer('NotSigned', 'Unknown'),
+    });
+    const plan = aggregatePlanDocument(context, await domain.plan(context), 'HEALTHY');
+    const applyError = await rejectedError(() => domain.apply({ ...context, approvedPlan: plan }, []));
+    t.assert(applyError?.code === 'PLAN_STALE'
+      && applyError.details?.runtime_reason === 'NATIVE_AUTHORITY_CHANGED'
+      && JSON.stringify(applyError.details.changed_fields) === JSON.stringify(['authenticode'])
+      && nativeCallbackReached === false, 'saved native apply rejects a forged signer claim before the provider callback');
   } finally {
     cleanup(root);
   }

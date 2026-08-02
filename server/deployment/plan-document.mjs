@@ -73,9 +73,12 @@ const CLIENT_SELECTION_VALUES = new Set([
   'not_installed',
 ]);
 const CLIENT_SELECTED_SELECTION_VALUES = new Set(['included', 'default']);
-const CLIENT_NOT_INSTALLED_SELECTION_VALUES = new Set([
+const CLIENT_MISSING_SELECTION_VALUES = new Set([
   'included_not_installed',
   'not_installed',
+]);
+const CLIENT_NOT_INSTALLED_SELECTION_VALUES = new Set([
+  ...CLIENT_MISSING_SELECTION_VALUES,
   'excluded',
   'not_included',
 ]);
@@ -238,7 +241,8 @@ function validateClientEvidenceRow(row, client, label) {
   if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection)
     || (row.launch_contract === null && row.discovery_status === 'DETECTED')
     || (row.launch_contract !== null && row.discovery_status !== 'DETECTED')
-    || (row.discovery_status === 'NOT_INSTALLED') !== CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
+    || (CLIENT_MISSING_SELECTION_VALUES.has(row.selection) && row.discovery_status !== 'NOT_INSTALLED')
+    || (row.discovery_status === 'NOT_INSTALLED' && !CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection))) {
     fail(`${label} has contradictory selection or discovery evidence`, 'INVALID_PLAN');
   }
   uniqueStrings(row.current_scopes, `${label}.current_scopes`);

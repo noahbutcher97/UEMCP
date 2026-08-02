@@ -77,16 +77,21 @@ their reviewed npm package entrypoints; Claude may use that npm entrypoint or
 native `claude.exe` signed by `Anthropic, PBC`; and VS Code uses only native
 `Code.exe` signed by `Microsoft Corporation` with its same-install CLI script.
 Every serialized command, argument-file, package-manifest, and discovery-clue
-fingerprint must identify the exact path named by the launch tuple.
+fingerprint must identify the exact path named by the launch tuple. Serialized
+signature fields are expected evidence, not signer authority: immediately
+before every native child, UEMCP derives the permitted canonical executable
+paths again from the digest-bound environment and reruns Authenticode inspection
+while the exact launch-file handles remain pinned.
 Malformed, over-limit, or unsafe selected-client inspection cannot produce an
 applicable plan because complete path preconditions cannot be proven. During
 apply, read-only and no-op preconditions are checked again immediately before
 every client-native query and protocol launch. Once the central transaction
 owns writable paths, every existing writable and read-only evidence file is
 held by the Windows file-pin helper through each client-native child process.
-Paths reviewed as absent are monitored from their nearest existing ancestry;
-creation, deletion, rename, watcher overflow, or unexpected final presence
-invalidates the launch even when the path is absent again after the child exits.
+Every initially missing namespace component of a path reviewed as absent is
+monitored from its nearest existing ancestry. Observed creation, deletion,
+rename, watcher overflow, or unexpected final presence invalidates the launch
+even when the path is absent again after the child exits.
 The transaction rechecks exact approved or applied fingerprints after pin
 acquisition and again after child completion; the child receives a composed
 guard covering both transaction evidence and its inspected client runtime.
@@ -100,6 +105,13 @@ that its own evidence changed while the native query ran, UEMCP reruns the full
 inspection once and requires the second result to remain stable. Repeated drift
 or any unsafe fingerprint failure still stops before protocol launch; apply-time
 plan preconditions are never relaxed by this settlement retry.
+
+Existing-file handles provide exclusion, while approved-absent monitoring is a
+bounded notification plus final-state check. It fails closed on watcher error or
+buffer overflow and covers every initially missing component, including
+transient junction insertion, but it is not a kernel namespace lock. An
+undelivered filesystem notification that produces no watcher error remains a
+documented Windows user-mode boundary.
 
 For npm-installed Claude, Codex, and Gemini clients, launch evidence also binds
 the declared installed dependency closure containing the JavaScript entrypoint.

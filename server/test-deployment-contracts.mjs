@@ -935,6 +935,27 @@ async function rejectsCode(fn, code) {
       }), 'FILE_PIN_FAILED'), 'file pin rejects transient creation and removal of approved-absent evidence');
       t.assert(absentEvidenceChanged && !existsSync(absentEvidence), 'absent evidence monitoring detects namespace drift even when final absence matches');
 
+      const watchedRoot = join(root, 'watched-absence');
+      const missingAncestor = join(watchedRoot, 'missing');
+      const nestedAbsentEvidence = join(missingAncestor, 'evidence.json');
+      const junctionTarget = join(root, 'absence-junction-target');
+      mkdirSync(watchedRoot);
+      mkdirSync(junctionTarget);
+      let junctionBytesObserved = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsFiles({
+        paths: [payload],
+        absentPaths: [nestedAbsentEvidence],
+        callback: async guard => {
+          guard.assertPinned();
+          symlinkSync(junctionTarget, missingAncestor, 'junction');
+          writeFileSync(join(junctionTarget, 'evidence.json'), '{"transient_junction":true}\n', 'utf8');
+          junctionBytesObserved = readFileSync(nestedAbsentEvidence, 'utf8').includes('transient_junction');
+          rmSync(join(junctionTarget, 'evidence.json'), { force: true });
+          rmSync(missingAncestor, { force: true });
+        },
+      }), 'FILE_PIN_FAILED'), 'file pin rejects a transient junction introduced in approved-absent ancestry');
+      t.assert(junctionBytesObserved && !existsSync(nestedAbsentEvidence) && !existsSync(missingAncestor), 'missing-ancestor monitoring rejects transient redirected bytes even when every component is absent afterward');
+
       const addedPath = join(tree, 'new-runtime.mjs');
       let childCreationObserved = false;
       t.assert(await rejectsCode(() => withPinnedWindowsTrees({

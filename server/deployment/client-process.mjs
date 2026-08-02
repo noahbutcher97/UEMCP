@@ -381,6 +381,9 @@ function frozenLaunchCopy(value) {
 
 export async function withPinnedClientLaunch(launch, {
   callback,
+  env = process.env,
+  runner = null,
+  authenticodeInspector = inspectAuthenticode,
   fsImpl = defaultFs,
   runtimeTreePinner = withPinnedWindowsTrees,
   launchFilePinner = withPinnedWindowsFiles,
@@ -421,6 +424,14 @@ export async function withPinnedClientLaunch(launch, {
           changed_fields: [...changedFields],
         });
       }
+      if (pinnedLaunch.source === 'native' && CLIENT_NATIVE_IDENTITIES[pinnedLaunch.client_id]) {
+        await revalidatePinnedNativeAuthority(pinnedLaunch, {
+          env,
+          runner,
+          fsImpl,
+          authenticodeInspector,
+        });
+      }
       treeGuard?.assertPinned?.();
       fileGuard?.assertPinned?.();
       return callback(Object.freeze({
@@ -455,6 +466,55 @@ export async function withPinnedClientLaunch(launch, {
       },
     }),
   );
+}
+
+async function revalidatePinnedNativeAuthority(launch, {
+  env,
+  runner,
+  fsImpl,
+  authenticodeInspector,
+}) {
+  if (!env || typeof env !== 'object' || !runner?.run || typeof authenticodeInspector !== 'function') {
+    fail('native client authority dependencies are unavailable', 'CLIENT_RUNTIME_CHANGED', {
+      reason: 'NATIVE_AUTHORITY_CHANGED',
+    });
+  }
+  let canonicalAllowedPaths;
+  try {
+    canonicalAllowedPaths = (await Promise.all(expectedNativePaths(launch.client_id, env).map(async path => {
+      try {
+        return resolve(await fsImpl.realpath(resolve(path)));
+      } catch {
+        return null;
+      }
+    }))).filter(Boolean);
+  } catch {
+    canonicalAllowedPaths = [];
+  }
+  if (!canonicalAllowedPaths.some(path => pathKey(path) === pathKey(launch.command))) {
+    fail('native client path is no longer authorized', 'CLIENT_RUNTIME_CHANGED', {
+      reason: 'NATIVE_AUTHORITY_CHANGED',
+      changed_fields: ['command'],
+    });
+  }
+  let observed = null;
+  try {
+    observed = await validAuthenticode(launch.command, launch.client_id, {
+      env,
+      runner,
+      fsImpl,
+      authenticodeInspector,
+    });
+  } catch {
+    observed = null;
+  }
+  if (observed === null
+    || sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.authenticode)) {
+    fail('native client signature changed after discovery', 'CLIENT_RUNTIME_CHANGED', {
+      reason: 'NATIVE_AUTHORITY_CHANGED',
+      changed_fields: ['authenticode'],
+    });
+  }
 }
 
 function absoluteSafePath(path) {
@@ -851,11 +911,15 @@ async function probeVersion(launch, {
   env,
   runner,
   fsImpl,
+  authenticodeInspector,
   runtimeTreePinner,
   launchFilePinner,
 }) {
   const childEnv = clientProcessEnvironment(env, launch.env_overlay);
   const result = await withPinnedClientLaunch(launch, {
+    env,
+    runner,
+    authenticodeInspector,
     fsImpl,
     runtimeTreePinner,
     launchFilePinner,
@@ -942,6 +1006,7 @@ export async function resolveClientLaunch(clientId, {
         env,
         runner,
         fsImpl,
+        authenticodeInspector,
         runtimeTreePinner,
         launchFilePinner,
       });

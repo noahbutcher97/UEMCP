@@ -841,10 +841,10 @@ try {
   foreach ($directory in @($request.ancestry)) {
     $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
   }
-  [string[]]$absentPaths = @($request.absent_paths)
+  [string[]]$absentComponents = @($request.absent_components)
   [string[]]$absentWatchRoots = @($request.absent_watch_roots)
-  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentPaths, $absentWatchRoots)
-  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
+  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentComponents, $absentWatchRoots)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
   foreach ($path in @($request.paths)) {
     $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
   }
@@ -852,7 +852,7 @@ try {
   [Console]::Out.Flush()
   if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
   [System.Threading.Thread]::Sleep(100)
-  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
 } catch {
   [Console]::Error.Write($_.Exception.GetType().FullName)
   exit 74
@@ -875,6 +875,7 @@ const TREE_PIN_MAX_ROOTS = 2_048;
 const TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
 const TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
 const FILE_PIN_MAX_PATHS = 64;
+const FILE_PIN_MAX_ABSENT_COMPONENTS = 512;
 const FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
 const PIN_ACQUISITION_TIMEOUT_MS = 30_000;
 
@@ -1414,7 +1415,8 @@ function validatePinnedFilePaths(paths, absentPaths) {
     for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
   };
   for (const path of normalized) addAncestry(path);
-  const absentWatchRoots = [];
+  const absentWatchRootsByKey = new Map();
+  const absentComponentsByKey = new Map();
   for (const path of normalizedAbsent) {
     let watchRoot = dirname(path);
     while (!existsSync(watchRoot)) {
@@ -1424,9 +1426,20 @@ function validatePinnedFilePaths(paths, absentPaths) {
       }
       watchRoot = next;
     }
-    absentWatchRoots.push(watchRoot);
+    absentWatchRootsByKey.set(windowsPathKey(watchRoot), watchRoot);
     addAncestry(watchRoot, true);
+    const relativeTarget = relative(watchRoot, path);
+    let component = watchRoot;
+    for (const name of relativeTarget.split(/[\\/]/).filter(Boolean)) {
+      component = resolve(component, name);
+      absentComponentsByKey.set(windowsPathKey(component), component);
+    }
   }
+  if (absentComponentsByKey.size > FILE_PIN_MAX_ABSENT_COMPONENTS) {
+    throw new WindowsNativeError('absent file pin has too many missing components', 'INVALID_FILE_PIN');
+  }
+  const absentWatchRoots = [...absentWatchRootsByKey.values()];
+  const absentComponents = [...absentComponentsByKey.values()];
   const ancestry = [...ancestryByKey.values()].sort((left, right) => {
     const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
     const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
@@ -1435,6 +1448,7 @@ function validatePinnedFilePaths(paths, absentPaths) {
   const serializedRequest = JSON.stringify({
     paths: normalized,
     absent_paths: normalizedAbsent,
+    absent_components: absentComponents,
     absent_watch_roots: absentWatchRoots,
     ancestry,
   });
