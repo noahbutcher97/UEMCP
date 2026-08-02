@@ -1,6 +1,7 @@
 import { isAbsolute, posix, win32 } from 'node:path';
 
 import { canonicalJson, sha256Canonical } from './canonical-json.mjs';
+import { CLIENT_DISCOVERY_FAILURE_CODES } from './client-contract.mjs';
 import {
   DEPLOYMENT_SCHEMA_VERSION,
   OUTCOMES,
@@ -149,12 +150,7 @@ function validatePlanDocument(plan) {
   if (clientByAdapter.size !== clients.length || clientEvidence.size !== clientEvidenceRows.length) {
     fail('plan client rows and evidence must use unique adapter IDs', 'INVALID_PLAN');
   }
-  const probeFailureCodes = new Set([
-    'VERSION_PROBE_FAILED',
-    'CLIENT_DISCOVERY_FAILED',
-    'AMBIGUOUS_CLIENT_ENVIRONMENT',
-    'INSPECTION_LIMIT_EXCEEDED',
-  ]);
+  const probeFailureCodes = new Set(CLIENT_DISCOVERY_FAILURE_CODES);
   for (const adapter of request.selected_clients) {
     const client = clientByAdapter.get(adapter);
     const evidence = clientEvidence.get(adapter);

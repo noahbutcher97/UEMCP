@@ -68,6 +68,7 @@ import {
   isSensitiveClientEnvironmentName,
   protocolProcessEnvironment,
   readWindowsEnvironmentValue,
+  runActiveClientLaunch,
   validateClientLaunchContract,
 } from './deployment/client-contract.mjs';
 import { createClientDomain } from './deployment/client-domain.mjs';
@@ -76,6 +77,7 @@ import {
   captureClientRuntimeFingerprint,
   revalidateClientLaunchRuntime,
   resolveClientLaunch,
+  withPinnedClientLaunch,
 } from './deployment/client-process.mjs';
 import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
@@ -1239,11 +1241,12 @@ async function rejectedError(fn) {
 {
   t.assert(Object.isFrozen(CLIENT_IDS) && JSON.stringify(CLIENT_IDS) === JSON.stringify(['claude', 'codex', 'gemini', 'vscode']), 'client IDs are closed, ordered, and frozen');
   t.assert(Object.isFrozen(RELEASE_GATES) && Object.values(RELEASE_GATES).every(Object.isFrozen), 'release gates are deeply frozen');
-  t.assert(JSON.stringify(RELEASE_GATES.claude.versions) === JSON.stringify(['2.1.209', '2.1.210']), 'Claude release gate is exact');
+  t.assert(JSON.stringify(RELEASE_GATES.claude.versions) === JSON.stringify(['2.1.210']), 'Claude release gate is exact');
   t.assert(JSON.stringify(RELEASE_GATES.codex.versions) === JSON.stringify(['0.144.4']), 'Codex release gate is exact');
   t.assert(JSON.stringify(RELEASE_GATES.gemini.versions) === JSON.stringify(['0.41.2']), 'Gemini release gate is exact');
   t.assert(JSON.stringify(RELEASE_GATES.vscode.versions) === JSON.stringify(['1.128.1']), 'VS Code release gate is exact');
   t.assert(classifySupportedVersion('claude', '2.1.210') === 'release_gated', 'exact gated version allows writes');
+  t.assert(classifySupportedVersion('claude', '2.1.209') === 'known_unsupported', 'uncharacterized older Claude release remains inspect-only');
   t.assert(classifySupportedVersion('codex', '0.143.0') === 'known_unsupported', 'older version is known unsupported');
   t.assert(classifySupportedVersion('codex', '0.145.0') === 'unknown_newer', 'newer version is inspect-only');
   t.assert(classifySupportedVersion('codex', 'not-a-version') === 'known_unsupported', 'malformed version never widens write support');
@@ -1335,6 +1338,36 @@ async function rejectedError(fn) {
       runner: runnerFor('0.144.4'),
       candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
     });
+    let pinCallbackReached = false;
+    const pinRuntimeError = await rejectedError(() => withPinnedClientLaunch(refreshed, {
+      runtimeTreePinner: async ({ callback }) => {
+        write(layout.runtime, 'export const runtime = true;\n');
+        return callback(Object.freeze({ assertPinned() {} }));
+      },
+      launchFilePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
+      callback: async () => { pinCallbackReached = true; },
+    }));
+    t.assert(pinRuntimeError?.details?.reason === 'RUNTIME_FINGERPRINT_MISMATCH'
+      && JSON.stringify(pinRuntimeError.details.changed_fields) === JSON.stringify(['manifest_sha256']),
+    'process-lifetime runtime pin drift retains secret-safe changed-field diagnostics');
+    t.assert(pinCallbackReached === false, 'process-lifetime runtime pin drift is rejected before the child callback');
+    write(layout.runtime, 'export const runtime = null;\n');
+
+    const nodeBytes = readFileSync(layout.nodeExecutable);
+    const pinFileError = await rejectedError(() => withPinnedClientLaunch(refreshed, {
+      runtimeTreePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
+      launchFilePinner: async ({ callback }) => {
+        write(layout.nodeExecutable, 'changed-node-binary');
+        return callback(Object.freeze({ assertPinned() {} }));
+      },
+      callback: async () => { pinCallbackReached = true; },
+    }));
+    writeFileSync(layout.nodeExecutable, nodeBytes);
+    t.assert(pinFileError?.details?.reason === 'RUNTIME_FINGERPRINT_MISMATCH'
+      && JSON.stringify(pinFileError.details.changed_fields) === JSON.stringify(['command']),
+    'process-lifetime launch-file drift identifies the changed launch field without exposing a path');
+    t.assert(pinCallbackReached === false, 'process-lifetime launch-file drift is rejected before the child callback');
+
     write(sharedRuntime, 'export const shared = false;\n');
     t.assert(await rejectsCode(() => revalidateClientLaunchRuntime(refreshed), 'CLIENT_RUNTIME_CHANGED'), 'hoisted declared dependency drift invalidates the resolved npm launch');
     const nestedRefresh = await resolveClientLaunch('codex', {
@@ -4070,6 +4103,13 @@ function aggregateClientOperation(root, clientId = 'claude') {
   });
 }
 
+function aggregateOwnershipTouch(localState) {
+  const payload = { schema_version: '1.0', records: {} };
+  const bytes = Buffer.from(`${JSON.stringify({ ...payload, self_hash: sha256Canonical(payload) })}\n`);
+  const path = write(localState.paths().ownership, bytes);
+  return Object.freeze({ path: resolve(path), applied_sha256: sha256Bytes(bytes) });
+}
+
 function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   return createPlanDocument({
     operation: 'setup',
@@ -4137,6 +4177,25 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   const ambiguous = await discoverClients({ env: {}, workspaceRoot: 'C:\\isolated', requestedProfile: null, resolvers: ambiguousResolvers });
   const ambiguousRow = ambiguous.find(row => row.client_id === 'codex');
   t.assert(ambiguousRow.compatibility === 'known_unsupported' && ambiguousRow.launch === null && ambiguousRow.discovery_status === 'AMBIGUOUS_CLIENT_INSTALLATION', 'ambiguous installation evidence remains visible and cannot authorize a launch');
+  const ambiguousDomain = createClientDomain({
+    adapters: CLIENT_IDS.map(aggregateAdapter),
+    discovery: async () => ambiguous,
+    transaction: () => { throw new Error('transaction is not expected'); },
+    protocolSmoke: async () => { throw new Error('ambiguous installation must not launch protocol smoke'); },
+  });
+  const ambiguousContext = aggregateContext(root, { operation: 'setup', include: ['codex'], selectedClients: ['codex'] });
+  let ambiguousPlan = null;
+  let ambiguousPlanError = null;
+  try {
+    const planned = await ambiguousDomain.plan(ambiguousContext);
+    ambiguousPlan = aggregatePlanDocument(ambiguousContext, planned);
+  } catch (error) {
+    ambiguousPlanError = error;
+  }
+  t.assert(ambiguousPlanError === null
+    && ambiguousPlan?.operations.length === 0
+    && ambiguousPlan.clients.find(row => row.adapter === 'codex')?.status === 'UNKNOWN',
+  `an explicit ambiguous installation produces a valid inspect-only remediation plan (${ambiguousPlanError?.code ?? 'no error'}: ${ambiguousPlanError?.message ?? 'none'})`);
 
   const crashedResolvers = { ...missingResolvers };
   crashedResolvers.claude = async () => { throw new Error('unexpected resolver fault'); };
@@ -4665,6 +4724,52 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   }
 }
 
+// Process-lifetime launch-pin diagnostics retain stable field names but never path values.
+{
+  const root = makeRoot();
+  try {
+    const launch = aggregateLaunch(root, 'claude');
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? { ...launch, launch }
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude');
+    let reachedLaunch = false;
+    const adapter = Object.freeze({
+      ...base,
+      async inspect(context, detection) {
+        await runActiveClientLaunch(context, { client_id: 'claude', kind: 'native' }, async () => {
+          reachedLaunch = true;
+        });
+        return base.inspect(context, detection);
+      },
+    });
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { throw new Error('launch drift must block protocol smoke'); },
+      pinClientLaunch: async () => {
+        const error = new Error('fixture launch file changed');
+        error.code = 'CLIENT_RUNTIME_CHANGED';
+        error.details = {
+          reason: 'RUNTIME_FINGERPRINT_MISMATCH',
+          changed_fields: ['command', 'absolute_secret_path'],
+        };
+        throw error;
+      },
+    });
+    const activeLaunchError = await rejectedError(() => domain.verify(aggregateContext(root)));
+    t.assert(activeLaunchError?.code === 'PLAN_STALE', 'launch-file drift is rejected by the process-lifetime pin');
+    t.assert(activeLaunchError?.details?.runtime_reason === 'RUNTIME_FINGERPRINT_MISMATCH'
+      && JSON.stringify(activeLaunchError.details.changed_fields) === JSON.stringify(['command'])
+      && JSON.stringify(activeLaunchError.details).includes('absolute_secret_path') === false,
+    'launch-file drift exposes only allowlisted field names through the public domain error');
+    t.assert(reachedLaunch === false, 'launch-file drift is rejected before the guarded client process executes');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // A provider may create one-time state during a read-only native query; inspection must settle and then remain stable.
 {
   const root = makeRoot();
@@ -4712,6 +4817,92 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const plan = aggregatePlanDocument(context, planned);
     t.assert(plan.operations.length === 0 && inspections === 2, 'one-time provider state creation triggers exactly one full inspection retry');
     t.assert(smokeCalls === 1, 'protocol smoke runs only after the retried inspection is stable');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Transaction and client-runtime launch guards both remain active through adapter binding.
+{
+  const root = makeRoot();
+  try {
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const windowsNative = transactionWindowsNative();
+    const capture = (path, options) => captureClientPathFingerprint(path, {
+      ...options,
+      fsImpl: asyncFs,
+      windowsNative,
+    });
+    const draftOperation = aggregateClientOperation(root);
+    const fingerprint = await capture(draftOperation.path, {
+      allowedRoots: [draftOperation.allowed_root],
+      writable: true,
+    });
+    const operation = Object.freeze({
+      ...draftOperation,
+      fingerprint,
+      current_config_sha256: fingerprint.content_sha256,
+    });
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? aggregateInstalledClient(root, clientId)
+      : absentClient(clientId));
+    const base = aggregateAdapter('claude', {
+      files: [Object.freeze({
+        path: operation.path,
+        allowed_root: operation.allowed_root,
+        scope: 'user',
+        writable: true,
+        exists: true,
+        fingerprint,
+      })],
+    });
+    const appliedBytes = Buffer.from('{"after":"reviewed"}\n');
+    const hostileBytes = Buffer.from('{"after":"external"}\n');
+    let childLaunches = 0;
+    const adapter = Object.freeze({
+      ...base,
+      async plan() {
+        return Object.freeze({ client_id: 'claude', status: 'UPDATE', operations: Object.freeze([operation]), actions: Object.freeze([]) });
+      },
+      async snapshot(context, operations) {
+        return Object.freeze({ writable_paths: Object.freeze([...operations]), read_only_paths: Object.freeze([]) });
+      },
+      async apply(context) {
+        await context.transaction.writeFile(operation.path, appliedBytes);
+        return Object.freeze({ status: 'APPLIED' });
+      },
+      async verify(context) {
+        await asyncFs.writeFile(operation.path, hostileBytes);
+        await runActiveClientLaunch(context, { client_id: 'claude', kind: 'native' }, async () => {
+          childLaunches += 1;
+          return Object.freeze({ status: 'PRESENT' });
+        });
+        return Object.freeze({ status: 'READY' });
+      },
+    });
+    const domain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: ({ externalLease }) => createClientTransaction({
+        localState,
+        fsImpl: asyncFs,
+        windowsNative,
+        externalLease,
+      }),
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      captureFingerprint: capture,
+      pinClientLaunch: async (launch, { callback }) => callback(Object.freeze({ assertPinned() {} }), launch),
+    });
+    const context = aggregateContext(root, { operation: 'setup', localState });
+    const planned = await domain.plan(context);
+    const plan = aggregatePlanDocument(context, planned);
+    const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
+    t.assert(childLaunches === 0, 'transaction post-write drift is rejected before the provider-native child starts');
+    t.assert(applied.stage.status === 'ROLLBACK_CONFLICT', 'prelaunch transaction drift remains a rollback conflict with retained recovery evidence');
   } finally {
     cleanup(root);
   }
@@ -4787,10 +4978,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       async snapshot() {},
       async apply() {
         writeFileSync(operation.path, approvedBytes);
+        const ownership = aggregateOwnershipTouch(localState);
         return Object.freeze({
           status: 'APPLIED',
           clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
-          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: sha256Bytes(approvedBytes) })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: sha256Bytes(approvedBytes) }), ownership]),
           rollback: null,
           retained_snapshots: Object.freeze([]),
         });
@@ -4937,10 +5129,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const transaction = {
       async snapshot() {},
       async apply() {
+        const ownership = aggregateOwnershipTouch(localState);
         return Object.freeze({
           status: 'ACTION_REQUIRED',
           clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
-          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: operation.fingerprint.content_sha256 })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: operation.fingerprint.content_sha256 }), ownership]),
           rollback: null,
           retained_snapshots: Object.freeze([Object.freeze({ path: operation.path, retained_until: null })]),
           cleanup_actions: Object.freeze([Object.freeze({ path: cleanupPath, code: 'SNAPSHOT_DELETE_FAILED' })]),
@@ -5006,10 +5199,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const transaction = {
       async snapshot() {},
       async apply() {
+        const ownership = aggregateOwnershipTouch(localState);
         return Object.freeze({
           status: 'APPLIED',
           clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
-          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'e'.repeat(64) })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'e'.repeat(64) }), ownership]),
           rollback: null,
           retained_snapshots: Object.freeze([]),
         });
@@ -5065,6 +5259,26 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
           clients: [{ client_id: 'claude', status: 'READY' }],
           touched_files: [],
           rollback: null,
+          retained_snapshots: [],
+        }),
+      },
+      {
+        label: 'applied result missing ownership ledger evidence',
+        result: operation => ({
+          status: 'APPLIED',
+          clients: [{ client_id: 'claude', status: 'READY' }],
+          touched_files: [{ path: operation.path, applied_sha256: 'f'.repeat(64) }],
+          rollback: null,
+          retained_snapshots: [],
+        }),
+      },
+      {
+        label: 'rolled-back result missing restoration evidence',
+        result: operation => ({
+          status: 'ROLLED_BACK',
+          clients: [{ client_id: 'claude', status: 'FAILED', error_code: 'ADAPTER_VERIFY_FAILED' }],
+          touched_files: [{ path: operation.path, applied_sha256: 'f'.repeat(64) }],
+          rollback: { reason_code: 'ADAPTER_VERIFY_FAILED', paths: [], hook_errors: [] },
           retained_snapshots: [],
         }),
       },
@@ -5221,10 +5435,11 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       async snapshot() {},
       async apply() {
         writeFileSync(operation.path, appliedBytes);
+        const ownership = aggregateOwnershipTouch(localState);
         return Object.freeze({
           status: 'APPLIED',
           clients: Object.freeze([Object.freeze({ client_id: 'claude', status: 'READY' })]),
-          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'f'.repeat(64) })]),
+          touched_files: Object.freeze([Object.freeze({ path: operation.path, applied_sha256: 'f'.repeat(64) }), ownership]),
           rollback: null,
           retained_snapshots: Object.freeze([]),
         });

@@ -1,4 +1,4 @@
-import { CLIENT_IDS } from './client-contract.mjs';
+import { CLIENT_DISCOVERY_FAILURE_CODES, CLIENT_IDS } from './client-contract.mjs';
 import { resolveClientLaunch } from './client-process.mjs';
 
 export class ClientDiscoveryError extends Error {
@@ -103,7 +103,7 @@ export async function discoverClients({
       }
       const code = safeErrorCode(error);
       if (code === 'NOT_INSTALLED') rows.push(absentRow(clientId));
-      else if (['VERSION_PROBE_FAILED', 'CLIENT_DISCOVERY_FAILED', 'AMBIGUOUS_CLIENT_ENVIRONMENT', 'AMBIGUOUS_CLIENT_INSTALLATION', 'INSPECTION_LIMIT_EXCEEDED'].includes(code)) {
+      else if (CLIENT_DISCOVERY_FAILURE_CODES.includes(code)) {
         rows.push(failedRow(clientId, code));
       } else {
         fail('client resolver returned an unsupported failure', 'CLIENT_DISCOVERY_FAILED', { client_id: clientId, resolver_code: code });

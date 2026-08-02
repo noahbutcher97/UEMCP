@@ -9,7 +9,7 @@ them, even when they are explicitly included.
 
 | Client | Write gate | Writable target | Read-only precedence evidence | Native verification |
 | --- | --- | --- | --- | --- |
-| Claude Code | `2.1.209`, `2.1.210` | Private user state under `CLAUDE_CONFIG_DIR` or the default home | managed, local, project, user, plugin plus approval/settings policy | `mcp list`, `mcp get uemcp` |
+| Claude Code | `2.1.210` | Private user state under `CLAUDE_CONFIG_DIR` or the default home | managed, local, project, user, plugin plus approval/settings policy | `mcp list`, `mcp get uemcp` |
 | Codex CLI | `0.144.4` | User `config.toml` under `CODEX_HOME` or the default home | trusted project layers, user config, system requirements | `mcp list --json`, `mcp get uemcp --json` |
 | Gemini CLI | `0.41.2` | User `settings.json` under the effective Gemini home | system defaults, user, trusted project, system override, extensions, enablement policy | `mcp list` |
 | VS Code | `1.128.1` | Default or selected existing profile `mcp.json` | workspace, selected/default user resource, other profiles and profile metadata | no native registration mutation or status query |

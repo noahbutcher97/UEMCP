@@ -10462,6 +10462,13 @@ import {
 import { win32 as win322 } from "node:path";
 var frozenVersions = (versions) => Object.freeze([...versions]);
 var CLIENT_IDS = Object.freeze(["claude", "codex", "gemini", "vscode"]);
+var CLIENT_DISCOVERY_FAILURE_CODES = Object.freeze([
+  "VERSION_PROBE_FAILED",
+  "CLIENT_DISCOVERY_FAILED",
+  "AMBIGUOUS_CLIENT_ENVIRONMENT",
+  "AMBIGUOUS_CLIENT_INSTALLATION",
+  "INSPECTION_LIMIT_EXCEEDED"
+]);
 var NPM_RUNTIME_LIMITS = Object.freeze({
   max_packages: 2048,
   max_entries: 32768,
@@ -10469,7 +10476,7 @@ var NPM_RUNTIME_LIMITS = Object.freeze({
   max_bytes: 1024 * 1024 * 1024
 });
 var RELEASE_GATES = Object.freeze({
-  claude: Object.freeze({ versions: frozenVersions(["2.1.209", "2.1.210"]) }),
+  claude: Object.freeze({ versions: frozenVersions(["2.1.210"]) }),
   codex: Object.freeze({ versions: frozenVersions(["0.144.4"]) }),
   gemini: Object.freeze({ versions: frozenVersions(["0.41.2"]) }),
   vscode: Object.freeze({ versions: frozenVersions(["1.128.1"]) })
@@ -20170,6 +20177,12 @@ var RUNTIME_FINGERPRINT_FIELDS = Object.freeze([
   "root",
   "total_bytes"
 ]);
+function runtimeFingerprintMismatchDetails(observed, expected) {
+  return {
+    reason: "RUNTIME_FINGERPRINT_MISMATCH",
+    changed_fields: RUNTIME_FINGERPRINT_FIELDS.filter((field) => observed?.[field] !== expected?.[field])
+  };
+}
 var ClientProcessError = class extends Error {
   constructor(message, code = "NOT_INSTALLED", details = {}) {
     super(message);
@@ -20422,11 +20435,11 @@ async function revalidateClientLaunchRuntime(launch, {
     });
   }
   if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
-    const changedFields = RUNTIME_FINGERPRINT_FIELDS.filter((field) => observed?.[field] !== launch.fingerprint.runtime_tree?.[field]);
-    fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED", {
-      reason: "RUNTIME_FINGERPRINT_MISMATCH",
-      changed_fields: changedFields
-    });
+    fail14(
+      "client npm runtime tree changed after discovery",
+      "CLIENT_RUNTIME_CHANGED",
+      runtimeFingerprintMismatchDetails(observed, launch.fingerprint.runtime_tree)
+    );
   }
   return true;
 }
@@ -20469,12 +20482,19 @@ async function withPinnedClientLaunch(launch, {
     callback: async (fileGuard) => {
       treeGuard?.assertPinned?.();
       fileGuard?.assertPinned?.();
+      const changedFields = /* @__PURE__ */ new Set();
       for (let index = 0; index < evidence.paths.length; index += 1) {
         const path = evidence.paths[index];
         const observed = await fingerprintPath(path, { allowedRoots: [dirname8(path)], fsImpl });
         if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
-          fail14("client launch file changed after discovery", "CLIENT_RUNTIME_CHANGED");
+          changedFields.add(index === 0 ? "command" : "args_prefix");
         }
+      }
+      if (changedFields.size > 0) {
+        fail14("client launch file changed after discovery", "CLIENT_RUNTIME_CHANGED", {
+          reason: "RUNTIME_FINGERPRINT_MISMATCH",
+          changed_fields: [...changedFields]
+        });
       }
       treeGuard?.assertPinned?.();
       fileGuard?.assertPinned?.();
@@ -20498,7 +20518,11 @@ async function withPinnedClientLaunch(launch, {
       callback: async (treeGuard) => {
         const observed = await pinOptions.callback(treeGuard);
         if (sha256Canonical(observed) !== sha256Canonical(expectedRuntime)) {
-          fail14("client npm runtime tree changed after discovery", "CLIENT_RUNTIME_CHANGED");
+          fail14(
+            "client npm runtime tree changed after discovery",
+            "CLIENT_RUNTIME_CHANGED",
+            runtimeFingerprintMismatchDetails(observed, expectedRuntime)
+          );
         }
         treeGuard?.assertPinned?.();
         return runWithFilesPinned(treeGuard);
@@ -21073,7 +21097,7 @@ async function discoverClients({
       }
       const code = safeErrorCode(error2);
       if (code === "NOT_INSTALLED") rows.push(absentRow(clientId));
-      else if (["VERSION_PROBE_FAILED", "CLIENT_DISCOVERY_FAILED", "AMBIGUOUS_CLIENT_ENVIRONMENT", "AMBIGUOUS_CLIENT_INSTALLATION", "INSPECTION_LIMIT_EXCEEDED"].includes(code)) {
+      else if (CLIENT_DISCOVERY_FAILURE_CODES.includes(code)) {
         rows.push(failedRow(clientId, code));
       } else {
         fail15("client resolver returned an unsupported failure", "CLIENT_DISCOVERY_FAILED", { client_id: clientId, resolver_code: code });
@@ -28624,7 +28648,9 @@ var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
 ]);
 var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
 var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
-var RUNTIME_FINGERPRINT_FIELDS2 = /* @__PURE__ */ new Set([
+var CLIENT_LAUNCH_FINGERPRINT_FIELDS = /* @__PURE__ */ new Set([
+  "args_prefix",
+  "command",
   "entry_count",
   "file_count",
   "manifest_sha256",
@@ -29142,7 +29168,7 @@ function clientRuntimeFailureDetails(clientId, error2) {
   };
   if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
   if (Array.isArray(nested.changed_fields)) {
-    const changedFields = [...new Set(nested.changed_fields.filter((field) => RUNTIME_FINGERPRINT_FIELDS2.has(field)))].sort();
+    const changedFields = [...new Set(nested.changed_fields.filter((field) => CLIENT_LAUNCH_FINGERPRINT_FIELDS.has(field)))].sort();
     if (changedFields.length > 0) details.changed_fields = changedFields;
   }
   return details;
@@ -29191,7 +29217,7 @@ function validTransactionResult(result2, operations, writablePreconditions) {
   const allowedPaths = new Set(writablePreconditions.map((row) => pathKey4(row.canonical_path)).filter(Boolean));
   const operationClients = new Set(operations.map((operation) => operation.client_id));
   const operationPaths = new Map(operations.map((operation) => [pathKey4(operation.path), operation]));
-  const requiredWritePaths = new Set(operations.filter((operation) => operation.ledger_only !== true).map((operation) => pathKey4(operation.path)).filter(Boolean));
+  const requiredWritePaths = new Set(allowedPaths);
   const clientIds = result2.clients.map((row) => row?.client_id);
   if (new Set(clientIds).size !== clientIds.length || result2.clients.some((row) => !hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "status", "error_code"])) || !operationClients.has(row.client_id) || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status) && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status) && row.status !== "FAILED" || (row.status === "FAILED" ? stableErrorCode(row.error_code, null) === null : row.error_code !== void 0))) {
     return false;
@@ -29240,7 +29266,7 @@ function validTransactionResult(result2, operations, writablePreconditions) {
     if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["status", "path", "code"])) || !ROLLBACK_PATH_STATUSES.has(row.status) || !key || !allowedPaths.has(key) || (row.status === "restored" ? row.code !== void 0 : stableErrorCode(row.code, null) === null)) return false;
     rollbackKeys.push(key);
   }
-  if (new Set(rollbackKeys).size !== rollbackKeys.length) return false;
+  if (new Set(rollbackKeys).size !== rollbackKeys.length || rollbackKeys.length !== touchedKeys.length || touchedKeys.some((key) => !rollbackKeys.includes(key))) return false;
   for (const row of result2.rollback.hook_errors) {
     if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "code"])) || ![...CLIENT_IDS, "transaction"].includes(row.client_id) || stableErrorCode(row.code, null) === null) return false;
   }
@@ -29514,7 +29540,52 @@ function createClientDomain({
     return CLIENT_IDS.filter((clientId) => operationClients.has(clientId)).map((clientId) => {
       const adapter = mappedAdapters.get(clientId);
       const record2 = byClient.get(clientId);
-      const withContext = (context) => ({ ...context, ...record2?.context ?? {} });
+      const inspectedContext = record2?.context ?? {};
+      const withContext = (transactionContext) => {
+        const transactionBefore = transactionContext.beforeActiveClientLaunch;
+        const transactionWith = transactionContext.withActiveClientLaunch;
+        const inspectedBefore = inspectedContext.beforeActiveClientLaunch;
+        const inspectedWith = inspectedContext.withActiveClientLaunch;
+        const noPin = Object.freeze({ assertPinned() {
+        } });
+        const combinedGuard = (transactionGuard, inspectedGuard) => Object.freeze({
+          assertPinned() {
+            transactionGuard?.assertPinned?.();
+            inspectedGuard?.assertPinned?.();
+          }
+        });
+        return Object.freeze({
+          ...inspectedContext,
+          ...transactionContext,
+          launch: inspectedContext.launch ?? transactionContext.launch ?? null,
+          planDigest: inspectedContext.planDigest ?? transactionContext.planDigest,
+          ownershipLedger: inspectedContext.ownershipLedger ?? transactionContext.ownershipLedger,
+          vscodeProfile: inspectedContext.vscodeProfile ?? transactionContext.vscodeProfile,
+          beforeActiveClientLaunch: async (evidence) => {
+            await transactionBefore?.(evidence);
+            await inspectedBefore?.(evidence);
+          },
+          withActiveClientLaunch: async (evidence, callback) => {
+            if (typeof callback !== "function") fail16("active launch callback is invalid", "INVALID_CLIENT_LAUNCH");
+            const withinTransaction = async (transactionGuard = noPin, transactionLaunch = null) => {
+              transactionGuard?.assertPinned?.();
+              if (typeof inspectedWith === "function") {
+                return inspectedWith(evidence, async (inspectedGuard = noPin, inspectedLaunch = null) => {
+                  const guard = combinedGuard(transactionGuard, inspectedGuard);
+                  guard.assertPinned();
+                  return callback(guard, inspectedLaunch ?? transactionLaunch ?? inspectedContext.launch ?? null);
+                });
+              }
+              await inspectedBefore?.(evidence);
+              transactionGuard?.assertPinned?.();
+              return callback(transactionGuard, inspectedContext.launch ?? transactionLaunch ?? null);
+            };
+            if (typeof transactionWith === "function") return transactionWith(evidence, withinTransaction);
+            await transactionBefore?.(evidence);
+            return withinTransaction(noPin, transactionContext.launch ?? null);
+          }
+        });
+      };
       return Object.freeze({
         id: clientId,
         snapshot: (context, operations2) => adapter.snapshot(withContext(context), operations2),
@@ -30990,12 +31061,7 @@ function validatePlanDocument(plan) {
   if (clientByAdapter.size !== clients.length || clientEvidence2.size !== clientEvidenceRows.length) {
     fail17("plan client rows and evidence must use unique adapter IDs", "INVALID_PLAN");
   }
-  const probeFailureCodes = /* @__PURE__ */ new Set([
-    "VERSION_PROBE_FAILED",
-    "CLIENT_DISCOVERY_FAILED",
-    "AMBIGUOUS_CLIENT_ENVIRONMENT",
-    "INSPECTION_LIMIT_EXCEEDED"
-  ]);
+  const probeFailureCodes = new Set(CLIENT_DISCOVERY_FAILURE_CODES);
   for (const adapter of request.selected_clients) {
     const client = clientByAdapter.get(adapter);
     const evidence = clientEvidence2.get(adapter);

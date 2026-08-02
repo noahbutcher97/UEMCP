@@ -69,6 +69,13 @@ const RUNTIME_FINGERPRINT_FIELDS = Object.freeze([
   'total_bytes',
 ]);
 
+function runtimeFingerprintMismatchDetails(observed, expected) {
+  return {
+    reason: 'RUNTIME_FINGERPRINT_MISMATCH',
+    changed_fields: RUNTIME_FINGERPRINT_FIELDS.filter(field => observed?.[field] !== expected?.[field]),
+  };
+}
+
 export class ClientProcessError extends Error {
   constructor(message, code = 'NOT_INSTALLED', details = {}) {
     super(message);
@@ -340,11 +347,11 @@ export async function revalidateClientLaunchRuntime(launch, {
     });
   }
   if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
-    const changedFields = RUNTIME_FINGERPRINT_FIELDS.filter(field => observed?.[field] !== launch.fingerprint.runtime_tree?.[field]);
-    fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED', {
-      reason: 'RUNTIME_FINGERPRINT_MISMATCH',
-      changed_fields: changedFields,
-    });
+    fail(
+      'client npm runtime tree changed after discovery',
+      'CLIENT_RUNTIME_CHANGED',
+      runtimeFingerprintMismatchDetails(observed, launch.fingerprint.runtime_tree),
+    );
   }
   return true;
 }
@@ -399,12 +406,19 @@ export async function withPinnedClientLaunch(launch, {
     callback: async fileGuard => {
       treeGuard?.assertPinned?.();
       fileGuard?.assertPinned?.();
+      const changedFields = new Set();
       for (let index = 0; index < evidence.paths.length; index += 1) {
         const path = evidence.paths[index];
         const observed = await fingerprintPath(path, { allowedRoots: [dirname(path)], fsImpl });
         if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
-          fail('client launch file changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+          changedFields.add(index === 0 ? 'command' : 'args_prefix');
         }
+      }
+      if (changedFields.size > 0) {
+        fail('client launch file changed after discovery', 'CLIENT_RUNTIME_CHANGED', {
+          reason: 'RUNTIME_FINGERPRINT_MISMATCH',
+          changed_fields: [...changedFields],
+        });
       }
       treeGuard?.assertPinned?.();
       fileGuard?.assertPinned?.();
@@ -429,7 +443,11 @@ export async function withPinnedClientLaunch(launch, {
       callback: async treeGuard => {
         const observed = await pinOptions.callback(treeGuard);
         if (sha256Canonical(observed) !== sha256Canonical(expectedRuntime)) {
-          fail('client npm runtime tree changed after discovery', 'CLIENT_RUNTIME_CHANGED');
+          fail(
+            'client npm runtime tree changed after discovery',
+            'CLIENT_RUNTIME_CHANGED',
+            runtimeFingerprintMismatchDetails(observed, expectedRuntime),
+          );
         }
         treeGuard?.assertPinned?.();
         return runWithFilesPinned(treeGuard);

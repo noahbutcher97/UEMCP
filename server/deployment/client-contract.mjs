@@ -4,6 +4,14 @@ const frozenVersions = versions => Object.freeze([...versions]);
 
 export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
 
+export const CLIENT_DISCOVERY_FAILURE_CODES = Object.freeze([
+  'VERSION_PROBE_FAILED',
+  'CLIENT_DISCOVERY_FAILED',
+  'AMBIGUOUS_CLIENT_ENVIRONMENT',
+  'AMBIGUOUS_CLIENT_INSTALLATION',
+  'INSPECTION_LIMIT_EXCEEDED',
+]);
+
 export const NPM_RUNTIME_LIMITS = Object.freeze({
   max_packages: 2_048,
   max_entries: 32_768,
@@ -12,7 +20,7 @@ export const NPM_RUNTIME_LIMITS = Object.freeze({
 });
 
 export const RELEASE_GATES = Object.freeze({
-  claude: Object.freeze({ versions: frozenVersions(['2.1.209', '2.1.210']) }),
+  claude: Object.freeze({ versions: frozenVersions(['2.1.210']) }),
   codex: Object.freeze({ versions: frozenVersions(['0.144.4']) }),
   gemini: Object.freeze({ versions: frozenVersions(['0.41.2']) }),
   vscode: Object.freeze({ versions: frozenVersions(['1.128.1']) }),

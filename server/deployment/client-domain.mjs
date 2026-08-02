@@ -43,7 +43,9 @@ const TRANSACTION_ACTION_CLIENT_STATUSES = new Set([
 ]);
 const ROLLBACK_PATH_STATUSES = new Set(['restored', 'conflict', 'failed']);
 const RUNTIME_DIAGNOSTIC_REASONS = new Set(['RUNTIME_CAPTURE_FAILED', 'RUNTIME_FINGERPRINT_MISMATCH']);
-const RUNTIME_FINGERPRINT_FIELDS = new Set([
+const CLIENT_LAUNCH_FINGERPRINT_FIELDS = new Set([
+  'args_prefix',
+  'command',
   'entry_count',
   'file_count',
   'manifest_sha256',
@@ -616,7 +618,7 @@ function clientRuntimeFailureDetails(clientId, error) {
   };
   if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
   if (Array.isArray(nested.changed_fields)) {
-    const changedFields = [...new Set(nested.changed_fields.filter(field => RUNTIME_FINGERPRINT_FIELDS.has(field)))].sort();
+    const changedFields = [...new Set(nested.changed_fields.filter(field => CLIENT_LAUNCH_FINGERPRINT_FIELDS.has(field)))].sort();
     if (changedFields.length > 0) details.changed_fields = changedFields;
   }
   return details;
@@ -675,10 +677,7 @@ function validTransactionResult(result, operations, writablePreconditions) {
   const allowedPaths = new Set(writablePreconditions.map(row => pathKey(row.canonical_path)).filter(Boolean));
   const operationClients = new Set(operations.map(operation => operation.client_id));
   const operationPaths = new Map(operations.map(operation => [pathKey(operation.path), operation]));
-  const requiredWritePaths = new Set(operations
-    .filter(operation => operation.ledger_only !== true)
-    .map(operation => pathKey(operation.path))
-    .filter(Boolean));
+  const requiredWritePaths = new Set(allowedPaths);
   const clientIds = result.clients.map(row => row?.client_id);
   if (new Set(clientIds).size !== clientIds.length
     || result.clients.some(row => !hasOnlyKeys(row, new Set(['client_id', 'status', 'error_code']))
@@ -762,7 +761,9 @@ function validTransactionResult(result, operations, writablePreconditions) {
       || (row.status === 'restored' ? row.code !== undefined : stableErrorCode(row.code, null) === null)) return false;
     rollbackKeys.push(key);
   }
-  if (new Set(rollbackKeys).size !== rollbackKeys.length) return false;
+  if (new Set(rollbackKeys).size !== rollbackKeys.length
+    || rollbackKeys.length !== touchedKeys.length
+    || touchedKeys.some(key => !rollbackKeys.includes(key))) return false;
   for (const row of result.rollback.hook_errors) {
     if (!hasOnlyKeys(row, new Set(['client_id', 'code']))
       || ![...CLIENT_IDS, 'transaction'].includes(row.client_id)
@@ -1080,7 +1081,51 @@ export function createClientDomain({
     return CLIENT_IDS.filter(clientId => operationClients.has(clientId)).map(clientId => {
       const adapter = mappedAdapters.get(clientId);
       const record = byClient.get(clientId);
-      const withContext = context => ({ ...context, ...(record?.context ?? {}) });
+      const inspectedContext = record?.context ?? {};
+      const withContext = transactionContext => {
+        const transactionBefore = transactionContext.beforeActiveClientLaunch;
+        const transactionWith = transactionContext.withActiveClientLaunch;
+        const inspectedBefore = inspectedContext.beforeActiveClientLaunch;
+        const inspectedWith = inspectedContext.withActiveClientLaunch;
+        const noPin = Object.freeze({ assertPinned() {} });
+        const combinedGuard = (transactionGuard, inspectedGuard) => Object.freeze({
+          assertPinned() {
+            transactionGuard?.assertPinned?.();
+            inspectedGuard?.assertPinned?.();
+          },
+        });
+        return Object.freeze({
+          ...inspectedContext,
+          ...transactionContext,
+          launch: inspectedContext.launch ?? transactionContext.launch ?? null,
+          planDigest: inspectedContext.planDigest ?? transactionContext.planDigest,
+          ownershipLedger: inspectedContext.ownershipLedger ?? transactionContext.ownershipLedger,
+          vscodeProfile: inspectedContext.vscodeProfile ?? transactionContext.vscodeProfile,
+          beforeActiveClientLaunch: async evidence => {
+            await transactionBefore?.(evidence);
+            await inspectedBefore?.(evidence);
+          },
+          withActiveClientLaunch: async (evidence, callback) => {
+            if (typeof callback !== 'function') fail('active launch callback is invalid', 'INVALID_CLIENT_LAUNCH');
+            const withinTransaction = async (transactionGuard = noPin, transactionLaunch = null) => {
+              transactionGuard?.assertPinned?.();
+              if (typeof inspectedWith === 'function') {
+                return inspectedWith(evidence, async (inspectedGuard = noPin, inspectedLaunch = null) => {
+                  const guard = combinedGuard(transactionGuard, inspectedGuard);
+                  guard.assertPinned();
+                  return callback(guard, inspectedLaunch ?? transactionLaunch ?? inspectedContext.launch ?? null);
+                });
+              }
+              await inspectedBefore?.(evidence);
+              transactionGuard?.assertPinned?.();
+              return callback(transactionGuard, inspectedContext.launch ?? transactionLaunch ?? null);
+            };
+            if (typeof transactionWith === 'function') return transactionWith(evidence, withinTransaction);
+            await transactionBefore?.(evidence);
+            return withinTransaction(noPin, transactionContext.launch ?? null);
+          },
+        });
+      };
       return Object.freeze({
         id: clientId,
         snapshot: (context, operations) => adapter.snapshot(withContext(context), operations),
