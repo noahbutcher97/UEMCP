@@ -6,6 +6,11 @@ const frozenVersions = versions => Object.freeze([...versions]);
 
 export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
 
+export const CLIENT_NATIVE_IDENTITIES = Object.freeze({
+  claude: Object.freeze({ executable: 'claude.exe', signer_name: 'Anthropic, PBC', args_prefix_length: 0 }),
+  vscode: Object.freeze({ executable: 'Code.exe', signer_name: 'Microsoft Corporation', args_prefix_length: 1 }),
+});
+
 export const CLIENT_DISCOVERY_FAILURE_CODES = Object.freeze([
   'VERSION_PROBE_FAILED',
   'CLIENT_DISCOVERY_FAILED',
@@ -229,12 +234,21 @@ function validFileFingerprint(fingerprint) {
     && /^[0-9a-f]{64}$/.test(fingerprint.sha256 ?? '');
 }
 
-function validAuthenticodeFingerprint(fingerprint) {
+function validAuthenticodeFingerprint(fingerprint, expectedSigner) {
   return exactKeys(fingerprint, ['status', 'signer_name', 'thumbprint'])
     && fingerprint.status === 'valid'
-    && typeof fingerprint.signer_name === 'string'
-    && fingerprint.signer_name.trim() !== ''
+    && fingerprint.signer_name === expectedSigner
     && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+}
+
+function pathIdentity(path) {
+  return win32.resolve(path).toLowerCase();
+}
+
+function fingerprintMatchesPath(fingerprint, path) {
+  const expected = pathIdentity(path);
+  return [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path]
+    .every(value => pathIdentity(value) === expected);
 }
 
 function isVsCodeCliTuple(command, cli) {
@@ -307,22 +321,40 @@ export function validateClientLaunchContract(launch) {
   }
   if (!['native', 'npm_package'].includes(launch.source)) invalid('client launch source is invalid');
   if (launch.source === 'npm_package') {
-    if (launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win32.basename(launch.command).toLowerCase() !== 'node.exe') {
+    if (launch.client_id === 'vscode'
+      || launch.package_id !== PACKAGE_IDS[launch.client_id]
+      || launch.args_prefix.length !== 1
+      || win32.basename(launch.command).toLowerCase() !== 'node.exe') {
       invalid('npm client launch tuple is invalid');
     }
     if (!validNpmRuntimeFingerprint(launch.fingerprint?.runtime_tree, launch)) {
       invalid('npm client runtime fingerprint is invalid');
     }
-  } else if (launch.package_id !== null) {
-    invalid('native client launch cannot declare an npm package');
-  } else if (launch.fingerprint?.runtime_tree !== undefined) {
-    invalid('native client launch cannot declare an npm runtime tree');
+  } else {
+    const nativeIdentity = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity
+      || launch.package_id !== null
+      || launch.fingerprint?.runtime_tree !== undefined
+      || win32.basename(launch.command).toLowerCase() !== nativeIdentity.executable.toLowerCase()
+      || launch.args_prefix.length !== nativeIdentity.args_prefix_length) {
+      invalid('native client launch tuple is invalid');
+    }
   }
   if (typeof launch.version !== 'string' || classifySupportedVersion(launch.client_id, launch.version) !== launch.compatibility) {
     invalid('client launch version classification is invalid');
   }
   if (launch.write_supported !== (launch.compatibility === 'release_gated')) invalid('client write support disagrees with its version gate');
   if (!launch.fingerprint || typeof launch.fingerprint !== 'object') invalid('client launch fingerprint is missing');
+  if (launch.fingerprint.env_overlay_sha256 !== sha256Canonical(launch.env_overlay)) {
+    invalid('client launch environment fingerprint is invalid');
+  }
+  if (launch.source === 'native'
+    && !validAuthenticodeFingerprint(
+      launch.fingerprint.authenticode,
+      CLIENT_NATIVE_IDENTITIES[launch.client_id].signer_name,
+    )) {
+    invalid('native client signer fingerprint is invalid');
+  }
 
   if (launch.client_id === 'vscode') {
     if (launch.source !== 'native' || !/Code\.exe$/i.test(launch.command)
@@ -354,30 +386,6 @@ export function validatePublicClientLaunchContract(launch) {
   if (!launch.fingerprint || Array.isArray(launch.fingerprint) || typeof launch.fingerprint !== 'object') {
     invalid('public client launch fingerprint is invalid');
   }
-  const fingerprintKeys = launch.source === 'npm_package'
-    ? ['command', 'args_prefix', 'package_manifest', 'runtime_tree']
-    : ['command', 'args_prefix', 'authenticode'];
-  const optionalFingerprintKeys = launch.source === 'native' && launch.client_id === 'vscode'
-    ? ['discovery_clue']
-    : [];
-  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys)
-    || !validFileFingerprint(launch.fingerprint.command)
-    || !Array.isArray(launch.fingerprint.args_prefix)
-    || launch.fingerprint.args_prefix.length !== launch.args_prefix.length
-    || !launch.fingerprint.args_prefix.every(validFileFingerprint)) {
-    invalid('public client launch file fingerprints are invalid');
-  }
-  if (launch.source === 'npm_package') {
-    if (!validFileFingerprint(launch.fingerprint.package_manifest)) {
-      invalid('public npm client manifest fingerprint is invalid');
-    }
-  } else {
-    if (!validAuthenticodeFingerprint(launch.fingerprint.authenticode)
-      || (Object.hasOwn(launch.fingerprint, 'discovery_clue')
-        && !validFileFingerprint(launch.fingerprint.discovery_clue))) {
-      invalid('public native client fingerprint is invalid');
-    }
-  }
   const overlay = expectedClientLaunchOverlay(launch.client_id);
   validateClientLaunchContract({
     ...launch,
@@ -387,5 +395,41 @@ export function validatePublicClientLaunchContract(launch) {
       env_overlay_sha256: sha256Canonical(overlay),
     },
   });
+  const fingerprintKeys = launch.source === 'npm_package'
+    ? ['command', 'args_prefix', 'package_manifest', 'runtime_tree']
+    : ['command', 'args_prefix', 'authenticode'];
+  const optionalFingerprintKeys = launch.source === 'native' && launch.client_id === 'vscode'
+    ? ['discovery_clue']
+    : [];
+  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys)
+    || !validFileFingerprint(launch.fingerprint.command)
+    || !fingerprintMatchesPath(launch.fingerprint.command, launch.command)
+    || !Array.isArray(launch.fingerprint.args_prefix)
+    || launch.fingerprint.args_prefix.length !== launch.args_prefix.length
+    || !launch.fingerprint.args_prefix.every((fingerprint, index) => validFileFingerprint(fingerprint)
+      && fingerprintMatchesPath(fingerprint, launch.args_prefix[index]))) {
+    invalid('public client launch file fingerprints are invalid');
+  }
+  if (launch.source === 'npm_package') {
+    if (!validFileFingerprint(launch.fingerprint.package_manifest)
+      || !fingerprintMatchesPath(
+        launch.fingerprint.package_manifest,
+        win32.join(launch.fingerprint.runtime_tree.root, 'package.json'),
+      )) {
+      invalid('public npm client manifest fingerprint is invalid');
+    }
+  } else {
+    const nativeIdentity = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity
+      || !validAuthenticodeFingerprint(launch.fingerprint.authenticode, nativeIdentity.signer_name)
+      || (Object.hasOwn(launch.fingerprint, 'discovery_clue')
+        && (!validFileFingerprint(launch.fingerprint.discovery_clue)
+          || !fingerprintMatchesPath(
+            launch.fingerprint.discovery_clue,
+            win32.join(win32.dirname(launch.command), 'bin', 'code.cmd'),
+          )))) {
+      invalid('public native client fingerprint is invalid');
+    }
+  }
   return launch;
 }

@@ -72,6 +72,13 @@ const CLIENT_SELECTION_VALUES = new Set([
   'included_not_installed',
   'not_installed',
 ]);
+const CLIENT_SELECTED_SELECTION_VALUES = new Set(['included', 'default']);
+const CLIENT_NOT_INSTALLED_SELECTION_VALUES = new Set([
+  'included_not_installed',
+  'not_installed',
+  'excluded',
+  'not_included',
+]);
 const CLIENT_DISCOVERY_STATUS_VALUES = new Set([
   'DETECTED',
   'NOT_INSTALLED',
@@ -132,6 +139,12 @@ function absolutePath(value) {
   return typeof value === 'string' && (isAbsolute(value) || win32.isAbsolute(value) || posix.isAbsolute(value));
 }
 
+function pathIdentity(value) {
+  return /^(?:[a-z]:[\\/]|\\\\)/i.test(value)
+    ? win32.resolve(value).toLowerCase()
+    : posix.resolve(value);
+}
+
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
 }
@@ -179,6 +192,8 @@ function validateOwnedDiffRows(rows, label) {
     if (typeof row.path !== 'string' || row.path.trim() === ''
       || typeof row.current_present !== 'boolean'
       || typeof row.desired_present !== 'boolean'
+      || Object.hasOwn(row, 'current_sha256') !== row.current_present
+      || Object.hasOwn(row, 'desired_sha256') !== row.desired_present
       || ['current_sha256', 'desired_sha256'].some(key => Object.hasOwn(row, key) && !SHA256.test(row[key]))) {
       fail(`${rowLabel} is invalid`, 'INVALID_PLAN');
     }
@@ -219,6 +234,12 @@ function validateClientEvidenceRow(row, client, label) {
     || !CLIENT_STATE_VALUES.enablement.includes(row.enablement)
     || !CLIENT_STATE_VALUES.activation.includes(row.activation)) {
     fail(`${label} has invalid values`, 'INVALID_PLAN');
+  }
+  if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection)
+    || (row.launch_contract === null && row.discovery_status === 'DETECTED')
+    || (row.launch_contract !== null && row.discovery_status !== 'DETECTED')
+    || (row.discovery_status === 'NOT_INSTALLED') !== CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
+    fail(`${label} has contradictory selection or discovery evidence`, 'INVALID_PLAN');
   }
   uniqueStrings(row.current_scopes, `${label}.current_scopes`);
   uniqueStrings(row.touched_paths, `${label}.touched_paths`, { absolute: true });
@@ -385,6 +406,7 @@ function validatePlanDocument(plan) {
     }
   }
   const clientOperations = operations.filter(operation => operation.domain === 'clients');
+  const clientPathPreconditions = preconditions.filter(precondition => precondition.kind === 'client_path');
   const operationPaths = new Map();
   for (const operation of clientOperations) {
     const client = clientByAdapter.get(operation.client_id);
@@ -403,6 +425,17 @@ function validatePlanDocument(plan) {
       || ['MALFORMED_CONFIG', 'INSPECTION_LIMIT_EXCEEDED', 'UNSAFE_CONFIG_PATH'].includes(evidence.structural_status)
       || !absolutePath(operation.path)) {
       fail('client operation lacks a selected release-gated authorization row', 'INVALID_PLAN', { client_id: operation.client_id ?? null });
+    }
+    const matchingPreconditions = clientPathPreconditions.filter(precondition => pathIdentity(precondition.canonical_path) === pathIdentity(operation.path));
+    const [operationPrecondition] = matchingPreconditions;
+    const { atime_ms: ignoredAccessTime, ...stableOperationFingerprint } = operation.fingerprint ?? {};
+    if (matchingPreconditions.length !== 1
+      || operationPrecondition.writable !== (operation.ledger_only !== true)
+      || typeof operation.allowed_root !== 'string'
+      || typeof operationPrecondition.allowed_root !== 'string'
+      || pathIdentity(operationPrecondition.allowed_root) !== pathIdentity(operation.allowed_root)
+      || canonicalJson(operationPrecondition.fingerprint) !== canonicalJson(stableOperationFingerprint)) {
+      fail('client operation is not bound to one exact path precondition', 'INVALID_PLAN', { client_id: operation.client_id ?? null });
     }
     const paths = operationPaths.get(operation.client_id) ?? [];
     paths.push(operation.path);

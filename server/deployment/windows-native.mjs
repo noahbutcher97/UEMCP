@@ -1,5 +1,6 @@
 import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import * as defaultFs from 'node:fs/promises';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
@@ -657,6 +658,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -693,6 +696,9 @@ public static class UemcpPinnedFileNative
         SafeFileHandle file,
         out ByHandleFileInformation information);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetFileAttributesW(string fileName);
+
     private const uint ReadDataOrListDirectory = 0x00000001;
     private const uint ReadAttributes = 0x00000080;
     private const uint ShareRead = 0x00000001;
@@ -701,6 +707,10 @@ public static class UemcpPinnedFileNative
     private const uint OpenReparsePoint = 0x00200000;
     private const uint DirectoryAttribute = 0x00000010;
     private const uint ReparseAttribute = 0x00000400;
+    private const uint InvalidFileAttributes = 0xffffffff;
+
+    private static HashSet<string> absentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static volatile bool absenceChanged;
 
     private static string ExtendedPath(string path)
     {
@@ -766,25 +776,90 @@ public static class UemcpPinnedFileNative
         }
         return handle;
     }
+
+    private static bool IsAbsentTarget(string path)
+    {
+        return absentPaths.Contains(Path.GetFullPath(path));
+    }
+
+    private static void MarkAbsentChanged(object sender, FileSystemEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentRenamed(object sender, RenamedEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath) || IsAbsentTarget(args.OldFullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentError(object sender, ErrorEventArgs args)
+    {
+        absenceChanged = true;
+    }
+
+    public static List<FileSystemWatcher> StartAbsentWatchers(string[] paths, string[] roots)
+    {
+        absenceChanged = false;
+        absentPaths = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        HashSet<string> watchedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots)
+        {
+            if (String.IsNullOrEmpty(root) || !watchedRoots.Add(root)) continue;
+            FileSystemWatcher watcher = new FileSystemWatcher(root);
+            watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 65536;
+            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName;
+            watcher.Created += MarkAbsentChanged;
+            watcher.Deleted += MarkAbsentChanged;
+            watcher.Renamed += MarkAbsentRenamed;
+            watcher.Error += MarkAbsentError;
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+        }
+        return watchers;
+    }
+
+    public static void AssertAbsent(string[] paths)
+    {
+        foreach (string path in paths)
+        {
+            uint attributes = GetFileAttributesW(ExtendedPath(path));
+            if (attributes != InvalidFileAttributes) throw new InvalidOperationException("approved-absent evidence exists");
+            int error = Marshal.GetLastWin32Error();
+            if (error != 2 && error != 3) throw LastError();
+        }
+        if (absenceChanged) throw new InvalidOperationException("approved-absent evidence changed");
+    }
 }
 '@
 
 $handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+$watchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
 try {
   $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
   foreach ($directory in @($request.ancestry)) {
     $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
   }
+  [string[]]$absentPaths = @($request.absent_paths)
+  [string[]]$absentWatchRoots = @($request.absent_watch_roots)
+  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentPaths, $absentWatchRoots)
+  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
   foreach ($path in @($request.paths)) {
     $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
   }
   [Console]::Out.WriteLine('READY')
   [Console]::Out.Flush()
   if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
+  [System.Threading.Thread]::Sleep(100)
+  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
 } catch {
   [Console]::Error.Write($_.Exception.GetType().FullName)
   exit 74
 } finally {
+  for ($index = $watchers.Count - 1; $index -ge 0; $index--) {
+    $watchers[$index].Dispose()
+  }
   for ($index = $handles.Count - 1; $index -ge 0; $index--) {
     $handles[$index].Dispose()
   }
@@ -1298,27 +1373,36 @@ export async function withPinnedWindowsTrees({
   return value;
 }
 
-function validatePinnedFilePaths(paths) {
-  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FILE_PIN_MAX_PATHS) {
+function validatePinnedFilePaths(paths, absentPaths) {
+  if (!Array.isArray(paths)
+    || !Array.isArray(absentPaths)
+    || paths.length + absentPaths.length === 0
+    || paths.length + absentPaths.length > FILE_PIN_MAX_PATHS) {
     throw new WindowsNativeError('pinned file paths are invalid', 'INVALID_FILE_PIN');
   }
-  const normalized = [];
-  const seen = new Set();
-  for (const path of paths) {
-    if (typeof path !== 'string'
-      || !isAbsolute(path)
-      || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
-      throw new WindowsNativeError('pinned file path is invalid', 'INVALID_FILE_PIN');
+  const normalizePaths = values => {
+    const normalized = [];
+    for (const path of values) {
+      if (typeof path !== 'string'
+        || !isAbsolute(path)
+        || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+        throw new WindowsNativeError('pinned file path is invalid', 'INVALID_FILE_PIN');
+      }
+      normalized.push(resolve(path));
     }
-    const absolute = resolve(path);
-    const key = windowsPathKey(absolute);
-    if (seen.has(key)) continue;
+    return normalized;
+  };
+  const normalized = normalizePaths(paths);
+  const normalizedAbsent = normalizePaths(absentPaths);
+  const seen = new Set();
+  for (const path of [...normalized, ...normalizedAbsent]) {
+    const key = windowsPathKey(path);
+    if (seen.has(key)) throw new WindowsNativeError('pinned file paths contain duplicates', 'INVALID_FILE_PIN');
     seen.add(key);
-    normalized.push(absolute);
   }
   const ancestryByKey = new Map();
-  for (const path of normalized) {
-    let current = dirname(path);
+  const addAncestry = (path, includePath = false) => {
+    let current = includePath ? path : dirname(path);
     const chain = [];
     while (true) {
       chain.unshift(current);
@@ -1328,21 +1412,41 @@ function validatePinnedFilePaths(paths) {
     }
     validatePinnedDirectories(chain);
     for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  };
+  for (const path of normalized) addAncestry(path);
+  const absentWatchRoots = [];
+  for (const path of normalizedAbsent) {
+    let watchRoot = dirname(path);
+    while (!existsSync(watchRoot)) {
+      const next = dirname(watchRoot);
+      if (windowsPathKey(next) === windowsPathKey(watchRoot)) {
+        throw new WindowsNativeError('absent file pin has no existing watch root', 'INVALID_FILE_PIN');
+      }
+      watchRoot = next;
+    }
+    absentWatchRoots.push(watchRoot);
+    addAncestry(watchRoot, true);
   }
   const ancestry = [...ancestryByKey.values()].sort((left, right) => {
     const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
     const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
     return leftDepth - rightDepth || left.localeCompare(right);
   });
-  const serializedRequest = JSON.stringify({ paths: normalized, ancestry });
+  const serializedRequest = JSON.stringify({
+    paths: normalized,
+    absent_paths: normalizedAbsent,
+    absent_watch_roots: absentWatchRoots,
+    ancestry,
+  });
   if (Buffer.byteLength(serializedRequest, 'utf8') > FILE_PIN_MAX_INPUT_BYTES) {
     throw new WindowsNativeError('pinned file paths exceed the input limit', 'INVALID_FILE_PIN');
   }
-  return { normalized, serializedRequest };
+  return { normalized, normalizedAbsent, serializedRequest };
 }
 
 export async function withPinnedWindowsFiles({
   paths,
+  absentPaths = [],
   callback,
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
@@ -1358,9 +1462,13 @@ export async function withPinnedWindowsFiles({
     || releaseTimeoutMs <= 0) {
     throw new WindowsNativeError('pinned file callback options are invalid', 'INVALID_FILE_PIN');
   }
-  const validated = validatePinnedFilePaths(paths);
+  const validated = validatePinnedFilePaths(paths, absentPaths);
   if (platform !== 'win32') {
-    return callback(Object.freeze({ paths: Object.freeze([...validated.normalized]), assertPinned() {} }));
+    return callback(Object.freeze({
+      paths: Object.freeze([...validated.normalized]),
+      absentPaths: Object.freeze([...validated.normalizedAbsent]),
+      assertPinned() {},
+    }));
   }
 
   const executable = powershellPath(systemRoot);
@@ -1465,6 +1573,7 @@ export async function withPinnedWindowsFiles({
 
   const guard = Object.freeze({
     paths: Object.freeze([...validated.normalized]),
+    absentPaths: Object.freeze([...validated.normalizedAbsent]),
     assertPinned() {
       if (!ready || closed || protocolError !== null) {
         throw protocolError ?? new WindowsNativeError('pinned file helper was lost', 'FILE_PIN_FAILED');

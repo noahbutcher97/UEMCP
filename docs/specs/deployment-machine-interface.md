@@ -382,6 +382,12 @@ validated launch tuple used to acquire those handles. Native client queries and 
 smoke use the same process-lifetime launch contract. The shared descriptor
 guard covers both release-gated client verification and the generic-host
 fallback, so neither path can bypass exact executable/script pinning.
+Existing client config evidence is file-pinned through native and protocol
+children. Evidence reviewed as absent is watched from a pinned existing
+ancestor; transient create/delete/rename activity and watcher overflow fail
+closed, followed by an exact post-child fingerprint recheck. The plan schema
+also binds every client write operation to one exact writable path precondition,
+so an operation cannot introduce a path that was omitted from review.
 
 CLI failures emit only closed error codes and fixed diagnostic text. Arbitrary
 provider, parser, child-process, command, flag, and exception text is never

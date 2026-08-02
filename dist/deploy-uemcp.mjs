@@ -9794,7 +9794,7 @@ var require_dist = __commonJS({
 
 // server/deploy-uemcp.mjs
 import * as fsPromises from "node:fs/promises";
-import { existsSync as existsSync3 } from "node:fs";
+import { existsSync as existsSync4 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute21, join as join17, resolve as resolve20 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
@@ -10462,6 +10462,10 @@ import {
 import { win32 as win322 } from "node:path";
 var frozenVersions = (versions) => Object.freeze([...versions]);
 var CLIENT_IDS = Object.freeze(["claude", "codex", "gemini", "vscode"]);
+var CLIENT_NATIVE_IDENTITIES = Object.freeze({
+  claude: Object.freeze({ executable: "claude.exe", signer_name: "Anthropic, PBC", args_prefix_length: 0 }),
+  vscode: Object.freeze({ executable: "Code.exe", signer_name: "Microsoft Corporation", args_prefix_length: 1 })
+});
 var CLIENT_DISCOVERY_FAILURE_CODES = Object.freeze([
   "VERSION_PROBE_FAILED",
   "CLIENT_DISCOVERY_FAILED",
@@ -10642,8 +10646,15 @@ function validFileFingerprint(fingerprint) {
   ];
   return exactKeys(fingerprint, keys) && [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every(win322.isAbsolute) && fingerprint.exists === true && fingerprint.kind === "file" && fingerprint.link_kind === "none" && fingerprint.link_count === 1 && Number.isSafeInteger(fingerprint.size) && fingerprint.size >= 0 && /^[0-9a-f]{64}$/.test(fingerprint.sha256 ?? "");
 }
-function validAuthenticodeFingerprint(fingerprint) {
-  return exactKeys(fingerprint, ["status", "signer_name", "thumbprint"]) && fingerprint.status === "valid" && typeof fingerprint.signer_name === "string" && fingerprint.signer_name.trim() !== "" && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+function validAuthenticodeFingerprint(fingerprint, expectedSigner) {
+  return exactKeys(fingerprint, ["status", "signer_name", "thumbprint"]) && fingerprint.status === "valid" && fingerprint.signer_name === expectedSigner && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+}
+function pathIdentity(path) {
+  return win322.resolve(path).toLowerCase();
+}
+function fingerprintMatchesPath(fingerprint, path) {
+  const expected = pathIdentity(path);
+  return [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every((value) => pathIdentity(value) === expected);
 }
 function isVsCodeCliTuple(command, cli) {
   const installRoot = win322.dirname(command);
@@ -10683,22 +10694,32 @@ function validateClientLaunchContract(launch) {
   }
   if (!["native", "npm_package"].includes(launch.source)) invalid("client launch source is invalid");
   if (launch.source === "npm_package") {
-    if (launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win322.basename(launch.command).toLowerCase() !== "node.exe") {
+    if (launch.client_id === "vscode" || launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win322.basename(launch.command).toLowerCase() !== "node.exe") {
       invalid("npm client launch tuple is invalid");
     }
     if (!validNpmRuntimeFingerprint(launch.fingerprint?.runtime_tree, launch)) {
       invalid("npm client runtime fingerprint is invalid");
     }
-  } else if (launch.package_id !== null) {
-    invalid("native client launch cannot declare an npm package");
-  } else if (launch.fingerprint?.runtime_tree !== void 0) {
-    invalid("native client launch cannot declare an npm runtime tree");
+  } else {
+    const nativeIdentity2 = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity2 || launch.package_id !== null || launch.fingerprint?.runtime_tree !== void 0 || win322.basename(launch.command).toLowerCase() !== nativeIdentity2.executable.toLowerCase() || launch.args_prefix.length !== nativeIdentity2.args_prefix_length) {
+      invalid("native client launch tuple is invalid");
+    }
   }
   if (typeof launch.version !== "string" || classifySupportedVersion(launch.client_id, launch.version) !== launch.compatibility) {
     invalid("client launch version classification is invalid");
   }
   if (launch.write_supported !== (launch.compatibility === "release_gated")) invalid("client write support disagrees with its version gate");
   if (!launch.fingerprint || typeof launch.fingerprint !== "object") invalid("client launch fingerprint is missing");
+  if (launch.fingerprint.env_overlay_sha256 !== sha256Canonical(launch.env_overlay)) {
+    invalid("client launch environment fingerprint is invalid");
+  }
+  if (launch.source === "native" && !validAuthenticodeFingerprint(
+    launch.fingerprint.authenticode,
+    CLIENT_NATIVE_IDENTITIES[launch.client_id].signer_name
+  )) {
+    invalid("native client signer fingerprint is invalid");
+  }
   if (launch.client_id === "vscode") {
     if (launch.source !== "native" || !/Code\.exe$/i.test(launch.command) || launch.args_prefix.length !== 1 || !/cli\.js$/i.test(launch.args_prefix[0]) || !isVsCodeCliTuple(launch.command, launch.args_prefix[0]) || !exactObject(launch.env_overlay, expectedClientLaunchOverlay("vscode"))) {
       invalid("VS Code launch tuple is invalid");
@@ -10725,20 +10746,6 @@ function validatePublicClientLaunchContract(launch) {
   if (!launch.fingerprint || Array.isArray(launch.fingerprint) || typeof launch.fingerprint !== "object") {
     invalid("public client launch fingerprint is invalid");
   }
-  const fingerprintKeys = launch.source === "npm_package" ? ["command", "args_prefix", "package_manifest", "runtime_tree"] : ["command", "args_prefix", "authenticode"];
-  const optionalFingerprintKeys = launch.source === "native" && launch.client_id === "vscode" ? ["discovery_clue"] : [];
-  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys) || !validFileFingerprint(launch.fingerprint.command) || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !launch.fingerprint.args_prefix.every(validFileFingerprint)) {
-    invalid("public client launch file fingerprints are invalid");
-  }
-  if (launch.source === "npm_package") {
-    if (!validFileFingerprint(launch.fingerprint.package_manifest)) {
-      invalid("public npm client manifest fingerprint is invalid");
-    }
-  } else {
-    if (!validAuthenticodeFingerprint(launch.fingerprint.authenticode) || Object.hasOwn(launch.fingerprint, "discovery_clue") && !validFileFingerprint(launch.fingerprint.discovery_clue)) {
-      invalid("public native client fingerprint is invalid");
-    }
-  }
   const overlay = expectedClientLaunchOverlay(launch.client_id);
   validateClientLaunchContract({
     ...launch,
@@ -10748,6 +10755,27 @@ function validatePublicClientLaunchContract(launch) {
       env_overlay_sha256: sha256Canonical(overlay)
     }
   });
+  const fingerprintKeys = launch.source === "npm_package" ? ["command", "args_prefix", "package_manifest", "runtime_tree"] : ["command", "args_prefix", "authenticode"];
+  const optionalFingerprintKeys = launch.source === "native" && launch.client_id === "vscode" ? ["discovery_clue"] : [];
+  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys) || !validFileFingerprint(launch.fingerprint.command) || !fingerprintMatchesPath(launch.fingerprint.command, launch.command) || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !launch.fingerprint.args_prefix.every((fingerprint, index) => validFileFingerprint(fingerprint) && fingerprintMatchesPath(fingerprint, launch.args_prefix[index]))) {
+    invalid("public client launch file fingerprints are invalid");
+  }
+  if (launch.source === "npm_package") {
+    if (!validFileFingerprint(launch.fingerprint.package_manifest) || !fingerprintMatchesPath(
+      launch.fingerprint.package_manifest,
+      win322.join(launch.fingerprint.runtime_tree.root, "package.json")
+    )) {
+      invalid("public npm client manifest fingerprint is invalid");
+    }
+  } else {
+    const nativeIdentity2 = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity2 || !validAuthenticodeFingerprint(launch.fingerprint.authenticode, nativeIdentity2.signer_name) || Object.hasOwn(launch.fingerprint, "discovery_clue") && (!validFileFingerprint(launch.fingerprint.discovery_clue) || !fingerprintMatchesPath(
+      launch.fingerprint.discovery_clue,
+      win322.join(win322.dirname(launch.command), "bin", "code.cmd")
+    ))) {
+      invalid("public native client fingerprint is invalid");
+    }
+  }
   return launch;
 }
 
@@ -11285,6 +11313,7 @@ function createProcessRunner({
 // server/deployment/windows-native.mjs
 import { spawn as defaultSpawn2 } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import * as defaultFs3 from "node:fs/promises";
 import { dirname, isAbsolute as isAbsolute4, join as join2, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 var AUTHENTICODE_SCRIPT = String.raw`
@@ -11933,6 +11962,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -11969,6 +12000,9 @@ public static class UemcpPinnedFileNative
         SafeFileHandle file,
         out ByHandleFileInformation information);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetFileAttributesW(string fileName);
+
     private const uint ReadDataOrListDirectory = 0x00000001;
     private const uint ReadAttributes = 0x00000080;
     private const uint ShareRead = 0x00000001;
@@ -11977,6 +12011,10 @@ public static class UemcpPinnedFileNative
     private const uint OpenReparsePoint = 0x00200000;
     private const uint DirectoryAttribute = 0x00000010;
     private const uint ReparseAttribute = 0x00000400;
+    private const uint InvalidFileAttributes = 0xffffffff;
+
+    private static HashSet<string> absentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static volatile bool absenceChanged;
 
     private static string ExtendedPath(string path)
     {
@@ -12042,25 +12080,90 @@ public static class UemcpPinnedFileNative
         }
         return handle;
     }
+
+    private static bool IsAbsentTarget(string path)
+    {
+        return absentPaths.Contains(Path.GetFullPath(path));
+    }
+
+    private static void MarkAbsentChanged(object sender, FileSystemEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentRenamed(object sender, RenamedEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath) || IsAbsentTarget(args.OldFullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentError(object sender, ErrorEventArgs args)
+    {
+        absenceChanged = true;
+    }
+
+    public static List<FileSystemWatcher> StartAbsentWatchers(string[] paths, string[] roots)
+    {
+        absenceChanged = false;
+        absentPaths = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        HashSet<string> watchedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots)
+        {
+            if (String.IsNullOrEmpty(root) || !watchedRoots.Add(root)) continue;
+            FileSystemWatcher watcher = new FileSystemWatcher(root);
+            watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 65536;
+            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName;
+            watcher.Created += MarkAbsentChanged;
+            watcher.Deleted += MarkAbsentChanged;
+            watcher.Renamed += MarkAbsentRenamed;
+            watcher.Error += MarkAbsentError;
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+        }
+        return watchers;
+    }
+
+    public static void AssertAbsent(string[] paths)
+    {
+        foreach (string path in paths)
+        {
+            uint attributes = GetFileAttributesW(ExtendedPath(path));
+            if (attributes != InvalidFileAttributes) throw new InvalidOperationException("approved-absent evidence exists");
+            int error = Marshal.GetLastWin32Error();
+            if (error != 2 && error != 3) throw LastError();
+        }
+        if (absenceChanged) throw new InvalidOperationException("approved-absent evidence changed");
+    }
 }
 '@
 
 $handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+$watchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
 try {
   $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
   foreach ($directory in @($request.ancestry)) {
     $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
   }
+  [string[]]$absentPaths = @($request.absent_paths)
+  [string[]]$absentWatchRoots = @($request.absent_watch_roots)
+  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentPaths, $absentWatchRoots)
+  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
   foreach ($path in @($request.paths)) {
     $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
   }
   [Console]::Out.WriteLine('READY')
   [Console]::Out.Flush()
   if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
+  [System.Threading.Thread]::Sleep(100)
+  [UemcpPinnedFileNative]::AssertAbsent($absentPaths)
 } catch {
   [Console]::Error.Write($_.Exception.GetType().FullName)
   exit 74
 } finally {
+  for ($index = $watchers.Count - 1; $index -ge 0; $index--) {
+    $watchers[$index].Dispose()
+  }
   for ($index = $handles.Count - 1; $index -ge 0; $index--) {
     $handles[$index].Dispose()
   }
@@ -12526,25 +12629,31 @@ async function withPinnedWindowsTrees({
   if (callbackError) throw callbackError;
   return value;
 }
-function validatePinnedFilePaths(paths) {
-  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FILE_PIN_MAX_PATHS) {
+function validatePinnedFilePaths(paths, absentPaths) {
+  if (!Array.isArray(paths) || !Array.isArray(absentPaths) || paths.length + absentPaths.length === 0 || paths.length + absentPaths.length > FILE_PIN_MAX_PATHS) {
     throw new WindowsNativeError("pinned file paths are invalid", "INVALID_FILE_PIN");
   }
-  const normalized = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const path of paths) {
-    if (typeof path !== "string" || !isAbsolute4(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
-      throw new WindowsNativeError("pinned file path is invalid", "INVALID_FILE_PIN");
+  const normalizePaths = (values) => {
+    const normalized2 = [];
+    for (const path of values) {
+      if (typeof path !== "string" || !isAbsolute4(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+        throw new WindowsNativeError("pinned file path is invalid", "INVALID_FILE_PIN");
+      }
+      normalized2.push(resolve2(path));
     }
-    const absolute = resolve2(path);
-    const key = windowsPathKey(absolute);
-    if (seen.has(key)) continue;
+    return normalized2;
+  };
+  const normalized = normalizePaths(paths);
+  const normalizedAbsent = normalizePaths(absentPaths);
+  const seen = /* @__PURE__ */ new Set();
+  for (const path of [...normalized, ...normalizedAbsent]) {
+    const key = windowsPathKey(path);
+    if (seen.has(key)) throw new WindowsNativeError("pinned file paths contain duplicates", "INVALID_FILE_PIN");
     seen.add(key);
-    normalized.push(absolute);
   }
   const ancestryByKey = /* @__PURE__ */ new Map();
-  for (const path of normalized) {
-    let current = dirname(path);
+  const addAncestry = (path, includePath = false) => {
+    let current = includePath ? path : dirname(path);
     const chain = [];
     while (true) {
       chain.unshift(current);
@@ -12554,20 +12663,40 @@ function validatePinnedFilePaths(paths) {
     }
     validatePinnedDirectories(chain);
     for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  };
+  for (const path of normalized) addAncestry(path);
+  const absentWatchRoots = [];
+  for (const path of normalizedAbsent) {
+    let watchRoot = dirname(path);
+    while (!existsSync(watchRoot)) {
+      const next = dirname(watchRoot);
+      if (windowsPathKey(next) === windowsPathKey(watchRoot)) {
+        throw new WindowsNativeError("absent file pin has no existing watch root", "INVALID_FILE_PIN");
+      }
+      watchRoot = next;
+    }
+    absentWatchRoots.push(watchRoot);
+    addAncestry(watchRoot, true);
   }
   const ancestry = [...ancestryByKey.values()].sort((left, right) => {
     const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
     const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
     return leftDepth - rightDepth || left.localeCompare(right);
   });
-  const serializedRequest = JSON.stringify({ paths: normalized, ancestry });
+  const serializedRequest = JSON.stringify({
+    paths: normalized,
+    absent_paths: normalizedAbsent,
+    absent_watch_roots: absentWatchRoots,
+    ancestry
+  });
   if (Buffer.byteLength(serializedRequest, "utf8") > FILE_PIN_MAX_INPUT_BYTES) {
     throw new WindowsNativeError("pinned file paths exceed the input limit", "INVALID_FILE_PIN");
   }
-  return { normalized, serializedRequest };
+  return { normalized, normalizedAbsent, serializedRequest };
 }
 async function withPinnedWindowsFiles({
   paths,
+  absentPaths = [],
   callback,
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
@@ -12578,10 +12707,14 @@ async function withPinnedWindowsFiles({
   if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
     throw new WindowsNativeError("pinned file callback options are invalid", "INVALID_FILE_PIN");
   }
-  const validated = validatePinnedFilePaths(paths);
+  const validated = validatePinnedFilePaths(paths, absentPaths);
   if (platform !== "win32") {
-    return callback(Object.freeze({ paths: Object.freeze([...validated.normalized]), assertPinned() {
-    } }));
+    return callback(Object.freeze({
+      paths: Object.freeze([...validated.normalized]),
+      absentPaths: Object.freeze([...validated.normalizedAbsent]),
+      assertPinned() {
+      }
+    }));
   }
   const executable = powershellPath(systemRoot);
   let child;
@@ -12683,6 +12816,7 @@ async function withPinnedWindowsFiles({
   }
   const guard = Object.freeze({
     paths: Object.freeze([...validated.normalized]),
+    absentPaths: Object.freeze([...validated.normalizedAbsent]),
     assertPinned() {
       if (!ready || closed || protocolError !== null) {
         throw protocolError ?? new WindowsNativeError("pinned file helper was lost", "FILE_PIN_FAILED");
@@ -13856,15 +13990,23 @@ function createClientTransaction({
   }
   async function withPinnedTransactionEvidence(callback) {
     await recheckAfterVerify();
-    const byPath = /* @__PURE__ */ new Map();
+    const presentByPath = /* @__PURE__ */ new Map();
+    const absentByPath = /* @__PURE__ */ new Map();
+    const addEvidencePath = (path, exists2) => {
+      const key = pathKey2(path);
+      const target = exists2 ? presentByPath : absentByPath;
+      target.set(key, resolve3(path));
+    };
     for (const record2 of state.records.values()) {
       const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
-      if (expected?.exists === true) byPath.set(pathKey2(record2.path), record2.path);
+      addEvidencePath(record2.path, expected?.exists === true);
     }
     for (const row of state.readOnly) {
-      if (row.current?.exists === true) byPath.set(pathKey2(row.path), resolve3(row.path));
+      addEvidencePath(row.path, row.current?.exists === true);
     }
-    const paths = [...byPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
+    for (const key of presentByPath.keys()) absentByPath.delete(key);
+    const paths = [...presentByPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
+    const absentPaths = [...absentByPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
     const invoke = async (guard) => {
       guard?.assertPinned?.();
       await recheckAfterVerify();
@@ -13875,9 +14017,7 @@ function createClientTransaction({
       guard?.assertPinned?.();
       return value;
     };
-    if (paths.length === 0) return invoke(Object.freeze({ assertPinned() {
-    } }));
-    return windowsNative.withPinnedFiles({ paths, callback: invoke, systemRoot });
+    return windowsNative.withPinnedFiles({ paths, absentPaths, callback: invoke, systemRoot });
   }
   async function commitDeferredDeletes() {
     const failures = [];
@@ -16095,12 +16235,12 @@ function plainObject(value) {
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-function pathIdentity(path) {
+function pathIdentity2(path) {
   const normalized = win326.normalize(resolve4(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained2(root, candidate) {
-  const rel = relative4(pathIdentity(root), pathIdentity(candidate));
+  const rel = relative4(pathIdentity2(root), pathIdentity2(candidate));
   return rel === "" || rel !== ".." && !rel.startsWith(`..${sep4}`) && !isAbsolute6(rel);
 }
 function location(path, allowedRoot, scope, writable = false) {
@@ -16277,8 +16417,8 @@ function reviewActions(entry) {
 }
 function actualProjectKey(projects, workspaceRoot) {
   if (!plainObject(projects)) return null;
-  const wanted = pathIdentity(workspaceRoot);
-  const matches = Object.keys(projects).filter((key) => absolutePath2(key) && pathIdentity(key) === wanted);
+  const wanted = pathIdentity2(workspaceRoot);
+  const matches = Object.keys(projects).filter((key) => absolutePath2(key) && pathIdentity2(key) === wanted);
   if (matches.length > 1) fail8("Claude local state contains ambiguous project path aliases", "MALFORMED_CONFIG");
   return matches[0] ?? null;
 }
@@ -16538,7 +16678,7 @@ function unique(values) {
   return [...new Set(values)];
 }
 function readOnlyRows(files, writablePaths = /* @__PURE__ */ new Set()) {
-  return files.filter((file) => !writablePaths.has(pathIdentity(file.path))).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+  return files.filter((file) => !writablePaths.has(pathIdentity2(file.path))).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
 }
 function publicFileEvidence(file) {
   return Object.freeze({
@@ -16561,7 +16701,7 @@ async function captureLaunchEvidence(captureFingerprint, context, detection) {
   const seen = /* @__PURE__ */ new Set();
   const rows = [];
   for (const [scope, path] of candidates) {
-    const key = pathIdentity(path);
+    const key = pathIdentity2(path);
     if (seen.has(key)) continue;
     seen.add(key);
     const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname3(path)], writable: false });
@@ -16904,8 +17044,8 @@ function createClaudeAdapter({
       return Object.freeze({ client_id: "claude", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, "CONFLICT"])) });
     }
     const prospectiveWritable = /* @__PURE__ */ new Set();
-    if (migrate) prospectiveWritable.add(pathIdentity(files.project.path));
-    if (["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(userOperationType)) prospectiveWritable.add(pathIdentity(files.user.path));
+    if (migrate) prospectiveWritable.add(pathIdentity2(files.project.path));
+    if (["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(userOperationType)) prospectiveWritable.add(pathIdentity2(files.user.path));
     const readOnly = readOnlyRows(inspection.files, prospectiveWritable);
     const writableFiles = { ...files };
     try {
@@ -17001,7 +17141,7 @@ function createClaudeAdapter({
     const writable = /* @__PURE__ */ new Map();
     const readOnly = /* @__PURE__ */ new Map();
     for (const operation of operations) {
-      const key = pathIdentity(operation.path);
+      const key = pathIdentity2(operation.path);
       if (operation.ledger_only !== true && !writable.has(key)) {
         writable.set(key, {
           path: operation.path,
@@ -17020,7 +17160,7 @@ function createClaudeAdapter({
         });
       }
       for (const row of operation.read_only_paths ?? []) {
-        const rowKey = pathIdentity(row.path);
+        const rowKey = pathIdentity2(row.path);
         if (!writable.has(rowKey)) readOnly.set(rowKey, row);
       }
     }
@@ -17374,12 +17514,12 @@ function plainObject2(value) {
 function absolutePath3(value) {
   return typeof value === "string" && value.trim() !== "" && (isAbsolute7(value) || win327.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
-function pathIdentity2(path) {
+function pathIdentity3(path) {
   const normalized = win327.normalize(resolve5(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained3(root, candidate) {
-  const rel = relative5(pathIdentity2(root), pathIdentity2(candidate));
+  const rel = relative5(pathIdentity3(root), pathIdentity3(candidate));
   return rel === "" || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute7(rel);
 }
 function location2(path, allowedRoot, scope, writable = false, extras = {}) {
@@ -17671,8 +17811,8 @@ function workspaceTrustFromUser(user, projectRoot) {
   const projects = getTomlTable(user.document, ["projects"]);
   if (projects === void 0) return Object.freeze({ trusted: false, source: "user_config", project_key: null });
   if (!plainObject2(projects)) fail10("Codex projects trust table must be an object", "MALFORMED_CONFIG");
-  const wanted = pathIdentity2(projectRoot);
-  const matches = Object.keys(projects).filter((key) => absolutePath3(key) && pathIdentity2(key) === wanted);
+  const wanted = pathIdentity3(projectRoot);
+  const matches = Object.keys(projects).filter((key) => absolutePath3(key) && pathIdentity3(key) === wanted);
   if (matches.length > 1) fail10("Codex projects trust table contains ambiguous path aliases", "MALFORMED_CONFIG");
   const projectKey = matches[0] ?? null;
   if (projectKey === null) return Object.freeze({ trusted: false, source: "user_config", project_key: null });
@@ -17783,7 +17923,7 @@ async function captureLaunchEvidence2(captureFingerprint, context, detection) {
   const seen = /* @__PURE__ */ new Set();
   const rows = [];
   for (const [scope, path] of candidates) {
-    const key = pathIdentity2(path);
+    const key = pathIdentity3(path);
     if (seen.has(key)) continue;
     seen.add(key);
     const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname4(path)], writable: false });
@@ -17803,8 +17943,8 @@ async function captureLaunchEvidence2(captureFingerprint, context, detection) {
   return rows;
 }
 function readOnlyRows2(files, writablePath = null) {
-  const writableKey = writablePath ? pathIdentity2(writablePath) : null;
-  return files.filter((file) => pathIdentity2(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+  const writableKey = writablePath ? pathIdentity3(writablePath) : null;
+  return files.filter((file) => pathIdentity3(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
 }
 async function writableFileEvidence2(captureFingerprint, file) {
   const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
@@ -18080,14 +18220,14 @@ function createCodexAdapter({
           shared_resource_id: operation.shared_resource_id
         });
       } else {
-        readOnly.set(pathIdentity2(operation.path), {
+        readOnly.set(pathIdentity3(operation.path), {
           path: operation.path,
           allowed_root: operation.allowed_root,
           fingerprint: operation.fingerprint
         });
       }
       for (const row of operation.read_only_paths ?? []) {
-        if (!writable.some((candidate) => pathIdentity2(candidate.path) === pathIdentity2(row.path))) readOnly.set(pathIdentity2(row.path), row);
+        if (!writable.some((candidate) => pathIdentity3(candidate.path) === pathIdentity3(row.path))) readOnly.set(pathIdentity3(row.path), row);
       }
     }
     return Object.freeze({ writable_paths: writable, read_only_paths: [...readOnly.values()] });
@@ -18096,7 +18236,7 @@ function createCodexAdapter({
     if (context.launch.version !== CODEX_NATIVE_MUTATION_CHARACTERIZATION.version || operation.external_write !== true) {
       fail10("Codex native add is outside its release-gated contract", "UNSUPPORTED_NATIVE_MUTATION");
     }
-    if (!absolutePath3(stagedHome) || pathIdentity2(stagedHome) === pathIdentity2(operation.allowed_root)) {
+    if (!absolutePath3(stagedHome) || pathIdentity3(stagedHome) === pathIdentity3(operation.allowed_root)) {
       fail10("Codex native add requires an isolated home", "UNAPPROVED_EXTERNAL_WRITE");
     }
     const result2 = await runActiveClientLaunch(context, { client_id: "codex", kind: "native" }, (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [
@@ -18145,7 +18285,7 @@ function createCodexAdapter({
         }
         written = await context.transaction.runStagedWrite(operation.path, async (target, stage) => {
           const expectedTarget = resolve5(stage.root, stage.relative_path);
-          if (pathIdentity2(target) !== pathIdentity2(expectedTarget) || pathIdentity2(target) === pathIdentity2(operation.path)) {
+          if (pathIdentity3(target) !== pathIdentity3(expectedTarget) || pathIdentity3(target) === pathIdentity3(operation.path)) {
             fail10("Codex native stage target changed", "UNAPPROVED_EXTERNAL_WRITE");
           }
           await runNativeAdd(context, operation, stage.root);
@@ -18267,12 +18407,12 @@ function plainObject3(value) {
 function absolutePath4(value) {
   return typeof value === "string" && value.trim() !== "" && (isAbsolute8(value) || win328.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
-function pathIdentity3(path) {
+function pathIdentity4(path) {
   const normalized = win328.normalize(resolve6(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained4(root, candidate) {
-  const rel = relative6(pathIdentity3(root), pathIdentity3(candidate));
+  const rel = relative6(pathIdentity4(root), pathIdentity4(candidate));
   return rel === "" || rel !== ".." && !rel.startsWith(`..${sep6}`) && !isAbsolute8(rel);
 }
 function location3(path, allowedRoot, scope, writable = false) {
@@ -18524,7 +18664,7 @@ function validateTrustedFolders(file) {
     if (!absolutePath4(path) || !["TRUST_FOLDER", "TRUST_PARENT", "DO_NOT_TRUST"].includes(level)) {
       fail11("Gemini trustedFolders contains an invalid rule", "MALFORMED_CONFIG");
     }
-    const identity = pathIdentity3(path);
+    const identity = pathIdentity4(path);
     if (normalized.has(identity)) fail11("Gemini trustedFolders contains ambiguous path aliases", "MALFORMED_CONFIG");
     normalized.set(identity, { path: resolve6(path), level });
   }
@@ -18536,7 +18676,7 @@ function workspaceTrust(context, baseSettings, trustedFolders) {
   if (baseSettings.security?.folderTrust?.enabled === false) {
     return Object.freeze({ trusted: true, source: "settings", matched_path: null, trust_level: null });
   }
-  const workspace = pathIdentity3(context.workspaceRoot);
+  const workspace = pathIdentity4(context.workspaceRoot);
   let selected2 = null;
   for (const [rulePath, level] of Object.entries(trustedFolders)) {
     const effectivePath = level === "TRUST_PARENT" ? dirname5(rulePath) : rulePath;
@@ -18851,7 +18991,7 @@ async function captureLaunchEvidence3(captureFingerprint, context, detection) {
   const seen = /* @__PURE__ */ new Set();
   const rows = [];
   for (const [scope, path] of candidates) {
-    const key = pathIdentity3(path);
+    const key = pathIdentity4(path);
     if (seen.has(key)) continue;
     seen.add(key);
     const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname5(path)], writable: false });
@@ -18887,8 +19027,8 @@ function remediationActions({ enablement, policy, enablementEvidence, detection 
   })]);
 }
 function readOnlyRows3(files, writablePath = null) {
-  const writableKey = writablePath ? pathIdentity3(writablePath) : null;
-  return files.filter((file) => pathIdentity3(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+  const writableKey = writablePath ? pathIdentity4(writablePath) : null;
+  return files.filter((file) => pathIdentity4(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
 }
 async function writableFileEvidence3(captureFingerprint, file) {
   const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
@@ -19279,14 +19419,14 @@ function createGeminiAdapter({
           shared_resource_id: operation.shared_resource_id
         });
       } else {
-        readOnly.set(pathIdentity3(operation.path), {
+        readOnly.set(pathIdentity4(operation.path), {
           path: operation.path,
           allowed_root: operation.allowed_root,
           fingerprint: operation.fingerprint
         });
       }
       for (const row of operation.read_only_paths ?? []) {
-        if (!writable.some((candidate) => pathIdentity3(candidate.path) === pathIdentity3(row.path))) readOnly.set(pathIdentity3(row.path), row);
+        if (!writable.some((candidate) => pathIdentity4(candidate.path) === pathIdentity4(row.path))) readOnly.set(pathIdentity4(row.path), row);
       }
     }
     return Object.freeze({ writable_paths: writable, read_only_paths: [...readOnly.values()] });
@@ -19667,7 +19807,7 @@ function selectedProfileResource(context, locations, profiles) {
     inherited_default: matches[0].inherited_default
   });
 }
-function pathIdentity4(path) {
+function pathIdentity5(path) {
   return win329.normalize(resolve7(path)).toLowerCase();
 }
 async function captureLaunchEvidence4(captureFingerprint, context, detection) {
@@ -19680,7 +19820,7 @@ async function captureLaunchEvidence4(captureFingerprint, context, detection) {
   const seen = /* @__PURE__ */ new Set();
   const rows = [];
   for (const [scope, path] of candidates) {
-    const key = pathIdentity4(path);
+    const key = pathIdentity5(path);
     if (seen.has(key)) continue;
     seen.add(key);
     const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname6(path)], writable: false });
@@ -19700,8 +19840,8 @@ async function captureLaunchEvidence4(captureFingerprint, context, detection) {
   return rows;
 }
 function readOnlyRows4(files, writablePath = null) {
-  const writableKey = writablePath ? pathIdentity4(writablePath) : null;
-  return files.filter((file) => pathIdentity4(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+  const writableKey = writablePath ? pathIdentity5(writablePath) : null;
+  return files.filter((file) => pathIdentity5(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
 }
 async function writableFileEvidence4(captureFingerprint, file) {
   const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
@@ -19763,11 +19903,11 @@ function createVsCodeAdapter({
       const metadata = await readConfigFile4(fsImpl, captureFingerprint, detection.locations.profile_metadata, tracker, limits, { metadata: true });
       const profiles = parseProfiles(metadata, detection.locations, limits);
       const selection = selectedProfileResource(context, detection.locations, profiles);
-      const resourceLocations = /* @__PURE__ */ new Map([[pathIdentity4(detection.locations.default_user.path), detection.locations.default_user]]);
-      const resourceContexts = /* @__PURE__ */ new Map([[pathIdentity4(detection.locations.default_user.path), ["default"]]]);
-      for (const profile of profiles) resourceLocations.set(pathIdentity4(profile.resource.path), profile.resource);
+      const resourceLocations = /* @__PURE__ */ new Map([[pathIdentity5(detection.locations.default_user.path), detection.locations.default_user]]);
+      const resourceContexts = /* @__PURE__ */ new Map([[pathIdentity5(detection.locations.default_user.path), ["default"]]]);
+      for (const profile of profiles) resourceLocations.set(pathIdentity5(profile.resource.path), profile.resource);
       for (const profile of profiles) {
-        const key = pathIdentity4(profile.resource.path);
+        const key = pathIdentity5(profile.resource.path);
         const contexts = resourceContexts.get(key) ?? [];
         contexts.push(`profile:${profile.name}${profile.inherited_default ? " (useDefaultFlags.mcp)" : ""}`);
         resourceContexts.set(key, contexts);
@@ -19776,21 +19916,21 @@ function createVsCodeAdapter({
       for (const [key, resource] of resourceLocations) {
         resourceFiles.set(key, await readConfigFile4(fsImpl, captureFingerprint, resource, tracker, limits));
       }
-      const selected2 = resourceFiles.get(pathIdentity4(selection.resource.path));
+      const selected2 = resourceFiles.get(pathIdentity5(selection.resource.path));
       const workspace = await readConfigFile4(fsImpl, captureFingerprint, detection.locations.workspace, tracker, limits);
       for (const file of resourceFiles.values()) validateConfig(file);
       validateConfig(workspace);
       const selectedOccurrence = await occurrence2(selected2, desired, {
         profileName: selection.profile?.name ?? null,
-        requestedContexts: resourceContexts.get(pathIdentity4(selection.resource.path)) ?? [],
+        requestedContexts: resourceContexts.get(pathIdentity5(selection.resource.path)) ?? [],
         ownership: true,
         ledger: context.ownershipLedger
       });
       const workspaceOccurrence = await occurrence2(workspace, desired);
       const otherOccurrences = [];
       for (const [key, file] of resourceFiles) {
-        if (key === pathIdentity4(selection.resource.path)) continue;
-        const profileNames = profiles.filter((profile) => pathIdentity4(profile.resource.path) === key).map((profile) => profile.name);
+        if (key === pathIdentity5(selection.resource.path)) continue;
+        const profileNames = profiles.filter((profile) => pathIdentity5(profile.resource.path) === key).map((profile) => profile.name);
         const row = await occurrence2(file, desired, {
           active: false,
           profileName: profileNames[0] ?? null,
@@ -19896,9 +20036,9 @@ function createVsCodeAdapter({
         actions: Object.freeze(unique4([...inspection.actions, inspection.effective.matching ? "SHADOWED" : "CONFLICT"]))
       });
     }
-    const current = inspection.occurrences.find((row) => row.active === true && pathIdentity4(row.path) === pathIdentity4(inspection.selected_resource.path));
+    const current = inspection.occurrences.find((row) => row.active === true && pathIdentity5(row.path) === pathIdentity5(inspection.selected_resource.path));
     if (current?.matching && current.ownership?.recommended_action === "ADOPT_EXACT_ENTRY") {
-      const source2 = inspection.files.find((file) => pathIdentity4(file.path) === pathIdentity4(inspection.selected_resource.path));
+      const source2 = inspection.files.find((file) => pathIdentity5(file.path) === pathIdentity5(inspection.selected_resource.path));
       const operation2 = Object.freeze({
         operation_id: "vscode-adopt-selected-uemcp",
         client_id: "vscode",
@@ -19938,7 +20078,7 @@ function createVsCodeAdapter({
     if (current && current.ownership?.state !== "owned_matching" && !approvedOwnedReplacement(context, current.ownership)) {
       return Object.freeze({ client_id: "vscode", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique4([...inspection.actions, "CONFLICT"])) });
     }
-    let source = inspection.files.find((file) => pathIdentity4(file.path) === pathIdentity4(inspection.selected_resource.path));
+    let source = inspection.files.find((file) => pathIdentity5(file.path) === pathIdentity5(inspection.selected_resource.path));
     try {
       source = await writableFileEvidence4(captureFingerprint, source);
     } catch (error2) {
@@ -19985,15 +20125,15 @@ function createVsCodeAdapter({
           shared_resource_id: operation.shared_resource_id
         });
       } else {
-        readOnly.set(pathIdentity4(operation.path), {
+        readOnly.set(pathIdentity5(operation.path), {
           path: operation.path,
           allowed_root: operation.allowed_root,
           fingerprint: operation.fingerprint
         });
       }
       for (const row of operation.read_only_paths ?? []) {
-        if (!writable.some((candidate) => pathIdentity4(candidate.path) === pathIdentity4(row.path))) {
-          readOnly.set(pathIdentity4(row.path), row);
+        if (!writable.some((candidate) => pathIdentity5(candidate.path) === pathIdentity5(row.path))) {
+          readOnly.set(pathIdentity5(row.path), row);
         }
       }
     }
@@ -20243,7 +20383,7 @@ var CLIENTS = Object.freeze({
     command_name: "claude",
     package_id: "@anthropic-ai/claude-code",
     bin_name: "claude",
-    signer: "Anthropic, PBC"
+    signer: CLIENT_NATIVE_IDENTITIES.claude.signer_name
   }),
   codex: Object.freeze({
     command_name: "codex",
@@ -20257,7 +20397,7 @@ var CLIENTS = Object.freeze({
   }),
   vscode: Object.freeze({
     command_name: "code",
-    signer: "Microsoft Corporation"
+    signer: CLIENT_NATIVE_IDENTITIES.vscode.signer_name
   })
 });
 var MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
@@ -29414,14 +29554,59 @@ function createClientDomain({
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
   pinClientLaunch = withPinnedClientLaunch,
   descriptorLaunchPinner = withPinnedDescriptorLaunch,
+  evidenceFilePinner = withPinnedWindowsFiles,
   fsImpl = defaultFs11
 } = {}) {
   const mappedAdapters = adapterMap2(adapters);
   if (typeof transaction !== "function" && (!transaction || typeof transaction.snapshot !== "function" || typeof transaction.apply !== "function")) {
     fail16("client domain requires a transaction factory or transaction");
   }
-  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function") {
+  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function" || typeof evidenceFilePinner !== "function") {
     fail16("client domain dependencies are invalid");
+  }
+  async function withPinnedInspectionEvidence(context, inspection, callback) {
+    if (typeof callback !== "function") fail16("inspection evidence callback is invalid", "INVALID_CLIENT_LAUNCH");
+    await recheckInspectionPreconditions(context, inspection);
+    const present = /* @__PURE__ */ new Map();
+    const absent = /* @__PURE__ */ new Map();
+    for (const file of inspection?.files ?? []) {
+      if (!plainObject6(file) || typeof file.path !== "string" || !plainObject6(file.fingerprint)) continue;
+      const key = pathKey4(file.path);
+      const target = file.fingerprint.exists === true ? present : absent;
+      target.set(key, resolve10(file.path));
+    }
+    for (const key of present.keys()) absent.delete(key);
+    const paths = [...present.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right)));
+    const absentPaths = [...absent.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right)));
+    const invoke = async (guard) => {
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      let value;
+      let callbackError = null;
+      try {
+        value = await callback(guard);
+      } catch (error2) {
+        callbackError = error2;
+      }
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      if (callbackError) throw callbackError;
+      return value;
+    };
+    if (paths.length === 0 && absentPaths.length === 0) {
+      return invoke(Object.freeze({ assertPinned() {
+      } }));
+    }
+    const pin = context.evidenceFilePinner ?? evidenceFilePinner;
+    if (typeof pin !== "function") fail16("inspection evidence pinner is invalid", "INVALID_CLIENT_LAUNCH");
+    return pin({
+      paths,
+      absentPaths,
+      callback: invoke,
+      systemRoot: readWindowsEnvironmentValue(context.env ?? process.env, "SYSTEMROOT") || readWindowsEnvironmentValue(context.env ?? process.env, "WINDIR")
+    });
   }
   async function discover(context, approvedPlan = null) {
     const selection = selectionInput(context);
@@ -29508,18 +29693,20 @@ function createClientDomain({
           fail16("adapter private protocol environment is invalid", "INVALID_CLIENT_LAUNCH");
         }
         const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
-        await recheckInspectionPreconditions(currentContext, inspection);
-        await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
-        smoke = await descriptorLaunchPinner(context.descriptor, {
-          launchFilePinner: context.launchFilePinner,
-          callback: async (guard, pinnedDescriptor) => {
-            await recheckInspectionPreconditions(currentContext, inspection);
-            guard?.assertPinned?.();
-            return protocolSmoke(pinnedDescriptor, {
-              effectiveEnvironment,
-              effectiveCwd: launch.cwd ?? null
-            });
-          }
+        smoke = await withPinnedInspectionEvidence(currentContext, inspection, async (inspectionGuard) => {
+          await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
+          inspectionGuard?.assertPinned?.();
+          return descriptorLaunchPinner(context.descriptor, {
+            launchFilePinner: context.launchFilePinner,
+            callback: async (descriptorGuard, pinnedDescriptor) => {
+              inspectionGuard?.assertPinned?.();
+              descriptorGuard?.assertPinned?.();
+              return protocolSmoke(pinnedDescriptor, {
+                effectiveEnvironment,
+                effectiveCwd: launch.cwd ?? null
+              });
+            }
+          });
         });
       }
       const client = publicClient(row, inspection, planResult, requestedProfile, smoke);
@@ -29823,7 +30010,8 @@ function createClientDomain({
       if (!ownership?.fingerprint) fail16("approved client plan lacks the ownership precondition", "INVALID_PLAN");
       const activeTransaction = typeof transaction === "function" ? transaction({ externalLease: applyContext.applyLease, context: applyContext }) : transaction;
       const transactionAdapters = boundAdapters(before, operations);
-      await activeTransaction.snapshot({
+      const writablePreconditions = approvedPlan.preconditions.filter((precondition) => precondition.kind === "client_path" && precondition.writable === true);
+      const transactionSnapshot = await activeTransaction.snapshot({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
@@ -29838,12 +30026,19 @@ function createClientDomain({
         context: applyContext
       });
       transactionOwnsWrites = false;
-      const writablePreconditions = approvedPlan.preconditions.filter((precondition) => precondition.kind === "client_path" && precondition.writable === true);
       if (!validTransactionResult(transactionResult, operations, writablePreconditions)) {
+        const uncertainPaths = /* @__PURE__ */ new Map();
+        for (const path of [
+          ...writablePreconditions.map((precondition) => precondition.canonical_path),
+          ...Array.isArray(transactionSnapshot?.writable_paths) ? transactionSnapshot.writable_paths : []
+        ]) {
+          const key = pathKey4(path);
+          if (key) uncertainPaths.set(key, path);
+        }
         const invalidResult = Object.freeze({
           status: "UNKNOWN",
           clients: Object.freeze(unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId))).map((clientId) => Object.freeze({ client_id: clientId, status: "UNKNOWN" }))),
-          touched_files: Object.freeze(unique5(writablePreconditions.map((precondition) => precondition.canonical_path)).map((path) => Object.freeze({ path, applied_sha256: null }))),
+          touched_files: Object.freeze([...uncertainPaths.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right))).map((path) => Object.freeze({ path, applied_sha256: null }))),
           rollback: null,
           retained_snapshots: Object.freeze([])
         });
@@ -31107,6 +31302,13 @@ var CLIENT_SELECTION_VALUES = /* @__PURE__ */ new Set([
   "included_not_installed",
   "not_installed"
 ]);
+var CLIENT_SELECTED_SELECTION_VALUES = /* @__PURE__ */ new Set(["included", "default"]);
+var CLIENT_NOT_INSTALLED_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  "included_not_installed",
+  "not_installed",
+  "excluded",
+  "not_included"
+]);
 var CLIENT_DISCOVERY_STATUS_VALUES = /* @__PURE__ */ new Set([
   "DETECTED",
   "NOT_INSTALLED",
@@ -31163,6 +31365,9 @@ function fail17(message, code, details) {
 function absolutePath7(value) {
   return typeof value === "string" && (isAbsolute15(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
 }
+function pathIdentity6(value) {
+  return /^(?:[a-z]:[\\/]|\\\\)/i.test(value) ? win3213.resolve(value).toLowerCase() : posix7.resolve(value);
+}
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
 }
@@ -31200,7 +31405,7 @@ function validateOwnedDiffRows(rows, label) {
       /* @__PURE__ */ new Set(["current_sha256", "desired_sha256"]),
       rowLabel
     );
-    if (typeof row.path !== "string" || row.path.trim() === "" || typeof row.current_present !== "boolean" || typeof row.desired_present !== "boolean" || ["current_sha256", "desired_sha256"].some((key) => Object.hasOwn(row, key) && !SHA2563.test(row[key]))) {
+    if (typeof row.path !== "string" || row.path.trim() === "" || typeof row.current_present !== "boolean" || typeof row.desired_present !== "boolean" || Object.hasOwn(row, "current_sha256") !== row.current_present || Object.hasOwn(row, "desired_sha256") !== row.desired_present || ["current_sha256", "desired_sha256"].some((key) => Object.hasOwn(row, key) && !SHA2563.test(row[key]))) {
       fail17(`${rowLabel} is invalid`, "INVALID_PLAN");
     }
   }
@@ -31222,6 +31427,9 @@ function validateClientEvidenceRow(row, client, label) {
   exactKeys4(row, CLIENT_EVIDENCE_KEYS, label);
   if (!CLIENT_IDS.includes(row.adapter) || typeof row.selected !== "boolean" || !CLIENT_SELECTION_VALUES.has(row.selection) || !CLIENT_DISCOVERY_STATUS_VALUES.has(row.discovery_status) || !CLIENT_OPERATION_VALUES.has(row.operation) || typeof row.custom_working_directory !== "boolean" || !CLIENT_STATE_VALUES.status.includes(row.structural_status) || !CLIENT_NATIVE_STATUS_VALUES.has(row.native_status) || !CLIENT_PROTOCOL_STATUS_VALUES.has(row.protocol_status) || !Number.isSafeInteger(row.instruction_bytes) || row.instruction_bytes < 0 || !Number.isSafeInteger(row.tool_count) || row.tool_count < 0 || !Number.isFinite(row.duration_ms) || row.duration_ms < 0 || !CLIENT_STATE_VALUES.enablement.includes(row.enablement) || !CLIENT_STATE_VALUES.activation.includes(row.activation)) {
     fail17(`${label} has invalid values`, "INVALID_PLAN");
+  }
+  if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection) || row.launch_contract === null && row.discovery_status === "DETECTED" || row.launch_contract !== null && row.discovery_status !== "DETECTED" || row.discovery_status === "NOT_INSTALLED" !== CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
+    fail17(`${label} has contradictory selection or discovery evidence`, "INVALID_PLAN");
   }
   uniqueStrings(row.current_scopes, `${label}.current_scopes`);
   uniqueStrings(row.touched_paths, `${label}.touched_paths`, { absolute: true });
@@ -31354,12 +31562,19 @@ function validatePlanDocument(plan) {
     }
   }
   const clientOperations = operations.filter((operation) => operation.domain === "clients");
+  const clientPathPreconditions = preconditions.filter((precondition) => precondition.kind === "client_path");
   const operationPaths = /* @__PURE__ */ new Map();
   for (const operation of clientOperations) {
     const client = clientByAdapter.get(operation.client_id);
     const evidence = clientEvidence2.get(operation.client_id);
     if (operation.kind !== "CLIENT_CONFIG_WRITE" || operation.selected !== true || operation.write_supported !== true || !client || client.selected !== true || client.compatibility !== "release_gated" || client.write_supported !== true || typeof client.version !== "string" || !evidence || evidence.selected !== true || evidence.launch_contract === null || ["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(evidence.structural_status) || !absolutePath7(operation.path)) {
       fail17("client operation lacks a selected release-gated authorization row", "INVALID_PLAN", { client_id: operation.client_id ?? null });
+    }
+    const matchingPreconditions = clientPathPreconditions.filter((precondition) => pathIdentity6(precondition.canonical_path) === pathIdentity6(operation.path));
+    const [operationPrecondition] = matchingPreconditions;
+    const { atime_ms: ignoredAccessTime, ...stableOperationFingerprint } = operation.fingerprint ?? {};
+    if (matchingPreconditions.length !== 1 || operationPrecondition.writable !== (operation.ledger_only !== true) || typeof operation.allowed_root !== "string" || typeof operationPrecondition.allowed_root !== "string" || pathIdentity6(operationPrecondition.allowed_root) !== pathIdentity6(operation.allowed_root) || canonicalJson(operationPrecondition.fingerprint) !== canonicalJson(stableOperationFingerprint)) {
+      fail17("client operation is not bound to one exact path precondition", "INVALID_PLAN", { client_id: operation.client_id ?? null });
     }
     const paths = operationPaths.get(operation.client_id) ?? [];
     paths.push(operation.path);
@@ -32808,7 +33023,7 @@ import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute20, 
 import { createHash as createHash2, randomBytes as randomBytes4 } from "node:crypto";
 import {
   closeSync,
-  existsSync as existsSync2,
+  existsSync as existsSync3,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -32846,7 +33061,7 @@ var PROJECT_ERROR_CODES = Object.freeze({
 
 // server/project-identity.mjs
 import {
-  existsSync,
+  existsSync as existsSync2,
   readdirSync,
   realpathSync,
   statSync
@@ -32864,7 +33079,7 @@ function normalizeComparisonPath(pathValue) {
 // server/project-targets.mjs
 var DEFAULT_FS = {
   closeSync,
-  existsSync: existsSync2,
+  existsSync: existsSync3,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -33511,14 +33726,14 @@ function locateRepository() {
   let candidate = moduleDirectory;
   for (let depth = 0; depth < 8; depth += 1) {
     const serverRoot = join17(candidate, "server");
-    if (existsSync3(join17(serverRoot, "server.mjs")) && existsSync3(join17(serverRoot, "package-lock.json"))) {
+    if (existsSync4(join17(serverRoot, "server.mjs")) && existsSync4(join17(serverRoot, "package-lock.json"))) {
       return { repoRoot: candidate, serverRoot };
     }
     const parent = dirname16(candidate);
     if (parent === candidate) break;
     candidate = parent;
   }
-  if (basename6(moduleDirectory).toLowerCase() === "server" && existsSync3(join17(moduleDirectory, "server.mjs"))) {
+  if (basename6(moduleDirectory).toLowerCase() === "server" && existsSync4(join17(moduleDirectory, "server.mjs"))) {
     return { repoRoot: dirname16(moduleDirectory), serverRoot: moduleDirectory };
   }
   throw new UsageError("deployment entry is not inside a UEMCP repository");
@@ -33573,7 +33788,7 @@ function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process
       return {
         ...await inspectSourceProvenance({
           repoRoot,
-          bundleManifestPath: existsSync3(manifestPath) ? manifestPath : null,
+          bundleManifestPath: existsSync4(manifestPath) ? manifestPath : null,
           runner: processRunner,
           fsImpl: fsPromises
         }),

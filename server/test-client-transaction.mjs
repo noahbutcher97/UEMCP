@@ -1281,6 +1281,62 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
   }
 }
 
+// Transient creation of approved-absent evidence invalidates an active child result.
+{
+  const root = makeTransactionRoot();
+  try {
+    const home = join(root, 'client-home');
+    const windowsNative = virtualWindowsMetadata();
+    const localState = createTestLocalState(root);
+    const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\n'));
+    const absentPath = join(home, 'higher-precedence.json');
+    const operation = await transactionOperation('claude', path, home, windowsNative);
+    const absentFingerprint = await captureClientPathFingerprint(absentPath, {
+      allowedRoots: [home], fsImpl: asyncFs, windowsNative,
+    });
+    let absenceMutation = 0;
+    let absentPathMonitored = false;
+    windowsNative.withPinnedFiles = async ({ absentPaths = [], callback }) => {
+      absentPathMonitored = absentPaths.some(candidate => resolve(candidate).toLowerCase() === resolve(absentPath).toLowerCase());
+      const initialMutation = absenceMutation;
+      const value = await callback(Object.freeze({ assertPinned() {} }));
+      if (absentPathMonitored && absenceMutation !== initialMutation) {
+        throw Object.assign(new Error('approved absence changed during child execution'), { code: 'FILE_PIN_FAILED' });
+      }
+      return value;
+    };
+    const adapters = [fakeAdapter('claude', {
+      beforeVerify: async context => context.withActiveClientLaunch(
+        { client_id: 'claude', kind: 'native' },
+        async guard => {
+          await asyncFs.writeFile(absentPath, Buffer.from('{"transient":true}\n'));
+          absenceMutation += 1;
+          await asyncFs.rm(absentPath, { force: true });
+          guard.assertPinned();
+        },
+      ),
+    })];
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    const context = {
+      read_only_paths: [{
+        client_id: 'claude',
+        path: absentPath,
+        allowed_root: home,
+        fingerprint: absentFingerprint,
+      }],
+    };
+    await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context, ownershipFingerprint });
+    const result = await transaction.apply({ planDigest: PLAN_DIGEST, adapters, operations: [operation], context });
+    t.assert(absentPathMonitored, 'transaction file pin monitors approved-absent read-only evidence through active child completion');
+    t.assert(result.status === 'ROLLED_BACK' && result.clients[0]?.error_code === 'FILE_PIN_FAILED', 'transient creation of absent evidence rejects the child result and rolls back exact bytes');
+  } finally {
+    cleanupTransactionRoot(root);
+  }
+}
+
 // Post-write hard-link drift is a rollback conflict, not authority to replace the linked file.
 {
   const root = makeTransactionRoot();

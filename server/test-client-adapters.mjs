@@ -70,6 +70,7 @@ import {
   readWindowsEnvironmentValue,
   runActiveClientLaunch,
   validateClientLaunchContract,
+  validatePublicClientLaunchContract,
 } from './deployment/client-contract.mjs';
 import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
@@ -337,6 +338,15 @@ function launchFileFingerprint(path) {
     size: bytes.length,
     sha256: sha256Bytes(bytes),
   });
+}
+
+function publicLaunchContract(launch) {
+  const { env_overlay: ignoredOverlay, fingerprint, ...publicLaunch } = launch;
+  const { env_overlay_sha256: ignoredOverlayHash, ...publicFingerprint } = fingerprint;
+  return {
+    ...publicLaunch,
+    fingerprint: publicFingerprint,
+  };
 }
 
 function testRuntimeTree(root, packageId) {
@@ -781,6 +791,38 @@ function vscodeContext(root, overrides = {}) {
     ownershipLedger: overrides.ownershipLedger ?? memoryOwnershipLedger(),
     request: overrides.request ?? clientRequest(),
   };
+}
+
+// Saved launch authority must remain one of the exact tuples discovery can produce.
+{
+  const root = makeRoot();
+  try {
+    const codex = codexLaunch(root);
+    const impossibleNativeCodex = {
+      ...codex,
+      source: 'native',
+      package_id: null,
+      args_prefix: [],
+      fingerprint: {
+        command: codex.fingerprint.command,
+        args_prefix: [],
+        authenticode: { status: 'valid', signer_name: 'Unrelated Signer', thumbprint: 'AA11' },
+        env_overlay_sha256: sha256Canonical({}),
+      },
+    };
+    t.assert(throwsCode(() => validateClientLaunchContract(impossibleNativeCodex), 'INVALID_CLIENT_LAUNCH'), 'Codex saved launch authority cannot switch from npm to an unsupported native executable');
+
+    const vscode = publicLaunchContract(vscodeLaunch(root));
+    t.assert(validatePublicClientLaunchContract(vscode) === vscode, 'canonical public VS Code launch authority is valid');
+    const wrongSigner = structuredClone(vscode);
+    wrongSigner.fingerprint.authenticode.signer_name = 'Unrelated Signer';
+    t.assert(throwsCode(() => validatePublicClientLaunchContract(wrongSigner), 'INVALID_CLIENT_LAUNCH'), 'saved native launch authority requires the characterized Authenticode signer');
+    const mismatchedPath = structuredClone(vscode);
+    mismatchedPath.fingerprint.command = structuredClone(vscode.fingerprint.args_prefix[0]);
+    t.assert(throwsCode(() => validatePublicClientLaunchContract(mismatchedPath), 'INVALID_CLIENT_LAUNCH'), 'saved launch fingerprints must bind the exact executable tuple paths');
+  } finally {
+    cleanup(root);
+  }
 }
 
 // VS Code defaults to the stable user-data and workspace MCP resources.
@@ -4126,6 +4168,7 @@ function aggregateContext(root, overrides = {}) {
       archive: null,
       orchestrator_version: '1.0.0',
     },
+    evidenceFilePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
     ...overrides,
   };
 }
@@ -4221,6 +4264,22 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       {
         label: 'unknown protocol status',
         mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].protocol_status = 'FUTURE_SUCCESS'; },
+      },
+      {
+        label: 'selected client with an excluded selection reason',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].selection = 'excluded'; },
+      },
+      {
+        label: 'contradictory owned-diff presence hash',
+        mutate(candidate) {
+          candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].owned_diffs = [{
+            path: '/command',
+            current_present: false,
+            desired_present: true,
+            current_sha256: 'a'.repeat(64),
+            desired_sha256: 'b'.repeat(64),
+          }];
+        },
       },
     ];
     for (const mutation of mutations) {
@@ -4402,15 +4461,28 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const oneInstalled = CLIENT_IDS.map(clientId => clientId === 'claude'
       ? aggregateInstalledClient(root, clientId)
       : absentClient(clientId));
+    const inspectedPath = write(join(root, 'aggregate-client', 'inspected.json'), '{"configured":true}\n');
+    const adapters = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? aggregateAdapter(clientId, {
+          files: [Object.freeze({
+            path: resolve(inspectedPath),
+            allowed_root: resolve(root),
+            writable: false,
+            fingerprint: simpleFingerprint(inspectedPath),
+          })],
+        })
+      : aggregateAdapter(clientId));
     const domain = createClientDomain({
-      adapters: CLIENT_IDS.map(aggregateAdapter),
+      adapters,
       discovery: async () => oneInstalled,
       transaction: () => { throw new Error('transaction is not expected'); },
       protocolSmoke: async () => ({ status: 'HEALTHY', instruction_bytes: 0, tool_count: 1, initial_tool_names: ['connection_info'], duration_ms: 1 }),
+      captureFingerprint: async path => simpleFingerprint(path),
     });
     const healthy = await domain.verify(aggregateContext(root));
     t.assert(healthy.stage.status === 'HEALTHY' && !healthy.actions.some(action => action.code === 'NOT_INSTALLED'), 'one healthy selected host is not polluted by optional provider install actions');
     t.assert(healthy.clients.filter(client => client.status === 'NOT_INSTALLED').every(client => client.actions.length === 0), 'optional absent client rows remain informational');
+    t.assert(await rejectsCode(() => domain.verify(aggregateContext(root, { evidenceFilePinner: {} })), 'INVALID_CLIENT_LAUNCH'), 'invalid per-call evidence pinner overrides fail through the stable client-launch contract');
 
     const excluded = await domain.verify(aggregateContext(root, { exclude: ['claude'] }));
     t.assert(excluded.stage.status === 'NOT_SELECTED' && excluded.actions.length === 0, 'explicitly excluding every detected gated host is a clean no-client selection');
@@ -4998,6 +5070,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const appliedBytes = Buffer.from('{"after":"reviewed"}\n');
     const hostileBytes = Buffer.from('{"after":"external"}\n');
     let childLaunches = 0;
+    let runtimeGuardChecks = 0;
     const adapter = Object.freeze({
       ...base,
       async plan() {
@@ -5031,13 +5104,25 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       }),
       protocolSmoke: async () => ({ status: 'HEALTHY' }),
       captureFingerprint: capture,
-      pinClientLaunch: async (launch, { callback }) => callback(Object.freeze({ assertPinned() {} }), launch),
+      pinClientLaunch: async (launch, { callback }) => {
+        const runtimeGuard = Object.freeze({
+          assertPinned() {
+            runtimeGuardChecks += 1;
+          },
+        });
+        try {
+          return await callback(runtimeGuard, launch);
+        } finally {
+          runtimeGuard.assertPinned();
+        }
+      },
     });
     const context = aggregateContext(root, { operation: 'setup', localState });
     const planned = await domain.plan(context);
     const plan = aggregatePlanDocument(context, planned);
     const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
     t.assert(childLaunches === 0, 'transaction pin rejects post-check drift immediately before the provider-native child starts');
+    t.assert(runtimeGuardChecks > 0, 'inspection runtime guard remains composed with the transaction guard through callback settlement');
     t.assert(applied.stage.status === 'ROLLBACK_CONFLICT', 'prelaunch transaction drift remains a rollback conflict with retained recovery evidence');
   } finally {
     cleanup(root);
@@ -5066,7 +5151,6 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       ...base,
       async inspect(context, detection) {
         inspections += 1;
-        if (inspections === 3) writeFileSync(operation.path, hostileBytes);
         const bytes = readFileSync(operation.path);
         const hostile = bytes.equals(hostileBytes);
         const name = hostile ? 'NODE_OPTIONS' : 'PATH';
@@ -5128,8 +5212,13 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
       discovery: async () => rows,
       transaction,
-      protocolSmoke: async () => { smokeCalls += 1; return { status: 'HEALTHY' }; },
+      protocolSmoke: async () => {
+        smokeCalls += 1;
+        if (smokeCalls === 2) writeFileSync(operation.path, hostileBytes);
+        return { status: 'HEALTHY' };
+      },
       captureFingerprint: async path => simpleFingerprint(path),
+      evidenceFilePinner: async ({ callback }) => callback(Object.freeze({ assertPinned() {} })),
     });
     const context = aggregateContext(root, { operation: 'setup', localState });
     const planned = await domain.plan(context);
@@ -5154,11 +5243,28 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const malformedEvidencePlan = structuredClone(plan);
     malformedEvidencePlan.stages.find(stage => stage.name === 'clients').evidence.clients.push(null);
     t.assert(throwsCode(() => recreatePlan(malformedEvidencePlan), 'INVALID_PLAN'), 'malformed extra client evidence cannot be silently discarded');
+    const missingWritePreconditionPlan = structuredClone(plan);
+    const clientOperation = missingWritePreconditionPlan.operations.find(row => row.domain === 'clients');
+    missingWritePreconditionPlan.preconditions = missingWritePreconditionPlan.preconditions
+      .filter(row => row.canonical_path.toLowerCase() !== clientOperation.path.toLowerCase());
+    t.assert(throwsCode(() => recreatePlan(missingWritePreconditionPlan), 'INVALID_PLAN'), 'client operation without its writable path precondition cannot reach apply');
+    const weakenedWritePreconditionPlan = structuredClone(plan);
+    weakenedWritePreconditionPlan.preconditions
+      .find(row => row.kind === 'client_path' && row.canonical_path.toLowerCase() === clientOperation.path.toLowerCase()).writable = false;
+    t.assert(throwsCode(() => recreatePlan(weakenedWritePreconditionPlan), 'INVALID_PLAN'), 'client operation cannot reuse a read-only path precondition');
+    const redirectedWritePreconditionPlan = structuredClone(plan);
+    redirectedWritePreconditionPlan.preconditions
+      .find(row => row.kind === 'client_path' && row.canonical_path.toLowerCase() === clientOperation.path.toLowerCase()).allowed_root = resolve(join(root, 'other-root'));
+    t.assert(throwsCode(() => recreatePlan(redirectedWritePreconditionPlan), 'INVALID_PLAN'), 'client operation and path precondition must retain the same allowed root');
+    const refingerprintedWritePreconditionPlan = structuredClone(plan);
+    refingerprintedWritePreconditionPlan.preconditions
+      .find(row => row.kind === 'client_path' && row.canonical_path.toLowerCase() === clientOperation.path.toLowerCase()).fingerprint.content_sha256 = 'f'.repeat(64);
+    t.assert(throwsCode(() => recreatePlan(refingerprintedWritePreconditionPlan), 'INVALID_PLAN'), 'client operation and path precondition must retain the same stable fingerprint');
     const raceResult = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
     t.assert(raceResult.stage.status === 'SYNC_FAILED'
       && raceResult.stage.evidence.error_code === 'CLIENT_POST_COMMIT_INSPECTION_FAILED'
-      && reduceOutcome([raceResult.stage]) === 'PARTIAL', 'post-transaction protocol launch rejects config bytes that differ from the committed transaction result');
-    t.assert(smokeCalls === 1, 'post-transaction drift is rejected before a second protocol process launch');
+      && reduceOutcome([raceResult.stage]) === 'PARTIAL', 'post-transaction protocol launch discards health when config bytes drift during the child process');
+    t.assert(smokeCalls === 2, 'post-transaction inspection evidence remains guarded through protocol child completion');
   } finally {
     cleanup(root);
   }

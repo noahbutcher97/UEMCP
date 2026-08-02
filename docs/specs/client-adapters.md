@@ -32,11 +32,16 @@ An explicitly requested unavailable client remains a valid targeted
 records the request, while `client.selected` records whether an installed row
 can participate in apply. The plan validator binds that distinction to matching
 discovery evidence rather than inferring availability from a null version.
+Selection reasons are semantic authority: only `included` and `default` may be
+selected, missing-client reasons require `NOT_INSTALLED` discovery, and a
+detected launch cannot use a missing-client reason.
 Every client write operation is also bound to the matching selected,
 release-gated client row and its inspection evidence. Its exact physical paths
 must equal that row's reviewed `touched_paths`; a missing launch contract,
 blocked inspection, duplicate adapter row, or operation attached to an absent
-or inspect-only row invalidates the plan before apply.
+or inspect-only row invalidates the plan before apply. Each operation must also
+match exactly one `client_path` precondition with the same canonical path,
+allowed root, stable fingerprint, and writable/ledger-only authority.
 
 Repair decisions are explicit plan inputs, not ambient adapter options.
 `--replace-owned-client-fields` permits replacement only when the ownership
@@ -67,12 +72,21 @@ Discovery canonicalizes equivalent launch tuples before version probing. If
 more than one distinct safe installation remains viable, discovery reports
 `AMBIGUOUS_CLIENT_INSTALLATION` with no executable authority instead of
 selecting candidate order.
+Saved launch authority is also source-specific. Codex and Gemini execute only
+their reviewed npm package entrypoints; Claude may use that npm entrypoint or
+native `claude.exe` signed by `Anthropic, PBC`; and VS Code uses only native
+`Code.exe` signed by `Microsoft Corporation` with its same-install CLI script.
+Every serialized command, argument-file, package-manifest, and discovery-clue
+fingerprint must identify the exact path named by the launch tuple.
 Malformed, over-limit, or unsafe selected-client inspection cannot produce an
 applicable plan because complete path preconditions cannot be proven. During
 apply, read-only and no-op preconditions are checked again immediately before
 every client-native query and protocol launch. Once the central transaction
 owns writable paths, every existing writable and read-only evidence file is
 held by the Windows file-pin helper through each client-native child process.
+Paths reviewed as absent are monitored from their nearest existing ancestry;
+creation, deletion, rename, watcher overflow, or unexpected final presence
+invalidates the launch even when the path is absent again after the child exits.
 The transaction rechecks exact approved or applied fingerprints after pin
 acquisition and again after child completion; the child receives a composed
 guard covering both transaction evidence and its inspected client runtime.
@@ -102,7 +116,10 @@ well formed and refer only to approved writable paths. Nominal success without
 complete touched-file evidence becomes committed `SYNC_FAILED`. A transaction
 result that fails schema validation produces conservative touched-file rows for
 every writable precondition, including the ownership ledger, with unknown
-applied hashes rather than omitting uncertain state. A transaction
+applied hashes rather than omitting uncertain state. This fallback is the union
+of declared writable preconditions and the transaction's captured writable
+snapshot paths, so malformed provider output cannot hide a path the transaction
+actually took ownership of. A transaction
 that commits configuration but still needs provider action or snapshot cleanup
 returns `CLIENT_APPLY_ACTION_REQUIRED`; it never aggregates as healthy.
 Rollback cleanup failures retain path-only, bounded snapshot evidence even when
@@ -111,7 +128,9 @@ the original bytes were restored successfully.
 Saved client-stage plan evidence is recursively closed. The stage object,
 per-client rows, launch contracts and file fingerprints, owned-field diffs,
 environment hashes, and status vocabularies reject unknown keys or values
-before apply. Public runtime-failure diagnostics likewise expose only a closed
+before apply. Presence booleans must agree with owned-diff hashes, and selection,
+discovery status, and launch availability must be mutually consistent. Public
+runtime-failure diagnostics likewise expose only a closed
 cause-code vocabulary and approved changed-field names; unknown provider or
 platform codes normalize to `UNKNOWN`.
 

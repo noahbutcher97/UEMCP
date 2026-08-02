@@ -921,6 +921,20 @@ async function rejectsCode(fn, code) {
       });
       t.assert(filePinWriteBlocked && filePinRenameBlocked, 'launch file pin blocks byte mutation and path substitution through process completion');
 
+      const absentEvidence = join(root, 'transient-evidence.json');
+      let absentEvidenceChanged = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsFiles({
+        paths: [payload],
+        absentPaths: [absentEvidence],
+        callback: async guard => {
+          guard.assertPinned();
+          await asyncFs.writeFile(absentEvidence, '{"transient":true}\n', 'utf8');
+          absentEvidenceChanged = true;
+          await asyncFs.rm(absentEvidence, { force: true });
+        },
+      }), 'FILE_PIN_FAILED'), 'file pin rejects transient creation and removal of approved-absent evidence');
+      t.assert(absentEvidenceChanged && !existsSync(absentEvidence), 'absent evidence monitoring detects namespace drift even when final absence matches');
+
       const addedPath = join(tree, 'new-runtime.mjs');
       let childCreationObserved = false;
       t.assert(await rejectsCode(() => withPinnedWindowsTrees({

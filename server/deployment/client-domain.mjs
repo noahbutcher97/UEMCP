@@ -6,6 +6,7 @@ import {
   CLIENT_IDS,
   expectedClientLaunchOverlay,
   protocolProcessEnvironment,
+  readWindowsEnvironmentValue,
   validateClientLaunchContract,
 } from './client-contract.mjs';
 import { captureClientPathFingerprint } from './client-transaction.mjs';
@@ -22,6 +23,7 @@ import {
   createStageResult,
 } from './contracts.mjs';
 import { smokeDescriptor, withPinnedDescriptorLaunch } from './protocol-smoke.mjs';
+import { withPinnedWindowsFiles } from './windows-native.mjs';
 
 const DOMAIN_NAME = 'clients';
 const DOMAIN_ORDER = 30;
@@ -814,6 +816,7 @@ export function createClientDomain({
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
   pinClientLaunch = withPinnedClientLaunch,
   descriptorLaunchPinner = withPinnedDescriptorLaunch,
+  evidenceFilePinner = withPinnedWindowsFiles,
   fsImpl = defaultFs,
 } = {}) {
   const mappedAdapters = adapterMap(adapters);
@@ -825,8 +828,54 @@ export function createClientDomain({
     || typeof captureFingerprint !== 'function'
     || typeof captureRuntimeFingerprint !== 'function'
     || typeof pinClientLaunch !== 'function'
-    || typeof descriptorLaunchPinner !== 'function') {
+    || typeof descriptorLaunchPinner !== 'function'
+    || typeof evidenceFilePinner !== 'function') {
     fail('client domain dependencies are invalid');
+  }
+
+  async function withPinnedInspectionEvidence(context, inspection, callback) {
+    if (typeof callback !== 'function') fail('inspection evidence callback is invalid', 'INVALID_CLIENT_LAUNCH');
+    await recheckInspectionPreconditions(context, inspection);
+    const present = new Map();
+    const absent = new Map();
+    for (const file of inspection?.files ?? []) {
+      if (!plainObject(file) || typeof file.path !== 'string' || !plainObject(file.fingerprint)) continue;
+      const key = pathKey(file.path);
+      const target = file.fingerprint.exists === true ? present : absent;
+      target.set(key, resolve(file.path));
+    }
+    for (const key of present.keys()) absent.delete(key);
+    const paths = [...present.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
+    const absentPaths = [...absent.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
+    const invoke = async guard => {
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      let value;
+      let callbackError = null;
+      try {
+        value = await callback(guard);
+      } catch (error) {
+        callbackError = error;
+      }
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      if (callbackError) throw callbackError;
+      return value;
+    };
+    if (paths.length === 0 && absentPaths.length === 0) {
+      return invoke(Object.freeze({ assertPinned() {} }));
+    }
+    const pin = context.evidenceFilePinner ?? evidenceFilePinner;
+    if (typeof pin !== 'function') fail('inspection evidence pinner is invalid', 'INVALID_CLIENT_LAUNCH');
+    return pin({
+      paths,
+      absentPaths,
+      callback: invoke,
+      systemRoot: readWindowsEnvironmentValue(context.env ?? process.env, 'SYSTEMROOT')
+        || readWindowsEnvironmentValue(context.env ?? process.env, 'WINDIR'),
+    });
   }
 
   async function discover(context, approvedPlan = null) {
@@ -928,18 +977,20 @@ export function createClientDomain({
           fail('adapter private protocol environment is invalid', 'INVALID_CLIENT_LAUNCH');
         }
         const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
-        await recheckInspectionPreconditions(currentContext, inspection);
-        await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
-        smoke = await descriptorLaunchPinner(context.descriptor, {
-          launchFilePinner: context.launchFilePinner,
-          callback: async (guard, pinnedDescriptor) => {
-            await recheckInspectionPreconditions(currentContext, inspection);
-            guard?.assertPinned?.();
-            return protocolSmoke(pinnedDescriptor, {
-              effectiveEnvironment,
-              effectiveCwd: launch.cwd ?? null,
-            });
-          },
+        smoke = await withPinnedInspectionEvidence(currentContext, inspection, async inspectionGuard => {
+          await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: 'protocol' });
+          inspectionGuard?.assertPinned?.();
+          return descriptorLaunchPinner(context.descriptor, {
+            launchFilePinner: context.launchFilePinner,
+            callback: async (descriptorGuard, pinnedDescriptor) => {
+              inspectionGuard?.assertPinned?.();
+              descriptorGuard?.assertPinned?.();
+              return protocolSmoke(pinnedDescriptor, {
+                effectiveEnvironment,
+                effectiveCwd: launch.cwd ?? null,
+              });
+            },
+          });
         });
       }
       const client = publicClient(row, inspection, planResult, requestedProfile, smoke);
@@ -1288,7 +1339,8 @@ export function createClientDomain({
         ? transaction({ externalLease: applyContext.applyLease, context: applyContext })
         : transaction;
       const transactionAdapters = boundAdapters(before, operations);
-      await activeTransaction.snapshot({
+      const writablePreconditions = approvedPlan.preconditions.filter(precondition => precondition.kind === 'client_path' && precondition.writable === true);
+      const transactionSnapshot = await activeTransaction.snapshot({
         planDigest: approvedPlan.digest,
         adapters: transactionAdapters,
         operations,
@@ -1303,13 +1355,21 @@ export function createClientDomain({
         context: applyContext,
       });
       transactionOwnsWrites = false;
-      const writablePreconditions = approvedPlan.preconditions.filter(precondition => precondition.kind === 'client_path' && precondition.writable === true);
       if (!validTransactionResult(transactionResult, operations, writablePreconditions)) {
+        const uncertainPaths = new Map();
+        for (const path of [
+          ...writablePreconditions.map(precondition => precondition.canonical_path),
+          ...(Array.isArray(transactionSnapshot?.writable_paths) ? transactionSnapshot.writable_paths : []),
+        ]) {
+          const key = pathKey(path);
+          if (key) uncertainPaths.set(key, path);
+        }
         const invalidResult = Object.freeze({
           status: 'UNKNOWN',
           clients: Object.freeze(unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)))
             .map(clientId => Object.freeze({ client_id: clientId, status: 'UNKNOWN' }))),
-          touched_files: Object.freeze(unique(writablePreconditions.map(precondition => precondition.canonical_path))
+          touched_files: Object.freeze([...uncertainPaths.values()]
+            .sort((left, right) => pathKey(left).localeCompare(pathKey(right)))
             .map(path => Object.freeze({ path, applied_sha256: null }))),
           rollback: null,
           retained_snapshots: Object.freeze([]),

@@ -14,6 +14,7 @@ import { sha256Bytes, sha256Canonical } from './canonical-json.mjs';
 import {
   classifySupportedVersion,
   CLIENT_IDS,
+  CLIENT_NATIVE_IDENTITIES,
   clientProcessEnvironment,
   expectedClientLaunchOverlay,
   NPM_RUNTIME_LIMITS,
@@ -32,7 +33,7 @@ const CLIENTS = Object.freeze({
     command_name: 'claude',
     package_id: '@anthropic-ai/claude-code',
     bin_name: 'claude',
-    signer: 'Anthropic, PBC',
+    signer: CLIENT_NATIVE_IDENTITIES.claude.signer_name,
   }),
   codex: Object.freeze({
     command_name: 'codex',
@@ -46,7 +47,7 @@ const CLIENTS = Object.freeze({
   }),
   vscode: Object.freeze({
     command_name: 'code',
-    signer: 'Microsoft Corporation',
+    signer: CLIENT_NATIVE_IDENTITIES.vscode.signer_name,
   }),
 });
 

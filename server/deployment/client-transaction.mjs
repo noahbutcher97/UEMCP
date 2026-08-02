@@ -1051,15 +1051,23 @@ export function createClientTransaction({
 
   async function withPinnedTransactionEvidence(callback) {
     await recheckAfterVerify();
-    const byPath = new Map();
+    const presentByPath = new Map();
+    const absentByPath = new Map();
+    const addEvidencePath = (path, exists) => {
+      const key = pathKey(path);
+      const target = exists ? presentByPath : absentByPath;
+      target.set(key, resolve(path));
+    };
     for (const record of state.records.values()) {
       const expected = record.changed ? record.appliedFingerprint : record.currentFingerprint;
-      if (expected?.exists === true) byPath.set(pathKey(record.path), record.path);
+      addEvidencePath(record.path, expected?.exists === true);
     }
     for (const row of state.readOnly) {
-      if (row.current?.exists === true) byPath.set(pathKey(row.path), resolve(row.path));
+      addEvidencePath(row.path, row.current?.exists === true);
     }
-    const paths = [...byPath.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
+    for (const key of presentByPath.keys()) absentByPath.delete(key);
+    const paths = [...presentByPath.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
+    const absentPaths = [...absentByPath.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
     const invoke = async guard => {
       guard?.assertPinned?.();
       await recheckAfterVerify();
@@ -1070,8 +1078,7 @@ export function createClientTransaction({
       guard?.assertPinned?.();
       return value;
     };
-    if (paths.length === 0) return invoke(Object.freeze({ assertPinned() {} }));
-    return windowsNative.withPinnedFiles({ paths, callback: invoke, systemRoot });
+    return windowsNative.withPinnedFiles({ paths, absentPaths, callback: invoke, systemRoot });
   }
 
   async function commitDeferredDeletes() {
