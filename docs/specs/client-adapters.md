@@ -71,9 +71,11 @@ Malformed, over-limit, or unsafe selected-client inspection cannot produce an
 applicable plan because complete path preconditions cannot be proven. During
 apply, read-only and no-op preconditions are checked again immediately before
 every client-native query and protocol launch. Once the central transaction
-owns a writable path, that path is guarded by the transaction's applied-byte
-checks while executable, server, policy, profile, and other read-only evidence
-continues to be rechecked before active execution.
+owns writable paths, every existing writable and read-only evidence file is
+held by the Windows file-pin helper through each client-native child process.
+The transaction rechecks exact approved or applied fingerprints after pin
+acquisition and again after child completion; the child receives a composed
+guard covering both transaction evidence and its inspected client runtime.
 After the transaction returns, every committed writable path is rechecked
 against the exact applied content hash before post-commit native or protocol
 launch. Each launch also rechecks the inspection fingerprints that produced its
@@ -98,10 +100,20 @@ Transaction results use a closed schema. Client rows, touched paths and hashes,
 rollback rows, hook errors, retained snapshots, and cleanup actions must all be
 well formed and refer only to approved writable paths. Nominal success without
 complete touched-file evidence becomes committed `SYNC_FAILED`. A transaction
+result that fails schema validation produces conservative touched-file rows for
+every writable precondition, including the ownership ledger, with unknown
+applied hashes rather than omitting uncertain state. A transaction
 that commits configuration but still needs provider action or snapshot cleanup
 returns `CLIENT_APPLY_ACTION_REQUIRED`; it never aggregates as healthy.
 Rollback cleanup failures retain path-only, bounded snapshot evidence even when
 the original bytes were restored successfully.
+
+Saved client-stage plan evidence is recursively closed. The stage object,
+per-client rows, launch contracts and file fingerprints, owned-field diffs,
+environment hashes, and status vocabularies reject unknown keys or values
+before apply. Public runtime-failure diagnostics likewise expose only a closed
+cause-code vocabulary and approved changed-field names; unknown provider or
+platform codes normalize to `UNKNOWN`.
 
 ## Client Boundaries
 

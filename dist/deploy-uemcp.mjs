@@ -10622,6 +10622,29 @@ function exactObject(value, expected) {
   const expectedKeys = Object.keys(expected).sort();
   return JSON.stringify(actualKeys) === JSON.stringify(expectedKeys) && expectedKeys.every((key) => value[key] === expected[key]);
 }
+function exactKeys(value, required2, optional2 = []) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const allowed = /* @__PURE__ */ new Set([...required2, ...optional2]);
+  const keys = Object.keys(value);
+  return required2.every((key) => Object.hasOwn(value, key)) && keys.every((key) => allowed.has(key));
+}
+function validFileFingerprint(fingerprint) {
+  const keys = [
+    "requested_path",
+    "canonical_path",
+    "real_path",
+    "exists",
+    "kind",
+    "link_kind",
+    "link_count",
+    "size",
+    "sha256"
+  ];
+  return exactKeys(fingerprint, keys) && [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every(win322.isAbsolute) && fingerprint.exists === true && fingerprint.kind === "file" && fingerprint.link_kind === "none" && fingerprint.link_count === 1 && Number.isSafeInteger(fingerprint.size) && fingerprint.size >= 0 && /^[0-9a-f]{64}$/.test(fingerprint.sha256 ?? "");
+}
+function validAuthenticodeFingerprint(fingerprint) {
+  return exactKeys(fingerprint, ["status", "signer_name", "thumbprint"]) && fingerprint.status === "valid" && typeof fingerprint.signer_name === "string" && fingerprint.signer_name.trim() !== "" && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+}
 function isVsCodeCliTuple(command, cli) {
   const installRoot = win322.dirname(command);
   const relativeCli = win322.relative(installRoot, cli);
@@ -10683,6 +10706,48 @@ function validateClientLaunchContract(launch) {
   } else if (!exactObject(launch.env_overlay, {})) {
     invalid("non-VS Code client launch cannot alter the environment");
   }
+  return launch;
+}
+function validatePublicClientLaunchContract(launch) {
+  if (!exactKeys(launch, [
+    "client_id",
+    "command",
+    "args_prefix",
+    "package_id",
+    "source",
+    "version",
+    "compatibility",
+    "fingerprint",
+    "write_supported"
+  ])) {
+    invalid("public client launch has invalid keys");
+  }
+  if (!launch.fingerprint || Array.isArray(launch.fingerprint) || typeof launch.fingerprint !== "object") {
+    invalid("public client launch fingerprint is invalid");
+  }
+  const fingerprintKeys = launch.source === "npm_package" ? ["command", "args_prefix", "package_manifest", "runtime_tree"] : ["command", "args_prefix", "authenticode"];
+  const optionalFingerprintKeys = launch.source === "native" && launch.client_id === "vscode" ? ["discovery_clue"] : [];
+  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys) || !validFileFingerprint(launch.fingerprint.command) || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !launch.fingerprint.args_prefix.every(validFileFingerprint)) {
+    invalid("public client launch file fingerprints are invalid");
+  }
+  if (launch.source === "npm_package") {
+    if (!validFileFingerprint(launch.fingerprint.package_manifest)) {
+      invalid("public npm client manifest fingerprint is invalid");
+    }
+  } else {
+    if (!validAuthenticodeFingerprint(launch.fingerprint.authenticode) || Object.hasOwn(launch.fingerprint, "discovery_clue") && !validFileFingerprint(launch.fingerprint.discovery_clue)) {
+      invalid("public native client fingerprint is invalid");
+    }
+  }
+  const overlay = expectedClientLaunchOverlay(launch.client_id);
+  validateClientLaunchContract({
+    ...launch,
+    env_overlay: overlay,
+    fingerprint: {
+      ...launch.fingerprint,
+      env_overlay_sha256: sha256Canonical(overlay)
+    }
+  });
   return launch;
 }
 
@@ -12871,7 +12936,8 @@ var DEFAULT_WINDOWS_NATIVE = Object.freeze({
   deleteTreeNoFollow: deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
-  withPinnedAncestry: withPinnedWindowsAncestry
+  withPinnedAncestry: withPinnedWindowsAncestry,
+  withPinnedFiles: withPinnedWindowsFiles
 });
 var ClientTransactionError = class extends Error {
   constructor(message, code = "CLIENT_TRANSACTION_FAILED", details = {}) {
@@ -13185,7 +13251,7 @@ function createClientTransaction({
   if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
     fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
   }
-  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry) {
+  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
     fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
   }
   if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
@@ -13777,16 +13843,41 @@ function createClientTransaction({
   }
   async function recheckAfterVerify() {
     for (const record2 of state.records.values()) {
-      if (!record2.changed) continue;
+      const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
       const current = await capture(record2.path, [record2.allowedRoot], true);
-      if (!fingerprintsEqual(current, record2.appliedFingerprint)) {
-        fail5("client config changed after the transaction write", "TRANSACTION_POSTWRITE_CHANGED");
+      if (!fingerprintsEqual(current, expected)) {
+        fail5("client config evidence changed during apply", "TRANSACTION_POSTWRITE_CHANGED");
       }
     }
     for (const row of state.readOnly) {
       const current = await capture(row.path, [row.allowed_root], false);
       if (!fingerprintsEqual(current, row.current)) fail5("read-only evidence changed during apply", "TRANSACTION_POSTWRITE_CHANGED");
     }
+  }
+  async function withPinnedTransactionEvidence(callback) {
+    await recheckAfterVerify();
+    const byPath = /* @__PURE__ */ new Map();
+    for (const record2 of state.records.values()) {
+      const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
+      if (expected?.exists === true) byPath.set(pathKey2(record2.path), record2.path);
+    }
+    for (const row of state.readOnly) {
+      if (row.current?.exists === true) byPath.set(pathKey2(row.path), resolve3(row.path));
+    }
+    const paths = [...byPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
+    const invoke = async (guard) => {
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      const value = await callback(guard);
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      return value;
+    };
+    if (paths.length === 0) return invoke(Object.freeze({ assertPinned() {
+    } }));
+    return windowsNative.withPinnedFiles({ paths, callback: invoke, systemRoot });
   }
   async function commitDeferredDeletes() {
     const failures = [];
@@ -14017,13 +14108,23 @@ function createClientTransaction({
         },
         withActiveClientLaunch: async (evidence, callback) => {
           if (typeof callback !== "function") fail5("active launch callback is invalid", "INVALID_CLIENT_LAUNCH");
-          await recheckAfterVerify();
-          if (typeof outerWithActiveClientLaunch === "function") {
-            return outerWithActiveClientLaunch(evidence, callback);
-          }
-          await outerBeforeActiveClientLaunch?.(evidence);
-          return callback(Object.freeze({ assertPinned() {
-          } }), context.launch ?? null);
+          return withPinnedTransactionEvidence(async (transactionGuard) => {
+            if (typeof outerWithActiveClientLaunch === "function") {
+              return outerWithActiveClientLaunch(evidence, async (outerGuard, launch) => {
+                const guard = Object.freeze({
+                  assertPinned() {
+                    transactionGuard?.assertPinned?.();
+                    outerGuard?.assertPinned?.();
+                  }
+                });
+                guard.assertPinned();
+                return callback(guard, launch);
+              });
+            }
+            await outerBeforeActiveClientLaunch?.(evidence);
+            transactionGuard?.assertPinned?.();
+            return callback(transactionGuard, context.launch ?? null);
+          });
         },
         transaction: transactionCapability
       });
@@ -15655,7 +15756,7 @@ var OwnershipLedgerError = class extends Error {
 function fail7(message, code = "OWNERSHIP_LEDGER_INVALID", details = {}) {
   throw new OwnershipLedgerError(message, code, details);
 }
-function exactKeys(value, expected) {
+function exactKeys2(value, expected) {
   if (!value || Array.isArray(value) || typeof value !== "object") return false;
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
 }
@@ -15801,7 +15902,7 @@ function ledgerDocument(records) {
   return { ...payload, self_hash: sha256Canonical(payload) };
 }
 function validRecord(record2) {
-  if (!exactKeys(record2, [
+  if (!exactKeys2(record2, [
     "client_id",
     "canonical_config_path",
     "scope",
@@ -15812,7 +15913,7 @@ function validRecord(record2) {
     "plan_digest",
     "written_at"
   ])) return false;
-  if (!CLIENT_IDS.includes(record2.client_id) || typeof record2.canonical_config_path !== "string" || !win325.isAbsolute(record2.canonical_config_path) || typeof record2.scope !== "string" || record2.scope === "" || typeof record2.entry_name !== "string" || record2.entry_name === "" || !Array.isArray(record2.owned_paths) || new Set(record2.owned_paths).size !== record2.owned_paths.length || !exactKeys(record2.value_hashes, record2.owned_paths) || !record2.owned_paths.every((path) => typeof path === "string" && SHA256_PATTERN.test(record2.value_hashes[path])) || !SHA256_PATTERN.test(record2.applied_config_sha256) || !SHA256_PATTERN.test(record2.plan_digest) || typeof record2.written_at !== "string" || !Number.isFinite(Date.parse(record2.written_at))) return false;
+  if (!CLIENT_IDS.includes(record2.client_id) || typeof record2.canonical_config_path !== "string" || !win325.isAbsolute(record2.canonical_config_path) || typeof record2.scope !== "string" || record2.scope === "" || typeof record2.entry_name !== "string" || record2.entry_name === "" || !Array.isArray(record2.owned_paths) || new Set(record2.owned_paths).size !== record2.owned_paths.length || !exactKeys2(record2.value_hashes, record2.owned_paths) || !record2.owned_paths.every((path) => typeof path === "string" && SHA256_PATTERN.test(record2.value_hashes[path])) || !SHA256_PATTERN.test(record2.applied_config_sha256) || !SHA256_PATTERN.test(record2.plan_digest) || typeof record2.written_at !== "string" || !Number.isFinite(Date.parse(record2.written_at))) return false;
   return true;
 }
 function parseLedger(raw) {
@@ -15824,7 +15925,7 @@ function parseLedger(raw) {
   } catch {
     return { status: "invalid", reason: "ledger_parse_failed" };
   }
-  if (!exactKeys(document, ["schema_version", "records", "self_hash"]) || document.schema_version !== LEDGER_SCHEMA_VERSION || !document.records || Array.isArray(document.records) || typeof document.records !== "object" || !SHA256_PATTERN.test(document.self_hash)) {
+  if (!exactKeys2(document, ["schema_version", "records", "self_hash"]) || document.schema_version !== LEDGER_SCHEMA_VERSION || !document.records || Array.isArray(document.records) || typeof document.records !== "object" || !SHA256_PATTERN.test(document.self_hash)) {
     return { status: "invalid", reason: "ledger_schema_invalid" };
   }
   const payload = ledgerPayload(document.records);
@@ -15929,7 +16030,7 @@ async function adoptExactEntry({
   const operation = approvedOperationId;
   const paths = ownedPathsForClient(normalized.client_id, desiredEntry);
   const differences = ownedDiff(currentEntry, desiredEntry, paths);
-  if (!operation || typeof operation !== "object" || Array.isArray(operation) || !exactKeys(operation, [
+  if (!operation || typeof operation !== "object" || Array.isArray(operation) || !exactKeys2(operation, [
     "operation_id",
     "type",
     "ownership_key",
@@ -20013,7 +20114,7 @@ function plainObject5(value) {
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-function exactKeys2(value, expected, label) {
+function exactKeys3(value, expected, label) {
   if (!plainObject5(value)) fail13(`${label} must be an object`);
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
@@ -20028,7 +20129,7 @@ function validateRelativeSourcePath(value) {
   return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 function validateManifest(value) {
-  exactKeys2(value, MANIFEST_KEYS, "bundle manifest");
+  exactKeys3(value, MANIFEST_KEYS, "bundle manifest");
   if (value.schema_version !== "1.0" || value.entry !== "dist/deploy-uemcp.mjs") fail13("bundle manifest interface is unsupported");
   if (value.node_minimum !== "22.0.0" || value.esbuild_version !== "0.28.1") fail13("bundle manifest toolchain identity is unsupported");
   for (const key of ["package_lock_sha256", "notices_sha256", "input_manifest_sha256", "bundle_sha256"]) {
@@ -20037,7 +20138,7 @@ function validateManifest(value) {
   if (!Array.isArray(value.source_inputs) || value.source_inputs.length === 0) fail13("bundle manifest source inputs are empty");
   const sourcePaths = [];
   for (const row of value.source_inputs) {
-    exactKeys2(row, /* @__PURE__ */ new Set(["path", "sha256"]), "bundle source input");
+    exactKeys3(row, /* @__PURE__ */ new Set(["path", "sha256"]), "bundle source input");
     if (!validateRelativeSourcePath(row.path) || !SHA256.test(row.sha256 ?? "")) fail13("bundle source input is invalid");
     sourcePaths.push(row.path);
   }
@@ -20047,7 +20148,7 @@ function validateManifest(value) {
   if (!Array.isArray(value.bundled_packages) || value.bundled_packages.length === 0) fail13("bundle package identities are empty");
   const packageKeys = [];
   for (const row of value.bundled_packages) {
-    exactKeys2(row, /* @__PURE__ */ new Set(["name", "version", "license"]), "bundled package");
+    exactKeys3(row, /* @__PURE__ */ new Set(["name", "version", "license"]), "bundled package");
     if (![row.name, row.version, row.license].every((field) => typeof field === "string" && field !== "")) fail13("bundled package identity is invalid");
     packageKeys.push(`${row.name}\0${row.version}`);
   }
@@ -28648,6 +28749,16 @@ var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
 ]);
 var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
 var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
+var RUNTIME_CAUSE_CODES = /* @__PURE__ */ new Set([
+  "CLIENT_RUNTIME_CHANGED",
+  "FILE_PIN_FAILED",
+  "INVALID_CLIENT_LAUNCH",
+  "INVALID_FILE_PIN",
+  "INVALID_TREE_PIN",
+  "NOT_INSTALLED",
+  "SYSTEM_ROOT_UNAVAILABLE",
+  "TREE_PIN_FAILED"
+]);
 var CLIENT_LAUNCH_FINGERPRINT_FIELDS = /* @__PURE__ */ new Set([
   "args_prefix",
   "command",
@@ -29162,9 +29273,10 @@ function stableErrorCode(value, fallback = "UNKNOWN") {
 }
 function clientRuntimeFailureDetails(clientId, error2) {
   const nested = plainObject6(error2?.details) ? error2.details : {};
+  const causeCode = Object.hasOwn(nested, "cause_code") ? nested.cause_code : error2?.code;
   const details = {
     client_id: clientId,
-    cause_code: stableErrorCode(nested.cause_code, stableErrorCode(error2?.code, "CLIENT_RUNTIME_CHANGED"))
+    cause_code: RUNTIME_CAUSE_CODES.has(causeCode) ? causeCode : "UNKNOWN"
   };
   if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
   if (Array.isArray(nested.changed_fields)) {
@@ -29731,7 +29843,7 @@ function createClientDomain({
         const invalidResult = Object.freeze({
           status: "UNKNOWN",
           clients: Object.freeze(unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId))).map((clientId) => Object.freeze({ client_id: clientId, status: "UNKNOWN" }))),
-          touched_files: Object.freeze(unique5(operations.map((operation) => operation.path).filter((path) => typeof path === "string")).map((path) => Object.freeze({ path, applied_sha256: null }))),
+          touched_files: Object.freeze(unique5(writablePreconditions.map((precondition) => precondition.canonical_path)).map((path) => Object.freeze({ path, applied_sha256: null }))),
           rollback: null,
           retained_snapshots: Object.freeze([])
         });
@@ -30962,6 +31074,81 @@ var PLAN_KEYS = /* @__PURE__ */ new Set([
 ]);
 var DOMAIN_ORDERS = Object.freeze({ prerequisites: 10, target: 20, clients: 30, plugin: 40 });
 var SHA2563 = /^[0-9a-f]{64}$/;
+var CLIENT_STAGE_EVIDENCE_KEYS = /* @__PURE__ */ new Set(["vscode_profile", "discovery_context_sha256", "clients"]);
+var CLIENT_EVIDENCE_KEYS = /* @__PURE__ */ new Set([
+  "adapter",
+  "selected",
+  "selection",
+  "discovery_status",
+  "launch_contract",
+  "current_scopes",
+  "effective_scope",
+  "operation",
+  "touched_paths",
+  "owned_diffs",
+  "environment",
+  "custom_working_directory",
+  "structural_status",
+  "native_status",
+  "protocol_status",
+  "instruction_bytes",
+  "tool_count",
+  "initial_tool_names",
+  "duration_ms",
+  "enablement",
+  "activation"
+]);
+var CLIENT_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  "included",
+  "default",
+  "inspect_only",
+  "excluded",
+  "not_included",
+  "included_not_installed",
+  "not_installed"
+]);
+var CLIENT_DISCOVERY_STATUS_VALUES = /* @__PURE__ */ new Set([
+  "DETECTED",
+  "NOT_INSTALLED",
+  ...CLIENT_DISCOVERY_FAILURE_CODES
+]);
+var CLIENT_OPERATION_VALUES = /* @__PURE__ */ new Set([
+  "INSPECT_ONLY",
+  "MALFORMED_CONFIG",
+  "INSPECTION_LIMIT_EXCEEDED",
+  "UNSAFE_CONFIG_PATH",
+  "UNSUPPORTED_VERSION",
+  "OWNERSHIP_LEDGER_INVALID",
+  "POLICY_UNKNOWN",
+  "POLICY_BLOCKED",
+  "CONFLICT",
+  "READ_ONLY_TARGET",
+  "UNSAFE_WRITABLE_PATH",
+  "PATH_OUTSIDE_WRITABLE_ROOT",
+  "METADATA_INSPECTION_FAILED",
+  "ADOPT",
+  "NO_OP",
+  "CREATE",
+  "UPDATE",
+  "MIGRATE"
+]);
+var CLIENT_NATIVE_STATUS_VALUES = /* @__PURE__ */ new Set([
+  "UNKNOWN",
+  "NOT_CHECKED",
+  "ABSENT",
+  "TIMEOUT",
+  "FAILED",
+  "REJECTED",
+  "PENDING_APPROVAL",
+  "CONNECTED",
+  "PRESENT",
+  "AMBIGUOUS",
+  "INCONSISTENT",
+  "DISCONNECTED",
+  "DISABLED",
+  "BLOCKED"
+]);
+var CLIENT_PROTOCOL_STATUS_VALUES = /* @__PURE__ */ new Set(["UNKNOWN", "HEALTHY", "INITIALIZE_FAILED", "TOOLS_LIST_FAILED"]);
 var DeploymentPlanError = class extends Error {
   constructor(message, code = "INVALID_PLAN", details = {}) {
     super(message);
@@ -30984,12 +31171,97 @@ function isoTime(value, label) {
   if (!Number.isFinite(date3.getTime())) fail17(`${label} is invalid`, "INVALID_PLAN");
   return date3.toISOString();
 }
-function exactKeys3(value, keys, label) {
+function exactKeys4(value, keys, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) fail17(`${label} must be an object`, "INVALID_PLAN");
   const actual = Object.keys(value);
   const missing6 = [...keys].filter((key) => !Object.hasOwn(value, key));
   const unknown2 = actual.filter((key) => !keys.has(key));
   if (missing6.length || unknown2.length) fail17(`${label} has invalid keys`, "INVALID_PLAN", { missing: missing6, unknown: unknown2 });
+}
+function exactOptionalKeys(value, required2, optional2, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail17(`${label} must be an object`, "INVALID_PLAN");
+  const allowed = /* @__PURE__ */ new Set([...required2, ...optional2]);
+  const missing6 = [...required2].filter((key) => !Object.hasOwn(value, key));
+  const unknown2 = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing6.length || unknown2.length) fail17(`${label} has invalid keys`, "INVALID_PLAN", { missing: missing6, unknown: unknown2 });
+}
+function uniqueStrings(values, label, { absolute = false } = {}) {
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.trim() === "" || absolute && !absolutePath7(value)) || new Set(values).size !== values.length) {
+    fail17(`${label} must contain unique valid strings`, "INVALID_PLAN");
+  }
+}
+function validateOwnedDiffRows(rows, label) {
+  if (!Array.isArray(rows)) fail17(`${label} must be an array`, "INVALID_PLAN");
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label}[${index}]`;
+    exactOptionalKeys(
+      row,
+      /* @__PURE__ */ new Set(["path", "current_present", "desired_present"]),
+      /* @__PURE__ */ new Set(["current_sha256", "desired_sha256"]),
+      rowLabel
+    );
+    if (typeof row.path !== "string" || row.path.trim() === "" || typeof row.current_present !== "boolean" || typeof row.desired_present !== "boolean" || ["current_sha256", "desired_sha256"].some((key) => Object.hasOwn(row, key) && !SHA2563.test(row[key]))) {
+      fail17(`${rowLabel} is invalid`, "INVALID_PLAN");
+    }
+  }
+}
+function validateEnvironmentRows(rows, label) {
+  if (!Array.isArray(rows)) fail17(`${label} must be an array`, "INVALID_PLAN");
+  const identities = /* @__PURE__ */ new Set();
+  for (const [index, row] of rows.entries()) {
+    exactKeys4(row, /* @__PURE__ */ new Set(["name", "value_sha256"]), `${label}[${index}]`);
+    if (typeof row.name !== "string" || row.name.trim() === "" || !SHA2563.test(row.value_sha256)) {
+      fail17(`${label}[${index}] is invalid`, "INVALID_PLAN");
+    }
+    const identity = `${row.name}\0${row.value_sha256}`;
+    if (identities.has(identity)) fail17(`${label} contains duplicate rows`, "INVALID_PLAN");
+    identities.add(identity);
+  }
+}
+function validateClientEvidenceRow(row, client, label) {
+  exactKeys4(row, CLIENT_EVIDENCE_KEYS, label);
+  if (!CLIENT_IDS.includes(row.adapter) || typeof row.selected !== "boolean" || !CLIENT_SELECTION_VALUES.has(row.selection) || !CLIENT_DISCOVERY_STATUS_VALUES.has(row.discovery_status) || !CLIENT_OPERATION_VALUES.has(row.operation) || typeof row.custom_working_directory !== "boolean" || !CLIENT_STATE_VALUES.status.includes(row.structural_status) || !CLIENT_NATIVE_STATUS_VALUES.has(row.native_status) || !CLIENT_PROTOCOL_STATUS_VALUES.has(row.protocol_status) || !Number.isSafeInteger(row.instruction_bytes) || row.instruction_bytes < 0 || !Number.isSafeInteger(row.tool_count) || row.tool_count < 0 || !Number.isFinite(row.duration_ms) || row.duration_ms < 0 || !CLIENT_STATE_VALUES.enablement.includes(row.enablement) || !CLIENT_STATE_VALUES.activation.includes(row.activation)) {
+    fail17(`${label} has invalid values`, "INVALID_PLAN");
+  }
+  uniqueStrings(row.current_scopes, `${label}.current_scopes`);
+  uniqueStrings(row.touched_paths, `${label}.touched_paths`, { absolute: true });
+  uniqueStrings(row.initial_tool_names, `${label}.initial_tool_names`);
+  if (row.effective_scope !== null && (typeof row.effective_scope !== "string" || row.effective_scope.trim() === "")) {
+    fail17(`${label}.effective_scope is invalid`, "INVALID_PLAN");
+  }
+  validateOwnedDiffRows(row.owned_diffs, `${label}.owned_diffs`);
+  validateEnvironmentRows(row.environment, `${label}.environment`);
+  if (row.launch_contract !== null) {
+    try {
+      validatePublicClientLaunchContract(row.launch_contract);
+    } catch {
+      fail17(`${label}.launch_contract is invalid`, "INVALID_PLAN");
+    }
+  }
+  if (!client || row.selected !== client.selected || row.structural_status !== client.status || row.enablement !== client.enablement || row.activation !== client.activation || row.launch_contract === null !== (client.version === null) || row.launch_contract !== null && (row.launch_contract.client_id !== row.adapter || row.launch_contract.version !== client.version || row.launch_contract.compatibility !== client.compatibility || row.launch_contract.write_supported !== client.write_supported)) {
+    fail17(`${label} is inconsistent with its public client row`, "INVALID_PLAN");
+  }
+  return row;
+}
+function validateClientStageEvidence(stage, clients) {
+  exactKeys4(stage.evidence, CLIENT_STAGE_EVIDENCE_KEYS, "plan client stage evidence");
+  if (stage.evidence.vscode_profile !== null && (typeof stage.evidence.vscode_profile !== "string" || stage.evidence.vscode_profile.trim() === "")) {
+    fail17("plan client profile evidence is invalid", "INVALID_PLAN");
+  }
+  if (!SHA2563.test(stage.evidence.discovery_context_sha256 ?? "") || !Array.isArray(stage.evidence.clients)) {
+    fail17("plan client stage evidence is invalid", "INVALID_PLAN");
+  }
+  const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  const evidenceByAdapter = /* @__PURE__ */ new Map();
+  for (const [index, row] of stage.evidence.clients.entries()) {
+    validateClientEvidenceRow(row, clientByAdapter.get(row?.adapter), `plan client evidence[${index}]`);
+    if (evidenceByAdapter.has(row.adapter)) fail17("plan client evidence adapter IDs must be unique", "INVALID_PLAN");
+    evidenceByAdapter.set(row.adapter, row);
+  }
+  if (clientByAdapter.size !== CLIENT_IDS.length || evidenceByAdapter.size !== CLIENT_IDS.length || CLIENT_IDS.some((clientId) => !clientByAdapter.has(clientId) || !evidenceByAdapter.has(clientId))) {
+    fail17("plan client stage must cover the closed client set", "INVALID_PLAN");
+  }
+  return stage.evidence.clients;
 }
 function validateOperation(operation) {
   if (operation === null || typeof operation !== "object" || Array.isArray(operation)) fail17("plan operation must be an object", "INVALID_PLAN");
@@ -31024,7 +31296,7 @@ function sortPreconditions(preconditions) {
   });
 }
 function validatePlanDocument(plan) {
-  exactKeys3(plan, PLAN_KEYS, "plan");
+  exactKeys4(plan, PLAN_KEYS, "plan");
   if (plan.schema_version !== DEPLOYMENT_SCHEMA_VERSION || plan.kind !== "uemcp.deployment.plan") {
     fail17("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
   }
@@ -31050,13 +31322,22 @@ function validatePlanDocument(plan) {
   if (new Set(operations.map((row) => row.operation_id)).size !== operations.length) fail17("plan operation IDs must be unique", "INVALID_PLAN");
   if (new Set(preconditions.map((row) => row.label)).size !== preconditions.length) fail17("plan precondition labels must be unique", "INVALID_PLAN");
   const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
-  const clientStage = plan.stages.find((stage) => stage.name === "clients");
-  const rawClientEvidence = clientStage?.evidence?.clients ?? [];
-  if (!Array.isArray(rawClientEvidence)) fail17("plan client evidence must be an array", "INVALID_PLAN");
-  if (rawClientEvidence.some((row) => row === null || typeof row !== "object" || Array.isArray(row) || typeof row.adapter !== "string" || !Array.isArray(row.touched_paths))) {
-    fail17("plan client evidence rows are malformed", "INVALID_PLAN");
+  const clientStages = plan.stages.filter((stage) => stage.name === "clients");
+  if (clientStages.length > 1) fail17("plan contains duplicate client stages", "INVALID_PLAN");
+  const [clientStage] = clientStages;
+  const hasClientOperations = operations.some((operation) => operation.domain === "clients");
+  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0)) {
+    fail17("plan is missing the client stage", "INVALID_PLAN");
   }
-  const clientEvidenceRows = rawClientEvidence;
+  let clientEvidenceRows = [];
+  if (clientStage) {
+    const hasStructuredEvidence = Object.keys(clientStage.evidence).length > 0;
+    if (hasStructuredEvidence || hasClientOperations) {
+      clientEvidenceRows = validateClientStageEvidence(clientStage, clients);
+    } else {
+      exactKeys4(clientStage.evidence, /* @__PURE__ */ new Set(), "empty plan client stage evidence");
+    }
+  }
   const clientEvidence2 = new Map(clientEvidenceRows.map((row) => [row.adapter, row]));
   if (clientByAdapter.size !== clients.length || clientEvidence2.size !== clientEvidenceRows.length) {
     fail17("plan client rows and evidence must use unique adapter IDs", "INVALID_PLAN");
@@ -31098,7 +31379,7 @@ function validatePlanDocument(plan) {
   return true;
 }
 function validatePlanStructure(plan) {
-  exactKeys3(plan, PLAN_KEYS, "plan");
+  exactKeys4(plan, PLAN_KEYS, "plan");
   if (plan.schema_version !== DEPLOYMENT_SCHEMA_VERSION || plan.kind !== "uemcp.deployment.plan") {
     fail17("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
   }
@@ -32233,7 +32514,7 @@ var SourceProvenanceError = class extends Error {
 function fail19(message, details) {
   throw new SourceProvenanceError(message, "SOURCE_PROVENANCE_UNKNOWN", details);
 }
-function exactKeys4(value, expected, label) {
+function exactKeys5(value, expected, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) fail19(`${label} must be an object`);
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
@@ -32365,7 +32646,7 @@ async function readArchiveDocument(path, fsImpl) {
     if (error2 instanceof SourceProvenanceError) throw error2;
     fail19("archive provenance file is missing or malformed");
   }
-  exactKeys4(parsed, /* @__PURE__ */ new Set([
+  exactKeys5(parsed, /* @__PURE__ */ new Set([
     "schema_version",
     "kind",
     "repository",
@@ -32391,7 +32672,7 @@ async function readArchiveDocument(path, fsImpl) {
   if (!Array.isArray(parsed.payload_entries)) fail19("archive payload entries must be an array");
   let previous = null;
   for (const entry of parsed.payload_entries) {
-    exactKeys4(entry, /* @__PURE__ */ new Set(["path", "size", "sha256"]), "archive payload entry");
+    exactKeys5(entry, /* @__PURE__ */ new Set(["path", "size", "sha256"]), "archive payload entry");
     if (!isSafePayloadPath(entry.path) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !SHA2565.test(entry.sha256)) {
       fail19("archive payload entry is invalid");
     }

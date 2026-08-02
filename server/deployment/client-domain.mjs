@@ -43,6 +43,16 @@ const TRANSACTION_ACTION_CLIENT_STATUSES = new Set([
 ]);
 const ROLLBACK_PATH_STATUSES = new Set(['restored', 'conflict', 'failed']);
 const RUNTIME_DIAGNOSTIC_REASONS = new Set(['RUNTIME_CAPTURE_FAILED', 'RUNTIME_FINGERPRINT_MISMATCH']);
+const RUNTIME_CAUSE_CODES = new Set([
+  'CLIENT_RUNTIME_CHANGED',
+  'FILE_PIN_FAILED',
+  'INVALID_CLIENT_LAUNCH',
+  'INVALID_FILE_PIN',
+  'INVALID_TREE_PIN',
+  'NOT_INSTALLED',
+  'SYSTEM_ROOT_UNAVAILABLE',
+  'TREE_PIN_FAILED',
+]);
 const CLIENT_LAUNCH_FINGERPRINT_FIELDS = new Set([
   'args_prefix',
   'command',
@@ -612,9 +622,10 @@ function stableErrorCode(value, fallback = 'UNKNOWN') {
 
 function clientRuntimeFailureDetails(clientId, error) {
   const nested = plainObject(error?.details) ? error.details : {};
+  const causeCode = Object.hasOwn(nested, 'cause_code') ? nested.cause_code : error?.code;
   const details = {
     client_id: clientId,
-    cause_code: stableErrorCode(nested.cause_code, stableErrorCode(error?.code, 'CLIENT_RUNTIME_CHANGED')),
+    cause_code: RUNTIME_CAUSE_CODES.has(causeCode) ? causeCode : 'UNKNOWN',
   };
   if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
   if (Array.isArray(nested.changed_fields)) {
@@ -1298,7 +1309,7 @@ export function createClientDomain({
           status: 'UNKNOWN',
           clients: Object.freeze(unique(operations.map(operation => operation.client_id).filter(clientId => CLIENT_IDS.includes(clientId)))
             .map(clientId => Object.freeze({ client_id: clientId, status: 'UNKNOWN' }))),
-          touched_files: Object.freeze(unique(operations.map(operation => operation.path).filter(path => typeof path === 'string'))
+          touched_files: Object.freeze(unique(writablePreconditions.map(precondition => precondition.canonical_path))
             .map(path => Object.freeze({ path, applied_sha256: null }))),
           rollback: null,
           retained_snapshots: Object.freeze([]),

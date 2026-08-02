@@ -1,5 +1,7 @@
 import { win32 } from 'node:path';
 
+import { sha256Canonical } from './canonical-json.mjs';
+
 const frozenVersions = versions => Object.freeze([...versions]);
 
 export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
@@ -196,6 +198,45 @@ function exactObject(value, expected) {
     && expectedKeys.every(key => value[key] === expected[key]);
 }
 
+function exactKeys(value, required, optional = []) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return false;
+  const allowed = new Set([...required, ...optional]);
+  const keys = Object.keys(value);
+  return required.every(key => Object.hasOwn(value, key))
+    && keys.every(key => allowed.has(key));
+}
+
+function validFileFingerprint(fingerprint) {
+  const keys = [
+    'requested_path',
+    'canonical_path',
+    'real_path',
+    'exists',
+    'kind',
+    'link_kind',
+    'link_count',
+    'size',
+    'sha256',
+  ];
+  return exactKeys(fingerprint, keys)
+    && [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every(win32.isAbsolute)
+    && fingerprint.exists === true
+    && fingerprint.kind === 'file'
+    && fingerprint.link_kind === 'none'
+    && fingerprint.link_count === 1
+    && Number.isSafeInteger(fingerprint.size)
+    && fingerprint.size >= 0
+    && /^[0-9a-f]{64}$/.test(fingerprint.sha256 ?? '');
+}
+
+function validAuthenticodeFingerprint(fingerprint) {
+  return exactKeys(fingerprint, ['status', 'signer_name', 'thumbprint'])
+    && fingerprint.status === 'valid'
+    && typeof fingerprint.signer_name === 'string'
+    && fingerprint.signer_name.trim() !== ''
+    && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+}
+
 function isVsCodeCliTuple(command, cli) {
   const installRoot = win32.dirname(command);
   const relativeCli = win32.relative(installRoot, cli);
@@ -293,5 +334,58 @@ export function validateClientLaunchContract(launch) {
   } else if (!exactObject(launch.env_overlay, {})) {
     invalid('non-VS Code client launch cannot alter the environment');
   }
+  return launch;
+}
+
+export function validatePublicClientLaunchContract(launch) {
+  if (!exactKeys(launch, [
+    'client_id',
+    'command',
+    'args_prefix',
+    'package_id',
+    'source',
+    'version',
+    'compatibility',
+    'fingerprint',
+    'write_supported',
+  ])) {
+    invalid('public client launch has invalid keys');
+  }
+  if (!launch.fingerprint || Array.isArray(launch.fingerprint) || typeof launch.fingerprint !== 'object') {
+    invalid('public client launch fingerprint is invalid');
+  }
+  const fingerprintKeys = launch.source === 'npm_package'
+    ? ['command', 'args_prefix', 'package_manifest', 'runtime_tree']
+    : ['command', 'args_prefix', 'authenticode'];
+  const optionalFingerprintKeys = launch.source === 'native' && launch.client_id === 'vscode'
+    ? ['discovery_clue']
+    : [];
+  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys)
+    || !validFileFingerprint(launch.fingerprint.command)
+    || !Array.isArray(launch.fingerprint.args_prefix)
+    || launch.fingerprint.args_prefix.length !== launch.args_prefix.length
+    || !launch.fingerprint.args_prefix.every(validFileFingerprint)) {
+    invalid('public client launch file fingerprints are invalid');
+  }
+  if (launch.source === 'npm_package') {
+    if (!validFileFingerprint(launch.fingerprint.package_manifest)) {
+      invalid('public npm client manifest fingerprint is invalid');
+    }
+  } else {
+    if (!validAuthenticodeFingerprint(launch.fingerprint.authenticode)
+      || (Object.hasOwn(launch.fingerprint, 'discovery_clue')
+        && !validFileFingerprint(launch.fingerprint.discovery_clue))) {
+      invalid('public native client fingerprint is invalid');
+    }
+  }
+  const overlay = expectedClientLaunchOverlay(launch.client_id);
+  validateClientLaunchContract({
+    ...launch,
+    env_overlay: overlay,
+    fingerprint: {
+      ...launch.fingerprint,
+      env_overlay_sha256: sha256Canonical(overlay),
+    },
+  });
   return launch;
 }

@@ -21,6 +21,7 @@ import {
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
   withPinnedWindowsAncestry,
+  withPinnedWindowsFiles,
 } from './windows-native.mjs';
 
 const MAX_CONFIG_BYTES = CONFIG_BYTE_LIMIT;
@@ -45,6 +46,7 @@ const DEFAULT_WINDOWS_NATIVE = Object.freeze({
   fingerprintWindowsFileMetadata,
   replaceFilePreservingMetadata,
   withPinnedAncestry: withPinnedWindowsAncestry,
+  withPinnedFiles: withPinnedWindowsFiles,
 });
 
 export class ClientTransactionError extends Error {
@@ -404,7 +406,8 @@ export function createClientTransaction({
   if (!windowsNative?.fingerprintWindowsFileMetadata
     || !windowsNative?.deleteTreeNoFollow
     || !windowsNative?.replaceFilePreservingMetadata
-    || !windowsNative?.withPinnedAncestry) {
+    || !windowsNative?.withPinnedAncestry
+    || !windowsNative?.withPinnedFiles) {
     fail('transaction requires the Windows metadata contract', 'INVALID_WINDOWS_NATIVE');
   }
   if (externalLease !== null
@@ -1034,16 +1037,41 @@ export function createClientTransaction({
 
   async function recheckAfterVerify() {
     for (const record of state.records.values()) {
-      if (!record.changed) continue;
+      const expected = record.changed ? record.appliedFingerprint : record.currentFingerprint;
       const current = await capture(record.path, [record.allowedRoot], true);
-      if (!fingerprintsEqual(current, record.appliedFingerprint)) {
-        fail('client config changed after the transaction write', 'TRANSACTION_POSTWRITE_CHANGED');
+      if (!fingerprintsEqual(current, expected)) {
+        fail('client config evidence changed during apply', 'TRANSACTION_POSTWRITE_CHANGED');
       }
     }
     for (const row of state.readOnly) {
       const current = await capture(row.path, [row.allowed_root], false);
       if (!fingerprintsEqual(current, row.current)) fail('read-only evidence changed during apply', 'TRANSACTION_POSTWRITE_CHANGED');
     }
+  }
+
+  async function withPinnedTransactionEvidence(callback) {
+    await recheckAfterVerify();
+    const byPath = new Map();
+    for (const record of state.records.values()) {
+      const expected = record.changed ? record.appliedFingerprint : record.currentFingerprint;
+      if (expected?.exists === true) byPath.set(pathKey(record.path), record.path);
+    }
+    for (const row of state.readOnly) {
+      if (row.current?.exists === true) byPath.set(pathKey(row.path), resolve(row.path));
+    }
+    const paths = [...byPath.values()].sort((left, right) => pathKey(left).localeCompare(pathKey(right)));
+    const invoke = async guard => {
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      const value = await callback(guard);
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      return value;
+    };
+    if (paths.length === 0) return invoke(Object.freeze({ assertPinned() {} }));
+    return windowsNative.withPinnedFiles({ paths, callback: invoke, systemRoot });
   }
 
   async function commitDeferredDeletes() {
@@ -1287,12 +1315,23 @@ export function createClientTransaction({
         },
         withActiveClientLaunch: async (evidence, callback) => {
           if (typeof callback !== 'function') fail('active launch callback is invalid', 'INVALID_CLIENT_LAUNCH');
-          await recheckAfterVerify();
-          if (typeof outerWithActiveClientLaunch === 'function') {
-            return outerWithActiveClientLaunch(evidence, callback);
-          }
-          await outerBeforeActiveClientLaunch?.(evidence);
-          return callback(Object.freeze({ assertPinned() {} }), context.launch ?? null);
+          return withPinnedTransactionEvidence(async transactionGuard => {
+            if (typeof outerWithActiveClientLaunch === 'function') {
+              return outerWithActiveClientLaunch(evidence, async (outerGuard, launch) => {
+                const guard = Object.freeze({
+                  assertPinned() {
+                    transactionGuard?.assertPinned?.();
+                    outerGuard?.assertPinned?.();
+                  },
+                });
+                guard.assertPinned();
+                return callback(guard, launch);
+              });
+            }
+            await outerBeforeActiveClientLaunch?.(evidence);
+            transactionGuard?.assertPinned?.();
+            return callback(transactionGuard, context.launch ?? null);
+          });
         },
         transaction: transactionCapability,
       });

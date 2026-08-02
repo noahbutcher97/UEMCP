@@ -84,7 +84,7 @@ import { captureClientPathFingerprint, createClientTransaction } from './deploym
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
-import { createPlanDocument } from './deployment/plan-document.mjs';
+import { createPlanDocument, validatePlanDocumentContract } from './deployment/plan-document.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/toml-config.mjs';
 
 const t = new TestRunner('Client Adapter Tests');
@@ -322,6 +322,23 @@ function simpleFingerprint(path) {
   };
 }
 
+function launchFileFingerprint(path) {
+  const absolute = canonicalFixturePath(path);
+  const stat = statSync(absolute);
+  const bytes = readFileSync(absolute);
+  return Object.freeze({
+    requested_path: absolute,
+    canonical_path: absolute,
+    real_path: absolute,
+    exists: true,
+    kind: 'file',
+    link_kind: 'none',
+    link_count: Number(stat.nlink),
+    size: bytes.length,
+    sha256: sha256Bytes(bytes),
+  });
+}
+
 function testRuntimeTree(root, packageId) {
   const canonicalRoot = canonicalFixturePath(root);
   const resolutionRoot = canonicalFixturePath(packageId.split('/').reduce(current => dirname(current), canonicalRoot));
@@ -361,18 +378,23 @@ function testRuntimeTree(root, packageId) {
 
 function testNpmRuntime(root, packageId, binPath) {
   const packageRoot = join(root, 'npm', 'node_modules', ...packageId.split('/'));
-  writeJson(join(packageRoot, 'package.json'), { name: packageId, version: '1.0.0', bin: binPath });
+  const manifest = writeJson(join(packageRoot, 'package.json'), { name: packageId, version: '1.0.0', bin: binPath });
   const entry = write(join(packageRoot, binPath), 'export {};\n');
   write(join(packageRoot, 'lib', 'runtime.mjs'), 'export const runtime = true;\n');
-  return { entry: canonicalFixturePath(entry), runtimeTree: testRuntimeTree(packageRoot, packageId) };
+  return {
+    entry: canonicalFixturePath(entry),
+    manifest: canonicalFixturePath(manifest),
+    runtimeTree: testRuntimeTree(packageRoot, packageId),
+  };
 }
 
 function claudeLaunch(root, { version = '2.1.210', writeSupported = version === '2.1.210' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const { entry, runtimeTree } = testNpmRuntime(root, '@anthropic-ai/claude-code', 'cli.mjs');
+  const command = canonicalFixturePath(node);
+  const { entry, manifest, runtimeTree } = testNpmRuntime(root, '@anthropic-ai/claude-code', 'cli.mjs');
   return {
     client_id: 'claude',
-    command: canonicalFixturePath(node),
+    command,
     args_prefix: [entry],
     env_overlay: {},
     package_id: '@anthropic-ai/claude-code',
@@ -380,7 +402,13 @@ function claudeLaunch(root, { version = '2.1.210', writeSupported = version === 
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
+    fingerprint: {
+      command: launchFileFingerprint(command),
+      args_prefix: [launchFileFingerprint(entry)],
+      package_manifest: launchFileFingerprint(manifest),
+      runtime_tree: runtimeTree,
+      env_overlay_sha256: sha256Canonical({}),
+    },
   };
 }
 
@@ -441,10 +469,11 @@ function claudeContext(root, overrides = {}) {
 
 function codexLaunch(root, { version = '0.144.4', writeSupported = version === '0.144.4' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const { entry, runtimeTree } = testNpmRuntime(root, '@openai/codex', join('bin', 'codex.js'));
+  const command = canonicalFixturePath(node);
+  const { entry, manifest, runtimeTree } = testNpmRuntime(root, '@openai/codex', join('bin', 'codex.js'));
   return {
     client_id: 'codex',
-    command: canonicalFixturePath(node),
+    command,
     args_prefix: [entry],
     env_overlay: {},
     package_id: '@openai/codex',
@@ -452,7 +481,13 @@ function codexLaunch(root, { version = '0.144.4', writeSupported = version === '
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
+    fingerprint: {
+      command: launchFileFingerprint(command),
+      args_prefix: [launchFileFingerprint(entry)],
+      package_manifest: launchFileFingerprint(manifest),
+      runtime_tree: runtimeTree,
+      env_overlay_sha256: sha256Canonical({}),
+    },
   };
 }
 
@@ -543,10 +578,11 @@ function codexContext(root, overrides = {}) {
 
 function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '0.41.2' } = {}) {
   const node = write(join(root, 'runtime', 'node.exe'), 'node');
-  const { entry, runtimeTree } = testNpmRuntime(root, '@google/gemini-cli', join('bundle', 'gemini.js'));
+  const command = canonicalFixturePath(node);
+  const { entry, manifest, runtimeTree } = testNpmRuntime(root, '@google/gemini-cli', join('bundle', 'gemini.js'));
   return {
     client_id: 'gemini',
-    command: canonicalFixturePath(node),
+    command,
     args_prefix: [entry],
     env_overlay: {},
     package_id: '@google/gemini-cli',
@@ -554,7 +590,13 @@ function geminiLaunch(root, { version = '0.41.2', writeSupported = version === '
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }], runtime_tree: runtimeTree },
+    fingerprint: {
+      command: launchFileFingerprint(command),
+      args_prefix: [launchFileFingerprint(entry)],
+      package_manifest: launchFileFingerprint(manifest),
+      runtime_tree: runtimeTree,
+      env_overlay_sha256: sha256Canonical({}),
+    },
   };
 }
 
@@ -655,6 +697,9 @@ function transactionWindowsNative() {
     async withPinnedAncestry({ callback }) {
       return callback();
     },
+    async withPinnedFiles({ callback }) {
+      return callback(Object.freeze({ assertPinned() {} }));
+    },
     async fingerprintWindowsFileMetadata(path) {
       const stat = await asyncFs.lstat(path);
       return {
@@ -711,7 +756,12 @@ function vscodeLaunch(root, { version = '1.128.1', writeSupported = version === 
     version,
     compatibility: writeSupported ? 'release_gated' : 'unknown_newer',
     write_supported: writeSupported,
-    fingerprint: { command: { sha256: 'c'.repeat(64) }, args_prefix: [{ sha256: 'd'.repeat(64) }] },
+    fingerprint: {
+      command: launchFileFingerprint(command),
+      args_prefix: [launchFileFingerprint(cli)],
+      authenticode: Object.freeze({ status: 'valid', signer_name: 'Microsoft Corporation', thumbprint: 'AA11' }),
+      env_overlay_sha256: sha256Canonical({ ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' }),
+    },
   };
 }
 
@@ -4126,6 +4176,63 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   });
 }
 
+// Saved client-stage authorization evidence is a closed schema at every nesting level.
+{
+  const root = makeRoot();
+  try {
+    const rows = CLIENT_IDS.map(clientId => clientId === 'claude'
+      ? aggregateInstalledClient(root, clientId)
+      : absentClient(clientId));
+    const domain = createClientDomain({
+      adapters: CLIENT_IDS.map(aggregateAdapter),
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => ({ status: 'HEALTHY' }),
+      descriptorLaunchPinner: async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor),
+    });
+    const context = aggregateContext(root, { operation: 'setup' });
+    const plan = aggregatePlanDocument(context, await domain.plan(context));
+    t.assert(validatePlanDocumentContract(plan), 'canonical client-stage evidence satisfies the closed plan schema');
+
+    const mutations = [
+      {
+        label: 'unknown client-stage evidence key',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.unexpected = true; },
+      },
+      {
+        label: 'unknown client evidence row key',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].unexpected = true; },
+      },
+      {
+        label: 'unknown nested launch fingerprint key',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].launch_contract.fingerprint.unexpected = true; },
+      },
+      {
+        label: 'unknown nested owned-diff key',
+        mutate(candidate) {
+          candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].owned_diffs = [{
+            path: '/command',
+            current_present: true,
+            desired_present: true,
+            unexpected: true,
+          }];
+        },
+      },
+      {
+        label: 'unknown protocol status',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence.clients[0].protocol_status = 'FUTURE_SUCCESS'; },
+      },
+    ];
+    for (const mutation of mutations) {
+      const candidate = structuredClone(plan);
+      mutation.mutate(candidate);
+      t.assert(throwsCode(() => validatePlanDocumentContract(candidate), 'INVALID_PLAN'), `${mutation.label} is rejected by plan validation`);
+    }
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Discovery always returns the closed client set; selection is exact and release-gated by default.
 {
   const root = makeRoot();
@@ -4765,6 +4872,21 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       && JSON.stringify(activeLaunchError.details).includes('absolute_secret_path') === false,
     'launch-file drift exposes only allowlisted field names through the public domain error');
     t.assert(reachedLaunch === false, 'launch-file drift is rejected before the guarded client process executes');
+
+    const unknownCauseDomain = createClientDomain({
+      adapters: [adapter, ...CLIENT_IDS.slice(1).map(aggregateAdapter)],
+      discovery: async () => rows,
+      transaction: () => { throw new Error('transaction is not expected'); },
+      protocolSmoke: async () => { throw new Error('launch drift must block protocol smoke'); },
+      pinClientLaunch: async () => {
+        const error = new Error('fixture unrecognized runtime failure');
+        error.code = 'CLIENT_RUNTIME_CHANGED';
+        error.details = { cause_code: 'UNRECOGNIZED_RUNTIME_FAILURE' };
+        throw error;
+      },
+    });
+    const unknownCauseError = await rejectedError(() => unknownCauseDomain.verify(aggregateContext(root)));
+    t.assert(unknownCauseError?.details?.cause_code === 'UNKNOWN', 'unrecognized nested runtime cause codes normalize to UNKNOWN');
   } finally {
     cleanup(root);
   }
@@ -4832,6 +4954,19 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       processInspector: async () => 'alive',
     });
     const windowsNative = transactionWindowsNative();
+    windowsNative.withPinnedFiles = async ({ paths, callback }) => {
+      const expected = new Map(paths.map(path => [resolve(path), sha256Bytes(readFileSync(path))]));
+      const guard = Object.freeze({
+        assertPinned() {
+          for (const [path, sha256] of expected) {
+            if (!existsSync(path) || sha256Bytes(readFileSync(path)) !== sha256) {
+              throw Object.assign(new Error('fixture transaction file pin changed'), { code: 'FILE_PIN_FAILED' });
+            }
+          }
+        },
+      });
+      return callback(guard);
+    };
     const capture = (path, options) => captureClientPathFingerprint(path, {
       ...options,
       fsImpl: asyncFs,
@@ -4876,8 +5011,9 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
         return Object.freeze({ status: 'APPLIED' });
       },
       async verify(context) {
-        await asyncFs.writeFile(operation.path, hostileBytes);
-        await runActiveClientLaunch(context, { client_id: 'claude', kind: 'native' }, async () => {
+        await runActiveClientLaunch(context, { client_id: 'claude', kind: 'native' }, async guard => {
+          await asyncFs.writeFile(operation.path, hostileBytes);
+          guard.assertPinned();
           childLaunches += 1;
           return Object.freeze({ status: 'PRESENT' });
         });
@@ -4901,7 +5037,7 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
     const planned = await domain.plan(context);
     const plan = aggregatePlanDocument(context, planned);
     const applied = await domain.apply({ ...context, approvedPlan: plan }, plan.operations);
-    t.assert(childLaunches === 0, 'transaction post-write drift is rejected before the provider-native child starts');
+    t.assert(childLaunches === 0, 'transaction pin rejects post-check drift immediately before the provider-native child starts');
     t.assert(applied.stage.status === 'ROLLBACK_CONFLICT', 'prelaunch transaction drift remains a rollback conflict with retained recovery evidence');
   } finally {
     cleanup(root);
@@ -5386,6 +5522,10 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
       }
       t.assert(applyError === null && applied?.stage.status === 'SYNC_FAILED' && applied.stage.changed === true
         && applied.stage.evidence.error_code === 'INVALID_CLIENT_TRANSACTION_RESULT', `${testCase.label} becomes a committed terminal failure`);
+      const invalidTouchedPaths = applied?.stage.evidence.transaction?.touched_files?.map(row => resolve(row.path)) ?? [];
+      t.assert(invalidTouchedPaths.includes(resolve(operation.path))
+        && invalidTouchedPaths.includes(resolve(localState.paths().ownership)),
+      `${testCase.label} invalid receipt preserves unknown state for every writable precondition`);
       t.assert(applied && reduceOutcome([applied.stage]) === 'PARTIAL' && shouldRecordPlanDigest([applied.stage]), `${testCase.label} cannot leave the approved plan replayable`);
     }
   } finally {

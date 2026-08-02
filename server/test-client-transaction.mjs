@@ -122,6 +122,9 @@ function virtualWindowsMetadata() {
     async withPinnedAncestry({ callback }) {
       return callback();
     },
+    async withPinnedFiles({ callback }) {
+      return callback(Object.freeze({ assertPinned() {} }));
+    },
     async deleteTreeNoFollow({ targetPath }) {
       calls.push({ type: 'delete-tree', targetPath: resolve(targetPath) });
       await asyncFs.rm(targetPath, { recursive: true, force: true });
