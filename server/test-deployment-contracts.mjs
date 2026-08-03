@@ -724,6 +724,7 @@ async function rejectsCode(fn, code) {
     const knownFolders = await resolveWindowsKnownFolders({ runner: fakeRunner, platform: 'win32', systemRoot: 'C:\\Windows' });
     t.assert(knownFolders.programData === 'D:\\PolicyData' && knownFolders.programFiles === 'E:\\Programs', 'known-folder helper returns normalized ProgramData and Program Files paths');
     const knownFolderCall = calls.find(call => call.options.stdin.includes('SHGetKnownFolderPath'));
+    t.assert(knownFolderCall.options.timeoutMs === 30_000, 'known-folder helper uses the standard bounded production timeout');
     t.assert(knownFolderCall.executable === resolve('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
       && JSON.stringify(Object.keys(knownFolderCall.options.env).sort()) === JSON.stringify(['PSModulePath', 'SystemRoot', 'WINDIR'].sort()),
     'known-folder resolution uses fixed System32 PowerShell with no inherited folder environment values');
@@ -755,8 +756,17 @@ async function rejectsCode(fn, code) {
     t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
 
     if (process.platform === 'win32') {
-      const liveKnownFolders = await resolveWindowsKnownFolders({ runner: createProcessRunner() });
-      t.assert(isAbsolute(liveKnownFolders.programData) && isAbsolute(liveKnownFolders.programFiles), 'live Windows known-folder API returns two absolute policy roots');
+      let liveKnownFolders = null;
+      let liveKnownFolderError = null;
+      try {
+        liveKnownFolders = await resolveWindowsKnownFolders({ runner: createProcessRunner(), timeoutMs: 60_000 });
+      } catch (error) {
+        liveKnownFolderError = error;
+      }
+      t.assert(liveKnownFolderError === null, 'live Windows known-folder API completes within the integration timeout', liveKnownFolderError?.code);
+      if (liveKnownFolders) {
+        t.assert(isAbsolute(liveKnownFolders.programData) && isAbsolute(liveKnownFolders.programFiles), 'live Windows known-folder API returns two absolute policy roots');
+      }
     }
   } finally {
     cleanupPrimitiveRoot(root);

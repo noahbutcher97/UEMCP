@@ -1813,7 +1813,7 @@ export async function resolveWindowsKnownFolders({
   runner,
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  timeoutMs = 15_000,
+  timeoutMs = 30_000,
 } = {}) {
   if (platform !== 'win32') {
     throw new WindowsNativeError('known-folder resolution requires Windows', 'UNSUPPORTED_PLATFORM');

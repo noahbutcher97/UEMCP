@@ -13048,7 +13048,7 @@ async function resolveWindowsKnownFolders({
   runner,
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  timeoutMs = 15e3
+  timeoutMs = 3e4
 } = {}) {
   if (platform !== "win32") {
     throw new WindowsNativeError("known-folder resolution requires Windows", "UNSUPPORTED_PLATFORM");
