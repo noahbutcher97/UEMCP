@@ -35,6 +35,8 @@ function sanitizeStage(stage) {
     status: stage.status,
     mandatory: stage.mandatory,
     changed: stage.changed,
+    result: stage.result,
+    progress: stage.progress,
     evidence: redactSecrets(stage.evidence ?? {}),
     action_codes: [...new Set((stage.actions ?? []).map(action => action.code))].sort(),
   };
@@ -84,21 +86,45 @@ function receiptBody({ result, plan, pathLabel }) {
   };
 }
 
-export async function writeReceipt({ localState, result, plan }) {
-  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError('local state is required to write a receipt');
+export function prepareReceipt({ localState, result, plan }) {
+  if (!localState?.paths) throw new ReceiptError('local state is required to prepare a receipt');
   if (!SHA256.test(plan?.digest ?? '')) throw new ReceiptError('receipt requires a valid plan digest');
   const fileName = `${safeTimestamp(result.timestamp)}-${result.operation}-${plan.digest}.json`;
   const pathLabel = `receipts/${fileName}`;
   const path = join(localState.paths().receipts, fileName);
   const body = receiptBody({ result, plan, pathLabel });
   const receipt = { ...body, receipt_sha256: sha256Canonical(body) };
-  await localState.writeJsonAtomic(path, receipt);
-  return {
-    kind: 'deployment',
-    path_label: pathLabel,
-    path,
-    sha256: receipt.receipt_sha256,
-  };
+  return Object.freeze({
+    reference: Object.freeze({
+      kind: 'deployment',
+      path_label: pathLabel,
+      path,
+      sha256: receipt.receipt_sha256,
+    }),
+    document: Object.freeze(receipt),
+  });
+}
+
+export async function writePreparedReceipt({ localState, prepared }) {
+  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError('local state is required to write a receipt');
+  const reference = prepared?.reference;
+  const document = prepared?.document;
+  const expectedPath = reference?.path_label ? join(localState.paths().receipts, basename(reference.path_label)) : null;
+  if (!reference || reference.kind !== 'deployment' || reference.path !== expectedPath
+    || reference.path_label !== `receipts/${basename(reference.path_label ?? '')}`
+    || !SHA256.test(reference.sha256 ?? '') || document?.receipt_sha256 !== reference.sha256) {
+    throw new ReceiptError('prepared receipt is invalid');
+  }
+  const body = { ...document };
+  delete body.receipt_sha256;
+  if (sha256Canonical(body) !== reference.sha256) throw new ReceiptError('prepared receipt hash is invalid');
+  await localState.writeJsonAtomic(reference.path, document);
+  return reference;
+}
+
+export async function writeReceipt({ localState, result, plan, prepared = null }) {
+  const selected = prepared ?? prepareReceipt({ localState, result, plan });
+  return await writePreparedReceipt({ localState, prepared: selected });
 }
 
 export async function readAndVerifyReceipt(path, { fsImpl = defaultFs } = {}) {

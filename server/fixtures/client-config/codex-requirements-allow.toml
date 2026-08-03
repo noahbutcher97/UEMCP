@@ -1,0 +1,2 @@
+[mcp_servers.uemcp.identity]
+command = { executable = "__NODE__", args = [{ match = "exact", value = "__SERVER__" }] }

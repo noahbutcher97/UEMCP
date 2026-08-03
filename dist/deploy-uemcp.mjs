@@ -6,13 +6,7 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-var __commonJS = (cb, mod) => function __require2() {
+var __commonJS = (cb, mod) => function __require() {
   try {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   } catch (e) {
@@ -39,6 +33,2908 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+
+// server/node_modules/toml-eslint-parser/lib/internal-utils/index.js
+var require_internal_utils = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/internal-utils/index.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.last = last;
+    exports.toKeyName = toKeyName;
+    function last(arr) {
+      var _a;
+      return (_a = arr[arr.length - 1]) !== null && _a !== void 0 ? _a : null;
+    }
+    function toKeyName(node) {
+      return node.type === "TOMLBare" ? node.name : node.value;
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/parser-options.js
+var require_parser_options = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/parser-options.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.getTOMLVer = getTOMLVer;
+    var TOMLVerImpl = class {
+      constructor(major, minor) {
+        this.major = major;
+        this.minor = minor;
+      }
+      lt(major, minor) {
+        return this.major < major || this.major === major && this.minor < minor;
+      }
+      gte(major, minor) {
+        return this.major > major || this.major === major && this.minor >= minor;
+      }
+    };
+    var TOML_VERSION_1_0 = new TOMLVerImpl(1, 0);
+    var TOML_VERSION_1_1 = new TOMLVerImpl(1, 1);
+    var DEFAULT_TOML_VERSION = TOML_VERSION_1_0;
+    var SUPPORTED_TOML_VERSIONS = {
+      "1.0": TOML_VERSION_1_0,
+      "1.0.0": TOML_VERSION_1_0,
+      "1.1": TOML_VERSION_1_1,
+      "1.1.0": TOML_VERSION_1_1,
+      latest: TOML_VERSION_1_1,
+      next: TOML_VERSION_1_1
+    };
+    function getTOMLVer(v) {
+      return v && SUPPORTED_TOML_VERSIONS[v] || DEFAULT_TOML_VERSION;
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/errors.js
+var require_errors = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/errors.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ParseError = void 0;
+    var MESSAGES = {
+      "unterminated-string": "Unterminated string constant",
+      "unterminated-table-key": "Unterminated table-key",
+      "unterminated-array": "Unterminated array",
+      "unterminated-inline-table": "Unterminated inline table",
+      "missing-key": "Empty bare keys are not allowed",
+      "missing-newline": "Must be a newline",
+      "missing-equals-sign": "Expected equal (=) token",
+      "missing-value": "Unspecified values are invalid",
+      "missing-comma": "Expected comma (,) token",
+      "dupe-keys": "Defining a key multiple times is invalid",
+      "unexpected-char": "Unexpected character",
+      "unexpected-token": "Unexpected token",
+      "invalid-control-character": "Control characters (codes < 0x1f and 0x7f) are not allowed",
+      "invalid-comment-character": "Invalid code point {{cp}} within comments",
+      "invalid-key-value-newline": "The key, equals sign, and value must be on the same line",
+      "invalid-inline-table-newline": "No newlines are allowed between the curly braces unless they are valid within a value",
+      "invalid-underscore": "Underscores are allowed between digits",
+      "invalid-space": "Unexpected spaces",
+      "invalid-three-quotes": "Three or more quotes are not permitted",
+      "invalid-date": "Unexpected invalid date",
+      "invalid-time": "Unexpected invalid time",
+      "invalid-leading-zero": "Leading zeros are not allowed",
+      "invalid-trailing-comma-in-inline-table": "Trailing comma is not permitted in an inline table",
+      "invalid-char-in-escape-sequence": "Invalid character in escape sequence",
+      "invalid-consecutive-dots-in-key": "Consecutive dots are not permitted in keys",
+      "invalid-code-point": "Invalid code point {{cp}}",
+      "invalid-trailing-dot-in-key": "Keys cannot end with a dot",
+      "invalid-leading-dot-in-key": "Keys cannot start with a dot"
+    };
+    function getMessage(code, data) {
+      if (data) {
+        return MESSAGES[code].replace(/\{\{(.*?)\}\}/gu, (_, name) => {
+          if (name in data) {
+            return data[name];
+          }
+          return `{{${name}}}`;
+        });
+      }
+      return MESSAGES[code];
+    }
+    var ParseError = class extends SyntaxError {
+      /**
+       * Initialize this ParseError instance.
+       *
+       */
+      constructor(code, offset, line, column, data) {
+        super(getMessage(code, data));
+        this.index = offset;
+        this.lineNumber = line;
+        this.column = column;
+      }
+    };
+    exports.ParseError = ParseError;
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/tokenizer/locs.js
+var require_locs = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/tokenizer/locs.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.Locations = void 0;
+    function sortedLastIndex(array2, value) {
+      let low = 0;
+      let high = array2.length;
+      while (low < high) {
+        const mid = low + high >>> 1;
+        const val = array2[mid];
+        if (val === value)
+          return mid + 1;
+        if (val < value) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      return low;
+    }
+    var Locations = class {
+      constructor() {
+        this.offsets = [];
+      }
+      addOffset(offset) {
+        for (let i = this.offsets.length - 1; i >= 0; i--) {
+          const element = this.offsets[i];
+          if (element === offset)
+            return;
+          if (element < offset)
+            break;
+        }
+        this.offsets.push(offset);
+      }
+      /**
+       * Calculate the location of the given index.
+       * @param index The index to calculate their location.
+       * @returns The location of the index.
+       */
+      getLocFromIndex(offset) {
+        const line = sortedLastIndex(this.offsets, offset) + 1;
+        const column = offset - (line === 1 ? 0 : this.offsets[line - 2]);
+        return { line, column };
+      }
+    };
+    exports.Locations = Locations;
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/tokenizer/code-point-iterator.js
+var require_code_point_iterator = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/tokenizer/code-point-iterator.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.CodePointIterator = void 0;
+    var locs_1 = require_locs();
+    var CodePointIterator = class {
+      /**
+       * Initialize this char iterator.
+       */
+      constructor(text) {
+        this.locs = new locs_1.Locations();
+        this.lastCodePoint = 0;
+        this.start = -1;
+        this.end = 0;
+        this.text = text;
+      }
+      next() {
+        if (this.lastCodePoint === -1) {
+          return -1;
+        }
+        return this.lastCodePoint = this.moveAt(this.end);
+      }
+      getLocFromIndex(index) {
+        return this.locs.getLocFromIndex(index);
+      }
+      eat(cp) {
+        if (this.text.codePointAt(this.end) === cp) {
+          this.next();
+          return true;
+        }
+        return false;
+      }
+      moveAt(offset) {
+        var _a;
+        this.start = this.end = offset;
+        const cp = (_a = this.text.codePointAt(this.start)) !== null && _a !== void 0 ? _a : -1;
+        if (cp === -1) {
+          this.end = this.start;
+          return cp;
+        }
+        const shift = cp >= 65536 ? 2 : 1;
+        this.end += shift;
+        if (cp === 10) {
+          this.locs.addOffset(this.end);
+        } else if (cp === 13) {
+          if (this.text.codePointAt(this.end) === 10) {
+            this.end++;
+            this.locs.addOffset(this.end);
+          }
+          return 10;
+        }
+        return cp;
+      }
+    };
+    exports.CodePointIterator = CodePointIterator;
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/tokenizer/code-point.js
+var require_code_point = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/tokenizer/code-point.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.isControl = isControl;
+    exports.isWhitespace = isWhitespace;
+    exports.isEOL = isEOL2;
+    exports.isLetter = isLetter;
+    exports.isDigit = isDigit2;
+    exports.isHexDig = isHexDig;
+    exports.isOctalDig = isOctalDig;
+    exports.isHighSurrogate = isHighSurrogate;
+    exports.isLowSurrogate = isLowSurrogate;
+    exports.isUnicodeScalarValue = isUnicodeScalarValue;
+    function isControl(cp) {
+      return cp >= 0 && cp <= 31;
+    }
+    function isWhitespace(cp) {
+      return cp === 9 || cp === 32;
+    }
+    function isEOL2(cp) {
+      return cp === 10 || cp === 13;
+    }
+    function isUpperLetter(cp) {
+      return cp >= 65 && cp <= 90;
+    }
+    function isLowerLetter(cp) {
+      return cp >= 97 && cp <= 122;
+    }
+    function isLetter(cp) {
+      return isLowerLetter(cp) || isUpperLetter(cp);
+    }
+    function isDigit2(cp) {
+      return cp >= 48 && cp <= 57;
+    }
+    function isHexDig(cp) {
+      return isDigit2(cp) || cp >= 97 && cp <= 102 || cp >= 65 && cp <= 70;
+    }
+    function isOctalDig(cp) {
+      return cp >= 48 && cp <= 55;
+    }
+    function isHighSurrogate(cp) {
+      return cp >= 55296 && cp <= 57343;
+    }
+    function isLowSurrogate(cp) {
+      return cp >= 56320 && cp <= 57343;
+    }
+    function isUnicodeScalarValue(cp) {
+      return cp >= 0 && cp <= 55295 || cp >= 57344 && cp <= 1114111;
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/tokenizer/tokenizer.js
+var require_tokenizer = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/tokenizer/tokenizer.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.Tokenizer = void 0;
+    var errors_1 = require_errors();
+    var parser_options_1 = require_parser_options();
+    var code_point_iterator_1 = require_code_point_iterator();
+    var code_point_1 = require_code_point();
+    var HAS_BIGINT = typeof BigInt !== "undefined";
+    var RADIX_PREFIXES = {
+      16: "0x",
+      10: "",
+      8: "0o",
+      2: "0b"
+    };
+    var ESCAPES_1_0 = {
+      // escape-seq-char =  %x22         ; "    quotation mark  U+0022
+      [
+        34
+        /* CodePoint.QUOTATION_MARK */
+      ]: 34,
+      // escape-seq-char =/ %x5C         ; \    reverse solidus U+005C
+      [
+        92
+        /* CodePoint.BACKSLASH */
+      ]: 92,
+      // escape-seq-char =/ %x62         ; b    backspace       U+0008
+      [
+        98
+        /* CodePoint.LATIN_SMALL_B */
+      ]: 8,
+      // escape-seq-char =/ %x66         ; f    form feed       U+000C
+      [
+        102
+        /* CodePoint.LATIN_SMALL_F */
+      ]: 12,
+      // escape-seq-char =/ %x6E         ; n    line feed       U+000A
+      [
+        110
+        /* CodePoint.LATIN_SMALL_N */
+      ]: 10,
+      // escape-seq-char =/ %x72         ; r    carriage return U+000D
+      [
+        114
+        /* CodePoint.LATIN_SMALL_R */
+      ]: 13,
+      // escape-seq-char =/ %x74         ; t    tab             U+0009
+      [
+        116
+        /* CodePoint.LATIN_SMALL_T */
+      ]: 9
+    };
+    var ESCAPES_LATEST = Object.assign(Object.assign({}, ESCAPES_1_0), {
+      // escape-seq-char =/ %x65         ; e    escape          U+001B
+      // Added in TOML 1.1
+      [
+        101
+        /* CodePoint.LATIN_SMALL_E */
+      ]: 27
+      /* CodePoint.ESCAPE */
+    });
+    var Tokenizer = class {
+      /**
+       * Initialize this tokenizer.
+       */
+      constructor(text, parserOptions) {
+        this.backCode = false;
+        this.lastCodePoint = 0;
+        this.state = "DATA";
+        this.token = null;
+        this.tokenStart = -1;
+        this.valuesEnabled = false;
+        this.text = text;
+        this.parserOptions = parserOptions || {};
+        this.codePointIterator = new code_point_iterator_1.CodePointIterator(text);
+        this.tomlVersion = (0, parser_options_1.getTOMLVer)(this.parserOptions.tomlVersion);
+        this.ESCAPES = this.tomlVersion.gte(1, 1) ? ESCAPES_LATEST : ESCAPES_1_0;
+      }
+      get start() {
+        return this.codePointIterator.start;
+      }
+      get end() {
+        return this.codePointIterator.end;
+      }
+      getLocFromIndex(index) {
+        return this.codePointIterator.getLocFromIndex(index);
+      }
+      /**
+       * Report an invalid character error.
+       */
+      reportParseError(code, data) {
+        const offset = this.codePointIterator.start;
+        const loc = this.codePointIterator.getLocFromIndex(offset);
+        throw new errors_1.ParseError(code, offset, loc.line, loc.column, data);
+      }
+      /**
+       * Get the next token.
+       */
+      nextToken() {
+        let token = this.token;
+        if (token != null) {
+          this.token = null;
+          return token;
+        }
+        let cp = this.lastCodePoint;
+        while (cp !== -1 && !this.token) {
+          cp = this.nextCode();
+          const nextState = this[this.state](cp);
+          if (!nextState) {
+            throw new Error(`Unknown error: pre state=${this.state}`);
+          }
+          this.state = nextState;
+        }
+        token = this.token;
+        this.token = null;
+        return token;
+      }
+      /**
+       * Get the next code point.
+       */
+      nextCode() {
+        if (this.lastCodePoint === -1) {
+          return -1;
+        }
+        if (this.backCode) {
+          this.backCode = false;
+          return this.lastCodePoint;
+        }
+        return this.lastCodePoint = this.codePointIterator.next();
+      }
+      /**
+       * Eat the next code point.
+       */
+      eatCode(cp) {
+        if (this.lastCodePoint === -1) {
+          return false;
+        }
+        if (this.backCode) {
+          if (this.lastCodePoint === cp) {
+            this.backCode = false;
+            return true;
+          }
+          return false;
+        }
+        return this.codePointIterator.eat(cp);
+      }
+      /**
+       * Moves the character position to the given position.
+       */
+      moveAt(loc) {
+        if (this.backCode) {
+          this.backCode = false;
+        }
+        this.lastCodePoint = this.codePointIterator.moveAt(loc);
+      }
+      /**
+       * Back the current code point as the given state.
+       */
+      back(state) {
+        this.backCode = true;
+        return state;
+      }
+      punctuatorToken() {
+        this.startToken();
+        this.endToken("Punctuator", "end");
+      }
+      startToken() {
+        this.tokenStart = this.codePointIterator.start;
+      }
+      /**
+       * Commit the current token.
+       */
+      endToken(type, pos, option1, option2) {
+        const { tokenStart } = this;
+        const end = this.codePointIterator[pos];
+        const range = [tokenStart, end];
+        const loc = {
+          start: this.codePointIterator.getLocFromIndex(tokenStart),
+          end: this.codePointIterator.getLocFromIndex(end)
+        };
+        if (type === "Block") {
+          this.token = {
+            type,
+            value: this.text.slice(tokenStart + 1, end),
+            range,
+            loc
+          };
+        } else {
+          let token;
+          const value = this.text.slice(tokenStart, end);
+          if (type === "BasicString" || type === "LiteralString" || type === "MultiLineBasicString" || type === "MultiLineLiteralString") {
+            token = {
+              type,
+              value,
+              string: option1,
+              range,
+              loc
+            };
+          } else if (type === "Integer") {
+            const text = option1;
+            token = {
+              type,
+              value,
+              number: parseInt(text, option2),
+              bigint: HAS_BIGINT ? BigInt(RADIX_PREFIXES[option2] + text) : null,
+              range,
+              loc
+            };
+          } else if (type === "Float") {
+            token = {
+              type,
+              value,
+              number: option1,
+              range,
+              loc
+            };
+          } else if (type === "Boolean") {
+            token = {
+              type,
+              value,
+              boolean: option1,
+              range,
+              loc
+            };
+          } else if (type === "LocalDate" || type === "LocalTime" || type === "LocalDateTime" || type === "OffsetDateTime") {
+            token = {
+              type,
+              value,
+              date: option1,
+              range,
+              loc
+            };
+          } else {
+            token = {
+              type,
+              value,
+              range,
+              loc
+            };
+          }
+          this.token = token;
+        }
+      }
+      DATA(cp) {
+        while ((0, code_point_1.isWhitespace)(cp) || (0, code_point_1.isEOL)(cp)) {
+          cp = this.nextCode();
+        }
+        if (cp === 35) {
+          this.startToken();
+          return "COMMENT";
+        }
+        if (cp === 34) {
+          this.startToken();
+          return "BASIC_STRING";
+        }
+        if (cp === 39) {
+          this.startToken();
+          return "LITERAL_STRING";
+        }
+        if (cp === 46 || // .
+        cp === 61 || // =
+        cp === 91 || // [
+        cp === 93 || // ]
+        cp === 123 || // {
+        cp === 125 || // }
+        cp === 44) {
+          this.punctuatorToken();
+          return "DATA";
+        }
+        if (this.valuesEnabled) {
+          if (cp === 45 || cp === 43) {
+            this.startToken();
+            return "SIGN";
+          }
+          if (cp === 110 || cp === 105) {
+            this.startToken();
+            return this.back("NAN_OR_INF");
+          }
+          if ((0, code_point_1.isDigit)(cp)) {
+            this.startToken();
+            return this.back("NUMBER");
+          }
+          if (cp === 116 || cp === 102) {
+            this.startToken();
+            return this.back("BOOLEAN");
+          }
+        } else {
+          if (isUnquotedKeyChar(cp, this.tomlVersion)) {
+            this.startToken();
+            return "BARE";
+          }
+        }
+        if (cp === -1) {
+          return "DATA";
+        }
+        return this.reportParseError("unexpected-char");
+      }
+      COMMENT(cp) {
+        const processCommentChar = this.tomlVersion.gte(1, 1) ? (c) => {
+          if (!isNonEOL(c)) {
+            this.reportParseError("invalid-comment-character", {
+              cp: JSON.stringify(String.fromCodePoint(c)).slice(1, -1)
+            });
+          }
+        } : (c) => {
+          if (isControlOtherThanTab(c)) {
+            this.reportParseErrorControlChar();
+          }
+        };
+        while (!(0, code_point_1.isEOL)(cp) && cp !== -1) {
+          processCommentChar(cp);
+          cp = this.nextCode();
+        }
+        this.endToken("Block", "start");
+        return "DATA";
+      }
+      BARE(cp) {
+        while (isUnquotedKeyChar(cp, this.tomlVersion)) {
+          cp = this.nextCode();
+        }
+        this.endToken("Bare", "start");
+        return this.back("DATA");
+      }
+      BASIC_STRING(cp) {
+        if (cp === 34) {
+          cp = this.nextCode();
+          if (cp === 34) {
+            return "MULTI_LINE_BASIC_STRING";
+          }
+          this.endToken("BasicString", "start", "");
+          return this.back("DATA");
+        }
+        const out = [];
+        while (cp !== 34 && cp !== -1 && cp !== 10) {
+          if (isControlOtherThanTab(cp)) {
+            return this.reportParseErrorControlChar();
+          }
+          if (cp === 92) {
+            cp = this.nextCode();
+            const ecp = this.ESCAPES[cp];
+            if (ecp) {
+              out.push(ecp);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 117) {
+              const code = this.parseUnicode(4);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 85) {
+              const code = this.parseUnicode(8);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 120 && this.tomlVersion.gte(1, 1)) {
+              const code = this.parseUnicode(2);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            }
+            return this.reportParseError("invalid-char-in-escape-sequence");
+          }
+          out.push(cp);
+          cp = this.nextCode();
+        }
+        if (cp !== 34) {
+          return this.reportParseError("unterminated-string");
+        }
+        this.endToken("BasicString", "end", String.fromCodePoint(...out));
+        return "DATA";
+      }
+      MULTI_LINE_BASIC_STRING(cp) {
+        const out = [];
+        if (cp === 10) {
+          cp = this.nextCode();
+        }
+        while (cp !== -1) {
+          if (cp !== 10 && isControlOtherThanTab(cp)) {
+            return this.reportParseErrorControlChar();
+          }
+          if (cp === 34) {
+            const startPos = this.codePointIterator.start;
+            if (this.eatCode(
+              34
+              /* CodePoint.QUOTATION_MARK */
+            ) && this.eatCode(
+              34
+              /* CodePoint.QUOTATION_MARK */
+            )) {
+              if (this.eatCode(
+                34
+                /* CodePoint.QUOTATION_MARK */
+              )) {
+                out.push(
+                  34
+                  /* CodePoint.QUOTATION_MARK */
+                );
+                if (this.eatCode(
+                  34
+                  /* CodePoint.QUOTATION_MARK */
+                )) {
+                  out.push(
+                    34
+                    /* CodePoint.QUOTATION_MARK */
+                  );
+                  if (this.eatCode(
+                    34
+                    /* CodePoint.QUOTATION_MARK */
+                  )) {
+                    this.moveAt(startPos);
+                    return this.reportParseError("invalid-three-quotes");
+                  }
+                }
+              }
+              this.endToken("MultiLineBasicString", "end", String.fromCodePoint(...out));
+              return "DATA";
+            }
+            this.moveAt(startPos);
+          }
+          if (cp === 92) {
+            cp = this.nextCode();
+            const ecp = this.ESCAPES[cp];
+            if (ecp) {
+              out.push(ecp);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 117) {
+              const code = this.parseUnicode(4);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 85) {
+              const code = this.parseUnicode(8);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 120 && this.tomlVersion.gte(1, 1)) {
+              const code = this.parseUnicode(2);
+              out.push(code);
+              cp = this.nextCode();
+              continue;
+            } else if (cp === 10) {
+              cp = this.nextCode();
+              while ((0, code_point_1.isWhitespace)(cp) || cp === 10) {
+                cp = this.nextCode();
+              }
+              continue;
+            } else if ((0, code_point_1.isWhitespace)(cp)) {
+              let valid = true;
+              const startPos = this.codePointIterator.start;
+              let nextCp;
+              while ((nextCp = this.nextCode()) !== -1) {
+                if (nextCp === 10) {
+                  break;
+                }
+                if (!(0, code_point_1.isWhitespace)(nextCp)) {
+                  this.moveAt(startPos);
+                  valid = false;
+                  break;
+                }
+              }
+              if (valid) {
+                cp = this.nextCode();
+                while ((0, code_point_1.isWhitespace)(cp) || cp === 10) {
+                  cp = this.nextCode();
+                }
+                continue;
+              }
+            }
+            return this.reportParseError("invalid-char-in-escape-sequence");
+          }
+          out.push(cp);
+          cp = this.nextCode();
+        }
+        return this.reportParseError("unterminated-string");
+      }
+      LITERAL_STRING(cp) {
+        if (cp === 39) {
+          cp = this.nextCode();
+          if (cp === 39) {
+            return "MULTI_LINE_LITERAL_STRING";
+          }
+          this.endToken("LiteralString", "start", "");
+          return this.back("DATA");
+        }
+        const out = [];
+        while (cp !== 39 && cp !== -1 && cp !== 10) {
+          if (isControlOtherThanTab(cp)) {
+            return this.reportParseErrorControlChar();
+          }
+          out.push(cp);
+          cp = this.nextCode();
+        }
+        if (cp !== 39) {
+          return this.reportParseError("unterminated-string");
+        }
+        this.endToken("LiteralString", "end", String.fromCodePoint(...out));
+        return "DATA";
+      }
+      MULTI_LINE_LITERAL_STRING(cp) {
+        const out = [];
+        if (cp === 10) {
+          cp = this.nextCode();
+        }
+        while (cp !== -1) {
+          if (cp !== 10 && isControlOtherThanTab(cp)) {
+            return this.reportParseErrorControlChar();
+          }
+          if (cp === 39) {
+            const startPos = this.codePointIterator.start;
+            if (this.eatCode(
+              39
+              /* CodePoint.SINGLE_QUOTE */
+            ) && this.eatCode(
+              39
+              /* CodePoint.SINGLE_QUOTE */
+            )) {
+              if (this.eatCode(
+                39
+                /* CodePoint.SINGLE_QUOTE */
+              )) {
+                out.push(
+                  39
+                  /* CodePoint.SINGLE_QUOTE */
+                );
+                if (this.eatCode(
+                  39
+                  /* CodePoint.SINGLE_QUOTE */
+                )) {
+                  out.push(
+                    39
+                    /* CodePoint.SINGLE_QUOTE */
+                  );
+                  if (this.eatCode(
+                    39
+                    /* CodePoint.SINGLE_QUOTE */
+                  )) {
+                    this.moveAt(startPos);
+                    return this.reportParseError("invalid-three-quotes");
+                  }
+                }
+              }
+              this.endToken("MultiLineLiteralString", "end", String.fromCodePoint(...out));
+              return "DATA";
+            }
+            this.moveAt(startPos);
+          }
+          out.push(cp);
+          cp = this.nextCode();
+        }
+        return this.reportParseError("unterminated-string");
+      }
+      SIGN(cp) {
+        if (cp === 110 || cp === 105) {
+          return this.back("NAN_OR_INF");
+        }
+        if ((0, code_point_1.isDigit)(cp)) {
+          return this.back("NUMBER");
+        }
+        return this.reportParseError("unexpected-char");
+      }
+      NAN_OR_INF(cp) {
+        if (cp === 110) {
+          const startPos = this.codePointIterator.start;
+          if (this.eatCode(
+            97
+            /* CodePoint.LATIN_SMALL_A */
+          ) && this.eatCode(
+            110
+            /* CodePoint.LATIN_SMALL_N */
+          )) {
+            this.endToken("Float", "end", NaN);
+            return "DATA";
+          }
+          this.moveAt(startPos);
+        } else if (cp === 105) {
+          const startPos = this.codePointIterator.start;
+          if (this.eatCode(
+            110
+            /* CodePoint.LATIN_SMALL_N */
+          ) && this.eatCode(
+            102
+            /* CodePoint.LATIN_SMALL_F */
+          )) {
+            this.endToken("Float", "end", this.text[this.tokenStart] === "-" ? -Infinity : Infinity);
+            return "DATA";
+          }
+          this.moveAt(startPos);
+        }
+        return this.reportParseError("unexpected-char");
+      }
+      NUMBER(cp) {
+        const start = this.text[this.tokenStart];
+        const sign = start === "+" ? 43 : start === "-" ? 45 : 0;
+        if (cp === 48) {
+          if (sign === 0) {
+            const startPos = this.codePointIterator.start;
+            const nextCp2 = this.nextCode();
+            if ((0, code_point_1.isDigit)(nextCp2)) {
+              const nextNextCp = this.nextCode();
+              if (nextNextCp === 58) {
+                const data = {
+                  hasDate: false,
+                  year: 0,
+                  month: 0,
+                  day: 0,
+                  hour: Number(String.fromCodePoint(48, nextCp2)),
+                  minute: 0,
+                  second: 0
+                };
+                this.data = data;
+                return "TIME_MINUTE";
+              }
+              if ((0, code_point_1.isDigit)(nextNextCp)) {
+                const nextNextNextCp = this.nextCode();
+                if ((0, code_point_1.isDigit)(nextNextNextCp) && this.eatCode(
+                  45
+                  /* CodePoint.DASH */
+                )) {
+                  const data = {
+                    hasDate: true,
+                    year: Number(String.fromCodePoint(48, nextCp2, nextNextCp, nextNextNextCp)),
+                    month: 0,
+                    day: 0,
+                    hour: 0,
+                    minute: 0,
+                    second: 0
+                  };
+                  this.data = data;
+                  return "DATE_MONTH";
+                }
+              }
+              this.moveAt(startPos);
+              return this.reportParseError("invalid-leading-zero");
+            }
+            this.moveAt(startPos);
+          }
+          cp = this.nextCode();
+          if (cp === 120 || cp === 111 || cp === 98) {
+            if (sign !== 0) {
+              return this.reportParseError("unexpected-char");
+            }
+            return cp === 120 ? "HEX" : cp === 111 ? "OCTAL" : "BINARY";
+          }
+          if (cp === 101 || cp === 69) {
+            const data = {
+              // Float values -0.0 and +0.0 are valid and should map according to IEEE 754.
+              minus: sign === 45,
+              left: [
+                48
+                /* CodePoint.DIGIT_0 */
+              ]
+            };
+            this.data = data;
+            return "EXPONENT_RIGHT";
+          }
+          if (cp === 46) {
+            const data = {
+              minus: sign === 45,
+              absInt: [
+                48
+                /* CodePoint.DIGIT_0 */
+              ]
+            };
+            this.data = data;
+            return "FRACTIONAL_RIGHT";
+          }
+          this.endToken("Integer", "start", "0", 10);
+          return this.back("DATA");
+        }
+        const { out, nextCp, hasUnderscore } = this.parseDigits(cp, code_point_1.isDigit);
+        if (nextCp === 45 && sign === 0 && !hasUnderscore && out.length === 4) {
+          const data = {
+            hasDate: true,
+            year: Number(String.fromCodePoint(...out)),
+            month: 0,
+            day: 0,
+            hour: 0,
+            minute: 0,
+            second: 0
+          };
+          this.data = data;
+          return "DATE_MONTH";
+        }
+        if (nextCp === 58 && sign === 0 && !hasUnderscore && out.length === 2) {
+          const data = {
+            hasDate: false,
+            year: 0,
+            month: 0,
+            day: 0,
+            hour: Number(String.fromCodePoint(...out)),
+            minute: 0,
+            second: 0
+          };
+          this.data = data;
+          return "TIME_MINUTE";
+        }
+        if (nextCp === 101 || nextCp === 69) {
+          const data = {
+            minus: sign === 45,
+            left: out
+          };
+          this.data = data;
+          return "EXPONENT_RIGHT";
+        }
+        if (nextCp === 46) {
+          const data = {
+            minus: sign === 45,
+            absInt: out
+          };
+          this.data = data;
+          return "FRACTIONAL_RIGHT";
+        }
+        this.endToken("Integer", "start", sign === 45 ? String.fromCodePoint(45, ...out) : String.fromCodePoint(...out), 10);
+        return this.back("DATA");
+      }
+      HEX(cp) {
+        const { out } = this.parseDigits(cp, code_point_1.isHexDig);
+        this.endToken("Integer", "start", String.fromCodePoint(...out), 16);
+        return this.back("DATA");
+      }
+      OCTAL(cp) {
+        const { out } = this.parseDigits(cp, code_point_1.isOctalDig);
+        this.endToken("Integer", "start", String.fromCodePoint(...out), 8);
+        return this.back("DATA");
+      }
+      BINARY(cp) {
+        const { out } = this.parseDigits(
+          cp,
+          (c) => c === 48 || c === 49
+          /* CodePoint.DIGIT_1 */
+        );
+        this.endToken("Integer", "start", String.fromCodePoint(...out), 2);
+        return this.back("DATA");
+      }
+      FRACTIONAL_RIGHT(cp) {
+        const { minus, absInt } = this.data;
+        const { out, nextCp } = this.parseDigits(cp, code_point_1.isDigit);
+        const absNum = [...absInt, 46, ...out];
+        if (nextCp === 101 || nextCp === 69) {
+          const data = {
+            minus,
+            left: absNum
+          };
+          this.data = data;
+          return "EXPONENT_RIGHT";
+        }
+        const value = Number(minus ? String.fromCodePoint(45, ...absNum) : String.fromCodePoint(...absNum));
+        this.endToken("Float", "start", value);
+        return this.back("DATA");
+      }
+      EXPONENT_RIGHT(cp) {
+        const { left, minus: leftMinus } = this.data;
+        let minus = false;
+        if (cp === 45 || cp === 43) {
+          minus = cp === 45;
+          cp = this.nextCode();
+        }
+        const { out } = this.parseDigits(cp, code_point_1.isDigit);
+        const right = out;
+        if (minus) {
+          right.unshift(
+            45
+            /* CodePoint.DASH */
+          );
+        }
+        const value = Number(leftMinus ? String.fromCodePoint(45, ...left, 101, ...right) : String.fromCodePoint(...left, 101, ...right));
+        this.endToken("Float", "start", value);
+        return this.back("DATA");
+      }
+      BOOLEAN(cp) {
+        if (cp === 116) {
+          const startPos = this.codePointIterator.start;
+          if (this.eatCode(
+            114
+            /* CodePoint.LATIN_SMALL_R */
+          ) && this.eatCode(
+            117
+            /* CodePoint.LATIN_SMALL_U */
+          ) && this.eatCode(
+            101
+            /* CodePoint.LATIN_SMALL_E */
+          )) {
+            this.endToken("Boolean", "end", true);
+            return "DATA";
+          }
+          this.moveAt(startPos);
+        } else if (cp === 102) {
+          const startPos = this.codePointIterator.start;
+          if (this.eatCode(
+            97
+            /* CodePoint.LATIN_SMALL_A */
+          ) && this.eatCode(
+            108
+            /* CodePoint.LATIN_SMALL_L */
+          ) && this.eatCode(
+            115
+            /* CodePoint.LATIN_SMALL_S */
+          ) && this.eatCode(
+            101
+            /* CodePoint.LATIN_SMALL_E */
+          )) {
+            this.endToken("Boolean", "end", false);
+            return "DATA";
+          }
+          this.moveAt(startPos);
+        }
+        return this.reportParseError("unexpected-char");
+      }
+      DATE_MONTH(cp) {
+        const start = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (cp !== 45) {
+          return this.reportParseError("unexpected-char");
+        }
+        const end = this.codePointIterator.start;
+        const data = this.data;
+        data.month = Number(this.text.slice(start, end));
+        return "DATE_DAY";
+      }
+      DATE_DAY(cp) {
+        const start = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const end = this.codePointIterator.end;
+        const data = this.data;
+        data.day = Number(this.text.slice(start, end));
+        if (!isValidDate(data.year, data.month, data.day)) {
+          return this.reportParseError("invalid-date");
+        }
+        cp = this.nextCode();
+        if (cp === 84 || cp === 116) {
+          return "TIME_HOUR";
+        }
+        if (cp === 32) {
+          const startPos = this.codePointIterator.start;
+          if ((0, code_point_1.isDigit)(this.nextCode()) && (0, code_point_1.isDigit)(this.nextCode())) {
+            this.moveAt(startPos);
+            return "TIME_HOUR";
+          }
+          this.moveAt(startPos);
+        }
+        const dateValue = getDateFromDateTimeData(data, "");
+        this.endToken("LocalDate", "start", dateValue);
+        return this.back("DATA");
+      }
+      TIME_HOUR(cp) {
+        const start = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (cp !== 58) {
+          return this.reportParseError("unexpected-char");
+        }
+        const end = this.codePointIterator.start;
+        const data = this.data;
+        data.hour = Number(this.text.slice(start, end));
+        return "TIME_MINUTE";
+      }
+      TIME_MINUTE(cp) {
+        const start = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const end = this.codePointIterator.end;
+        const data = this.data;
+        data.minute = Number(this.text.slice(start, end));
+        cp = this.nextCode();
+        if (cp === 58) {
+          return "TIME_SECOND";
+        }
+        if (this.tomlVersion.lt(1, 1)) {
+          return this.reportParseError("unexpected-char");
+        }
+        if (!isValidTime(data.hour, data.minute, data.second)) {
+          return this.reportParseError("invalid-time");
+        }
+        return this.processTimeEnd(cp, data);
+      }
+      TIME_SECOND(cp) {
+        const start = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const end = this.codePointIterator.end;
+        const data = this.data;
+        data.second = Number(this.text.slice(start, end));
+        if (!isValidTime(data.hour, data.minute, data.second)) {
+          return this.reportParseError("invalid-time");
+        }
+        cp = this.nextCode();
+        if (cp === 46) {
+          return "TIME_SEC_FRAC";
+        }
+        return this.processTimeEnd(cp, data);
+      }
+      TIME_SEC_FRAC(cp) {
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const start = this.codePointIterator.start;
+        while ((0, code_point_1.isDigit)(cp)) {
+          cp = this.nextCode();
+        }
+        const end = this.codePointIterator.start;
+        const data = this.data;
+        data.frac = this.text.slice(start, end);
+        return this.processTimeEnd(cp, data);
+      }
+      processTimeEnd(cp, data) {
+        if (data.hasDate) {
+          if (cp === 45 || cp === 43) {
+            data.offsetSign = cp;
+            return "TIME_OFFSET";
+          }
+          if (cp === 90 || cp === 122) {
+            const dateValue3 = getDateFromDateTimeData(data, "Z");
+            this.endToken("OffsetDateTime", "end", dateValue3);
+            return "DATA";
+          }
+          const dateValue2 = getDateFromDateTimeData(data, "");
+          this.endToken("LocalDateTime", "start", dateValue2);
+          return this.back("DATA");
+        }
+        const dateValue = getDateFromDateTimeData(data, "");
+        this.endToken("LocalTime", "start", dateValue);
+        return this.back("DATA");
+      }
+      TIME_OFFSET(cp) {
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const hourStart = this.codePointIterator.start;
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (cp !== 58) {
+          return this.reportParseError("unexpected-char");
+        }
+        const hourEnd = this.codePointIterator.start;
+        cp = this.nextCode();
+        const minuteStart = this.codePointIterator.start;
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        cp = this.nextCode();
+        if (!(0, code_point_1.isDigit)(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const minuteEnd = this.codePointIterator.end;
+        const hour = Number(this.text.slice(hourStart, hourEnd));
+        const minute = Number(this.text.slice(minuteStart, minuteEnd));
+        if (!isValidTime(hour, minute, 0)) {
+          return this.reportParseError("invalid-time");
+        }
+        const data = this.data;
+        const dateValue = getDateFromDateTimeData(data, `${String.fromCodePoint(data.offsetSign)}${padStart(hour, 2)}:${padStart(minute, 2)}`);
+        this.endToken("OffsetDateTime", "end", dateValue);
+        return "DATA";
+      }
+      parseDigits(cp, checkDigit) {
+        if (cp === 95) {
+          return this.reportParseError("invalid-underscore");
+        }
+        if (!checkDigit(cp)) {
+          return this.reportParseError("unexpected-char");
+        }
+        const out = [];
+        let before = 0;
+        let hasUnderscore = false;
+        while (checkDigit(cp) || cp === 95) {
+          if (cp === 95) {
+            hasUnderscore = true;
+            if (before === 95) {
+              return this.reportParseError("invalid-underscore");
+            }
+          } else {
+            out.push(cp);
+          }
+          before = cp;
+          cp = this.nextCode();
+        }
+        if (before === 95) {
+          return this.reportParseError("invalid-underscore");
+        }
+        return {
+          out,
+          nextCp: cp,
+          hasUnderscore
+        };
+      }
+      parseUnicode(count) {
+        const startLoc = this.codePointIterator.start;
+        const start = this.codePointIterator.end;
+        let charCount = 0;
+        let cp;
+        while ((cp = this.nextCode()) !== -1) {
+          if (!(0, code_point_1.isHexDig)(cp)) {
+            this.moveAt(startLoc);
+            return this.reportParseError("invalid-char-in-escape-sequence");
+          }
+          charCount++;
+          if (charCount >= count) {
+            break;
+          }
+        }
+        const end = this.codePointIterator.end;
+        const code = this.text.slice(start, end);
+        const codePoint = parseInt(code, 16);
+        if (!(0, code_point_1.isUnicodeScalarValue)(codePoint)) {
+          return this.reportParseError("invalid-code-point", { cp: code });
+        }
+        return codePoint;
+      }
+      reportParseErrorControlChar() {
+        return this.reportParseError("invalid-control-character");
+      }
+    };
+    exports.Tokenizer = Tokenizer;
+    function isUnquotedKeyChar(cp, tomlVersion) {
+      if ((0, code_point_1.isLetter)(cp) || (0, code_point_1.isDigit)(cp) || cp === 95 || cp === 45) {
+        return true;
+      }
+      if (tomlVersion.lt(1, 1)) {
+        return false;
+      }
+      return false;
+    }
+    function isControlOtherThanTab(cp) {
+      return (0, code_point_1.isControl)(cp) && cp !== 9 || cp === 127;
+    }
+    function isNonEOL(cp) {
+      return cp === 9 || 32 <= cp && cp <= 126 || isNonAscii(cp);
+    }
+    function isNonAscii(cp) {
+      return 128 <= cp && cp <= 55295 || 57344 <= cp && cp <= 1114111;
+    }
+    function isValidDate(y, m, d) {
+      if (y >= 0 && m <= 12 && m >= 1 && d >= 1) {
+        const maxDayOfMonth = m === 2 ? y & 3 || !(y % 25) && y & 15 ? 28 : 29 : 30 + (m + (m >> 3) & 1);
+        return d <= maxDayOfMonth;
+      }
+      return false;
+    }
+    function isValidTime(h, m, s) {
+      if (h >= 24 || h < 0 || m > 59 || m < 0 || s > 60 || s < 0) {
+        return false;
+      }
+      return true;
+    }
+    function getDateFromDateTimeData(data, timeZone) {
+      const year = padStart(data.year, 4);
+      const month = data.month ? padStart(data.month, 2) : "01";
+      const day = data.day ? padStart(data.day, 2) : "01";
+      const hour = padStart(data.hour, 2);
+      const minute = padStart(data.minute, 2);
+      const second = padStart(data.second, 2);
+      const textDate = `${year}-${month}-${day}`;
+      const frac = data.frac ? `.${data.frac}` : "";
+      const dateValue = /* @__PURE__ */ new Date(`${textDate}T${hour}:${minute}:${second}${frac}${timeZone}`);
+      if (!isNaN(dateValue.getTime()) || data.second !== 60) {
+        return dateValue;
+      }
+      return /* @__PURE__ */ new Date(`${textDate}T${hour}:${minute}:59${frac}${timeZone}`);
+    }
+    function padStart(num, maxLength) {
+      return String(num).padStart(maxLength, "0");
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/tokenizer/index.js
+var require_tokenizer2 = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/tokenizer/index.js"(exports) {
+    "use strict";
+    var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __exportStar = exports && exports.__exportStar || function(m, exports2) {
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports2, p)) __createBinding(exports2, m, p);
+    };
+    Object.defineProperty(exports, "__esModule", { value: true });
+    __exportStar(require_tokenizer(), exports);
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/toml-parser/keys-resolver.js
+var require_keys_resolver = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/toml-parser/keys-resolver.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.KeysResolver = void 0;
+    var internal_utils_1 = require_internal_utils();
+    var KeysResolver = class {
+      constructor(ctx) {
+        this.rootKeys = /* @__PURE__ */ new Map();
+        this.tables = [];
+        this.ctx = ctx;
+      }
+      applyResolveKeyForTable(node) {
+        let keys = this.rootKeys;
+        const peekKeyIndex = node.key.keys.length - 1;
+        for (let index = 0; index < peekKeyIndex; index++) {
+          const keyNode = node.key.keys[index];
+          const keyName = (0, internal_utils_1.toKeyName)(keyNode);
+          node.resolvedKey.push(keyName);
+          let keyStore = keys.get(keyName);
+          if (!keyStore) {
+            keyStore = { node: keyNode, keys: /* @__PURE__ */ new Map() };
+            keys.set(keyName, keyStore);
+          } else if (keyStore.table === "array") {
+            const peekIndex = keyStore.peekIndex;
+            node.resolvedKey.push(peekIndex);
+            keyStore = keyStore.keys.get(peekIndex);
+          }
+          keys = keyStore.keys;
+        }
+        const lastKeyNode = node.key.keys[peekKeyIndex];
+        const lastKeyName = (0, internal_utils_1.toKeyName)(lastKeyNode);
+        node.resolvedKey.push(lastKeyName);
+        const lastKeyStore = keys.get(lastKeyName);
+        if (!lastKeyStore) {
+          if (node.kind === "array") {
+            node.resolvedKey.push(0);
+            const newKeyStore = {
+              node: lastKeyNode,
+              keys: /* @__PURE__ */ new Map()
+            };
+            keys.set(lastKeyName, {
+              table: node.kind,
+              node: lastKeyNode,
+              keys: /* @__PURE__ */ new Map([[0, newKeyStore]]),
+              peekIndex: 0
+            });
+            this.tables.push({ node, keys: newKeyStore.keys });
+          } else {
+            const newKeyStore = {
+              table: node.kind,
+              node: lastKeyNode,
+              keys: /* @__PURE__ */ new Map()
+            };
+            keys.set(lastKeyName, newKeyStore);
+            this.tables.push({ node, keys: newKeyStore.keys });
+          }
+        } else if (!lastKeyStore.table) {
+          if (node.kind === "array") {
+            this.ctx.reportParseError("dupe-keys", lastKeyNode);
+          } else {
+            const transformKey = {
+              table: node.kind,
+              node: lastKeyNode,
+              keys: lastKeyStore.keys
+            };
+            keys.set(lastKeyName, transformKey);
+            this.tables.push({ node, keys: transformKey.keys });
+          }
+        } else if (lastKeyStore.table === "array") {
+          if (node.kind === "array") {
+            const newKeyStore = {
+              node: lastKeyNode,
+              keys: /* @__PURE__ */ new Map()
+            };
+            const newIndex = lastKeyStore.peekIndex + 1;
+            node.resolvedKey.push(newIndex);
+            lastKeyStore.keys.set(newIndex, newKeyStore);
+            lastKeyStore.peekIndex = newIndex;
+            this.tables.push({ node, keys: newKeyStore.keys });
+          } else {
+            this.ctx.reportParseError("dupe-keys", lastKeyNode);
+          }
+        } else {
+          this.ctx.reportParseError("dupe-keys", lastKeyNode);
+        }
+      }
+      verifyDuplicateKeys(node) {
+        for (const body of node.body) {
+          if (body.type === "TOMLKeyValue") {
+            verifyDuplicateKeysForKeyValue(this.ctx, this.rootKeys, body);
+          }
+        }
+        for (const { node: tableNode2, keys } of this.tables) {
+          for (const body of tableNode2.body) {
+            verifyDuplicateKeysForKeyValue(this.ctx, keys, body);
+          }
+        }
+      }
+    };
+    exports.KeysResolver = KeysResolver;
+    function verifyDuplicateKeysForKeyValue(ctx, defineKeys, node) {
+      let keys = defineKeys;
+      const lastKey = (0, internal_utils_1.last)(node.key.keys);
+      for (const keyNode of node.key.keys) {
+        const key = (0, internal_utils_1.toKeyName)(keyNode);
+        let defineKey = keys.get(key);
+        if (defineKey) {
+          if (defineKey.value === 0) {
+            ctx.reportParseError("dupe-keys", getAfterNode(keyNode, defineKey.node));
+          } else if (lastKey === keyNode) {
+            ctx.reportParseError("dupe-keys", getAfterNode(keyNode, defineKey.node));
+          } else if (defineKey.table) {
+            ctx.reportParseError("dupe-keys", getAfterNode(keyNode, defineKey.node));
+          }
+          defineKey.value = 1;
+        } else {
+          if (lastKey === keyNode) {
+            const keyStore = {
+              value: 0,
+              node: keyNode,
+              keys: /* @__PURE__ */ new Map()
+            };
+            defineKey = keyStore;
+          } else {
+            const keyStore = {
+              value: 1,
+              node: keyNode,
+              keys: /* @__PURE__ */ new Map()
+            };
+            defineKey = keyStore;
+          }
+          keys.set(key, defineKey);
+        }
+        keys = defineKey.keys;
+      }
+      if (node.value.type === "TOMLInlineTable") {
+        verifyDuplicateKeysForInlineTable(ctx, keys, node.value);
+      } else if (node.value.type === "TOMLArray") {
+        verifyDuplicateKeysForArray(ctx, keys, node.value);
+      }
+    }
+    function verifyDuplicateKeysForInlineTable(ctx, defineKeys, node) {
+      for (const body of node.body) {
+        verifyDuplicateKeysForKeyValue(ctx, defineKeys, body);
+      }
+    }
+    function verifyDuplicateKeysForArray(ctx, defineKeys, node) {
+      const keys = defineKeys;
+      for (let index = 0; index < node.elements.length; index++) {
+        const element = node.elements[index];
+        let defineKey = keys.get(index);
+        if (defineKey) {
+          ctx.reportParseError("dupe-keys", getAfterNode(element, defineKey.node));
+        } else {
+          defineKey = {
+            value: 0,
+            node: element,
+            keys: /* @__PURE__ */ new Map()
+          };
+          defineKeys.set(index, defineKey);
+          if (element.type === "TOMLInlineTable") {
+            verifyDuplicateKeysForInlineTable(ctx, defineKey.keys, element);
+          } else if (element.type === "TOMLArray") {
+            verifyDuplicateKeysForArray(ctx, defineKey.keys, element);
+          }
+        }
+      }
+    }
+    function getAfterNode(a, b) {
+      return a.range[0] <= b.range[0] ? b : a;
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/toml-parser/context.js
+var require_context = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/toml-parser/context.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.Context = void 0;
+    var errors_1 = require_errors();
+    var tokenizer_1 = require_tokenizer2();
+    var keys_resolver_1 = require_keys_resolver();
+    var Context = class {
+      constructor(data) {
+        this.tokens = [];
+        this.comments = [];
+        this.back = null;
+        this.stateStack = [];
+        this.needNewLine = false;
+        this.needSameLine = false;
+        this.currToken = null;
+        this.prevToken = null;
+        this.valueContainerStack = [];
+        this.tokenizer = new tokenizer_1.Tokenizer(data.text, data.parserOptions);
+        this.topLevelTable = data.topLevelTable;
+        this.table = data.topLevelTable;
+        this.keysResolver = new keys_resolver_1.KeysResolver(this);
+      }
+      /**
+       * Get the next token.
+       */
+      nextToken(option) {
+        this.prevToken = this.currToken;
+        if (this.back) {
+          this.currToken = this.back;
+          this.back = null;
+        } else {
+          this.currToken = this._nextTokenFromTokenizer(option);
+        }
+        if ((this.needNewLine || this.needSameLine || (option === null || option === void 0 ? void 0 : option.needSameLine)) && this.prevToken && this.currToken) {
+          if (this.prevToken.loc.end.line === this.currToken.loc.start.line) {
+            if (this.needNewLine) {
+              return this.reportParseError("missing-newline", this.currToken);
+            }
+          } else {
+            const needSameLine = this.needSameLine || (option === null || option === void 0 ? void 0 : option.needSameLine);
+            if (needSameLine) {
+              return this.reportParseError(needSameLine, this.currToken);
+            }
+          }
+        }
+        this.needNewLine = false;
+        this.needSameLine = false;
+        return this.currToken;
+      }
+      _nextTokenFromTokenizer(option) {
+        const valuesEnabled = this.tokenizer.valuesEnabled;
+        if (option === null || option === void 0 ? void 0 : option.valuesEnabled) {
+          this.tokenizer.valuesEnabled = option.valuesEnabled;
+        }
+        let token = this.tokenizer.nextToken();
+        while (token && token.type === "Block") {
+          this.comments.push(token);
+          token = this.tokenizer.nextToken();
+        }
+        if (token) {
+          this.tokens.push(token);
+        }
+        this.tokenizer.valuesEnabled = valuesEnabled;
+        return token;
+      }
+      backToken() {
+        if (this.back) {
+          throw new Error("Illegal state");
+        }
+        this.back = this.currToken;
+        this.currToken = this.prevToken;
+      }
+      addValueContainer(valueContainer) {
+        this.valueContainerStack.push(valueContainer);
+        this.tokenizer.valuesEnabled = true;
+      }
+      consumeValueContainer() {
+        const valueContainer = this.valueContainerStack.pop();
+        this.tokenizer.valuesEnabled = this.valueContainerStack.length > 0;
+        return valueContainer;
+      }
+      applyResolveKeyForTable(node) {
+        this.keysResolver.applyResolveKeyForTable(node);
+      }
+      verifyDuplicateKeys() {
+        this.keysResolver.verifyDuplicateKeys(this.topLevelTable);
+      }
+      /**
+       * Report an invalid token error.
+       */
+      reportParseError(code, token) {
+        let offset, line, column;
+        if (token) {
+          offset = token.range[0];
+          line = token.loc.start.line;
+          column = token.loc.start.column;
+        } else {
+          offset = this.tokenizer.start;
+          const startPos = this.tokenizer.getLocFromIndex(offset);
+          line = startPos.line;
+          column = startPos.column;
+        }
+        throw new errors_1.ParseError(code, offset, line, column);
+      }
+    };
+    exports.Context = Context;
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/toml-parser/index.js
+var require_toml_parser = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/toml-parser/index.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.TOMLParser = void 0;
+    var internal_utils_1 = require_internal_utils();
+    var parser_options_1 = require_parser_options();
+    var context_1 = require_context();
+    var STATE_FOR_ERROR = {
+      VALUE: "missing-value"
+    };
+    var STRING_VALUE_STYLE_MAP = {
+      BasicString: "basic",
+      MultiLineBasicString: "basic",
+      LiteralString: "literal",
+      MultiLineLiteralString: "literal"
+    };
+    var STRING_KEY_STYLE_MAP = {
+      BasicString: "basic",
+      LiteralString: "literal"
+    };
+    var DATETIME_VALUE_KIND_MAP = {
+      OffsetDateTime: "offset-date-time",
+      LocalDateTime: "local-date-time",
+      LocalDate: "local-date",
+      LocalTime: "local-time"
+    };
+    var TOMLParser = class {
+      /**
+       * Initialize this parser.
+       */
+      constructor(text, parserOptions) {
+        this.text = text;
+        this.parserOptions = parserOptions || {};
+        this.tomlVersion = (0, parser_options_1.getTOMLVer)(this.parserOptions.tomlVersion);
+      }
+      /**
+       * Parse TOML
+       */
+      parse() {
+        const ast = {
+          type: "Program",
+          body: [],
+          sourceType: "module",
+          tokens: [],
+          comments: [],
+          parent: null,
+          range: [0, 0],
+          loc: {
+            start: {
+              line: 1,
+              column: 0
+            },
+            end: {
+              line: 1,
+              column: 0
+            }
+          }
+        };
+        const node = {
+          type: "TOMLTopLevelTable",
+          body: [],
+          parent: ast,
+          range: cloneRange(ast.range),
+          loc: cloneLoc(ast.loc)
+        };
+        ast.body = [node];
+        const ctx = new context_1.Context({
+          text: this.text,
+          parserOptions: this.parserOptions,
+          topLevelTable: node
+        });
+        let token = ctx.nextToken();
+        if (token) {
+          node.range[0] = token.range[0];
+          node.loc.start = clonePos(token.loc.start);
+          while (token) {
+            const state2 = ctx.stateStack.pop() || "TABLE";
+            ctx.stateStack.push(...this[state2](token, ctx));
+            token = ctx.nextToken();
+          }
+          const state = ctx.stateStack.pop() || "TABLE";
+          if (state in STATE_FOR_ERROR) {
+            return ctx.reportParseError(STATE_FOR_ERROR[state], null);
+          }
+          if (ctx.table.type === "TOMLTable") {
+            applyEndLoc(ctx.table, (0, internal_utils_1.last)(ctx.table.body));
+          }
+          applyEndLoc(node, (0, internal_utils_1.last)(node.body));
+        }
+        ctx.verifyDuplicateKeys();
+        ast.tokens = ctx.tokens;
+        ast.comments = ctx.comments;
+        const endOffset = ctx.tokenizer.end;
+        const endPos = ctx.tokenizer.getLocFromIndex(endOffset);
+        ast.range[1] = endOffset;
+        ast.loc.end = {
+          line: endPos.line,
+          column: endPos.column
+        };
+        return ast;
+      }
+      TABLE(token, ctx) {
+        if (isBare(token) || isString(token)) {
+          return this.processKeyValue(token, ctx.table, ctx);
+        }
+        if (isLeftBracket(token)) {
+          return this.processTable(token, ctx.topLevelTable, ctx);
+        }
+        return ctx.reportParseError("unexpected-token", token);
+      }
+      VALUE(token, ctx) {
+        if (isString(token) || isMultiLineString(token)) {
+          return this.processStringValue(token, ctx);
+        }
+        if (isNumber(token)) {
+          return this.processNumberValue(token, ctx);
+        }
+        if (isBoolean(token)) {
+          return this.processBooleanValue(token, ctx);
+        }
+        if (isDateTime(token)) {
+          return this.processDateTimeValue(token, ctx);
+        }
+        if (isLeftBracket(token)) {
+          return this.processArray(token, ctx);
+        }
+        if (isLeftBrace(token)) {
+          return this.processInlineTable(token, ctx);
+        }
+        return ctx.reportParseError("unexpected-token", token);
+      }
+      processTable(token, topLevelTableNode, ctx) {
+        const tableNode2 = {
+          type: "TOMLTable",
+          kind: "standard",
+          key: null,
+          resolvedKey: [],
+          body: [],
+          parent: topLevelTableNode,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        if (ctx.table.type === "TOMLTable") {
+          applyEndLoc(ctx.table, (0, internal_utils_1.last)(ctx.table.body));
+        }
+        topLevelTableNode.body.push(tableNode2);
+        ctx.table = tableNode2;
+        let targetToken = ctx.nextToken({
+          needSameLine: "invalid-key-value-newline"
+        });
+        if (isLeftBracket(targetToken)) {
+          if (token.range[1] < targetToken.range[0]) {
+            return ctx.reportParseError("invalid-space", targetToken);
+          }
+          tableNode2.kind = "array";
+          targetToken = ctx.nextToken({
+            needSameLine: "invalid-key-value-newline"
+          });
+        }
+        if (isRightBracket(targetToken)) {
+          return ctx.reportParseError("missing-key", targetToken);
+        }
+        if (!targetToken) {
+          return ctx.reportParseError("unterminated-table-key", null);
+        }
+        const keyNodeData = this.processKeyNode(targetToken, tableNode2, ctx);
+        targetToken = keyNodeData.nextToken;
+        if (!isRightBracket(targetToken)) {
+          return ctx.reportParseError("unterminated-table-key", targetToken);
+        }
+        if (tableNode2.kind === "array") {
+          const rightBracket = targetToken;
+          targetToken = ctx.nextToken({
+            needSameLine: "invalid-key-value-newline"
+          });
+          if (!isRightBracket(targetToken)) {
+            return ctx.reportParseError("unterminated-table-key", targetToken);
+          }
+          if (rightBracket.range[1] < targetToken.range[0]) {
+            return ctx.reportParseError("invalid-space", targetToken);
+          }
+        }
+        applyEndLoc(tableNode2, targetToken);
+        ctx.applyResolveKeyForTable(tableNode2);
+        ctx.needNewLine = true;
+        return [];
+      }
+      processKeyValue(token, tableNode2, ctx) {
+        const keyValueNode = {
+          type: "TOMLKeyValue",
+          key: null,
+          value: null,
+          parent: tableNode2,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        tableNode2.body.push(keyValueNode);
+        const { nextToken: targetToken } = this.processKeyNode(token, keyValueNode, ctx);
+        if (!isEq(targetToken)) {
+          return ctx.reportParseError("missing-equals-sign", targetToken);
+        }
+        ctx.addValueContainer({
+          parent: keyValueNode,
+          set: (valNode) => {
+            keyValueNode.value = valNode;
+            applyEndLoc(keyValueNode, valNode);
+            ctx.needNewLine = true;
+            return [];
+          }
+        });
+        ctx.needSameLine = "invalid-key-value-newline";
+        return ["VALUE"];
+      }
+      processKeyNode(token, parent, ctx) {
+        if (isDot(token)) {
+          ctx.reportParseError("invalid-leading-dot-in-key", token);
+        }
+        const keyNode = {
+          type: "TOMLKey",
+          keys: [],
+          parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        parent.key = keyNode;
+        let targetToken = token;
+        let dotToken = null;
+        do {
+          if (isBare(targetToken)) {
+            this.processBareKey(targetToken, keyNode);
+          } else if (isString(targetToken)) {
+            this.processStringKey(targetToken, keyNode);
+          } else {
+            break;
+          }
+          dotToken = null;
+          targetToken = ctx.nextToken({
+            needSameLine: "invalid-key-value-newline"
+          });
+          if (!isDot(targetToken))
+            break;
+          dotToken = targetToken;
+          targetToken = ctx.nextToken({
+            needSameLine: "invalid-key-value-newline"
+          });
+        } while (targetToken);
+        if (dotToken) {
+          ctx.reportParseError(isDot(targetToken) ? "invalid-consecutive-dots-in-key" : "invalid-trailing-dot-in-key", dotToken);
+        }
+        applyEndLoc(keyNode, (0, internal_utils_1.last)(keyNode.keys));
+        return { keyNode, nextToken: targetToken };
+      }
+      processBareKey(token, keyNode) {
+        const node = {
+          type: "TOMLBare",
+          name: token.value,
+          parent: keyNode,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        keyNode.keys.push(node);
+      }
+      processStringKey(token, keyNode) {
+        const node = {
+          type: "TOMLQuoted",
+          kind: "string",
+          value: token.string,
+          style: STRING_KEY_STYLE_MAP[token.type],
+          multiline: false,
+          parent: keyNode,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        keyNode.keys.push(node);
+      }
+      processStringValue(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const node = {
+          type: "TOMLValue",
+          kind: "string",
+          value: token.string,
+          style: STRING_VALUE_STYLE_MAP[token.type],
+          multiline: isMultiLineString(token),
+          parent: valueContainer.parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        return valueContainer.set(node);
+      }
+      processNumberValue(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const text = this.text;
+        const [startRange, endRange] = token.range;
+        let numberString = null;
+        const getNumberText = () => {
+          return numberString !== null && numberString !== void 0 ? numberString : numberString = text.slice(startRange, endRange).replace(/_/g, "");
+        };
+        let node;
+        if (token.type === "Integer") {
+          node = {
+            type: "TOMLValue",
+            kind: "integer",
+            value: token.number,
+            bigint: token.bigint,
+            get number() {
+              return getNumberText();
+            },
+            parent: valueContainer.parent,
+            range: cloneRange(token.range),
+            loc: cloneLoc(token.loc)
+          };
+        } else {
+          node = {
+            type: "TOMLValue",
+            kind: "float",
+            value: token.number,
+            get number() {
+              return getNumberText();
+            },
+            parent: valueContainer.parent,
+            range: cloneRange(token.range),
+            loc: cloneLoc(token.loc)
+          };
+        }
+        return valueContainer.set(node);
+      }
+      processBooleanValue(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const node = {
+          type: "TOMLValue",
+          kind: "boolean",
+          value: token.boolean,
+          parent: valueContainer.parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        return valueContainer.set(node);
+      }
+      processDateTimeValue(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const node = {
+          type: "TOMLValue",
+          kind: DATETIME_VALUE_KIND_MAP[token.type],
+          value: token.date,
+          datetime: token.value,
+          parent: valueContainer.parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        return valueContainer.set(node);
+      }
+      processArray(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const node = {
+          type: "TOMLArray",
+          elements: [],
+          parent: valueContainer.parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        const nextToken = ctx.nextToken({ valuesEnabled: true });
+        if (isRightBracket(nextToken)) {
+          applyEndLoc(node, nextToken);
+          return valueContainer.set(node);
+        }
+        ctx.backToken();
+        return this.processArrayValue(node, valueContainer, ctx);
+      }
+      processArrayValue(node, valueContainer, ctx) {
+        ctx.addValueContainer({
+          parent: node,
+          set: (valNode) => {
+            node.elements.push(valNode);
+            let nextToken = ctx.nextToken({ valuesEnabled: true });
+            const hasComma = isComma(nextToken);
+            if (hasComma) {
+              nextToken = ctx.nextToken({ valuesEnabled: true });
+            }
+            if (isRightBracket(nextToken)) {
+              applyEndLoc(node, nextToken);
+              return valueContainer.set(node);
+            }
+            if (hasComma) {
+              ctx.backToken();
+              return this.processArrayValue(node, valueContainer, ctx);
+            }
+            return ctx.reportParseError(nextToken ? "missing-comma" : "unterminated-array", nextToken);
+          }
+        });
+        return ["VALUE"];
+      }
+      processInlineTable(token, ctx) {
+        const valueContainer = ctx.consumeValueContainer();
+        const node = {
+          type: "TOMLInlineTable",
+          body: [],
+          parent: valueContainer.parent,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        const needSameLine = this.tomlVersion.gte(1, 1) ? (
+          // Line breaks in inline tables are allowed.
+          // Added in TOML 1.1
+          void 0
+        ) : "invalid-inline-table-newline";
+        const nextToken = ctx.nextToken({
+          needSameLine
+        });
+        if (nextToken) {
+          if (isBare(nextToken) || isString(nextToken)) {
+            return this.processInlineTableKeyValue(nextToken, node, valueContainer, ctx);
+          }
+          if (isRightBrace(nextToken)) {
+            applyEndLoc(node, nextToken);
+            return valueContainer.set(node);
+          }
+        }
+        return ctx.reportParseError("unexpected-token", nextToken);
+      }
+      processInlineTableKeyValue(token, inlineTableNode, valueContainer, ctx) {
+        const keyValueNode = {
+          type: "TOMLKeyValue",
+          key: null,
+          value: null,
+          parent: inlineTableNode,
+          range: cloneRange(token.range),
+          loc: cloneLoc(token.loc)
+        };
+        inlineTableNode.body.push(keyValueNode);
+        const { nextToken: targetToken } = this.processKeyNode(token, keyValueNode, ctx);
+        if (!isEq(targetToken)) {
+          return ctx.reportParseError("missing-equals-sign", targetToken);
+        }
+        const needSameLine = this.tomlVersion.gte(1, 1) ? (
+          // Line breaks in inline tables are allowed.
+          // Added in TOML 1.1
+          void 0
+        ) : "invalid-inline-table-newline";
+        ctx.addValueContainer({
+          parent: keyValueNode,
+          set: (valNode) => {
+            keyValueNode.value = valNode;
+            applyEndLoc(keyValueNode, valNode);
+            let nextToken = ctx.nextToken({ needSameLine });
+            if (isComma(nextToken)) {
+              nextToken = ctx.nextToken({ needSameLine });
+              if (nextToken && (isBare(nextToken) || isString(nextToken))) {
+                return this.processInlineTableKeyValue(nextToken, inlineTableNode, valueContainer, ctx);
+              }
+              if (isRightBrace(nextToken)) {
+                if (this.tomlVersion.lt(1, 1)) {
+                  return ctx.reportParseError("invalid-trailing-comma-in-inline-table", nextToken);
+                }
+              } else {
+                return ctx.reportParseError(nextToken ? "unexpected-token" : "unterminated-inline-table", nextToken);
+              }
+            }
+            if (isRightBrace(nextToken)) {
+              applyEndLoc(inlineTableNode, nextToken);
+              return valueContainer.set(inlineTableNode);
+            }
+            return ctx.reportParseError(nextToken ? "missing-comma" : "unterminated-inline-table", nextToken);
+          }
+        });
+        ctx.needSameLine = "invalid-key-value-newline";
+        return ["VALUE"];
+      }
+    };
+    exports.TOMLParser = TOMLParser;
+    function isDot(token) {
+      return isPunctuator(token) && token.value === ".";
+    }
+    function isEq(token) {
+      return isPunctuator(token) && token.value === "=";
+    }
+    function isLeftBracket(token) {
+      return isPunctuator(token) && token.value === "[";
+    }
+    function isRightBracket(token) {
+      return isPunctuator(token) && token.value === "]";
+    }
+    function isLeftBrace(token) {
+      return isPunctuator(token) && token.value === "{";
+    }
+    function isRightBrace(token) {
+      return isPunctuator(token) && token.value === "}";
+    }
+    function isComma(token) {
+      return isPunctuator(token) && token.value === ",";
+    }
+    function isPunctuator(token) {
+      return Boolean(token && token.type === "Punctuator");
+    }
+    function isBare(token) {
+      return token.type === "Bare";
+    }
+    function isString(token) {
+      return token.type === "BasicString" || token.type === "LiteralString";
+    }
+    function isMultiLineString(token) {
+      return token.type === "MultiLineBasicString" || token.type === "MultiLineLiteralString";
+    }
+    function isNumber(token) {
+      return token.type === "Integer" || token.type === "Float";
+    }
+    function isBoolean(token) {
+      return token.type === "Boolean";
+    }
+    function isDateTime(token) {
+      return token.type === "OffsetDateTime" || token.type === "LocalDateTime" || token.type === "LocalDate" || token.type === "LocalTime";
+    }
+    function applyEndLoc(node, child) {
+      if (child) {
+        node.range[1] = child.range[1];
+        node.loc.end = clonePos(child.loc.end);
+      }
+    }
+    function cloneRange(range) {
+      return [range[0], range[1]];
+    }
+    function cloneLoc(loc) {
+      return {
+        start: clonePos(loc.start),
+        end: clonePos(loc.end)
+      };
+    }
+    function clonePos(pos) {
+      return {
+        line: pos.line,
+        column: pos.column
+      };
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/node_modules/eslint-visitor-keys/dist/eslint-visitor-keys.cjs
+var require_eslint_visitor_keys = __commonJS({
+  "server/node_modules/toml-eslint-parser/node_modules/eslint-visitor-keys/dist/eslint-visitor-keys.cjs"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    var KEYS = {
+      ArrayExpression: [
+        "elements"
+      ],
+      ArrayPattern: [
+        "elements"
+      ],
+      ArrowFunctionExpression: [
+        "params",
+        "body"
+      ],
+      AssignmentExpression: [
+        "left",
+        "right"
+      ],
+      AssignmentPattern: [
+        "left",
+        "right"
+      ],
+      AwaitExpression: [
+        "argument"
+      ],
+      BinaryExpression: [
+        "left",
+        "right"
+      ],
+      BlockStatement: [
+        "body"
+      ],
+      BreakStatement: [
+        "label"
+      ],
+      CallExpression: [
+        "callee",
+        "arguments"
+      ],
+      CatchClause: [
+        "param",
+        "body"
+      ],
+      ChainExpression: [
+        "expression"
+      ],
+      ClassBody: [
+        "body"
+      ],
+      ClassDeclaration: [
+        "id",
+        "superClass",
+        "body"
+      ],
+      ClassExpression: [
+        "id",
+        "superClass",
+        "body"
+      ],
+      ConditionalExpression: [
+        "test",
+        "consequent",
+        "alternate"
+      ],
+      ContinueStatement: [
+        "label"
+      ],
+      DebuggerStatement: [],
+      DoWhileStatement: [
+        "body",
+        "test"
+      ],
+      EmptyStatement: [],
+      ExperimentalRestProperty: [
+        "argument"
+      ],
+      ExperimentalSpreadProperty: [
+        "argument"
+      ],
+      ExportAllDeclaration: [
+        "exported",
+        "source"
+      ],
+      ExportDefaultDeclaration: [
+        "declaration"
+      ],
+      ExportNamedDeclaration: [
+        "declaration",
+        "specifiers",
+        "source"
+      ],
+      ExportSpecifier: [
+        "exported",
+        "local"
+      ],
+      ExpressionStatement: [
+        "expression"
+      ],
+      ForInStatement: [
+        "left",
+        "right",
+        "body"
+      ],
+      ForOfStatement: [
+        "left",
+        "right",
+        "body"
+      ],
+      ForStatement: [
+        "init",
+        "test",
+        "update",
+        "body"
+      ],
+      FunctionDeclaration: [
+        "id",
+        "params",
+        "body"
+      ],
+      FunctionExpression: [
+        "id",
+        "params",
+        "body"
+      ],
+      Identifier: [],
+      IfStatement: [
+        "test",
+        "consequent",
+        "alternate"
+      ],
+      ImportDeclaration: [
+        "specifiers",
+        "source"
+      ],
+      ImportDefaultSpecifier: [
+        "local"
+      ],
+      ImportExpression: [
+        "source"
+      ],
+      ImportNamespaceSpecifier: [
+        "local"
+      ],
+      ImportSpecifier: [
+        "imported",
+        "local"
+      ],
+      JSXAttribute: [
+        "name",
+        "value"
+      ],
+      JSXClosingElement: [
+        "name"
+      ],
+      JSXClosingFragment: [],
+      JSXElement: [
+        "openingElement",
+        "children",
+        "closingElement"
+      ],
+      JSXEmptyExpression: [],
+      JSXExpressionContainer: [
+        "expression"
+      ],
+      JSXFragment: [
+        "openingFragment",
+        "children",
+        "closingFragment"
+      ],
+      JSXIdentifier: [],
+      JSXMemberExpression: [
+        "object",
+        "property"
+      ],
+      JSXNamespacedName: [
+        "namespace",
+        "name"
+      ],
+      JSXOpeningElement: [
+        "name",
+        "attributes"
+      ],
+      JSXOpeningFragment: [],
+      JSXSpreadAttribute: [
+        "argument"
+      ],
+      JSXSpreadChild: [
+        "expression"
+      ],
+      JSXText: [],
+      LabeledStatement: [
+        "label",
+        "body"
+      ],
+      Literal: [],
+      LogicalExpression: [
+        "left",
+        "right"
+      ],
+      MemberExpression: [
+        "object",
+        "property"
+      ],
+      MetaProperty: [
+        "meta",
+        "property"
+      ],
+      MethodDefinition: [
+        "key",
+        "value"
+      ],
+      NewExpression: [
+        "callee",
+        "arguments"
+      ],
+      ObjectExpression: [
+        "properties"
+      ],
+      ObjectPattern: [
+        "properties"
+      ],
+      PrivateIdentifier: [],
+      Program: [
+        "body"
+      ],
+      Property: [
+        "key",
+        "value"
+      ],
+      PropertyDefinition: [
+        "key",
+        "value"
+      ],
+      RestElement: [
+        "argument"
+      ],
+      ReturnStatement: [
+        "argument"
+      ],
+      SequenceExpression: [
+        "expressions"
+      ],
+      SpreadElement: [
+        "argument"
+      ],
+      StaticBlock: [
+        "body"
+      ],
+      Super: [],
+      SwitchCase: [
+        "test",
+        "consequent"
+      ],
+      SwitchStatement: [
+        "discriminant",
+        "cases"
+      ],
+      TaggedTemplateExpression: [
+        "tag",
+        "quasi"
+      ],
+      TemplateElement: [],
+      TemplateLiteral: [
+        "quasis",
+        "expressions"
+      ],
+      ThisExpression: [],
+      ThrowStatement: [
+        "argument"
+      ],
+      TryStatement: [
+        "block",
+        "handler",
+        "finalizer"
+      ],
+      UnaryExpression: [
+        "argument"
+      ],
+      UpdateExpression: [
+        "argument"
+      ],
+      VariableDeclaration: [
+        "declarations"
+      ],
+      VariableDeclarator: [
+        "id",
+        "init"
+      ],
+      WhileStatement: [
+        "test",
+        "body"
+      ],
+      WithStatement: [
+        "object",
+        "body"
+      ],
+      YieldExpression: [
+        "argument"
+      ]
+    };
+    var NODE_TYPES = Object.keys(KEYS);
+    for (const type of NODE_TYPES) {
+      Object.freeze(KEYS[type]);
+    }
+    Object.freeze(KEYS);
+    var KEY_BLACKLIST = /* @__PURE__ */ new Set([
+      "parent",
+      "leadingComments",
+      "trailingComments"
+    ]);
+    function filterKey(key) {
+      return !KEY_BLACKLIST.has(key) && key[0] !== "_";
+    }
+    function getKeys(node) {
+      return Object.keys(node).filter(filterKey);
+    }
+    function unionWith(additionalKeys) {
+      const retv = (
+        /** @type {{
+            [type: string]: ReadonlyArray<string>
+        }} */
+        Object.assign({}, KEYS)
+      );
+      for (const type of Object.keys(additionalKeys)) {
+        if (Object.prototype.hasOwnProperty.call(retv, type)) {
+          const keys = new Set(additionalKeys[type]);
+          for (const key of retv[type]) {
+            keys.add(key);
+          }
+          retv[type] = Object.freeze(Array.from(keys));
+        } else {
+          retv[type] = Object.freeze(Array.from(additionalKeys[type]));
+        }
+      }
+      return Object.freeze(retv);
+    }
+    exports.KEYS = KEYS;
+    exports.getKeys = getKeys;
+    exports.unionWith = unionWith;
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/visitor-keys.js
+var require_visitor_keys = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/visitor-keys.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.KEYS = void 0;
+    var eslint_visitor_keys_1 = require_eslint_visitor_keys();
+    var tomlKeys = {
+      Program: ["body"],
+      TOMLTopLevelTable: ["body"],
+      TOMLTable: ["key", "body"],
+      TOMLKeyValue: ["key", "value"],
+      TOMLKey: ["keys"],
+      TOMLArray: ["elements"],
+      TOMLInlineTable: ["body"],
+      TOMLBare: [],
+      TOMLQuoted: [],
+      TOMLValue: []
+    };
+    exports.KEYS = (0, eslint_visitor_keys_1.unionWith)(tomlKeys);
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/parser.js
+var require_parser = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/parser.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.parseForESLint = parseForESLint;
+    var toml_parser_1 = require_toml_parser();
+    var visitor_keys_1 = require_visitor_keys();
+    function parseForESLint(code, options) {
+      const parser = new toml_parser_1.TOMLParser(code, options);
+      const ast = parser.parse();
+      return {
+        ast,
+        visitorKeys: visitor_keys_1.KEYS,
+        services: {
+          isTOML: true
+        }
+      };
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/traverse.js
+var require_traverse = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/traverse.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.getFallbackKeys = getFallbackKeys;
+    exports.getKeys = getKeys;
+    exports.getNodes = getNodes;
+    exports.traverseNodes = traverseNodes;
+    var visitor_keys_1 = require_visitor_keys();
+    function fallbackKeysFilter(key) {
+      let value = null;
+      return key !== "comments" && key !== "leadingComments" && key !== "loc" && key !== "parent" && key !== "range" && key !== "tokens" && key !== "trailingComments" && (value = this[key]) !== null && typeof value === "object" && (typeof value.type === "string" || Array.isArray(value));
+    }
+    function getFallbackKeys(node) {
+      return Object.keys(node).filter(fallbackKeysFilter, node);
+    }
+    function getKeys(node, visitorKeys) {
+      const keys = (visitorKeys || visitor_keys_1.KEYS)[node.type] || getFallbackKeys(node);
+      return keys.filter((key) => !getNodes(node, key).next().done);
+    }
+    function* getNodes(node, key) {
+      const child = node[key];
+      if (Array.isArray(child)) {
+        for (const c of child) {
+          if (isNode(c)) {
+            yield c;
+          }
+        }
+      } else if (isNode(child)) {
+        yield child;
+      }
+    }
+    function isNode(x) {
+      return x !== null && typeof x === "object" && typeof x.type === "string";
+    }
+    function traverse(node, parent, visitor) {
+      visitor.enterNode(node, parent);
+      const keys = getKeys(node, visitor.visitorKeys);
+      for (const key of keys) {
+        for (const child of getNodes(node, key)) {
+          traverse(child, node, visitor);
+        }
+      }
+      visitor.leaveNode(node, parent);
+    }
+    function traverseNodes(node, visitor) {
+      traverse(node, null, visitor);
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/utils.js
+var require_utils = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/utils.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.getStaticTOMLValue = void 0;
+    exports.generateConvertTOMLValue = generateConvertTOMLValue;
+    var internal_utils_1 = require_internal_utils();
+    exports.getStaticTOMLValue = generateConvertTOMLValue((node) => node.value);
+    function generateConvertTOMLValue(convertValue) {
+      function resolveValue(node, baseTable) {
+        return resolver[node.type](node, baseTable);
+      }
+      const resolver = {
+        Program(node, baseTable = {}) {
+          return resolveValue(node.body[0], baseTable);
+        },
+        TOMLTopLevelTable(node, baseTable = {}) {
+          for (const body of node.body) {
+            resolveValue(body, baseTable);
+          }
+          return baseTable;
+        },
+        TOMLKeyValue(node, baseTable = {}) {
+          const value = resolveValue(node.value);
+          set(baseTable, resolveValue(node.key), value);
+          return baseTable;
+        },
+        TOMLTable(node, baseTable = {}) {
+          const table = getTable(baseTable, resolveValue(node.key), node.kind === "array");
+          for (const body of node.body) {
+            resolveValue(body, table);
+          }
+          return baseTable;
+        },
+        TOMLArray(node) {
+          return node.elements.map((e) => resolveValue(e));
+        },
+        TOMLInlineTable(node) {
+          const table = {};
+          for (const body of node.body) {
+            resolveValue(body, table);
+          }
+          return table;
+        },
+        TOMLKey(node) {
+          return node.keys.map((key) => resolveValue(key));
+        },
+        TOMLBare(node) {
+          return node.name;
+        },
+        TOMLQuoted(node) {
+          return node.value;
+        },
+        TOMLValue(node) {
+          return convertValue(node);
+        }
+      };
+      return (node) => resolveValue(node);
+    }
+    function getTable(baseTable, keys, array2) {
+      let target = baseTable;
+      for (let index = 0; index < keys.length - 1; index++) {
+        const key = keys[index];
+        target = getNextTargetFromKey(target, key);
+      }
+      const lastKey = (0, internal_utils_1.last)(keys);
+      const lastTarget = target[lastKey];
+      if (lastTarget == null) {
+        const tableValue3 = {};
+        target[lastKey] = array2 ? [tableValue3] : tableValue3;
+        return tableValue3;
+      }
+      if (isValue(lastTarget)) {
+        const tableValue3 = {};
+        target[lastKey] = array2 ? [tableValue3] : tableValue3;
+        return tableValue3;
+      }
+      if (!array2) {
+        if (Array.isArray(lastTarget)) {
+          const tableValue3 = {};
+          target[lastKey] = tableValue3;
+          return tableValue3;
+        }
+        return lastTarget;
+      }
+      if (Array.isArray(lastTarget)) {
+        const tableValue3 = {};
+        lastTarget.push(tableValue3);
+        return tableValue3;
+      }
+      const tableValue2 = {};
+      target[lastKey] = [tableValue2];
+      return tableValue2;
+      function getNextTargetFromKey(currTarget, key) {
+        const nextTarget = currTarget[key];
+        if (nextTarget == null) {
+          const val = {};
+          currTarget[key] = val;
+          return val;
+        }
+        if (isValue(nextTarget)) {
+          const val = {};
+          currTarget[key] = val;
+          return val;
+        }
+        let resultTarget = nextTarget;
+        while (Array.isArray(resultTarget)) {
+          const lastIndex = resultTarget.length - 1;
+          const nextElement = resultTarget[lastIndex];
+          if (isValue(nextElement)) {
+            const val = {};
+            resultTarget[lastIndex] = val;
+            return val;
+          }
+          resultTarget = nextElement;
+        }
+        return resultTarget;
+      }
+    }
+    function set(baseTable, keys, value) {
+      let target = baseTable;
+      for (let index = 0; index < keys.length - 1; index++) {
+        const key = keys[index];
+        const nextTarget = target[key];
+        if (nextTarget == null) {
+          const val = {};
+          target[key] = val;
+          target = val;
+        } else {
+          if (isValue(nextTarget) || Array.isArray(nextTarget)) {
+            const val = {};
+            target[key] = val;
+            target = val;
+          } else {
+            target = nextTarget;
+          }
+        }
+      }
+      target[(0, internal_utils_1.last)(keys)] = value;
+    }
+    function isValue(value) {
+      return typeof value !== "object" || value instanceof Date;
+    }
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/meta.js
+var require_meta = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/meta.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.version = exports.name = void 0;
+    exports.name = "toml-eslint-parser";
+    exports.version = "0.12.0";
+  }
+});
+
+// server/node_modules/toml-eslint-parser/lib/index.js
+var require_lib = __commonJS({
+  "server/node_modules/toml-eslint-parser/lib/index.js"(exports) {
+    "use strict";
+    var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      var desc = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+        desc = { enumerable: true, get: function() {
+          return m[k];
+        } };
+      }
+      Object.defineProperty(o, k2, desc);
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
+      o[k2] = m[k];
+    }));
+    var __setModuleDefault = exports && exports.__setModuleDefault || (Object.create ? (function(o, v) {
+      Object.defineProperty(o, "default", { enumerable: true, value: v });
+    }) : function(o, v) {
+      o["default"] = v;
+    });
+    var __importStar = exports && exports.__importStar || /* @__PURE__ */ (function() {
+      var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function(o2) {
+          var ar = [];
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
+          return ar;
+        };
+        return ownKeys(o);
+      };
+      return function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result2 = {};
+        if (mod != null) {
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result2, mod, k[i]);
+        }
+        __setModuleDefault(result2, mod);
+        return result2;
+      };
+    })();
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.getStaticTOMLValue = exports.traverseNodes = exports.VisitorKeys = exports.parseForESLint = exports.ParseError = exports.name = exports.meta = void 0;
+    exports.parseTOML = parseTOML2;
+    var parser_1 = require_parser();
+    Object.defineProperty(exports, "parseForESLint", { enumerable: true, get: function() {
+      return parser_1.parseForESLint;
+    } });
+    var traverse_1 = require_traverse();
+    Object.defineProperty(exports, "traverseNodes", { enumerable: true, get: function() {
+      return traverse_1.traverseNodes;
+    } });
+    var utils_1 = require_utils();
+    Object.defineProperty(exports, "getStaticTOMLValue", { enumerable: true, get: function() {
+      return utils_1.getStaticTOMLValue;
+    } });
+    var visitor_keys_1 = require_visitor_keys();
+    var errors_1 = require_errors();
+    Object.defineProperty(exports, "ParseError", { enumerable: true, get: function() {
+      return errors_1.ParseError;
+    } });
+    exports.meta = __importStar(require_meta());
+    var meta_1 = require_meta();
+    Object.defineProperty(exports, "name", { enumerable: true, get: function() {
+      return meta_1.name;
+    } });
+    exports.VisitorKeys = visitor_keys_1.KEYS;
+    function parseTOML2(code, options) {
+      return (0, parser_1.parseForESLint)(code, options).ast;
+    }
+  }
+});
 
 // server/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
@@ -417,11 +3313,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -438,10 +3334,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -502,8 +3398,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -532,12 +3428,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -590,12 +3486,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a;
-        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -618,10 +3514,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -657,10 +3553,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -702,11 +3598,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a, _b;
-        super.optimizeNames(names, constants);
-        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -1007,7 +3903,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1022,14 +3918,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -1266,7 +4162,7 @@ var require_names = __commonJS({
 });
 
 // server/node_modules/ajv/dist/compile/errors.js
-var require_errors = __commonJS({
+var require_errors2 = __commonJS({
   "server/node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1393,7 +4289,7 @@ var require_boolSchema = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
-    var errors_1 = require_errors();
+    var errors_1 = require_errors2();
     var codegen_1 = require_codegen();
     var names_1 = require_names();
     var boolError = {
@@ -1500,7 +4396,7 @@ var require_dataType = __commonJS({
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
     var rules_1 = require_rules();
     var applicability_1 = require_applicability();
-    var errors_1 = require_errors();
+    var errors_1 = require_errors2();
     var codegen_1 = require_codegen();
     var util_1 = require_util();
     var DataType;
@@ -1731,12 +4627,12 @@ var require_code2 = __commonJS({
       });
     }
     exports.checkReportMissingProp = checkReportMissingProp;
-    function checkMissingProp({ gen, data, it: { opts } }, properties, missing) {
-      return (0, codegen_1.or)(...properties.map((prop) => (0, codegen_1.and)(noPropertyInData(gen, data, prop, opts.ownProperties), (0, codegen_1._)`${missing} = ${prop}`)));
+    function checkMissingProp({ gen, data, it: { opts } }, properties, missing6) {
+      return (0, codegen_1.or)(...properties.map((prop) => (0, codegen_1.and)(noPropertyInData(gen, data, prop, opts.ownProperties), (0, codegen_1._)`${missing6} = ${prop}`)));
     }
     exports.checkMissingProp = checkMissingProp;
-    function reportMissingProp(cxt, missing) {
-      cxt.setParams({ missingProperty: missing }, true);
+    function reportMissingProp(cxt, missing6) {
+      cxt.setParams({ missingProperty: missing6 }, true);
       cxt.error();
     }
     exports.reportMissingProp = reportMissingProp;
@@ -1855,7 +4751,7 @@ var require_keyword = __commonJS({
     var codegen_1 = require_codegen();
     var names_1 = require_names();
     var code_1 = require_code2();
-    var errors_1 = require_errors();
+    var errors_1 = require_errors2();
     function macroKeywordCode(cxt, def) {
       const { gen, keyword, schema, parentSchema, it } = cxt;
       const macroSchema = def.macro.call(it.self, schema, parentSchema, it);
@@ -1932,10 +4828,10 @@ var require_keyword = __commonJS({
       if (def.async && !schemaEnv.$async)
         throw new Error("async keyword in sync schema");
     }
-    function useKeyword(gen, keyword, result) {
-      if (result === void 0)
+    function useKeyword(gen, keyword, result2) {
+      if (result2 === void 0)
         throw new Error(`keyword "${keyword}" failed to compile`);
-      return gen.scopeValue("keyword", typeof result == "function" ? { ref: result } : { ref: result, code: (0, codegen_1.stringify)(result) });
+      return gen.scopeValue("keyword", typeof result2 == "function" ? { ref: result2 } : { ref: result2, code: (0, codegen_1.stringify)(result2) });
     }
     function validSchemaType(schema, schemaType, allowUndefined = false) {
       return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
@@ -2343,7 +5239,7 @@ var require_validate = __commonJS({
     var names_1 = require_names();
     var resolve_1 = require_resolve();
     var util_1 = require_util();
-    var errors_1 = require_errors();
+    var errors_1 = require_errors2();
     function validateFunctionCode(it) {
       if (isSchemaObj(it)) {
         checkKeywords(it);
@@ -2991,7 +5887,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve13.call(this, root, ref);
+      let _sch = resolve21.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3018,7 +5914,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve13(root, ref) {
+    function resolve21(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3111,7 +6007,7 @@ var require_data = __commonJS({
 });
 
 // server/node_modules/fast-uri/lib/utils.js
-var require_utils = __commonJS({
+var require_utils2 = __commonJS({
   "server/node_modules/fast-uri/lib/utils.js"(exports, module) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
@@ -3427,7 +6323,7 @@ var require_utils = __commonJS({
 var require_schemes = __commonJS({
   "server/node_modules/fast-uri/lib/schemes.js"(exports, module) {
     "use strict";
-    var { isUUID } = require_utils();
+    var { isUUID } = require_utils2();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
     var supportedSchemeNames = (
       /** @type {const} */
@@ -3637,7 +6533,7 @@ var require_schemes = __commonJS({
 var require_fast_uri = __commonJS({
   "server/node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
-    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
+    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils2();
     var { SCHEMES, getSchemeHandler } = require_schemes();
     function normalize(uri, options) {
       if (typeof uri === "string") {
@@ -3645,59 +6541,59 @@ var require_fast_uri = __commonJS({
         normalizeString(uri, options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse6(serialize(uri, options), options);
+        parse8(serialize(uri, options), options);
       }
       return uri;
     }
-    function resolve13(baseURI, relativeURI, options) {
+    function resolve21(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse6(baseURI, schemelessOptions), parse6(relativeURI, schemelessOptions), schemelessOptions, true);
+      const resolved = resolveComponent(parse8(baseURI, schemelessOptions), parse8(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative6, options, skipNormalization) {
+    function resolveComponent(base, relative12, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse6(serialize(base, options), options);
-        relative6 = parse6(serialize(relative6, options), options);
+        base = parse8(serialize(base, options), options);
+        relative12 = parse8(serialize(relative12, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative6.scheme) {
-        target.scheme = relative6.scheme;
-        target.userinfo = relative6.userinfo;
-        target.host = relative6.host;
-        target.port = relative6.port;
-        target.path = removeDotSegments(relative6.path || "");
-        target.query = relative6.query;
+      if (!options.tolerant && relative12.scheme) {
+        target.scheme = relative12.scheme;
+        target.userinfo = relative12.userinfo;
+        target.host = relative12.host;
+        target.port = relative12.port;
+        target.path = removeDotSegments(relative12.path || "");
+        target.query = relative12.query;
       } else {
-        if (relative6.userinfo !== void 0 || relative6.host !== void 0 || relative6.port !== void 0) {
-          target.userinfo = relative6.userinfo;
-          target.host = relative6.host;
-          target.port = relative6.port;
-          target.path = removeDotSegments(relative6.path || "");
-          target.query = relative6.query;
+        if (relative12.userinfo !== void 0 || relative12.host !== void 0 || relative12.port !== void 0) {
+          target.userinfo = relative12.userinfo;
+          target.host = relative12.host;
+          target.port = relative12.port;
+          target.path = removeDotSegments(relative12.path || "");
+          target.query = relative12.query;
         } else {
-          if (!relative6.path) {
+          if (!relative12.path) {
             target.path = base.path;
-            if (relative6.query !== void 0) {
-              target.query = relative6.query;
+            if (relative12.query !== void 0) {
+              target.query = relative12.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative6.path[0] === "/") {
-              target.path = removeDotSegments(relative6.path);
+            if (relative12.path[0] === "/") {
+              target.path = removeDotSegments(relative12.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative6.path;
+                target.path = "/" + relative12.path;
               } else if (!base.path) {
-                target.path = relative6.path;
+                target.path = relative12.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative6.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative12.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative6.query;
+            target.query = relative12.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3705,7 +6601,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative6.fragment;
+      target.fragment = relative12.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3882,7 +6778,7 @@ var require_fast_uri = __commonJS({
       }
       return { parsed, malformedAuthorityOrPort };
     }
-    function parse6(uri, opts) {
+    function parse8(uri, opts) {
       return parseWithStatus(uri, opts).parsed;
     }
     function normalizeString(uri, opts) {
@@ -3907,11 +6803,11 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve13,
+      resolve: resolve21,
       resolveComponent,
       equal,
       serialize,
-      parse: parse6
+      parse: parse8
     };
     module.exports = fastUri;
     module.exports.default = fastUri;
@@ -4313,10 +7209,10 @@ var require_core = __commonJS({
         return this;
       }
       // Add format
-      addFormat(name, format) {
-        if (typeof format == "string")
-          format = new RegExp(format);
-        this.formats[name] = format;
+      addFormat(name, format2) {
+        if (typeof format2 == "string")
+          format2 = new RegExp(format2);
+        this.formats[name] = format2;
         return this;
       }
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
@@ -4434,9 +7330,9 @@ var require_core = __commonJS({
     }
     function addInitialFormats() {
       for (const name in this.opts.formats) {
-        const format = this.opts.formats[name];
-        if (format)
-          this.addFormat(name, format);
+        const format2 = this.opts.formats[name];
+        if (format2)
+          this.addFormat(name, format2);
       }
     }
     function addInitialKeywords(defs) {
@@ -4751,8 +7647,8 @@ var require_multipleOf = __commonJS({
         const { gen, data, schemaCode, it } = cxt;
         const prec = it.opts.multipleOfPrecision;
         const res = gen.let("res");
-        const invalid = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
-        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid}))`);
+        const invalid2 = prec ? (0, codegen_1._)`Math.abs(Math.round(${res}) - ${res}) > 1e-${prec}` : (0, codegen_1._)`${res} !== parseInt(${res})`;
+        cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid2}))`);
       }
     };
     exports.default = def;
@@ -4932,14 +7828,14 @@ var require_required = __commonJS({
           }
         }
         function exitOnErrorMode() {
-          const missing = gen.let("missing");
+          const missing6 = gen.let("missing");
           if (useLoop || $data) {
             const valid = gen.let("valid", true);
-            cxt.block$data(valid, () => loopUntilMissing(missing, valid));
+            cxt.block$data(valid, () => loopUntilMissing(missing6, valid));
             cxt.ok(valid);
           } else {
-            gen.if((0, code_1.checkMissingProp)(cxt, schema, missing));
-            (0, code_1.reportMissingProp)(cxt, missing);
+            gen.if((0, code_1.checkMissingProp)(cxt, schema, missing6));
+            (0, code_1.reportMissingProp)(cxt, missing6);
             gen.else();
           }
         }
@@ -4949,10 +7845,10 @@ var require_required = __commonJS({
             gen.if((0, code_1.noPropertyInData)(gen, data, prop, opts.ownProperties), () => cxt.error());
           });
         }
-        function loopUntilMissing(missing, valid) {
-          cxt.setParams({ missingProperty: missing });
-          gen.forOf(missing, schemaCode, () => {
-            gen.assign(valid, (0, code_1.propertyInData)(gen, data, missing, opts.ownProperties));
+        function loopUntilMissing(missing6, valid) {
+          cxt.setParams({ missingProperty: missing6 });
+          gen.forOf(missing6, schemaCode, () => {
+            gen.assign(valid, (0, code_1.propertyInData)(gen, data, missing6, opts.ownProperties));
             gen.if((0, codegen_1.not)(valid), () => {
               cxt.error();
               gen.break();
@@ -5490,7 +8386,7 @@ var require_dependencies = __commonJS({
       const { gen, data, it } = cxt;
       if (Object.keys(propertyDeps).length === 0)
         return;
-      const missing = gen.let("missing");
+      const missing6 = gen.let("missing");
       for (const prop in propertyDeps) {
         const deps = propertyDeps[prop];
         if (deps.length === 0)
@@ -5508,8 +8404,8 @@ var require_dependencies = __commonJS({
             }
           });
         } else {
-          gen.if((0, codegen_1._)`${hasProperty} && (${(0, code_1.checkMissingProp)(cxt, deps, missing)})`);
-          (0, code_1.reportMissingProp)(cxt, missing);
+          gen.if((0, codegen_1._)`${hasProperty} && (${(0, code_1.checkMissingProp)(cxt, deps, missing6)})`);
+          (0, code_1.reportMissingProp)(cxt, missing6);
           gen.else();
         }
       }
@@ -6119,18 +9015,18 @@ var require_format = __commonJS({
           });
           const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
           const fType = gen.let("fType");
-          const format = gen.let("format");
-          gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format, fDef));
+          const format2 = gen.let("format");
+          gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format2, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format2, fDef));
           cxt.fail$data((0, codegen_1.or)(unknownFmt(), invalidFmt()));
           function unknownFmt() {
             if (opts.strictSchema === false)
               return codegen_1.nil;
-            return (0, codegen_1._)`${schemaCode} && !${format}`;
+            return (0, codegen_1._)`${schemaCode} && !${format2}`;
           }
           function invalidFmt() {
-            const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format}(${data}) : ${format}(${data}))` : (0, codegen_1._)`${format}(${data})`;
-            const validData = (0, codegen_1._)`(typeof ${format} == "function" ? ${callFormat} : ${format}.test(${data}))`;
-            return (0, codegen_1._)`${format} && ${format} !== true && ${fType} === ${ruleType} && !${validData}`;
+            const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format2}(${data}) : ${format2}(${data}))` : (0, codegen_1._)`${format2}(${data})`;
+            const validData = (0, codegen_1._)`(typeof ${format2} == "function" ? ${callFormat} : ${format2}.test(${data}))`;
+            return (0, codegen_1._)`${format2} && ${format2} !== true && ${fType} === ${ruleType} && !${validData}`;
           }
         }
         function validateFormat() {
@@ -6141,7 +9037,7 @@ var require_format = __commonJS({
           }
           if (formatDef === true)
             return;
-          const [fmtType, format, fmtRef] = getFormat(formatDef);
+          const [fmtType, format2, fmtRef] = getFormat(formatDef);
           if (fmtType === ruleType)
             cxt.pass(validCondition());
           function unknownFormat() {
@@ -6168,7 +9064,7 @@ var require_format = __commonJS({
                 throw new Error("async format in sync schema");
               return (0, codegen_1._)`await ${fmtRef}(${data})`;
             }
-            return typeof format == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
+            return typeof format2 == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
           }
         }
       }
@@ -6183,8 +9079,8 @@ var require_format2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
-    var format = [format_1.default];
-    exports.default = format;
+    var format2 = [format_1.default];
+    exports.default = format2;
   }
 });
 
@@ -6826,17 +9722,17 @@ var require_limit = __commonJS({
           cxt.fail$data((0, codegen_1.or)((0, codegen_1._)`typeof ${fmt} != "object"`, (0, codegen_1._)`${fmt} instanceof RegExp`, (0, codegen_1._)`typeof ${fmt}.compare != "function"`, compareCode(fmt)));
         }
         function validateFormat() {
-          const format = fCxt.schema;
-          const fmtDef = self.formats[format];
+          const format2 = fCxt.schema;
+          const fmtDef = self.formats[format2];
           if (!fmtDef || fmtDef === true)
             return;
           if (typeof fmtDef != "object" || fmtDef instanceof RegExp || typeof fmtDef.compare != "function") {
-            throw new Error(`"${keyword}": format "${format}" does not define "compare" function`);
+            throw new Error(`"${keyword}": format "${format2}" does not define "compare" function`);
           }
           const fmt = gen.scopeValue("formats", {
-            key: format,
+            key: format2,
             ref: fmtDef,
-            code: opts.code.formats ? (0, codegen_1._)`${opts.code.formats}${(0, codegen_1.getProperty)(format)}` : void 0
+            code: opts.code.formats ? (0, codegen_1._)`${opts.code.formats}${(0, codegen_1.getProperty)(format2)}` : void 0
           });
           cxt.fail$data(compareCode(fmt));
         }
@@ -6896,511 +9792,20 @@ var require_dist = __commonJS({
   }
 });
 
-// server/node_modules/isexe/windows.js
-var require_windows = __commonJS({
-  "server/node_modules/isexe/windows.js"(exports, module) {
-    module.exports = isexe;
-    isexe.sync = sync;
-    var fs = __require("node:fs");
-    function checkPathExt(path, options) {
-      var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
-      if (!pathext) {
-        return true;
-      }
-      pathext = pathext.split(";");
-      if (pathext.indexOf("") !== -1) {
-        return true;
-      }
-      for (var i = 0; i < pathext.length; i++) {
-        var p = pathext[i].toLowerCase();
-        if (p && path.substr(-p.length).toLowerCase() === p) {
-          return true;
-        }
-      }
-      return false;
-    }
-    function checkStat(stat, path, options) {
-      if (!stat.isSymbolicLink() && !stat.isFile()) {
-        return false;
-      }
-      return checkPathExt(path, options);
-    }
-    function isexe(path, options, cb) {
-      fs.stat(path, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, path, options));
-      });
-    }
-    function sync(path, options) {
-      return checkStat(fs.statSync(path), path, options);
-    }
-  }
-});
-
-// server/node_modules/isexe/mode.js
-var require_mode = __commonJS({
-  "server/node_modules/isexe/mode.js"(exports, module) {
-    module.exports = isexe;
-    isexe.sync = sync;
-    var fs = __require("node:fs");
-    function isexe(path, options, cb) {
-      fs.stat(path, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, options));
-      });
-    }
-    function sync(path, options) {
-      return checkStat(fs.statSync(path), options);
-    }
-    function checkStat(stat, options) {
-      return stat.isFile() && checkMode(stat, options);
-    }
-    function checkMode(stat, options) {
-      var mod = stat.mode;
-      var uid = stat.uid;
-      var gid = stat.gid;
-      var myUid = options.uid !== void 0 ? options.uid : process.getuid && process.getuid();
-      var myGid = options.gid !== void 0 ? options.gid : process.getgid && process.getgid();
-      var u = parseInt("100", 8);
-      var g = parseInt("010", 8);
-      var o = parseInt("001", 8);
-      var ug = u | g;
-      var ret = mod & o || mod & g && gid === myGid || mod & u && uid === myUid || mod & ug && myUid === 0;
-      return ret;
-    }
-  }
-});
-
-// server/node_modules/isexe/index.js
-var require_isexe = __commonJS({
-  "server/node_modules/isexe/index.js"(exports, module) {
-    var fs = __require("node:fs");
-    var core;
-    if (process.platform === "win32" || global.TESTING_WINDOWS) {
-      core = require_windows();
-    } else {
-      core = require_mode();
-    }
-    module.exports = isexe;
-    isexe.sync = sync;
-    function isexe(path, options, cb) {
-      if (typeof options === "function") {
-        cb = options;
-        options = {};
-      }
-      if (!cb) {
-        if (typeof Promise !== "function") {
-          throw new TypeError("callback not provided");
-        }
-        return new Promise(function(resolve13, reject) {
-          isexe(path, options || {}, function(er, is) {
-            if (er) {
-              reject(er);
-            } else {
-              resolve13(is);
-            }
-          });
-        });
-      }
-      core(path, options || {}, function(er, is) {
-        if (er) {
-          if (er.code === "EACCES" || options && options.ignoreErrors) {
-            er = null;
-            is = false;
-          }
-        }
-        cb(er, is);
-      });
-    }
-    function sync(path, options) {
-      try {
-        return core.sync(path, options || {});
-      } catch (er) {
-        if (options && options.ignoreErrors || er.code === "EACCES") {
-          return false;
-        } else {
-          throw er;
-        }
-      }
-    }
-  }
-});
-
-// server/node_modules/which/which.js
-var require_which = __commonJS({
-  "server/node_modules/which/which.js"(exports, module) {
-    var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path = __require("node:path");
-    var COLON = isWindows ? ";" : ":";
-    var isexe = require_isexe();
-    var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
-    var getPathInfo = (cmd, opt) => {
-      const colon = opt.colon || COLON;
-      const pathEnv = cmd.match(/\//) || isWindows && cmd.match(/\\/) ? [""] : [
-        // windows always checks the cwd first
-        ...isWindows ? [process.cwd()] : [],
-        ...(opt.path || process.env.PATH || /* istanbul ignore next: very unusual */
-        "").split(colon)
-      ];
-      const pathExtExe = isWindows ? opt.pathExt || process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM" : "";
-      const pathExt = isWindows ? pathExtExe.split(colon) : [""];
-      if (isWindows) {
-        if (cmd.indexOf(".") !== -1 && pathExt[0] !== "")
-          pathExt.unshift("");
-      }
-      return {
-        pathEnv,
-        pathExt,
-        pathExtExe
-      };
-    };
-    var which = (cmd, opt, cb) => {
-      if (typeof opt === "function") {
-        cb = opt;
-        opt = {};
-      }
-      if (!opt)
-        opt = {};
-      const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
-      const found = [];
-      const step = (i) => new Promise((resolve13, reject) => {
-        if (i === pathEnv.length)
-          return opt.all && found.length ? resolve13(found) : reject(getNotFoundError(cmd));
-        const ppRaw = pathEnv[i];
-        const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path.join(pathPart, cmd);
-        const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve13(subStep(p, i, 0));
-      });
-      const subStep = (p, i, ii) => new Promise((resolve13, reject) => {
-        if (ii === pathExt.length)
-          return resolve13(step(i + 1));
-        const ext = pathExt[ii];
-        isexe(p + ext, { pathExt: pathExtExe }, (er, is) => {
-          if (!er && is) {
-            if (opt.all)
-              found.push(p + ext);
-            else
-              return resolve13(p + ext);
-          }
-          return resolve13(subStep(p, i, ii + 1));
-        });
-      });
-      return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
-    };
-    var whichSync = (cmd, opt) => {
-      opt = opt || {};
-      const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
-      const found = [];
-      for (let i = 0; i < pathEnv.length; i++) {
-        const ppRaw = pathEnv[i];
-        const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path.join(pathPart, cmd);
-        const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        for (let j = 0; j < pathExt.length; j++) {
-          const cur = p + pathExt[j];
-          try {
-            const is = isexe.sync(cur, { pathExt: pathExtExe });
-            if (is) {
-              if (opt.all)
-                found.push(cur);
-              else
-                return cur;
-            }
-          } catch (ex) {
-          }
-        }
-      }
-      if (opt.all && found.length)
-        return found;
-      if (opt.nothrow)
-        return null;
-      throw getNotFoundError(cmd);
-    };
-    module.exports = which;
-    which.sync = whichSync;
-  }
-});
-
-// server/node_modules/path-key/index.js
-var require_path_key = __commonJS({
-  "server/node_modules/path-key/index.js"(exports, module) {
-    "use strict";
-    var pathKey3 = (options = {}) => {
-      const environment = options.env || process.env;
-      const platform = options.platform || process.platform;
-      if (platform !== "win32") {
-        return "PATH";
-      }
-      return Object.keys(environment).reverse().find((key) => key.toUpperCase() === "PATH") || "Path";
-    };
-    module.exports = pathKey3;
-    module.exports.default = pathKey3;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/resolveCommand.js
-var require_resolveCommand = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module) {
-    "use strict";
-    var path = __require("node:path");
-    var which = require_which();
-    var getPathKey = require_path_key();
-    function resolveCommandAttempt(parsed, withoutPathExt) {
-      const env = parsed.options.env || process.env;
-      const cwd = process.cwd();
-      const hasCustomCwd = parsed.options.cwd != null;
-      const shouldSwitchCwd = hasCustomCwd && process.chdir !== void 0 && !process.chdir.disabled;
-      if (shouldSwitchCwd) {
-        try {
-          process.chdir(parsed.options.cwd);
-        } catch (err) {
-        }
-      }
-      let resolved;
-      try {
-        resolved = which.sync(parsed.command, {
-          path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path.delimiter : void 0
-        });
-      } catch (e) {
-      } finally {
-        if (shouldSwitchCwd) {
-          process.chdir(cwd);
-        }
-      }
-      if (resolved) {
-        resolved = path.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
-      }
-      return resolved;
-    }
-    function resolveCommand(parsed) {
-      return resolveCommandAttempt(parsed) || resolveCommandAttempt(parsed, true);
-    }
-    module.exports = resolveCommand;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/escape.js
-var require_escape = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/escape.js"(exports, module) {
-    "use strict";
-    var metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
-    function escapeCommand(arg) {
-      arg = arg.replace(metaCharsRegExp, "^$1");
-      return arg;
-    }
-    function escapeArgument(arg, doubleEscapeMetaChars) {
-      arg = `${arg}`;
-      arg = arg.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"');
-      arg = arg.replace(/(?=(\\+?)?)\1$/, "$1$1");
-      arg = `"${arg}"`;
-      arg = arg.replace(metaCharsRegExp, "^$1");
-      if (doubleEscapeMetaChars) {
-        arg = arg.replace(metaCharsRegExp, "^$1");
-      }
-      return arg;
-    }
-    module.exports.command = escapeCommand;
-    module.exports.argument = escapeArgument;
-  }
-});
-
-// server/node_modules/shebang-regex/index.js
-var require_shebang_regex = __commonJS({
-  "server/node_modules/shebang-regex/index.js"(exports, module) {
-    "use strict";
-    module.exports = /^#!(.*)/;
-  }
-});
-
-// server/node_modules/shebang-command/index.js
-var require_shebang_command = __commonJS({
-  "server/node_modules/shebang-command/index.js"(exports, module) {
-    "use strict";
-    var shebangRegex = require_shebang_regex();
-    module.exports = (string3 = "") => {
-      const match = string3.match(shebangRegex);
-      if (!match) {
-        return null;
-      }
-      const [path, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path.split("/").pop();
-      if (binary === "env") {
-        return argument;
-      }
-      return argument ? `${binary} ${argument}` : binary;
-    };
-  }
-});
-
-// server/node_modules/cross-spawn/lib/util/readShebang.js
-var require_readShebang = __commonJS({
-  "server/node_modules/cross-spawn/lib/util/readShebang.js"(exports, module) {
-    "use strict";
-    var fs = __require("node:fs");
-    var shebangCommand = require_shebang_command();
-    function readShebang(command) {
-      const size = 150;
-      const buffer = Buffer.alloc(size);
-      let fd;
-      try {
-        fd = fs.openSync(command, "r");
-        fs.readSync(fd, buffer, 0, size, 0);
-        fs.closeSync(fd);
-      } catch (e) {
-      }
-      return shebangCommand(buffer.toString());
-    }
-    module.exports = readShebang;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/parse.js
-var require_parse = __commonJS({
-  "server/node_modules/cross-spawn/lib/parse.js"(exports, module) {
-    "use strict";
-    var path = __require("node:path");
-    var resolveCommand = require_resolveCommand();
-    var escape2 = require_escape();
-    var readShebang = require_readShebang();
-    var isWin = process.platform === "win32";
-    var isExecutableRegExp = /\.(?:com|exe)$/i;
-    var isCmdShimRegExp = /node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i;
-    function detectShebang(parsed) {
-      parsed.file = resolveCommand(parsed);
-      const shebang = parsed.file && readShebang(parsed.file);
-      if (shebang) {
-        parsed.args.unshift(parsed.file);
-        parsed.command = shebang;
-        return resolveCommand(parsed);
-      }
-      return parsed.file;
-    }
-    function parseNonShell(parsed) {
-      if (!isWin) {
-        return parsed;
-      }
-      const commandFile = detectShebang(parsed);
-      const needsShell = !isExecutableRegExp.test(commandFile);
-      if (parsed.options.forceShell || needsShell) {
-        const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path.normalize(parsed.command);
-        parsed.command = escape2.command(parsed.command);
-        parsed.args = parsed.args.map((arg) => escape2.argument(arg, needsDoubleEscapeMetaChars));
-        const shellCommand = [parsed.command].concat(parsed.args).join(" ");
-        parsed.args = ["/d", "/s", "/c", `"${shellCommand}"`];
-        parsed.command = process.env.comspec || "cmd.exe";
-        parsed.options.windowsVerbatimArguments = true;
-      }
-      return parsed;
-    }
-    function parse6(command, args, options) {
-      if (args && !Array.isArray(args)) {
-        options = args;
-        args = null;
-      }
-      args = args ? args.slice(0) : [];
-      options = Object.assign({}, options);
-      const parsed = {
-        command,
-        args,
-        options,
-        file: void 0,
-        original: {
-          command,
-          args
-        }
-      };
-      return options.shell ? parsed : parseNonShell(parsed);
-    }
-    module.exports = parse6;
-  }
-});
-
-// server/node_modules/cross-spawn/lib/enoent.js
-var require_enoent = __commonJS({
-  "server/node_modules/cross-spawn/lib/enoent.js"(exports, module) {
-    "use strict";
-    var isWin = process.platform === "win32";
-    function notFoundError(original, syscall) {
-      return Object.assign(new Error(`${syscall} ${original.command} ENOENT`), {
-        code: "ENOENT",
-        errno: "ENOENT",
-        syscall: `${syscall} ${original.command}`,
-        path: original.command,
-        spawnargs: original.args
-      });
-    }
-    function hookChildProcess(cp, parsed) {
-      if (!isWin) {
-        return;
-      }
-      const originalEmit = cp.emit;
-      cp.emit = function(name, arg1) {
-        if (name === "exit") {
-          const err = verifyENOENT(arg1, parsed);
-          if (err) {
-            return originalEmit.call(cp, "error", err);
-          }
-        }
-        return originalEmit.apply(cp, arguments);
-      };
-    }
-    function verifyENOENT(status, parsed) {
-      if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, "spawn");
-      }
-      return null;
-    }
-    function verifyENOENTSync(status, parsed) {
-      if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, "spawnSync");
-      }
-      return null;
-    }
-    module.exports = {
-      hookChildProcess,
-      verifyENOENT,
-      verifyENOENTSync,
-      notFoundError
-    };
-  }
-});
-
-// server/node_modules/cross-spawn/index.js
-var require_cross_spawn = __commonJS({
-  "server/node_modules/cross-spawn/index.js"(exports, module) {
-    "use strict";
-    var cp = __require("node:child_process");
-    var parse6 = require_parse();
-    var enoent = require_enoent();
-    function spawn2(command, args, options) {
-      const parsed = parse6(command, args, options);
-      const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
-      enoent.hookChildProcess(spawned, parsed);
-      return spawned;
-    }
-    function spawnSync(command, args, options) {
-      const parsed = parse6(command, args, options);
-      const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
-      result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
-      return result;
-    }
-    module.exports = spawn2;
-    module.exports.spawn = spawn2;
-    module.exports.sync = spawnSync;
-    module.exports._parse = parse6;
-    module.exports._enoent = enoent;
-  }
-});
-
 // server/deploy-uemcp.mjs
 import * as fsPromises from "node:fs/promises";
-import { existsSync as existsSync3 } from "node:fs";
-import { basename as basename4, dirname as dirname10, extname as extname4, isAbsolute as isAbsolute12, join as join12, resolve as resolve12 } from "node:path";
+import { existsSync as existsSync4 } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { basename as basename6, dirname as dirname16, extname as extname5, isAbsolute as isAbsolute21, join as join17, resolve as resolve20 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
 // server/deployment/contracts.mjs
 import { isAbsolute, posix, win32 } from "node:path";
+
+// server/deployment/client-ids.mjs
+var CLIENT_IDS = Object.freeze(["claude", "codex", "gemini", "vscode"]);
+
+// server/deployment/contracts.mjs
 var DEPLOYMENT_SCHEMA_VERSION = "1.0";
 var PLAN_TTL_MS = 30 * 60 * 1e3;
 var OUTCOMES = Object.freeze({
@@ -7425,8 +9830,9 @@ DEPLOYED_BUILD_REQUIRED DEPLOYED_BUILD_CURRENT BUILD_REQUIRED BUILD_FAILED UNKNO
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
-ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
-ENABLED DISABLED CONNECTED PENDING_TRUST RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
+ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
+CLIENT_APPLY_ACTION_REQUIRED
+ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
 VERIFIED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH NOT_CHECKED
@@ -7435,12 +9841,13 @@ var ACTION_CODE_VALUES = `
 NODE_INSTALL_REQUIRED DEPENDENCIES_INSTALL_REQUIRED DEPENDENCY_POLICY_BLOCKED SOURCE_PROVENANCE_UNKNOWN LOCAL_STATE_UNAVAILABLE APPLY_IN_PROGRESS
 INSTALL_FAILED SYNC_FAILED BUILD_REQUIRED BUILD_FAILED UNKNOWN_TOOLCHAIN
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH
-PENDING_TRUST RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
+PENDING_TRUST PENDING_APPROVAL RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
 CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
-PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT
+PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
+CLIENT_APPLY_ACTION_REQUIRED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 function createIdentityRegistry(values) {
@@ -7458,14 +9865,13 @@ var CLIENT_STATE_VALUES = Object.freeze({
   status: Object.freeze(`
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED ROLLED_BACK
-ROLLBACK_CONFLICT NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
+ROLLBACK_CONFLICT ROLLBACK_FAILED NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
   `.trim().split(/\s+/)),
   enablement: Object.freeze("ENABLED DISABLED POLICY_BLOCKED POLICY_UNKNOWN NOT_SELECTED NOT_INSTALLED UNKNOWN".split(" ")),
-  activation: Object.freeze("CONNECTED PENDING_TRUST RESTART_REQUIRED NOT_SELECTED NOT_INSTALLED UNKNOWN".split(" "))
+  activation: Object.freeze("CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED NOT_SELECTED NOT_INSTALLED UNKNOWN".split(" "))
 });
 var STAGE_RESULTS = /* @__PURE__ */ new Set(["ready", "action_required", "failed", "rolled_back", "skipped"]);
 var STAGE_PROGRESS = /* @__PURE__ */ new Set(["none", "committed"]);
-var stageFacts = /* @__PURE__ */ new WeakMap();
 var SECRET_KEY = /(?:^|[_-])(token|secret|password|passphrase|authorization|cookie|api[_-]?key)(?:$|[_-])/i;
 var HEX_64 = /^[0-9a-f]{64}$/;
 var GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -7489,9 +9895,9 @@ function assertExactKeys(value, allowed, label) {
   if (!isPlainObject(value)) fail(`${label} must be an object`);
   const actual = Object.keys(value);
   const unknown2 = actual.filter((key) => !allowed.has(key));
-  const missing = [...allowed].filter((key) => !Object.hasOwn(value, key));
-  if (unknown2.length || missing.length) {
-    fail(`${label} has invalid keys`, { unknown: unknown2, missing });
+  const missing6 = [...allowed].filter((key) => !Object.hasOwn(value, key));
+  if (unknown2.length || missing6.length) {
+    fail(`${label} has invalid keys`, { unknown: unknown2, missing: missing6 });
   }
 }
 function assertInputKeys(value, allowed, label) {
@@ -7565,16 +9971,28 @@ function validateActions(actions, label = "actions") {
   return actions.map(validateAction);
 }
 function validatePublicStage(stage) {
-  assertExactKeys(stage, /* @__PURE__ */ new Set(["name", "status", "mandatory", "changed", "evidence", "actions"]), "stage");
+  assertExactKeys(stage, /* @__PURE__ */ new Set(["name", "status", "mandatory", "changed", "evidence", "actions", "result", "progress"]), "stage");
   assertNonEmptyString(stage.name, "stage.name");
   if (!STAGE_STATUS_VALUES.includes(stage.status)) fail("stage.status is unknown", { status: stage.status });
   assertBoolean(stage.mandatory, "stage.mandatory");
   assertBoolean(stage.changed, "stage.changed");
+  if (!STAGE_RESULTS.has(stage.result)) fail("stage.result is unknown", { result: stage.result });
+  if (!STAGE_PROGRESS.has(stage.progress)) fail("stage.progress is unknown", { progress: stage.progress });
+  if (stage.progress === "committed" && !stage.changed) fail("committed stage progress requires changed=true");
   if (!isPlainObject(stage.evidence)) fail("stage.evidence must be an object");
   assertNoSecretKeys(stage.evidence, "stage.evidence");
   const evidence = cloneJsonValue(stage.evidence, "stage.evidence");
   const actions = validateActions(stage.actions, "stage.actions");
-  return { name: stage.name, status: stage.status, mandatory: stage.mandatory, changed: stage.changed, evidence, actions };
+  return {
+    name: stage.name,
+    status: stage.status,
+    mandatory: stage.mandatory,
+    changed: stage.changed,
+    evidence,
+    actions,
+    result: stage.result,
+    progress: stage.progress
+  };
 }
 function createStageResult(input) {
   assertInputKeys(
@@ -7589,24 +10007,17 @@ function createStageResult(input) {
     changed = false,
     evidence = {},
     actions = [],
-    result = "ready",
+    result: result2 = "ready",
     progress = changed ? "committed" : "none"
   } = input;
-  if (!STAGE_RESULTS.has(result)) fail("stage.result is unknown", { result });
-  if (!STAGE_PROGRESS.has(progress)) fail("stage.progress is unknown", { progress });
-  if (progress === "committed" && !changed) fail("committed stage progress requires changed=true");
-  const publicStage = Object.freeze(validatePublicStage({ name, status, mandatory, changed, evidence, actions }));
-  stageFacts.set(publicStage, Object.freeze({ result, progress }));
-  return publicStage;
-}
-function readStageFacts(stage) {
-  const facts = stageFacts.get(stage);
-  if (!facts) fail("stage was not created by createStageResult");
-  return facts;
+  return Object.freeze(validatePublicStage({ name, status, mandatory, changed, evidence, actions, result: result2, progress }));
 }
 function validatedStageRows(stages) {
   if (!Array.isArray(stages) || stages.length === 0) fail("stages must be a non-empty array");
-  return stages.map((stage) => ({ stage: validatePublicStage(stage), facts: readStageFacts(stage) }));
+  return stages.map((value) => {
+    const stage = validatePublicStage(value);
+    return { stage, facts: Object.freeze({ result: stage.result, progress: stage.progress }) };
+  });
 }
 function reduceOutcome(stages) {
   const rows = validatedStageRows(stages);
@@ -7649,7 +10060,7 @@ function validateSource(source) {
   return cloneJsonValue(source, "source");
 }
 function validateRequest(request) {
-  assertExactKeys(request, /* @__PURE__ */ new Set(["requested_project", "requested_profile", "selected_clients"]), "request");
+  assertExactKeys(request, /* @__PURE__ */ new Set(["requested_project", "requested_profile", "selected_clients", "excluded_clients", "client_decisions"]), "request");
   for (const key of ["requested_project", "requested_profile"]) {
     if (request[key] !== null && typeof request[key] !== "string") fail(`request.${key} must be a string or null`);
   }
@@ -7658,6 +10069,27 @@ function validateRequest(request) {
   }
   if (new Set(request.selected_clients).size !== request.selected_clients.length) {
     fail("request.selected_clients must not contain duplicates");
+  }
+  if (!Array.isArray(request.excluded_clients) || !request.excluded_clients.every((value) => typeof value === "string")) {
+    fail("request.excluded_clients must be an array of strings");
+  }
+  if (new Set(request.excluded_clients).size !== request.excluded_clients.length) {
+    fail("request.excluded_clients must not contain duplicates");
+  }
+  if ([...request.selected_clients, ...request.excluded_clients].some((value) => !CLIENT_IDS.includes(value))) {
+    fail("request client selections must use supported client IDs");
+  }
+  const excluded = new Set(request.excluded_clients);
+  if (request.selected_clients.some((value) => excluded.has(value))) {
+    fail("request selected and excluded clients must not overlap");
+  }
+  assertExactKeys(request.client_decisions, /* @__PURE__ */ new Set([
+    "replace_owned_fields",
+    "shadow_gemini_extension",
+    "migrate_legacy_claude_project"
+  ]), "request.client_decisions");
+  for (const [key, value] of Object.entries(request.client_decisions)) {
+    if (typeof value !== "boolean") fail(`request.client_decisions.${key} must be boolean`);
   }
   return cloneJsonValue(request, "request");
 }
@@ -7705,7 +10137,9 @@ function validateClient(client) {
     fail("NOT_SELECTED client state must be consistent");
   }
   if (client.compatibility === "not_installed") {
-    if (client.version !== null || client.status !== "NOT_INSTALLED" || client.enablement !== "NOT_INSTALLED" || client.activation !== "NOT_INSTALLED") {
+    const absent = client.status === "NOT_INSTALLED" && client.enablement === "NOT_INSTALLED" && client.activation === "NOT_INSTALLED";
+    const explicitlyNotSelected = client.status === "NOT_SELECTED" && client.enablement === "NOT_SELECTED" && client.activation === "NOT_SELECTED";
+    if (client.version !== null || !absent && !explicitlyNotSelected) {
       fail("not-installed client state must be consistent");
     }
   }
@@ -7740,10 +10174,16 @@ function validateMachineResultInternal(value) {
   }
   if (!Array.isArray(value.stages) || value.stages.length === 0) fail("machine result stages must be non-empty");
   value.stages.forEach(validatePublicStage);
+  if (new Set(value.stages.map((stage) => stage.name)).size !== value.stages.length) fail("machine result stage names must be unique");
+  if (reduceOutcome(value.stages) !== value.outcome) fail("machine result outcome contradicts its stages");
   if (!Array.isArray(value.clients)) fail("machine result clients must be an array");
   value.clients.forEach(validateClient);
+  if (new Set(value.clients.map((client) => client.adapter)).size !== value.clients.length) fail("machine result client adapters must be unique");
   if (!Array.isArray(value.receipts)) fail("machine result receipts must be an array");
   value.receipts.forEach(validateReceipt);
+  if (new Set(value.receipts.map((receipt) => `${receipt.kind}\0${receipt.path_label}`)).size !== value.receipts.length) {
+    fail("machine result receipt identities must be unique");
+  }
   validateActions(value.actions);
 }
 function createMachineResult({
@@ -7801,9 +10241,17 @@ function exitCodeForOutcome(outcome) {
   return EXIT_CODES[outcome];
 }
 
-// server/deployment/bundle-freshness.mjs
-import * as defaultFs2 from "node:fs/promises";
-import { dirname, isAbsolute as isAbsolute3, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+// server/deployment/adapters/claude.mjs
+import * as defaultFs5 from "node:fs/promises";
+import {
+  dirname as dirname3,
+  isAbsolute as isAbsolute6,
+  join as join4,
+  relative as relative4,
+  resolve as resolve4,
+  sep as sep4,
+  win32 as win326
+} from "node:path";
 
 // server/deployment/canonical-json.mjs
 import { createHash } from "node:crypto";
@@ -7859,9 +10307,541 @@ function sha256Canonical(value) {
   return sha256Bytes(Buffer.from(canonicalJson(value), "utf8"));
 }
 
-// server/deployment/fingerprints.mjs
+// server/deployment/bounded-config-file.mjs
 import * as defaultFs from "node:fs/promises";
-import { isAbsolute as isAbsolute2, join, posix as posix2, relative, resolve, sep, win32 as win322 } from "node:path";
+var BoundedConfigFileError = class extends Error {
+  constructor(message, code = "CONFIG_INSPECTION_FAILED", details = {}) {
+    super(message);
+    this.name = "BoundedConfigFileError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail3(message, code, details = {}) {
+  throw new BoundedConfigFileError(message, code, details);
+}
+function missing(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+function assertInputs({ captureFingerprint, entry, tracker, limits, parse: parse8, parseBytes }) {
+  if (typeof captureFingerprint !== "function" || !entry || typeof entry.path !== "string" || typeof entry.allowed_root !== "string" || !tracker || !Number.isSafeInteger(tracker.total) || tracker.total < 0 || !limits || !Number.isSafeInteger(limits.fileBytes) || limits.fileBytes <= 0 || !Number.isSafeInteger(limits.aggregateBytes) || limits.aggregateBytes < limits.fileBytes || parse8 && typeof parseBytes !== "function") {
+    fail3("bounded config inspection inputs are invalid", "INVALID_INSPECTION_LIMIT");
+  }
+}
+function assertWithinLimits(size, tracker, limits, scope) {
+  if (!Number.isSafeInteger(size) || size < 0 || size > limits.fileBytes || tracker.total + size > limits.aggregateBytes) {
+    fail3("client config exceeds its inspection byte limit", "INSPECTION_LIMIT_EXCEEDED", {
+      scope,
+      maximum_file_bytes: limits.fileBytes,
+      maximum_aggregate_bytes: limits.aggregateBytes
+    });
+  }
+}
+async function readFileWithinLimit(path, {
+  fsImpl = defaultFs,
+  maxBytes,
+  scope = "client_config"
+} = {}) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) fail3("bounded file read limit is invalid", "INVALID_INSPECTION_LIMIT");
+  let handle;
+  try {
+    handle = await fsImpl.open(path, "r");
+    const stat = await handle.stat();
+    if (!stat.isFile() || Number(stat.size) > maxBytes) {
+      fail3("client config exceeds its inspection byte limit", "INSPECTION_LIMIT_EXCEEDED", {
+        scope,
+        maximum_file_bytes: maxBytes,
+        observed_bytes: Number(stat.size)
+      });
+    }
+    const chunks = [];
+    let total = 0;
+    while (total <= maxBytes) {
+      const remaining = maxBytes + 1 - total;
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      chunks.push(chunk.subarray(0, bytesRead));
+      total += bytesRead;
+    }
+    if (total > maxBytes) {
+      fail3("client config exceeds its inspection byte limit", "INSPECTION_LIMIT_EXCEEDED", {
+        scope,
+        maximum_file_bytes: maxBytes,
+        observed_bytes: total
+      });
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    if (handle) await handle.close().catch(() => {
+    });
+  }
+}
+async function readBoundedConfigFile({
+  fsImpl = defaultFs,
+  captureFingerprint,
+  entry,
+  tracker,
+  limits,
+  parse: parse8 = true,
+  parseBytes
+} = {}) {
+  assertInputs({ captureFingerprint, entry, tracker, limits, parse: parse8, parseBytes });
+  let stat;
+  try {
+    stat = await fsImpl.lstat(entry.path);
+  } catch (error2) {
+    if (!missing(error2)) throw error2;
+    const fingerprint2 = await captureFingerprint(entry.path, {
+      allowedRoots: [entry.allowed_root],
+      writable: false,
+      maxBytes: limits.fileBytes
+    });
+    if (fingerprint2.exists) fail3("client config appeared during inspection", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+    return { ...entry, fingerprint: fingerprint2, exists: false, bytes: null, document: null };
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    fail3("client config path is not a safe regular file", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+  }
+  assertWithinLimits(Number(stat.size), tracker, limits, entry.scope);
+  const fingerprint = await captureFingerprint(entry.path, {
+    allowedRoots: [entry.allowed_root],
+    writable: false,
+    maxBytes: limits.fileBytes
+  });
+  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+    fail3("client config identity changed during inspection", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+  }
+  assertWithinLimits(Number(fingerprint.size), tracker, limits, entry.scope);
+  if (!parse8) {
+    tracker.total += Number(fingerprint.size);
+    return { ...entry, fingerprint, exists: true, bytes: null, document: null };
+  }
+  let bytes;
+  try {
+    bytes = await readFileWithinLimit(entry.path, { fsImpl, maxBytes: limits.fileBytes, scope: entry.scope });
+  } catch (error2) {
+    if (missing(error2)) fail3("client config disappeared during inspection", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+    throw error2;
+  }
+  assertWithinLimits(bytes.length, tracker, limits, entry.scope);
+  if (bytes.length !== Number(fingerprint.size) || sha256Bytes(bytes) !== fingerprint.content_sha256) {
+    fail3("client config changed between fingerprint and parse", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+  }
+  tracker.total += bytes.length;
+  let document;
+  try {
+    document = parseBytes(bytes);
+  } catch (error2) {
+    const code = typeof error2?.code === "string" && /^[A-Z0-9_]+$/.test(error2.code) ? error2.code : "CONFIG_INSPECTION_FAILED";
+    throw new BoundedConfigFileError("client config parse failed", code, {
+      scope: entry.scope,
+      inspected_file: {
+        ...entry,
+        fingerprint,
+        exists: true,
+        bytes: null,
+        document: null
+      }
+    });
+  }
+  return {
+    ...entry,
+    fingerprint,
+    exists: true,
+    bytes,
+    document
+  };
+}
+
+// server/deployment/client-decisions.mjs
+function clientDecision(context, name) {
+  return context?.request?.client_decisions?.[name] === true;
+}
+function approvedOwnedReplacement(context, ownership) {
+  return clientDecision(context, "replace_owned_fields") && ownership?.state === "owned_user_modified";
+}
+
+// server/deployment/client-transaction.mjs
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { constants } from "node:fs";
+import * as defaultFs4 from "node:fs/promises";
+import {
+  dirname as dirname2,
+  isAbsolute as isAbsolute5,
+  join as join3,
+  parse as parse2,
+  relative as relative3,
+  resolve as resolve3,
+  sep as sep3
+} from "node:path";
+
+// server/deployment/client-contract.mjs
+import { win32 as win322 } from "node:path";
+var frozenVersions = (versions) => Object.freeze([...versions]);
+var CLIENT_NATIVE_IDENTITIES = Object.freeze({
+  claude: Object.freeze({ executable: "claude.exe", signer_name: "Anthropic, PBC", args_prefix_length: 0 }),
+  vscode: Object.freeze({ executable: "Code.exe", signer_name: "Microsoft Corporation", args_prefix_length: 1 })
+});
+var CLIENT_DISCOVERY_FAILURE_CODES = Object.freeze([
+  "VERSION_PROBE_FAILED",
+  "CLIENT_DISCOVERY_FAILED",
+  "AMBIGUOUS_CLIENT_ENVIRONMENT",
+  "AMBIGUOUS_CLIENT_INSTALLATION",
+  "INSPECTION_LIMIT_EXCEEDED"
+]);
+var NPM_RUNTIME_LIMITS = Object.freeze({
+  max_packages: 2048,
+  max_entries: 32768,
+  max_files: 16384,
+  max_bytes: 1024 * 1024 * 1024
+});
+var RELEASE_GATES = Object.freeze({
+  claude: Object.freeze({ versions: frozenVersions(["2.1.210"]) }),
+  codex: Object.freeze({ versions: frozenVersions(["0.144.4"]) }),
+  gemini: Object.freeze({ versions: frozenVersions(["0.41.2"]) }),
+  vscode: Object.freeze({ versions: frozenVersions(["1.128.1"]) })
+});
+async function runActiveClientLaunch(context, evidence, callback) {
+  if (!context || typeof context !== "object" || !evidence || !CLIENT_IDS.includes(evidence.client_id) || !["native", "protocol"].includes(evidence.kind) || typeof callback !== "function") {
+    const error2 = new Error("active client launch contract is invalid");
+    error2.code = "INVALID_CLIENT_LAUNCH";
+    throw error2;
+  }
+  if (typeof context.withActiveClientLaunch === "function") {
+    return context.withActiveClientLaunch(evidence, callback);
+  }
+  await context.beforeActiveClientLaunch?.(evidence);
+  return callback(Object.freeze({ assertPinned() {
+  } }), context.launch ?? null);
+}
+var PACKAGE_IDS = Object.freeze({
+  claude: "@anthropic-ai/claude-code",
+  codex: "@openai/codex",
+  gemini: "@google/gemini-cli",
+  vscode: null
+});
+var VSCODE_LAUNCH_OVERLAY = Object.freeze({ ELECTRON_RUN_AS_NODE: "1", VSCODE_DEV: "" });
+var INHERITED_CLIENT_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
+  "APPDATA",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "COMSPEC",
+  "ELECTRON_RUN_AS_NODE",
+  "GEMINI_CLI_HOME",
+  "GEMINI_CLI_TRUSTED_FOLDERS_PATH",
+  "GEMINI_CLI_TRUST_WORKSPACE",
+  "HOME",
+  "LOCALAPPDATA",
+  "PATH",
+  "PATHEXT",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "VSCODE_DEV",
+  "WINDIR"
+]);
+var SENSITIVE_CLIENT_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PATH",
+  "PATHEXT",
+  "COMSPEC",
+  "HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "GEMINI_CLI_HOME",
+  "GEMINI_CLI_TRUSTED_FOLDERS_PATH",
+  "GEMINI_CLI_TRUST_WORKSPACE"
+]);
+function isSensitiveClientEnvironmentName(name) {
+  if (typeof name !== "string") return false;
+  const normalized = name.toUpperCase();
+  return normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_") || SENSITIVE_CLIENT_ENVIRONMENT_NAMES.has(normalized);
+}
+function expectedClientLaunchOverlay(clientId) {
+  if (!CLIENT_IDS.includes(clientId)) invalid("client launch overlay requires a known client ID");
+  return clientId === "vscode" ? Object.freeze({ ...VSCODE_LAUNCH_OVERLAY }) : Object.freeze({});
+}
+var ClientContractError = class extends Error {
+  constructor(message, code = "INVALID_CLIENT_LAUNCH") {
+    super(message);
+    this.name = "ClientContractError";
+    this.code = code;
+  }
+};
+function invalid(message) {
+  throw new ClientContractError(message);
+}
+function readWindowsEnvironmentValue(env, name) {
+  if (!env || typeof env !== "object" || Array.isArray(env) || typeof name !== "string" || name.trim() === "") {
+    throw new ClientContractError("Windows environment lookup input is invalid", "INVALID_CLIENT_ENVIRONMENT");
+  }
+  const normalizedName = name.toUpperCase();
+  const matches = Object.entries(env).filter(([key, value]) => key.toUpperCase() === normalizedName && value !== void 0 && value !== null);
+  if (matches.length > 1) {
+    throw new ClientContractError(`${normalizedName} has ambiguous case-variant definitions`, "AMBIGUOUS_CLIENT_ENVIRONMENT");
+  }
+  return matches[0]?.[1];
+}
+function mergeWindowsEnvironmentOverlay(env, overlay) {
+  if (!env || typeof env !== "object" || Array.isArray(env) || !overlay || typeof overlay !== "object" || Array.isArray(overlay)) {
+    throw new ClientContractError("Windows environment overlay input is invalid", "INVALID_CLIENT_ENVIRONMENT");
+  }
+  const overlayNames = /* @__PURE__ */ new Set();
+  for (const key of Object.keys(overlay)) {
+    const normalized = key.toUpperCase();
+    if (overlayNames.has(normalized)) {
+      throw new ClientContractError(`${normalized} has ambiguous overlay definitions`, "AMBIGUOUS_CLIENT_ENVIRONMENT");
+    }
+    overlayNames.add(normalized);
+  }
+  return Object.fromEntries([
+    ...Object.entries(env).filter(([key]) => !overlayNames.has(key.toUpperCase())),
+    ...Object.entries(overlay)
+  ]);
+}
+function clientProcessEnvironment(env, overlay = {}) {
+  const merged = mergeWindowsEnvironmentOverlay(env, overlay);
+  return Object.fromEntries(Object.entries(merged).filter(([name]) => INHERITED_CLIENT_ENVIRONMENT_NAMES.has(name.toUpperCase()) || name.toUpperCase().startsWith("UEMCP_") || name.toUpperCase().startsWith("UNREAL_")));
+}
+function protocolProcessEnvironment(env, overlay = {}) {
+  const parent = clientProcessEnvironment(env);
+  return mergeWindowsEnvironmentOverlay(parent, overlay);
+}
+function parseVersion(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? "");
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
+}
+function classifySupportedVersion(clientId, version2) {
+  const gate = RELEASE_GATES[clientId];
+  if (!gate) return "known_unsupported";
+  if (gate.versions.includes(version2)) return "release_gated";
+  const parsed = parseVersion(version2);
+  if (!parsed) return "known_unsupported";
+  const newest = parseVersion(gate.versions.at(-1));
+  return compareVersions(parsed, newest) > 0 ? "unknown_newer" : "known_unsupported";
+}
+function exactObject(value, expected) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return JSON.stringify(actualKeys) === JSON.stringify(expectedKeys) && expectedKeys.every((key) => value[key] === expected[key]);
+}
+function exactKeys(value, required2, optional2 = []) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const allowed = /* @__PURE__ */ new Set([...required2, ...optional2]);
+  const keys = Object.keys(value);
+  return required2.every((key) => Object.hasOwn(value, key)) && keys.every((key) => allowed.has(key));
+}
+function validFileFingerprint(fingerprint) {
+  const keys = [
+    "requested_path",
+    "canonical_path",
+    "real_path",
+    "exists",
+    "kind",
+    "link_kind",
+    "link_count",
+    "size",
+    "sha256"
+  ];
+  return exactKeys(fingerprint, keys) && [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every(win322.isAbsolute) && fingerprint.exists === true && fingerprint.kind === "file" && fingerprint.link_kind === "none" && fingerprint.link_count === 1 && Number.isSafeInteger(fingerprint.size) && fingerprint.size >= 0 && /^[0-9a-f]{64}$/.test(fingerprint.sha256 ?? "");
+}
+function validAuthenticodeFingerprint(fingerprint, expectedSigner) {
+  return exactKeys(fingerprint, ["status", "signer_name", "thumbprint"]) && fingerprint.status === "valid" && fingerprint.signer_name === expectedSigner && (fingerprint.thumbprint === null || /^[0-9A-F]{2,128}$/.test(fingerprint.thumbprint));
+}
+function pathIdentity(path) {
+  return win322.resolve(path).toLowerCase();
+}
+function fingerprintMatchesPath(fingerprint, path) {
+  const expected = pathIdentity(path);
+  return [fingerprint.requested_path, fingerprint.canonical_path, fingerprint.real_path].every((value) => pathIdentity(value) === expected);
+}
+function isVsCodeCliTuple(command, cli) {
+  const installRoot = win322.dirname(command);
+  const relativeCli = win322.relative(installRoot, cli);
+  const parts = relativeCli.split(win322.sep);
+  return parts.length === 5 && parts[0] !== "" && parts[0] !== "." && parts[0] !== ".." && parts.slice(1).map((value) => value.toLowerCase()).join("/") === "resources/app/out/cli.js";
+}
+function validNpmRuntimeFingerprint(runtime, launch) {
+  if (!runtime || Array.isArray(runtime) || typeof runtime !== "object") return false;
+  if (JSON.stringify(Object.keys(runtime).sort()) !== JSON.stringify([
+    "entry_count",
+    "file_count",
+    "manifest_sha256",
+    "max_bytes",
+    "max_entries",
+    "max_files",
+    "max_packages",
+    "package_count",
+    "package_id",
+    "resolution_root",
+    "root",
+    "total_bytes"
+  ])) return false;
+  if (!win322.isAbsolute(runtime.root) || !win322.isAbsolute(runtime.resolution_root) || runtime.package_id !== launch.package_id || !/^[0-9a-f]{64}$/.test(runtime.manifest_sha256 ?? "") || runtime.max_packages !== NPM_RUNTIME_LIMITS.max_packages || runtime.max_entries !== NPM_RUNTIME_LIMITS.max_entries || runtime.max_files !== NPM_RUNTIME_LIMITS.max_files || runtime.max_bytes !== NPM_RUNTIME_LIMITS.max_bytes || !Number.isSafeInteger(runtime.package_count) || !Number.isSafeInteger(runtime.entry_count) || !Number.isSafeInteger(runtime.file_count) || !Number.isSafeInteger(runtime.total_bytes) || runtime.package_count < 1 || runtime.package_count > runtime.max_packages || runtime.entry_count < runtime.file_count || runtime.file_count < 1 || runtime.total_bytes < 1 || runtime.entry_count > runtime.max_entries || runtime.file_count > runtime.max_files || runtime.total_bytes > runtime.max_bytes) return false;
+  const relativePackage = win322.relative(runtime.resolution_root, runtime.root);
+  const relativeEntry = win322.relative(runtime.root, launch.args_prefix[0]);
+  const expectedPackageRoot = win322.resolve(runtime.resolution_root, ...runtime.package_id.split("/"));
+  return win322.resolve(runtime.root).toLowerCase() === expectedPackageRoot.toLowerCase() && relativePackage !== ".." && !relativePackage.startsWith(`..${win322.sep}`) && !win322.isAbsolute(relativePackage) && relativeEntry !== "" && relativeEntry !== ".." && !relativeEntry.startsWith(`..${win322.sep}`) && !win322.isAbsolute(relativeEntry);
+}
+function validateClientLaunchContract(launch) {
+  if (!launch || !CLIENT_IDS.includes(launch.client_id)) invalid("client launch ID is invalid");
+  if (typeof launch.command !== "string" || !win322.isAbsolute(launch.command) || !/\.exe$/i.test(launch.command)) {
+    invalid("client launch command must be an absolute Windows executable");
+  }
+  if (!Array.isArray(launch.args_prefix) || launch.args_prefix.some((path) => typeof path !== "string" || !win322.isAbsolute(path))) {
+    invalid("client launch argument prefix must contain absolute paths");
+  }
+  if (!["native", "npm_package"].includes(launch.source)) invalid("client launch source is invalid");
+  if (launch.source === "npm_package") {
+    if (launch.client_id === "vscode" || launch.package_id !== PACKAGE_IDS[launch.client_id] || launch.args_prefix.length !== 1 || win322.basename(launch.command).toLowerCase() !== "node.exe") {
+      invalid("npm client launch tuple is invalid");
+    }
+    if (!validNpmRuntimeFingerprint(launch.fingerprint?.runtime_tree, launch)) {
+      invalid("npm client runtime fingerprint is invalid");
+    }
+  } else {
+    const nativeIdentity2 = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity2 || launch.package_id !== null || launch.fingerprint?.runtime_tree !== void 0 || win322.basename(launch.command).toLowerCase() !== nativeIdentity2.executable.toLowerCase() || launch.args_prefix.length !== nativeIdentity2.args_prefix_length) {
+      invalid("native client launch tuple is invalid");
+    }
+  }
+  if (typeof launch.version !== "string" || classifySupportedVersion(launch.client_id, launch.version) !== launch.compatibility) {
+    invalid("client launch version classification is invalid");
+  }
+  if (launch.write_supported !== (launch.compatibility === "release_gated")) invalid("client write support disagrees with its version gate");
+  if (!launch.fingerprint || typeof launch.fingerprint !== "object") invalid("client launch fingerprint is missing");
+  if (launch.fingerprint.env_overlay_sha256 !== sha256Canonical(launch.env_overlay)) {
+    invalid("client launch environment fingerprint is invalid");
+  }
+  if (launch.source === "native" && !validAuthenticodeFingerprint(
+    launch.fingerprint.authenticode,
+    CLIENT_NATIVE_IDENTITIES[launch.client_id].signer_name
+  )) {
+    invalid("native client signer fingerprint is invalid");
+  }
+  if (launch.client_id === "vscode") {
+    if (launch.source !== "native" || !/Code\.exe$/i.test(launch.command) || launch.args_prefix.length !== 1 || !/cli\.js$/i.test(launch.args_prefix[0]) || !isVsCodeCliTuple(launch.command, launch.args_prefix[0]) || !exactObject(launch.env_overlay, expectedClientLaunchOverlay("vscode"))) {
+      invalid("VS Code launch tuple is invalid");
+    }
+  } else if (!exactObject(launch.env_overlay, {})) {
+    invalid("non-VS Code client launch cannot alter the environment");
+  }
+  return launch;
+}
+function validatePublicClientLaunchContract(launch) {
+  if (!exactKeys(launch, [
+    "client_id",
+    "command",
+    "args_prefix",
+    "package_id",
+    "source",
+    "version",
+    "compatibility",
+    "fingerprint",
+    "write_supported"
+  ])) {
+    invalid("public client launch has invalid keys");
+  }
+  if (!launch.fingerprint || Array.isArray(launch.fingerprint) || typeof launch.fingerprint !== "object") {
+    invalid("public client launch fingerprint is invalid");
+  }
+  const overlay = expectedClientLaunchOverlay(launch.client_id);
+  validateClientLaunchContract({
+    ...launch,
+    env_overlay: overlay,
+    fingerprint: {
+      ...launch.fingerprint,
+      env_overlay_sha256: sha256Canonical(overlay)
+    }
+  });
+  const fingerprintKeys = launch.source === "npm_package" ? ["command", "args_prefix", "package_manifest", "runtime_tree"] : ["command", "args_prefix", "authenticode"];
+  const optionalFingerprintKeys = launch.source === "native" && launch.client_id === "vscode" ? ["discovery_clue"] : [];
+  if (!exactKeys(launch.fingerprint, fingerprintKeys, optionalFingerprintKeys) || !validFileFingerprint(launch.fingerprint.command) || !fingerprintMatchesPath(launch.fingerprint.command, launch.command) || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !launch.fingerprint.args_prefix.every((fingerprint, index) => validFileFingerprint(fingerprint) && fingerprintMatchesPath(fingerprint, launch.args_prefix[index]))) {
+    invalid("public client launch file fingerprints are invalid");
+  }
+  if (launch.source === "npm_package") {
+    if (!validFileFingerprint(launch.fingerprint.package_manifest) || !fingerprintMatchesPath(
+      launch.fingerprint.package_manifest,
+      win322.join(launch.fingerprint.runtime_tree.root, "package.json")
+    )) {
+      invalid("public npm client manifest fingerprint is invalid");
+    }
+  } else {
+    const nativeIdentity2 = CLIENT_NATIVE_IDENTITIES[launch.client_id];
+    if (!nativeIdentity2 || !validAuthenticodeFingerprint(launch.fingerprint.authenticode, nativeIdentity2.signer_name) || Object.hasOwn(launch.fingerprint, "discovery_clue") && (!validFileFingerprint(launch.fingerprint.discovery_clue) || !fingerprintMatchesPath(
+      launch.fingerprint.discovery_clue,
+      win322.join(win322.dirname(launch.command), "bin", "code.cmd")
+    ))) {
+      invalid("public native client fingerprint is invalid");
+    }
+  }
+  return launch;
+}
+
+// server/deployment/config-bytes.mjs
+var DEFAULT_CONFIG_BYTE_LIMIT = 16 * 1024 * 1024;
+var UTF8_BOM = Buffer.from([239, 187, 191]);
+var ConfigFormatError = class extends Error {
+  constructor(message, code = "MALFORMED_CONFIG", details = {}) {
+    super(message);
+    this.name = "ConfigFormatError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail4(message, code = "MALFORMED_CONFIG", details = {}) {
+  throw new ConfigFormatError(message, code, details);
+}
+function decodeConfigBytes(bytes, {
+  pathLabel = "client config",
+  maxBytes = DEFAULT_CONFIG_BYTE_LIMIT
+} = {}) {
+  if (!Buffer.isBuffer(bytes)) fail4(`${pathLabel} must be provided as bytes`);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) fail4(`${pathLabel} byte limit is invalid`);
+  if (bytes.byteLength > maxBytes) {
+    fail4(`${pathLabel} exceeds its inspection byte limit`, "INSPECTION_LIMIT_EXCEEDED", {
+      maximum_bytes: maxBytes,
+      observed_bytes: bytes.byteLength
+    });
+  }
+  if (bytes[0] === 255 && bytes[1] === 254 || bytes[0] === 254 && bytes[1] === 255) {
+    fail4(`${pathLabel} must be UTF-8, not UTF-16`);
+  }
+  const hadUtf8Bom = bytes.length >= UTF8_BOM.length && bytes.subarray(0, UTF8_BOM.length).equals(UTF8_BOM);
+  const content = hadUtf8Bom ? bytes.subarray(UTF8_BOM.length) : bytes;
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(content);
+  } catch {
+    fail4(`${pathLabel} contains invalid UTF-8`);
+  }
+  if (text.includes("\0")) fail4(`${pathLabel} contains an embedded NUL`);
+  return Object.freeze({ text, had_utf8_bom: hadUtf8Bom });
+}
+var CONFIG_BYTE_LIMIT = DEFAULT_CONFIG_BYTE_LIMIT;
+var UTF8_BOM_BYTES = UTF8_BOM;
+
+// server/deployment/fingerprints.mjs
+import * as defaultFs2 from "node:fs/promises";
+import { isAbsolute as isAbsolute2, join, posix as posix2, relative, resolve, sep, win32 as win323 } from "node:path";
 var FingerprintError = class extends Error {
   constructor(message, code = "FINGERPRINT_FAILED", details = {}) {
     super(message);
@@ -7881,9 +10861,9 @@ function isContained(root, candidate) {
   const rel = relative(pathKey(root), pathKey(candidate));
   return rel === "" || !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute2(rel);
 }
-async function realPathForMissing(absolutePath6, fsImpl) {
+async function realPathForMissing(absolutePath10, fsImpl) {
   const tail = [];
-  let current = absolutePath6;
+  let current = absolutePath10;
   while (true) {
     try {
       const realAncestor = await fsImpl.realpath(current);
@@ -7903,7 +10883,7 @@ async function canonicalAllowedRoots(allowedRoots, fsImpl) {
   }
   const roots = [];
   for (const root of allowedRoots) {
-    if (typeof root !== "string" || !(isAbsolute2(root) || win322.isAbsolute(root) || posix2.isAbsolute(root))) {
+    if (typeof root !== "string" || !(isAbsolute2(root) || win323.isAbsolute(root) || posix2.isAbsolute(root))) {
       throw new FingerprintError("allowed root must be absolute", "INVALID_ALLOWED_ROOT");
     }
     const absolute = resolve(root);
@@ -7931,9 +10911,72 @@ function kindFor(stat) {
   if (stat.isDirectory()) return "directory";
   return "other";
 }
-async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs } = {}) {
+function sameStableFile(left, right) {
+  return left.isFile() && right.isFile() && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.nlink) === Number(right.nlink) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+function sameStableLink(left, right) {
+  return left.isSymbolicLink() && right.isSymbolicLink() && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+function byteLimitError(maxBytes, observedBytes) {
+  return new FingerprintError("file exceeds its fingerprint byte limit", "FINGERPRINT_BYTE_LIMIT", {
+    maximum_bytes: maxBytes,
+    observed_bytes: observedBytes
+  });
+}
+async function readHandleWithinLimit(handle, maxBytes) {
+  if (maxBytes === null) return handle.readFile();
+  const chunks = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const remaining = maxBytes + 1 - total;
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  if (total > maxBytes) throw byteLimitError(maxBytes, total);
+  return Buffer.concat(chunks, total);
+}
+async function readStableFingerprintFile(path, {
+  fsImpl,
+  initialStat,
+  initialLink = null,
+  maxBytes,
+  evidencePath = resolve(path)
+}) {
+  if (maxBytes !== null && Number(initialStat.size) > maxBytes) {
+    throw byteLimitError(maxBytes, Number(initialStat.size));
+  }
+  let handle;
+  try {
+    handle = await fsImpl.open(path, "r");
+    const handleBefore = await handle.stat();
+    if (maxBytes !== null && Number(handleBefore.size) > maxBytes) {
+      throw byteLimitError(maxBytes, Number(handleBefore.size));
+    }
+    if (!sameStableFile(initialStat, handleBefore)) {
+      throw new FingerprintError("file changed before its fingerprint read handle was secured", "FINGERPRINT_CHANGED_DURING_READ", { path: evidencePath });
+    }
+    const bytes = await readHandleWithinLimit(handle, maxBytes);
+    const handleAfter = await handle.stat();
+    const pathAfter = initialLink === null ? await fsImpl.lstat(path) : await fsImpl.stat(path);
+    const linkAfter = initialLink === null ? null : await fsImpl.lstat(path);
+    if (!sameStableFile(handleBefore, handleAfter) || !sameStableFile(handleAfter, pathAfter) || initialLink !== null && !sameStableLink(initialLink, linkAfter) || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new FingerprintError("file changed while hashing", "FINGERPRINT_CHANGED_DURING_READ", { path: evidencePath });
+    }
+    return bytes;
+  } finally {
+    await handle?.close().catch(() => {
+    });
+  }
+}
+async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs2, maxBytes = null } = {}) {
   if (typeof requestedPath !== "string" || requestedPath.trim() === "") {
     throw new FingerprintError("path must be a non-empty string", "INVALID_PATH");
+  }
+  if (maxBytes !== null && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
+    throw new FingerprintError("file fingerprint byte limit is invalid", "INVALID_FINGERPRINT_LIMIT");
   }
   const canonicalPath = resolve(requestedPath);
   let lstat;
@@ -7960,8 +11003,18 @@ async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs
   const linkKind = lstat.isSymbolicLink() ? "symbolic_link" : "none";
   const stat = lstat.isSymbolicLink() ? await fsImpl.stat(canonicalPath) : lstat;
   const kind = kindFor(stat);
+  let observedSize = Number(stat.size);
   let sha256 = null;
-  if (kind === "file") sha256 = sha256Bytes(await fsImpl.readFile(canonicalPath));
+  if (kind === "file") {
+    const bytes = await readStableFingerprintFile(canonicalPath, {
+      fsImpl,
+      initialStat: stat,
+      initialLink: lstat.isSymbolicLink() ? lstat : null,
+      maxBytes
+    });
+    sha256 = sha256Bytes(bytes);
+    if (maxBytes !== null) observedSize = bytes.length;
+  }
   return {
     requested_path: requestedPath,
     canonical_path: canonicalPath,
@@ -7970,214 +11023,120 @@ async function fingerprintPath(requestedPath, { allowedRoots, fsImpl = defaultFs
     kind,
     link_kind: linkKind,
     link_count: Number(stat.nlink),
-    size: Number(stat.size),
+    size: observedSize,
     sha256
   };
 }
-
-// server/deployment/bundle-freshness.mjs
-var SHA256 = /^[0-9a-f]{64}$/;
-var MANIFEST_KEYS = /* @__PURE__ */ new Set([
-  "schema_version",
-  "entry",
-  "node_minimum",
-  "esbuild_version",
-  "source_inputs",
-  "package_lock_sha256",
-  "bundled_packages",
-  "input_manifest_sha256",
-  "bundle_sha256"
-]);
-var BundleFreshnessError = class extends Error {
-  constructor(message, details = {}) {
-    super(message);
-    this.name = "BundleFreshnessError";
-    this.code = "BUNDLE_FRESHNESS_FAILED";
-    this.details = details;
+function slashRelative(root, value) {
+  return relative(root, value).split(sep).join("/");
+}
+function matchesRule(path, rule) {
+  if (typeof rule === "function") return rule(path);
+  if (typeof rule !== "string") return false;
+  const normalized = rule.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (normalized.endsWith("/**")) {
+    const prefix = normalized.slice(0, -3).replace(/\/$/, "");
+    return path === prefix || path.startsWith(`${prefix}/`);
   }
-};
-function fail3(message, details) {
-  throw new BundleFreshnessError(message, details);
+  return path === normalized;
 }
-function plainObject(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+function selected(path, include, exclude) {
+  const included = include === void 0 || (Array.isArray(include) ? include.some((rule) => matchesRule(path, rule)) : matchesRule(path, include));
+  const excluded = exclude !== void 0 && (Array.isArray(exclude) ? exclude.some((rule) => matchesRule(path, rule)) : matchesRule(path, exclude));
+  return included && !excluded;
 }
-function exactKeys(value, expected, label) {
-  if (!plainObject(value)) fail3(`${label} must be an object`);
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail3(`${label} has an unexpected schema`);
-}
-function ordinalCompare(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-function validateRelativeSourcePath(value) {
-  if (typeof value !== "string" || value === "" || value.includes("\\") || isAbsolute3(value)) return false;
-  const segments = value.split("/");
-  return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
-}
-function validateManifest(value) {
-  exactKeys(value, MANIFEST_KEYS, "bundle manifest");
-  if (value.schema_version !== "1.0" || value.entry !== "dist/deploy-uemcp.mjs") fail3("bundle manifest interface is unsupported");
-  if (value.node_minimum !== "22.0.0" || value.esbuild_version !== "0.28.1") fail3("bundle manifest toolchain identity is unsupported");
-  for (const key of ["package_lock_sha256", "input_manifest_sha256", "bundle_sha256"]) {
-    if (!SHA256.test(value[key] ?? "")) fail3(`bundle manifest ${key} is invalid`);
-  }
-  if (!Array.isArray(value.source_inputs) || value.source_inputs.length === 0) fail3("bundle manifest source inputs are empty");
-  const sourcePaths = [];
-  for (const row of value.source_inputs) {
-    exactKeys(row, /* @__PURE__ */ new Set(["path", "sha256"]), "bundle source input");
-    if (!validateRelativeSourcePath(row.path) || !SHA256.test(row.sha256 ?? "")) fail3("bundle source input is invalid");
-    sourcePaths.push(row.path);
-  }
-  if (new Set(sourcePaths).size !== sourcePaths.length || JSON.stringify(sourcePaths) !== JSON.stringify([...sourcePaths].sort(ordinalCompare))) {
-    fail3("bundle source inputs are duplicated or unsorted");
-  }
-  if (!Array.isArray(value.bundled_packages) || value.bundled_packages.length === 0) fail3("bundle package identities are empty");
-  const packageKeys = [];
-  for (const row of value.bundled_packages) {
-    exactKeys(row, /* @__PURE__ */ new Set(["name", "version", "license"]), "bundled package");
-    if (![row.name, row.version, row.license].every((field) => typeof field === "string" && field !== "")) fail3("bundled package identity is invalid");
-    packageKeys.push(`${row.name}\0${row.version}`);
-  }
-  if (new Set(packageKeys).size !== packageKeys.length || JSON.stringify(packageKeys) !== JSON.stringify([...packageKeys].sort(ordinalCompare))) {
-    fail3("bundled package identities are duplicated or unsorted");
-  }
-  const aggregate = sha256Canonical({
-    source_inputs: value.source_inputs,
-    package_lock_sha256: value.package_lock_sha256,
-    bundled_packages: value.bundled_packages
-  });
-  if (aggregate !== value.input_manifest_sha256) fail3("bundle aggregate input hash changed");
-  return value;
-}
-function contained(root, path) {
-  const rel = relative2(resolve2(root), resolve2(path));
-  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute3(rel);
-}
-async function exactFile(path, { repoRoot, fsImpl, label, maximumBytes = null }) {
-  if (!contained(repoRoot, path)) fail3(`${label} escaped the repository root`);
-  const fingerprint = await fingerprintPath(path, { allowedRoots: [repoRoot], fsImpl });
-  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count !== 1) {
-    fail3(`${label} is missing or not a regular single-link file`);
-  }
-  if (maximumBytes !== null && fingerprint.size > maximumBytes) fail3(`${label} exceeds its size limit`);
-  return fingerprint;
-}
-async function verifyDeploymentBundleFreshness({
-  repoRoot,
-  activeEntryPath,
-  manifestPath = null,
-  fsImpl = defaultFs2
+async function fingerprintDirectory(root, {
+  include,
+  exclude,
+  allowedRoots = [root],
+  fsImpl = defaultFs2,
+  maxEntries = null,
+  maxFiles = null,
+  maxBytes = null
 } = {}) {
-  if (!isAbsolute3(repoRoot ?? "") || !isAbsolute3(activeEntryPath ?? "")) fail3("bundle freshness requires absolute repository and entry paths");
-  const canonicalRepo = resolve2(repoRoot);
-  const canonicalManifest = resolve2(manifestPath ?? join2(canonicalRepo, "dist", "deploy-uemcp.manifest.json"));
-  await exactFile(canonicalManifest, { repoRoot: canonicalRepo, fsImpl, label: "bundle manifest", maximumBytes: 1024 * 1024 });
-  let manifest;
-  try {
-    manifest = validateManifest(JSON.parse(await fsImpl.readFile(canonicalManifest, "utf8")));
-  } catch (error2) {
-    if (error2 instanceof BundleFreshnessError) throw error2;
-    fail3("bundle manifest is not valid JSON");
-  }
-  const sourceEntry = resolve2(canonicalRepo, "server", "deploy-uemcp.mjs");
-  const candidateEntry = resolve2(activeEntryPath) === sourceEntry ? resolve2(canonicalRepo, ...manifest.entry.split("/")) : resolve2(activeEntryPath);
-  const bundle = await exactFile(candidateEntry, { repoRoot: canonicalRepo, fsImpl, label: "deployment bundle" });
-  if (bundle.sha256 !== manifest.bundle_sha256) fail3("deployment bundle hash changed");
-  const lock = await exactFile(join2(canonicalRepo, "server", "package-lock.json"), { repoRoot: canonicalRepo, fsImpl, label: "package lock" });
-  if (lock.sha256 !== manifest.package_lock_sha256) fail3("package lock hash changed");
-  for (const row of manifest.source_inputs) {
-    const sourcePath = resolve2(canonicalRepo, ...row.path.split("/"));
-    const source = await exactFile(sourcePath, { repoRoot: canonicalRepo, fsImpl, label: `source input ${row.path}` });
-    if (source.sha256 !== row.sha256) fail3("first-party bundle input changed", { path: row.path });
-  }
-  await exactFile(join2(dirname(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
-    repoRoot: canonicalRepo,
-    fsImpl,
-    label: "third-party notices",
-    maximumBytes: 4 * 1024 * 1024
-  });
-  return Object.freeze({
-    schema_version: manifest.schema_version,
-    bundle_sha256: manifest.bundle_sha256,
-    input_manifest_sha256: manifest.input_manifest_sha256,
-    source_input_count: manifest.source_inputs.length,
-    bundled_package_count: manifest.bundled_packages.length
-  });
-}
-
-// server/deployment/descriptor.mjs
-import * as defaultFs3 from "node:fs/promises";
-import { isAbsolute as isAbsolute4, posix as posix3, resolve as resolve3, win32 as win323 } from "node:path";
-var DESCRIPTOR_KEYS = ["name", "transport", "command", "args", "env", "cwd"];
-var DescriptorError = class extends Error {
-  constructor(message, code = "INVALID_DESCRIPTOR", details = {}) {
-    super(message);
-    this.name = "DescriptorError";
-    this.code = code;
-    this.details = details;
-  }
-};
-function normalizePath(value) {
-  const normalized = resolve3(value).replace(/\\/g, "/");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function absolutePath(value) {
-  return typeof value === "string" && (isAbsolute4(value) || win323.isAbsolute(value) || posix3.isAbsolute(value));
-}
-function exactDescriptorShape(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...DESCRIPTOR_KEYS].sort());
-}
-async function createCanonicalDescriptor({ nodeExecutable, serverEntry, allowedRoots, fsImpl = defaultFs3 } = {}) {
-  if (!absolutePath(nodeExecutable) || !absolutePath(serverEntry)) {
-    throw new DescriptorError("descriptor paths must be absolute");
-  }
-  const node = await fingerprintPath(nodeExecutable, { allowedRoots, fsImpl });
-  const server = await fingerprintPath(serverEntry, { allowedRoots, fsImpl });
-  for (const [label, fingerprint] of [["Node executable", node], ["server entry", server]]) {
-    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
-      throw new DescriptorError(`${label} must be a regular non-linked file`);
+  for (const [label, value] of [["entry", maxEntries], ["file", maxFiles], ["byte", maxBytes]]) {
+    if (value !== null && (!Number.isSafeInteger(value) || value < 0)) {
+      throw new FingerprintError(`directory manifest ${label} limit is invalid`, "INVALID_FINGERPRINT_LIMIT");
     }
   }
-  return Object.freeze({
-    name: "uemcp",
-    transport: "stdio",
-    command: node.real_path,
-    args: Object.freeze([server.real_path]),
-    env: Object.freeze({}),
-    cwd: null
-  });
-}
-function descriptorsEqual(actual, expected) {
-  if (!exactDescriptorShape(actual) || !exactDescriptorShape(expected)) return false;
-  if (actual.name !== expected.name || actual.transport !== expected.transport || actual.cwd !== expected.cwd) return false;
-  if (!absolutePath(actual.command) || !absolutePath(expected.command) || normalizePath(actual.command) !== normalizePath(expected.command)) return false;
-  if (!Array.isArray(actual.args) || !Array.isArray(expected.args) || actual.args.length !== expected.args.length) return false;
-  for (let index = 0; index < actual.args.length; index += 1) {
-    const left = actual.args[index];
-    const right = expected.args[index];
-    if (typeof left !== "string" || typeof right !== "string") return false;
-    if (absolutePath(left) && absolutePath(right)) {
-      if (normalizePath(left) !== normalizePath(right)) return false;
-    } else if (left !== right) return false;
+  const absoluteRoot = resolve(root);
+  const rootFingerprint = await fingerprintPath(absoluteRoot, { allowedRoots, fsImpl });
+  if (!rootFingerprint.exists || rootFingerprint.kind !== "directory" || rootFingerprint.link_kind !== "none") {
+    throw new FingerprintError("directory manifest root must be an existing non-linked directory", "INVALID_DIRECTORY_ROOT");
   }
-  if (actual.env === null || expected.env === null || typeof actual.env !== "object" || typeof expected.env !== "object") return false;
-  if (JSON.stringify(Object.fromEntries(Object.entries(actual.env).sort())) !== JSON.stringify(Object.fromEntries(Object.entries(expected.env).sort()))) return false;
-  return true;
+  const entries = [];
+  let visitedEntries = 0;
+  let selectedFiles = 0;
+  let selectedBytes = 0;
+  async function visit2(directory) {
+    const children = await fsImpl.readdir(directory, { withFileTypes: true });
+    children.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    for (const child of children) {
+      visitedEntries += 1;
+      if (maxEntries !== null && visitedEntries > maxEntries) {
+        throw new FingerprintError("directory manifest exceeds its traversal entry limit", "FINGERPRINT_ENTRY_LIMIT", {
+          maximum_entries: maxEntries,
+          observed_entries: visitedEntries
+        });
+      }
+      const childPath = join(directory, child.name);
+      const rel = slashRelative(absoluteRoot, childPath);
+      const childLstat = await fsImpl.lstat(childPath);
+      if (childLstat.isSymbolicLink()) {
+        throw new FingerprintError("directory manifest contains a link", "UNSAFE_LINK_TYPE", { path: rel });
+      }
+      if (childLstat.isDirectory()) {
+        await visit2(childPath);
+      } else if (childLstat.isFile() && selected(rel, include, exclude)) {
+        if (childLstat.nlink !== 1) {
+          throw new FingerprintError("directory manifest contains a multiply linked file", "UNSAFE_LINK_TYPE", { path: rel });
+        }
+        selectedFiles += 1;
+        if (maxFiles !== null && selectedFiles > maxFiles) {
+          throw new FingerprintError("directory manifest exceeds its file limit", "FINGERPRINT_FILE_LIMIT", {
+            maximum_files: maxFiles,
+            observed_files: selectedFiles
+          });
+        }
+        const remaining = maxBytes === null ? null : maxBytes - selectedBytes;
+        if (remaining !== null && Number(childLstat.size) > remaining) {
+          throw new FingerprintError("directory manifest exceeds its aggregate byte limit", "FINGERPRINT_BYTE_LIMIT", {
+            maximum_bytes: maxBytes,
+            observed_bytes: selectedBytes + Number(childLstat.size)
+          });
+        }
+        const bytes = await readStableFingerprintFile(childPath, {
+          fsImpl,
+          initialStat: childLstat,
+          maxBytes: remaining,
+          evidencePath: rel
+        });
+        selectedBytes += bytes.byteLength;
+        entries.push({ path: rel, size: bytes.byteLength, sha256: sha256Bytes(bytes) });
+      } else if (childLstat.isFile()) {
+        if (childLstat.nlink !== 1) {
+          throw new FingerprintError("directory manifest contains a multiply linked file", "UNSAFE_LINK_TYPE", { path: rel });
+        }
+      } else {
+        throw new FingerprintError("directory manifest contains an unsupported path type", "UNSAFE_PATH_TYPE", { path: rel });
+      }
+    }
+  }
+  await visit2(absoluteRoot);
+  entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return {
+    root: absoluteRoot,
+    entries,
+    entry_count: visitedEntries,
+    file_count: selectedFiles,
+    total_bytes: selectedBytes,
+    manifest_sha256: sha256Canonical(entries)
+  };
 }
-
-// server/deployment/local-state.mjs
-import { randomBytes } from "node:crypto";
-import * as defaultFs4 from "node:fs/promises";
-import { dirname as dirname2, isAbsolute as isAbsolute6, join as join4, parse, relative as relative3, resolve as resolve4, sep as sep3 } from "node:path";
 
 // server/deployment/process-runner.mjs
 import { spawn as defaultSpawn } from "node:child_process";
-import { isAbsolute as isAbsolute5, join as join3, posix as posix4, win32 as win324 } from "node:path";
+import { isAbsolute as isAbsolute3, posix as posix3, win32 as win324 } from "node:path";
 var ProcessRunnerError = class extends Error {
   constructor(message, code = "PROCESS_RUNNER_ERROR", details = {}) {
     super(message);
@@ -8186,43 +11145,71 @@ var ProcessRunnerError = class extends Error {
     this.details = details;
   }
 };
-function absolutePath2(value) {
-  return typeof value === "string" && (isAbsolute5(value) || win324.isAbsolute(value) || posix4.isAbsolute(value));
+function absolutePath(value) {
+  return typeof value === "string" && (isAbsolute3(value) || win324.isAbsolute(value) || posix3.isAbsolute(value));
 }
 function elapsed(clock, started) {
   return Math.max(0, Number(clock()) - started);
 }
-async function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
-  if (!child?.pid) return;
-  if (process.platform !== "win32") {
-    child.kill("SIGKILL");
+function killDirectChild(child, signal) {
+  try {
+    child.kill(signal);
+  } catch {
+  }
+}
+async function terminateProcessTree(child, {
+  spawnImpl = defaultSpawn,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  signal = "SIGKILL",
+  timeoutMs = 5e3
+} = {}) {
+  if (!Number.isSafeInteger(child?.pid) || child.pid <= 0) return;
+  if (typeof spawnImpl !== "function" || typeof signal !== "string" || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new ProcessRunnerError("process-tree termination options are invalid", "INVALID_TERMINATION_OPTIONS");
+  }
+  if (platform !== "win32") {
+    killDirectChild(child, signal);
     return;
   }
-  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
-  if (!systemRoot) {
-    child.kill("SIGKILL");
+  if (typeof systemRoot !== "string" || !/^[A-Za-z]:[\\/]/.test(systemRoot)) {
+    killDirectChild(child, signal);
     return;
   }
-  const taskkill = join3(systemRoot, "System32", "taskkill.exe");
-  await new Promise((resolve13) => {
+  const normalizedRoot = win324.resolve(systemRoot);
+  const taskkill = win324.resolve(normalizedRoot, "System32", "taskkill.exe");
+  await new Promise((resolvePromise) => {
     let killer;
+    let settled = false;
+    let timer;
+    const finish = (fallback) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (fallback) killDirectChild(child, signal);
+      resolvePromise();
+    };
     try {
       killer = spawnImpl(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
+        env: { SystemRoot: normalizedRoot, WINDIR: normalizedRoot },
         shell: false,
         windowsHide: true,
         stdio: "ignore"
       });
     } catch {
-      child.kill("SIGKILL");
-      resolve13();
+      finish(true);
       return;
     }
-    killer.once("error", () => {
-      child.kill("SIGKILL");
-      resolve13();
-    });
-    killer.once("close", () => resolve13());
+    killer.once("error", () => finish(true));
+    killer.once("close", (code) => finish(code !== 0));
+    timer = setTimeout(() => {
+      killDirectChild(killer, "SIGKILL");
+      finish(true);
+    }, timeoutMs);
   });
+}
+function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
+  return terminateProcessTree(child, { spawnImpl });
 }
 function createProcessRunner({
   spawnImpl = defaultSpawn,
@@ -8242,13 +11229,13 @@ function createProcessRunner({
       outputLimitBytes = defaultOutputLimitBytes,
       stdin = null
     } = {}) {
-      if (!absolutePath2(executable)) throw new ProcessRunnerError("executable must be an absolute path", "INVALID_EXECUTABLE");
+      if (!absolutePath(executable)) throw new ProcessRunnerError("executable must be an absolute path", "INVALID_EXECUTABLE");
       if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string")) {
         throw new ProcessRunnerError("args must be an array of strings", "INVALID_ARGUMENTS");
       }
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new ProcessRunnerError("timeoutMs must be a positive integer");
       if (!Number.isSafeInteger(outputLimitBytes) || outputLimitBytes <= 0) throw new ProcessRunnerError("outputLimitBytes must be a positive integer");
-      if (cwd !== void 0 && cwd !== null && !absolutePath2(cwd)) throw new ProcessRunnerError("cwd must be absolute when supplied");
+      if (cwd !== void 0 && cwd !== null && !absolutePath(cwd)) throw new ProcessRunnerError("cwd must be absolute when supplied");
       if (env !== void 0 && (env === null || typeof env !== "object" || Array.isArray(env))) {
         throw new ProcessRunnerError("env must be an object when supplied");
       }
@@ -8266,7 +11253,7 @@ function createProcessRunner({
         let stderrBytes = 0;
         let stdoutDiscardedBytes = 0;
         let stderrDiscardedBytes = 0;
-        const result = (status, exitCode = null, signal = null) => ({
+        const result2 = (status, exitCode = null, signal = null) => ({
           status,
           exitCode,
           signal,
@@ -8281,7 +11268,7 @@ function createProcessRunner({
           settled = true;
           if (timer) clearTimeout(timer);
           if (killFallbackTimer) clearTimeout(killFallbackTimer);
-          resolvePromise(result(status, exitCode, signal));
+          resolvePromise(result2(status, exitCode, signal));
         };
         const terminateOnce = (status) => {
           if (terminalStatus === null) terminalStatus = status;
@@ -8294,7 +11281,6 @@ function createProcessRunner({
             }
           });
           killFallbackTimer = setTimeout(() => settle(terminalStatus), 5e3);
-          killFallbackTimer.unref?.();
         };
         const capture = (chunk, stream) => {
           const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -8330,7 +11316,6 @@ function createProcessRunner({
         child.once("error", () => settle("spawn_failed"));
         child.once("close", (code, signal) => settle(terminalStatus ?? "exited", code, signal));
         timer = setTimeout(() => terminateOnce("timed_out"), timeoutMs);
-        timer.unref?.();
         if (child.stdin) {
           child.stdin.once("error", () => {
           });
@@ -8342,488 +11327,10360 @@ function createProcessRunner({
   });
 }
 
-// server/deployment/local-state.mjs
-var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
-var LEASE_PROCESS_SCRIPT = String.raw`
+// server/deployment/windows-native.mjs
+import { spawn as defaultSpawn2 } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import * as defaultFs3 from "node:fs/promises";
+import { dirname, isAbsolute as isAbsolute4, join as join2, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+var AUTHENTICODE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
-try {
-  $pidValue = [int]$env:UEMCP_LEASE_PID
-  $processValue = Get-Process -Id $pidValue -ErrorAction Stop
-  $start = [DateTimeOffset]$processValue.StartTime.ToUniversalTime()
-  [Console]::Out.Write((@{ state = 'alive'; process_start = $start.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress))
-} catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
-  [Console]::Out.Write('{"state":"dead"}')
-} catch {
-  [Console]::Out.Write('{"state":"unknown"}')
+$module = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+Import-Module -Name $module -Force
+$signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $env:UEMCP_AUTHENTICODE_TARGET
+$name = $null
+$thumbprint = $null
+if ($null -ne $signature.SignerCertificate) {
+  $name = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+  $thumbprint = $signature.SignerCertificate.Thumbprint
 }
-`;
-var LocalStateError = class extends Error {
-  constructor(message, code = "LOCAL_STATE_UNAVAILABLE", details = {}) {
+[ordered]@{ status = [string]$signature.Status; signer_name = $name; thumbprint = $thumbprint } | ConvertTo-Json -Compress
+`.trim();
+var METADATA_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+function Get-Sha256Hex([byte[]]$Bytes) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try { $hashBytes = $sha.ComputeHash($Bytes) } finally { $sha.Dispose() }
+  return [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+}
+$target = $env:UEMCP_METADATA_TARGET
+$maxStreams = [int]$env:UEMCP_MAX_STREAMS
+$maxBytes = [long]$env:UEMCP_MAX_STREAM_BYTES
+$item = Get-Item -LiteralPath $target -Force
+$acl = Get-Acl -LiteralPath $target
+$streams = @(Get-Item -LiteralPath $target -Stream * -ErrorAction Stop | Where-Object { $_.Stream -ne ':$DATA' -and $_.Stream -ne '::$DATA' } | Sort-Object Stream)
+if ($streams.Count -gt $maxStreams) { throw 'STREAM_COUNT_LIMIT' }
+$streamRows = @()
+$streamBytes = [long]0
+foreach ($stream in $streams) {
+  $content = Get-Content -LiteralPath $stream.FileName -Stream $stream.Stream -Encoding Byte -Raw -ErrorAction Stop
+  $bytes = if ($null -eq $content) { [byte[]]@() } else { [byte[]]$content }
+  $streamBytes += $bytes.LongLength
+  if ($streamBytes -gt $maxBytes) { throw 'STREAM_BYTE_LIMIT' }
+  $hash = Get-Sha256Hex $bytes
+  $streamRows += [ordered]@{ name = $stream.Stream; size = $bytes.LongLength; sha256 = $hash }
+}
+$metadata = [ordered]@{
+  owner = $acl.Owner
+  sddl = $acl.Sddl
+  creation_time_utc_ticks = $item.CreationTimeUtc.Ticks
+  attributes = [int64]$item.Attributes
+  streams = $streamRows
+}
+$json = $metadata | ConvertTo-Json -Compress -Depth 8
+[ordered]@{
+  metadata_sha256 = Get-Sha256Hex ([System.Text.Encoding]::UTF8.GetBytes($json))
+  stream_count = $streams.Count
+  stream_bytes = $streamBytes
+} | ConvertTo-Json -Compress
+`.trim();
+var KNOWN_FOLDERS_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class UemcpKnownFoldersNative
+{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHGetKnownFolderPath(
+        ref Guid folderId,
+        uint flags,
+        IntPtr token,
+        out IntPtr path);
+
+    public static string Resolve(string id)
+    {
+        Guid folderId = new Guid(id);
+        IntPtr path = IntPtr.Zero;
+        try
+        {
+            int result = SHGetKnownFolderPath(ref folderId, 0, IntPtr.Zero, out path);
+            if (result != 0) { throw new COMException("SHGetKnownFolderPath failed", result); }
+            string value = Marshal.PtrToStringUni(path);
+            if (String.IsNullOrWhiteSpace(value)) { throw new InvalidOperationException("Known folder path is empty"); }
+            return value;
+        }
+        finally
+        {
+            if (path != IntPtr.Zero) { Marshal.FreeCoTaskMem(path); }
+        }
+    }
+}
+'@
+[ordered]@{
+  program_data = [UemcpKnownFoldersNative]::Resolve('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
+  program_files = [UemcpKnownFoldersNative]::Resolve('905e63b6-c1bf-494e-b29c-65b732d3d21a')
+} | ConvertTo-Json -Compress
+`.trim();
+var REPLACE_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class UemcpReplaceFileNative
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ReplaceFile(
+        string replacedFileName,
+        string replacementFileName,
+        string backupFileName,
+        uint replaceFlags,
+        IntPtr exclude,
+        IntPtr reserved);
+}
+'@
+try {
+  $replaced = [UemcpReplaceFileNative]::ReplaceFile(
+    $env:UEMCP_DESTINATION_PATH,
+    $env:UEMCP_REPLACEMENT_PATH,
+    $env:UEMCP_BACKUP_PATH,
+    0,
+    [IntPtr]::Zero,
+    [IntPtr]::Zero)
+  if (-not $replaced) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
+  [ordered]@{ status = 'replaced' } | ConvertTo-Json -Compress
+} catch {
+  [ordered]@{ status = 'failed'; error_code = $_.Exception.GetType().FullName } | ConvertTo-Json -Compress
+  exit 1
+}
+`.trim();
+var ANCESTRY_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedAncestryNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+}
+'@
+
+function Convert-ToExtendedPath([string]$Path) {
+  if ($Path.StartsWith('\\')) { return '\\?\UNC\' + $Path.Substring(2) }
+  return '\\?\' + $Path
+}
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $directories = ConvertFrom-Json -InputObject $env:UEMCP_ANCESTRY_DIRECTORIES
+  foreach ($directory in $directories) {
+    $handle = [UemcpPinnedAncestryNative]::CreateFileW(
+      (Convert-ToExtendedPath ([string]$directory)),
+      0x80,
+      0x3,
+      [IntPtr]::Zero,
+      3,
+      0x02200000,
+      [IntPtr]::Zero)
+    if ($handle.IsInvalid) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      $handle.Dispose()
+      throw [System.ComponentModel.Win32Exception]::new($errorCode)
+    }
+    $handles.Add($handle)
+    $information = [UemcpPinnedAncestryNative+ByHandleFileInformation]::new()
+    if (-not [UemcpPinnedAncestryNative]::GetFileInformationByHandle($handle, [ref]$information)) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw [System.ComponentModel.Win32Exception]::new($errorCode)
+    }
+    if (($information.FileAttributes -band 0x400) -ne 0 -or ($information.FileAttributes -band 0x10) -eq 0) {
+      throw 'unsafe pinned ancestry entry'
+    }
+  }
+
+  $sentinelName = '.uemcp-pin-' + [Guid]::NewGuid().ToString('N') + '.tmp'
+  $sentinelPath = [System.IO.Path]::Combine([string]$directories[-1], $sentinelName)
+  $sentinelHandle = [UemcpPinnedAncestryNative]::CreateFileW(
+    (Convert-ToExtendedPath $sentinelPath),
+    0x10080,
+    0x3,
+    [IntPtr]::Zero,
+    1,
+    0x04200100,
+    [IntPtr]::Zero)
+  if ($sentinelHandle.IsInvalid) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    $sentinelHandle.Dispose()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
+  $handles.Add($sentinelHandle)
+  $sentinelInformation = [UemcpPinnedAncestryNative+ByHandleFileInformation]::new()
+  if (-not [UemcpPinnedAncestryNative]::GetFileInformationByHandle($sentinelHandle, [ref]$sentinelInformation)) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw [System.ComponentModel.Win32Exception]::new($errorCode)
+  }
+  if (($sentinelInformation.FileAttributes -band 0x400) -ne 0 -or ($sentinelInformation.FileAttributes -band 0x10) -ne 0) {
+    throw 'unsafe ancestry sentinel'
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid ancestry release signal' }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var DELETE_TREE_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpDeleteTreeNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FileDispositionInformation
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool DeleteFile;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+        SafeFileHandle file,
+        int fileInformationClass,
+        ref FileDispositionInformation information,
+        uint bufferSize);
+
+    private const uint DeleteAccess = 0x00010000;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint ShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+    private const int FileDispositionInfo = 4;
+
+    private static int entryCount;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    public static SafeFileHandle OpenPinnedDirectory(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadAttributes,
+            ShareRead | ShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe deletion ancestry entry");
+        }
+        return handle;
+    }
+
+    public static int DeleteTree(string path, int maxEntries, int maxDepth)
+    {
+        entryCount = 0;
+        DeleteEntry(ExtendedPath(path), 0, maxEntries, maxDepth);
+        return entryCount;
+    }
+
+    private static void DeleteEntry(string path, int depth, int maxEntries, int maxDepth)
+    {
+        if (depth > maxDepth) throw new InvalidOperationException("deletion depth limit");
+        entryCount += 1;
+        if (entryCount > maxEntries) throw new InvalidOperationException("deletion entry limit");
+
+        SafeFileHandle handle = CreateFileW(
+            path,
+            DeleteAccess | ReadAttributes,
+            ShareRead,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        try
+        {
+            ByHandleFileInformation information = Information(handle);
+            bool isDirectory = (information.FileAttributes & DirectoryAttribute) != 0;
+            bool isReparsePoint = (information.FileAttributes & ReparseAttribute) != 0;
+            if (isDirectory && !isReparsePoint)
+            {
+                foreach (string child in Directory.EnumerateFileSystemEntries(path))
+                {
+                    DeleteEntry(child, depth + 1, maxEntries, maxDepth);
+                }
+            }
+            FileDispositionInformation disposition = new FileDispositionInformation();
+            disposition.DeleteFile = true;
+            if (!SetFileInformationByHandle(
+                handle,
+                FileDispositionInfo,
+                ref disposition,
+                (uint)Marshal.SizeOf(typeof(FileDispositionInformation))))
+            {
+                throw LastError();
+            }
+        }
+        finally
+        {
+            handle.Dispose();
+        }
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+try {
+  $directories = ConvertFrom-Json -InputObject $env:UEMCP_DELETE_ANCESTRY
+  foreach ($directory in $directories) {
+    $handles.Add([UemcpDeleteTreeNative]::OpenPinnedDirectory([string]$directory))
+  }
+  $entries = [UemcpDeleteTreeNative]::DeleteTree(
+    $env:UEMCP_DELETE_TARGET,
+    [int]$env:UEMCP_DELETE_MAX_ENTRIES,
+    [int]$env:UEMCP_DELETE_MAX_DEPTH)
+  [ordered]@{ status = 'removed'; entries = $entries } | ConvertTo-Json -Compress
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var TREE_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedTreeNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    private const uint ReadDataOrListDirectory = 0x00000001;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+
+    private static int entryCount;
+    private static int fileCount;
+    private static long totalBytes;
+    private static volatile bool treeChanged;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    private static SafeFileHandle Open(string path, uint shareMode)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadDataOrListDirectory | ReadAttributes,
+            shareMode,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenAncestry(string path)
+    {
+        SafeFileHandle handle = Open(path, 0x3);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned tree ancestry");
+        }
+        return handle;
+    }
+
+    public static void PinRoots(
+        string[] roots,
+        List<SafeFileHandle> handles,
+        int maxEntries,
+        int maxFiles,
+        long maxBytes)
+    {
+        entryCount = 0;
+        fileCount = 0;
+        totalBytes = 0;
+        foreach (string root in roots)
+        {
+            SafeFileHandle rootHandle = Open(root, ShareRead);
+            ByHandleFileInformation rootInformation = Information(rootHandle);
+            if ((rootInformation.FileAttributes & ReparseAttribute) != 0
+                || (rootInformation.FileAttributes & DirectoryAttribute) == 0)
+            {
+                rootHandle.Dispose();
+                throw new InvalidOperationException("unsafe pinned tree root");
+            }
+            handles.Add(rootHandle);
+            Visit(ExtendedPath(root), handles, maxEntries, maxFiles, maxBytes);
+        }
+    }
+
+    private static void Visit(
+        string directory,
+        List<SafeFileHandle> handles,
+        int maxEntries,
+        int maxFiles,
+        long maxBytes)
+    {
+        foreach (string child in Directory.EnumerateFileSystemEntries(directory))
+        {
+            entryCount += 1;
+            if (entryCount > maxEntries) throw new InvalidOperationException("pinned tree entry limit");
+            SafeFileHandle handle = Open(child, ShareRead);
+            ByHandleFileInformation information = Information(handle);
+            if ((information.FileAttributes & ReparseAttribute) != 0)
+            {
+                handle.Dispose();
+                throw new InvalidOperationException("pinned tree contains a reparse point");
+            }
+            handles.Add(handle);
+            if ((information.FileAttributes & DirectoryAttribute) != 0)
+            {
+                Visit(child, handles, maxEntries, maxFiles, maxBytes);
+                continue;
+            }
+            if (information.NumberOfLinks != 1)
+            {
+                throw new InvalidOperationException("pinned tree contains a multiply linked file");
+            }
+            fileCount += 1;
+            if (fileCount > maxFiles) throw new InvalidOperationException("pinned tree file limit");
+            long size = ((long)information.FileSizeHigh << 32) | information.FileSizeLow;
+            totalBytes += size;
+            if (totalBytes > maxBytes) throw new InvalidOperationException("pinned tree byte limit");
+        }
+    }
+
+    private static void MarkChanged(object sender, FileSystemEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    private static void MarkRenamed(object sender, RenamedEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    private static void MarkError(object sender, ErrorEventArgs args)
+    {
+        treeChanged = true;
+    }
+
+    public static List<FileSystemWatcher> StartWatchers(string[] roots)
+    {
+        treeChanged = false;
+        List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        foreach (string root in roots)
+        {
+            FileSystemWatcher watcher = new FileSystemWatcher(root);
+            watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 65536;
+            watcher.NotifyFilter = NotifyFilters.FileName
+                | NotifyFilters.DirectoryName;
+            watcher.Changed += MarkChanged;
+            watcher.Created += MarkChanged;
+            watcher.Deleted += MarkChanged;
+            watcher.Renamed += MarkRenamed;
+            watcher.Error += MarkError;
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+        }
+        return watchers;
+    }
+
+    public static bool TreeChanged
+    {
+        get { return treeChanged; }
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+$watchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
+try {
+  $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
+  $ancestry = @($request.ancestry)
+  foreach ($directory in $ancestry) {
+    $handles.Add([UemcpPinnedTreeNative]::OpenAncestry([string]$directory))
+  }
+  [string[]]$roots = @($request.roots)
+  $watchers = [UemcpPinnedTreeNative]::StartWatchers($roots)
+  [UemcpPinnedTreeNative]::PinRoots(
+    $roots,
+    $handles,
+    [int]$request.max_entries,
+    [int]$request.max_files,
+    [long]$request.max_bytes)
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid tree pin release signal' }
+  [System.Threading.Thread]::Sleep(100)
+  if ([UemcpPinnedTreeNative]::TreeChanged) { throw 'pinned tree changed during inspection' }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $watchers.Count - 1; $index -ge 0; $index--) {
+    $watchers[$index].Dispose()
+  }
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var FILE_PIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class UemcpPinnedFileNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+        SafeFileHandle file,
+        out ByHandleFileInformation information);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetFileAttributesW(string fileName);
+
+    private const uint ReadDataOrListDirectory = 0x00000001;
+    private const uint ReadAttributes = 0x00000080;
+    private const uint ShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint DirectoryAttribute = 0x00000010;
+    private const uint ReparseAttribute = 0x00000400;
+    private const uint InvalidFileAttributes = 0xffffffff;
+
+    private static HashSet<string> absentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private static volatile bool absenceChanged;
+
+    private static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        if (path.StartsWith(@"\\")) return @"\\?\UNC\" + path.Substring(2);
+        return @"\\?\" + path;
+    }
+
+    private static Exception LastError()
+    {
+        return new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    private static ByHandleFileInformation Information(SafeFileHandle handle)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw LastError();
+        return information;
+    }
+
+    private static SafeFileHandle Open(string path, uint shareMode)
+    {
+        SafeFileHandle handle = CreateFileW(
+            ExtendedPath(path),
+            ReadDataOrListDirectory | ReadAttributes,
+            shareMode,
+            IntPtr.Zero,
+            OpenExisting,
+            BackupSemantics | OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            Exception error = LastError();
+            handle.Dispose();
+            throw error;
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenAncestry(string path)
+    {
+        SafeFileHandle handle = Open(path, 0x3);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned file ancestry");
+        }
+        return handle;
+    }
+
+    public static SafeFileHandle OpenFile(string path)
+    {
+        SafeFileHandle handle = Open(path, ShareRead);
+        ByHandleFileInformation information = Information(handle);
+        if ((information.FileAttributes & ReparseAttribute) != 0
+            || (information.FileAttributes & DirectoryAttribute) != 0
+            || information.NumberOfLinks != 1)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("unsafe pinned launch file");
+        }
+        return handle;
+    }
+
+    private static bool IsAbsentTarget(string path)
+    {
+        return absentPaths.Contains(Path.GetFullPath(path));
+    }
+
+    private static void MarkAbsentChanged(object sender, FileSystemEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentRenamed(object sender, RenamedEventArgs args)
+    {
+        if (IsAbsentTarget(args.FullPath) || IsAbsentTarget(args.OldFullPath)) absenceChanged = true;
+    }
+
+    private static void MarkAbsentError(object sender, ErrorEventArgs args)
+    {
+        absenceChanged = true;
+    }
+
+    public static List<FileSystemWatcher> StartAbsentWatchers(string[] paths, string[] roots)
+    {
+        absenceChanged = false;
+        absentPaths = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        List<FileSystemWatcher> watchers = new List<FileSystemWatcher>();
+        HashSet<string> watchedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots)
+        {
+            if (String.IsNullOrEmpty(root) || !watchedRoots.Add(root)) continue;
+            FileSystemWatcher watcher = new FileSystemWatcher(root);
+            watcher.IncludeSubdirectories = true;
+            watcher.InternalBufferSize = 65536;
+            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName;
+            watcher.Created += MarkAbsentChanged;
+            watcher.Deleted += MarkAbsentChanged;
+            watcher.Renamed += MarkAbsentRenamed;
+            watcher.Error += MarkAbsentError;
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+        }
+        return watchers;
+    }
+
+    public static void AssertAbsent(string[] paths)
+    {
+        foreach (string path in paths)
+        {
+            uint attributes = GetFileAttributesW(ExtendedPath(path));
+            if (attributes != InvalidFileAttributes) throw new InvalidOperationException("approved-absent evidence exists");
+            int error = Marshal.GetLastWin32Error();
+            if (error != 2 && error != 3) throw LastError();
+        }
+        if (absenceChanged) throw new InvalidOperationException("approved-absent evidence changed");
+    }
+}
+'@
+
+$handles = [System.Collections.Generic.List[Microsoft.Win32.SafeHandles.SafeFileHandle]]::new()
+$watchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
+try {
+  $request = ConvertFrom-Json -InputObject ([Console]::In.ReadLine())
+  foreach ($directory in @($request.ancestry)) {
+    $handles.Add([UemcpPinnedFileNative]::OpenAncestry([string]$directory))
+  }
+  [string[]]$absentComponents = @($request.absent_components)
+  [string[]]$absentWatchRoots = @($request.absent_watch_roots)
+  $watchers = [UemcpPinnedFileNative]::StartAbsentWatchers($absentComponents, $absentWatchRoots)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
+  foreach ($path in @($request.paths)) {
+    $handles.Add([UemcpPinnedFileNative]::OpenFile([string]$path))
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') { throw 'invalid file pin release signal' }
+  [System.Threading.Thread]::Sleep(100)
+  [UemcpPinnedFileNative]::AssertAbsent($absentComponents)
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  for ($index = $watchers.Count - 1; $index -ge 0; $index--) {
+    $watchers[$index].Dispose()
+  }
+  for ($index = $handles.Count - 1; $index -ge 0; $index--) {
+    $handles[$index].Dispose()
+  }
+}
+`.trim();
+var ANCESTRY_PIN_MAX_DIRECTORIES = 128;
+var ANCESTRY_PIN_MAX_INPUT_BYTES = 16 * 1024;
+var ANCESTRY_PIN_OUTPUT_LIMIT = 8 * 1024;
+var DELETE_TREE_MAX_ENTRIES = 4096;
+var DELETE_TREE_MAX_DEPTH = 64;
+var TREE_PIN_MAX_ROOTS = 2048;
+var TREE_PIN_MAX_INPUT_BYTES = 512 * 1024;
+var TREE_PIN_OUTPUT_LIMIT = 8 * 1024;
+var FILE_PIN_MAX_PATHS = 64;
+var FILE_PIN_MAX_ABSENT_COMPONENTS = 512;
+var FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
+var PIN_ACQUISITION_TIMEOUT_MS = 3e4;
+var MAX_HELPER_TIMEOUT_MS = 12e4;
+var WindowsNativeError = class extends Error {
+  constructor(message, code = "WINDOWS_NATIVE_FAILED", details = {}) {
     super(message);
-    this.name = "LocalStateError";
+    this.name = "WindowsNativeError";
     this.code = code;
     this.details = details;
   }
 };
-function contained2(root, candidate) {
-  const normalizedRoot = process.platform === "win32" ? resolve4(root).toLowerCase() : resolve4(root);
-  const normalizedCandidate = process.platform === "win32" ? resolve4(candidate).toLowerCase() : resolve4(candidate);
-  const rel = relative3(normalizedRoot, normalizedCandidate);
-  return rel === "" || !rel.startsWith(`..${sep3}`) && rel !== ".." && !isAbsolute6(rel);
-}
-function safeSegment(value, label) {
-  if (typeof value !== "string" || value === "." || value === ".." || !/^[A-Za-z0-9._-]+$/.test(value)) {
-    throw new LocalStateError(`${label} contains unsafe characters`);
+function validateHelperTimeout(timeoutMs) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_HELPER_TIMEOUT_MS) {
+    throw new WindowsNativeError("Windows helper timeout is invalid", "INVALID_WINDOWS_HELPER_TIMEOUT");
   }
+  return timeoutMs;
+}
+function powershellPath(systemRoot) {
+  if (typeof systemRoot !== "string" || systemRoot.trim() === "") {
+    throw new WindowsNativeError("SystemRoot is required", "SYSTEM_ROOT_UNAVAILABLE");
+  }
+  return resolve2(join2(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+}
+function powershellArgs() {
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"];
+}
+function encodedPowerShell(script) {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+function minimalEnvironment(systemRoot, extra) {
+  return {
+    SystemRoot: resolve2(systemRoot),
+    WINDIR: resolve2(systemRoot),
+    PSModulePath: join2(resolve2(systemRoot), "System32", "WindowsPowerShell", "v1.0", "Modules"),
+    ...extra
+  };
+}
+function parseSingleJson(result2, expectedKeys) {
+  if (result2?.status !== "exited" || result2.exitCode !== 0 || typeof result2.stderr !== "string" || result2.stderr.length !== 0) {
+    throw new WindowsNativeError("bounded PowerShell helper did not exit cleanly");
+  }
+  const stdout = typeof result2.stdout === "string" ? result2.stdout.trim() : "";
+  if (stdout === "" || stdout.includes("\n") || stdout.includes("\r")) {
+    throw new WindowsNativeError("PowerShell helper returned malformed or extra output");
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new WindowsNativeError("PowerShell helper returned invalid JSON");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new WindowsNativeError("PowerShell helper returned a non-object");
+  }
+  const keys = Object.keys(parsed).sort();
+  const expected = [...expectedKeys].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expected)) {
+    throw new WindowsNativeError("PowerShell helper returned an unexpected schema");
+  }
+  return parsed;
+}
+function windowsPathKey(path) {
+  return resolve2(path).toLowerCase();
+}
+function validatedKnownFolder(value) {
+  if (typeof value !== "string" || value.trim() === "" || !isAbsolute4(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+    throw new WindowsNativeError("Windows known-folder helper returned an invalid path", "INVALID_KNOWN_FOLDER_RESULT");
+  }
+  return resolve2(value);
+}
+async function waitForHelperClose(closePromise, timeoutMs) {
+  let timer;
+  const closed = await Promise.race([
+    closePromise.then(() => true),
+    new Promise((resolvePromise) => {
+      timer = setTimeout(() => resolvePromise(false), timeoutMs);
+    })
+  ]);
+  clearTimeout(timer);
+  return closed;
+}
+function validatePinnedDirectories(directories) {
+  if (!Array.isArray(directories) || directories.length === 0 || directories.length > ANCESTRY_PIN_MAX_DIRECTORIES || !directories.every((path) => typeof path === "string" && isAbsolute4(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new WindowsNativeError("pinned ancestry is invalid", "INVALID_ANCESTRY_PIN");
+  }
+  const normalized = directories.map((path) => resolve2(path));
+  if (windowsPathKey(normalized[0]) !== windowsPathKey(parse(normalized[0]).root)) {
+    throw new WindowsNativeError("pinned ancestry must start at its volume root", "INVALID_ANCESTRY_PIN");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (let index = 0; index < normalized.length; index += 1) {
+    const key = windowsPathKey(normalized[index]);
+    if (seen.has(key)) throw new WindowsNativeError("pinned ancestry contains a duplicate", "INVALID_ANCESTRY_PIN");
+    seen.add(key);
+    if (index > 0 && windowsPathKey(dirname(normalized[index])) !== windowsPathKey(normalized[index - 1])) {
+      throw new WindowsNativeError("pinned ancestry is not a direct directory chain", "INVALID_ANCESTRY_PIN");
+    }
+  }
+  const serialized = JSON.stringify(normalized);
+  if (Buffer.byteLength(serialized, "utf8") > ANCESTRY_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError("pinned ancestry exceeds its input limit", "INVALID_ANCESTRY_PIN");
+  }
+  return { normalized, serialized };
+}
+async function withPinnedWindowsAncestry({
+  directories,
+  callback,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn2,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
+  releaseTimeoutMs = 5e3
+} = {}) {
+  if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError("pinned ancestry options are invalid", "INVALID_ANCESTRY_PIN");
+  }
+  const { normalized, serialized } = validatePinnedDirectories(directories);
+  if (platform !== "win32") {
+    return callback(Object.freeze({ assertPinned() {
+    } }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
+  try {
+    child = spawnImpl(executable, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedPowerShell(ANCESTRY_PIN_SCRIPT)
+    ], {
+      env: minimalEnvironment(systemRoot, { UEMCP_ANCESTRY_DIRECTORIES: serialized }),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch {
+    throw new WindowsNativeError("pinned ancestry helper could not start", "ANCESTRY_PIN_FAILED");
+  }
+  let stdout = "";
+  let stderr = "";
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise((resolvePromise) => {
+    child.once("close", (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError("pinned ancestry helper exited before acquisition", "ANCESTRY_PIN_FAILED"));
+      resolvePromise();
+    });
+  });
+  const stopHelper = (message) => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, "ANCESTRY_PIN_FAILED");
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > ANCESTRY_PIN_OUTPUT_LIMIT) {
+      stopHelper("pinned ancestry helper exceeded its output limit");
+      return;
+    }
+    if (stream === "stdout") {
+      stdout += bytes.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, "");
+        if (line !== "READY" || stdout.slice(newline + 1) !== "") {
+          stopHelper("pinned ancestry helper returned an invalid handshake");
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== "READY\n" && stdout !== "READY\r\n") {
+        stopHelper("pinned ancestry helper returned extra output");
+      }
+    } else {
+      stderr += bytes.toString("utf8");
+      stopHelper("pinned ancestry helper returned an error");
+    }
+  };
+  child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+  child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+  child.stdin?.once("error", () => {
+  });
+  child.once("error", () => stopHelper("pinned ancestry helper failed to start"));
+  const acquisitionTimer = setTimeout(() => stopHelper("pinned ancestry helper timed out"), acquisitionTimeoutMs);
+  let acquisitionError = null;
+  try {
+    await readyPromise;
+  } catch (error2) {
+    acquisitionError = error2;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
+  }
+  const guard = Object.freeze({
+    directories: Object.freeze([...normalized]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError("pinned ancestry helper was lost", "ANCESTRY_PIN_FAILED");
+      }
+    }
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error2) {
+    callbackError = error2;
+  }
+  if (!closed && child.stdin) child.stdin.end("RELEASE\n");
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise((resolvePromise) => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper("pinned ancestry helper did not release in time");
+    await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+  }
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+    throw protocolError ?? new WindowsNativeError("pinned ancestry helper did not release cleanly", "ANCESTRY_PIN_FAILED");
+  }
+  if (callbackError) throw callbackError;
   return value;
 }
-function scratchName(path) {
-  return join4(dirname2(path), `.${randomBytes(16).toString("hex")}.tmp`);
+function containedPath(root, candidate) {
+  const rel = relative2(windowsPathKey(root), windowsPathKey(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute4(rel);
 }
-async function exists(fsImpl, path) {
+function validatePinnedTreeOptions({ roots, maxEntries, maxFiles, maxBytes }) {
+  if (!Array.isArray(roots) || roots.length === 0 || roots.length > TREE_PIN_MAX_ROOTS || !Number.isSafeInteger(maxEntries) || maxEntries <= 0 || !Number.isSafeInteger(maxFiles) || maxFiles <= 0 || maxFiles > maxEntries || !Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new WindowsNativeError("pinned tree options are invalid", "INVALID_TREE_PIN");
+  }
+  const normalized = roots.map((root) => {
+    if (typeof root !== "string" || !isAbsolute4(root) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(root)) {
+      throw new WindowsNativeError("pinned tree root is invalid", "INVALID_TREE_PIN");
+    }
+    return resolve2(root);
+  });
+  const seen = /* @__PURE__ */ new Set();
+  for (const root of normalized) {
+    const key = windowsPathKey(root);
+    if (seen.has(key)) throw new WindowsNativeError("pinned tree roots contain a duplicate", "INVALID_TREE_PIN");
+    seen.add(key);
+  }
+  for (let left = 0; left < normalized.length; left += 1) {
+    for (let right = left + 1; right < normalized.length; right += 1) {
+      if (containedPath(normalized[left], normalized[right]) || containedPath(normalized[right], normalized[left])) {
+        throw new WindowsNativeError("pinned tree roots overlap", "INVALID_TREE_PIN");
+      }
+    }
+  }
+  const ancestryByKey = /* @__PURE__ */ new Map();
+  for (const root of normalized) {
+    let current = dirname(root);
+    const chain = [];
+    while (true) {
+      chain.unshift(current);
+      const next = dirname(current);
+      if (windowsPathKey(next) === windowsPathKey(current)) break;
+      current = next;
+    }
+    validatePinnedDirectories(chain);
+    for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  }
+  const ancestry = [...ancestryByKey.values()].sort((left, right) => {
+    const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
+    const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
+    return leftDepth - rightDepth || left.localeCompare(right);
+  });
+  const serializedRequest = JSON.stringify({
+    roots: normalized,
+    ancestry,
+    max_entries: maxEntries,
+    max_files: maxFiles,
+    max_bytes: maxBytes
+  });
+  if (Buffer.byteLength(serializedRequest, "utf8") > TREE_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError("pinned tree roots exceed the input limit", "INVALID_TREE_PIN");
+  }
+  return { normalized, serializedRequest };
+}
+async function withPinnedWindowsTrees({
+  roots,
+  callback,
+  maxEntries,
+  maxFiles,
+  maxBytes,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn2,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
+  releaseTimeoutMs = 5e3
+} = {}) {
+  if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError("pinned tree callback options are invalid", "INVALID_TREE_PIN");
+  }
+  const validated = validatePinnedTreeOptions({ roots, maxEntries, maxFiles, maxBytes });
+  if (platform !== "win32") {
+    return callback(Object.freeze({ roots: Object.freeze([...validated.normalized]), assertPinned() {
+    } }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
   try {
-    await fsImpl.lstat(path);
-    return true;
+    child = spawnImpl(executable, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedPowerShell(TREE_PIN_SCRIPT)
+    ], {
+      env: minimalEnvironment(systemRoot, {}),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch {
+    throw new WindowsNativeError("pinned tree helper could not start", "TREE_PIN_FAILED");
+  }
+  let stdout = "";
+  let stderr = "";
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise((resolvePromise) => {
+    child.once("close", (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError("pinned tree helper exited before acquisition", "TREE_PIN_FAILED"));
+      resolvePromise();
+    });
+  });
+  const stopHelper = (message) => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, "TREE_PIN_FAILED");
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > TREE_PIN_OUTPUT_LIMIT) {
+      stopHelper("pinned tree helper exceeded its output limit");
+      return;
+    }
+    if (stream === "stdout") {
+      stdout += bytes.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, "");
+        if (line !== "READY" || stdout.slice(newline + 1) !== "") {
+          stopHelper("pinned tree helper returned an invalid handshake");
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== "READY\n" && stdout !== "READY\r\n") {
+        stopHelper("pinned tree helper returned extra output");
+      }
+    } else {
+      stderr += bytes.toString("utf8");
+      stopHelper("pinned tree helper returned an error");
+    }
+  };
+  child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+  child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+  child.stdin?.once("error", () => {
+  });
+  child.once("error", () => stopHelper("pinned tree helper failed to start"));
+  child.stdin?.write(`${validated.serializedRequest}
+`);
+  const acquisitionTimer = setTimeout(() => stopHelper("pinned tree helper timed out"), acquisitionTimeoutMs);
+  let acquisitionError = null;
+  try {
+    await readyPromise;
   } catch (error2) {
-    if (error2?.code === "ENOENT") return false;
+    acquisitionError = error2;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
+  }
+  const guard = Object.freeze({
+    roots: Object.freeze([...validated.normalized]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError("pinned tree helper was lost", "TREE_PIN_FAILED");
+      }
+    }
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error2) {
+    callbackError = error2;
+  }
+  if (!closed && child.stdin) child.stdin.end("RELEASE\n");
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise((resolvePromise) => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper("pinned tree helper did not release in time");
+    await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+  }
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+    throw protocolError ?? new WindowsNativeError("pinned tree helper did not release cleanly", "TREE_PIN_FAILED");
+  }
+  if (callbackError) throw callbackError;
+  return value;
+}
+function validatePinnedFilePaths(paths, absentPaths) {
+  if (!Array.isArray(paths) || !Array.isArray(absentPaths) || paths.length + absentPaths.length === 0 || paths.length + absentPaths.length > FILE_PIN_MAX_PATHS) {
+    throw new WindowsNativeError("pinned file paths are invalid", "INVALID_FILE_PIN");
+  }
+  const normalizePaths = (values) => {
+    const normalized2 = [];
+    for (const path of values) {
+      if (typeof path !== "string" || !isAbsolute4(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+        throw new WindowsNativeError("pinned file path is invalid", "INVALID_FILE_PIN");
+      }
+      normalized2.push(resolve2(path));
+    }
+    return normalized2;
+  };
+  const normalized = normalizePaths(paths);
+  const normalizedAbsent = normalizePaths(absentPaths);
+  const seen = /* @__PURE__ */ new Set();
+  for (const path of [...normalized, ...normalizedAbsent]) {
+    const key = windowsPathKey(path);
+    if (seen.has(key)) throw new WindowsNativeError("pinned file paths contain duplicates", "INVALID_FILE_PIN");
+    seen.add(key);
+  }
+  const ancestryByKey = /* @__PURE__ */ new Map();
+  const addAncestry = (path, includePath = false) => {
+    let current = includePath ? path : dirname(path);
+    const chain = [];
+    while (true) {
+      chain.unshift(current);
+      const next = dirname(current);
+      if (windowsPathKey(next) === windowsPathKey(current)) break;
+      current = next;
+    }
+    validatePinnedDirectories(chain);
+    for (const directory of chain) ancestryByKey.set(windowsPathKey(directory), directory);
+  };
+  for (const path of normalized) addAncestry(path);
+  const absentWatchRootsByKey = /* @__PURE__ */ new Map();
+  const absentComponentsByKey = /* @__PURE__ */ new Map();
+  for (const path of normalizedAbsent) {
+    let watchRoot = dirname(path);
+    while (!existsSync(watchRoot)) {
+      const next = dirname(watchRoot);
+      if (windowsPathKey(next) === windowsPathKey(watchRoot)) {
+        throw new WindowsNativeError("absent file pin has no existing watch root", "INVALID_FILE_PIN");
+      }
+      watchRoot = next;
+    }
+    absentWatchRootsByKey.set(windowsPathKey(watchRoot), watchRoot);
+    addAncestry(watchRoot, true);
+    const relativeTarget = relative2(watchRoot, path);
+    let component = watchRoot;
+    for (const name of relativeTarget.split(/[\\/]/).filter(Boolean)) {
+      component = resolve2(component, name);
+      absentComponentsByKey.set(windowsPathKey(component), component);
+    }
+  }
+  if (absentComponentsByKey.size > FILE_PIN_MAX_ABSENT_COMPONENTS) {
+    throw new WindowsNativeError("absent file pin has too many missing components", "INVALID_FILE_PIN");
+  }
+  const absentWatchRoots = [...absentWatchRootsByKey.values()];
+  const absentComponents = [...absentComponentsByKey.values()];
+  const ancestry = [...ancestryByKey.values()].sort((left, right) => {
+    const leftDepth = left.split(/[\\/]/).filter(Boolean).length;
+    const rightDepth = right.split(/[\\/]/).filter(Boolean).length;
+    return leftDepth - rightDepth || left.localeCompare(right);
+  });
+  const serializedRequest = JSON.stringify({
+    paths: normalized,
+    absent_paths: normalizedAbsent,
+    absent_components: absentComponents,
+    absent_watch_roots: absentWatchRoots,
+    ancestry
+  });
+  if (Buffer.byteLength(serializedRequest, "utf8") > FILE_PIN_MAX_INPUT_BYTES) {
+    throw new WindowsNativeError("pinned file paths exceed the input limit", "INVALID_FILE_PIN");
+  }
+  return { normalized, normalizedAbsent, serializedRequest };
+}
+async function withPinnedWindowsFiles({
+  paths,
+  absentPaths = [],
+  callback,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn2,
+  acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS,
+  releaseTimeoutMs = 5e3
+} = {}) {
+  if (typeof callback !== "function" || typeof spawnImpl !== "function" || !Number.isSafeInteger(acquisitionTimeoutMs) || acquisitionTimeoutMs <= 0 || !Number.isSafeInteger(releaseTimeoutMs) || releaseTimeoutMs <= 0) {
+    throw new WindowsNativeError("pinned file callback options are invalid", "INVALID_FILE_PIN");
+  }
+  const validated = validatePinnedFilePaths(paths, absentPaths);
+  if (platform !== "win32") {
+    return callback(Object.freeze({
+      paths: Object.freeze([...validated.normalized]),
+      absentPaths: Object.freeze([...validated.normalizedAbsent]),
+      assertPinned() {
+      }
+    }));
+  }
+  const executable = powershellPath(systemRoot);
+  let child;
+  try {
+    child = spawnImpl(executable, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedPowerShell(FILE_PIN_SCRIPT)
+    ], {
+      env: minimalEnvironment(systemRoot, {}),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch {
+    throw new WindowsNativeError("pinned file helper could not start", "FILE_PIN_FAILED");
+  }
+  let stdout = "";
+  let stderr = "";
+  let outputBytes = 0;
+  let ready = false;
+  let closed = false;
+  let closeCode = null;
+  let closeSignal = null;
+  let protocolError = null;
+  let settleReady;
+  let rejectReady;
+  const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+    settleReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const closePromise = new Promise((resolvePromise) => {
+    child.once("close", (code, signal) => {
+      closed = true;
+      closeCode = code;
+      closeSignal = signal;
+      if (!ready) rejectReady(new WindowsNativeError("pinned file helper exited before acquisition", "FILE_PIN_FAILED"));
+      resolvePromise();
+    });
+  });
+  const stopHelper = (message) => {
+    if (protocolError === null) protocolError = new WindowsNativeError(message, "FILE_PIN_FAILED");
+    if (!ready) rejectReady(protocolError);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+    }
+  };
+  const capture = (chunk, stream) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += bytes.byteLength;
+    if (outputBytes > TREE_PIN_OUTPUT_LIMIT) {
+      stopHelper("pinned file helper exceeded its output limit");
+      return;
+    }
+    if (stream === "stdout") {
+      stdout += bytes.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (!ready && newline >= 0) {
+        const line = stdout.slice(0, newline).replace(/\r$/, "");
+        if (line !== "READY" || stdout.slice(newline + 1) !== "") {
+          stopHelper("pinned file helper returned an invalid handshake");
+          return;
+        }
+        ready = true;
+        settleReady();
+      } else if (ready && stdout !== "READY\n" && stdout !== "READY\r\n") {
+        stopHelper("pinned file helper returned extra output");
+      }
+    } else {
+      stderr += bytes.toString("utf8");
+      stopHelper("pinned file helper returned an error");
+    }
+  };
+  child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+  child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+  child.stdin?.once("error", () => {
+  });
+  child.once("error", () => stopHelper("pinned file helper failed to start"));
+  child.stdin?.write(`${validated.serializedRequest}
+`);
+  const acquisitionTimer = setTimeout(() => stopHelper("pinned file helper timed out"), acquisitionTimeoutMs);
+  let acquisitionError = null;
+  try {
+    await readyPromise;
+  } catch (error2) {
+    acquisitionError = error2;
+  } finally {
+    clearTimeout(acquisitionTimer);
+  }
+  if (acquisitionError !== null) {
+    const helperClosed = closed || await waitForHelperClose(closePromise, Math.min(releaseTimeoutMs, 1e3));
+    if (helperClosed) await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+    throw acquisitionError;
+  }
+  const guard = Object.freeze({
+    paths: Object.freeze([...validated.normalized]),
+    absentPaths: Object.freeze([...validated.normalizedAbsent]),
+    assertPinned() {
+      if (!ready || closed || protocolError !== null) {
+        throw protocolError ?? new WindowsNativeError("pinned file helper was lost", "FILE_PIN_FAILED");
+      }
+    }
+  });
+  let value;
+  let callbackError = null;
+  try {
+    guard.assertPinned();
+    value = await callback(guard);
+    guard.assertPinned();
+  } catch (error2) {
+    callbackError = error2;
+  }
+  if (!closed && child.stdin) child.stdin.end("RELEASE\n");
+  if (!closed) {
+    let releaseTimer;
+    const releaseTimeout = new Promise((resolvePromise) => {
+      releaseTimer = setTimeout(resolvePromise, releaseTimeoutMs);
+    });
+    await Promise.race([closePromise, releaseTimeout]);
+    clearTimeout(releaseTimer);
+  }
+  if (!closed) {
+    stopHelper("pinned file helper did not release in time");
+    await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+  }
+  if (protocolError !== null || !closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+    throw protocolError ?? new WindowsNativeError("pinned file helper did not release cleanly", "FILE_PIN_FAILED");
+  }
+  if (callbackError) throw callbackError;
+  return value;
+}
+function deletionAncestry(targetPath, allowedRoot) {
+  if (typeof targetPath !== "string" || typeof allowedRoot !== "string" || !isAbsolute4(targetPath) || !isAbsolute4(allowedRoot) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(targetPath) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(allowedRoot)) {
+    throw new WindowsNativeError("tree deletion paths are invalid", "INVALID_TREE_DELETE");
+  }
+  const target = resolve2(targetPath);
+  const allowed = resolve2(allowedRoot);
+  if (!containedPath(allowed, target) || windowsPathKey(target) === windowsPathKey(allowed)) {
+    throw new WindowsNativeError("tree deletion target is outside its allowed root", "INVALID_TREE_DELETE");
+  }
+  const parent = dirname(target);
+  const directories = [];
+  let current = parent;
+  while (true) {
+    directories.unshift(current);
+    const next = dirname(current);
+    if (windowsPathKey(next) === windowsPathKey(current)) break;
+    current = next;
+  }
+  const validated = validatePinnedDirectories(directories);
+  return { target, serializedAncestry: validated.serialized };
+}
+async function deleteWindowsTreeNoFollow({
+  targetPath,
+  allowedRoot,
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  fsImpl = defaultFs3,
+  maxEntries = DELETE_TREE_MAX_ENTRIES,
+  maxDepth = DELETE_TREE_MAX_DEPTH
+} = {}) {
+  const { target, serializedAncestry } = deletionAncestry(targetPath, allowedRoot);
+  if (platform !== "win32") {
+    throw new WindowsNativeError("no-follow tree deletion requires Windows", "UNSUPPORTED_PLATFORM");
+  }
+  if (!runner?.run || !Number.isSafeInteger(maxEntries) || maxEntries <= 0 || maxEntries > DELETE_TREE_MAX_ENTRIES || !Number.isSafeInteger(maxDepth) || maxDepth <= 0 || maxDepth > DELETE_TREE_MAX_DEPTH) {
+    throw new WindowsNativeError("tree deletion options are invalid", "INVALID_TREE_DELETE");
+  }
+  try {
+    const stat = await fsImpl.lstat(target);
+    if (!stat.isDirectory() && !stat.isSymbolicLink() && !stat.isFile()) {
+      throw new WindowsNativeError("tree deletion target has an unsupported type", "UNSAFE_PATH_TYPE");
+    }
+  } catch (error2) {
+    if (error2?.code === "ENOENT") return { status: "absent", entries: 0 };
     throw error2;
   }
-}
-async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
-  if (typeof path !== "string" || !isAbsolute6(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
-    throw new LocalStateError("snapshot target path is unsafe", code);
-  }
-  const absolute = resolve4(path);
-  const root = parse(absolute).root;
-  const segments = relative3(root, absolute).split(sep3).filter(Boolean);
-  let current = root;
-  for (const segment of segments) {
-    current = join4(current, segment);
-    try {
-      const stat = await fsImpl.lstat(current);
-      if (stat.isSymbolicLink()) throw new LocalStateError("snapshot target path contains a symbolic link or junction", code);
-    } catch (error2) {
-      if (error2?.code !== "ENOENT") throw error2;
-    }
-  }
-  return absolute;
-}
-async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = {}, {
-  runner = createProcessRunner(),
-  platform = process.platform,
-  systemRoot = process.env.SystemRoot || process.env.WINDIR
-} = {}) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return "unknown";
-  if (!Number.isFinite(expectedStart)) return "unknown";
-  if (pid === process.pid) {
-    const observedStart = Math.round(Date.now() - process.uptime() * 1e3);
-    return Math.abs(observedStart - Number(expectedStart)) < 5e3 ? "alive" : "dead";
-  }
-  if (platform === "win32") {
-    if (!systemRoot || !runner?.run) return "unknown";
-    const powershell = resolve4(join4(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
-    let result;
-    try {
-      result = await runner.run(powershell, [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "-"
-      ], {
-        env: {
-          SystemRoot: resolve4(systemRoot),
-          WINDIR: resolve4(systemRoot),
-          UEMCP_LEASE_PID: String(pid)
-        },
-        stdin: `${LEASE_PROCESS_SCRIPT}
+  const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {
+      UEMCP_DELETE_TARGET: target,
+      UEMCP_DELETE_ANCESTRY: serializedAncestry,
+      UEMCP_DELETE_MAX_ENTRIES: String(maxEntries),
+      UEMCP_DELETE_MAX_DEPTH: String(maxDepth)
+    }),
+    stdin: `${DELETE_TREE_SCRIPT}
 
 `,
-        timeoutMs: 1e4,
-        outputLimitBytes: 8 * 1024
-      });
-    } catch {
-      return "unknown";
-    }
-    if (result.status !== "exited" || result.exitCode !== 0 || result.stderr !== "") return "unknown";
-    try {
-      const parsed = JSON.parse(result.stdout);
-      const keys = Object.keys(parsed).sort().join(",");
-      if (keys === "state" && parsed.state === "dead") return "dead";
-      if (keys === "process_start,state" && parsed.state === "alive" && Number.isSafeInteger(parsed.process_start)) {
-        return Math.abs(parsed.process_start - Number(expectedStart)) < 5e3 ? "alive" : "dead";
-      }
-      return "unknown";
-    } catch {
-      return "unknown";
-    }
-  }
-  try {
-    process.kill(pid, 0);
-    return "unknown";
-  } catch (error2) {
-    return error2?.code === "ESRCH" ? "dead" : "unknown";
-  }
-}
-function parseWhoamiCsv(text) {
-  const match = /^"(?:[^"]|"")*","(S-\d(?:-\d+)+)"\s*$/i.exec(text.trim());
-  return match?.[1] ?? null;
-}
-async function defaultAclRestrictor(path) {
-  if (process.platform !== "win32") return;
-  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
-  if (!systemRoot) throw new LocalStateError("SystemRoot is required to restrict local state ACLs");
-  const runner = createProcessRunner();
-  const whoami = resolve4(join4(systemRoot, "System32", "whoami.exe"));
-  const icacls = resolve4(join4(systemRoot, "System32", "icacls.exe"));
-  const identity = await runner.run(whoami, ["/user", "/fo", "csv", "/nh"], {
-    env: { SystemRoot: resolve4(systemRoot), WINDIR: resolve4(systemRoot) },
-    timeoutMs: 1e4,
+    timeoutMs: 3e4,
     outputLimitBytes: 8 * 1024
   });
-  const sid = identity.status === "exited" && identity.exitCode === 0 && identity.stderr === "" ? parseWhoamiCsv(identity.stdout) : null;
-  if (!sid) throw new LocalStateError("could not resolve the current user SID");
-  const restricted = await runner.run(icacls, [
-    resolve4(path),
-    "/inheritance:r",
-    "/grant:r",
-    `*${sid}:(OI)(CI)F`,
-    "*S-1-5-18:(OI)(CI)F"
-  ], {
-    env: { SystemRoot: resolve4(systemRoot), WINDIR: resolve4(systemRoot) },
-    timeoutMs: 15e3,
-    outputLimitBytes: 16 * 1024
-  });
-  if (restricted.status !== "exited" || restricted.exitCode !== 0) {
-    throw new LocalStateError("could not restrict local state ACLs");
+  const parsed = parseSingleJson(result2, ["entries", "status"]);
+  if (parsed.status !== "removed" || !Number.isSafeInteger(parsed.entries) || parsed.entries <= 0 || parsed.entries > maxEntries) {
+    throw new WindowsNativeError("tree deletion helper returned invalid evidence", "TREE_DELETE_FAILED");
+  }
+  return { status: parsed.status, entries: parsed.entries };
+}
+async function assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks = false }) {
+  const fingerprint = await fingerprintPath(path, { allowedRoots, fsImpl });
+  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+    throw new WindowsNativeError("Windows-native helper target must be a regular non-linked file", "UNSAFE_PATH_TYPE");
+  }
+  if (!allowMultipleLinks && fingerprint.link_count !== 1) {
+    throw new WindowsNativeError("Windows-native helper target must have one hard link", "UNSAFE_LINK_COUNT");
+  }
+  return fingerprint;
+}
+async function inspectAuthenticode(executable, {
+  runner,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  expectedSignerNames = [],
+  allowedRoots = [dirname(resolve2(executable))],
+  fsImpl = defaultFs3
+} = {}) {
+  if (!runner?.run) throw new WindowsNativeError("runner is required");
+  let fingerprint;
+  try {
+    fingerprint = await assertRegularSinglePath(executable, { allowedRoots, fsImpl, allowMultipleLinks: true });
+    const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+      env: minimalEnvironment(systemRoot, { UEMCP_AUTHENTICODE_TARGET: fingerprint.canonical_path }),
+      stdin: `${AUTHENTICODE_SCRIPT}
+
+`,
+      timeoutMs: 15e3,
+      outputLimitBytes: 8 * 1024
+    });
+    const parsed = parseSingleJson(result2, ["status", "signer_name", "thumbprint"]);
+    const signerName = parsed.signer_name === null ? null : String(parsed.signer_name);
+    const thumbprint = parsed.thumbprint === null ? null : String(parsed.thumbprint).toUpperCase();
+    const signatureValid = String(parsed.status).toLowerCase() === "valid";
+    const signerAllowed = expectedSignerNames.length === 0 || signerName !== null && expectedSignerNames.some((name) => name.localeCompare(signerName, void 0, { sensitivity: "accent" }) === 0);
+    const thumbprintValid = thumbprint === null || /^[0-9A-F]{2,128}$/.test(thumbprint);
+    return {
+      status: signatureValid && signerAllowed && thumbprintValid ? "valid" : "invalid",
+      signer_name: signerName,
+      thumbprint: thumbprintValid ? thumbprint : null
+    };
+  } catch {
+    return { status: "unavailable", signer_name: null, thumbprint: null };
   }
 }
-function createLocalState({
-  root,
-  fsImpl = defaultFs4,
-  aclRestrictor = defaultAclRestrictor,
-  processInspector = inspectLeaseOwnerProcess,
-  clock = Date.now,
-  sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+async function resolveWindowsKnownFolders({
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 3e4
 } = {}) {
-  const selectedRoot = root ?? (process.env.LOCALAPPDATA ? join4(process.env.LOCALAPPDATA, "UEMCP") : null);
-  if (!selectedRoot) throw new LocalStateError("LOCALAPPDATA is unavailable and no local-state root was injected");
-  const absoluteRoot = resolve4(selectedRoot);
-  const pathSet = Object.freeze({
-    root: absoluteRoot,
-    state: join4(absoluteRoot, "state"),
-    plans: join4(absoluteRoot, "plans"),
-    receipts: join4(absoluteRoot, "receipts"),
-    snapshots: join4(absoluteRoot, "snapshots"),
-    ownership: join4(absoluteRoot, "state", "ownership-v1.json"),
-    dependencyStamp: join4(absoluteRoot, "state", "dependency-stamp-v1.json"),
-    targets: join4(absoluteRoot, "state", ".uemcp-targets.json"),
-    lock: join4(absoluteRoot, "state", "deployment-apply-v1.lock"),
-    replayLedger: join4(absoluteRoot, "plans", "applied-v1.json")
-  });
-  const restrictedDirectories = /* @__PURE__ */ new Set();
-  function assertLocalPath(path) {
-    const absolute = resolve4(path);
-    if (!contained2(absoluteRoot, absolute)) throw new LocalStateError("path escapes the local-state root", "LOCAL_STATE_PATH_ESCAPE");
-    return absolute;
+  if (platform !== "win32") {
+    throw new WindowsNativeError("known-folder resolution requires Windows", "UNSUPPORTED_PLATFORM");
   }
-  async function assertNoLinkedLocalPath(path) {
-    const absolute = assertLocalPath(path);
-    const segments = relative3(absoluteRoot, absolute).split(sep3).filter(Boolean);
-    let current = absoluteRoot;
-    const pathSegments = [null, ...segments];
-    for (const [index, segment] of pathSegments.entries()) {
-      if (segment !== null) current = join4(current, segment);
+  if (!runner?.run) throw new WindowsNativeError("runner is required");
+  validateHelperTimeout(timeoutMs);
+  const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {}),
+    stdin: `${KNOWN_FOLDERS_SCRIPT}
+
+`,
+    timeoutMs,
+    outputLimitBytes: 8 * 1024
+  });
+  const parsed = parseSingleJson(result2, ["program_data", "program_files"]);
+  return Object.freeze({
+    programData: validatedKnownFolder(parsed.program_data),
+    programFiles: validatedKnownFolder(parsed.program_files)
+  });
+}
+async function fingerprintWindowsFileMetadata(path, {
+  runner,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  maxStreams = 64,
+  maxStreamBytes = 16 * 1024 * 1024,
+  timeoutMs = 3e4,
+  allowedRoots = [dirname(resolve2(path))],
+  fsImpl = defaultFs3
+} = {}) {
+  if (!runner?.run) throw new WindowsNativeError("runner is required");
+  if (!Number.isSafeInteger(maxStreams) || maxStreams < 0) throw new WindowsNativeError("maxStreams is invalid");
+  if (!Number.isSafeInteger(maxStreamBytes) || maxStreamBytes < 0) throw new WindowsNativeError("maxStreamBytes is invalid");
+  validateHelperTimeout(timeoutMs);
+  const fingerprint = await assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks: false });
+  const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {
+      UEMCP_METADATA_TARGET: fingerprint.canonical_path,
+      UEMCP_MAX_STREAMS: String(maxStreams),
+      UEMCP_MAX_STREAM_BYTES: String(maxStreamBytes)
+    }),
+    stdin: `${METADATA_SCRIPT}
+
+`,
+    timeoutMs,
+    outputLimitBytes: 8 * 1024
+  });
+  const parsed = parseSingleJson(result2, ["metadata_sha256", "stream_count", "stream_bytes"]);
+  if (!/^[0-9a-f]{64}$/.test(parsed.metadata_sha256) || !Number.isSafeInteger(parsed.stream_count) || !Number.isSafeInteger(parsed.stream_bytes) || parsed.stream_count < 0 || parsed.stream_bytes < 0 || parsed.stream_count > maxStreams || parsed.stream_bytes > maxStreamBytes) {
+    throw new WindowsNativeError("metadata helper returned invalid aggregate evidence");
+  }
+  return {
+    metadata_sha256: parsed.metadata_sha256,
+    stream_count: parsed.stream_count,
+    stream_bytes: parsed.stream_bytes
+  };
+}
+async function replaceFilePreservingMetadata({
+  replacementPath,
+  destinationPath,
+  runner,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 3e4,
+  fsImpl = defaultFs3
+}) {
+  if (!runner?.run) throw new WindowsNativeError("runner is required");
+  validateHelperTimeout(timeoutMs);
+  const replacement = resolve2(replacementPath);
+  const destination = resolve2(destinationPath);
+  if (dirname(replacement).toLowerCase() !== dirname(destination).toLowerCase() || parse(replacement).root.toLowerCase() !== parse(destination).root.toLowerCase()) {
+    throw new WindowsNativeError("replacement and destination must share one directory and volume", "REPLACEMENT_BOUNDARY_VIOLATION");
+  }
+  await assertRegularSinglePath(replacement, { allowedRoots: [dirname(destination)], fsImpl });
+  await assertRegularSinglePath(destination, { allowedRoots: [dirname(destination)], fsImpl });
+  const backup = join2(dirname(destination), `.${randomBytes(16).toString("hex")}.uemcp-backup`);
+  let parsed;
+  let replaceError = null;
+  try {
+    const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+      env: minimalEnvironment(systemRoot, {
+        UEMCP_REPLACEMENT_PATH: replacement,
+        UEMCP_DESTINATION_PATH: destination,
+        UEMCP_BACKUP_PATH: backup
+      }),
+      stdin: `${REPLACE_SCRIPT}
+
+`,
+      timeoutMs,
+      outputLimitBytes: 8 * 1024
+    });
+    parsed = parseSingleJson(result2, ["status"]);
+  } catch (error2) {
+    replaceError = error2;
+  }
+  try {
+    await fsImpl.rm(backup, { force: true });
+  } catch {
+    throw new WindowsNativeError("metadata-preserving replacement backup cleanup failed");
+  }
+  if (replaceError) throw replaceError;
+  if (parsed.status !== "replaced") throw new WindowsNativeError("metadata-preserving replacement failed");
+  return { status: "replaced" };
+}
+var WINDOWS_NATIVE_SCRIPTS = Object.freeze({
+  ancestry_pin: ANCESTRY_PIN_SCRIPT,
+  authenticode: AUTHENTICODE_SCRIPT,
+  delete_tree: DELETE_TREE_SCRIPT,
+  file_pin: FILE_PIN_SCRIPT,
+  known_folders: KNOWN_FOLDERS_SCRIPT,
+  metadata: METADATA_SCRIPT,
+  replace: REPLACE_SCRIPT,
+  tree_pin: TREE_PIN_SCRIPT
+});
+
+// server/deployment/client-transaction.mjs
+var MAX_CONFIG_BYTES = CONFIG_BYTE_LIMIT;
+var MAX_STAGE_ENTRIES = 16;
+var STAGE_QUARANTINE_PATTERN = /^\.native-staging-[0-9a-f]{24}\.stale$/;
+var STAGED_WRITE_TOKEN = /* @__PURE__ */ Symbol("staged-write");
+var WRITABLE_SCOPES = /* @__PURE__ */ new Set(["user", "project", "profile", "local_state"]);
+var ACTION_STATUSES = /* @__PURE__ */ new Set([
+  "ACTION_REQUIRED",
+  "CLIENT_ENABLEMENT_REQUIRED",
+  "DISABLED",
+  "PENDING_APPROVAL",
+  "PENDING_RESTART",
+  "PENDING_TRUST",
+  "POLICY_UNKNOWN",
+  "RESTART_REQUIRED"
+]);
+var READY_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "MATCHING", "NO_OP", "READY"]);
+var DEFAULT_WINDOWS_NATIVE = Object.freeze({
+  deleteTreeNoFollow: deleteWindowsTreeNoFollow,
+  fingerprintWindowsFileMetadata,
+  replaceFilePreservingMetadata,
+  withPinnedAncestry: withPinnedWindowsAncestry,
+  withPinnedFiles: withPinnedWindowsFiles
+});
+var ClientTransactionError = class extends Error {
+  constructor(message, code = "CLIENT_TRANSACTION_FAILED", details = {}) {
+    super(message);
+    this.name = "ClientTransactionError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail5(message, code = "CLIENT_TRANSACTION_FAILED", details = {}) {
+  throw new ClientTransactionError(message, code, details);
+}
+function pathKey2(path) {
+  const absolute = resolve3(path);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
+function contained(root, candidate) {
+  const rel = relative3(pathKey2(root), pathKey2(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep3}`) && !isAbsolute5(rel);
+}
+function safeAbsolutePath(path) {
+  return typeof path === "string" && isAbsolute5(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
+}
+function isMissing2(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+async function assertWritableAncestry(path, allowedRoot, fsImpl) {
+  if (!safeAbsolutePath(path)) fail5("transaction path must be an absolute non-device path", "UNSAFE_TRANSACTION_PATH");
+  if (!safeAbsolutePath(allowedRoot)) fail5("writable root must be an absolute non-device path", "UNSAFE_TRANSACTION_PATH");
+  const absolutePath10 = resolve3(path);
+  const absoluteRoot = resolve3(allowedRoot);
+  if (!contained(absoluteRoot, absolutePath10)) fail5("transaction path is outside its writable root", "PATH_OUTSIDE_WRITABLE_ROOT");
+  const volumeRoot = parse2(absolutePath10).root;
+  const segments = relative3(volumeRoot, absolutePath10).split(sep3).filter(Boolean);
+  let current = volumeRoot;
+  for (const segment of segments) {
+    current = join3(current, segment);
+    try {
+      const stat = await fsImpl.lstat(current);
+      if (stat.isSymbolicLink()) fail5("writable path contains a symbolic link or junction", "UNSAFE_WRITABLE_PATH");
+    } catch (error2) {
+      if (!isMissing2(error2)) throw error2;
+    }
+  }
+  return { absolutePath: absolutePath10, absoluteRoot };
+}
+function statIdentity(stat) {
+  return {
+    dev: Number(stat.dev),
+    ino: Number(stat.ino),
+    birthtime_ms: Number(stat.birthtimeMs)
+  };
+}
+async function metadataFingerprint(path, {
+  allowedRoots,
+  fsImpl,
+  windowsNative,
+  processRunner,
+  systemRoot
+}) {
+  try {
+    return await windowsNative.fingerprintWindowsFileMetadata(path, {
+      runner: processRunner,
+      systemRoot,
+      allowedRoots,
+      fsImpl
+    });
+  } catch (error2) {
+    fail5("Windows metadata inspection failed", "METADATA_INSPECTION_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
+  }
+}
+async function captureClientPathFingerprint(path, {
+  allowedRoots,
+  fsImpl = defaultFs4,
+  maxBytes = null,
+  windowsNative = DEFAULT_WINDOWS_NATIVE,
+  processRunner = createProcessRunner(),
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  writable = true
+} = {}) {
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) fail5("path fingerprint requires an allowed root", "INVALID_TRANSACTION_ROOT");
+  if (writable) await assertWritableAncestry(path, allowedRoots[0], fsImpl);
+  else if (!safeAbsolutePath(path)) fail5("transaction evidence path is unsafe", "UNSAFE_TRANSACTION_PATH");
+  let core;
+  try {
+    core = await fingerprintPath(path, { allowedRoots, fsImpl, maxBytes });
+  } catch (error2) {
+    if (error2?.code === "PATH_OUTSIDE_ALLOWED_ROOT") fail5("transaction path is outside its writable root", "PATH_OUTSIDE_WRITABLE_ROOT");
+    if (error2?.code === "FINGERPRINT_BYTE_LIMIT") fail5("transaction evidence exceeds its byte limit", "INSPECTION_LIMIT_EXCEEDED", error2.details);
+    throw error2;
+  }
+  if (core.exists && core.kind !== "file") fail5("transaction path must be a regular file or absent", writable ? "UNSAFE_WRITABLE_PATH" : "UNSAFE_EVIDENCE_PATH");
+  if (writable && core.exists && (core.link_kind !== "none" || core.link_count !== 1)) {
+    fail5("writable path must be a regular single-link file", "UNSAFE_WRITABLE_PATH");
+  }
+  let stat = null;
+  let metadata = null;
+  if (core.exists) {
+    stat = await fsImpl.lstat(core.canonical_path);
+    if (writable) {
+      if ((stat.mode & 146) === 0) fail5("writable path is read-only", "READ_ONLY_TARGET");
       try {
-        const stat = await fsImpl.lstat(current);
-        if (stat.isSymbolicLink()) throw new LocalStateError("local-state path contains a symbolic link or junction", "LOCAL_STATE_PATH_ESCAPE");
-        if (index === pathSegments.length - 1 && stat.isFile() && stat.nlink !== 1) {
-          throw new LocalStateError("local-state file has multiple hard links", "LOCAL_STATE_PATH_ESCAPE");
-        }
-      } catch (error2) {
-        if (error2?.code !== "ENOENT") throw error2;
+        await fsImpl.access(core.canonical_path, constants.W_OK);
+      } catch {
+        fail5("writable path is not writable", "READ_ONLY_TARGET");
       }
     }
-    return absolute;
-  }
-  async function ensureDirectory(path) {
-    const absolute = await assertNoLinkedLocalPath(path);
-    await fsImpl.mkdir(absolute, { recursive: true });
-    await assertNoLinkedLocalPath(absolute);
-    const key = process.platform === "win32" ? absolute.toLowerCase() : absolute;
-    if (!restrictedDirectories.has(key)) {
-      await aclRestrictor(absolute);
-      restrictedDirectories.add(key);
-    }
-    return absolute;
-  }
-  async function writeBytesAtomic(path, bytes) {
-    const absolute = assertLocalPath(path);
-    await ensureDirectory(dirname2(absolute));
-    await assertNoLinkedLocalPath(absolute);
-    const scratch = scratchName(absolute);
-    let handle;
-    try {
-      handle = await fsImpl.open(scratch, "wx", 384);
-      await handle.writeFile(bytes);
-      await handle.sync();
-      await handle.close();
-      handle = null;
-      await fsImpl.rename(scratch, absolute);
-    } finally {
-      if (handle) await handle.close().catch(() => {
-      });
-      await fsImpl.rm(scratch, { force: true }).catch(() => {
-      });
-    }
-  }
-  async function readJson(path) {
-    const absolute = await assertNoLinkedLocalPath(path);
-    try {
-      return JSON.parse(await fsImpl.readFile(absolute, "utf8"));
-    } catch (error2) {
-      if (error2?.code === "ENOENT") return null;
-      if (error2 instanceof SyntaxError) throw new LocalStateError("local-state JSON is malformed", "MALFORMED_LOCAL_STATE");
-      throw error2;
-    }
-  }
-  async function writeJsonAtomic(path, value) {
-    await writeBytesAtomic(path, Buffer.from(`${canonicalJson(value)}
-`, "utf8"));
-  }
-  async function createSnapshot(targetPath, { transactionId = randomBytes(12).toString("hex"), retainOnConflict = false } = {}) {
-    const id = safeSegment(transactionId, "transactionId");
-    const directory = join4(pathSet.snapshots, id, randomBytes(8).toString("hex"));
-    if (!contained2(pathSet.snapshots, directory)) throw new LocalStateError("snapshot transaction escapes the snapshot root");
-    await ensureDirectory(directory);
-    const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: "UNSAFE_SNAPSHOT_TARGET" });
-    let stat = null;
-    let bytes = null;
-    try {
-      stat = await fsImpl.lstat(absoluteTarget);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new LocalStateError("snapshot target must be a regular single-link file", "UNSAFE_SNAPSHOT_TARGET");
-      bytes = await fsImpl.readFile(absoluteTarget);
-      await writeBytesAtomic(join4(directory, "payload.bin"), bytes);
-    } catch (error2) {
-      if (error2?.code !== "ENOENT") throw error2;
-    }
-    const metadata = {
-      schema_version: "1.0",
-      snapshot_id: `${id}/${directory.split(/[\\/]/).at(-1)}`,
-      target_path: absoluteTarget,
-      exists: stat !== null,
-      mode: stat === null ? null : stat.mode,
-      atime_ms: stat === null ? null : stat.atimeMs,
-      mtime_ms: stat === null ? null : stat.mtimeMs,
-      original_sha256: bytes === null ? null : sha256Bytes(bytes),
-      retained_until: retainOnConflict ? new Date(Number(clock()) + SNAPSHOT_RETENTION_MS).toISOString() : null
-    };
-    await writeJsonAtomic(join4(directory, "metadata.json"), metadata);
-    return Object.freeze({
-      id: metadata.snapshot_id,
-      path_label: `snapshots/${metadata.snapshot_id}`,
-      directory,
-      metadata
+    metadata = await metadataFingerprint(core.canonical_path, {
+      allowedRoots,
+      fsImpl,
+      windowsNative,
+      processRunner,
+      systemRoot
     });
   }
-  async function restoreSnapshot(snapshot, { expectedCurrentHash } = {}) {
-    if (!snapshot?.directory || !contained2(pathSet.snapshots, snapshot.directory)) {
-      throw new LocalStateError("snapshot is outside the local-state root", "INVALID_SNAPSHOT");
+  return {
+    canonical_path: resolve3(core.canonical_path),
+    real_path: resolve3(core.real_path),
+    exists: core.exists,
+    kind: core.kind,
+    link_kind: core.link_kind,
+    link_count: core.link_count,
+    size: core.size,
+    content_sha256: core.sha256,
+    metadata_sha256: metadata?.metadata_sha256 ?? null,
+    stream_count: metadata?.stream_count ?? 0,
+    stream_bytes: metadata?.stream_bytes ?? 0,
+    mode: stat === null ? null : Number(stat.mode),
+    atime_ms: stat === null ? null : Number(stat.atimeMs),
+    mtime_ms: stat === null ? null : Number(stat.mtimeMs),
+    identity: stat === null ? null : statIdentity(stat)
+  };
+}
+function comparableFingerprint(fingerprint, { includeIdentity = true, includeMutable = true } = {}) {
+  const result2 = {
+    canonical_path: pathKey2(fingerprint.canonical_path),
+    real_path: pathKey2(fingerprint.real_path),
+    exists: fingerprint.exists,
+    kind: fingerprint.kind,
+    link_kind: fingerprint.link_kind,
+    link_count: fingerprint.link_count,
+    size: fingerprint.size,
+    content_sha256: fingerprint.content_sha256,
+    metadata_sha256: fingerprint.metadata_sha256,
+    stream_count: fingerprint.stream_count,
+    stream_bytes: fingerprint.stream_bytes
+  };
+  if (includeMutable) {
+    result2.mode = fingerprint.mode;
+    result2.mtime_ms = fingerprint.mtime_ms;
+  }
+  if (includeIdentity) result2.identity = fingerprint.identity;
+  return result2;
+}
+function fingerprintsEqual(left, right, options) {
+  return sha256Canonical(comparableFingerprint(left, options)) === sha256Canonical(comparableFingerprint(right, options));
+}
+function snapshotMatchesFingerprint(snapshot, fingerprint) {
+  const metadata = snapshot?.metadata;
+  if (!metadata || metadata.exists !== fingerprint.exists) return false;
+  if (!fingerprint.exists) {
+    return metadata.original_sha256 === null && metadata.size === null && metadata.identity === null;
+  }
+  return metadata.original_sha256 === fingerprint.content_sha256 && metadata.size === fingerprint.size && sha256Canonical(metadata.identity) === sha256Canonical(fingerprint.identity);
+}
+function validatePlanDigest(planDigest) {
+  if (!/^[0-9a-f]{64}$/.test(planDigest ?? "")) fail5("transaction plan digest is invalid", "INVALID_PLAN_DIGEST");
+}
+function adapterMap(adapters) {
+  if (!Array.isArray(adapters)) fail5("transaction adapters must be an array", "INVALID_ADAPTER_SET");
+  const map = /* @__PURE__ */ new Map();
+  for (const adapter of adapters) {
+    if (!adapter || !CLIENT_IDS.includes(adapter.id) || map.has(adapter.id) || typeof adapter.snapshot !== "function" || typeof adapter.apply !== "function" || typeof adapter.verify !== "function") {
+      fail5("transaction adapter contract is invalid", "INVALID_ADAPTER_SET");
     }
-    const metadata = await readJson(join4(snapshot.directory, "metadata.json"));
-    if (!metadata) throw new LocalStateError("snapshot metadata is missing", "INVALID_SNAPSHOT");
-    await assertNoLinkedTargetPath(metadata.target_path, { fsImpl, code: "ROLLBACK_CONFLICT" });
-    if (expectedCurrentHash !== null && !/^[0-9a-f]{64}$/.test(expectedCurrentHash ?? "")) {
-      throw new LocalStateError("rollback requires an exact expected current hash or null", "INVALID_ROLLBACK_PRECONDITION");
+    map.set(adapter.id, adapter);
+  }
+  return map;
+}
+function validateOperations(operations, adapters) {
+  if (!Array.isArray(operations)) fail5("transaction operations must be an array", "INVALID_OPERATION_SET");
+  const ids = /* @__PURE__ */ new Set();
+  for (const operation of operations) {
+    if (!operation || typeof operation !== "object" || Array.isArray(operation) || typeof operation.operation_id !== "string" || operation.operation_id.trim() === "" || ids.has(operation.operation_id) || !adapters.has(operation.client_id)) {
+      fail5("transaction operation is invalid", "INVALID_OPERATION_SET");
     }
-    let currentHash = null;
-    try {
-      const currentStat = await fsImpl.lstat(metadata.target_path);
-      if (!currentStat.isFile() || currentStat.isSymbolicLink() || currentStat.nlink !== 1) throw new LocalStateError("rollback target changed identity", "ROLLBACK_CONFLICT");
-      currentHash = sha256Bytes(await fsImpl.readFile(metadata.target_path));
-    } catch (error2) {
-      if (error2?.code !== "ENOENT") throw error2;
+    ids.add(operation.operation_id);
+    if (operation.selected !== true) fail5("unselected client cannot write config", "UNAPPROVED_CLIENT_WRITE");
+    if (operation.write_supported !== true) fail5("unsupported client version cannot write config", "UNSUPPORTED_CLIENT_WRITE");
+    if (!WRITABLE_SCOPES.has(operation.scope_kind)) fail5("managed, system, and host-state scopes are read-only", "READ_ONLY_SCOPE");
+    if (!safeAbsolutePath(operation.path)) fail5("transaction path is unsafe", "UNSAFE_TRANSACTION_PATH");
+    if (!safeAbsolutePath(operation.allowed_root)) fail5("transaction writable root is unsafe", "UNSAFE_TRANSACTION_PATH");
+    if (!contained(operation.allowed_root, operation.path)) fail5("transaction path is outside its writable root", "PATH_OUTSIDE_WRITABLE_ROOT");
+    if (!operation.fingerprint || typeof operation.fingerprint !== "object") fail5("transaction operation lacks a path precondition", "INVALID_OPERATION_SET");
+    if (operation.ledger_only !== void 0 && typeof operation.ledger_only !== "boolean") {
+      fail5("ledger-only approval must be boolean", "INVALID_OPERATION_SET");
     }
-    if (currentHash !== expectedCurrentHash) {
-      throw new LocalStateError("rollback target no longer matches applied bytes", "ROLLBACK_CONFLICT");
+    if (operation.external_write !== void 0 && typeof operation.external_write !== "boolean") {
+      fail5("external-write approval must be boolean", "INVALID_OPERATION_SET");
     }
-    if (!metadata.exists) {
-      await fsImpl.rm(metadata.target_path, { force: true });
-      return { status: "restored_absent" };
+    if (operation.external_write === true && (operation.ledger_only === true || operation.delete_after_verify === true)) {
+      fail5("external-write approval must be a create-only provider operation", "INVALID_OPERATION_SET");
     }
-    const payload = await fsImpl.readFile(join4(snapshot.directory, "payload.bin"));
-    if (sha256Bytes(payload) !== metadata.original_sha256) {
-      throw new LocalStateError("snapshot payload hash is invalid", "INVALID_SNAPSHOT");
+    if (operation.ledger_only === true && operation.delete_after_verify === true) {
+      fail5("ledger-only operation cannot delete provider config", "INVALID_OPERATION_SET");
     }
-    const targetScratch = scratchName(metadata.target_path);
-    let handle;
-    try {
-      handle = await fsImpl.open(targetScratch, "wx", metadata.mode ?? 384);
-      await handle.writeFile(payload);
-      await handle.sync();
-      await handle.close();
-      handle = null;
-      await fsImpl.rename(targetScratch, metadata.target_path);
-      if (metadata.mode !== null) await fsImpl.chmod(metadata.target_path, metadata.mode);
-      if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
-        await fsImpl.utimes(metadata.target_path, metadata.atime_ms / 1e3, metadata.mtime_ms / 1e3);
+    if (operation.delete_after_verify !== void 0 && typeof operation.delete_after_verify !== "boolean") {
+      fail5("deferred-delete approval must be boolean", "INVALID_OPERATION_SET");
+    }
+  }
+}
+function operationDigest(operations) {
+  return sha256Canonical(operations);
+}
+function pointerOverlap(left, right) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+function validateSharedRows(rows) {
+  const clients = new Set(rows.map((row) => row.client_id));
+  if (clients.size <= 1) return;
+  const sharedId = rows[0].shared_resource_id;
+  if (typeof sharedId !== "string" || sharedId.trim() === "" || rows.some((row) => row.shared_resource_id !== sharedId)) {
+    fail5("multiple adapters target one config without an explicit shared resource", "SHARED_WRITE_CONFLICT");
+  }
+  for (const row of rows) {
+    if (!Array.isArray(row.owned_paths) || row.owned_paths.length === 0 || !row.owned_paths.every((path) => typeof path === "string" && path.startsWith("/"))) {
+      fail5("shared config write lacks an owned-field partition", "SHARED_WRITE_CONFLICT");
+    }
+  }
+  for (let left = 0; left < rows.length; left += 1) {
+    for (let right = left + 1; right < rows.length; right += 1) {
+      if (rows[left].client_id === rows[right].client_id) continue;
+      if (rows[left].owned_paths.some((a) => rows[right].owned_paths.some((b) => pointerOverlap(a, b)))) {
+        fail5("shared config owned-field partitions overlap", "SHARED_WRITE_CONFLICT");
       }
-    } finally {
-      if (handle) await handle.close().catch(() => {
-      });
-      await fsImpl.rm(targetScratch, { force: true }).catch(() => {
-      });
     }
-    return { status: "restored" };
   }
-  async function deleteSnapshot(snapshot) {
-    if (!snapshot?.directory || !contained2(pathSet.snapshots, snapshot.directory)) {
-      throw new LocalStateError("snapshot is outside the local-state root", "INVALID_SNAPSHOT");
-    }
-    await assertNoLinkedLocalPath(snapshot.directory);
-    await fsImpl.rm(snapshot.directory, { recursive: true, force: true });
-  }
-  async function cleanupExpired() {
-    await assertNoLinkedLocalPath(pathSet.snapshots);
-    if (!await exists(fsImpl, pathSet.snapshots)) return { deleted: 0 };
-    let deleted = 0;
-    const transactions = await fsImpl.readdir(pathSet.snapshots, { withFileTypes: true });
-    for (const transaction of transactions) {
-      if (!transaction.isDirectory()) continue;
-      const transactionPath = join4(pathSet.snapshots, transaction.name);
-      for (const entry of await fsImpl.readdir(transactionPath, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const directory = join4(transactionPath, entry.name);
-        const metadata = await readJson(join4(directory, "metadata.json")).catch(() => null);
-        if (metadata?.retained_until && Date.parse(metadata.retained_until) <= Number(clock())) {
-          await fsImpl.rm(directory, { recursive: true, force: true });
-          deleted += 1;
-        }
-      }
-    }
-    return { deleted };
-  }
-  async function readReplayLedger() {
-    return await readJson(pathSet.replayLedger) ?? { schema_version: "1.0", applied: {} };
-  }
-  async function wasDigestApplied(digest) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
-    const ledger = await readReplayLedger();
-    return Object.hasOwn(ledger.applied ?? {}, digest);
-  }
-  async function markDigestApplied(digest, evidence = {}) {
-    if (!/^[0-9a-f]{64}$/.test(digest)) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
-    const ledger = await readReplayLedger();
-    ledger.schema_version = "1.0";
-    ledger.applied ??= {};
-    ledger.applied[digest] = { applied_at: new Date(Number(clock())).toISOString(), ...evidence };
-    await writeJsonAtomic(pathSet.replayLedger, ledger);
-  }
-  async function inspectLease() {
+}
+async function directoryIdentity(path, fsImpl) {
+  const stat = await fsImpl.lstat(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) fail5("transaction parent directory changed identity", "UNSAFE_WRITABLE_PATH");
+  return statIdentity(stat);
+}
+function identityEqual(left, right) {
+  return left?.dev === right?.dev && left?.ino === right?.ino && left?.birthtime_ms === right?.birthtime_ms;
+}
+async function inspectParentPlan(targetPath, allowedRoot, fsImpl) {
+  const root = resolve3(allowedRoot);
+  const missing6 = [];
+  let current = dirname2(resolve3(targetPath));
+  while (true) {
+    if (!contained(root, current)) fail5("transaction parent escapes its writable root", "PATH_OUTSIDE_WRITABLE_ROOT");
     try {
-      await assertNoLinkedLocalPath(pathSet.lock);
-      const stat = await fsImpl.lstat(pathSet.lock);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return { state: "unsafe" };
-      const record2 = JSON.parse(await fsImpl.readFile(pathSet.lock, "utf8"));
-      if (typeof record2.owner_token !== "string" || !Number.isSafeInteger(record2.pid) || !Number.isFinite(record2.process_start) || typeof record2.acquired_at !== "string") return { state: "malformed" };
-      return { state: "valid", record: record2 };
+      const identity = await directoryIdentity(current, fsImpl);
+      return { nearest_existing: current, nearest_identity: identity, missing_parents: missing6.reverse() };
     } catch (error2) {
-      if (error2?.code === "ENOENT") return { state: "absent" };
-      if (error2 instanceof SyntaxError) return { state: "malformed" };
+      if (!isMissing2(error2)) throw error2;
+      if (pathKey2(current) === pathKey2(root)) fail5("writable root is absent", "INVALID_TRANSACTION_ROOT");
+      missing6.push(current);
+      const parent = dirname2(current);
+      if (parent === current) fail5("could not resolve a writable parent", "INVALID_TRANSACTION_ROOT");
+      current = parent;
+    }
+  }
+}
+async function inspectExistingDirectoryAncestry(directory, fsImpl) {
+  const absolute = resolve3(directory);
+  const volumeRoot = parse2(absolute).root;
+  const segments = relative3(volumeRoot, absolute).split(sep3).filter(Boolean);
+  const directories = [volumeRoot];
+  let current = volumeRoot;
+  for (const segment of segments) {
+    current = join3(current, segment);
+    directories.push(current);
+  }
+  for (const path of directories) {
+    let stat;
+    try {
+      stat = await fsImpl.lstat(path);
+    } catch (error2) {
+      if (isMissing2(error2)) fail5("pinned ancestry entry disappeared", "TRANSACTION_PRECONDITION_CHANGED");
       throw error2;
     }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      fail5("pinned ancestry contains an unsafe directory", "UNSAFE_WRITABLE_PATH");
+    }
   }
-  async function acquireApplyLease({
-    pid = process.pid,
-    processStart = Math.round(Date.now() - process.uptime() * 1e3),
-    waitMs = 0,
-    pollMs = 50,
-    staleGraceMs = 5e3,
-    expiresAt = null
-  } = {}) {
-    await ensureDirectory(pathSet.state);
-    const startedWaiting = Number(clock());
-    while (true) {
-      await assertNoLinkedLocalPath(pathSet.lock);
-      if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
-        throw new LocalStateError("plan expired while waiting for the apply lease", "PLAN_EXPIRED");
-      }
-      const ownerToken = randomBytes(24).toString("hex");
-      const record2 = {
-        owner_token: ownerToken,
-        pid,
-        process_start: processStart,
-        acquired_at: new Date(Number(clock())).toISOString()
+  return directories;
+}
+function transactionResultBase(state) {
+  return {
+    clients: [...state.clientResults],
+    touched_files: [...state.changedOrder].map((key) => {
+      const record2 = state.records.get(key);
+      return {
+        path: record2.path,
+        applied_sha256: record2.appliedFingerprint?.content_sha256 ?? null
       };
-      let handle;
+    })
+  };
+}
+function createClientTransaction({
+  localState,
+  fsImpl = defaultFs4,
+  clock = Date.now,
+  windowsNative = DEFAULT_WINDOWS_NATIVE,
+  processRunner = createProcessRunner(),
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  externalLease = null
+} = {}) {
+  if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
+    fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
+  }
+  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
+    fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
+  }
+  if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
+    fail5("external apply lease capability is invalid", "INVALID_APPLY_LEASE");
+  }
+  const state = {
+    phase: "new",
+    lease: null,
+    ownsLease: false,
+    planDigest: null,
+    operationDigest: null,
+    adapters: /* @__PURE__ */ new Map(),
+    operations: [],
+    records: /* @__PURE__ */ new Map(),
+    readOnly: [],
+    changedOrder: [],
+    createdDirectories: [],
+    clientResults: [],
+    deferredDeletes: /* @__PURE__ */ new Map(),
+    currentClient: null,
+    transactionId: randomBytes2(12).toString("hex")
+  };
+  const capture = (path, roots, writable = true) => captureClientPathFingerprint(path, {
+    allowedRoots: roots,
+    fsImpl,
+    windowsNative,
+    processRunner,
+    systemRoot,
+    writable
+  });
+  async function releaseLease() {
+    if (!state.lease) return;
+    const lease = state.lease;
+    const ownsLease = state.ownsLease;
+    state.lease = null;
+    state.ownsLease = false;
+    if (ownsLease) await lease.release();
+  }
+  async function deleteSnapshot(record2) {
+    if (!record2.snapshot) return;
+    await localState.deleteSnapshot(record2.snapshot);
+    record2.snapshot = null;
+  }
+  async function withPinnedDirectory(directory, callback) {
+    const directories = await inspectExistingDirectoryAncestry(directory, fsImpl);
+    return windowsNative.withPinnedAncestry({
+      directories,
+      callback,
+      systemRoot
+    });
+  }
+  async function revalidateRecordParents(record2) {
+    let nearest;
+    try {
+      nearest = await directoryIdentity(record2.parentPlan.nearest_existing, fsImpl);
+    } catch (error2) {
+      if (isMissing2(error2)) fail5("nearest existing parent disappeared", "TRANSACTION_PRECONDITION_CHANGED");
+      throw error2;
+    }
+    if (!identityEqual(nearest, record2.parentPlan.nearest_identity)) {
+      fail5("nearest existing parent changed identity", "TRANSACTION_PRECONDITION_CHANGED");
+    }
+    for (const created of record2.createdDirectories) {
+      let current;
       try {
-        handle = await fsImpl.open(pathSet.lock, "wx", 384);
-        await handle.writeFile(`${canonicalJson(record2)}
-`, "utf8");
+        current = await directoryIdentity(created.path, fsImpl);
+      } catch (error2) {
+        if (isMissing2(error2)) fail5("transaction-created parent disappeared", "TRANSACTION_PRECONDITION_CHANGED");
+        throw error2;
+      }
+      if (!identityEqual(current, created.identity)) {
+        fail5("transaction-created parent changed identity", "TRANSACTION_PRECONDITION_CHANGED");
+      }
+    }
+  }
+  async function withPinnedRecord(record2, expectedFingerprint, callback) {
+    return withPinnedDirectory(dirname2(record2.path), async (guard) => {
+      guard?.assertPinned?.();
+      await revalidateRecordParents(record2);
+      const current = await capture(record2.path, [record2.allowedRoot], true);
+      if (!fingerprintsEqual(current, expectedFingerprint)) {
+        fail5("writable path changed before pinned mutation", "TRANSACTION_PRECONDITION_CHANGED");
+      }
+      guard?.assertPinned?.();
+      return callback({
+        current,
+        assertPinned: () => guard?.assertPinned?.()
+      });
+    });
+  }
+  async function createMissingParents(record2) {
+    if (record2.parentPlan.missing_parents.length === 0) return;
+    for (const path of record2.parentPlan.missing_parents) {
+      try {
+        const existing = await fsImpl.lstat(path);
+        if (!existing.isDirectory() || existing.isSymbolicLink()) fail5("planned parent became unsafe", "TRANSACTION_PRECONDITION_CHANGED");
+        const created = record2.createdDirectories.find((row) => pathKey2(row.path) === pathKey2(path));
+        if (!created || !identityEqual(statIdentity(existing), created.identity)) {
+          fail5("planned-missing parent was created outside this transaction", "TRANSACTION_PRECONDITION_CHANGED");
+        }
+      } catch (error2) {
+        if (!isMissing2(error2)) throw error2;
+        await withPinnedDirectory(dirname2(path), async (guard) => {
+          guard?.assertPinned?.();
+          await revalidateRecordParents(record2);
+          try {
+            await fsImpl.lstat(path);
+            fail5("planned-missing parent was created outside this transaction", "TRANSACTION_PRECONDITION_CHANGED");
+          } catch (inspectionError) {
+            if (!isMissing2(inspectionError)) throw inspectionError;
+          }
+          guard?.assertPinned?.();
+          await fsImpl.mkdir(path);
+          guard?.assertPinned?.();
+          const created = { path, identity: await directoryIdentity(path, fsImpl) };
+          record2.createdDirectories.push(created);
+          state.createdDirectories.push(created);
+        });
+      }
+    }
+  }
+  async function replaceExisting(replacementPath, destinationPath) {
+    return windowsNative.replaceFilePreservingMetadata({
+      replacementPath,
+      destinationPath,
+      runner: processRunner,
+      systemRoot,
+      fsImpl
+    });
+  }
+  function markChanged(record2, fingerprint) {
+    record2.appliedFingerprint = fingerprint;
+    record2.currentFingerprint = fingerprint;
+    if (!record2.changed) {
+      record2.changed = true;
+      record2.changedBy = state.currentClient;
+      state.changedOrder.push(record2.key);
+    }
+  }
+  function currentOperation(path) {
+    const key = pathKey2(path);
+    return state.operations.find((operation) => operation.client_id === state.currentClient && pathKey2(operation.path) === key);
+  }
+  async function writeFile(path, bytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: stagedWrite = false } = {}) {
+    if (state.phase !== "applying") fail5("transaction writes are available only during apply", "TRANSACTION_NOT_APPLYING");
+    if (!Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) fail5("transaction write requires bytes", "INVALID_TRANSACTION_BYTES");
+    const content = Buffer.from(bytes);
+    if (content.length > MAX_CONFIG_BYTES) fail5("transaction config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+    const key = pathKey2(path);
+    const record2 = state.records.get(key);
+    if (!record2 || pathKey2(record2.path) !== key) fail5("adapter attempted an unplanned write", "UNAPPROVED_OPERATION_SET");
+    if (currentOperation(path)?.external_write === true && stagedWrite !== true) {
+      fail5("reviewed external write must use the native-write capability", "EXTERNAL_WRITE_REQUIRED");
+    }
+    const before = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before replacement", "TRANSACTION_PRECONDITION_CHANGED");
+    await createMissingParents(record2);
+    const afterParents = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(afterParents, before)) fail5("writable path changed during parent creation", "TRANSACTION_PRECONDITION_CHANGED");
+    return withPinnedRecord(record2, before, async ({ current, assertPinned }) => {
+      const scratch = join3(dirname2(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-write`);
+      let handle = null;
+      try {
+        assertPinned();
+        handle = await fsImpl.open(scratch, "wx", record2.snapshot.metadata.mode ?? 384);
+        await handle.writeFile(content);
         await handle.sync();
         await handle.close();
         handle = null;
-        let released = false;
-        return Object.freeze({
-          ownerToken,
-          async release(providedToken = ownerToken) {
-            if (released) return;
-            if (providedToken !== ownerToken) throw new LocalStateError("apply lease owner token does not match", "LEASE_OWNER_MISMATCH");
-            const current = await inspectLease();
-            if (current.state !== "valid" || current.record.owner_token !== ownerToken) {
-              throw new LocalStateError("apply lease ownership changed", "LEASE_OWNER_MISMATCH");
-            }
-            await assertNoLinkedLocalPath(pathSet.lock);
-            await fsImpl.unlink(pathSet.lock);
-            released = true;
+        assertPinned();
+        try {
+          if (current.exists) {
+            await replaceExisting(scratch, record2.path);
+          } else {
+            const stillAbsent = await capture(record2.path, [record2.allowedRoot], true);
+            if (!fingerprintsEqual(stillAbsent, current)) fail5("missing target changed before create", "TRANSACTION_PRECONDITION_CHANGED");
+            assertPinned();
+            await fsImpl.rename(scratch, record2.path);
           }
-        });
-      } catch (error2) {
+          assertPinned();
+        } catch (error2) {
+          const observed = await capture(record2.path, [record2.allowedRoot], true).catch(() => null);
+          if (observed && !fingerprintsEqual(observed, current)) markChanged(record2, observed);
+          throw error2;
+        }
+        const diskBytes = await fsImpl.readFile(record2.path);
+        const applied = await capture(record2.path, [record2.allowedRoot], true);
+        assertPinned();
+        markChanged(record2, applied);
+        if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
+          fail5("client config changed during transaction replacement", "TRANSACTION_POSTWRITE_CHANGED");
+        }
+        if (current.exists && applied.metadata_sha256 !== current.metadata_sha256) {
+          fail5("existing-file security metadata changed during replacement", "METADATA_PRESERVATION_FAILED");
+        }
+        if (typeof parseResult === "function") await parseResult(diskBytes);
+        return {
+          path: record2.path,
+          content_sha256: applied.content_sha256,
+          metadata_sha256: applied.metadata_sha256
+        };
+      } finally {
         if (handle) await handle.close().catch(() => {
         });
-        if (error2?.code !== "EEXIST") throw error2;
-      }
-      const observed = await inspectLease();
-      if (observed.state === "valid") {
-        const ownerState = await processInspector(observed.record);
-        const age = Number(clock()) - Date.parse(observed.record.acquired_at);
-        if (ownerState === "dead" && age >= staleGraceMs) {
-          const quarantine = `${pathSet.lock}.${randomBytes(12).toString("hex")}.stale`;
-          try {
-            await assertNoLinkedLocalPath(pathSet.lock);
-            await fsImpl.rename(pathSet.lock, quarantine);
-            await fsImpl.rm(quarantine, { force: true });
-            continue;
-          } catch (error2) {
-            if (error2?.code === "ENOENT" || error2?.code === "EEXIST") continue;
-            throw error2;
-          }
+        try {
+          assertPinned();
+          await fsImpl.rm(scratch, { force: true });
+          assertPinned();
+        } catch {
         }
       }
-      if (Number(clock()) - startedWaiting >= waitMs) {
-        throw new LocalStateError("another deployment apply owns the local lease", "APPLY_IN_PROGRESS");
+    });
+  }
+  function safeStageRelativePath(value) {
+    if (typeof value !== "string" || value.trim() === "" || isAbsolute5(value)) return false;
+    const parts = value.replace(/\\/g, "/").split("/");
+    return parts.every((part) => part !== "" && part !== "." && part !== "..");
+  }
+  function nativeStagePaths() {
+    const stateRoot = resolve3(localState.paths().state);
+    const stageParent = resolve3(join3(stateRoot, "native-staging"));
+    if (pathKey2(dirname2(stageParent)) !== pathKey2(stateRoot)) {
+      fail5("native stage parent is outside local state", "UNSAFE_WRITABLE_PATH");
+    }
+    return { stateRoot, stageParent };
+  }
+  async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
+    if (pathKey2(dirname2(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
+    let unsafe = false;
+    let contaminated = false;
+    try {
+      const stat = await fsImpl.lstat(path);
+      unsafe = stat.isSymbolicLink() || !stat.isDirectory();
+      if (!unsafe && expectedChildName !== null) {
+        const names = await fsImpl.readdir(path);
+        contaminated = names.length !== 1 || names[0] !== expectedChildName;
       }
-      await sleep(Math.min(pollMs, Math.max(1, waitMs - (Number(clock()) - startedWaiting))));
+      await windowsNative.deleteTreeNoFollow({
+        targetPath: path,
+        allowedRoot: stateRoot,
+        runner: processRunner,
+        systemRoot,
+        fsImpl
+      });
+      const remains = await fsImpl.lstat(path).then(() => true, (error2) => {
+        if (isMissing2(error2)) return false;
+        throw error2;
+      });
+      if (remains) fail5("native stage cleanup could not be verified", "STAGED_CLEANUP_FAILED");
+      return { removed: true, unsafe, contaminated };
+    } catch (error2) {
+      if (error2?.code === "STAGED_CLEANUP_FAILED") throw error2;
+      fail5("native stage cleanup failed", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
     }
   }
+  async function detachAndRemoveStageParent(stageParent, stateRoot, options = {}) {
+    if (pathKey2(dirname2(stageParent)) !== pathKey2(stateRoot)) {
+      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
+    const quarantine = resolve3(join3(stateRoot, `.native-staging-${randomBytes2(12).toString("hex")}.stale`));
+    if (pathKey2(dirname2(quarantine)) !== pathKey2(stateRoot)) {
+      fail5("native stage quarantine path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    return withPinnedDirectory(stateRoot, async (guard) => {
+      try {
+        guard?.assertPinned?.();
+        await fsImpl.rename(stageParent, quarantine);
+        guard?.assertPinned?.();
+      } catch (error2) {
+        if (isMissing2(error2)) return { removed: false, unsafe: false, contaminated: false };
+        fail5("native stage could not be detached for cleanup", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
+      }
+      return removeDetachedStage(quarantine, stateRoot, options);
+    });
+  }
+  async function cleanupAbandonedStages() {
+    const { stateRoot, stageParent } = nativeStagePaths();
+    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
+    let unsafe = false;
+    for (const name of await fsImpl.readdir(stateRoot)) {
+      if (!STAGE_QUARANTINE_PATTERN.test(name)) continue;
+      const cleanup2 = await removeDetachedStage(resolve3(join3(stateRoot, name)), stateRoot);
+      unsafe ||= cleanup2.unsafe;
+    }
+    let stat;
+    try {
+      stat = await fsImpl.lstat(stageParent);
+    } catch (error2) {
+      if (isMissing2(error2)) {
+        if (unsafe) fail5("abandoned native stage is unsafe", "UNSAFE_WRITABLE_PATH");
+        return;
+      }
+      throw error2;
+    }
+    unsafe ||= stat.isSymbolicLink() || !stat.isDirectory();
+    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot);
+    if (unsafe || cleanup.unsafe) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
+  }
+  async function inspectStage(stageRoot, relativePath) {
+    const expectedParts = relativePath.replace(/\\/g, "/").split("/");
+    const expected = /* @__PURE__ */ new Set();
+    for (let index = 0; index < expectedParts.length; index += 1) {
+      expected.add(expectedParts.slice(0, index + 1).join("/"));
+    }
+    const observed = [];
+    async function visit2(directory, prefix = "") {
+      const names = await fsImpl.readdir(directory);
+      for (const name of names.sort()) {
+        const relativeName = prefix ? `${prefix}/${name}` : name;
+        observed.push(relativeName);
+        if (observed.length > MAX_STAGE_ENTRIES) fail5("native stage exceeds its entry limit", "UNEXPECTED_STAGED_OUTPUT");
+        const path = join3(directory, name);
+        const stat = await fsImpl.lstat(path);
+        if (stat.isSymbolicLink()) fail5("native stage contains a linked entry", "UNEXPECTED_STAGED_OUTPUT");
+        if (stat.isDirectory()) await visit2(path, relativeName);
+        else if (!stat.isFile() || Number(stat.nlink) !== 1) fail5("native stage contains an unsafe entry", "UNEXPECTED_STAGED_OUTPUT");
+      }
+    }
+    await visit2(stageRoot);
+    if (observed.length !== expected.size || observed.some((entry) => !expected.has(entry))) {
+      fail5("native stage contains unexpected output", "UNEXPECTED_STAGED_OUTPUT");
+    }
+  }
+  async function removeStage(stageRoot, stageParent, stateRoot) {
+    if (pathKey2(dirname2(stageRoot)) !== pathKey2(stageParent)) {
+      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    const expectedChildName = relative3(stageParent, stageRoot);
+    if (!expectedChildName || expectedChildName.includes(sep3)) fail5("native stage child name is unsafe", "STAGED_CLEANUP_FAILED");
+    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot, { expectedChildName });
+    if (!cleanup.removed || cleanup.unsafe) fail5("native stage cleanup identity changed", "STAGED_CLEANUP_FAILED");
+    if (cleanup.contaminated) fail5("native stage contains undeclared sibling output", "UNEXPECTED_STAGED_OUTPUT");
+  }
+  async function runStagedWrite(path, mutate, {
+    seed_bytes: seedBytes = Buffer.alloc(0),
+    stage_relative_path: relativePath,
+    parse: parseResult
+  } = {}) {
+    if (state.phase !== "applying") fail5("staged writes are available only during apply", "TRANSACTION_NOT_APPLYING");
+    if (typeof mutate !== "function" || !safeStageRelativePath(relativePath)) fail5("staged write contract is invalid", "INVALID_EXTERNAL_WRITE");
+    if (!Buffer.isBuffer(seedBytes) && !(seedBytes instanceof Uint8Array)) fail5("staged write seed requires bytes", "INVALID_TRANSACTION_BYTES");
+    const seed = Buffer.from(seedBytes);
+    if (seed.length > MAX_CONFIG_BYTES) fail5("staged write seed exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+    const key = pathKey2(path);
+    const record2 = state.records.get(key);
+    const operation = currentOperation(path);
+    if (!record2 || !operation || operation.external_write !== true || pathKey2(record2.path) !== key) {
+      fail5("adapter attempted an unapproved external write", "UNAPPROVED_EXTERNAL_WRITE");
+    }
+    if (record2.clients.some((clientId) => clientId !== state.currentClient)) {
+      fail5("shared client config cannot use an external writer", "SHARED_WRITE_CONFLICT");
+    }
+    if (record2.externalWriteUsed === true) fail5("staged write capability is one-shot", "EXTERNAL_WRITE_ALREADY_USED");
+    const before = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before staging", "TRANSACTION_PRECONDITION_CHANGED");
+    const currentBytes = before.exists ? await fsImpl.readFile(record2.path) : Buffer.alloc(0);
+    if (!currentBytes.equals(seed)) fail5("staged seed differs from reviewed provider config", "INVALID_STAGED_SEED");
+    record2.externalWriteUsed = true;
+    const { stateRoot, stageParent } = nativeStagePaths();
+    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
+    await fsImpl.mkdir(stageParent, { mode: 448 }).catch((error2) => {
+      if (error2?.code !== "EEXIST") throw error2;
+    });
+    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
+    const parentStat = await fsImpl.lstat(stageParent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
+    const stageRoot = await fsImpl.mkdtemp(join3(stageParent, `${state.transactionId}-`));
+    await fsImpl.chmod(stageRoot, 448);
+    const stageStat = await fsImpl.lstat(stageRoot);
+    if (pathKey2(dirname2(stageRoot)) !== pathKey2(stageParent) || !stageStat.isDirectory() || stageStat.isSymbolicLink()) {
+      fail5("native stage root is unsafe", "UNSAFE_WRITABLE_PATH");
+    }
+    const stagedPath = resolve3(stageRoot, relativePath);
+    if (!contained(stageRoot, stagedPath)) fail5("native stage target escapes its root", "INVALID_EXTERNAL_WRITE");
+    await fsImpl.mkdir(dirname2(stagedPath), { recursive: true, mode: 448 });
+    let handle = null;
+    let stagedBytes = null;
+    let pendingError = null;
+    try {
+      handle = await fsImpl.open(stagedPath, "wx", 384);
+      await handle.writeFile(seed);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await mutate(stagedPath, Object.freeze({ root: stageRoot, relative_path: relativePath }));
+      await inspectStage(stageRoot, relativePath.replace(/\\/g, "/"));
+      const stagedFingerprint = await capture(stagedPath, [stageRoot], true);
+      if (!stagedFingerprint.exists || stagedFingerprint.kind !== "file" || stagedFingerprint.link_kind !== "none") {
+        fail5("native stage did not produce a safe config file", "UNEXPECTED_STAGED_OUTPUT");
+      }
+      stagedBytes = await fsImpl.readFile(stagedPath);
+      if (stagedBytes.length > MAX_CONFIG_BYTES) fail5("staged config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+      if (stagedBytes.equals(seed)) fail5("native stage did not change the reviewed config", "EXTERNAL_WRITE_NO_CHANGE");
+      if (typeof parseResult === "function") await parseResult(stagedBytes);
+    } catch (error2) {
+      pendingError = error2;
+    } finally {
+      if (handle) await handle.close().catch(() => {
+      });
+    }
+    try {
+      await removeStage(stageRoot, stageParent, stateRoot);
+    } catch (error2) {
+      throw error2;
+    }
+    if (pendingError) throw pendingError;
+    return writeFile(record2.path, stagedBytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: true });
+  }
+  async function deleteFileAfterVerify(path) {
+    if (state.phase !== "applying") fail5("deferred deletes are available only during apply", "TRANSACTION_NOT_APPLYING");
+    const key = pathKey2(path);
+    const record2 = state.records.get(key);
+    const operation = state.operations.find((candidate) => candidate.client_id === state.currentClient && pathKey2(candidate.path) === key && candidate.delete_after_verify === true);
+    if (!record2 || !operation || !record2.changed || record2.changedBy !== state.currentClient) {
+      fail5("adapter attempted an unapproved deferred delete", "UNAPPROVED_DEFERRED_DELETE");
+    }
+    if (record2.clients.some((clientId) => clientId !== state.currentClient)) {
+      fail5("shared client config cannot be deleted", "SHARED_WRITE_CONFLICT");
+    }
+    state.deferredDeletes.set(key, { key, client_id: state.currentClient });
+    return { path: record2.path, status: "DEFERRED" };
+  }
+  const ownershipPath = resolve3(localState.paths().ownership);
+  const ownershipLedger2 = Object.freeze({
+    async read() {
+      try {
+        return JSON.parse(await fsImpl.readFile(ownershipPath, "utf8"));
+      } catch (error2) {
+        if (isMissing2(error2)) return null;
+        throw error2;
+      }
+    },
+    async write(value) {
+      return writeFile(ownershipPath, Buffer.from(`${canonicalJson(value)}
+`, "utf8"), {
+        parse: (bytes) => JSON.parse(bytes.toString("utf8"))
+      });
+    },
+    now: () => new Date(Number(clock())).toISOString()
+  });
+  const transactionCapability = Object.freeze({ writeFile, runStagedWrite, deleteFileAfterVerify, ownershipLedger: ownershipLedger2 });
+  async function snapshot({ planDigest, adapters, operations, context = {}, ownershipFingerprint } = {}) {
+    if (state.phase !== "new") fail5("transaction snapshot can run only once", "TRANSACTION_STATE_INVALID");
+    validatePlanDigest(planDigest);
+    const mappedAdapters = adapterMap(adapters);
+    validateOperations(operations, mappedAdapters);
+    if (externalLease) {
+      await localState.validateApplyLease(externalLease);
+      state.lease = externalLease;
+      state.ownsLease = false;
+    } else {
+      state.lease = await localState.acquireApplyLease({
+        pid: process.pid,
+        processStart: Math.round(Date.now() - process.uptime() * 1e3),
+        waitMs: 0
+      });
+      state.ownsLease = true;
+    }
+    state.phase = "preflight";
+    try {
+      await cleanupAbandonedStages();
+      const writableRows = [];
+      const readOnlyRows5 = [];
+      for (const clientId of CLIENT_IDS) {
+        const adapter = mappedAdapters.get(clientId);
+        if (!adapter) continue;
+        const clientOperations = operations.filter((operation) => operation.client_id === clientId);
+        const declared = await adapter.snapshot(context, clientOperations);
+        if (!declared || !Array.isArray(declared.writable_paths) || !Array.isArray(declared.read_only_paths)) {
+          fail5("adapter snapshot declaration is invalid", "INVALID_ADAPTER_SNAPSHOT");
+        }
+        for (const row of declared.writable_paths) {
+          const operation = clientOperations.find((candidate) => pathKey2(candidate.path) === pathKey2(row.path));
+          if (!operation) fail5("adapter declared an unapproved writable path", "UNAPPROVED_OPERATION_SET");
+          writableRows.push({
+            client_id: clientId,
+            path: row.path,
+            allowed_root: row.allowed_root,
+            scope_kind: row.scope_kind,
+            fingerprint: row.fingerprint,
+            owned_paths: row.owned_paths,
+            shared_resource_id: row.shared_resource_id
+          });
+        }
+        for (const row of declared.read_only_paths) readOnlyRows5.push({ ...row, client_id: clientId });
+      }
+      const operationPaths = new Set(writableRows.map((row) => `${row.client_id}:${pathKey2(row.path)}`));
+      const readOnlyOperationPaths = new Set(readOnlyRows5.map((row) => `${row.client_id}:${pathKey2(row.path)}`));
+      for (const operation of operations) {
+        const declaredPaths = operation.ledger_only === true ? readOnlyOperationPaths : operationPaths;
+        if (!declaredPaths.has(`${operation.client_id}:${pathKey2(operation.path)}`)) {
+          fail5("planned operation lacks an adapter writable declaration", "INVALID_ADAPTER_SNAPSHOT");
+        }
+      }
+      if (!ownershipFingerprint || typeof ownershipFingerprint !== "object") fail5("ownership ledger precondition is missing", "INVALID_OPERATION_SET");
+      writableRows.push({
+        client_id: "ownership",
+        path: ownershipPath,
+        allowed_root: localState.paths().state,
+        scope_kind: "local_state",
+        fingerprint: ownershipFingerprint,
+        owned_paths: ["/records"],
+        shared_resource_id: "uemcp-ownership-ledger"
+      });
+      for (const row of writableRows) {
+        if (!WRITABLE_SCOPES.has(row.scope_kind)) fail5("adapter attempted to write a read-only scope", "READ_ONLY_SCOPE");
+        await assertWritableAncestry(row.path, row.allowed_root, fsImpl);
+        const current = await capture(row.path, [row.allowed_root], true);
+        if (!fingerprintsEqual(current, row.fingerprint)) fail5("writable path precondition changed", "TRANSACTION_PRECONDITION_CHANGED");
+        row.current = current;
+      }
+      for (const row of readOnlyRows5) {
+        if (!row?.fingerprint || !safeAbsolutePath(row.path) || !safeAbsolutePath(row.allowed_root)) {
+          fail5("read-only evidence declaration is invalid", "INVALID_ADAPTER_SNAPSHOT");
+        }
+        const current = await capture(row.path, [row.allowed_root], false);
+        if (!fingerprintsEqual(current, row.fingerprint)) fail5("read-only evidence precondition changed", "TRANSACTION_PRECONDITION_CHANGED");
+        row.current = current;
+      }
+      const grouped = /* @__PURE__ */ new Map();
+      for (const row of writableRows) {
+        const key = pathKey2(row.path);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(row);
+      }
+      for (const rows of grouped.values()) validateSharedRows(rows);
+      if (grouped.has(pathKey2(ownershipPath)) && grouped.get(pathKey2(ownershipPath)).length !== 1) {
+        fail5("client config collides with the ownership ledger", "SHARED_WRITE_CONFLICT");
+      }
+      const ordered = [...grouped.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+      for (const [key, rows] of ordered) {
+        const row = rows[0];
+        const parentPlan = await inspectParentPlan(row.path, row.allowed_root, fsImpl);
+        state.records.set(key, {
+          key,
+          path: resolve3(row.path),
+          allowedRoot: resolve3(row.allowed_root),
+          originalFingerprint: row.current,
+          currentFingerprint: row.current,
+          appliedFingerprint: null,
+          changed: false,
+          changedBy: null,
+          parentPlan,
+          createdDirectories: [],
+          clients: [...new Set(rows.map((candidate) => candidate.client_id))],
+          snapshot: null,
+          externalWriteUsed: false
+        });
+      }
+      state.readOnly = readOnlyRows5;
+      for (const record2 of state.records.values()) {
+        record2.snapshot = await localState.createSnapshot(record2.path, {
+          transactionId: state.transactionId,
+          retainOnConflict: true
+        });
+        if (!snapshotMatchesFingerprint(record2.snapshot, record2.currentFingerprint)) {
+          fail5("snapshot differs from the approved writable fingerprint", "TRANSACTION_PRECONDITION_CHANGED");
+        }
+      }
+      state.planDigest = planDigest;
+      state.operationDigest = operationDigest(operations);
+      state.adapters = mappedAdapters;
+      state.operations = structuredClone(operations);
+      state.phase = "snapshotted";
+      return {
+        transaction_id: state.transactionId,
+        writable_paths: [...state.records.values()].map((record2) => record2.path),
+        read_only_paths: readOnlyRows5.map((row) => resolve3(row.path))
+      };
+    } catch (error2) {
+      for (const record2 of state.records.values()) await deleteSnapshot(record2).catch(() => {
+      });
+      state.phase = "failed";
+      await releaseLease().catch(() => {
+      });
+      throw error2;
+    }
+  }
+  async function recheckBeforeApply() {
+    for (const record2 of state.records.values()) {
+      const current = await capture(record2.path, [record2.allowedRoot], true);
+      if (!fingerprintsEqual(current, record2.currentFingerprint)) fail5("writable path changed after snapshot", "TRANSACTION_PRECONDITION_CHANGED");
+    }
+    for (const row of state.readOnly) {
+      const current = await capture(row.path, [row.allowed_root], false);
+      if (!fingerprintsEqual(current, row.current)) fail5("read-only evidence changed after snapshot", "TRANSACTION_PRECONDITION_CHANGED");
+    }
+  }
+  async function recheckAfterVerify() {
+    for (const record2 of state.records.values()) {
+      const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
+      const current = await capture(record2.path, [record2.allowedRoot], true);
+      if (!fingerprintsEqual(current, expected)) {
+        fail5("client config evidence changed during apply", "TRANSACTION_POSTWRITE_CHANGED");
+      }
+    }
+    for (const row of state.readOnly) {
+      const current = await capture(row.path, [row.allowed_root], false);
+      if (!fingerprintsEqual(current, row.current)) fail5("read-only evidence changed during apply", "TRANSACTION_POSTWRITE_CHANGED");
+    }
+  }
+  async function withPinnedTransactionEvidence(callback) {
+    await recheckAfterVerify();
+    const presentByPath = /* @__PURE__ */ new Map();
+    const absentByPath = /* @__PURE__ */ new Map();
+    const addEvidencePath = (path, exists2) => {
+      const key = pathKey2(path);
+      const target = exists2 ? presentByPath : absentByPath;
+      target.set(key, resolve3(path));
+    };
+    for (const record2 of state.records.values()) {
+      const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
+      addEvidencePath(record2.path, expected?.exists === true);
+    }
+    for (const row of state.readOnly) {
+      addEvidencePath(row.path, row.current?.exists === true);
+    }
+    for (const key of presentByPath.keys()) absentByPath.delete(key);
+    const paths = [...presentByPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
+    const absentPaths = [...absentByPath.values()].sort((left, right) => pathKey2(left).localeCompare(pathKey2(right)));
+    const invoke = async (guard) => {
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      const value = await callback(guard);
+      guard?.assertPinned?.();
+      await recheckAfterVerify();
+      guard?.assertPinned?.();
+      return value;
+    };
+    return windowsNative.withPinnedFiles({ paths, absentPaths, callback: invoke, systemRoot });
+  }
+  async function commitDeferredDeletes() {
+    const failures = [];
+    const ordered = [...state.deferredDeletes.values()].sort((left, right) => left.key.localeCompare(right.key));
+    for (const deferred of ordered) {
+      const record2 = state.records.get(deferred.key);
+      try {
+        await withPinnedRecord(record2, record2.appliedFingerprint, async ({ assertPinned }) => {
+          assertPinned();
+          await fsImpl.rm(record2.path);
+          assertPinned();
+          const after = await capture(record2.path, [record2.allowedRoot], true);
+          if (after.exists) fail5("deferred delete did not produce absence", "DEFERRED_DELETE_CONFLICT");
+          assertPinned();
+          markChanged(record2, after);
+        });
+      } catch (error2) {
+        const conflictCodes = /* @__PURE__ */ new Set(["TRANSACTION_PRECONDITION_CHANGED", "UNSAFE_WRITABLE_PATH", "DEFERRED_DELETE_CONFLICT"]);
+        failures.push({
+          path: record2.path,
+          code: conflictCodes.has(error2?.code) ? "DEFERRED_DELETE_CONFLICT" : error2?.code ?? "DEFERRED_DELETE_FAILED"
+        });
+      }
+    }
+    return failures;
+  }
+  async function cleanupCreatedDirectories() {
+    const seen = /* @__PURE__ */ new Set();
+    const failures = [];
+    for (const created of [...state.createdDirectories].reverse()) {
+      const key = pathKey2(created.path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        await withPinnedDirectory(dirname2(created.path), async (guard) => {
+          guard?.assertPinned?.();
+          const current = await directoryIdentity(created.path, fsImpl);
+          if (!identityEqual(current, created.identity)) {
+            failures.push({ path: created.path, code: "CREATED_DIRECTORY_IDENTITY_CHANGED" });
+            return;
+          }
+          if ((await fsImpl.readdir(created.path)).length !== 0) {
+            failures.push({ path: created.path, code: "CREATED_DIRECTORY_NOT_EMPTY" });
+            return;
+          }
+          guard?.assertPinned?.();
+          await fsImpl.rmdir(created.path);
+          guard?.assertPinned?.();
+        });
+      } catch (error2) {
+        if (!isMissing2(error2)) {
+          failures.push({ path: created.path, code: "CREATED_DIRECTORY_CLEANUP_FAILED" });
+        }
+      }
+    }
+    return failures;
+  }
+  async function restoreRecord(record2) {
+    try {
+      return await withPinnedDirectory(dirname2(record2.path), async (guard) => {
+        guard?.assertPinned?.();
+        await revalidateRecordParents(record2);
+        let current;
+        try {
+          current = await capture(record2.path, [record2.allowedRoot], true);
+        } catch (error2) {
+          if (["UNSAFE_WRITABLE_PATH", "METADATA_INSPECTION_FAILED", "READ_ONLY_TARGET"].includes(error2?.code)) {
+            return { status: "conflict", path: record2.path, code: "ROLLBACK_CONFLICT" };
+          }
+          throw error2;
+        }
+        if (!fingerprintsEqual(current, record2.appliedFingerprint)) {
+          return { status: "conflict", path: record2.path, code: "ROLLBACK_CONFLICT" };
+        }
+        guard?.assertPinned?.();
+        const metadata = record2.snapshot.metadata;
+        if (!metadata.exists) {
+          await fsImpl.rm(record2.path, { force: true });
+          guard?.assertPinned?.();
+          const absent = await capture(record2.path, [record2.allowedRoot], true);
+          if (absent.exists) return { status: "failed", path: record2.path, code: "ROLLBACK_VERIFY_FAILED" };
+          return { status: "restored", path: record2.path };
+        }
+        const payloadPath = join3(record2.snapshot.directory, "payload.bin");
+        const payload = await fsImpl.readFile(payloadPath);
+        if (sha256Bytes(payload) !== metadata.original_sha256) return { status: "failed", path: record2.path, code: "INVALID_SNAPSHOT" };
+        const scratch = join3(dirname2(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-rollback`);
+        let handle = null;
+        try {
+          guard?.assertPinned?.();
+          handle = await fsImpl.open(scratch, "wx", metadata.mode ?? 384);
+          await handle.writeFile(payload);
+          await handle.sync();
+          await handle.close();
+          handle = null;
+          guard?.assertPinned?.();
+          await replaceExisting(scratch, record2.path);
+          guard?.assertPinned?.();
+          if (metadata.mode !== null) await fsImpl.chmod(record2.path, metadata.mode);
+          if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
+            await fsImpl.utimes(record2.path, metadata.atime_ms / 1e3, metadata.mtime_ms / 1e3);
+          }
+          const restored = await capture(record2.path, [record2.allowedRoot], true);
+          if (!fingerprintsEqual(restored, record2.originalFingerprint, { includeIdentity: false, includeMutable: false })) {
+            return { status: "failed", path: record2.path, code: "ROLLBACK_VERIFY_FAILED" };
+          }
+          if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
+            await fsImpl.utimes(record2.path, metadata.atime_ms / 1e3, metadata.mtime_ms / 1e3);
+          }
+          const finalStat = await fsImpl.lstat(record2.path);
+          guard?.assertPinned?.();
+          if (metadata.mode !== null && Number(finalStat.mode) !== Number(metadata.mode) || metadata.atime_ms !== null && Math.abs(Number(finalStat.atimeMs) - Number(metadata.atime_ms)) > 2 || metadata.mtime_ms !== null && Math.abs(Number(finalStat.mtimeMs) - Number(metadata.mtime_ms)) > 2) {
+            return { status: "failed", path: record2.path, code: "ROLLBACK_METADATA_VERIFY_FAILED" };
+          }
+          return { status: "restored", path: record2.path };
+        } finally {
+          if (handle) await handle.close().catch(() => {
+          });
+          try {
+            guard?.assertPinned?.();
+            await fsImpl.rm(scratch, { force: true });
+            guard?.assertPinned?.();
+          } catch {
+          }
+        }
+      });
+    } catch (error2) {
+      if (["UNSAFE_WRITABLE_PATH", "METADATA_INSPECTION_FAILED", "READ_ONLY_TARGET", "TRANSACTION_PRECONDITION_CHANGED"].includes(error2?.code)) {
+        return { status: "conflict", path: record2.path, code: "ROLLBACK_CONFLICT" };
+      }
+      throw error2;
+    }
+  }
+  async function rollbackInternal({ reason = "apply_failed", adapters = state.adapters } = {}) {
+    state.phase = "rolling_back";
+    let hookFailed = false;
+    const hookErrors = [];
+    for (const clientId of [...CLIENT_IDS].reverse()) {
+      const adapter = adapters.get(clientId);
+      if (!adapter || typeof adapter.rollback !== "function") continue;
+      const records = [...state.records.values()].filter((record2) => record2.changed && record2.changedBy === clientId);
+      if (records.length === 0) continue;
+      try {
+        await adapter.rollback({ transaction: transactionCapability }, records.map((record2) => ({ path: record2.path })));
+      } catch (error2) {
+        hookFailed = true;
+        hookErrors.push({ client_id: clientId, code: error2?.code ?? "ROLLBACK_HOOK_FAILED" });
+      }
+    }
+    const restoration = [];
+    for (const key of [...state.changedOrder].reverse()) {
+      const record2 = state.records.get(key);
+      try {
+        restoration.push(await restoreRecord(record2));
+      } catch (error2) {
+        restoration.push({ status: "failed", path: record2.path, code: error2?.code ?? "ROLLBACK_FAILED" });
+      }
+    }
+    const directoryCleanupFailures = await cleanupCreatedDirectories();
+    if (directoryCleanupFailures.length > 0) {
+      hookFailed = true;
+      hookErrors.push(...directoryCleanupFailures.map((row) => ({
+        client_id: "transaction",
+        code: row.code
+      })));
+    }
+    const retained = [];
+    for (const record2 of state.records.values()) {
+      const outcome = restoration.find((row) => pathKey2(row.path) === record2.key);
+      if (outcome?.status === "conflict" || outcome?.status === "failed") {
+        retained.push({
+          path: record2.path,
+          retained_until: record2.snapshot.metadata.retained_until
+        });
+      } else {
+        try {
+          await deleteSnapshot(record2);
+        } catch (error2) {
+          hookFailed = true;
+          hookErrors.push({ client_id: "transaction", code: error2?.code ?? "SNAPSHOT_DELETE_FAILED" });
+          retained.push({
+            path: record2.path,
+            retained_until: record2.snapshot.metadata.retained_until
+          });
+        }
+      }
+    }
+    const hasConflict = restoration.some((row) => row.status === "conflict");
+    const hasFailure = restoration.some((row) => row.status === "failed") || hookFailed;
+    const status = hasConflict ? "ROLLBACK_CONFLICT" : hasFailure ? "ROLLBACK_FAILED" : "ROLLED_BACK";
+    state.phase = "complete";
+    await releaseLease();
+    return {
+      status,
+      ...transactionResultBase(state),
+      rollback: {
+        reason_code: typeof reason === "string" && /^[A-Z0-9_]+$/.test(reason) ? reason : "APPLY_FAILED",
+        paths: restoration,
+        hook_errors: hookErrors
+      },
+      retained_snapshots: retained
+    };
+  }
+  async function apply({ planDigest, adapters, operations, context = {} } = {}) {
+    if (state.phase !== "snapshotted") fail5("transaction must be snapshotted before apply", "TRANSACTION_STATE_INVALID");
+    let suppliedAdapters;
+    try {
+      if (externalLease) await localState.validateApplyLease(externalLease);
+      validatePlanDigest(planDigest);
+      suppliedAdapters = adapterMap(adapters);
+      if (planDigest !== state.planDigest || operationDigest(operations) !== state.operationDigest || JSON.stringify([...suppliedAdapters.keys()].sort()) !== JSON.stringify([...state.adapters.keys()].sort())) {
+        fail5("apply differs from the reviewed transaction plan", "UNAPPROVED_OPERATION_SET");
+      }
+    } catch (error2) {
+      await rollbackInternal({ reason: error2?.code ?? "UNAPPROVED_OPERATION_SET" });
+      throw error2;
+    }
+    try {
+      await recheckBeforeApply();
+      state.phase = "applying";
+      const outerBeforeActiveClientLaunch = context.beforeActiveClientLaunch;
+      const outerWithActiveClientLaunch = context.withActiveClientLaunch;
+      const adapterContext = Object.freeze({
+        ...context,
+        beforeActiveClientLaunch: async (evidence) => {
+          await recheckAfterVerify();
+          return outerBeforeActiveClientLaunch?.(evidence);
+        },
+        withActiveClientLaunch: async (evidence, callback) => {
+          if (typeof callback !== "function") fail5("active launch callback is invalid", "INVALID_CLIENT_LAUNCH");
+          return withPinnedTransactionEvidence(async (transactionGuard) => {
+            if (typeof outerWithActiveClientLaunch === "function") {
+              return outerWithActiveClientLaunch(evidence, async (outerGuard, launch) => {
+                const guard = Object.freeze({
+                  assertPinned() {
+                    transactionGuard?.assertPinned?.();
+                    outerGuard?.assertPinned?.();
+                  }
+                });
+                guard.assertPinned();
+                return callback(guard, launch);
+              });
+            }
+            await outerBeforeActiveClientLaunch?.(evidence);
+            transactionGuard?.assertPinned?.();
+            return callback(transactionGuard, context.launch ?? null);
+          });
+        },
+        transaction: transactionCapability
+      });
+      let actionRequired = false;
+      for (const clientId of CLIENT_IDS) {
+        const adapter = state.adapters.get(clientId);
+        if (!adapter) continue;
+        const clientOperations = operations.filter((operation) => operation.client_id === clientId);
+        state.currentClient = clientId;
+        let applyResult;
+        try {
+          applyResult = await adapter.apply(adapterContext, clientOperations);
+          const verified = await adapter.verify(adapterContext, clientOperations);
+          const status = verified?.status ?? applyResult?.status ?? "READY";
+          if (ACTION_STATUSES.has(status)) actionRequired = true;
+          else if (!READY_STATUSES.has(status)) fail5("adapter verification did not reach a committable state", "ADAPTER_VERIFY_FAILED", { client_id: clientId });
+          await recheckAfterVerify();
+          state.clientResults.push({ client_id: clientId, status });
+        } catch (error2) {
+          state.clientResults.push({ client_id: clientId, status: "FAILED", error_code: error2?.code ?? "CLIENT_APPLY_FAILED" });
+          throw error2;
+        } finally {
+          state.currentClient = null;
+        }
+      }
+      const deferredDeleteFailures = await commitDeferredDeletes();
+      const cleanupFailures = [];
+      for (const record2 of state.records.values()) {
+        try {
+          await deleteSnapshot(record2);
+        } catch (error2) {
+          cleanupFailures.push({
+            path: record2.path,
+            code: error2?.code ?? "SNAPSHOT_DELETE_FAILED",
+            retained_until: record2.snapshot.metadata.retained_until
+          });
+        }
+      }
+      state.phase = "complete";
+      await releaseLease();
+      return {
+        status: actionRequired || cleanupFailures.length > 0 || deferredDeleteFailures.length > 0 ? "ACTION_REQUIRED" : "APPLIED",
+        ...transactionResultBase(state),
+        rollback: null,
+        retained_snapshots: cleanupFailures.map((row) => ({ path: row.path, retained_until: row.retained_until })),
+        cleanup_actions: [
+          ...cleanupFailures.map((row) => ({ path: row.path, code: row.code })),
+          ...deferredDeleteFailures
+        ]
+      };
+    } catch (error2) {
+      return rollbackInternal({ reason: error2?.code ?? "APPLY_FAILED" });
+    }
+  }
+  async function rollback({ reason = "ROLLBACK_REQUESTED" } = {}) {
+    if (!["snapshotted", "applying"].includes(state.phase)) fail5("transaction cannot roll back in its current state", "TRANSACTION_STATE_INVALID");
+    return rollbackInternal({ reason });
+  }
+  return Object.freeze({ snapshot, apply, rollback });
+}
+
+// server/deployment/jsonc-config.mjs
+import { isDeepStrictEqual } from "node:util";
+
+// server/node_modules/jsonc-parser/lib/esm/impl/scanner.js
+function createScanner(text, ignoreTrivia = false) {
+  const len = text.length;
+  let pos = 0, value = "", tokenOffset = 0, token = 16, lineNumber = 0, lineStartOffset = 0, tokenLineStartOffset = 0, prevTokenLineStartOffset = 0, scanError = 0;
+  function scanHexDigits(count, exact) {
+    let digits = 0;
+    let value2 = 0;
+    while (digits < count || !exact) {
+      let ch = text.charCodeAt(pos);
+      if (ch >= 48 && ch <= 57) {
+        value2 = value2 * 16 + ch - 48;
+      } else if (ch >= 65 && ch <= 70) {
+        value2 = value2 * 16 + ch - 65 + 10;
+      } else if (ch >= 97 && ch <= 102) {
+        value2 = value2 * 16 + ch - 97 + 10;
+      } else {
+        break;
+      }
+      pos++;
+      digits++;
+    }
+    if (digits < count) {
+      value2 = -1;
+    }
+    return value2;
+  }
+  function setPosition(newPosition) {
+    pos = newPosition;
+    value = "";
+    tokenOffset = 0;
+    token = 16;
+    scanError = 0;
+  }
+  function scanNumber() {
+    let start = pos;
+    if (text.charCodeAt(pos) === 48) {
+      pos++;
+    } else {
+      pos++;
+      while (pos < text.length && isDigit(text.charCodeAt(pos))) {
+        pos++;
+      }
+    }
+    if (pos < text.length && text.charCodeAt(pos) === 46) {
+      pos++;
+      if (pos < text.length && isDigit(text.charCodeAt(pos))) {
+        pos++;
+        while (pos < text.length && isDigit(text.charCodeAt(pos))) {
+          pos++;
+        }
+      } else {
+        scanError = 3;
+        return text.substring(start, pos);
+      }
+    }
+    let end = pos;
+    if (pos < text.length && (text.charCodeAt(pos) === 69 || text.charCodeAt(pos) === 101)) {
+      pos++;
+      if (pos < text.length && text.charCodeAt(pos) === 43 || text.charCodeAt(pos) === 45) {
+        pos++;
+      }
+      if (pos < text.length && isDigit(text.charCodeAt(pos))) {
+        pos++;
+        while (pos < text.length && isDigit(text.charCodeAt(pos))) {
+          pos++;
+        }
+        end = pos;
+      } else {
+        scanError = 3;
+      }
+    }
+    return text.substring(start, end);
+  }
+  function scanString() {
+    let result2 = "", start = pos;
+    while (true) {
+      if (pos >= len) {
+        result2 += text.substring(start, pos);
+        scanError = 2;
+        break;
+      }
+      const ch = text.charCodeAt(pos);
+      if (ch === 34) {
+        result2 += text.substring(start, pos);
+        pos++;
+        break;
+      }
+      if (ch === 92) {
+        result2 += text.substring(start, pos);
+        pos++;
+        if (pos >= len) {
+          scanError = 2;
+          break;
+        }
+        const ch2 = text.charCodeAt(pos++);
+        switch (ch2) {
+          case 34:
+            result2 += '"';
+            break;
+          case 92:
+            result2 += "\\";
+            break;
+          case 47:
+            result2 += "/";
+            break;
+          case 98:
+            result2 += "\b";
+            break;
+          case 102:
+            result2 += "\f";
+            break;
+          case 110:
+            result2 += "\n";
+            break;
+          case 114:
+            result2 += "\r";
+            break;
+          case 116:
+            result2 += "	";
+            break;
+          case 117:
+            const ch3 = scanHexDigits(4, true);
+            if (ch3 >= 0) {
+              result2 += String.fromCharCode(ch3);
+            } else {
+              scanError = 4;
+            }
+            break;
+          default:
+            scanError = 5;
+        }
+        start = pos;
+        continue;
+      }
+      if (ch >= 0 && ch <= 31) {
+        if (isLineBreak(ch)) {
+          result2 += text.substring(start, pos);
+          scanError = 2;
+          break;
+        } else {
+          scanError = 6;
+        }
+      }
+      pos++;
+    }
+    return result2;
+  }
+  function scanNext() {
+    value = "";
+    scanError = 0;
+    tokenOffset = pos;
+    lineStartOffset = lineNumber;
+    prevTokenLineStartOffset = tokenLineStartOffset;
+    if (pos >= len) {
+      tokenOffset = len;
+      return token = 17;
+    }
+    let code = text.charCodeAt(pos);
+    if (isWhiteSpace(code)) {
+      do {
+        pos++;
+        value += String.fromCharCode(code);
+        code = text.charCodeAt(pos);
+      } while (isWhiteSpace(code));
+      return token = 15;
+    }
+    if (isLineBreak(code)) {
+      pos++;
+      value += String.fromCharCode(code);
+      if (code === 13 && text.charCodeAt(pos) === 10) {
+        pos++;
+        value += "\n";
+      }
+      lineNumber++;
+      tokenLineStartOffset = pos;
+      return token = 14;
+    }
+    switch (code) {
+      // tokens: []{}:,
+      case 123:
+        pos++;
+        return token = 1;
+      case 125:
+        pos++;
+        return token = 2;
+      case 91:
+        pos++;
+        return token = 3;
+      case 93:
+        pos++;
+        return token = 4;
+      case 58:
+        pos++;
+        return token = 6;
+      case 44:
+        pos++;
+        return token = 5;
+      // strings
+      case 34:
+        pos++;
+        value = scanString();
+        return token = 10;
+      // comments
+      case 47:
+        const start = pos - 1;
+        if (text.charCodeAt(pos + 1) === 47) {
+          pos += 2;
+          while (pos < len) {
+            if (isLineBreak(text.charCodeAt(pos))) {
+              break;
+            }
+            pos++;
+          }
+          value = text.substring(start, pos);
+          return token = 12;
+        }
+        if (text.charCodeAt(pos + 1) === 42) {
+          pos += 2;
+          const safeLength = len - 1;
+          let commentClosed = false;
+          while (pos < safeLength) {
+            const ch = text.charCodeAt(pos);
+            if (ch === 42 && text.charCodeAt(pos + 1) === 47) {
+              pos += 2;
+              commentClosed = true;
+              break;
+            }
+            pos++;
+            if (isLineBreak(ch)) {
+              if (ch === 13 && text.charCodeAt(pos) === 10) {
+                pos++;
+              }
+              lineNumber++;
+              tokenLineStartOffset = pos;
+            }
+          }
+          if (!commentClosed) {
+            pos++;
+            scanError = 1;
+          }
+          value = text.substring(start, pos);
+          return token = 13;
+        }
+        value += String.fromCharCode(code);
+        pos++;
+        return token = 16;
+      // numbers
+      case 45:
+        value += String.fromCharCode(code);
+        pos++;
+        if (pos === len || !isDigit(text.charCodeAt(pos))) {
+          return token = 16;
+        }
+      // found a minus, followed by a number so
+      // we fall through to proceed with scanning
+      // numbers
+      case 48:
+      case 49:
+      case 50:
+      case 51:
+      case 52:
+      case 53:
+      case 54:
+      case 55:
+      case 56:
+      case 57:
+        value += scanNumber();
+        return token = 11;
+      // literals and unknown symbols
+      default:
+        while (pos < len && isUnknownContentCharacter(code)) {
+          pos++;
+          code = text.charCodeAt(pos);
+        }
+        if (tokenOffset !== pos) {
+          value = text.substring(tokenOffset, pos);
+          switch (value) {
+            case "true":
+              return token = 8;
+            case "false":
+              return token = 9;
+            case "null":
+              return token = 7;
+          }
+          return token = 16;
+        }
+        value += String.fromCharCode(code);
+        pos++;
+        return token = 16;
+    }
+  }
+  function isUnknownContentCharacter(code) {
+    if (isWhiteSpace(code) || isLineBreak(code)) {
+      return false;
+    }
+    switch (code) {
+      case 125:
+      case 93:
+      case 123:
+      case 91:
+      case 34:
+      case 58:
+      case 44:
+      case 47:
+        return false;
+    }
+    return true;
+  }
+  function scanNextNonTrivia() {
+    let result2;
+    do {
+      result2 = scanNext();
+    } while (result2 >= 12 && result2 <= 15);
+    return result2;
+  }
+  return {
+    setPosition,
+    getPosition: () => pos,
+    scan: ignoreTrivia ? scanNextNonTrivia : scanNext,
+    getToken: () => token,
+    getTokenValue: () => value,
+    getTokenOffset: () => tokenOffset,
+    getTokenLength: () => pos - tokenOffset,
+    getTokenStartLine: () => lineStartOffset,
+    getTokenStartCharacter: () => tokenOffset - prevTokenLineStartOffset,
+    getTokenError: () => scanError
+  };
+}
+function isWhiteSpace(ch) {
+  return ch === 32 || ch === 9;
+}
+function isLineBreak(ch) {
+  return ch === 10 || ch === 13;
+}
+function isDigit(ch) {
+  return ch >= 48 && ch <= 57;
+}
+var CharacterCodes;
+(function(CharacterCodes2) {
+  CharacterCodes2[CharacterCodes2["lineFeed"] = 10] = "lineFeed";
+  CharacterCodes2[CharacterCodes2["carriageReturn"] = 13] = "carriageReturn";
+  CharacterCodes2[CharacterCodes2["space"] = 32] = "space";
+  CharacterCodes2[CharacterCodes2["_0"] = 48] = "_0";
+  CharacterCodes2[CharacterCodes2["_1"] = 49] = "_1";
+  CharacterCodes2[CharacterCodes2["_2"] = 50] = "_2";
+  CharacterCodes2[CharacterCodes2["_3"] = 51] = "_3";
+  CharacterCodes2[CharacterCodes2["_4"] = 52] = "_4";
+  CharacterCodes2[CharacterCodes2["_5"] = 53] = "_5";
+  CharacterCodes2[CharacterCodes2["_6"] = 54] = "_6";
+  CharacterCodes2[CharacterCodes2["_7"] = 55] = "_7";
+  CharacterCodes2[CharacterCodes2["_8"] = 56] = "_8";
+  CharacterCodes2[CharacterCodes2["_9"] = 57] = "_9";
+  CharacterCodes2[CharacterCodes2["a"] = 97] = "a";
+  CharacterCodes2[CharacterCodes2["b"] = 98] = "b";
+  CharacterCodes2[CharacterCodes2["c"] = 99] = "c";
+  CharacterCodes2[CharacterCodes2["d"] = 100] = "d";
+  CharacterCodes2[CharacterCodes2["e"] = 101] = "e";
+  CharacterCodes2[CharacterCodes2["f"] = 102] = "f";
+  CharacterCodes2[CharacterCodes2["g"] = 103] = "g";
+  CharacterCodes2[CharacterCodes2["h"] = 104] = "h";
+  CharacterCodes2[CharacterCodes2["i"] = 105] = "i";
+  CharacterCodes2[CharacterCodes2["j"] = 106] = "j";
+  CharacterCodes2[CharacterCodes2["k"] = 107] = "k";
+  CharacterCodes2[CharacterCodes2["l"] = 108] = "l";
+  CharacterCodes2[CharacterCodes2["m"] = 109] = "m";
+  CharacterCodes2[CharacterCodes2["n"] = 110] = "n";
+  CharacterCodes2[CharacterCodes2["o"] = 111] = "o";
+  CharacterCodes2[CharacterCodes2["p"] = 112] = "p";
+  CharacterCodes2[CharacterCodes2["q"] = 113] = "q";
+  CharacterCodes2[CharacterCodes2["r"] = 114] = "r";
+  CharacterCodes2[CharacterCodes2["s"] = 115] = "s";
+  CharacterCodes2[CharacterCodes2["t"] = 116] = "t";
+  CharacterCodes2[CharacterCodes2["u"] = 117] = "u";
+  CharacterCodes2[CharacterCodes2["v"] = 118] = "v";
+  CharacterCodes2[CharacterCodes2["w"] = 119] = "w";
+  CharacterCodes2[CharacterCodes2["x"] = 120] = "x";
+  CharacterCodes2[CharacterCodes2["y"] = 121] = "y";
+  CharacterCodes2[CharacterCodes2["z"] = 122] = "z";
+  CharacterCodes2[CharacterCodes2["A"] = 65] = "A";
+  CharacterCodes2[CharacterCodes2["B"] = 66] = "B";
+  CharacterCodes2[CharacterCodes2["C"] = 67] = "C";
+  CharacterCodes2[CharacterCodes2["D"] = 68] = "D";
+  CharacterCodes2[CharacterCodes2["E"] = 69] = "E";
+  CharacterCodes2[CharacterCodes2["F"] = 70] = "F";
+  CharacterCodes2[CharacterCodes2["G"] = 71] = "G";
+  CharacterCodes2[CharacterCodes2["H"] = 72] = "H";
+  CharacterCodes2[CharacterCodes2["I"] = 73] = "I";
+  CharacterCodes2[CharacterCodes2["J"] = 74] = "J";
+  CharacterCodes2[CharacterCodes2["K"] = 75] = "K";
+  CharacterCodes2[CharacterCodes2["L"] = 76] = "L";
+  CharacterCodes2[CharacterCodes2["M"] = 77] = "M";
+  CharacterCodes2[CharacterCodes2["N"] = 78] = "N";
+  CharacterCodes2[CharacterCodes2["O"] = 79] = "O";
+  CharacterCodes2[CharacterCodes2["P"] = 80] = "P";
+  CharacterCodes2[CharacterCodes2["Q"] = 81] = "Q";
+  CharacterCodes2[CharacterCodes2["R"] = 82] = "R";
+  CharacterCodes2[CharacterCodes2["S"] = 83] = "S";
+  CharacterCodes2[CharacterCodes2["T"] = 84] = "T";
+  CharacterCodes2[CharacterCodes2["U"] = 85] = "U";
+  CharacterCodes2[CharacterCodes2["V"] = 86] = "V";
+  CharacterCodes2[CharacterCodes2["W"] = 87] = "W";
+  CharacterCodes2[CharacterCodes2["X"] = 88] = "X";
+  CharacterCodes2[CharacterCodes2["Y"] = 89] = "Y";
+  CharacterCodes2[CharacterCodes2["Z"] = 90] = "Z";
+  CharacterCodes2[CharacterCodes2["asterisk"] = 42] = "asterisk";
+  CharacterCodes2[CharacterCodes2["backslash"] = 92] = "backslash";
+  CharacterCodes2[CharacterCodes2["closeBrace"] = 125] = "closeBrace";
+  CharacterCodes2[CharacterCodes2["closeBracket"] = 93] = "closeBracket";
+  CharacterCodes2[CharacterCodes2["colon"] = 58] = "colon";
+  CharacterCodes2[CharacterCodes2["comma"] = 44] = "comma";
+  CharacterCodes2[CharacterCodes2["dot"] = 46] = "dot";
+  CharacterCodes2[CharacterCodes2["doubleQuote"] = 34] = "doubleQuote";
+  CharacterCodes2[CharacterCodes2["minus"] = 45] = "minus";
+  CharacterCodes2[CharacterCodes2["openBrace"] = 123] = "openBrace";
+  CharacterCodes2[CharacterCodes2["openBracket"] = 91] = "openBracket";
+  CharacterCodes2[CharacterCodes2["plus"] = 43] = "plus";
+  CharacterCodes2[CharacterCodes2["slash"] = 47] = "slash";
+  CharacterCodes2[CharacterCodes2["formFeed"] = 12] = "formFeed";
+  CharacterCodes2[CharacterCodes2["tab"] = 9] = "tab";
+})(CharacterCodes || (CharacterCodes = {}));
+
+// server/node_modules/jsonc-parser/lib/esm/impl/string-intern.js
+var cachedSpaces = new Array(20).fill(0).map((_, index) => {
+  return " ".repeat(index);
+});
+var maxCachedValues = 200;
+var cachedBreakLinesWithSpaces = {
+  " ": {
+    "\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\n" + " ".repeat(index);
+    }),
+    "\r": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\r" + " ".repeat(index);
+    }),
+    "\r\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\r\n" + " ".repeat(index);
+    })
+  },
+  "	": {
+    "\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\n" + "	".repeat(index);
+    }),
+    "\r": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\r" + "	".repeat(index);
+    }),
+    "\r\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+      return "\r\n" + "	".repeat(index);
+    })
+  }
+};
+var supportedEols = ["\n", "\r", "\r\n"];
+
+// server/node_modules/jsonc-parser/lib/esm/impl/format.js
+function format(documentText, range, options) {
+  let initialIndentLevel;
+  let formatText;
+  let formatTextStart;
+  let rangeStart;
+  let rangeEnd;
+  if (range) {
+    rangeStart = range.offset;
+    rangeEnd = rangeStart + range.length;
+    formatTextStart = rangeStart;
+    while (formatTextStart > 0 && !isEOL(documentText, formatTextStart - 1)) {
+      formatTextStart--;
+    }
+    let endOffset = rangeEnd;
+    while (endOffset < documentText.length && !isEOL(documentText, endOffset)) {
+      endOffset++;
+    }
+    formatText = documentText.substring(formatTextStart, endOffset);
+    initialIndentLevel = computeIndentLevel(formatText, options);
+  } else {
+    formatText = documentText;
+    initialIndentLevel = 0;
+    formatTextStart = 0;
+    rangeStart = 0;
+    rangeEnd = documentText.length;
+  }
+  const eol = getEOL(options, documentText);
+  const eolFastPathSupported = supportedEols.includes(eol);
+  let numberLineBreaks = 0;
+  let indentLevel = 0;
+  let indentValue;
+  if (options.insertSpaces) {
+    indentValue = cachedSpaces[options.tabSize || 4] ?? repeat(cachedSpaces[1], options.tabSize || 4);
+  } else {
+    indentValue = "	";
+  }
+  const indentType = indentValue === "	" ? "	" : " ";
+  let scanner = createScanner(formatText, false);
+  let hasError = false;
+  function newLinesAndIndent() {
+    if (numberLineBreaks > 1) {
+      return repeat(eol, numberLineBreaks) + repeat(indentValue, initialIndentLevel + indentLevel);
+    }
+    const amountOfSpaces = indentValue.length * (initialIndentLevel + indentLevel);
+    if (!eolFastPathSupported || amountOfSpaces > cachedBreakLinesWithSpaces[indentType][eol].length) {
+      return eol + repeat(indentValue, initialIndentLevel + indentLevel);
+    }
+    if (amountOfSpaces <= 0) {
+      return eol;
+    }
+    return cachedBreakLinesWithSpaces[indentType][eol][amountOfSpaces];
+  }
+  function scanNext() {
+    let token = scanner.scan();
+    numberLineBreaks = 0;
+    while (token === 15 || token === 14) {
+      if (token === 14 && options.keepLines) {
+        numberLineBreaks += 1;
+      } else if (token === 14) {
+        numberLineBreaks = 1;
+      }
+      token = scanner.scan();
+    }
+    hasError = token === 16 || scanner.getTokenError() !== 0;
+    return token;
+  }
+  const editOperations = [];
+  function addEdit(text, startOffset, endOffset) {
+    if (!hasError && (!range || startOffset < rangeEnd && endOffset > rangeStart) && documentText.substring(startOffset, endOffset) !== text) {
+      editOperations.push({ offset: startOffset, length: endOffset - startOffset, content: text });
+    }
+  }
+  let firstToken = scanNext();
+  if (options.keepLines && numberLineBreaks > 0) {
+    addEdit(repeat(eol, numberLineBreaks), 0, 0);
+  }
+  if (firstToken !== 17) {
+    let firstTokenStart = scanner.getTokenOffset() + formatTextStart;
+    let initialIndent = indentValue.length * initialIndentLevel < 20 && options.insertSpaces ? cachedSpaces[indentValue.length * initialIndentLevel] : repeat(indentValue, initialIndentLevel);
+    addEdit(initialIndent, formatTextStart, firstTokenStart);
+  }
+  while (firstToken !== 17) {
+    let firstTokenEnd = scanner.getTokenOffset() + scanner.getTokenLength() + formatTextStart;
+    let secondToken = scanNext();
+    let replaceContent = "";
+    let needsLineBreak = false;
+    while (numberLineBreaks === 0 && (secondToken === 12 || secondToken === 13)) {
+      let commentTokenStart = scanner.getTokenOffset() + formatTextStart;
+      addEdit(cachedSpaces[1], firstTokenEnd, commentTokenStart);
+      firstTokenEnd = scanner.getTokenOffset() + scanner.getTokenLength() + formatTextStart;
+      needsLineBreak = secondToken === 12;
+      replaceContent = needsLineBreak ? newLinesAndIndent() : "";
+      secondToken = scanNext();
+    }
+    if (secondToken === 2) {
+      if (firstToken !== 1) {
+        indentLevel--;
+      }
+      ;
+      if (options.keepLines && numberLineBreaks > 0 || !options.keepLines && firstToken !== 1) {
+        replaceContent = newLinesAndIndent();
+      } else if (options.keepLines) {
+        replaceContent = cachedSpaces[1];
+      }
+    } else if (secondToken === 4) {
+      if (firstToken !== 3) {
+        indentLevel--;
+      }
+      ;
+      if (options.keepLines && numberLineBreaks > 0 || !options.keepLines && firstToken !== 3) {
+        replaceContent = newLinesAndIndent();
+      } else if (options.keepLines) {
+        replaceContent = cachedSpaces[1];
+      }
+    } else {
+      switch (firstToken) {
+        case 3:
+        case 1:
+          indentLevel++;
+          if (options.keepLines && numberLineBreaks > 0 || !options.keepLines) {
+            replaceContent = newLinesAndIndent();
+          } else {
+            replaceContent = cachedSpaces[1];
+          }
+          break;
+        case 5:
+          if (options.keepLines && numberLineBreaks > 0 || !options.keepLines) {
+            replaceContent = newLinesAndIndent();
+          } else {
+            replaceContent = cachedSpaces[1];
+          }
+          break;
+        case 12:
+          replaceContent = newLinesAndIndent();
+          break;
+        case 13:
+          if (numberLineBreaks > 0) {
+            replaceContent = newLinesAndIndent();
+          } else if (!needsLineBreak) {
+            replaceContent = cachedSpaces[1];
+          }
+          break;
+        case 6:
+          if (options.keepLines && numberLineBreaks > 0) {
+            replaceContent = newLinesAndIndent();
+          } else if (!needsLineBreak) {
+            replaceContent = cachedSpaces[1];
+          }
+          break;
+        case 10:
+          if (options.keepLines && numberLineBreaks > 0) {
+            replaceContent = newLinesAndIndent();
+          } else if (secondToken === 6 && !needsLineBreak) {
+            replaceContent = "";
+          }
+          break;
+        case 7:
+        case 8:
+        case 9:
+        case 11:
+        case 2:
+        case 4:
+          if (options.keepLines && numberLineBreaks > 0) {
+            replaceContent = newLinesAndIndent();
+          } else {
+            if ((secondToken === 12 || secondToken === 13) && !needsLineBreak) {
+              replaceContent = cachedSpaces[1];
+            } else if (secondToken !== 5 && secondToken !== 17) {
+              hasError = true;
+            }
+          }
+          break;
+        case 16:
+          hasError = true;
+          break;
+      }
+      if (numberLineBreaks > 0 && (secondToken === 12 || secondToken === 13)) {
+        replaceContent = newLinesAndIndent();
+      }
+    }
+    if (secondToken === 17) {
+      if (options.keepLines && numberLineBreaks > 0) {
+        replaceContent = newLinesAndIndent();
+      } else {
+        replaceContent = options.insertFinalNewline ? eol : "";
+      }
+    }
+    const secondTokenStart = scanner.getTokenOffset() + formatTextStart;
+    addEdit(replaceContent, firstTokenEnd, secondTokenStart);
+    firstToken = secondToken;
+  }
+  return editOperations;
+}
+function repeat(s, count) {
+  let result2 = "";
+  for (let i = 0; i < count; i++) {
+    result2 += s;
+  }
+  return result2;
+}
+function computeIndentLevel(content, options) {
+  let i = 0;
+  let nChars = 0;
+  const tabSize = options.tabSize || 4;
+  while (i < content.length) {
+    let ch = content.charAt(i);
+    if (ch === cachedSpaces[1]) {
+      nChars++;
+    } else if (ch === "	") {
+      nChars += tabSize;
+    } else {
+      break;
+    }
+    i++;
+  }
+  return Math.floor(nChars / tabSize);
+}
+function getEOL(options, text) {
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    if (ch === "\r") {
+      if (i + 1 < text.length && text.charAt(i + 1) === "\n") {
+        return "\r\n";
+      }
+      return "\r";
+    } else if (ch === "\n") {
+      return "\n";
+    }
+  }
+  return options && options.eol || "\n";
+}
+function isEOL(text, offset) {
+  return "\r\n".indexOf(text.charAt(offset)) !== -1;
+}
+
+// server/node_modules/jsonc-parser/lib/esm/impl/parser.js
+var ParseOptions;
+(function(ParseOptions2) {
+  ParseOptions2.DEFAULT = {
+    allowTrailingComma: false
+  };
+})(ParseOptions || (ParseOptions = {}));
+function parseTree(text, errors = [], options = ParseOptions.DEFAULT) {
+  let currentParent = { type: "array", offset: -1, length: -1, children: [], parent: void 0 };
+  function ensurePropertyComplete(endOffset) {
+    if (currentParent.type === "property") {
+      currentParent.length = endOffset - currentParent.offset;
+      currentParent = currentParent.parent;
+    }
+  }
+  function onValue(valueNode) {
+    currentParent.children.push(valueNode);
+    return valueNode;
+  }
+  const visitor = {
+    onObjectBegin: (offset) => {
+      currentParent = onValue({ type: "object", offset, length: -1, parent: currentParent, children: [] });
+    },
+    onObjectProperty: (name, offset, length) => {
+      currentParent = onValue({ type: "property", offset, length: -1, parent: currentParent, children: [] });
+      currentParent.children.push({ type: "string", value: name, offset, length, parent: currentParent });
+    },
+    onObjectEnd: (offset, length) => {
+      ensurePropertyComplete(offset + length);
+      currentParent.length = offset + length - currentParent.offset;
+      currentParent = currentParent.parent;
+      ensurePropertyComplete(offset + length);
+    },
+    onArrayBegin: (offset, length) => {
+      currentParent = onValue({ type: "array", offset, length: -1, parent: currentParent, children: [] });
+    },
+    onArrayEnd: (offset, length) => {
+      currentParent.length = offset + length - currentParent.offset;
+      currentParent = currentParent.parent;
+      ensurePropertyComplete(offset + length);
+    },
+    onLiteralValue: (value, offset, length) => {
+      onValue({ type: getNodeType(value), offset, length, parent: currentParent, value });
+      ensurePropertyComplete(offset + length);
+    },
+    onSeparator: (sep12, offset, length) => {
+      if (currentParent.type === "property") {
+        if (sep12 === ":") {
+          currentParent.colonOffset = offset;
+        } else if (sep12 === ",") {
+          ensurePropertyComplete(offset);
+        }
+      }
+    },
+    onError: (error2, offset, length) => {
+      errors.push({ error: error2, offset, length });
+    }
+  };
+  visit(text, visitor, options);
+  const result2 = currentParent.children[0];
+  if (result2) {
+    delete result2.parent;
+  }
+  return result2;
+}
+function findNodeAtLocation(root, path) {
+  if (!root) {
+    return void 0;
+  }
+  let node = root;
+  for (let segment of path) {
+    if (typeof segment === "string") {
+      if (node.type !== "object" || !Array.isArray(node.children)) {
+        return void 0;
+      }
+      let found = false;
+      for (const propertyNode of node.children) {
+        if (Array.isArray(propertyNode.children) && propertyNode.children[0].value === segment && propertyNode.children.length === 2) {
+          node = propertyNode.children[1];
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return void 0;
+      }
+    } else {
+      const index = segment;
+      if (node.type !== "array" || index < 0 || !Array.isArray(node.children) || index >= node.children.length) {
+        return void 0;
+      }
+      node = node.children[index];
+    }
+  }
+  return node;
+}
+function getNodeValue(node) {
+  switch (node.type) {
+    case "array":
+      return node.children.map(getNodeValue);
+    case "object":
+      const obj = /* @__PURE__ */ Object.create(null);
+      for (let prop of node.children) {
+        const valueNode = prop.children[1];
+        if (valueNode) {
+          obj[prop.children[0].value] = getNodeValue(valueNode);
+        }
+      }
+      return obj;
+    case "null":
+    case "string":
+    case "number":
+    case "boolean":
+      return node.value;
+    default:
+      return void 0;
+  }
+}
+function visit(text, visitor, options = ParseOptions.DEFAULT) {
+  const _scanner = createScanner(text, false);
+  const _jsonPath = [];
+  let suppressedCallbacks = 0;
+  function toNoArgVisit(visitFunction) {
+    return visitFunction ? () => suppressedCallbacks === 0 && visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter()) : () => true;
+  }
+  function toOneArgVisit(visitFunction) {
+    return visitFunction ? (arg) => suppressedCallbacks === 0 && visitFunction(arg, _scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter()) : () => true;
+  }
+  function toOneArgVisitWithPath(visitFunction) {
+    return visitFunction ? (arg) => suppressedCallbacks === 0 && visitFunction(arg, _scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter(), () => _jsonPath.slice()) : () => true;
+  }
+  function toBeginVisit(visitFunction) {
+    return visitFunction ? () => {
+      if (suppressedCallbacks > 0) {
+        suppressedCallbacks++;
+      } else {
+        let cbReturn = visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter(), () => _jsonPath.slice());
+        if (cbReturn === false) {
+          suppressedCallbacks = 1;
+        }
+      }
+    } : () => true;
+  }
+  function toEndVisit(visitFunction) {
+    return visitFunction ? () => {
+      if (suppressedCallbacks > 0) {
+        suppressedCallbacks--;
+      }
+      if (suppressedCallbacks === 0) {
+        visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter());
+      }
+    } : () => true;
+  }
+  const onObjectBegin = toBeginVisit(visitor.onObjectBegin), onObjectProperty = toOneArgVisitWithPath(visitor.onObjectProperty), onObjectEnd = toEndVisit(visitor.onObjectEnd), onArrayBegin = toBeginVisit(visitor.onArrayBegin), onArrayEnd = toEndVisit(visitor.onArrayEnd), onLiteralValue = toOneArgVisitWithPath(visitor.onLiteralValue), onSeparator = toOneArgVisit(visitor.onSeparator), onComment = toNoArgVisit(visitor.onComment), onError = toOneArgVisit(visitor.onError);
+  const disallowComments = options && options.disallowComments;
+  const allowTrailingComma = options && options.allowTrailingComma;
+  function scanNext() {
+    while (true) {
+      const token = _scanner.scan();
+      switch (_scanner.getTokenError()) {
+        case 4:
+          handleError(
+            14
+            /* ParseErrorCode.InvalidUnicode */
+          );
+          break;
+        case 5:
+          handleError(
+            15
+            /* ParseErrorCode.InvalidEscapeCharacter */
+          );
+          break;
+        case 3:
+          handleError(
+            13
+            /* ParseErrorCode.UnexpectedEndOfNumber */
+          );
+          break;
+        case 1:
+          if (!disallowComments) {
+            handleError(
+              11
+              /* ParseErrorCode.UnexpectedEndOfComment */
+            );
+          }
+          break;
+        case 2:
+          handleError(
+            12
+            /* ParseErrorCode.UnexpectedEndOfString */
+          );
+          break;
+        case 6:
+          handleError(
+            16
+            /* ParseErrorCode.InvalidCharacter */
+          );
+          break;
+      }
+      switch (token) {
+        case 12:
+        case 13:
+          if (disallowComments) {
+            handleError(
+              10
+              /* ParseErrorCode.InvalidCommentToken */
+            );
+          } else {
+            onComment();
+          }
+          break;
+        case 16:
+          handleError(
+            1
+            /* ParseErrorCode.InvalidSymbol */
+          );
+          break;
+        case 15:
+        case 14:
+          break;
+        default:
+          return token;
+      }
+    }
+  }
+  function handleError(error2, skipUntilAfter = [], skipUntil = []) {
+    onError(error2);
+    if (skipUntilAfter.length + skipUntil.length > 0) {
+      let token = _scanner.getToken();
+      while (token !== 17) {
+        if (skipUntilAfter.indexOf(token) !== -1) {
+          scanNext();
+          break;
+        } else if (skipUntil.indexOf(token) !== -1) {
+          break;
+        }
+        token = scanNext();
+      }
+    }
+  }
+  function parseString(isValue) {
+    const value = _scanner.getTokenValue();
+    if (isValue) {
+      onLiteralValue(value);
+    } else {
+      onObjectProperty(value);
+      _jsonPath.push(value);
+    }
+    scanNext();
+    return true;
+  }
+  function parseLiteral() {
+    switch (_scanner.getToken()) {
+      case 11:
+        const tokenValue = _scanner.getTokenValue();
+        let value = Number(tokenValue);
+        if (isNaN(value)) {
+          handleError(
+            2
+            /* ParseErrorCode.InvalidNumberFormat */
+          );
+          value = 0;
+        }
+        onLiteralValue(value);
+        break;
+      case 7:
+        onLiteralValue(null);
+        break;
+      case 8:
+        onLiteralValue(true);
+        break;
+      case 9:
+        onLiteralValue(false);
+        break;
+      default:
+        return false;
+    }
+    scanNext();
+    return true;
+  }
+  function parseProperty() {
+    if (_scanner.getToken() !== 10) {
+      handleError(3, [], [
+        2,
+        5
+        /* SyntaxKind.CommaToken */
+      ]);
+      return false;
+    }
+    parseString(false);
+    if (_scanner.getToken() === 6) {
+      onSeparator(":");
+      scanNext();
+      if (!parseValue()) {
+        handleError(4, [], [
+          2,
+          5
+          /* SyntaxKind.CommaToken */
+        ]);
+      }
+    } else {
+      handleError(5, [], [
+        2,
+        5
+        /* SyntaxKind.CommaToken */
+      ]);
+    }
+    _jsonPath.pop();
+    return true;
+  }
+  function parseObject() {
+    onObjectBegin();
+    scanNext();
+    let needsComma = false;
+    while (_scanner.getToken() !== 2 && _scanner.getToken() !== 17) {
+      if (_scanner.getToken() === 5) {
+        if (!needsComma) {
+          handleError(4, [], []);
+        }
+        onSeparator(",");
+        scanNext();
+        if (_scanner.getToken() === 2 && allowTrailingComma) {
+          break;
+        }
+      } else if (needsComma) {
+        handleError(6, [], []);
+      }
+      if (!parseProperty()) {
+        handleError(4, [], [
+          2,
+          5
+          /* SyntaxKind.CommaToken */
+        ]);
+      }
+      needsComma = true;
+    }
+    onObjectEnd();
+    if (_scanner.getToken() !== 2) {
+      handleError(7, [
+        2
+        /* SyntaxKind.CloseBraceToken */
+      ], []);
+    } else {
+      scanNext();
+    }
+    return true;
+  }
+  function parseArray() {
+    onArrayBegin();
+    scanNext();
+    let isFirstElement = true;
+    let needsComma = false;
+    while (_scanner.getToken() !== 4 && _scanner.getToken() !== 17) {
+      if (_scanner.getToken() === 5) {
+        if (!needsComma) {
+          handleError(4, [], []);
+        }
+        onSeparator(",");
+        scanNext();
+        if (_scanner.getToken() === 4 && allowTrailingComma) {
+          break;
+        }
+      } else if (needsComma) {
+        handleError(6, [], []);
+      }
+      if (isFirstElement) {
+        _jsonPath.push(0);
+        isFirstElement = false;
+      } else {
+        _jsonPath[_jsonPath.length - 1]++;
+      }
+      if (!parseValue()) {
+        handleError(4, [], [
+          4,
+          5
+          /* SyntaxKind.CommaToken */
+        ]);
+      }
+      needsComma = true;
+    }
+    onArrayEnd();
+    if (!isFirstElement) {
+      _jsonPath.pop();
+    }
+    if (_scanner.getToken() !== 4) {
+      handleError(8, [
+        4
+        /* SyntaxKind.CloseBracketToken */
+      ], []);
+    } else {
+      scanNext();
+    }
+    return true;
+  }
+  function parseValue() {
+    switch (_scanner.getToken()) {
+      case 3:
+        return parseArray();
+      case 1:
+        return parseObject();
+      case 10:
+        return parseString(true);
+      default:
+        return parseLiteral();
+    }
+  }
+  scanNext();
+  if (_scanner.getToken() === 17) {
+    if (options.allowEmptyContent) {
+      return true;
+    }
+    handleError(4, [], []);
+    return false;
+  }
+  if (!parseValue()) {
+    handleError(4, [], []);
+    return false;
+  }
+  if (_scanner.getToken() !== 17) {
+    handleError(9, [], []);
+  }
+  return true;
+}
+function getNodeType(value) {
+  switch (typeof value) {
+    case "boolean":
+      return "boolean";
+    case "number":
+      return "number";
+    case "string":
+      return "string";
+    case "object": {
+      if (!value) {
+        return "null";
+      } else if (Array.isArray(value)) {
+        return "array";
+      }
+      return "object";
+    }
+    default:
+      return "null";
+  }
+}
+
+// server/node_modules/jsonc-parser/lib/esm/impl/edit.js
+function setProperty(text, originalPath, value, options) {
+  const path = originalPath.slice();
+  const errors = [];
+  const root = parseTree(text, errors);
+  let parent = void 0;
+  let lastSegment = void 0;
+  while (path.length > 0) {
+    lastSegment = path.pop();
+    parent = findNodeAtLocation(root, path);
+    if (parent === void 0 && value !== void 0) {
+      if (typeof lastSegment === "string") {
+        value = { [lastSegment]: value };
+      } else {
+        value = [value];
+      }
+    } else {
+      break;
+    }
+  }
+  if (!parent) {
+    if (value === void 0) {
+      throw new Error("Can not delete in empty document");
+    }
+    return withFormatting(text, { offset: root ? root.offset : 0, length: root ? root.length : 0, content: JSON.stringify(value) }, options);
+  } else if (parent.type === "object" && typeof lastSegment === "string" && Array.isArray(parent.children)) {
+    const existing = findNodeAtLocation(parent, [lastSegment]);
+    if (existing !== void 0) {
+      if (value === void 0) {
+        if (!existing.parent) {
+          throw new Error("Malformed AST");
+        }
+        const propertyIndex = parent.children.indexOf(existing.parent);
+        let removeBegin;
+        let removeEnd = existing.parent.offset + existing.parent.length;
+        if (propertyIndex > 0) {
+          let previous = parent.children[propertyIndex - 1];
+          removeBegin = previous.offset + previous.length;
+        } else {
+          removeBegin = parent.offset + 1;
+          if (parent.children.length > 1) {
+            let next = parent.children[1];
+            removeEnd = next.offset;
+          }
+        }
+        return withFormatting(text, { offset: removeBegin, length: removeEnd - removeBegin, content: "" }, options);
+      } else {
+        return withFormatting(text, { offset: existing.offset, length: existing.length, content: JSON.stringify(value) }, options);
+      }
+    } else {
+      if (value === void 0) {
+        return [];
+      }
+      const newProperty = `${JSON.stringify(lastSegment)}: ${JSON.stringify(value)}`;
+      const index = options.getInsertionIndex ? options.getInsertionIndex(parent.children.map((p) => p.children[0].value)) : parent.children.length;
+      let edit;
+      if (index > 0) {
+        let previous = parent.children[index - 1];
+        edit = { offset: previous.offset + previous.length, length: 0, content: "," + newProperty };
+      } else if (parent.children.length === 0) {
+        edit = { offset: parent.offset + 1, length: 0, content: newProperty };
+      } else {
+        edit = { offset: parent.offset + 1, length: 0, content: newProperty + "," };
+      }
+      return withFormatting(text, edit, options);
+    }
+  } else if (parent.type === "array" && typeof lastSegment === "number" && Array.isArray(parent.children)) {
+    const insertIndex = lastSegment;
+    if (insertIndex === -1) {
+      const newProperty = `${JSON.stringify(value)}`;
+      let edit;
+      if (parent.children.length === 0) {
+        edit = { offset: parent.offset + 1, length: 0, content: newProperty };
+      } else {
+        const previous = parent.children[parent.children.length - 1];
+        edit = { offset: previous.offset + previous.length, length: 0, content: "," + newProperty };
+      }
+      return withFormatting(text, edit, options);
+    } else if (value === void 0 && parent.children.length >= 0) {
+      const removalIndex = lastSegment;
+      const toRemove = parent.children[removalIndex];
+      let edit;
+      if (parent.children.length === 1) {
+        edit = { offset: parent.offset + 1, length: parent.length - 2, content: "" };
+      } else if (parent.children.length - 1 === removalIndex) {
+        let previous = parent.children[removalIndex - 1];
+        let offset = previous.offset + previous.length;
+        let parentEndOffset = parent.offset + parent.length;
+        edit = { offset, length: parentEndOffset - 2 - offset, content: "" };
+      } else {
+        edit = { offset: toRemove.offset, length: parent.children[removalIndex + 1].offset - toRemove.offset, content: "" };
+      }
+      return withFormatting(text, edit, options);
+    } else if (value !== void 0) {
+      let edit;
+      const newProperty = `${JSON.stringify(value)}`;
+      if (!options.isArrayInsertion && parent.children.length > lastSegment) {
+        const toModify = parent.children[lastSegment];
+        edit = { offset: toModify.offset, length: toModify.length, content: newProperty };
+      } else if (parent.children.length === 0 || lastSegment === 0) {
+        edit = { offset: parent.offset + 1, length: 0, content: parent.children.length === 0 ? newProperty : newProperty + "," };
+      } else {
+        const index = lastSegment > parent.children.length ? parent.children.length : lastSegment;
+        const previous = parent.children[index - 1];
+        edit = { offset: previous.offset + previous.length, length: 0, content: "," + newProperty };
+      }
+      return withFormatting(text, edit, options);
+    } else {
+      throw new Error(`Can not ${value === void 0 ? "remove" : options.isArrayInsertion ? "insert" : "modify"} Array index ${insertIndex} as length is not sufficient`);
+    }
+  } else {
+    throw new Error(`Can not add ${typeof lastSegment !== "number" ? "index" : "property"} to parent of type ${parent.type}`);
+  }
+}
+function withFormatting(text, edit, options) {
+  if (!options.formattingOptions) {
+    return [edit];
+  }
+  let newText = applyEdit(text, edit);
+  let begin = edit.offset;
+  let end = edit.offset + edit.content.length;
+  if (edit.length === 0 || edit.content.length === 0) {
+    while (begin > 0 && !isEOL(newText, begin - 1)) {
+      begin--;
+    }
+    while (end < newText.length && !isEOL(newText, end)) {
+      end++;
+    }
+  }
+  const edits = format(newText, { offset: begin, length: end - begin }, { ...options.formattingOptions, keepLines: false });
+  for (let i = edits.length - 1; i >= 0; i--) {
+    const edit2 = edits[i];
+    newText = applyEdit(newText, edit2);
+    begin = Math.min(begin, edit2.offset);
+    end = Math.max(end, edit2.offset + edit2.length);
+    end += edit2.content.length - edit2.length;
+  }
+  const editLength = text.length - (newText.length - end) - begin;
+  return [{ offset: begin, length: editLength, content: newText.substring(begin, end) }];
+}
+function applyEdit(text, edit) {
+  return text.substring(0, edit.offset) + edit.content + text.substring(edit.offset + edit.length);
+}
+
+// server/node_modules/jsonc-parser/lib/esm/main.js
+var ScanError;
+(function(ScanError2) {
+  ScanError2[ScanError2["None"] = 0] = "None";
+  ScanError2[ScanError2["UnexpectedEndOfComment"] = 1] = "UnexpectedEndOfComment";
+  ScanError2[ScanError2["UnexpectedEndOfString"] = 2] = "UnexpectedEndOfString";
+  ScanError2[ScanError2["UnexpectedEndOfNumber"] = 3] = "UnexpectedEndOfNumber";
+  ScanError2[ScanError2["InvalidUnicode"] = 4] = "InvalidUnicode";
+  ScanError2[ScanError2["InvalidEscapeCharacter"] = 5] = "InvalidEscapeCharacter";
+  ScanError2[ScanError2["InvalidCharacter"] = 6] = "InvalidCharacter";
+})(ScanError || (ScanError = {}));
+var SyntaxKind;
+(function(SyntaxKind2) {
+  SyntaxKind2[SyntaxKind2["OpenBraceToken"] = 1] = "OpenBraceToken";
+  SyntaxKind2[SyntaxKind2["CloseBraceToken"] = 2] = "CloseBraceToken";
+  SyntaxKind2[SyntaxKind2["OpenBracketToken"] = 3] = "OpenBracketToken";
+  SyntaxKind2[SyntaxKind2["CloseBracketToken"] = 4] = "CloseBracketToken";
+  SyntaxKind2[SyntaxKind2["CommaToken"] = 5] = "CommaToken";
+  SyntaxKind2[SyntaxKind2["ColonToken"] = 6] = "ColonToken";
+  SyntaxKind2[SyntaxKind2["NullKeyword"] = 7] = "NullKeyword";
+  SyntaxKind2[SyntaxKind2["TrueKeyword"] = 8] = "TrueKeyword";
+  SyntaxKind2[SyntaxKind2["FalseKeyword"] = 9] = "FalseKeyword";
+  SyntaxKind2[SyntaxKind2["StringLiteral"] = 10] = "StringLiteral";
+  SyntaxKind2[SyntaxKind2["NumericLiteral"] = 11] = "NumericLiteral";
+  SyntaxKind2[SyntaxKind2["LineCommentTrivia"] = 12] = "LineCommentTrivia";
+  SyntaxKind2[SyntaxKind2["BlockCommentTrivia"] = 13] = "BlockCommentTrivia";
+  SyntaxKind2[SyntaxKind2["LineBreakTrivia"] = 14] = "LineBreakTrivia";
+  SyntaxKind2[SyntaxKind2["Trivia"] = 15] = "Trivia";
+  SyntaxKind2[SyntaxKind2["Unknown"] = 16] = "Unknown";
+  SyntaxKind2[SyntaxKind2["EOF"] = 17] = "EOF";
+})(SyntaxKind || (SyntaxKind = {}));
+var parseTree2 = parseTree;
+var findNodeAtLocation2 = findNodeAtLocation;
+var getNodeValue2 = getNodeValue;
+var ParseErrorCode;
+(function(ParseErrorCode2) {
+  ParseErrorCode2[ParseErrorCode2["InvalidSymbol"] = 1] = "InvalidSymbol";
+  ParseErrorCode2[ParseErrorCode2["InvalidNumberFormat"] = 2] = "InvalidNumberFormat";
+  ParseErrorCode2[ParseErrorCode2["PropertyNameExpected"] = 3] = "PropertyNameExpected";
+  ParseErrorCode2[ParseErrorCode2["ValueExpected"] = 4] = "ValueExpected";
+  ParseErrorCode2[ParseErrorCode2["ColonExpected"] = 5] = "ColonExpected";
+  ParseErrorCode2[ParseErrorCode2["CommaExpected"] = 6] = "CommaExpected";
+  ParseErrorCode2[ParseErrorCode2["CloseBraceExpected"] = 7] = "CloseBraceExpected";
+  ParseErrorCode2[ParseErrorCode2["CloseBracketExpected"] = 8] = "CloseBracketExpected";
+  ParseErrorCode2[ParseErrorCode2["EndOfFileExpected"] = 9] = "EndOfFileExpected";
+  ParseErrorCode2[ParseErrorCode2["InvalidCommentToken"] = 10] = "InvalidCommentToken";
+  ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfComment"] = 11] = "UnexpectedEndOfComment";
+  ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfString"] = 12] = "UnexpectedEndOfString";
+  ParseErrorCode2[ParseErrorCode2["UnexpectedEndOfNumber"] = 13] = "UnexpectedEndOfNumber";
+  ParseErrorCode2[ParseErrorCode2["InvalidUnicode"] = 14] = "InvalidUnicode";
+  ParseErrorCode2[ParseErrorCode2["InvalidEscapeCharacter"] = 15] = "InvalidEscapeCharacter";
+  ParseErrorCode2[ParseErrorCode2["InvalidCharacter"] = 16] = "InvalidCharacter";
+})(ParseErrorCode || (ParseErrorCode = {}));
+function modify(text, path, value, options) {
+  return setProperty(text, path, value, options);
+}
+function applyEdits(text, edits) {
+  let sortedEdits = edits.slice(0).sort((a, b) => {
+    const diff = a.offset - b.offset;
+    if (diff === 0) {
+      return a.length - b.length;
+    }
+    return diff;
+  });
+  let lastModifiedOffset = text.length;
+  for (let i = sortedEdits.length - 1; i >= 0; i--) {
+    let e = sortedEdits[i];
+    if (e.offset + e.length <= lastModifiedOffset) {
+      text = applyEdit(text, e);
+    } else {
+      throw new Error("Overlapping edit");
+    }
+    lastModifiedOffset = e.offset;
+  }
+  return text;
+}
+
+// server/deployment/jsonc-config.mjs
+function fail6(message, details = {}) {
+  throw new ConfigFormatError(message, "MALFORMED_CONFIG", details);
+}
+function validatePath(path) {
+  if (!Array.isArray(path) || path.length === 0 || path.some((segment) => !(typeof segment === "string" && segment !== "" || Number.isSafeInteger(segment) && segment >= 0))) {
+    fail6("JSONC path is invalid");
+  }
+  return path;
+}
+function validateJsonValue(value, seen = /* @__PURE__ */ new Set()) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) fail6("JSONC value contains a non-finite number");
+    return;
+  }
+  if (typeof value !== "object") fail6("JSONC value is not representable");
+  if (seen.has(value)) fail6("JSONC value contains a cycle");
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) validateJsonValue(item, seen);
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) fail6("JSONC value must use plain objects");
+    for (const [key, item] of Object.entries(value)) {
+      if (key.includes("\0")) fail6("JSONC object key contains an embedded NUL");
+      validateJsonValue(item, seen);
+    }
+  }
+  seen.delete(value);
+}
+function assertUniqueObjectKeys(node) {
+  if (!node) return;
+  if (node.type === "object") {
+    const keys = /* @__PURE__ */ new Set();
+    for (const property of node.children ?? []) {
+      const key = property.children?.[0]?.value;
+      if (typeof key !== "string" || keys.has(key)) fail6("JSONC contains duplicate or invalid object keys");
+      keys.add(key);
+    }
+  }
+  for (const child of node.children ?? []) assertUniqueObjectKeys(child);
+}
+function dominantNewline(text) {
+  const crlf = (text.match(/\r\n/g) ?? []).length;
+  const lf = (text.match(/(?<!\r)\n/g) ?? []).length;
+  return crlf > lf ? "\r\n" : "\n";
+}
+function indentation(text) {
+  const matches = [...text.matchAll(/^(\s+)(?="(?:[^"\\]|\\.)*"\s*:)/gm)].map((match) => match[1].replace(/[\r\n]/g, "")).filter(Boolean);
+  if (matches.some((value) => value.includes("	"))) return { insertSpaces: false, tabSize: 1 };
+  const widths = matches.map((value) => value.length).filter((value) => value > 0);
+  return { insertSpaces: true, tabSize: widths.length > 0 ? Math.min(...widths) : 2 };
+}
+function addBom(text, hadBom) {
+  const content = Buffer.from(text, "utf8");
+  return hadBom ? Buffer.concat([UTF8_BOM_BYTES, content]) : content;
+}
+function validateEdits(edits, textLength) {
+  const sorted = [...edits].sort((left, right) => right.offset - left.offset || right.length - left.length);
+  let lowerBound = textLength;
+  for (const edit of sorted) {
+    if (!Number.isSafeInteger(edit.offset) || !Number.isSafeInteger(edit.length) || edit.offset < 0 || edit.length < 0 || edit.offset + edit.length > textLength) {
+      fail6("JSONC parser returned an invalid edit range");
+    }
+    if (edit.offset + edit.length > lowerBound) fail6("JSONC parser returned overlapping edit ranges");
+    lowerBound = edit.offset;
+  }
+  return sorted;
+}
+function result(document, afterText, edits) {
+  const afterBytes = addBom(afterText, document.had_utf8_bom);
+  const parsed = parseJsoncDocument(afterBytes, {
+    pathLabel: document.path_label,
+    maxBytes: document.max_bytes,
+    allowTrailingComma: document.allow_trailing_comma
+  });
   return Object.freeze({
-    paths: () => pathSet,
-    readJson,
-    writeJsonAtomic,
-    acquireApplyLease,
-    createSnapshot,
-    restoreSnapshot,
-    deleteSnapshot,
-    cleanupExpired,
-    markDigestApplied,
-    wasDigestApplied
+    before_bytes: document.bytes,
+    after_bytes: afterBytes,
+    changed: true,
+    parsed_value: parsed.parsed_value,
+    edits: Object.freeze(edits.map((edit) => Object.freeze({ ...edit })))
+  });
+}
+function noChange(document) {
+  return Object.freeze({
+    before_bytes: document.bytes,
+    after_bytes: document.bytes,
+    changed: false,
+    parsed_value: document.parsed_value,
+    edits: Object.freeze([])
+  });
+}
+function parseJsoncDocument(bytes, {
+  pathLabel = "client JSONC config",
+  maxBytes = 16 * 1024 * 1024,
+  allowTrailingComma = true
+} = {}) {
+  const decoded = decodeConfigBytes(bytes, { pathLabel, maxBytes });
+  const errors = [];
+  const root = parseTree2(decoded.text, errors, {
+    allowTrailingComma,
+    allowEmptyContent: true,
+    disallowComments: false
+  });
+  if (errors.length > 0) fail6(`${pathLabel} contains malformed JSONC`, { error_count: errors.length });
+  assertUniqueObjectKeys(root);
+  const parsedValue = root ? getNodeValue2(root) : {};
+  if (parsedValue === null || Array.isArray(parsedValue) || typeof parsedValue !== "object") {
+    fail6(`${pathLabel} must contain a top-level object`);
+  }
+  const newline = dominantNewline(decoded.text);
+  return Object.freeze({
+    kind: "jsonc_document",
+    path_label: pathLabel,
+    max_bytes: maxBytes,
+    allow_trailing_comma: allowTrailingComma,
+    bytes,
+    text: decoded.text,
+    had_utf8_bom: decoded.had_utf8_bom,
+    root,
+    parsed_value: parsedValue,
+    formatting: Object.freeze({ ...indentation(decoded.text), eol: newline })
+  });
+}
+function getJsoncValue(document, jsonPath) {
+  if (document?.kind !== "jsonc_document") fail6("JSONC document is invalid");
+  validatePath(jsonPath);
+  if (!document.root) return void 0;
+  const node = findNodeAtLocation2(document.root, jsonPath);
+  return node ? getNodeValue2(node) : void 0;
+}
+function setJsoncValue(document, jsonPath, value) {
+  if (document?.kind !== "jsonc_document") fail6("JSONC document is invalid");
+  validatePath(jsonPath);
+  validateJsonValue(value);
+  const current = getJsoncValue(document, jsonPath);
+  if (current !== void 0 && isDeepStrictEqual(current, value)) return noChange(document);
+  let edits;
+  try {
+    edits = modify(document.text, jsonPath, value, { formattingOptions: document.formatting });
+  } catch {
+    fail6("JSONC value cannot be represented safely");
+  }
+  const safeEdits = validateEdits(edits, document.text.length);
+  if (safeEdits.length === 0) return noChange(document);
+  let afterText;
+  try {
+    afterText = applyEdits(document.text, safeEdits);
+  } catch {
+    fail6("JSONC edits could not be applied safely");
+  }
+  return result(document, afterText, safeEdits);
+}
+function setJsoncValues(document, changes) {
+  if (document?.kind !== "jsonc_document") fail6("JSONC document is invalid");
+  if (!Array.isArray(changes) || changes.some((change) => !change || Array.isArray(change) || typeof change !== "object" || !Object.hasOwn(change, "path") || !Object.hasOwn(change, "value"))) fail6("JSONC multi-edit list is invalid");
+  let current = document;
+  const steps = [];
+  for (const change of changes) {
+    const edit = setJsoncValue(current, change.path, change.value);
+    if (!edit.changed) continue;
+    steps.push(Object.freeze({
+      path: Object.freeze([...change.path]),
+      edits: edit.edits
+    }));
+    current = parseJsoncDocument(edit.after_bytes, {
+      pathLabel: document.path_label,
+      maxBytes: document.max_bytes,
+      allowTrailingComma: document.allow_trailing_comma
+    });
+  }
+  if (steps.length === 0) return noChange(document);
+  return Object.freeze({
+    before_bytes: document.bytes,
+    after_bytes: current.bytes,
+    changed: true,
+    parsed_value: current.parsed_value,
+    edit_steps: Object.freeze(steps)
+  });
+}
+function removeJsoncValue(document, jsonPath) {
+  if (document?.kind !== "jsonc_document") fail6("JSONC document is invalid");
+  validatePath(jsonPath);
+  if (getJsoncValue(document, jsonPath) === void 0) return noChange(document);
+  const edits = validateEdits(modify(document.text, jsonPath, void 0, {
+    formattingOptions: document.formatting
+  }), document.text.length);
+  if (edits.length === 0) return noChange(document);
+  return result(document, applyEdits(document.text, edits), edits);
+}
+
+// server/deployment/ownership-ledger.mjs
+import { win32 as win325 } from "node:path";
+var LEDGER_SCHEMA_VERSION = "1.0";
+var SHA256_PATTERN = /^[0-9a-f]{64}$/;
+var CLIENT_PATHS = Object.freeze({
+  claude: Object.freeze(["/type", "/command", "/args"]),
+  codex: Object.freeze(["/command", "/args"]),
+  gemini: Object.freeze(["/command", "/args"]),
+  vscode: Object.freeze(["/type", "/command", "/args"])
+});
+var OwnershipLedgerError = class extends Error {
+  constructor(message, code = "OWNERSHIP_LEDGER_INVALID", details = {}) {
+    super(message);
+    this.name = "OwnershipLedgerError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail7(message, code = "OWNERSHIP_LEDGER_INVALID", details = {}) {
+  throw new OwnershipLedgerError(message, code, details);
+}
+function exactKeys2(value, expected) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+}
+function normalizeLocation(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) fail7("ownership location is invalid", "INVALID_OWNERSHIP_LOCATION");
+  const clientId = input.clientId ?? input.client_id;
+  const configPath = input.configPath ?? input.canonical_config_path;
+  const scope = input.scope;
+  const entryName = input.entryName ?? input.entry_name ?? "uemcp";
+  if (!CLIENT_IDS.includes(clientId) || typeof configPath !== "string" || !win325.isAbsolute(configPath) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(configPath) || typeof scope !== "string" || scope.trim() === "" || typeof entryName !== "string" || entryName.trim() === "") {
+    fail7("ownership location fields are invalid", "INVALID_OWNERSHIP_LOCATION");
+  }
+  const canonicalPath = win325.normalize(configPath);
+  return {
+    client_id: clientId,
+    canonical_config_path: canonicalPath,
+    canonical_key_path: canonicalPath.toLowerCase(),
+    scope,
+    entry_name: entryName
+  };
+}
+function ownershipKey(input) {
+  const location5 = normalizeLocation(input);
+  return sha256Canonical({
+    client_id: location5.client_id,
+    canonical_config_path: location5.canonical_key_path,
+    scope: location5.scope,
+    entry_name: location5.entry_name
+  });
+}
+function pointerParts(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || path === "/") fail7("owned path is invalid", "INVALID_OWNED_PATHS");
+  return path.slice(1).split("/").map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+function pointerValue(value, path) {
+  let current = value;
+  for (const part of pointerParts(path)) {
+    if (current === null || typeof current !== "object" || Array.isArray(current) || !Object.hasOwn(current, part)) {
+      return { present: false, value: null };
+    }
+    current = current[part];
+  }
+  return { present: true, value: current };
+}
+function pointerHash(value, path) {
+  return sha256Canonical(pointerValue(value, path));
+}
+function plainEntry(value, label) {
+  if (!value || Array.isArray(value) || typeof value !== "object") fail7(`${label} must be a plain entry object`, "INVALID_OWNERSHIP_ENTRY");
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) fail7(`${label} must be a plain entry object`, "INVALID_OWNERSHIP_ENTRY");
+  return value;
+}
+function ownedPathsForClient(clientId, physicalEntry) {
+  if (!CLIENT_IDS.includes(clientId)) fail7("client ID is unsupported", "INVALID_OWNED_PATHS");
+  plainEntry(physicalEntry, "physical entry");
+  const paths = CLIENT_PATHS[clientId];
+  for (const path of paths) {
+    const current = pointerValue(physicalEntry, path);
+    if (!current.present || current.value === null || current.value === void 0) {
+      fail7(`required physical field is absent: ${path}`, "INVALID_OWNED_PATHS");
+    }
+  }
+  if (typeof physicalEntry.command !== "string" || physicalEntry.command.trim() === "" || !win325.isAbsolute(physicalEntry.command) || !Array.isArray(physicalEntry.args) || !physicalEntry.args.every((value) => typeof value === "string")) {
+    fail7("physical command or args are invalid", "INVALID_OWNED_PATHS");
+  }
+  if ((clientId === "claude" || clientId === "vscode") && physicalEntry.type !== "stdio") {
+    fail7("physical transport type is invalid", "INVALID_OWNED_PATHS");
+  }
+  return [...paths];
+}
+function normalizeOwnedPaths(clientId, afterEntry, ownedPaths) {
+  const expected = ownedPathsForClient(clientId, afterEntry);
+  if (!Array.isArray(ownedPaths) || new Set(ownedPaths).size !== ownedPaths.length || JSON.stringify(ownedPaths) !== JSON.stringify(expected)) {
+    fail7("owned paths differ from the adapter physical projection", "INVALID_OWNED_PATHS");
+  }
+  return expected;
+}
+function environmentEvidence(entry) {
+  const env = entry?.env;
+  if (!env || Array.isArray(env) || typeof env !== "object") return { keys: [], value_hashes: {} };
+  const keys = Object.keys(env).sort();
+  return {
+    keys,
+    value_hashes: Object.fromEntries(keys.map((key) => [key, sha256Canonical(env[key])]))
+  };
+}
+function ownedDiff(currentEntry, desiredEntry, ownedPaths) {
+  const result2 = [];
+  for (const path of ownedPaths) {
+    const current = pointerValue(currentEntry, path);
+    const desired = pointerValue(desiredEntry, path);
+    if (sha256Canonical(current) === sha256Canonical(desired)) continue;
+    result2.push({
+      path,
+      current_present: current.present,
+      desired_present: desired.present,
+      ...current.present ? { current_value: current.value } : {},
+      ...desired.present ? { desired_value: desired.value } : {}
+    });
+  }
+  return result2;
+}
+function escapedPointerPart(value) {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+function clientDiff(currentEntry, desiredEntry, ownedPaths) {
+  const ownedRoots = new Set(ownedPaths.map((path) => pointerParts(path)[0]));
+  const result2 = [];
+  const keys = [.../* @__PURE__ */ new Set([...Object.keys(currentEntry), ...Object.keys(desiredEntry)])].sort();
+  for (const key of keys) {
+    if (ownedRoots.has(key)) continue;
+    if (key === "env" && (!currentEntry.env || !Array.isArray(currentEntry.env) && typeof currentEntry.env === "object") && (!desiredEntry.env || !Array.isArray(desiredEntry.env) && typeof desiredEntry.env === "object")) {
+      const currentEnv = currentEntry.env ?? {};
+      const desiredEnv = desiredEntry.env ?? {};
+      const envKeys = [.../* @__PURE__ */ new Set([...Object.keys(currentEnv), ...Object.keys(desiredEnv)])].sort();
+      for (const envKey of envKeys) {
+        const currentPresent = Object.hasOwn(currentEnv, envKey);
+        const desiredPresent = Object.hasOwn(desiredEnv, envKey);
+        const before2 = { present: currentPresent, value: currentPresent ? currentEnv[envKey] : null };
+        const after2 = { present: desiredPresent, value: desiredPresent ? desiredEnv[envKey] : null };
+        const beforeHash2 = sha256Canonical(before2);
+        const afterHash2 = sha256Canonical(after2);
+        if (beforeHash2 !== afterHash2) {
+          result2.push({ path: `/env/${escapedPointerPart(envKey)}`, current_sha256: beforeHash2, desired_sha256: afterHash2 });
+        }
+      }
+      continue;
+    }
+    const before = { present: Object.hasOwn(currentEntry, key), value: currentEntry[key] ?? null };
+    const after = { present: Object.hasOwn(desiredEntry, key), value: desiredEntry[key] ?? null };
+    const beforeHash = sha256Canonical(before);
+    const afterHash = sha256Canonical(after);
+    if (beforeHash !== afterHash) result2.push({ path: `/${escapedPointerPart(key)}`, current_sha256: beforeHash, desired_sha256: afterHash });
+  }
+  return result2;
+}
+function ledgerPayload(records) {
+  return { schema_version: LEDGER_SCHEMA_VERSION, records };
+}
+function ledgerDocument(records) {
+  const payload = ledgerPayload(records);
+  return { ...payload, self_hash: sha256Canonical(payload) };
+}
+function validRecord(record2) {
+  if (!exactKeys2(record2, [
+    "client_id",
+    "canonical_config_path",
+    "scope",
+    "entry_name",
+    "owned_paths",
+    "value_hashes",
+    "applied_config_sha256",
+    "plan_digest",
+    "written_at"
+  ])) return false;
+  if (!CLIENT_IDS.includes(record2.client_id) || typeof record2.canonical_config_path !== "string" || !win325.isAbsolute(record2.canonical_config_path) || typeof record2.scope !== "string" || record2.scope === "" || typeof record2.entry_name !== "string" || record2.entry_name === "" || !Array.isArray(record2.owned_paths) || new Set(record2.owned_paths).size !== record2.owned_paths.length || !exactKeys2(record2.value_hashes, record2.owned_paths) || !record2.owned_paths.every((path) => typeof path === "string" && SHA256_PATTERN.test(record2.value_hashes[path])) || !SHA256_PATTERN.test(record2.applied_config_sha256) || !SHA256_PATTERN.test(record2.plan_digest) || typeof record2.written_at !== "string" || !Number.isFinite(Date.parse(record2.written_at))) return false;
+  return true;
+}
+function parseLedger(raw) {
+  if (raw === null || raw === void 0) return { status: "absent", document: ledgerDocument({}) };
+  let document = raw;
+  try {
+    if (Buffer.isBuffer(document) || document instanceof Uint8Array) document = new TextDecoder("utf-8", { fatal: true }).decode(document);
+    if (typeof document === "string") document = JSON.parse(document);
+  } catch {
+    return { status: "invalid", reason: "ledger_parse_failed" };
+  }
+  if (!exactKeys2(document, ["schema_version", "records", "self_hash"]) || document.schema_version !== LEDGER_SCHEMA_VERSION || !document.records || Array.isArray(document.records) || typeof document.records !== "object" || !SHA256_PATTERN.test(document.self_hash)) {
+    return { status: "invalid", reason: "ledger_schema_invalid" };
+  }
+  const payload = ledgerPayload(document.records);
+  if (sha256Canonical(payload) !== document.self_hash) return { status: "invalid", reason: "ledger_self_hash_mismatch" };
+  for (const [key, record2] of Object.entries(document.records)) {
+    if (!SHA256_PATTERN.test(key) || !validRecord(record2)) return { status: "invalid", reason: "ledger_record_invalid" };
+  }
+  return { status: "valid", document };
+}
+async function readLedger(ledger) {
+  if (!ledger || typeof ledger.read !== "function") return { status: "invalid", reason: "ledger_storage_invalid" };
+  try {
+    return parseLedger(await ledger.read());
+  } catch {
+    return { status: "invalid", reason: "ledger_read_failed" };
+  }
+}
+function recordMatchesLocation(record2, location5, key, ownedPaths) {
+  return record2.client_id === location5.client_id && record2.canonical_config_path.toLowerCase() === location5.canonical_key_path && record2.scope === location5.scope && record2.entry_name === location5.entry_name && ownershipKey(location5) === key && JSON.stringify(record2.owned_paths) === JSON.stringify(ownedPaths);
+}
+function actionFor(state, differences) {
+  if (state === "owned_matching") return differences.length === 0 ? "NO_OP" : "UPDATE_OWNED_FIELDS";
+  return differences.length === 0 ? "ADOPT_EXACT_ENTRY" : "CONFLICT";
+}
+async function inspectOwnership({ ledger, currentEntry, desiredEntry, location: inputLocation }) {
+  plainEntry(currentEntry, "current entry");
+  plainEntry(desiredEntry, "desired entry");
+  const location5 = normalizeLocation(inputLocation);
+  const key = ownershipKey(location5);
+  const paths = ownedPathsForClient(location5.client_id, desiredEntry);
+  const differences = ownedDiff(currentEntry, desiredEntry, paths);
+  const common = {
+    ownership_key: key,
+    owned_paths: paths,
+    owned_diff: differences,
+    client_diff: clientDiff(currentEntry, desiredEntry, paths),
+    environment: environmentEvidence(currentEntry)
+  };
+  const loaded = await readLedger(ledger);
+  if (loaded.status === "invalid") {
+    return { ...common, state: "stale_record", recommended_action: actionFor("stale_record", differences), stale_reason: loaded.reason };
+  }
+  const record2 = loaded.document.records[key];
+  if (!record2) return { ...common, state: "unowned", recommended_action: actionFor("unowned", differences) };
+  if (!recordMatchesLocation(record2, location5, key, paths)) {
+    return { ...common, state: "stale_record", recommended_action: actionFor("stale_record", differences), stale_reason: "record_identity_mismatch" };
+  }
+  const currentHashes = Object.fromEntries(paths.map((path) => [path, pointerHash(currentEntry, path)]));
+  const currentMatchesRecord = paths.every((path) => currentHashes[path] === record2.value_hashes[path]);
+  const state = currentMatchesRecord ? "owned_matching" : "owned_user_modified";
+  return { ...common, state, recommended_action: actionFor(state, differences) };
+}
+function writtenAt(ledger) {
+  const value = typeof ledger?.now === "function" ? ledger.now() : Date.now();
+  const parsed = typeof value === "string" ? Date.parse(value) : Number(value);
+  if (!Number.isFinite(parsed)) fail7("ownership ledger clock is invalid");
+  return new Date(parsed).toISOString();
+}
+async function recordOwnedWrite({
+  ledger,
+  location: inputLocation,
+  beforeEntry,
+  afterEntry,
+  ownedPaths,
+  appliedConfigHash,
+  planDigest
+}) {
+  if (beforeEntry !== null && beforeEntry !== void 0) plainEntry(beforeEntry, "before entry");
+  plainEntry(afterEntry, "after entry");
+  const location5 = normalizeLocation(inputLocation);
+  const paths = normalizeOwnedPaths(location5.client_id, afterEntry, ownedPaths);
+  if (!SHA256_PATTERN.test(appliedConfigHash) || !SHA256_PATTERN.test(planDigest)) fail7("ownership write hashes are invalid", "INVALID_OWNERSHIP_EVIDENCE");
+  const loaded = await readLedger(ledger);
+  if (loaded.status === "invalid") fail7("ownership ledger is invalid and cannot be overwritten");
+  if (typeof ledger.write !== "function") fail7("ownership ledger storage is not writable");
+  const key = ownershipKey(location5);
+  const record2 = {
+    client_id: location5.client_id,
+    canonical_config_path: location5.canonical_config_path,
+    scope: location5.scope,
+    entry_name: location5.entry_name,
+    owned_paths: paths,
+    value_hashes: Object.fromEntries(paths.map((path) => [path, pointerHash(afterEntry, path)])),
+    applied_config_sha256: appliedConfigHash,
+    plan_digest: planDigest,
+    written_at: writtenAt(ledger)
+  };
+  const records = { ...loaded.document.records, [key]: record2 };
+  await ledger.write(ledgerDocument(records));
+  return { ownership_key: key, record: record2, environment: environmentEvidence(afterEntry) };
+}
+async function adoptExactEntry({
+  ledger,
+  location: location5,
+  currentEntry,
+  desiredEntry,
+  approvedOperationId,
+  planDigest
+}) {
+  plainEntry(currentEntry, "current entry");
+  plainEntry(desiredEntry, "desired entry");
+  const normalized = normalizeLocation(location5);
+  const operation = approvedOperationId;
+  const paths = ownedPathsForClient(normalized.client_id, desiredEntry);
+  const differences = ownedDiff(currentEntry, desiredEntry, paths);
+  if (!operation || typeof operation !== "object" || Array.isArray(operation) || !exactKeys2(operation, [
+    "operation_id",
+    "type",
+    "ownership_key",
+    "current_entry_sha256",
+    "current_config_sha256",
+    "plan_digest"
+  ]) || typeof operation.operation_id !== "string" || operation.operation_id.trim() === "" || operation.type !== "ADOPT_EXACT_ENTRY" || operation.ownership_key !== ownershipKey(normalized) || operation.current_entry_sha256 !== sha256Canonical(currentEntry) || !SHA256_PATTERN.test(operation.current_config_sha256) || !SHA256_PATTERN.test(operation.plan_digest) || !SHA256_PATTERN.test(planDigest) || differences.length !== 0) {
+    fail7("adoption approval or current-entry precondition failed", "ADOPTION_PRECONDITION_FAILED");
+  }
+  const recorded = await recordOwnedWrite({
+    ledger,
+    location: normalized,
+    beforeEntry: currentEntry,
+    afterEntry: currentEntry,
+    ownedPaths: paths,
+    appliedConfigHash: operation.current_config_sha256,
+    planDigest
+  });
+  return {
+    status: "adopted",
+    operation_id: operation.operation_id,
+    operation_type: operation.type,
+    ownership_key: recorded.ownership_key,
+    current_entry_sha256: operation.current_entry_sha256,
+    plan_digest: planDigest,
+    provider_config_written: false,
+    environment: recorded.environment
+  };
+}
+
+// server/deployment/adapters/claude.mjs
+var DEFAULT_LIMITS = Object.freeze({
+  fileBytes: 16 * 1024 * 1024,
+  aggregateBytes: 64 * 1024 * 1024,
+  pluginRecords: 512
+});
+var MUTATING_MCP_SUBCOMMANDS = /* @__PURE__ */ new Set(["add", "add-json", "remove", "reset-project-choices"]);
+var PRIVATE_PROTOCOL_LAUNCH = /* @__PURE__ */ new WeakMap();
+var CLAUDE_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
+  version: "2.1.210",
+  creates_unplanned_backup: true,
+  duplicate_same_name_exit_code: 1,
+  duplicate_preserves_existing_config: true,
+  mutating_subcommands_allowed: false
+});
+var ClaudeAdapterError = class extends Error {
+  constructor(message, code = "CLAUDE_ADAPTER_FAILED", details = {}) {
+    super(message);
+    this.name = "ClaudeAdapterError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail8(message, code = "CLAUDE_ADAPTER_FAILED", details = {}) {
+  throw new ClaudeAdapterError(message, code, details);
+}
+function absolutePath2(value) {
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute6(value) || win326.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+}
+function plainObject(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+function pathIdentity2(path) {
+  const normalized = win326.normalize(resolve4(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function contained2(root, candidate) {
+  const rel = relative4(pathIdentity2(root), pathIdentity2(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep4}`) && !isAbsolute6(rel);
+}
+function location(path, allowedRoot, scope, writable = false) {
+  return Object.freeze({
+    path: resolve4(path),
+    allowed_root: resolve4(allowedRoot),
+    scope,
+    writable
+  });
+}
+function resolveClaudeLocations(context = {}) {
+  const env = context.env ?? process.env;
+  const workspaceRoot = context.workspaceRoot;
+  if (!absolutePath2(workspaceRoot)) fail8("Claude inspection requires an absolute workspace root", "INVALID_CLIENT_LOCATION");
+  const userProfile = readWindowsEnvironmentValue(env, "USERPROFILE");
+  if (!absolutePath2(userProfile)) fail8("Claude inspection requires an absolute USERPROFILE", "INVALID_CLIENT_LOCATION");
+  const isolatedHome = readWindowsEnvironmentValue(env, "CLAUDE_CONFIG_DIR");
+  if (isolatedHome !== void 0 && isolatedHome !== "" && !absolutePath2(isolatedHome)) {
+    fail8("CLAUDE_CONFIG_DIR must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
+  }
+  const stateRoot = resolve4(isolatedHome || userProfile);
+  const stateWriteRoot = isolatedHome ? dirname3(stateRoot) : stateRoot;
+  const configRoot = resolve4(isolatedHome || join4(userProfile, ".claude"));
+  const statePath = join4(stateRoot, ".claude.json");
+  const settingsPath = isolatedHome ? join4(stateRoot, "settings.json") : join4(userProfile, ".claude", "settings.json");
+  const knownProgramFiles = context.knownFolders?.programFiles;
+  if (!absolutePath2(knownProgramFiles)) fail8("Claude managed policy root is invalid", "INVALID_CLIENT_LOCATION");
+  const programFiles = resolve4(knownProgramFiles);
+  const managedRoot = join4(programFiles, "ClaudeCode");
+  const projectRoot = resolve4(workspaceRoot);
+  const pluginsRoot = join4(configRoot, "plugins");
+  const pluginsCache = join4(pluginsRoot, "cache");
+  return Object.freeze({
+    state: location(statePath, stateWriteRoot, "user", true),
+    user_settings: location(settingsPath, stateRoot, "user_settings"),
+    project_config: location(join4(projectRoot, ".mcp.json"), projectRoot, "project", true),
+    project_settings: location(join4(projectRoot, ".claude", "settings.json"), projectRoot, "project_settings"),
+    local_settings: location(join4(projectRoot, ".claude", "settings.local.json"), projectRoot, "local_settings"),
+    managed_config: location(join4(managedRoot, "managed-mcp.json"), managedRoot, "managed"),
+    managed_settings: location(join4(managedRoot, "managed-settings.json"), managedRoot, "managed_settings"),
+    plugins_registry: location(join4(pluginsRoot, "installed_plugins.json"), pluginsRoot, "plugins_registry"),
+    plugins_cache: location(pluginsCache, pluginsRoot, "plugins_cache")
+  });
+}
+function physicalClaudeEntry(descriptor) {
+  if (!descriptor || descriptor.name !== "uemcp" || descriptor.transport !== "stdio" || !absolutePath2(descriptor.command) || !Array.isArray(descriptor.args) || !descriptor.args.every((value) => typeof value === "string")) {
+    fail8("Claude desired descriptor is invalid", "INVALID_DESCRIPTOR");
+  }
+  return Object.freeze({
+    type: "stdio",
+    command: resolve4(descriptor.command),
+    args: Object.freeze([...descriptor.args])
+  });
+}
+function outputHash(result2) {
+  return sha256Bytes(Buffer.from(`${result2?.stdout ?? ""}\0${result2?.stderr ?? ""}`, "utf8"));
+}
+function classifyClaudeNativeStatus(result2) {
+  if (result2?.status === "timed_out") return Object.freeze({ status: "TIMEOUT", exit_code: null, output_sha256: outputHash(result2) });
+  if (result2?.status !== "exited") return Object.freeze({ status: "UNKNOWN", exit_code: result2?.exitCode ?? null, output_sha256: outputHash(result2) });
+  const text = `${result2.stdout ?? ""}
+${result2.stderr ?? ""}`.toLowerCase();
+  const mentionsTarget = /(?:^|\s|:)uemcp(?:\s|:|$)/m.test(text) || text.includes("name uemcp");
+  let status = "UNKNOWN";
+  if (text.includes("no mcp server found") || text.includes("not found") || !mentionsTarget && result2.exitCode === 0) status = "ABSENT";
+  else if (mentionsTarget && (text.includes("rejected") || text.includes("disabledmcpjsonservers"))) status = "REJECTED";
+  else if (mentionsTarget && text.includes("pending approval")) status = "PENDING_APPROVAL";
+  else if (mentionsTarget && text.includes("connected")) status = "CONNECTED";
+  else if (mentionsTarget && (text.includes("failed to connect") || text.includes("disconnected") || text.includes("connection failed"))) status = "FAILED";
+  else if (result2.exitCode !== 0) status = "ABSENT";
+  return Object.freeze({ status, exit_code: result2.exitCode, output_sha256: outputHash(result2) });
+}
+function mergeNativeStatus(listStatus, getStatus) {
+  if (getStatus.status !== "ABSENT" && getStatus.status !== "UNKNOWN") return getStatus;
+  if (listStatus.status !== "ABSENT" && listStatus.status !== "UNKNOWN") return listStatus;
+  if (getStatus.status === "ABSENT" || listStatus.status === "ABSENT") return { ...getStatus, status: "ABSENT" };
+  return getStatus;
+}
+function environmentForLaunch(context, launch) {
+  return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
+}
+async function runNativeQuery(runner, context, detection, tail) {
+  if (!Array.isArray(tail) || tail.length < 2 || tail[0] !== "mcp" || MUTATING_MCP_SUBCOMMANDS.has(tail[1]) || !(tail.length === 2 && tail[1] === "list" || tail.length === 3 && tail[1] === "get" && tail[2] === "uemcp")) {
+    fail8("Claude native MCP query is not read-only", "MUTATING_NATIVE_COMMAND");
+  }
+  return runner.run(detection.launch.command, [...detection.launch.args_prefix, ...tail], {
+    cwd: context.workspaceRoot,
+    env: environmentForLaunch(context, detection.launch),
+    shell: false,
+    timeoutMs: 1e4,
+    outputLimitBytes: 64 * 1024
+  });
+}
+async function inspectNative(runner, context, detection) {
+  if (context.launch?.compatibility !== "release_gated") {
+    const unknown2 = classifyClaudeNativeStatus(null);
+    return Object.freeze({
+      ...unknown2,
+      list_status: "UNKNOWN",
+      get_status: "UNKNOWN",
+      list_output_sha256: unknown2.output_sha256,
+      get_output_sha256: unknown2.output_sha256
+    });
+  }
+  const safeQuery = async (tail) => {
+    return runActiveClientLaunch(context, { client_id: "claude", kind: "native" }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error2) {
+        if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+        return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
+      }
+    });
+  };
+  const listResult = await safeQuery(["mcp", "list"]);
+  const getResult = await safeQuery(["mcp", "get", "uemcp"]);
+  const list = classifyClaudeNativeStatus(listResult);
+  const get = classifyClaudeNativeStatus(getResult);
+  return Object.freeze({
+    ...mergeNativeStatus(list, get),
+    list_status: list.status,
+    get_status: get.status,
+    list_output_sha256: list.output_sha256,
+    get_output_sha256: get.output_sha256
+  });
+}
+function normalizedLimits(input = {}) {
+  const limits = { ...DEFAULT_LIMITS, ...input };
+  if (!Number.isSafeInteger(limits.fileBytes) || limits.fileBytes <= 0 || !Number.isSafeInteger(limits.aggregateBytes) || limits.aggregateBytes < limits.fileBytes || !Number.isSafeInteger(limits.pluginRecords) || limits.pluginRecords <= 0) {
+    fail8("Claude inspection limits are invalid", "INVALID_INSPECTION_LIMIT");
+  }
+  return Object.freeze(limits);
+}
+function missing2(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+async function readConfigFile(fsImpl, captureFingerprint, entry, tracker, limits) {
+  return readBoundedConfigFile({
+    fsImpl,
+    captureFingerprint,
+    entry,
+    tracker,
+    limits,
+    parseBytes: (bytes) => parseJsoncDocument(bytes, { pathLabel: `${entry.scope} Claude config`, maxBytes: limits.fileBytes })
+  });
+}
+function physicalEvidence(entry) {
+  if (!plainObject(entry)) return null;
+  return {
+    ...Object.hasOwn(entry, "type") ? { type: entry.type } : {},
+    ...Object.hasOwn(entry, "command") ? { command_sha256: sha256Canonical(entry.command) } : {},
+    ...Object.hasOwn(entry, "args") ? {
+      args_count: Array.isArray(entry.args) ? entry.args.length : null,
+      args_sha256: sha256Canonical(entry.args)
+    } : {}
+  };
+}
+function physicalMatches(current, desired) {
+  return plainObject(current) && current.type === desired.type && current.command === desired.command && Array.isArray(current.args) && JSON.stringify(current.args) === JSON.stringify(desired.args);
+}
+function environmentEvidence2(entry) {
+  if (!plainObject(entry?.env)) return { keys: [], value_hashes: {} };
+  const keys = Object.keys(entry.env).sort();
+  return {
+    keys,
+    value_hashes: Object.fromEntries(keys.map((key) => [key, sha256Canonical(entry.env[key])]))
+  };
+}
+function reviewActions(entry) {
+  const actions = [];
+  const keys = Object.keys(plainObject(entry?.env) ? entry.env : {});
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
+  return actions;
+}
+function actualProjectKey(projects, workspaceRoot) {
+  if (!plainObject(projects)) return null;
+  const wanted = pathIdentity2(workspaceRoot);
+  const matches = Object.keys(projects).filter((key) => absolutePath2(key) && pathIdentity2(key) === wanted);
+  if (matches.length > 1) fail8("Claude local state contains ambiguous project path aliases", "MALFORMED_CONFIG");
+  return matches[0] ?? null;
+}
+function safeOwnershipEvidence(value) {
+  if (!value) return null;
+  return Object.freeze({
+    ownership_key: value.ownership_key,
+    owned_paths: value.owned_paths,
+    owned_diff: Object.freeze(value.owned_diff.map((diff) => Object.freeze({
+      path: diff.path,
+      current_present: diff.current_present,
+      desired_present: diff.desired_present,
+      ...diff.current_present ? { current_sha256: sha256Canonical(diff.current_value) } : {},
+      ...diff.desired_present ? { desired_sha256: sha256Canonical(diff.desired_value) } : {}
+    }))),
+    client_diff: value.client_diff,
+    environment: value.environment,
+    state: value.state,
+    recommended_action: value.recommended_action,
+    ...value.stale_reason ? { stale_reason: value.stale_reason } : {}
+  });
+}
+async function occurrence({ scope, source, entry, jsonPath, desired, ledger, pluginId = null, deletableAfterMigration = false }) {
+  if (entry === void 0) return null;
+  if (!plainObject(entry)) fail8("Claude MCP entry must be an object", "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "cwd") && entry.cwd !== null && (typeof entry.cwd !== "string" || entry.cwd.trim() === "")) {
+    fail8("Claude cwd field must be a non-empty string or null", "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "env") && (!plainObject(entry.env) || Object.values(entry.env).some((value) => typeof value !== "string"))) {
+    fail8("Claude environment field must contain string values", "MALFORMED_CONFIG");
+  }
+  const locationInput = { clientId: "claude", configPath: source.path, scope, entryName: "uemcp" };
+  const ownership = ["user", "local", "project"].includes(scope) ? await inspectOwnership({ ledger, currentEntry: entry, desiredEntry: desired, location: locationInput }) : null;
+  const result2 = Object.freeze({
+    scope,
+    path_label: source.scope,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    json_path: Object.freeze([...jsonPath]),
+    matching: physicalMatches(entry, desired),
+    physical_entry: Object.freeze(physicalEvidence(entry) ?? {}),
+    entry_sha256: sha256Canonical(entry),
+    config_sha256: sha256Bytes(source.bytes),
+    environment: Object.freeze(environmentEvidence2(entry)),
+    custom_launch: entry.cwd !== void 0 && entry.cwd !== null,
+    review_actions: Object.freeze(reviewActions(entry)),
+    ownership: safeOwnershipEvidence(ownership),
+    plugin_id: pluginId,
+    deletable_after_migration: deletableAfterMigration
+  });
+  PRIVATE_PROTOCOL_LAUNCH.set(result2, Object.freeze({
+    env_overlay: Object.freeze({ ...plainObject(entry.env) ? entry.env : {} }),
+    cwd: typeof entry.cwd === "string" ? entry.cwd : null
+  }));
+  return result2;
+}
+function validateSettingsFile(file) {
+  if (!file.exists) return;
+  for (const key of ["enableAllProjectMcpServers", "allowManagedMcpServersOnly"]) {
+    const value = settingValue(file, key);
+    if (value !== void 0 && typeof value !== "boolean") fail8(`Claude setting ${key} must be boolean`, "MALFORMED_CONFIG");
+  }
+  for (const key of ["enabledMcpjsonServers", "disabledMcpjsonServers"]) {
+    const value = settingValue(file, key);
+    if (value !== void 0 && (!Array.isArray(value) || !value.every((item) => typeof item === "string"))) {
+      fail8(`Claude setting ${key} must be a string array`, "MALFORMED_CONFIG");
+    }
+  }
+  for (const key of ["allowedMcpServers", "deniedMcpServers"]) {
+    const value = settingValue(file, key);
+    if (value === void 0) continue;
+    if (!Array.isArray(value) || !value.every((item) => {
+      if (!plainObject(item) || Object.keys(item).length !== 1) return false;
+      if (Object.hasOwn(item, "serverName")) return typeof item.serverName === "string" && item.serverName !== "";
+      if (Object.hasOwn(item, "serverUrl")) return typeof item.serverUrl === "string" && item.serverUrl !== "";
+      if (Object.hasOwn(item, "serverCommand")) {
+        return Array.isArray(item.serverCommand) && item.serverCommand.length > 0 && item.serverCommand.every((part) => typeof part === "string");
+      }
+      return false;
+    })) fail8(`Claude setting ${key} has an invalid filter`, "MALFORMED_CONFIG");
+  }
+  const enabledPlugins = settingValue(file, "enabledPlugins");
+  if (enabledPlugins !== void 0 && (!plainObject(enabledPlugins) || Object.values(enabledPlugins).some((value) => typeof value !== "boolean"))) {
+    fail8("Claude enabledPlugins setting must be a boolean map", "MALFORMED_CONFIG");
+  }
+}
+function settingValue(file, key) {
+  return file.exists ? getJsoncValue(file.document, [key]) : void 0;
+}
+function includesName(value, name = "uemcp") {
+  return Array.isArray(value) && value.some((item) => item === name);
+}
+function validWorkspaceSetting(workspaceTrusted, file) {
+  if (file.scope === "user_settings" || file.scope === "managed_settings") return true;
+  if (!workspaceTrusted) return false;
+  return file.scope === "project_settings" || file.scope === "local_settings";
+}
+function filterEntryMatches(filter, desired) {
+  if (!plainObject(filter) || Object.keys(filter).length !== 1) return false;
+  if (filter.serverName !== void 0) return filter.serverName === "uemcp";
+  if (filter.serverCommand !== void 0) {
+    return Array.isArray(filter.serverCommand) && JSON.stringify(filter.serverCommand) === JSON.stringify([desired.command, ...desired.args]);
+  }
+  return false;
+}
+function classifyPolicy(workspaceTrusted, settings, desired) {
+  const valid = settings.filter((file) => file.exists && validWorkspaceSetting(workspaceTrusted, file));
+  const managed = settings.find((file) => file.scope === "managed_settings");
+  const managedOnly = managed?.exists && settingValue(managed, "allowManagedMcpServersOnly") === true;
+  const denied = valid.flatMap((file) => settingValue(file, "deniedMcpServers") ?? []);
+  if (denied.some((filter) => filterEntryMatches(filter, desired))) return { status: "POLICY_BLOCKED", reason: "DENIED" };
+  const allowSources = managedOnly ? valid.filter((file) => file.scope === "managed_settings") : valid;
+  const allowDeclarations = allowSources.filter((file) => settingValue(file, "allowedMcpServers") !== void 0);
+  if (allowDeclarations.length === 0) return { status: "ALLOWED", reason: null };
+  const allowed = allowDeclarations.flatMap((file) => settingValue(file, "allowedMcpServers"));
+  const commandRules = allowed.filter((filter) => plainObject(filter) && Object.hasOwn(filter, "serverCommand"));
+  const candidates = commandRules.length > 0 ? commandRules : allowed.filter((filter) => plainObject(filter) && Object.hasOwn(filter, "serverName"));
+  return candidates.some((filter) => filterEntryMatches(filter, desired)) ? { status: "ALLOWED", reason: null } : { status: "POLICY_BLOCKED", reason: "NOT_ALLOWED" };
+}
+function classifyApproval(workspaceTrusted, settings) {
+  const disabled = settings.some((file) => file.exists && includesName(settingValue(file, "disabledMcpjsonServers")));
+  const projectApprovalPresent = settings.some((file) => file.exists && ["project_settings", "local_settings"].includes(file.scope) && (settingValue(file, "enableAllProjectMcpServers") === true || includesName(settingValue(file, "enabledMcpjsonServers"))));
+  const approved = settings.some((file) => file.exists && validWorkspaceSetting(workspaceTrusted, file) && (settingValue(file, "enableAllProjectMcpServers") === true || includesName(settingValue(file, "enabledMcpjsonServers"))));
+  return { disabled, approved, projectApprovalPresent };
+}
+function workspaceTrustFromState(state, workspaceRoot) {
+  if (!state.exists) return Object.freeze({ trusted: false, source: "user_state", project_key: null });
+  const projects = getJsoncValue(state.document, ["projects"]);
+  if (projects !== void 0 && !plainObject(projects)) fail8("Claude projects state must be an object", "MALFORMED_CONFIG");
+  const projectKey = actualProjectKey(projects, workspaceRoot);
+  if (projectKey === null) return Object.freeze({ trusted: false, source: "user_state", project_key: null });
+  const project = projects[projectKey];
+  if (!plainObject(project)) fail8("Claude project state must be an object", "MALFORMED_CONFIG");
+  const accepted = project.hasTrustDialogAccepted;
+  if (accepted !== void 0 && typeof accepted !== "boolean") {
+    fail8("Claude project trust state must be boolean", "MALFORMED_CONFIG");
+  }
+  return Object.freeze({ trusted: accepted === true, source: "user_state", project_key: projectKey });
+}
+function pluginEnabled(settings, workspaceTrusted, pluginId, defaultEnabled) {
+  let enabled = defaultEnabled;
+  for (const file of settings) {
+    if (!file.exists || !validWorkspaceSetting(workspaceTrusted, file)) continue;
+    const configured = settingValue(file, "enabledPlugins");
+    if (plainObject(configured) && Object.hasOwn(configured, pluginId)) enabled = configured[pluginId];
+  }
+  return enabled;
+}
+function replacePluginRoot(value, pluginRoot) {
+  return typeof value === "string" ? value.replaceAll("${CLAUDE_PLUGIN_ROOT}", pluginRoot) : value;
+}
+function resolvePluginEntry(entry, pluginRoot) {
+  if (!plainObject(entry)) return entry;
+  return Object.fromEntries(Object.entries(entry).map(([key, value]) => {
+    if (typeof value === "string") return [key, replacePluginRoot(value, pluginRoot)];
+    if (Array.isArray(value)) return [key, value.map((item) => replacePluginRoot(item, pluginRoot))];
+    if (key === "env" && plainObject(value)) {
+      return [key, Object.fromEntries(Object.entries(value).map(([name, item]) => [name, replacePluginRoot(item, pluginRoot)]))];
+    }
+    return [key, value];
+  }));
+}
+function pluginServers(document, label) {
+  const root = document.parsed_value;
+  if (!plainObject(root)) fail8(`${label} must contain an object`, "MALFORMED_CONFIG");
+  const servers = Object.hasOwn(root, "mcpServers") ? root.mcpServers : root;
+  if (!plainObject(servers)) fail8(`${label} MCP declaration must be an object`, "MALFORMED_CONFIG");
+  return servers;
+}
+async function inspectInstalledPlugins({ fsImpl, captureFingerprint, locations, registry: registry2, settings, workspaceTrusted, tracker, limits }) {
+  if (!registry2.exists) return { rows: [], files: [] };
+  const root = registry2.document.parsed_value;
+  if (!plainObject(root) || root.version !== 2 || !plainObject(root.plugins)) {
+    fail8("Claude installed plugin registry is invalid", "MALFORMED_CONFIG");
+  }
+  const records = Object.entries(root.plugins).flatMap(([pluginId, value]) => {
+    if (typeof pluginId !== "string" || pluginId === "" || !Array.isArray(value)) {
+      fail8("Claude installed plugin records are invalid", "MALFORMED_CONFIG");
+    }
+    return value.map((record2) => ({ pluginId, record: record2 }));
+  });
+  if (records.length > limits.pluginRecords) fail8("Claude plugin evidence exceeds its record limit", "INSPECTION_LIMIT_EXCEEDED");
+  const files = [];
+  const rows = [];
+  for (const { pluginId, record: record2 } of records) {
+    if (!plainObject(record2) || !absolutePath2(record2.installPath)) fail8("Claude plugin install record is invalid", "MALFORMED_CONFIG");
+    const pluginRoot = resolve4(record2.installPath);
+    if (!contained2(locations.plugins_cache.path, pluginRoot)) fail8("Claude plugin install path escapes its cache", "UNSAFE_CONFIG_PATH");
+    const rootDeclaration = await readConfigFile(
+      fsImpl,
+      captureFingerprint,
+      location(join4(pluginRoot, ".mcp.json"), pluginRoot, `plugin_mcp:${pluginId}`),
+      tracker,
+      limits
+    );
+    const manifest = await readConfigFile(
+      fsImpl,
+      captureFingerprint,
+      location(join4(pluginRoot, ".claude-plugin", "plugin.json"), pluginRoot, `plugin_manifest:${pluginId}`),
+      tracker,
+      limits
+    );
+    files.push(rootDeclaration, manifest);
+    let defaultEnabled = true;
+    let manifestDeclaration = null;
+    if (manifest.exists) {
+      const manifestRoot = manifest.document.parsed_value;
+      if (!plainObject(manifestRoot)) fail8("Claude plugin manifest must contain an object", "MALFORMED_CONFIG");
+      if (Object.hasOwn(manifestRoot, "defaultEnabled")) {
+        if (typeof manifestRoot.defaultEnabled !== "boolean") fail8("Claude plugin defaultEnabled must be boolean", "MALFORMED_CONFIG");
+        defaultEnabled = manifestRoot.defaultEnabled;
+      }
+      if (Object.hasOwn(manifestRoot, "mcpServers")) {
+        if (typeof manifestRoot.mcpServers === "string") {
+          if (manifestRoot.mcpServers.trim() === "" || isAbsolute6(manifestRoot.mcpServers) || win326.isAbsolute(manifestRoot.mcpServers)) {
+            fail8("Claude plugin MCP path must be relative", "MALFORMED_CONFIG");
+          }
+          const declarationPath = resolve4(pluginRoot, manifestRoot.mcpServers);
+          if (!contained2(pluginRoot, declarationPath)) fail8("Claude plugin MCP path escapes its root", "UNSAFE_CONFIG_PATH");
+          const referenced = await readConfigFile(
+            fsImpl,
+            captureFingerprint,
+            location(declarationPath, pluginRoot, `plugin_mcp_reference:${pluginId}`),
+            tracker,
+            limits
+          );
+          files.push(referenced);
+          if (!referenced.exists) fail8("Claude plugin MCP declaration is missing", "MALFORMED_CONFIG");
+          manifestDeclaration = { source: referenced, servers: pluginServers(referenced.document, "Claude plugin MCP file") };
+        } else if (plainObject(manifestRoot.mcpServers)) {
+          manifestDeclaration = { source: manifest, servers: manifestRoot.mcpServers };
+        } else {
+          fail8("Claude plugin mcpServers declaration is invalid", "MALFORMED_CONFIG");
+        }
+      }
+    }
+    if (rootDeclaration.exists && manifestDeclaration) fail8("Claude plugin has ambiguous MCP declarations", "MALFORMED_CONFIG");
+    const declaration = rootDeclaration.exists ? { source: rootDeclaration, servers: pluginServers(rootDeclaration.document, "Claude plugin .mcp.json") } : manifestDeclaration;
+    if (!declaration || !pluginEnabled(settings, workspaceTrusted, pluginId, defaultEnabled)) continue;
+    if (Object.hasOwn(declaration.servers, "uemcp")) {
+      rows.push({
+        plugin_id: pluginId,
+        source: declaration.source,
+        entry: resolvePluginEntry(declaration.servers.uemcp, pluginRoot)
+      });
+    }
+  }
+  return { rows, files };
+}
+function statusFromError(error2) {
+  if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") return "INSPECTION_LIMIT_EXCEEDED";
+  if (error2?.code === "MALFORMED_CONFIG" || error2?.name === "ConfigFormatError") return "MALFORMED_CONFIG";
+  if (error2?.code === "UNSAFE_CONFIG_PATH") return "UNSAFE_CONFIG_PATH";
+  throw error2;
+}
+function unique(values) {
+  return [...new Set(values)];
+}
+function readOnlyRows(files, writablePaths = /* @__PURE__ */ new Set()) {
+  return files.filter((file) => !writablePaths.has(pathIdentity2(file.path))).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+}
+function publicFileEvidence(file) {
+  return Object.freeze({
+    path: file.path,
+    allowed_root: file.allowed_root,
+    scope: file.scope,
+    writable: file.writable,
+    exists: file.exists,
+    config_sha256: file.config_sha256 ?? (file.exists && file.bytes ? sha256Bytes(file.bytes) : null),
+    fingerprint: file.fingerprint
+  });
+}
+async function captureLaunchEvidence(captureFingerprint, context, detection) {
+  const candidates = [
+    ["client_launch_command", detection.launch.command],
+    ...detection.launch.args_prefix.map((path, index) => [`client_launch_arg_${index}`, path]),
+    ["server_launch_command", context.descriptor.command],
+    ...context.descriptor.args.filter(absolutePath2).map((path, index) => [`server_launch_arg_${index}`, path])
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const [scope, path] of candidates) {
+    const key = pathIdentity2(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname3(path)], writable: false });
+    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+      fail8("Claude launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
+    }
+    rows.push(Object.freeze({
+      path: resolve4(path),
+      allowed_root: resolve4(dirname3(path)),
+      scope,
+      writable: false,
+      exists: true,
+      config_sha256: fingerprint.content_sha256,
+      fingerprint
+    }));
+  }
+  return rows;
+}
+function operationCommon({ id, type, occurrence: current, source, context, readOnly, ownedPaths }) {
+  return {
+    operation_id: id,
+    client_id: "claude",
+    selected: true,
+    write_supported: true,
+    type,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    scope_kind: source.scope === "project" ? "project" : "user",
+    fingerprint: source.fingerprint,
+    current_config_sha256: source.config_sha256,
+    current_entry_sha256: current?.entry_sha256 ?? null,
+    owned_paths: ownedPaths,
+    shared_resource_id: null,
+    plan_digest: context.planDigest,
+    read_only_paths: readOnly
+  };
+}
+async function writableFileEvidence(captureFingerprint, file) {
+  const fingerprint = await captureFingerprint(file.path, {
+    allowedRoots: [file.allowed_root],
+    writable: true
+  });
+  return { ...file, fingerprint };
+}
+function planningFailure(error2) {
+  if (["READ_ONLY_TARGET", "UNSAFE_WRITABLE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT", "METADATA_INSPECTION_FAILED"].includes(error2?.code)) {
+    return error2.code;
+  }
+  throw error2;
+}
+function semanticallyEmptyProject(document) {
+  const root = document.parsed_value;
+  if (!plainObject(root)) return false;
+  return Object.entries(root).every(([key, value]) => key === "mcpServers" && plainObject(value) && Object.keys(value).length === 0);
+}
+async function readCurrentDocument(fsImpl, path, label) {
+  try {
+    const bytes = await fsImpl.readFile(path);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label }) };
+  } catch (error2) {
+    if (!missing2(error2)) throw error2;
+    const bytes = Buffer.alloc(0);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label }) };
+  }
+}
+function assertOperationPrecondition(operation, bytes, entry) {
+  const configHash = bytes.length === 0 && operation.current_config_sha256 === null ? null : sha256Bytes(bytes);
+  if (configHash !== operation.current_config_sha256) fail8("Claude config changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+  const entryHash = entry === void 0 ? null : sha256Canonical(entry);
+  if (entryHash !== operation.current_entry_sha256) fail8("Claude entry changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+}
+function applyOwnedFields(document, jsonPath, desired, replaceWhole) {
+  if (replaceWhole) return setJsoncValue(document, jsonPath, desired);
+  return setJsoncValues(document, ["type", "command", "args"].map((key) => ({
+    path: [...jsonPath, key],
+    value: desired[key]
+  })));
+}
+function resultStatus(native, operationStatus) {
+  if (native.status === "CONNECTED") return operationStatus === "CLIENT_ENABLEMENT_REQUIRED" ? "CLIENT_ENABLEMENT_REQUIRED" : "READY";
+  if (native.status === "PENDING_APPROVAL") return "PENDING_APPROVAL";
+  if (native.status === "REJECTED") return "CLIENT_ENABLEMENT_REQUIRED";
+  if (["TIMEOUT", "FAILED", "UNKNOWN", "ABSENT"].includes(native.status)) return "POLICY_UNKNOWN";
+  return operationStatus ?? "READY";
+}
+function createClaudeAdapter({
+  fsImpl = defaultFs5,
+  runner = createProcessRunner(),
+  captureFingerprint = captureClientPathFingerprint,
+  limits: limitOverrides = {}
+} = {}) {
+  const limits = normalizedLimits(limitOverrides);
+  async function detect(context) {
+    if (context?.launch?.client_id !== "claude") fail8("Claude launch evidence is missing", "INVALID_CLIENT_LAUNCH");
+    validateClientLaunchContract(context.launch);
+    return Object.freeze({
+      client_id: "claude",
+      version: context.launch.version,
+      write_supported: context.launch.write_supported === true,
+      compatibility: context.launch.compatibility,
+      launch: context.launch,
+      locations: resolveClaudeLocations(context)
+    });
+  }
+  async function inspect(context, detection) {
+    if (detection?.client_id !== "claude") fail8("Claude detection is invalid", "INVALID_CLIENT_DETECTION");
+    const desired = physicalClaudeEntry(context.descriptor);
+    const tracker = { total: 0 };
+    const sourceFiles = [];
+    try {
+      for (const key of ["state", "project_config", "user_settings", "project_settings", "local_settings", "managed_config", "managed_settings", "plugins_registry"]) {
+        sourceFiles.push(await readConfigFile(fsImpl, captureFingerprint, detection.locations[key], tracker, limits));
+      }
+      const launchEvidence = await captureLaunchEvidence(captureFingerprint, context, detection);
+      const byScope = Object.fromEntries(sourceFiles.map((file) => [file.scope, file]));
+      const state = byScope.user;
+      const project = byScope.project;
+      const managed = byScope.managed;
+      const pluginsRegistry = byScope.plugins_registry;
+      const settings = sourceFiles.filter((file) => file.scope.endsWith("settings"));
+      for (const settingsFile of settings) validateSettingsFile(settingsFile);
+      const workspaceTrust2 = workspaceTrustFromState(state, context.workspaceRoot);
+      const ledgerProbe = await inspectOwnership({
+        ledger: context.ownershipLedger,
+        currentEntry: desired,
+        desiredEntry: desired,
+        location: { clientId: "claude", configPath: state.path, scope: "user", entryName: "uemcp" }
+      });
+      const ownershipLedger2 = ledgerProbe.state === "stale_record" && ledgerProbe.stale_reason !== "record_identity_mismatch" ? Object.freeze({ status: "INVALID", reason: ledgerProbe.stale_reason }) : Object.freeze({ status: "READY", reason: null });
+      const occurrences = [];
+      const projectKey = workspaceTrust2.project_key;
+      if (projectKey !== null) {
+        const current = await occurrence({
+          scope: "local",
+          source: state,
+          entry: getJsoncValue(state.document, ["projects", projectKey, "mcpServers", "uemcp"]),
+          jsonPath: ["projects", projectKey, "mcpServers", "uemcp"],
+          desired,
+          ledger: context.ownershipLedger
+        });
+        if (current) occurrences.push(current);
+      }
+      if (project.exists) {
+        const projectEntry = getJsoncValue(project.document, ["mcpServers", "uemcp"]);
+        let deletableAfterMigration = false;
+        if (projectEntry !== void 0) {
+          const removed = removeJsoncValue(project.document, ["mcpServers", "uemcp"]);
+          deletableAfterMigration = removed.changed && semanticallyEmptyProject(parseJsoncDocument(removed.after_bytes, { pathLabel: "Claude project migration preview" }));
+        }
+        const current = await occurrence({
+          scope: "project",
+          source: project,
+          entry: projectEntry,
+          jsonPath: ["mcpServers", "uemcp"],
+          desired,
+          ledger: context.ownershipLedger,
+          deletableAfterMigration
+        });
+        if (current) occurrences.push(current);
+      }
+      if (state.exists) {
+        const current = await occurrence({
+          scope: "user",
+          source: state,
+          entry: getJsoncValue(state.document, ["mcpServers", "uemcp"]),
+          jsonPath: ["mcpServers", "uemcp"],
+          desired,
+          ledger: context.ownershipLedger
+        });
+        if (current) occurrences.push(current);
+      }
+      const plugins = await inspectInstalledPlugins({
+        fsImpl,
+        captureFingerprint,
+        locations: detection.locations,
+        registry: pluginsRegistry,
+        settings,
+        workspaceTrusted: workspaceTrust2.trusted,
+        tracker,
+        limits
+      });
+      sourceFiles.push(...plugins.files);
+      for (const plugin of plugins.rows) {
+        const current = await occurrence({
+          scope: "plugin",
+          source: plugin.source,
+          entry: plugin.entry,
+          jsonPath: ["mcpServers", "uemcp"],
+          desired,
+          ledger: context.ownershipLedger,
+          pluginId: plugin.plugin_id
+        });
+        occurrences.push(current);
+      }
+      let managedOccurrence = null;
+      if (managed.exists) {
+        managedOccurrence = await occurrence({
+          scope: "managed",
+          source: managed,
+          entry: getJsoncValue(managed.document, ["mcpServers", "uemcp"]),
+          jsonPath: ["mcpServers", "uemcp"],
+          desired,
+          ledger: context.ownershipLedger
+        });
+        if (managedOccurrence) occurrences.unshift(managedOccurrence);
+      }
+      const effective = managed.exists ? managedOccurrence : occurrences.find((row) => row.scope !== "managed") ?? null;
+      const policy = classifyPolicy(workspaceTrust2.trusted, settings, desired);
+      const approval = classifyApproval(workspaceTrust2.trusted, settings);
+      let registration;
+      if (managed.exists && !managedOccurrence) registration = "POLICY_BLOCKED";
+      else if (!effective) registration = "ABSENT";
+      else registration = effective.matching ? "CONFIGURED" : "CONFLICT";
+      let enablement = "UNKNOWN";
+      let activation = "UNKNOWN";
+      if (managed.exists && !managedOccurrence) enablement = "POLICY_BLOCKED";
+      else if (policy.status === "POLICY_BLOCKED") enablement = "POLICY_BLOCKED";
+      else if (effective?.scope === "project") {
+        if (approval.disabled) enablement = "DISABLED";
+        else if (approval.approved) enablement = "ENABLED";
+        else {
+          enablement = "UNKNOWN";
+          activation = !workspaceTrust2.trusted && approval.projectApprovalPresent ? "PENDING_TRUST" : "PENDING_APPROVAL";
+        }
+      } else if (effective) enablement = policy.status === "POLICY_UNKNOWN" ? "POLICY_UNKNOWN" : "ENABLED";
+      const native = await inspectNative(runner, context, detection);
+      if (native.status === "CONNECTED") activation = "CONNECTED";
+      else if (native.status === "PENDING_APPROVAL") activation = "PENDING_APPROVAL";
+      else if (native.status === "REJECTED") activation = "REJECTED";
+      const disagrees = native.status === "CONNECTED" && enablement !== "ENABLED" || native.status === "REJECTED" && enablement === "ENABLED" || native.status === "PENDING_APPROVAL" && enablement === "ENABLED" || native.status === "ABSENT" && registration === "CONFIGURED";
+      const actions = occurrences.flatMap((row) => row.review_actions);
+      if (["DISABLED", "POLICY_BLOCKED"].includes(enablement)) actions.push("CLIENT_ENABLEMENT_REQUIRED");
+      if (native.status === "REJECTED") actions.push("CLIENT_ENABLEMENT_REQUIRED");
+      if (activation === "PENDING_TRUST") actions.push("PENDING_TRUST");
+      if (activation === "PENDING_APPROVAL") actions.push("PENDING_APPROVAL");
+      if (policy.status === "POLICY_UNKNOWN") actions.push("POLICY_UNKNOWN");
+      if (registration === "CONFLICT") actions.push("CONFLICT");
+      const safeEffective = effective ? Object.freeze({
+        scope: effective.scope,
+        path_label: effective.path_label,
+        path: effective.path,
+        matching: effective.matching
+      }) : null;
+      return Object.freeze({
+        client_id: "claude",
+        registration,
+        enablement,
+        activation,
+        policy: policy.status,
+        actions: Object.freeze(unique(actions)),
+        occurrences: Object.freeze(occurrences),
+        effective: safeEffective,
+        native: Object.freeze({ ...native, disagrees_with_structural_policy: disagrees }),
+        workspace_trust: workspaceTrust2,
+        files: Object.freeze([...sourceFiles.map(publicFileEvidence), ...launchEvidence]),
+        ownership_ledger: ownershipLedger2,
+        desired
+      });
+    } catch (error2) {
+      const status = statusFromError(error2);
+      return Object.freeze({
+        client_id: "claude",
+        registration: status,
+        enablement: "UNKNOWN",
+        activation: "UNKNOWN",
+        policy: "POLICY_UNKNOWN",
+        actions: Object.freeze([status]),
+        occurrences: Object.freeze([]),
+        effective: null,
+        native: Object.freeze({ status: "NOT_CHECKED", disagrees_with_structural_policy: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: "unknown", project_key: null }),
+        files: Object.freeze([]),
+        ownership_ledger: Object.freeze({ status: "UNKNOWN", reason: null }),
+        desired
+      });
+    }
+  }
+  async function plan(context, inspection, descriptor) {
+    if (inspection?.client_id !== "claude") fail8("Claude inspection is invalid", "INVALID_CLIENT_INSPECTION");
+    if (typeof context.planDigest !== "string" || !/^[0-9a-f]{64}$/.test(context.planDigest)) fail8("Claude plan digest is invalid", "INVALID_PLAN_DIGEST");
+    const desired = physicalClaudeEntry(descriptor);
+    if (["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(inspection.registration)) {
+      return Object.freeze({ client_id: "claude", status: inspection.registration, operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (!context.launch.write_supported) {
+      return Object.freeze({ client_id: "claude", status: "UNSUPPORTED_VERSION", operations: Object.freeze([]), actions: Object.freeze(["UNSUPPORTED_VERSION"]) });
+    }
+    const files = Object.fromEntries(inspection.files.map((file) => [file.scope, file]));
+    const managedPresent = files.managed?.exists === true;
+    if (managedPresent) {
+      return Object.freeze({
+        client_id: "claude",
+        status: inspection.registration === "POLICY_BLOCKED" ? "POLICY_BLOCKED" : "NO_OP",
+        operations: Object.freeze([]),
+        actions: inspection.actions
+      });
+    }
+    const local = inspection.occurrences.find((row) => row.scope === "local");
+    const project = inspection.occurrences.find((row) => row.scope === "project");
+    const user = inspection.occurrences.find((row) => row.scope === "user");
+    const plugin = inspection.occurrences.find((row) => row.scope === "plugin");
+    const migrate = clientDecision(context, "migrate_legacy_claude_project") && project && !local;
+    if (inspection.ownership_ledger?.status === "INVALID") {
+      return Object.freeze({
+        client_id: "claude",
+        status: "OWNERSHIP_LEDGER_INVALID",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique([...inspection.actions, "OWNERSHIP_LEDGER_INVALID"]))
+      });
+    }
+    if (local) {
+      return Object.freeze({
+        client_id: "claude",
+        status: local.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique([...inspection.actions, local.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    if (project && !migrate) {
+      return Object.freeze({
+        client_id: "claude",
+        status: project.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique([...inspection.actions, project.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    if (!project && plugin) {
+      return Object.freeze({
+        client_id: "claude",
+        status: plugin.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique([...inspection.actions, plugin.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    let userOperationType = null;
+    if (!user) userOperationType = "CREATE_ENTRY";
+    else if (user.matching && user.ownership?.recommended_action === "ADOPT_EXACT_ENTRY") userOperationType = "ADOPT_EXACT_ENTRY";
+    else if (!user.matching && (user.ownership?.state === "owned_matching" || approvedOwnedReplacement(context, user.ownership))) userOperationType = "UPDATE_OWNED_FIELDS";
+    else if (!user.matching) {
+      return Object.freeze({ client_id: "claude", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, "CONFLICT"])) });
+    }
+    const prospectiveWritable = /* @__PURE__ */ new Set();
+    if (migrate) prospectiveWritable.add(pathIdentity2(files.project.path));
+    if (["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(userOperationType)) prospectiveWritable.add(pathIdentity2(files.user.path));
+    const readOnly = readOnlyRows(inspection.files, prospectiveWritable);
+    const writableFiles = { ...files };
+    try {
+      if (migrate) writableFiles.project = await writableFileEvidence(captureFingerprint, files.project);
+      if (["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(userOperationType)) {
+        writableFiles.user = await writableFileEvidence(captureFingerprint, files.user);
+      }
+    } catch (error2) {
+      const status2 = planningFailure(error2);
+      return Object.freeze({ client_id: "claude", status: status2, operations: Object.freeze([]), actions: Object.freeze(unique([...inspection.actions, status2])) });
+    }
+    const operations = [];
+    if (migrate) {
+      const deleteAfterVerify = false;
+      operations.push(Object.freeze({
+        ...operationCommon({
+          id: "claude-migrate-project-uemcp",
+          type: "MIGRATE_PROJECT_ENTRY",
+          occurrence: project,
+          source: writableFiles.project,
+          context,
+          readOnly,
+          ownedPaths: ["/mcpServers/uemcp"]
+        }),
+        json_path: project.json_path,
+        installer_created_file: false,
+        delete_after_verify: deleteAfterVerify
+      }));
+    }
+    if (userOperationType === "CREATE_ENTRY") {
+      operations.push(Object.freeze({
+        ...operationCommon({
+          id: "claude-create-user-uemcp",
+          type: "CREATE_ENTRY",
+          occurrence: null,
+          source: writableFiles.user,
+          context,
+          readOnly,
+          ownedPaths: ["/type", "/command", "/args"]
+        }),
+        json_path: ["mcpServers", "uemcp"],
+        desired_entry: desired,
+        verification_status: inspection.actions.includes("POLICY_UNKNOWN") ? "POLICY_UNKNOWN" : null
+      }));
+    } else if (userOperationType === "ADOPT_EXACT_ENTRY") {
+      const locationInput = { clientId: "claude", configPath: user.path, scope: "user", entryName: "uemcp" };
+      operations.push(Object.freeze({
+        ...operationCommon({
+          id: "claude-adopt-user-uemcp",
+          type: "ADOPT_EXACT_ENTRY",
+          occurrence: user,
+          source: files.user,
+          context,
+          readOnly,
+          ownedPaths: ["/type", "/command", "/args"]
+        }),
+        ledger_only: true,
+        json_path: user.json_path,
+        desired_entry: desired,
+        adoption: Object.freeze({
+          operation_id: "claude-adopt-user-uemcp",
+          type: "ADOPT_EXACT_ENTRY",
+          ownership_key: ownershipKey(locationInput),
+          current_entry_sha256: user.entry_sha256,
+          current_config_sha256: user.config_sha256,
+          plan_digest: context.planDigest
+        })
+      }));
+    } else if (userOperationType === "UPDATE_OWNED_FIELDS") {
+      operations.push(Object.freeze({
+        ...operationCommon({
+          id: "claude-update-user-uemcp",
+          type: "UPDATE_OWNED_FIELDS",
+          occurrence: user,
+          source: writableFiles.user,
+          context,
+          readOnly,
+          ownedPaths: ["/type", "/command", "/args"]
+        }),
+        json_path: user.json_path,
+        desired_entry: desired,
+        explicit_owned_replacement: approvedOwnedReplacement(context, user.ownership)
+      }));
+    }
+    let status = "NO_OP";
+    if (migrate) status = "MIGRATE";
+    else if (operations.some((row) => row.type === "CREATE_ENTRY")) status = "CREATE";
+    else if (operations.some((row) => row.type === "ADOPT_EXACT_ENTRY")) status = "ADOPT";
+    else if (operations.some((row) => row.type === "UPDATE_OWNED_FIELDS")) status = "UPDATE";
+    return Object.freeze({ client_id: "claude", status, operations: Object.freeze(operations), actions: inspection.actions });
+  }
+  async function snapshot(context, operations) {
+    const writable = /* @__PURE__ */ new Map();
+    const readOnly = /* @__PURE__ */ new Map();
+    for (const operation of operations) {
+      const key = pathIdentity2(operation.path);
+      if (operation.ledger_only !== true && !writable.has(key)) {
+        writable.set(key, {
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope_kind: operation.scope_kind,
+          fingerprint: operation.fingerprint,
+          owned_paths: operation.owned_paths,
+          shared_resource_id: operation.shared_resource_id
+        });
+      }
+      if (operation.ledger_only === true) {
+        readOnly.set(key, {
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          fingerprint: operation.fingerprint
+        });
+      }
+      for (const row of operation.read_only_paths ?? []) {
+        const rowKey = pathIdentity2(row.path);
+        if (!writable.has(rowKey)) readOnly.set(rowKey, row);
+      }
+    }
+    return Object.freeze({ writable_paths: [...writable.values()], read_only_paths: [...readOnly.values()] });
+  }
+  async function apply(context, operations) {
+    if (!context.transaction?.writeFile || !context.transaction?.ownershipLedger) fail8("Claude apply requires the transaction capability", "INVALID_TRANSACTION_CAPABILITY");
+    const ordered = [...operations].sort((left, right) => {
+      const rank = (type) => type === "MIGRATE_PROJECT_ENTRY" ? 0 : type === "ADOPT_EXACT_ENTRY" ? 1 : 2;
+      return rank(left.type) - rank(right.type) || left.operation_id.localeCompare(right.operation_id);
+    });
+    for (const operation of ordered) {
+      if (operation.client_id !== "claude" || operation.write_supported !== true || operation.selected !== true) {
+        fail8("Claude apply received an unapproved operation", "UNAPPROVED_OPERATION_SET");
+      }
+      if (operation.type === "MIGRATE_PROJECT_ENTRY") {
+        const current2 = await readCurrentDocument(fsImpl, operation.path, "Claude project migration config");
+        const entry2 = getJsoncValue(current2.document, operation.json_path);
+        assertOperationPrecondition(operation, current2.bytes, entry2);
+        const edit2 = removeJsoncValue(current2.document, operation.json_path);
+        if (!edit2.changed) fail8("Claude migration target disappeared", "TRANSACTION_PRECONDITION_CHANGED");
+        const parsed2 = parseJsoncDocument(edit2.after_bytes, { pathLabel: "Claude migrated project config" });
+        await context.transaction.writeFile(operation.path, edit2.after_bytes, {
+          parse: (bytes) => parseJsoncDocument(bytes, { pathLabel: "Claude migrated project config" })
+        });
+        if (operation.delete_after_verify && operation.installer_created_file && semanticallyEmptyProject(parsed2)) {
+          if (typeof context.transaction.deleteFileAfterVerify !== "function") fail8("Claude migration deletion requires a deferred transaction delete", "INVALID_TRANSACTION_CAPABILITY");
+          await context.transaction.deleteFileAfterVerify(operation.path);
+        }
+        continue;
+      }
+      const current = await readCurrentDocument(fsImpl, operation.path, "Claude user config");
+      const entry = getJsoncValue(current.document, operation.json_path);
+      assertOperationPrecondition(operation, current.bytes, entry);
+      if (operation.type === "ADOPT_EXACT_ENTRY") {
+        await adoptExactEntry({
+          ledger: context.transaction.ownershipLedger,
+          location: { clientId: "claude", configPath: operation.path, scope: "user", entryName: "uemcp" },
+          currentEntry: entry,
+          desiredEntry: operation.desired_entry,
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
+        });
+        continue;
+      }
+      if (!["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(operation.type)) fail8("Claude operation type is unsupported", "UNAPPROVED_OPERATION_SET");
+      const edit = applyOwnedFields(current.document, operation.json_path, operation.desired_entry, operation.type === "CREATE_ENTRY");
+      const parsed = parseJsoncDocument(edit.after_bytes, { pathLabel: "Claude updated user config" });
+      const afterEntry = getJsoncValue(parsed, operation.json_path);
+      const written = await context.transaction.writeFile(operation.path, edit.after_bytes, {
+        parse: (bytes) => parseJsoncDocument(bytes, { pathLabel: "Claude updated user config" })
+      });
+      await recordOwnedWrite({
+        ledger: context.transaction.ownershipLedger,
+        location: { clientId: "claude", configPath: operation.path, scope: "user", entryName: "uemcp" },
+        beforeEntry: entry ?? null,
+        afterEntry,
+        ownedPaths: ownedPathsForClient("claude", afterEntry),
+        appliedConfigHash: written.content_sha256,
+        planDigest: context.planDigest
+      });
+    }
+    return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
+  }
+  async function verify(context, operations) {
+    for (const operation of operations) {
+      const current = await readCurrentDocument(fsImpl, operation.path, "Claude verification config");
+      if (operation.type === "MIGRATE_PROJECT_ENTRY") {
+        if (getJsoncValue(current.document, operation.json_path) !== void 0) fail8("Claude migration did not remove the project entry", "STRUCTURAL_VERIFY_FAILED");
+        continue;
+      }
+      const entry = getJsoncValue(current.document, operation.json_path);
+      if (!physicalMatches(entry, operation.desired_entry)) fail8("Claude user entry does not match the canonical descriptor", "STRUCTURAL_VERIFY_FAILED");
+    }
+    const detection = await detect(context);
+    const native = await inspectNative(runner, context, detection);
+    const operationStatus = operations.find((row) => row.verification_status)?.verification_status ?? null;
+    return Object.freeze({ status: resultStatus(native, operationStatus), native });
+  }
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.occurrences?.find((row) => row.scope === inspection.effective?.scope && row.path === inspection.effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH.get(effective) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+  async function rollback(context, records) {
+    return Object.freeze({ status: "delegated", count: records.length });
+  }
+  return Object.freeze({ id: "claude", detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
+}
+
+// server/deployment/adapters/codex.mjs
+import * as defaultFs6 from "node:fs/promises";
+import {
+  dirname as dirname4,
+  isAbsolute as isAbsolute7,
+  join as join5,
+  relative as relative5,
+  resolve as resolve5,
+  sep as sep5,
+  win32 as win327
+} from "node:path";
+
+// server/deployment/toml-config.mjs
+var import_toml_eslint_parser = __toESM(require_lib(), 1);
+import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
+function fail9(message, details = {}) {
+  throw new ConfigFormatError(message, "MALFORMED_CONFIG", details);
+}
+function validatePath2(path) {
+  if (!Array.isArray(path) || path.length === 0 || path.some((segment) => typeof segment !== "string" || segment === "")) {
+    fail9("TOML table path is invalid");
+  }
+  return path;
+}
+function keySegments(key) {
+  return (key?.keys ?? []).map((segment) => segment.name ?? segment.value).filter((value) => typeof value === "string");
+}
+function samePath(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+function startsWithPath(path, prefix) {
+  return path.length >= prefix.length && prefix.every((value, index) => path[index] === value);
+}
+function allTables(ast) {
+  const rows = [];
+  function visit2(node) {
+    if (node?.type === "TOMLTable" || node?.type === "TOMLTopLevelTable") rows.push(node);
+    for (const child of node?.body ?? []) visit2(child);
+  }
+  visit2(ast);
+  return rows;
+}
+function tableNode(document, path) {
+  return document.tables.find((node) => node.type === "TOMLTable" && samePath(node.resolvedKey ?? keySegments(node.key), path));
+}
+function tableValue(document, path) {
+  let current = document.parsed_value;
+  for (const segment of path) {
+    if (current === null || typeof current !== "object" || !Object.hasOwn(current, segment)) return void 0;
+    current = current[segment];
+  }
+  return current;
+}
+function dominantNewline2(text) {
+  const crlf = (text.match(/\r\n/g) ?? []).length;
+  const lf = (text.match(/(?<!\r)\n/g) ?? []).length;
+  return crlf > lf ? "\r\n" : "\n";
+}
+function addBom2(text, hadBom) {
+  const content = Buffer.from(text, "utf8");
+  return hadBom ? Buffer.concat([UTF8_BOM_BYTES, content]) : content;
+}
+function bareOrQuoted(value) {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? value : JSON.stringify(value);
+}
+function serializeValue(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value) && value.every((item) => ["string", "boolean", "number"].includes(typeof item) && (typeof item !== "number" || Number.isFinite(item)))) {
+    return `[${value.map(serializeValue).join(", ")}]`;
+  }
+  fail9("TOML owned value shape is unsupported");
+}
+function ownedEntries(ownedValues) {
+  if (!ownedValues || Array.isArray(ownedValues) || typeof ownedValues !== "object") fail9("TOML owned values must be an object");
+  return Object.entries(ownedValues).map(([key, value]) => {
+    if (!/^[A-Za-z0-9_-]+$/.test(key)) fail9("TOML owned key is unsafe");
+    return [key, value, serializeValue(value)];
+  });
+}
+function validateEdits2(edits, textLength) {
+  const sorted = [...edits].sort((left, right) => right.offset - left.offset || right.length - left.length);
+  let lowerBound = textLength;
+  for (const edit of sorted) {
+    if (!Number.isSafeInteger(edit.offset) || !Number.isSafeInteger(edit.length) || edit.offset < 0 || edit.length < 0 || edit.offset + edit.length > textLength) {
+      fail9("TOML parser produced an invalid edit range");
+    }
+    if (edit.offset + edit.length > lowerBound) fail9("TOML edits overlap");
+    lowerBound = edit.offset;
+  }
+  return sorted;
+}
+function applyRangeEdits(text, edits) {
+  let output = text;
+  for (const edit of validateEdits2(edits, text.length)) {
+    output = `${output.slice(0, edit.offset)}${edit.content}${output.slice(edit.offset + edit.length)}`;
+  }
+  return output;
+}
+function noChange2(document) {
+  return Object.freeze({
+    before_bytes: document.bytes,
+    after_bytes: document.bytes,
+    changed: false,
+    parsed_value: document.parsed_value,
+    edits: Object.freeze([])
+  });
+}
+function changedResult(document, afterText, edits) {
+  const afterBytes = addBom2(afterText, document.had_utf8_bom);
+  const parsed = parseTomlDocument(afterBytes, {
+    pathLabel: document.path_label,
+    maxBytes: document.max_bytes
+  });
+  return Object.freeze({
+    before_bytes: document.bytes,
+    after_bytes: afterBytes,
+    changed: true,
+    parsed_value: parsed.parsed_value,
+    edits: Object.freeze(edits.map((edit) => Object.freeze({ ...edit })))
+  });
+}
+function containerPath(node) {
+  if (node?.type === "TOMLTopLevelTable") return [];
+  if (node?.type === "TOMLTable") {
+    const path = node.resolvedKey ?? keySegments(node.key);
+    return path.every((segment) => typeof segment === "string") ? path : null;
+  }
+  if (node?.type === "TOMLInlineTable" && node.parent?.type === "TOMLKeyValue") return keyValuePath(node.parent);
+  return null;
+}
+function keyValuePath(node) {
+  const parent = containerPath(node?.parent);
+  const segments = keySegments(node?.key);
+  return parent && segments.length > 0 ? [...parent, ...segments] : null;
+}
+function visitKeyValues(node, visitor) {
+  for (const child of node?.body ?? []) {
+    if (child.type === "TOMLTable") {
+      visitKeyValues(child, visitor);
+      continue;
+    }
+    if (child.type !== "TOMLKeyValue") continue;
+    const path = keyValuePath(child);
+    if (path) visitor(child, path);
+    visitTomlValue(child.value, visitor);
+  }
+}
+function visitTomlValue(node, visitor) {
+  if (node?.type === "TOMLInlineTable") visitKeyValues(node, visitor);
+  if (node?.type === "TOMLArray") {
+    for (const element of node.elements) visitTomlValue(element, visitor);
+  }
+}
+function tableRepresentation(document, path) {
+  const properties = /* @__PURE__ */ new Map();
+  const dotted = [];
+  const inlineAncestors = /* @__PURE__ */ new Map();
+  let inline = null;
+  visitKeyValues(document.ast.body[0], (node, absolutePath10) => {
+    if (samePath(absolutePath10, path) && node.value.type === "TOMLInlineTable") inline = node.value;
+    if (absolutePath10.length === path.length + 1 && startsWithPath(absolutePath10, path)) {
+      properties.set(absolutePath10.at(-1), node);
+    }
+    const parent = containerPath(node.parent);
+    if (absolutePath10.length > path.length && startsWithPath(absolutePath10, path) && parent && startsWithPath(path, parent)) {
+      if (node.parent.type === "TOMLInlineTable") {
+        inlineAncestors.set(`${node.parent.range[0]}:${node.parent.range[1]}`, { node: node.parent, parent });
+      } else {
+        dotted.push({ node, parent });
+      }
+    }
+  });
+  return { properties, dotted, inline, inlineAncestors: [...inlineAncestors.values()] };
+}
+function dottedInsertionEdit(document, path, candidates, missing6) {
+  const depth = Math.max(...candidates.map((candidate2) => candidate2.parent.length));
+  const candidate = candidates.filter((row) => row.parent.length === depth).sort((left, right) => right.node.range[1] - left.node.range[1])[0];
+  const relativePath = path.slice(candidate.parent.length);
+  if (relativePath.length === 0) fail9("TOML dotted table insertion path is invalid");
+  const lines = missing6.map(([key, , serialized]) => `${[...relativePath, key].map(bareOrQuoted).join(".")} = ${serialized}`);
+  return {
+    offset: physicalLineEnd(document.text, candidate.node.range[1]),
+    length: 0,
+    content: `${document.newline}${lines.join(document.newline)}`
+  };
+}
+function inlineInsertionEdit(node, missing6, prefix = []) {
+  const content = missing6.map(([key, , serialized]) => `${[...prefix, key].map(bareOrQuoted).join(".")} = ${serialized}`).join(", ");
+  if (node.body.length === 0) {
+    return { offset: node.range[1] - 1, length: 0, content };
+  }
+  return { offset: node.body.at(-1).range[1], length: 0, content: `, ${content}` };
+}
+function appendSeparator(text, eol) {
+  if (text.length === 0) return "";
+  if (text.endsWith(`${eol}${eol}`)) return "";
+  if (text.endsWith(eol)) return eol;
+  return `${eol}${eol}`;
+}
+function parseTomlDocument(bytes, {
+  pathLabel = "client TOML config",
+  maxBytes = 16 * 1024 * 1024
+} = {}) {
+  const decoded = decodeConfigBytes(bytes, { pathLabel, maxBytes });
+  let ast;
+  try {
+    ast = (0, import_toml_eslint_parser.parseTOML)(decoded.text);
+  } catch (error2) {
+    fail9(`${pathLabel} contains malformed TOML`, {
+      line: error2?.lineNumber ?? null,
+      column: error2?.column ?? null
+    });
+  }
+  let parsedValue;
+  try {
+    parsedValue = (0, import_toml_eslint_parser.getStaticTOMLValue)(ast);
+  } catch {
+    fail9(`${pathLabel} could not be evaluated safely`);
+  }
+  if (!parsedValue || Array.isArray(parsedValue) || typeof parsedValue !== "object") parsedValue = {};
+  return Object.freeze({
+    kind: "toml_document",
+    path_label: pathLabel,
+    max_bytes: maxBytes,
+    bytes,
+    text: decoded.text,
+    had_utf8_bom: decoded.had_utf8_bom,
+    newline: dominantNewline2(decoded.text),
+    ast,
+    tables: Object.freeze(allTables(ast)),
+    parsed_value: parsedValue
+  });
+}
+function getTomlTable(document, dottedPath) {
+  if (document?.kind !== "toml_document") fail9("TOML document is invalid");
+  validatePath2(dottedPath);
+  const value = tableValue(document, dottedPath);
+  return value && !Array.isArray(value) && typeof value === "object" ? value : void 0;
+}
+function physicalLineEnd(text, offset) {
+  const match = /\r\n|\r|\n/.exec(text.slice(offset));
+  return match ? offset + match.index : text.length;
+}
+function patchTomlTable(document, dottedPath, ownedValues) {
+  if (document?.kind !== "toml_document") fail9("TOML document is invalid");
+  validatePath2(dottedPath);
+  const requested = ownedEntries(ownedValues);
+  if (requested.length === 0) return noChange2(document);
+  const node = tableNode(document, dottedPath);
+  const currentTable = getTomlTable(document, dottedPath);
+  const edits = [];
+  if (!node && currentTable === void 0) {
+    const lines = [
+      `[${dottedPath.map(bareOrQuoted).join(".")}]`,
+      ...requested.map(([key, , serialized]) => `${key} = ${serialized}`),
+      ""
+    ];
+    edits.push({
+      offset: document.text.length,
+      length: 0,
+      content: `${appendSeparator(document.text, document.newline)}${lines.join(document.newline)}`
+    });
+  } else {
+    const representation = tableRepresentation(document, dottedPath);
+    const currentValues = currentTable ?? {};
+    const missing6 = [];
+    for (const [key, value, serialized] of requested) {
+      if (Object.hasOwn(currentValues, key) && isDeepStrictEqual2(currentValues[key], value)) continue;
+      const currentNode = representation.properties.get(key);
+      if (currentNode) {
+        edits.push({
+          offset: currentNode.value.range[0],
+          length: currentNode.value.range[1] - currentNode.value.range[0],
+          content: serialized
+        });
+      } else {
+        missing6.push([key, value, serialized]);
+      }
+    }
+    if (missing6.length > 0) {
+      if (node) {
+        const nodeEnd = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+        const offset = physicalLineEnd(document.text, nodeEnd);
+        edits.push({
+          offset,
+          length: 0,
+          content: `${document.newline}${missing6.map(([key, , serialized]) => `${key} = ${serialized}`).join(document.newline)}`
+        });
+      } else if (representation.inline) {
+        edits.push(inlineInsertionEdit(representation.inline, missing6));
+      } else if (representation.inlineAncestors.length > 0) {
+        const depth = Math.max(...representation.inlineAncestors.map((candidate2) => candidate2.parent.length));
+        const candidate = representation.inlineAncestors.find((row) => row.parent.length === depth);
+        edits.push(inlineInsertionEdit(candidate.node, missing6, dottedPath.slice(candidate.parent.length)));
+      } else if (representation.dotted.length > 0) {
+        edits.push(dottedInsertionEdit(document, dottedPath, representation.dotted, missing6));
+      } else {
+        fail9("TOML table representation cannot be updated safely");
+      }
+    }
+  }
+  if (edits.length === 0) return noChange2(document);
+  const safeEdits = validateEdits2(edits, document.text.length);
+  return changedResult(document, applyRangeEdits(document.text, safeEdits), safeEdits);
+}
+
+// server/deployment/adapters/codex.mjs
+var DEFAULT_LIMITS2 = Object.freeze({
+  fileBytes: CONFIG_BYTE_LIMIT,
+  aggregateBytes: 64 * 1024 * 1024,
+  projectLayers: 64
+});
+var TABLE_PATH = Object.freeze(["mcp_servers", "uemcp"]);
+var LEDGER_FAILURES = /* @__PURE__ */ new Set([
+  "ledger_storage_invalid",
+  "ledger_read_failed",
+  "ledger_parse_failed",
+  "ledger_schema_invalid",
+  "ledger_self_hash_mismatch",
+  "ledger_record_invalid"
+]);
+var PRIVATE_PROTOCOL_LAUNCH2 = /* @__PURE__ */ new WeakMap();
+var CODEX_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
+  version: "0.144.4",
+  fresh_add_exit_code: 0,
+  same_name_add_exit_code: 0,
+  same_name_replaces_existing_table: true,
+  native_add_existing_allowed: false,
+  existing_file_add_preserved_exact_bytes: false,
+  existing_file_add_normalized_crlf: true,
+  isolated_home_files_after_fresh_add: Object.freeze(["config.toml"])
+});
+var CodexAdapterError = class extends Error {
+  constructor(message, code = "CODEX_ADAPTER_FAILED", details = {}) {
+    super(message);
+    this.name = "CodexAdapterError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail10(message, code = "CODEX_ADAPTER_FAILED", details = {}) {
+  throw new CodexAdapterError(message, code, details);
+}
+function plainObject2(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+function absolutePath3(value) {
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute7(value) || win327.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+}
+function pathIdentity3(path) {
+  const normalized = win327.normalize(resolve5(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function contained3(root, candidate) {
+  const rel = relative5(pathIdentity3(root), pathIdentity3(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep5}`) && !isAbsolute7(rel);
+}
+function location2(path, allowedRoot, scope, writable = false, extras = {}) {
+  return Object.freeze({
+    path: resolve5(path),
+    allowed_root: resolve5(allowedRoot),
+    scope,
+    writable,
+    ...extras
+  });
+}
+function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS2.projectLayers } = {}) {
+  const env = context.env ?? process.env;
+  const userProfile = readWindowsEnvironmentValue(env, "USERPROFILE");
+  if (!absolutePath3(userProfile)) fail10("Codex inspection requires an absolute USERPROFILE", "INVALID_CLIENT_LOCATION");
+  const configuredHome = readWindowsEnvironmentValue(env, "CODEX_HOME");
+  if (configuredHome !== void 0 && configuredHome !== "" && !absolutePath3(configuredHome)) {
+    fail10("CODEX_HOME must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
+  }
+  const codexHome = resolve5(configuredHome || join5(userProfile, ".codex"));
+  const projectRoot = context.projectRoot ?? context.workspaceRoot;
+  const activeDirectory = context.activeDirectory ?? context.workspaceRoot;
+  if (!absolutePath3(projectRoot) || !absolutePath3(activeDirectory) || !contained3(projectRoot, activeDirectory)) {
+    fail10("Codex project scope is invalid", "INVALID_CLIENT_LOCATION");
+  }
+  const root = resolve5(projectRoot);
+  const active = resolve5(activeDirectory);
+  const segments = relative5(root, active).split(sep5).filter(Boolean);
+  const directories = [root];
+  for (const segment of segments) directories.push(join5(directories.at(-1), segment));
+  if (!Number.isSafeInteger(projectLayers) || projectLayers <= 0) fail10("Codex project layer limit is invalid", "INVALID_INSPECTION_LIMIT");
+  if (directories.length > projectLayers) fail10("Codex project layer count exceeds its limit", "INSPECTION_LIMIT_EXCEEDED");
+  const knownProgramData = context.knownFolders?.programData;
+  if (!absolutePath3(knownProgramData)) fail10("Codex requirements root is invalid", "INVALID_CLIENT_LOCATION");
+  const programData = resolve5(knownProgramData);
+  const requirementsRoot = join5(programData, "OpenAI", "Codex");
+  return Object.freeze({
+    user: location2(join5(codexHome, "config.toml"), dirname4(codexHome), "user", true),
+    project_layers: Object.freeze(directories.map((directory, index) => location2(
+      join5(directory, ".codex", "config.toml"),
+      root,
+      `project:${index}`,
+      false,
+      { directory: resolve5(directory), precedence: index }
+    ))),
+    system_requirements: location2(join5(requirementsRoot, "requirements.toml"), requirementsRoot, "system_requirements")
+  });
+}
+function physicalCodexEntry(descriptor) {
+  if (!descriptor || descriptor.name !== "uemcp" || descriptor.transport !== "stdio" || !absolutePath3(descriptor.command) || !Array.isArray(descriptor.args) || !descriptor.args.every((value) => typeof value === "string")) {
+    fail10("Codex desired descriptor is invalid", "INVALID_DESCRIPTOR");
+  }
+  return Object.freeze({
+    command: resolve5(descriptor.command),
+    args: Object.freeze([...descriptor.args])
+  });
+}
+function outputHash2(result2) {
+  return sha256Bytes(Buffer.from(`${result2?.stdout ?? ""}\0${result2?.stderr ?? ""}`, "utf8"));
+}
+function nativeIdentity(row, desired) {
+  const transport = row?.transport;
+  if (!plainObject2(transport) || transport.type !== "stdio" || typeof transport.command !== "string" || !Array.isArray(transport.args) || !transport.args.every((value) => typeof value === "string")) {
+    return { status: "UNKNOWN", evidence: null };
+  }
+  const evidence = Object.freeze({
+    command_sha256: sha256Canonical(transport.command),
+    args_count: transport.args.length,
+    args_sha256: sha256Canonical(transport.args)
+  });
+  if (!desired) return { status: "UNKNOWN", evidence };
+  return {
+    status: transport.command === desired.command && JSON.stringify(transport.args) === JSON.stringify(desired.args) ? "MATCHING" : "CONFLICT",
+    evidence
+  };
+}
+function nativeEnablement(row) {
+  const reason = typeof row?.disabled_reason === "string" ? row.disabled_reason : "";
+  if (row?.enabled === false && /(?:requirement|policy|not allowed|allowlist)/i.test(reason)) return "POLICY_BLOCKED";
+  if (row?.enabled === false) return "DISABLED";
+  if (row?.enabled === true) return "ENABLED";
+  return "UNKNOWN";
+}
+function classifyCodexNativeStatus(result2, { desired = null, mode = "get" } = {}) {
+  const base = { exit_code: result2?.exitCode ?? null, output_sha256: outputHash2(result2) };
+  if (result2?.status === "timed_out") return Object.freeze({ ...base, status: "TIMEOUT", identity: "UNKNOWN", enablement: "UNKNOWN" });
+  if (result2?.status !== "exited") return Object.freeze({ ...base, status: "UNKNOWN", identity: "UNKNOWN", enablement: "UNKNOWN" });
+  if (result2.exitCode !== 0) {
+    const text = `${result2.stdout ?? ""}
+${result2.stderr ?? ""}`;
+    return Object.freeze({
+      ...base,
+      status: /(?:not found|no mcp server)/i.test(text) ? "ABSENT" : "FAILED",
+      identity: "UNKNOWN",
+      enablement: "UNKNOWN"
+    });
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(String(result2.stdout ?? "").trim());
+  } catch {
+    return Object.freeze({ ...base, status: "UNKNOWN", identity: "UNKNOWN", enablement: "UNKNOWN" });
+  }
+  let row;
+  if (mode === "list") {
+    if (!Array.isArray(parsed)) return Object.freeze({ ...base, status: "UNKNOWN", identity: "UNKNOWN", enablement: "UNKNOWN" });
+    const matches = parsed.filter((candidate) => plainObject2(candidate) && candidate.name === "uemcp");
+    if (matches.length > 1) return Object.freeze({ ...base, status: "AMBIGUOUS", identity: "UNKNOWN", enablement: "UNKNOWN" });
+    [row] = matches;
+  } else {
+    row = plainObject2(parsed) && parsed.name === "uemcp" ? parsed : null;
+  }
+  if (!row) return Object.freeze({ ...base, status: "ABSENT", identity: "UNKNOWN", enablement: "UNKNOWN" });
+  const identity = nativeIdentity(row, desired);
+  const disabledReason = typeof row.disabled_reason === "string" && row.disabled_reason !== "" ? sha256Canonical(row.disabled_reason) : null;
+  return Object.freeze({
+    ...base,
+    status: "PRESENT",
+    identity: identity.status,
+    enablement: nativeEnablement(row),
+    disabled_reason_sha256: disabledReason,
+    physical_entry: identity.evidence
+  });
+}
+function mergeNativeStatus2(list, get) {
+  const queryEvidence = {
+    list_status: list.status,
+    get_status: get.status,
+    list_identity: list.identity,
+    get_identity: get.identity,
+    list_enablement: list.enablement,
+    get_enablement: get.enablement,
+    list_output_sha256: list.output_sha256,
+    get_output_sha256: get.output_sha256
+  };
+  if (list.status === "AMBIGUOUS" || get.status === "AMBIGUOUS") {
+    return Object.freeze({
+      ...list,
+      status: "AMBIGUOUS",
+      identity: "UNKNOWN",
+      enablement: "UNKNOWN",
+      physical_entry: null,
+      ...queryEvidence
+    });
+  }
+  if (list.status === "PRESENT" !== (get.status === "PRESENT")) {
+    const selected3 = get.status === "PRESENT" ? get : list;
+    return Object.freeze({
+      ...selected3,
+      status: "INCONSISTENT",
+      identity: "UNKNOWN",
+      enablement: "UNKNOWN",
+      physical_entry: null,
+      ...queryEvidence
+    });
+  }
+  if (list.status === "PRESENT" && get.status === "PRESENT") {
+    const identityConflict = list.identity !== "UNKNOWN" && get.identity !== "UNKNOWN" && list.identity !== get.identity;
+    const enablementConflict = list.enablement !== "UNKNOWN" && get.enablement !== "UNKNOWN" && list.enablement !== get.enablement;
+    if (identityConflict || enablementConflict) {
+      return Object.freeze({
+        ...get,
+        status: "INCONSISTENT",
+        identity: "UNKNOWN",
+        enablement: "UNKNOWN",
+        physical_entry: null,
+        ...queryEvidence
+      });
+    }
+    const selected3 = get.identity !== "UNKNOWN" ? get : list;
+    return Object.freeze({
+      ...selected3,
+      identity: get.identity !== "UNKNOWN" ? get.identity : list.identity,
+      enablement: get.enablement !== "UNKNOWN" ? get.enablement : list.enablement,
+      ...queryEvidence
+    });
+  }
+  const selected2 = get.status === "PRESENT" ? get : list.status === "PRESENT" ? list : get.status === "ABSENT" && list.status === "ABSENT" ? get : get.status !== "ABSENT" ? get : list;
+  return Object.freeze({
+    ...selected2,
+    ...queryEvidence
+  });
+}
+function environmentForLaunch2(context, launch) {
+  return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
+}
+async function runNativeQuery2(runner, context, detection, tail) {
+  const valid = tail.length === 3 && tail[0] === "mcp" && tail[1] === "list" && tail[2] === "--json" || tail.length === 4 && tail[0] === "mcp" && tail[1] === "get" && tail[2] === "uemcp" && tail[3] === "--json";
+  if (!valid) fail10("Codex native MCP query is not read-only", "MUTATING_NATIVE_COMMAND");
+  return runner.run(detection.launch.command, [...detection.launch.args_prefix, ...tail], {
+    cwd: context.activeDirectory ?? context.workspaceRoot,
+    env: environmentForLaunch2(context, detection.launch),
+    shell: false,
+    timeoutMs: 1e4,
+    outputLimitBytes: 64 * 1024
+  });
+}
+async function inspectNative2(runner, context, detection, desired) {
+  if (context.launch?.compatibility !== "release_gated") {
+    const unknown2 = classifyCodexNativeStatus(null, { desired });
+    return mergeNativeStatus2(unknown2, unknown2);
+  }
+  const safe = async (tail) => {
+    return runActiveClientLaunch(context, { client_id: "codex", kind: "native" }, async (guard, pinnedLaunch) => {
+      try {
+        return await runNativeQuery2(runner, context, { ...detection, launch: pinnedLaunch }, tail);
+      } catch (error2) {
+        if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+        return { status: "launch_failed", exitCode: null, stdout: "", stderr: "", errorCode: error2?.code ?? "PROCESS_LAUNCH_FAILED" };
+      }
+    });
+  };
+  const listResult = await safe(["mcp", "list", "--json"]);
+  const getResult = await safe(["mcp", "get", "uemcp", "--json"]);
+  return mergeNativeStatus2(
+    classifyCodexNativeStatus(listResult, { desired, mode: "list" }),
+    classifyCodexNativeStatus(getResult, { desired, mode: "get" })
+  );
+}
+function normalizedLimits2(input = {}) {
+  const limits = { ...DEFAULT_LIMITS2, ...input };
+  if (!Number.isSafeInteger(limits.fileBytes) || limits.fileBytes <= 0 || !Number.isSafeInteger(limits.aggregateBytes) || limits.aggregateBytes < limits.fileBytes || !Number.isSafeInteger(limits.projectLayers) || limits.projectLayers <= 0) {
+    fail10("Codex inspection limits are invalid", "INVALID_INSPECTION_LIMIT");
+  }
+  return Object.freeze(limits);
+}
+function missing3(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+async function readConfigFile2(fsImpl, captureFingerprint, entry, tracker, limits, { parse: parse8 = true } = {}) {
+  return readBoundedConfigFile({
+    fsImpl,
+    captureFingerprint,
+    entry,
+    tracker,
+    limits,
+    parse: parse8,
+    parseBytes: (bytes) => parseTomlDocument(bytes, { pathLabel: `Codex ${entry.scope}`, maxBytes: limits.fileBytes })
+  });
+}
+function physicalMatches2(current, desired) {
+  return plainObject2(current) && current.command === desired.command && Array.isArray(current.args) && JSON.stringify(current.args) === JSON.stringify(desired.args);
+}
+function environmentEvidence3(entry) {
+  if (!plainObject2(entry?.env)) return { keys: [], value_hashes: {} };
+  const keys = Object.keys(entry.env).sort();
+  return {
+    keys,
+    value_hashes: Object.fromEntries(keys.map((key) => [key, sha256Canonical(entry.env[key])]))
+  };
+}
+function physicalEvidence2(entry) {
+  if (!plainObject2(entry)) return null;
+  return Object.freeze({
+    ...Object.hasOwn(entry, "command") ? { command_sha256: sha256Canonical(entry.command) } : {},
+    ...Object.hasOwn(entry, "args") ? {
+      args_count: Array.isArray(entry.args) ? entry.args.length : null,
+      args_sha256: sha256Canonical(entry.args)
+    } : {}
+  });
+}
+function safeOwnershipEvidence2(value) {
+  if (!value) return null;
+  return Object.freeze({
+    ownership_key: value.ownership_key,
+    owned_paths: value.owned_paths,
+    owned_diff: Object.freeze(value.owned_diff.map((diff) => Object.freeze({
+      path: diff.path,
+      current_present: diff.current_present,
+      desired_present: diff.desired_present,
+      ...diff.current_present ? { current_sha256: sha256Canonical(diff.current_value) } : {},
+      ...diff.desired_present ? { desired_sha256: sha256Canonical(diff.desired_value) } : {}
+    }))),
+    client_diff: value.client_diff,
+    environment: value.environment,
+    state: value.state,
+    recommended_action: value.recommended_action,
+    ...value.stale_reason ? { stale_reason: value.stale_reason } : {}
+  });
+}
+function reviewActions2(entry) {
+  const actions = [];
+  if (plainObject2(entry?.env) && Object.keys(entry.env).some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
+  return actions;
+}
+function workspaceTrustFromUser(user, projectRoot) {
+  if (!user.exists) return Object.freeze({ trusted: false, source: "user_config", project_key: null });
+  const projects = getTomlTable(user.document, ["projects"]);
+  if (projects === void 0) return Object.freeze({ trusted: false, source: "user_config", project_key: null });
+  if (!plainObject2(projects)) fail10("Codex projects trust table must be an object", "MALFORMED_CONFIG");
+  const wanted = pathIdentity3(projectRoot);
+  const matches = Object.keys(projects).filter((key) => absolutePath3(key) && pathIdentity3(key) === wanted);
+  if (matches.length > 1) fail10("Codex projects trust table contains ambiguous path aliases", "MALFORMED_CONFIG");
+  const projectKey = matches[0] ?? null;
+  if (projectKey === null) return Object.freeze({ trusted: false, source: "user_config", project_key: null });
+  const project = projects[projectKey];
+  if (!plainObject2(project) || !["trusted", "untrusted"].includes(project.trust_level)) {
+    fail10("Codex project trust_level must be trusted or untrusted", "MALFORMED_CONFIG");
+  }
+  return Object.freeze({ trusted: project.trust_level === "trusted", source: "user_config", project_key: projectKey });
+}
+async function makeOccurrence({ source, scope, desired, ledger, ownershipScope = null }) {
+  if (!source.exists) return null;
+  const entry = getTomlTable(source.document, TABLE_PATH);
+  if (entry === void 0) return null;
+  if (!plainObject2(entry)) fail10("Codex MCP entry must be a table", "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "enabled") && typeof entry.enabled !== "boolean") fail10("Codex enabled field must be boolean", "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "cwd") && entry.cwd !== null && (typeof entry.cwd !== "string" || entry.cwd.trim() === "")) {
+    fail10("Codex cwd field must be a non-empty string or null", "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "env") && (!plainObject2(entry.env) || Object.values(entry.env).some((value) => typeof value !== "string"))) {
+    fail10("Codex environment field must contain string values", "MALFORMED_CONFIG");
+  }
+  const ownership = ownershipScope ? await inspectOwnership({
+    ledger,
+    currentEntry: entry,
+    desiredEntry: desired,
+    location: { clientId: "codex", configPath: source.path, scope: ownershipScope, entryName: "uemcp" }
+  }) : null;
+  const result2 = Object.freeze({
+    scope,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    matching: physicalMatches2(entry, desired),
+    enabled: entry.enabled !== false,
+    enabled_explicit: Object.hasOwn(entry, "enabled"),
+    physical_entry: physicalEvidence2(entry),
+    entry_sha256: sha256Canonical(entry),
+    config_sha256: sha256Bytes(source.bytes),
+    environment: Object.freeze(environmentEvidence3(entry)),
+    custom_launch: entry.cwd !== void 0 && entry.cwd !== null,
+    review_actions: Object.freeze(reviewActions2(entry)),
+    ownership: safeOwnershipEvidence2(ownership)
+  });
+  PRIVATE_PROTOCOL_LAUNCH2.set(result2, Object.freeze({
+    env_overlay: Object.freeze({ ...plainObject2(entry.env) ? entry.env : {} }),
+    cwd: typeof entry.cwd === "string" ? entry.cwd : null
+  }));
+  return result2;
+}
+function matchArgumentRule(rule, argument) {
+  if (!plainObject2(rule) || typeof rule.match !== "string" || typeof rule.value !== "string") return null;
+  if (rule.match === "exact") return argument === rule.value;
+  if (rule.match === "prefix") return argument.startsWith(rule.value);
+  return null;
+}
+function matchRequirementsIdentity(identity, desired) {
+  if (!plainObject2(identity) || !Object.hasOwn(identity, "command")) return null;
+  if (typeof identity.command === "string") return identity.command === desired.command;
+  if (!plainObject2(identity.command) || typeof identity.command.executable !== "string" || !Array.isArray(identity.command.args) || identity.command.args.length !== desired.args.length) return null;
+  if (identity.command.executable !== desired.command) return false;
+  let unknown2 = false;
+  for (let index = 0; index < desired.args.length; index += 1) {
+    const matched = matchArgumentRule(identity.command.args[index], desired.args[index]);
+    if (matched === false) return false;
+    if (matched === null) unknown2 = true;
+  }
+  return unknown2 ? null : true;
+}
+function classifyRequirements(file, desired, policyKnown) {
+  if (!file.exists) return policyKnown ? "ALLOWED" : "POLICY_UNKNOWN";
+  const root = file.document.parsed_value;
+  if (!Object.hasOwn(root, "mcp_servers")) return policyKnown ? "ALLOWED" : "POLICY_UNKNOWN";
+  if (!plainObject2(root.mcp_servers)) fail10("Codex requirements mcp_servers must be a table", "MALFORMED_CONFIG");
+  const rule = root.mcp_servers.uemcp;
+  if (rule === void 0) return "POLICY_BLOCKED";
+  if (!plainObject2(rule) || !plainObject2(rule.identity)) fail10("Codex requirements uemcp identity is invalid", "MALFORMED_CONFIG");
+  const matched = matchRequirementsIdentity(rule.identity, desired);
+  if (matched === true) return policyKnown ? "ALLOWED" : "POLICY_UNKNOWN";
+  if (matched === false) return "POLICY_BLOCKED";
+  return "POLICY_UNKNOWN";
+}
+function statusFromError2(error2) {
+  if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") return "INSPECTION_LIMIT_EXCEEDED";
+  if (error2?.code === "MALFORMED_CONFIG" || error2?.name === "ConfigFormatError") return "MALFORMED_CONFIG";
+  if (error2?.code === "UNSAFE_CONFIG_PATH") return "UNSAFE_CONFIG_PATH";
+  throw error2;
+}
+function unique2(values) {
+  return [...new Set(values)];
+}
+function publicFileEvidence2(file) {
+  return Object.freeze({
+    path: file.path,
+    allowed_root: file.allowed_root,
+    scope: file.scope,
+    writable: file.writable,
+    exists: file.exists,
+    config_sha256: file.exists && file.bytes ? sha256Bytes(file.bytes) : file.fingerprint?.content_sha256 ?? null,
+    fingerprint: file.fingerprint
+  });
+}
+async function captureLaunchEvidence2(captureFingerprint, context, detection) {
+  const candidates = [
+    ["client_launch_command", detection.launch.command],
+    ...detection.launch.args_prefix.map((path, index) => [`client_launch_arg_${index}`, path]),
+    ["server_launch_command", context.descriptor.command],
+    ...context.descriptor.args.filter(absolutePath3).map((path, index) => [`server_launch_arg_${index}`, path])
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const [scope, path] of candidates) {
+    const key = pathIdentity3(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname4(path)], writable: false });
+    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+      fail10("Codex launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
+    }
+    rows.push(Object.freeze({
+      path: resolve5(path),
+      allowed_root: resolve5(dirname4(path)),
+      scope,
+      writable: false,
+      exists: true,
+      config_sha256: fingerprint.content_sha256,
+      fingerprint
+    }));
+  }
+  return rows;
+}
+function readOnlyRows2(files, writablePath = null) {
+  const writableKey = writablePath ? pathIdentity3(writablePath) : null;
+  return files.filter((file) => pathIdentity3(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+}
+async function writableFileEvidence2(captureFingerprint, file) {
+  const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
+  return { ...file, fingerprint };
+}
+function planningFailure2(error2) {
+  if (["READ_ONLY_TARGET", "UNSAFE_WRITABLE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT", "METADATA_INSPECTION_FAILED"].includes(error2?.code)) return error2.code;
+  throw error2;
+}
+function operationCommon2({ id, type, current, source, context, readOnly, desired }) {
+  return {
+    operation_id: id,
+    client_id: "codex",
+    selected: true,
+    write_supported: true,
+    type,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    scope_kind: "user",
+    fingerprint: source.fingerprint,
+    current_config_sha256: source.config_sha256 ?? null,
+    current_entry_sha256: current?.entry_sha256 ?? null,
+    owned_paths: ["/command", "/args"],
+    shared_resource_id: null,
+    plan_digest: context.planDigest,
+    read_only_paths: readOnly,
+    desired_entry: desired,
+    toml_path: TABLE_PATH
+  };
+}
+async function readCurrentDocument2(fsImpl, path, label) {
+  try {
+    const bytes = await fsImpl.readFile(path);
+    return { bytes, document: parseTomlDocument(bytes, { pathLabel: label }) };
+  } catch (error2) {
+    if (!missing3(error2)) throw error2;
+    const bytes = Buffer.alloc(0);
+    return { bytes, document: parseTomlDocument(bytes, { pathLabel: label }) };
+  }
+}
+function assertOperationPrecondition2(operation, bytes, entry) {
+  const configHash = bytes.length === 0 && operation.current_config_sha256 === null ? null : sha256Bytes(bytes);
+  if (configHash !== operation.current_config_sha256) fail10("Codex config changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+  const entryHash = entry === void 0 ? null : sha256Canonical(entry);
+  if (entryHash !== operation.current_entry_sha256) fail10("Codex entry changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+}
+function ownershipLedgerStatus(ownership) {
+  if (ownership?.stale_reason && LEDGER_FAILURES.has(ownership.stale_reason)) return Object.freeze({ status: "INVALID", reason: ownership.stale_reason });
+  return Object.freeze({ status: "VALID", reason: null });
+}
+function createCodexAdapter({
+  fsImpl = defaultFs6,
+  runner,
+  captureFingerprint,
+  limits: limitOverrides = {}
+} = {}) {
+  if (!runner?.run || typeof captureFingerprint !== "function") fail10("Codex adapter dependencies are invalid", "INVALID_ADAPTER_DEPENDENCY");
+  const limits = normalizedLimits2(limitOverrides);
+  async function detect(context) {
+    validateClientLaunchContract(context.launch);
+    if (context.launch.client_id !== "codex") fail10("Codex launch evidence is invalid", "INVALID_CLIENT_LAUNCH");
+    return Object.freeze({
+      client_id: "codex",
+      launch: context.launch,
+      locations: resolveCodexLocations(context, { projectLayers: limits.projectLayers })
+    });
+  }
+  async function inspect(context, detection) {
+    const desired = physicalCodexEntry(context.descriptor);
+    try {
+      const tracker = { total: 0 };
+      const user = await readConfigFile2(fsImpl, captureFingerprint, detection.locations.user, tracker, limits);
+      const workspaceTrust2 = workspaceTrustFromUser(user, context.projectRoot ?? context.workspaceRoot);
+      const projectFiles = [];
+      for (const layer of detection.locations.project_layers) {
+        projectFiles.push(await readConfigFile2(fsImpl, captureFingerprint, layer, tracker, limits, {
+          parse: workspaceTrust2.trusted
+        }));
+      }
+      const requirements = await readConfigFile2(fsImpl, captureFingerprint, detection.locations.system_requirements, tracker, limits);
+      const launchEvidence = await captureLaunchEvidence2(captureFingerprint, context, detection);
+      const native = await inspectNative2(runner, context, detection, desired);
+      const occurrences = [];
+      const userOccurrence = await makeOccurrence({
+        source: user,
+        scope: "user",
+        desired,
+        ledger: context.ownershipLedger,
+        ownershipScope: "user"
+      });
+      if (userOccurrence) occurrences.push(userOccurrence);
+      if (workspaceTrust2.trusted) {
+        for (const project of projectFiles) {
+          const row = await makeOccurrence({ source: project, scope: project.scope, desired, ledger: context.ownershipLedger });
+          if (row) occurrences.push(row);
+        }
+      }
+      const ignoredProjectLayers = workspaceTrust2.trusted ? [] : projectFiles.filter((file) => file.exists).map((file) => Object.freeze({ path: file.path, scope: file.scope, reason: "UNTRUSTED_PROJECT" }));
+      const effective = occurrences.at(-1) ?? null;
+      let policy = classifyRequirements(requirements, desired, false);
+      if (native.enablement === "POLICY_BLOCKED") policy = "POLICY_BLOCKED";
+      let registration = effective ? effective.matching ? "CONFIGURED" : "CONFLICT" : "ABSENT";
+      const nativeProvesAbsence = native.list_status === "ABSENT" && native.get_status === "ABSENT";
+      const nativeOnly = !effective && native.status === "PRESENT" && native.identity === "MATCHING";
+      const nativeWriteBlocked = !effective && !nativeProvesAbsence;
+      if (!effective && native.status === "PRESENT") registration = native.identity === "MATCHING" ? "CONFIGURED" : "CONFLICT";
+      if (effective?.matching && policy === "POLICY_BLOCKED") registration = "POLICY_BLOCKED";
+      let enablement = effective ? effective.enabled ? "ENABLED" : "DISABLED" : nativeOnly ? native.enablement : "UNKNOWN";
+      if (policy === "POLICY_BLOCKED") enablement = "POLICY_BLOCKED";
+      const disagrees = effective?.matching && native.identity === "CONFLICT" || effective && ["ABSENT", "AMBIGUOUS", "INCONSISTENT"].includes(native.status);
+      const actions = occurrences.flatMap((row) => row.review_actions);
+      if (enablement === "DISABLED" || enablement === "POLICY_BLOCKED") actions.push("CLIENT_ENABLEMENT_REQUIRED");
+      if (policy === "POLICY_UNKNOWN") actions.push("POLICY_UNKNOWN");
+      if (nativeWriteBlocked && !nativeOnly) actions.push("POLICY_UNKNOWN");
+      if (registration === "CONFLICT") actions.push("CONFLICT");
+      if (disagrees) actions.push("CONFLICT");
+      let ownershipProbe = userOccurrence?.ownership ?? null;
+      if (!ownershipProbe) {
+        ownershipProbe = safeOwnershipEvidence2(await inspectOwnership({
+          ledger: context.ownershipLedger,
+          currentEntry: desired,
+          desiredEntry: desired,
+          location: { clientId: "codex", configPath: user.path, scope: "user", entryName: "uemcp" }
+        }));
+      }
+      const sourceFiles = [user, ...projectFiles, requirements];
+      return Object.freeze({
+        client_id: "codex",
+        registration,
+        enablement,
+        activation: "UNKNOWN",
+        policy,
+        actions: Object.freeze(unique2(actions)),
+        occurrences: Object.freeze(occurrences),
+        ignored_project_layers: Object.freeze(ignoredProjectLayers),
+        effective: effective ? Object.freeze({
+          scope: effective.scope,
+          path: effective.path,
+          matching: effective.matching,
+          enabled: effective.enabled
+        }) : null,
+        native: Object.freeze({ ...native, disagrees_with_config: disagrees }),
+        workspace_trust: workspaceTrust2,
+        native_only: nativeOnly,
+        native_write_blocked: nativeWriteBlocked,
+        files: Object.freeze([...sourceFiles.map(publicFileEvidence2), ...launchEvidence]),
+        ownership_ledger: ownershipLedgerStatus(ownershipProbe),
+        desired
+      });
+    } catch (error2) {
+      const status = statusFromError2(error2);
+      return Object.freeze({
+        client_id: "codex",
+        registration: status,
+        enablement: "UNKNOWN",
+        activation: "UNKNOWN",
+        policy: "POLICY_UNKNOWN",
+        actions: Object.freeze([status]),
+        occurrences: Object.freeze([]),
+        ignored_project_layers: Object.freeze([]),
+        effective: null,
+        native: Object.freeze({ status: "NOT_CHECKED", identity: "UNKNOWN", enablement: "UNKNOWN", disagrees_with_config: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: "unknown", project_key: null }),
+        native_only: false,
+        native_write_blocked: true,
+        files: Object.freeze([]),
+        ownership_ledger: Object.freeze({ status: "UNKNOWN", reason: null }),
+        desired
+      });
+    }
+  }
+  async function plan(context, inspection, descriptor) {
+    if (inspection?.client_id !== "codex") fail10("Codex inspection is invalid", "INVALID_CLIENT_INSPECTION");
+    if (typeof context.planDigest !== "string" || !/^[0-9a-f]{64}$/.test(context.planDigest)) fail10("Codex plan digest is invalid", "INVALID_PLAN_DIGEST");
+    const desired = physicalCodexEntry(descriptor);
+    if (["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(inspection.registration)) {
+      return Object.freeze({ client_id: "codex", status: inspection.registration, operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (!context.launch.write_supported) {
+      return Object.freeze({ client_id: "codex", status: "UNSUPPORTED_VERSION", operations: Object.freeze([]), actions: Object.freeze(["UNSUPPORTED_VERSION"]) });
+    }
+    if (inspection.policy === "POLICY_BLOCKED") {
+      return Object.freeze({ client_id: "codex", status: "POLICY_BLOCKED", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (inspection.ownership_ledger?.status === "INVALID") {
+      return Object.freeze({ client_id: "codex", status: "OWNERSHIP_LEDGER_INVALID", operations: Object.freeze([]), actions: Object.freeze(unique2([...inspection.actions, "OWNERSHIP_LEDGER_INVALID"])) });
+    }
+    if (inspection.native_write_blocked === true) {
+      const status2 = inspection.native_only === true && inspection.registration === "CONFIGURED" ? "NO_OP" : inspection.registration === "CONFLICT" ? "CONFLICT" : "POLICY_UNKNOWN";
+      return Object.freeze({ client_id: "codex", status: status2, operations: Object.freeze([]), actions: inspection.actions });
+    }
+    const projectEffective = inspection.effective?.scope?.startsWith("project:");
+    if (projectEffective) {
+      return Object.freeze({
+        client_id: "codex",
+        status: inspection.effective.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique2([...inspection.actions, inspection.effective.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    const files = Object.fromEntries(inspection.files.map((file) => [file.scope, file]));
+    const userFile = files.user;
+    const user = inspection.occurrences.find((row) => row.scope === "user");
+    let type;
+    if (!user) type = "CREATE_ENTRY";
+    else if (user.matching && user.ownership?.recommended_action === "ADOPT_EXACT_ENTRY") type = "ADOPT_EXACT_ENTRY";
+    else if (user.matching) return Object.freeze({ client_id: "codex", status: "NO_OP", operations: Object.freeze([]), actions: inspection.actions });
+    else if (user.ownership?.state === "owned_matching" || approvedOwnedReplacement(context, user.ownership)) type = "UPDATE_OWNED_FIELDS";
+    else return Object.freeze({ client_id: "codex", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique2([...inspection.actions, "CONFLICT"])) });
+    const requiresProviderWrite = type !== "ADOPT_EXACT_ENTRY";
+    let source = userFile;
+    try {
+      if (requiresProviderWrite) source = await writableFileEvidence2(captureFingerprint, userFile);
+    } catch (error2) {
+      const status2 = planningFailure2(error2);
+      return Object.freeze({ client_id: "codex", status: status2, operations: Object.freeze([]), actions: Object.freeze(unique2([...inspection.actions, status2])) });
+    }
+    const readOnly = readOnlyRows2(inspection.files, requiresProviderWrite ? source.path : null);
+    const common = operationCommon2({
+      id: type === "CREATE_ENTRY" ? "codex-create-user-uemcp" : type === "ADOPT_EXACT_ENTRY" ? "codex-adopt-user-uemcp" : "codex-update-user-uemcp",
+      type,
+      current: user,
+      source,
+      context,
+      readOnly,
+      desired
+    });
+    let operation;
+    if (type === "CREATE_ENTRY") {
+      operation = Object.freeze({
+        ...common,
+        external_write: source.exists !== true,
+        verification_status: inspection.policy === "POLICY_UNKNOWN" ? "POLICY_UNKNOWN" : null,
+        requires_restart: true
+      });
+    } else if (type === "ADOPT_EXACT_ENTRY") {
+      operation = Object.freeze({
+        ...common,
+        ledger_only: true,
+        external_write: false,
+        adoption: Object.freeze({
+          operation_id: common.operation_id,
+          type: "ADOPT_EXACT_ENTRY",
+          ownership_key: ownershipKey({ clientId: "codex", configPath: source.path, scope: "user", entryName: "uemcp" }),
+          current_entry_sha256: user.entry_sha256,
+          current_config_sha256: user.config_sha256,
+          plan_digest: context.planDigest
+        }),
+        requires_restart: false
+      });
+    } else {
+      operation = Object.freeze({
+        ...common,
+        external_write: false,
+        explicit_owned_replacement: approvedOwnedReplacement(context, user.ownership),
+        requires_restart: true
+      });
+    }
+    const status = type === "CREATE_ENTRY" ? "CREATE" : type === "ADOPT_EXACT_ENTRY" ? "ADOPT" : "UPDATE";
+    return Object.freeze({ client_id: "codex", status, operations: Object.freeze([operation]), actions: inspection.actions });
+  }
+  async function snapshot(context, operations) {
+    const writable = [];
+    const readOnly = /* @__PURE__ */ new Map();
+    for (const operation of operations) {
+      if (operation.ledger_only !== true) {
+        writable.push({
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope_kind: operation.scope_kind,
+          fingerprint: operation.fingerprint,
+          owned_paths: operation.owned_paths,
+          shared_resource_id: operation.shared_resource_id
+        });
+      } else {
+        readOnly.set(pathIdentity3(operation.path), {
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          fingerprint: operation.fingerprint
+        });
+      }
+      for (const row of operation.read_only_paths ?? []) {
+        if (!writable.some((candidate) => pathIdentity3(candidate.path) === pathIdentity3(row.path))) readOnly.set(pathIdentity3(row.path), row);
+      }
+    }
+    return Object.freeze({ writable_paths: writable, read_only_paths: [...readOnly.values()] });
+  }
+  async function runNativeAdd(context, operation, stagedHome) {
+    if (context.launch.version !== CODEX_NATIVE_MUTATION_CHARACTERIZATION.version || operation.external_write !== true) {
+      fail10("Codex native add is outside its release-gated contract", "UNSUPPORTED_NATIVE_MUTATION");
+    }
+    if (!absolutePath3(stagedHome) || pathIdentity3(stagedHome) === pathIdentity3(operation.allowed_root)) {
+      fail10("Codex native add requires an isolated home", "UNAPPROVED_EXTERNAL_WRITE");
+    }
+    const result2 = await runActiveClientLaunch(context, { client_id: "codex", kind: "native" }, (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [
+      ...pinnedLaunch.args_prefix,
+      "mcp",
+      "add",
+      "uemcp",
+      "--",
+      operation.desired_entry.command,
+      ...operation.desired_entry.args
+    ], {
+      cwd: stagedHome,
+      env: { ...environmentForLaunch2(context, pinnedLaunch), CODEX_HOME: stagedHome },
+      shell: false,
+      timeoutMs: 1e4,
+      outputLimitBytes: 64 * 1024
+    }));
+    if (result2?.status !== "exited" || result2.exitCode !== 0) fail10("Codex native add failed", "NATIVE_WRITE_FAILED", { output_sha256: outputHash2(result2) });
+    return Object.freeze({ status: "ADDED", output_sha256: outputHash2(result2) });
+  }
+  async function apply(context, operations) {
+    if (!context.transaction?.writeFile || !context.transaction?.ownershipLedger) fail10("Codex apply requires the transaction capability", "INVALID_TRANSACTION_CAPABILITY");
+    for (const operation of operations) {
+      if (operation.client_id !== "codex" || operation.write_supported !== true || operation.selected !== true) {
+        fail10("Codex apply received an unapproved operation", "UNAPPROVED_OPERATION_SET");
+      }
+      const current = await readCurrentDocument2(fsImpl, operation.path, "Codex user config");
+      const entry = getTomlTable(current.document, TABLE_PATH);
+      assertOperationPrecondition2(operation, current.bytes, entry);
+      if (operation.type === "ADOPT_EXACT_ENTRY") {
+        await adoptExactEntry({
+          ledger: context.transaction.ownershipLedger,
+          location: { clientId: "codex", configPath: operation.path, scope: "user", entryName: "uemcp" },
+          currentEntry: entry,
+          desiredEntry: operation.desired_entry,
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
+        });
+        continue;
+      }
+      if (!["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(operation.type)) fail10("Codex operation type is unsupported", "UNAPPROVED_OPERATION_SET");
+      let written;
+      let afterEntry;
+      if (operation.external_write === true) {
+        if (operation.type !== "CREATE_ENTRY" || typeof context.transaction.runStagedWrite !== "function" || entry !== void 0) {
+          fail10("Codex native create requires a staged transaction capability", "INVALID_TRANSACTION_CAPABILITY");
+        }
+        written = await context.transaction.runStagedWrite(operation.path, async (target, stage) => {
+          const expectedTarget = resolve5(stage.root, stage.relative_path);
+          if (pathIdentity3(target) !== pathIdentity3(expectedTarget) || pathIdentity3(target) === pathIdentity3(operation.path)) {
+            fail10("Codex native stage target changed", "UNAPPROVED_EXTERNAL_WRITE");
+          }
+          await runNativeAdd(context, operation, stage.root);
+        }, {
+          seed_bytes: current.bytes,
+          stage_relative_path: "config.toml",
+          parse: (bytes) => parseTomlDocument(bytes, { pathLabel: "Codex native-created user config" })
+        });
+        const after = await readCurrentDocument2(fsImpl, operation.path, "Codex native-created user config");
+        afterEntry = getTomlTable(after.document, TABLE_PATH);
+      } else {
+        const edit = patchTomlTable(current.document, TABLE_PATH, operation.desired_entry);
+        if (!edit.changed) fail10("Codex targeted edit produced no change", "TRANSACTION_PRECONDITION_CHANGED");
+        const parsed = parseTomlDocument(edit.after_bytes, { pathLabel: "Codex updated user config" });
+        afterEntry = getTomlTable(parsed, TABLE_PATH);
+        written = await context.transaction.writeFile(operation.path, edit.after_bytes, {
+          parse: (bytes) => parseTomlDocument(bytes, { pathLabel: "Codex updated user config" })
+        });
+      }
+      if (!physicalMatches2(afterEntry, operation.desired_entry)) fail10("Codex write did not produce the canonical owned projection", "STRUCTURAL_VERIFY_FAILED");
+      await recordOwnedWrite({
+        ledger: context.transaction.ownershipLedger,
+        location: { clientId: "codex", configPath: operation.path, scope: "user", entryName: "uemcp" },
+        beforeEntry: entry ?? null,
+        afterEntry,
+        ownedPaths: ownedPathsForClient("codex", afterEntry),
+        appliedConfigHash: written.content_sha256,
+        planDigest: context.planDigest
+      });
+    }
+    return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
+  }
+  async function verify(context, operations) {
+    let disabled = false;
+    let structuralChange = false;
+    for (const operation of operations) {
+      const current = await readCurrentDocument2(fsImpl, operation.path, "Codex verification config");
+      const entry = getTomlTable(current.document, TABLE_PATH);
+      if (!physicalMatches2(entry, operation.desired_entry)) fail10("Codex user entry does not match the canonical descriptor", "STRUCTURAL_VERIFY_FAILED");
+      if (entry.enabled === false) disabled = true;
+      if (operation.requires_restart === true) structuralChange = true;
+    }
+    const detection = await detect(context);
+    const native = await inspectNative2(runner, context, detection, physicalCodexEntry(context.descriptor));
+    if (disabled || native.enablement === "DISABLED" || native.enablement === "POLICY_BLOCKED") {
+      return Object.freeze({ status: "CLIENT_ENABLEMENT_REQUIRED", restart_required: structuralChange, native });
+    }
+    if (structuralChange) return Object.freeze({ status: "RESTART_REQUIRED", restart_required: true, native });
+    const operationStatus = operations.find((row) => row.verification_status)?.verification_status ?? null;
+    if (operationStatus) return Object.freeze({ status: operationStatus, restart_required: false, native });
+    if (native.status !== "PRESENT" || native.identity === "CONFLICT") return Object.freeze({ status: "POLICY_UNKNOWN", restart_required: false, native });
+    return Object.freeze({ status: "READY", restart_required: false, native });
+  }
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.occurrences?.find((row) => row.scope === inspection.effective?.scope && row.path === inspection.effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH2.get(effective) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+  async function rollback(context, records) {
+    return Object.freeze({ status: "delegated", count: records.length });
+  }
+  return Object.freeze({ id: "codex", detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
+}
+
+// server/deployment/adapters/gemini.mjs
+import * as defaultFs7 from "node:fs/promises";
+import {
+  dirname as dirname5,
+  isAbsolute as isAbsolute8,
+  join as join6,
+  relative as relative6,
+  resolve as resolve6,
+  sep as sep6,
+  win32 as win328
+} from "node:path";
+var DEFAULT_LIMITS3 = Object.freeze({
+  fileBytes: 16 * 1024 * 1024,
+  aggregateBytes: 64 * 1024 * 1024,
+  extensionRecords: 512,
+  extensionRuleBytes: 32 * 1024
+});
+var ENTRY_PATH = Object.freeze(["mcpServers", "uemcp"]);
+var LEDGER_FAILURES2 = /* @__PURE__ */ new Set([
+  "ledger_storage_invalid",
+  "ledger_read_failed",
+  "ledger_parse_failed",
+  "ledger_schema_invalid",
+  "ledger_self_hash_mismatch",
+  "ledger_record_invalid"
+]);
+var PRIVATE_PROTOCOL_LAUNCH3 = /* @__PURE__ */ new WeakMap();
+var PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH = /* @__PURE__ */ new WeakMap();
+var GEMINI_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
+  version: "0.41.2",
+  default_scope: "project",
+  first_add_exit_code: 0,
+  same_name_add_exit_code: 0,
+  same_name_replaced: true,
+  unrelated_settings_preserved: false,
+  comments_preserved: true,
+  crlf_preserved: false,
+  mutating_subcommands_allowed: false
+});
+var GeminiAdapterError = class extends Error {
+  constructor(message, code = "GEMINI_ADAPTER_FAILED", details = {}) {
+    super(message);
+    this.name = "GeminiAdapterError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail11(message, code = "GEMINI_ADAPTER_FAILED", details = {}) {
+  throw new GeminiAdapterError(message, code, details);
+}
+function plainObject3(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+function absolutePath4(value) {
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute8(value) || win328.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+}
+function pathIdentity4(path) {
+  const normalized = win328.normalize(resolve6(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function contained4(root, candidate) {
+  const rel = relative6(pathIdentity4(root), pathIdentity4(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep6}`) && !isAbsolute8(rel);
+}
+function location3(path, allowedRoot, scope, writable = false) {
+  return Object.freeze({
+    path: resolve6(path),
+    allowed_root: resolve6(allowedRoot),
+    scope,
+    writable
+  });
+}
+function resolveGeminiLocations(context = {}) {
+  const env = context.env ?? process.env;
+  const workspaceRoot = context.workspaceRoot;
+  if (!absolutePath4(workspaceRoot)) fail11("Gemini inspection requires an absolute workspace root", "INVALID_CLIENT_LOCATION");
+  const userProfile = readWindowsEnvironmentValue(env, "USERPROFILE");
+  if (!absolutePath4(userProfile)) fail11("Gemini inspection requires an absolute USERPROFILE", "INVALID_CLIENT_LOCATION");
+  const configuredHome = readWindowsEnvironmentValue(env, "GEMINI_CLI_HOME");
+  if (configuredHome !== void 0 && configuredHome !== "" && !absolutePath4(configuredHome)) {
+    fail11("GEMINI_CLI_HOME must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
+  }
+  const homeRoot = resolve6(configuredHome || userProfile);
+  const globalDir = join6(homeRoot, ".gemini");
+  const userWriteRoot = configuredHome ? dirname5(homeRoot) : homeRoot;
+  const extensionsRoot = join6(globalDir, "extensions");
+  const knownProgramData = context.knownFolders?.programData;
+  if (!absolutePath4(knownProgramData)) fail11("Gemini system policy root is invalid", "INVALID_CLIENT_LOCATION");
+  const systemRoot = join6(resolve6(knownProgramData), "gemini-cli");
+  const trustedFoldersOverride = readWindowsEnvironmentValue(env, "GEMINI_CLI_TRUSTED_FOLDERS_PATH");
+  if (trustedFoldersOverride !== void 0 && trustedFoldersOverride !== "" && !absolutePath4(trustedFoldersOverride)) {
+    fail11("GEMINI_CLI_TRUSTED_FOLDERS_PATH must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
+  }
+  const trustedFoldersPath = resolve6(trustedFoldersOverride || join6(globalDir, "trustedFolders.json"));
+  return Object.freeze({
+    home_root: resolve6(homeRoot),
+    global_dir: resolve6(globalDir),
+    custom_home: configuredHome !== void 0 && configuredHome !== "",
+    user: location3(join6(globalDir, "settings.json"), userWriteRoot, "user", true),
+    enablement: location3(join6(globalDir, "mcp-server-enablement.json"), globalDir, "enablement"),
+    trusted_folders: location3(trustedFoldersPath, trustedFoldersOverride ? dirname5(trustedFoldersPath) : globalDir, "trusted_folders"),
+    extensions_root: location3(extensionsRoot, globalDir, "extensions_root"),
+    extensions_enablement: location3(join6(extensionsRoot, "extension-enablement.json"), extensionsRoot, "extensions_enablement"),
+    project: location3(join6(workspaceRoot, ".gemini", "settings.json"), workspaceRoot, "project"),
+    system_defaults: location3(join6(systemRoot, "system-defaults.json"), systemRoot, "system_defaults"),
+    system_override: location3(join6(systemRoot, "settings.json"), systemRoot, "system_override")
+  });
+}
+function physicalGeminiEntry(descriptor) {
+  if (!descriptor || descriptor.name !== "uemcp" || descriptor.transport !== "stdio" || !absolutePath4(descriptor.command) || !Array.isArray(descriptor.args) || !descriptor.args.every((value) => typeof value === "string")) {
+    fail11("Gemini desired descriptor is invalid", "INVALID_DESCRIPTOR");
+  }
+  return Object.freeze({
+    command: resolve6(descriptor.command),
+    args: Object.freeze([...descriptor.args])
+  });
+}
+function outputHash3(result2) {
+  return sha256Bytes(Buffer.from(`${result2?.stdout ?? ""}\0${result2?.stderr ?? ""}`, "utf8"));
+}
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+function classifyGeminiNativeStatus(result2) {
+  const base = {
+    exit_code: result2?.exitCode ?? null,
+    output_sha256: outputHash3(result2),
+    activation: "UNKNOWN",
+    enablement: "UNKNOWN"
+  };
+  if (result2?.status === "timed_out") return Object.freeze({ ...base, status: "TIMEOUT" });
+  if (result2?.status !== "exited") return Object.freeze({ ...base, status: "UNKNOWN" });
+  if (result2.exitCode !== 0) return Object.freeze({ ...base, status: "FAILED" });
+  const text = stripAnsi(`${result2.stdout ?? ""}
+${result2.stderr ?? ""}`);
+  const rows = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[✓✗○⛔…]\s+uemcp(?::|\s+\(from\s+[^\r\n()]+\):)/i.test(line) && /\s-\s(?:Connected|Disconnected|Disabled|Blocked|Connecting)$/.test(line));
+  if (rows.length > 1) return Object.freeze({ ...base, status: "AMBIGUOUS" });
+  if (rows.length === 0) {
+    return Object.freeze({
+      ...base,
+      status: /No MCP servers configured\./i.test(text) ? "ABSENT" : "UNKNOWN"
+    });
+  }
+  const match = rows[0].match(/\s-\s(Connected|Disconnected|Disabled|Blocked|Connecting)$/);
+  if (!match) return Object.freeze({ ...base, status: "UNKNOWN" });
+  const status = match[1].toUpperCase();
+  if (status === "CONNECTED") return Object.freeze({ ...base, status, activation: "CONNECTED", enablement: "ENABLED" });
+  if (status === "DISABLED") return Object.freeze({ ...base, status, enablement: "DISABLED" });
+  if (status === "BLOCKED") return Object.freeze({ ...base, status, enablement: "POLICY_BLOCKED" });
+  return Object.freeze({ ...base, status });
+}
+function environmentForLaunch3(context, launch) {
+  return clientProcessEnvironment(context.env ?? process.env, launch.env_overlay ?? {});
+}
+async function inspectNative3(runner, context, detection) {
+  if (context.launch?.compatibility !== "release_gated") return classifyGeminiNativeStatus(null);
+  return runActiveClientLaunch(context, { client_id: "gemini", kind: "native" }, async (guard, pinnedLaunch) => {
+    try {
+      const result2 = await runner.run(pinnedLaunch.command, [
+        ...pinnedLaunch.args_prefix,
+        "mcp",
+        "list"
+      ], {
+        cwd: context.workspaceRoot,
+        env: environmentForLaunch3(context, pinnedLaunch),
+        shell: false,
+        timeoutMs: 1e4,
+        outputLimitBytes: 64 * 1024
+      });
+      return classifyGeminiNativeStatus(result2);
+    } catch (error2) {
+      if (error2?.code === "MUTATING_NATIVE_COMMAND") throw error2;
+      return Object.freeze({
+        status: "UNKNOWN",
+        exit_code: null,
+        output_sha256: null,
+        activation: "UNKNOWN",
+        enablement: "UNKNOWN",
+        error_code: error2?.code ?? "PROCESS_LAUNCH_FAILED"
+      });
+    }
+  });
+}
+function normalizedLimits3(input = {}) {
+  const limits = { ...DEFAULT_LIMITS3, ...input };
+  if (!Number.isSafeInteger(limits.fileBytes) || limits.fileBytes <= 0 || !Number.isSafeInteger(limits.aggregateBytes) || limits.aggregateBytes < limits.fileBytes || !Number.isSafeInteger(limits.extensionRecords) || limits.extensionRecords <= 0 || !Number.isSafeInteger(limits.extensionRuleBytes) || limits.extensionRuleBytes <= 0) {
+    fail11("Gemini inspection limits are invalid", "INVALID_INSPECTION_LIMIT");
+  }
+  return Object.freeze(limits);
+}
+function strictJsonDocument(bytes, { pathLabel, maxBytes }) {
+  const document = parseJsoncDocument(bytes, { pathLabel, maxBytes, allowTrailingComma: false });
+  let parsed;
+  try {
+    parsed = JSON.parse(document.text);
+  } catch {
+    fail11(`${pathLabel} must contain strict JSON`, "MALFORMED_CONFIG");
+  }
+  if (!plainObject3(parsed)) fail11(`${pathLabel} must contain a top-level object`, "MALFORMED_CONFIG");
+  return Object.freeze({ ...document, parsed_value: parsed, strict_json: true });
+}
+async function readConfigFile3(fsImpl, captureFingerprint, entry, tracker, limits, {
+  strict = false,
+  singleLink = false,
+  parse: parse8 = true
+} = {}) {
+  const file = await readBoundedConfigFile({
+    fsImpl,
+    captureFingerprint,
+    entry,
+    tracker,
+    limits,
+    parse: parse8,
+    parseBytes: (bytes) => strict ? strictJsonDocument(bytes, { pathLabel: `Gemini ${entry.scope}`, maxBytes: limits.fileBytes }) : parseJsoncDocument(bytes, {
+      pathLabel: `Gemini ${entry.scope}`,
+      maxBytes: limits.fileBytes,
+      allowTrailingComma: false
+    })
+  });
+  if (singleLink && file.exists && (file.fingerprint.link_kind !== "none" || file.fingerprint.link_count !== 1)) {
+    fail11("Gemini host-owned evidence is linked", "UNSAFE_CONFIG_PATH", { scope: entry.scope });
+  }
+  return file;
+}
+function validateEntry(entry, label, { absoluteCommand = false } = {}) {
+  if (!plainObject3(entry)) fail11(`${label} must be an object`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "command") && (typeof entry.command !== "string" || absoluteCommand && !absolutePath4(entry.command))) {
+    fail11(`${label} command is invalid`, "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "args") && (!Array.isArray(entry.args) || !entry.args.every((value) => typeof value === "string"))) {
+    fail11(`${label} args are invalid`, "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "trust") && typeof entry.trust !== "boolean") fail11(`${label} trust is invalid`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "cwd") && entry.cwd !== null && typeof entry.cwd !== "string") fail11(`${label} cwd is invalid`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "env")) {
+    if (!plainObject3(entry.env) || !Object.values(entry.env).every((value) => typeof value === "string")) {
+      fail11(`${label} environment is invalid`, "MALFORMED_CONFIG");
+    }
+  }
+  return entry;
+}
+function validateSettings(file) {
+  if (!file.exists) return {};
+  const settings = file.document.parsed_value;
+  if (!plainObject3(settings)) fail11(`Gemini ${file.scope} settings must be an object`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(settings, "mcpServers")) {
+    if (!plainObject3(settings.mcpServers)) fail11(`Gemini ${file.scope} mcpServers must be an object`, "MALFORMED_CONFIG");
+    for (const [name, entry] of Object.entries(settings.mcpServers)) validateEntry(entry, `Gemini ${file.scope} server ${name}`);
+  }
+  if (Object.hasOwn(settings, "mcp")) {
+    if (!plainObject3(settings.mcp)) fail11(`Gemini ${file.scope} mcp policy must be an object`, "MALFORMED_CONFIG");
+    for (const key of ["allowed", "excluded"]) {
+      if (Object.hasOwn(settings.mcp, key) && (!Array.isArray(settings.mcp[key]) || !settings.mcp[key].every((value) => typeof value === "string"))) {
+        fail11(`Gemini ${file.scope} mcp.${key} must be an array of strings`, "MALFORMED_CONFIG");
+      }
+    }
+  }
+  if (Object.hasOwn(settings, "admin")) {
+    if (!plainObject3(settings.admin)) fail11(`Gemini ${file.scope} admin policy must be an object`, "MALFORMED_CONFIG");
+    if (Object.hasOwn(settings.admin, "mcp")) {
+      const policy = settings.admin.mcp;
+      if (!plainObject3(policy)) fail11(`Gemini ${file.scope} admin.mcp must be an object`, "MALFORMED_CONFIG");
+      if (Object.hasOwn(policy, "enabled") && typeof policy.enabled !== "boolean") fail11(`Gemini ${file.scope} admin.mcp.enabled is invalid`, "MALFORMED_CONFIG");
+      for (const key of ["config", "requiredConfig"]) {
+        if (Object.hasOwn(policy, key) && !plainObject3(policy[key])) fail11(`Gemini ${file.scope} admin.mcp.${key} is invalid`, "MALFORMED_CONFIG");
+      }
+    }
+    if (Object.hasOwn(settings.admin, "extensions")) {
+      const policy = settings.admin.extensions;
+      if (!plainObject3(policy)) fail11(`Gemini ${file.scope} admin.extensions must be an object`, "MALFORMED_CONFIG");
+      if (Object.hasOwn(policy, "enabled") && typeof policy.enabled !== "boolean") {
+        fail11(`Gemini ${file.scope} admin.extensions.enabled is invalid`, "MALFORMED_CONFIG");
+      }
+    }
+  }
+  if (Object.hasOwn(settings, "security")) {
+    if (!plainObject3(settings.security)) fail11(`Gemini ${file.scope} security settings must be an object`, "MALFORMED_CONFIG");
+    if (Object.hasOwn(settings.security, "folderTrust")) {
+      const folderTrust = settings.security.folderTrust;
+      if (!plainObject3(folderTrust) || Object.hasOwn(folderTrust, "enabled") && typeof folderTrust.enabled !== "boolean") {
+        fail11(`Gemini ${file.scope} folder trust settings are invalid`, "MALFORMED_CONFIG");
+      }
+    }
+  }
+  return settings;
+}
+function cloneValue(value) {
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (plainObject3(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneValue(item)]));
+  return value;
+}
+function mergeSettings(target, source, path = []) {
+  if (!plainObject3(source)) return target;
+  for (const [key, value] of Object.entries(source)) {
+    const nextPath = [...path, key];
+    if (nextPath.join("/") === "admin/mcp") {
+      target[key] = cloneValue(value);
+    } else if (plainObject3(value) && plainObject3(target[key])) {
+      mergeSettings(target[key], value, nextPath);
+    } else {
+      target[key] = cloneValue(value);
+    }
+  }
+  return target;
+}
+function validateTrustedFolders(file) {
+  if (!file.exists) return {};
+  const rules = file.document.parsed_value;
+  if (!plainObject3(rules)) fail11("Gemini trustedFolders must contain an object", "MALFORMED_CONFIG");
+  const normalized = /* @__PURE__ */ new Map();
+  for (const [path, level] of Object.entries(rules)) {
+    if (!absolutePath4(path) || !["TRUST_FOLDER", "TRUST_PARENT", "DO_NOT_TRUST"].includes(level)) {
+      fail11("Gemini trustedFolders contains an invalid rule", "MALFORMED_CONFIG");
+    }
+    const identity = pathIdentity4(path);
+    if (normalized.has(identity)) fail11("Gemini trustedFolders contains ambiguous path aliases", "MALFORMED_CONFIG");
+    normalized.set(identity, { path: resolve6(path), level });
+  }
+  return Object.freeze(Object.fromEntries([...normalized.values()].map((rule) => [rule.path, rule.level])));
+}
+function workspaceTrust(context, baseSettings, trustedFolders) {
+  const forced = readWindowsEnvironmentValue(context.env ?? process.env, "GEMINI_CLI_TRUST_WORKSPACE");
+  if (forced === "true") return Object.freeze({ trusted: true, source: "env", matched_path: null, trust_level: null });
+  if (baseSettings.security?.folderTrust?.enabled === false) {
+    return Object.freeze({ trusted: true, source: "settings", matched_path: null, trust_level: null });
+  }
+  const workspace = pathIdentity4(context.workspaceRoot);
+  let selected2 = null;
+  for (const [rulePath, level] of Object.entries(trustedFolders)) {
+    const effectivePath = level === "TRUST_PARENT" ? dirname5(rulePath) : rulePath;
+    if (!contained4(effectivePath, workspace)) continue;
+    if (selected2 === null || rulePath.length > selected2.path.length) selected2 = { path: rulePath, level };
+  }
+  if (selected2 === null) return Object.freeze({ trusted: false, source: "trusted_folders", matched_path: null, trust_level: null });
+  return Object.freeze({
+    trusted: selected2.level !== "DO_NOT_TRUST",
+    source: "trusted_folders",
+    matched_path: selected2.path,
+    trust_level: selected2.level
+  });
+}
+function physicalMatches3(current, desired) {
+  return plainObject3(current) && current.command === desired.command && Array.isArray(current.args) && JSON.stringify(current.args) === JSON.stringify(desired.args);
+}
+function logicalTargetKeys(servers) {
+  if (!plainObject3(servers)) return [];
+  return Object.keys(servers).filter((key) => key.trim().toLowerCase() === "uemcp");
+}
+function physicalEvidence3(entry) {
+  if (!plainObject3(entry)) return null;
+  return Object.freeze({
+    command_sha256: Object.hasOwn(entry, "command") ? sha256Canonical(entry.command) : null,
+    args_count: Array.isArray(entry.args) ? entry.args.length : null,
+    args_sha256: Object.hasOwn(entry, "args") ? sha256Canonical(entry.args) : null
+  });
+}
+function environmentEvidence4(entry) {
+  if (!plainObject3(entry?.env)) return Object.freeze({ keys: Object.freeze([]), value_hashes: Object.freeze({}) });
+  const keys = Object.keys(entry.env).sort();
+  return Object.freeze({
+    keys: Object.freeze(keys),
+    value_hashes: Object.freeze(Object.fromEntries(keys.map((key) => [key, sha256Canonical(entry.env[key])])))
+  });
+}
+function reviewActions3(entry) {
+  const actions = [];
+  const keys = Object.keys(plainObject3(entry?.env) ? entry.env : {});
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
+  return actions;
+}
+function safeOwnershipEvidence3(value) {
+  if (!value) return null;
+  return Object.freeze({
+    ownership_key: value.ownership_key,
+    owned_paths: value.owned_paths,
+    owned_diff: Object.freeze(value.owned_diff.map((diff) => Object.freeze({
+      path: diff.path,
+      current_present: diff.current_present,
+      desired_present: diff.desired_present,
+      ...diff.current_present ? { current_sha256: sha256Canonical(diff.current_value) } : {},
+      ...diff.desired_present ? { desired_sha256: sha256Canonical(diff.desired_value) } : {}
+    }))),
+    client_diff: value.client_diff,
+    environment: value.environment,
+    state: value.state,
+    recommended_action: value.recommended_action,
+    ...value.stale_reason ? { stale_reason: value.stale_reason } : {}
+  });
+}
+async function settingsOccurrence({ source, desired, ledger, ownership = false }) {
+  if (!source.exists) return null;
+  const servers = getJsoncValue(source.document, ["mcpServers"]);
+  const targetKeys = logicalTargetKeys(servers);
+  if (targetKeys.length === 0) return null;
+  const entryName = targetKeys.includes("uemcp") ? "uemcp" : targetKeys[0];
+  const entry = servers[entryName];
+  const logicalNameConflict = targetKeys.length !== 1 || entryName !== "uemcp";
+  validateEntry(entry, `Gemini ${source.scope} ${entryName}`);
+  const owned = ownership && !logicalNameConflict ? await inspectOwnership({
+    ledger,
+    currentEntry: entry,
+    desiredEntry: desired,
+    location: { clientId: "gemini", configPath: source.path, scope: "user", entryName: "uemcp" }
+  }) : null;
+  const result2 = Object.freeze({
+    scope: source.scope,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    entry_name: entryName,
+    logical_name_conflict: logicalNameConflict,
+    matching: !logicalNameConflict && physicalMatches3(entry, desired),
+    physical_entry: physicalEvidence3(entry),
+    entry_sha256: sha256Canonical(entry),
+    config_sha256: sha256Bytes(source.bytes),
+    environment: environmentEvidence4(entry),
+    custom_launch: entry.cwd !== void 0 && entry.cwd !== null,
+    review_actions: Object.freeze(reviewActions3(entry)),
+    ownership: safeOwnershipEvidence3(owned)
+  });
+  PRIVATE_PROTOCOL_LAUNCH3.set(result2, Object.freeze({
+    env_overlay: Object.freeze({ ...plainObject3(entry.env) ? entry.env : {} }),
+    cwd: typeof entry.cwd === "string" ? entry.cwd : null
+  }));
+  return result2;
+}
+function ensureSlashPath(path) {
+  let result2 = path.replace(/\\/g, "/");
+  if (!result2.startsWith("/")) result2 = `/${result2}`;
+  if (!result2.endsWith("/")) result2 = `${result2}/`;
+  return result2;
+}
+function extensionRuleMatches(rule, workspaceRoot) {
+  const disabled = rule.startsWith("!");
+  let source = disabled ? rule.slice(1) : rule;
+  const firstWildcard = source.indexOf("*");
+  if (firstWildcard !== -1 && (firstWildcard !== source.length - 1 || source.indexOf("*", firstWildcard + 1) !== -1)) {
+    fail11("Gemini extension enablement rule is unsupported", "MALFORMED_CONFIG");
+  }
+  const includeSubdirs = source.endsWith("*");
+  if (includeSubdirs) source = source.slice(0, -1);
+  const base = ensureSlashPath(source);
+  const workspace = ensureSlashPath(workspaceRoot);
+  return { matched: includeSubdirs ? workspace.startsWith(base) : workspace === base, disabled };
+}
+function addExtensionRecords(tracker, count, limit) {
+  tracker.total += count;
+  if (tracker.total > limit) fail11("Gemini extension record count exceeds its limit", "INSPECTION_LIMIT_EXCEEDED");
+}
+function extensionEnabled(enablement, name, workspaceRoot, recordTracker, limits) {
+  const state = enablement[name];
+  if (state === void 0) return true;
+  if (!plainObject3(state) || !Array.isArray(state.overrides) || !state.overrides.every((value) => typeof value === "string")) {
+    fail11("Gemini extension enablement is malformed", "MALFORMED_CONFIG");
+  }
+  addExtensionRecords(recordTracker, state.overrides.length, limits.extensionRecords);
+  let enabled = true;
+  for (const rule of state.overrides) {
+    if (Buffer.byteLength(rule, "utf8") > limits.extensionRuleBytes) {
+      fail11("Gemini extension enablement rule exceeds its limit", "INSPECTION_LIMIT_EXCEEDED");
+    }
+    const result2 = extensionRuleMatches(rule, workspaceRoot);
+    if (result2.matched) enabled = !result2.disabled;
+  }
+  return enabled;
+}
+async function inspectExtensions({ fsImpl, captureFingerprint, locations, workspaceRoot, tracker, limits, desired, extensionsEnabled }) {
+  if (!extensionsEnabled) {
+    return { rows: [], files: [], evidence_status: "READY", extensions_enabled: false };
+  }
+  let enablementFile;
+  let enablement = {};
+  let evidenceStatus = "READY";
+  const recordTracker = { total: 0 };
+  try {
+    enablementFile = await readConfigFile3(fsImpl, captureFingerprint, locations.extensions_enablement, tracker, limits, {
+      strict: true,
+      singleLink: true
+    });
+    if (enablementFile.exists) {
+      enablement = enablementFile.document.parsed_value;
+      if (!plainObject3(enablement)) fail11("Gemini extension enablement must be an object", "MALFORMED_CONFIG");
+      addExtensionRecords(recordTracker, Object.keys(enablement).length, limits.extensionRecords);
+    }
+  } catch (error2) {
+    if (error2?.code !== "MALFORMED_CONFIG") throw error2;
+    evidenceStatus = "UNKNOWN";
+    enablementFile = error2?.details?.inspected_file ?? null;
+  }
+  let entries;
+  try {
+    const rootStat = await fsImpl.lstat(locations.extensions_root.path);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) fail11("Gemini extensions root is unsafe", "UNSAFE_CONFIG_PATH");
+    const realGlobal = await fsImpl.realpath(locations.global_dir);
+    const realRoot = await fsImpl.realpath(locations.extensions_root.path);
+    if (!contained4(realGlobal, realRoot)) fail11("Gemini extensions root escapes the global directory", "UNSAFE_CONFIG_PATH");
+    entries = await fsImpl.readdir(locations.extensions_root.path, { withFileTypes: true });
+  } catch (error2) {
+    if (error2?.code === "ENOENT" || error2?.code === "ENOTDIR") {
+      return { rows: [], files: enablementFile ? [enablementFile] : [], evidence_status: evidenceStatus, extensions_enabled: true };
+    }
+    throw error2;
+  }
+  addExtensionRecords(recordTracker, entries.length, limits.extensionRecords);
+  const rows = [];
+  const files = enablementFile ? [enablementFile] : [];
+  const seenExtensionNames = /* @__PURE__ */ new Set();
+  for (const directory of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
+    if (directory.name === "extension-enablement.json" || !directory.isDirectory() && !directory.isSymbolicLink()) continue;
+    if (directory.isSymbolicLink()) fail11("Gemini extension directory is linked", "UNSAFE_CONFIG_PATH");
+    const directoryPath = resolve6(locations.extensions_root.path, directory.name);
+    const realRoot = await fsImpl.realpath(locations.extensions_root.path);
+    const realDirectory = await fsImpl.realpath(directoryPath);
+    if (!contained4(realRoot, realDirectory)) fail11("Gemini extension directory escapes its root", "UNSAFE_CONFIG_PATH");
+    const manifestLocation = location3(join6(directoryPath, "gemini-extension.json"), locations.extensions_root.path, `extension:${directory.name}`);
+    try {
+      const manifest = await readConfigFile3(fsImpl, captureFingerprint, manifestLocation, tracker, limits, {
+        strict: true,
+        singleLink: true
+      });
+      files.push(manifest);
+      if (!manifest.exists) fail11("Gemini extension manifest is missing", "MALFORMED_CONFIG");
+      const root = manifest.document.parsed_value;
+      if (!plainObject3(root)) fail11("Gemini extension manifest must be an object", "MALFORMED_CONFIG");
+      if (typeof root.name !== "string" || root.name.trim() === "") fail11("Gemini extension name is invalid", "MALFORMED_CONFIG");
+      if (root.mcpServers !== void 0 && !plainObject3(root.mcpServers)) fail11("Gemini extension mcpServers is invalid", "MALFORMED_CONFIG");
+      if (seenExtensionNames.has(root.name)) evidenceStatus = "UNKNOWN";
+      seenExtensionNames.add(root.name);
+      for (const [name, server] of Object.entries(root.mcpServers ?? {})) {
+        validateEntry(server, `Gemini extension ${root.name} ${name}`);
+      }
+      const targetKeys = logicalTargetKeys(root.mcpServers);
+      const entryName = targetKeys.includes("uemcp") ? "uemcp" : targetKeys[0];
+      const entry = entryName === void 0 ? void 0 : root.mcpServers[entryName];
+      const logicalNameConflict = targetKeys.length !== 0 && (targetKeys.length !== 1 || entryName !== "uemcp");
+      let enabled = null;
+      try {
+        enabled = evidenceStatus === "READY" ? extensionEnabled(enablement, root.name, workspaceRoot, recordTracker, limits) : null;
+      } catch (error2) {
+        if (error2?.code !== "MALFORMED_CONFIG") throw error2;
+        evidenceStatus = "UNKNOWN";
+      }
+      const row = Object.freeze({
+        name: root.name,
+        path: manifest.path,
+        enabled,
+        declares_uemcp: targetKeys.length > 0,
+        entry_name: entryName ?? null,
+        logical_name_conflict: logicalNameConflict,
+        matching: entry === void 0 ? null : !logicalNameConflict && physicalMatches3(entry, desired),
+        physical_entry: entry === void 0 ? null : physicalEvidence3(entry),
+        entry_sha256: entry === void 0 ? null : sha256Canonical(entry),
+        environment: entry === void 0 ? environmentEvidence4(null) : environmentEvidence4(entry),
+        custom_launch: entry?.cwd !== void 0 && entry?.cwd !== null,
+        review_actions: Object.freeze(entry === void 0 ? [] : reviewActions3(entry))
+      });
+      if (entry !== void 0) {
+        PRIVATE_PROTOCOL_LAUNCH3.set(row, Object.freeze({
+          env_overlay: Object.freeze({ ...plainObject3(entry.env) ? entry.env : {} }),
+          cwd: typeof entry.cwd === "string" ? entry.cwd : null
+        }));
+      }
+      rows.push(row);
+    } catch (error2) {
+      if (error2?.code !== "MALFORMED_CONFIG") throw error2;
+      evidenceStatus = "UNKNOWN";
+      if (error2?.details?.inspected_file) files.push(error2.details.inspected_file);
+      rows.push(Object.freeze({
+        name: directory.name,
+        path: manifestLocation.path,
+        enabled: null,
+        declares_uemcp: null,
+        entry_name: null,
+        logical_name_conflict: null,
+        matching: null,
+        physical_entry: null,
+        entry_sha256: null
+      }));
+    }
+  }
+  return { rows, files, evidence_status: evidenceStatus, extensions_enabled: true };
+}
+function validateEnablement(file) {
+  if (!file.exists) return Object.freeze({ status: "READY", enabled: true, explicit: false });
+  const root = file.document.parsed_value;
+  for (const [key, value] of Object.entries(root)) {
+    if (key !== key.toLowerCase().trim() || !plainObject3(value) || !Object.hasOwn(value, "enabled") || typeof value.enabled !== "boolean") {
+      return Object.freeze({ status: "UNKNOWN", enabled: null, explicit: false });
+    }
+  }
+  const state = root.uemcp;
+  return Object.freeze({
+    status: "READY",
+    enabled: state?.enabled ?? true,
+    explicit: state !== void 0
+  });
+}
+function classifyPolicy2(settings, policyKnown) {
+  const normalize = (value) => value.toLowerCase().trim();
+  const admin = settings.admin?.mcp;
+  if (admin?.enabled === false) return "POLICY_BLOCKED";
+  if (plainObject3(admin?.config) && Object.keys(admin.config).length > 0) {
+    return "POLICY_BLOCKED";
+  }
+  if (plainObject3(admin?.requiredConfig) && Object.hasOwn(admin.requiredConfig, "uemcp")) return "POLICY_BLOCKED";
+  const allowed = settings.mcp?.allowed;
+  const excluded = settings.mcp?.excluded;
+  if (Array.isArray(allowed) && allowed.length > 0 && !allowed.map(normalize).includes("uemcp")) return "POLICY_BLOCKED";
+  if (Array.isArray(excluded) && excluded.map(normalize).includes("uemcp")) return "POLICY_BLOCKED";
+  return policyKnown ? "ALLOWED" : "POLICY_UNKNOWN";
+}
+function statusFromError3(error2) {
+  if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") return "INSPECTION_LIMIT_EXCEEDED";
+  if (error2?.code === "MALFORMED_CONFIG" || error2?.name === "ConfigFormatError") return "MALFORMED_CONFIG";
+  if (["UNSAFE_CONFIG_PATH", "UNSAFE_EVIDENCE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT"].includes(error2?.code)) return "UNSAFE_CONFIG_PATH";
+  throw error2;
+}
+function unique3(values) {
+  return [...new Set(values)];
+}
+function publicFileEvidence3(file) {
+  return Object.freeze({
+    path: file.path,
+    allowed_root: file.allowed_root,
+    scope: file.scope,
+    writable: file.writable,
+    exists: file.exists,
+    config_sha256: file.exists && file.bytes ? sha256Bytes(file.bytes) : file.fingerprint?.content_sha256 ?? null,
+    fingerprint: file.fingerprint
+  });
+}
+async function captureLaunchEvidence3(captureFingerprint, context, detection) {
+  const candidates = [
+    ["client_launch_command", detection.launch.command],
+    ...detection.launch.args_prefix.map((path, index) => [`client_launch_arg_${index}`, path]),
+    ["server_launch_command", context.descriptor.command],
+    ...context.descriptor.args.filter(absolutePath4).map((path, index) => [`server_launch_arg_${index}`, path])
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const [scope, path] of candidates) {
+    const key = pathIdentity4(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname5(path)], writable: false });
+    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+      fail11("Gemini launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
+    }
+    rows.push(Object.freeze({
+      path: resolve6(path),
+      allowed_root: resolve6(dirname5(path)),
+      scope,
+      writable: false,
+      exists: true,
+      config_sha256: fingerprint.content_sha256,
+      fingerprint
+    }));
+  }
+  return rows;
+}
+function ownershipLedgerStatus2(ownership) {
+  if (ownership?.stale_reason && LEDGER_FAILURES2.has(ownership.stale_reason)) return Object.freeze({ status: "INVALID", reason: ownership.stale_reason });
+  return Object.freeze({ status: "VALID", reason: null });
+}
+function remediationActions({ enablement, policy, enablementEvidence, detection }) {
+  if (enablement !== "DISABLED" && policy !== "POLICY_BLOCKED") return Object.freeze([]);
+  const canEnable = enablement === "DISABLED" && enablementEvidence.status === "READY" && enablementEvidence.enabled === false && detection.custom_home === false;
+  return Object.freeze([Object.freeze({
+    code: "CLIENT_ENABLEMENT_REQUIRED",
+    message: policy === "POLICY_BLOCKED" ? "Gemini policy blocks the UEMCP server; review the effective MCP policy." : "Gemini has the UEMCP server disabled; enable it in the active client context.",
+    command: canEnable ? Object.freeze({
+      executable: detection.launch.command,
+      args: Object.freeze([...detection.launch.args_prefix, "mcp", "enable", "uemcp"])
+    }) : null
+  })]);
+}
+function readOnlyRows3(files, writablePath = null) {
+  const writableKey = writablePath ? pathIdentity4(writablePath) : null;
+  return files.filter((file) => pathIdentity4(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+}
+async function writableFileEvidence3(captureFingerprint, file) {
+  const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
+  return { ...file, fingerprint };
+}
+function planningFailure3(error2) {
+  if (["READ_ONLY_TARGET", "UNSAFE_WRITABLE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT", "METADATA_INSPECTION_FAILED"].includes(error2?.code)) return error2.code;
+  throw error2;
+}
+function operationCommon3({ id, type, current, source, context, readOnly, desired, inspection }) {
+  return {
+    operation_id: id,
+    client_id: "gemini",
+    selected: true,
+    write_supported: true,
+    type,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    scope_kind: "user",
+    fingerprint: source.fingerprint,
+    current_config_sha256: source.config_sha256 ?? null,
+    current_entry_sha256: current?.entry_sha256 ?? null,
+    owned_paths: ["/command", "/args"],
+    shared_resource_id: null,
+    plan_digest: context.planDigest,
+    read_only_paths: readOnly,
+    desired_entry: desired,
+    json_path: ENTRY_PATH,
+    external_write: false,
+    verification_status: inspection.enablement === "DISABLED" ? "CLIENT_ENABLEMENT_REQUIRED" : null
+  };
+}
+function missing4(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+async function readCurrentDocument3(fsImpl, path, label) {
+  try {
+    const bytes = await fsImpl.readFile(path);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label, allowTrailingComma: false }) };
+  } catch (error2) {
+    if (!missing4(error2)) throw error2;
+    const bytes = Buffer.alloc(0);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label, allowTrailingComma: false }) };
+  }
+}
+function assertOperationPrecondition3(operation, bytes, entry) {
+  const configHash = bytes.length === 0 && operation.current_config_sha256 === null ? null : sha256Bytes(bytes);
+  if (configHash !== operation.current_config_sha256) fail11("Gemini config changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+  const entryHash = entry === void 0 ? null : sha256Canonical(entry);
+  if (entryHash !== operation.current_entry_sha256) fail11("Gemini entry changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+}
+function applyOwnedFields2(document, desired, replaceWhole) {
+  if (replaceWhole) return setJsoncValue(document, ENTRY_PATH, desired);
+  return setJsoncValues(document, ["command", "args"].map((key) => ({
+    path: [...ENTRY_PATH, key],
+    value: desired[key]
+  })));
+}
+function createGeminiAdapter({
+  fsImpl = defaultFs7,
+  runner = createProcessRunner(),
+  captureFingerprint = captureClientPathFingerprint,
+  limits: limitOverrides = {}
+} = {}) {
+  const limits = normalizedLimits3(limitOverrides);
+  async function detect(context) {
+    if (context?.launch?.client_id !== "gemini") fail11("Gemini launch evidence is missing", "INVALID_CLIENT_LAUNCH");
+    validateClientLaunchContract(context.launch);
+    const locations = resolveGeminiLocations(context);
+    return Object.freeze({
+      client_id: "gemini",
+      version: context.launch.version,
+      write_supported: context.launch.write_supported === true,
+      compatibility: context.launch.compatibility,
+      launch: context.launch,
+      custom_home: locations.custom_home,
+      locations
+    });
+  }
+  async function inspect(context, detection) {
+    if (detection?.client_id !== "gemini") fail11("Gemini detection is invalid", "INVALID_CLIENT_DETECTION");
+    const desired = physicalGeminiEntry(context.descriptor);
+    try {
+      const tracker = { total: 0 };
+      const systemDefaults = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.system_defaults, tracker, limits);
+      const user = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.user, tracker, limits);
+      const systemOverride = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.system_override, tracker, limits);
+      const trustedFoldersFile = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.trusted_folders, tracker, limits);
+      const enablementFile = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.enablement, tracker, limits, {
+        strict: true,
+        singleLink: true
+      });
+      const baseValues = {
+        system_defaults: validateSettings(systemDefaults),
+        user: validateSettings(user),
+        system_override: validateSettings(systemOverride)
+      };
+      const baseSettings = {};
+      mergeSettings(baseSettings, baseValues.system_defaults);
+      mergeSettings(baseSettings, baseValues.user);
+      mergeSettings(baseSettings, baseValues.system_override);
+      const workspaceTrustEvidence = workspaceTrust(context, baseSettings, validateTrustedFolders(trustedFoldersFile));
+      const project = await readConfigFile3(fsImpl, captureFingerprint, detection.locations.project, tracker, limits, {
+        parse: workspaceTrustEvidence.trusted
+      });
+      const settingsFiles = [systemDefaults, user, project, systemOverride];
+      const values = {
+        ...baseValues,
+        project: workspaceTrustEvidence.trusted ? validateSettings(project) : {}
+      };
+      const merged = {};
+      mergeSettings(merged, values.system_defaults);
+      mergeSettings(merged, values.user);
+      if (workspaceTrustEvidence.trusted) mergeSettings(merged, values.project);
+      mergeSettings(merged, values.system_override);
+      const extensionInspection = await inspectExtensions({
+        fsImpl,
+        captureFingerprint,
+        locations: detection.locations,
+        workspaceRoot: context.workspaceRoot,
+        tracker,
+        limits,
+        desired,
+        extensionsEnabled: merged.admin?.extensions?.enabled !== false
+      });
+      const launchEvidence = await captureLaunchEvidence3(captureFingerprint, context, detection);
+      const occurrences = [];
+      for (const source of settingsFiles) {
+        if (source.scope === "project" && !workspaceTrustEvidence.trusted) continue;
+        const row = await settingsOccurrence({
+          source,
+          desired,
+          ledger: context.ownershipLedger,
+          ownership: source.scope === "user"
+        });
+        if (row) occurrences.push(row);
+      }
+      for (const extension of extensionInspection.rows) {
+        if (extension.declares_uemcp !== true || extension.enabled !== true) continue;
+        const occurrence3 = Object.freeze({
+          scope: "extension",
+          path: extension.path,
+          matching: extension.matching,
+          extension_name: extension.name,
+          physical_entry: extension.physical_entry,
+          entry_sha256: extension.entry_sha256,
+          entry_name: extension.entry_name,
+          logical_name_conflict: extension.logical_name_conflict,
+          environment: extension.environment,
+          custom_launch: extension.custom_launch,
+          review_actions: extension.review_actions,
+          ownership: null
+        });
+        const privateLaunch = PRIVATE_PROTOCOL_LAUNCH3.get(extension);
+        if (privateLaunch) PRIVATE_PROTOCOL_LAUNCH3.set(occurrence3, privateLaunch);
+        occurrences.push(occurrence3);
+      }
+      const activeSettingsEntry = merged.mcpServers?.uemcp;
+      if (activeSettingsEntry !== void 0) validateEntry(activeSettingsEntry, "Gemini effective uemcp", { absoluteCommand: true });
+      const activeExtensions = extensionInspection.rows.filter((row) => row.enabled === true && row.declares_uemcp === true);
+      const highestSettingsOccurrence = [...occurrences].reverse().find((row) => row.scope !== "extension") ?? null;
+      const logicalNameConflict = occurrences.some((row) => row.logical_name_conflict === true);
+      let effective = null;
+      let registration;
+      if (logicalNameConflict) {
+        const conflict = [...occurrences].reverse().find((row) => row.logical_name_conflict === true);
+        effective = Object.freeze({ scope: conflict?.scope ?? "settings", path: conflict?.path ?? null, matching: false });
+        registration = "CONFLICT";
+      } else if (activeSettingsEntry !== void 0) {
+        effective = Object.freeze({
+          scope: highestSettingsOccurrence?.scope ?? "settings",
+          path: highestSettingsOccurrence?.path ?? null,
+          matching: physicalMatches3(activeSettingsEntry, desired)
+        });
+        registration = effective.matching ? "CONFIGURED" : "CONFLICT";
+      } else if (extensionInspection.evidence_status !== "READY") {
+        registration = "UNKNOWN";
+      } else if (activeExtensions.length === 0) {
+        registration = "ABSENT";
+      } else if (activeExtensions.length === 1) {
+        effective = Object.freeze({
+          scope: "extension",
+          path: activeExtensions[0].path,
+          matching: activeExtensions[0].matching
+        });
+        registration = effective.matching ? "CONFIGURED" : "CONFLICT";
+      } else {
+        effective = Object.freeze({ scope: "extension", path: null, matching: false });
+        registration = "CONFLICT";
+      }
+      if (extensionInspection.evidence_status !== "READY") registration = "MALFORMED_CONFIG";
+      let effectiveProtocolLaunch = Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+      if (!logicalNameConflict && activeSettingsEntry !== void 0) {
+        effectiveProtocolLaunch = Object.freeze({
+          env_overlay: Object.freeze({ ...plainObject3(activeSettingsEntry.env) ? activeSettingsEntry.env : {} }),
+          cwd: typeof activeSettingsEntry.cwd === "string" ? activeSettingsEntry.cwd : null
+        });
+      } else if (effective?.scope === "extension" && activeExtensions.length === 1) {
+        effectiveProtocolLaunch = PRIVATE_PROTOCOL_LAUNCH3.get(activeExtensions[0]) ?? effectiveProtocolLaunch;
+      }
+      const policy = extensionInspection.evidence_status === "READY" ? classifyPolicy2(merged, true) : "POLICY_UNKNOWN";
+      const enablementEvidence = validateEnablement(enablementFile);
+      let enablement = registration === "CONFIGURED" ? "ENABLED" : "UNKNOWN";
+      if (policy === "POLICY_BLOCKED") enablement = "POLICY_BLOCKED";
+      else if (policy === "POLICY_UNKNOWN" || enablementEvidence.status !== "READY") enablement = "UNKNOWN";
+      else if (registration === "CONFIGURED" && enablementEvidence.enabled === false) enablement = "DISABLED";
+      const native = await inspectNative3(runner, context, detection);
+      let activation = native.activation;
+      if (native.status === "DISABLED") enablement = "DISABLED";
+      if (native.status === "BLOCKED") enablement = "POLICY_BLOCKED";
+      if (native.status === "DISCONNECTED" && !workspaceTrustEvidence.trusted && registration === "CONFIGURED") activation = "PENDING_TRUST";
+      const actions = occurrences.flatMap((row) => row.review_actions ?? []);
+      if (enablement === "DISABLED" || enablement === "POLICY_BLOCKED") actions.push("CLIENT_ENABLEMENT_REQUIRED");
+      if (activation === "PENDING_TRUST") actions.push("PENDING_TRUST");
+      if (policy === "POLICY_UNKNOWN" || enablementEvidence.status !== "READY") actions.push("POLICY_UNKNOWN");
+      if (registration === "CONFLICT") actions.push("CONFLICT");
+      if (registration === "MALFORMED_CONFIG") actions.push("MALFORMED_CONFIG");
+      let ownership = occurrences.find((row) => row.scope === "user")?.ownership ?? null;
+      if (!ownership) {
+        ownership = safeOwnershipEvidence3(await inspectOwnership({
+          ledger: context.ownershipLedger,
+          currentEntry: desired,
+          desiredEntry: desired,
+          location: { clientId: "gemini", configPath: user.path, scope: "user", entryName: "uemcp" }
+        }));
+      }
+      const sourceFiles = [
+        ...settingsFiles,
+        trustedFoldersFile,
+        enablementFile,
+        ...extensionInspection.files
+      ];
+      const result2 = Object.freeze({
+        client_id: "gemini",
+        registration,
+        enablement,
+        activation,
+        policy,
+        actions: Object.freeze(unique3(actions)),
+        remediation_actions: remediationActions({ enablement, policy, enablementEvidence, detection }),
+        occurrences: Object.freeze(occurrences),
+        extensions: Object.freeze(extensionInspection.rows),
+        extensions_enabled: extensionInspection.extensions_enabled,
+        logical_name_conflict: logicalNameConflict,
+        extension_evidence: extensionInspection.evidence_status,
+        enablement_evidence: enablementEvidence,
+        workspace_trust: workspaceTrustEvidence,
+        ignored_project: !workspaceTrustEvidence.trusted && project.exists ? Object.freeze({ path: project.path, reason: "UNTRUSTED_PROJECT" }) : null,
+        effective,
+        native,
+        files: Object.freeze([...sourceFiles.map(publicFileEvidence3), ...launchEvidence]),
+        ownership_ledger: ownershipLedgerStatus2(ownership),
+        desired
+      });
+      PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.set(result2, effectiveProtocolLaunch);
+      return result2;
+    } catch (error2) {
+      const status = statusFromError3(error2);
+      return Object.freeze({
+        client_id: "gemini",
+        registration: status,
+        enablement: "UNKNOWN",
+        activation: "UNKNOWN",
+        policy: "POLICY_UNKNOWN",
+        actions: Object.freeze([status]),
+        remediation_actions: Object.freeze([]),
+        occurrences: Object.freeze([]),
+        extensions: Object.freeze([]),
+        extensions_enabled: null,
+        logical_name_conflict: false,
+        extension_evidence: "UNKNOWN",
+        enablement_evidence: Object.freeze({ status: "UNKNOWN", enabled: null, explicit: false }),
+        workspace_trust: Object.freeze({ trusted: false, source: "unknown", matched_path: null, trust_level: null }),
+        ignored_project: null,
+        effective: null,
+        native: Object.freeze({ status: "NOT_CHECKED", activation: "UNKNOWN", enablement: "UNKNOWN" }),
+        files: Object.freeze([]),
+        ownership_ledger: Object.freeze({ status: "UNKNOWN", reason: null }),
+        desired
+      });
+    }
+  }
+  async function plan(context, inspection, descriptor) {
+    if (inspection?.client_id !== "gemini") fail11("Gemini inspection is invalid", "INVALID_CLIENT_INSPECTION");
+    if (typeof context.planDigest !== "string" || !/^[0-9a-f]{64}$/.test(context.planDigest)) fail11("Gemini plan digest is invalid", "INVALID_PLAN_DIGEST");
+    const desired = physicalGeminiEntry(descriptor);
+    if (["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(inspection.registration)) {
+      return Object.freeze({ client_id: "gemini", status: inspection.registration, operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (!context.launch.write_supported) {
+      return Object.freeze({ client_id: "gemini", status: "UNSUPPORTED_VERSION", operations: Object.freeze([]), actions: Object.freeze(["UNSUPPORTED_VERSION"]) });
+    }
+    if (inspection.extension_evidence !== "READY" || inspection.enablement_evidence.status !== "READY") {
+      return Object.freeze({ client_id: "gemini", status: "POLICY_UNKNOWN", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (inspection.policy === "POLICY_BLOCKED") {
+      return Object.freeze({ client_id: "gemini", status: "POLICY_BLOCKED", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (inspection.ownership_ledger?.status === "INVALID") {
+      return Object.freeze({ client_id: "gemini", status: "OWNERSHIP_LEDGER_INVALID", operations: Object.freeze([]), actions: Object.freeze(unique3([...inspection.actions, "OWNERSHIP_LEDGER_INVALID"])) });
+    }
+    if (inspection.logical_name_conflict === true) {
+      return Object.freeze({ client_id: "gemini", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique3([...inspection.actions, "CONFLICT"])) });
+    }
+    const effectiveScope = inspection.effective?.scope;
+    if (["project", "system_override"].includes(effectiveScope)) {
+      return Object.freeze({
+        client_id: "gemini",
+        status: inspection.effective.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique3([...inspection.actions, inspection.effective.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    if (effectiveScope === "extension" && inspection.registration === "CONFIGURED") {
+      return Object.freeze({ client_id: "gemini", status: "NO_OP", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    const extensionConflict = effectiveScope === "extension" && inspection.registration === "CONFLICT";
+    if (extensionConflict && !clientDecision(context, "shadow_gemini_extension")) {
+      return Object.freeze({ client_id: "gemini", status: "CONFLICT", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    const files = Object.fromEntries(inspection.files.map((file) => [file.scope, file]));
+    const userFile = files.user;
+    const user = inspection.occurrences.find((row) => row.scope === "user");
+    let type;
+    if (!user) {
+      if (inspection.registration === "CONFIGURED" && effectiveScope === "system_defaults") {
+        return Object.freeze({ client_id: "gemini", status: "NO_OP", operations: Object.freeze([]), actions: inspection.actions });
+      }
+      type = "CREATE_ENTRY";
+    } else if (user.matching && user.ownership?.recommended_action === "ADOPT_EXACT_ENTRY") type = "ADOPT_EXACT_ENTRY";
+    else if (user.matching) return Object.freeze({ client_id: "gemini", status: "NO_OP", operations: Object.freeze([]), actions: inspection.actions });
+    else if (user.ownership?.state === "owned_matching" || approvedOwnedReplacement(context, user.ownership)) type = "UPDATE_OWNED_FIELDS";
+    else return Object.freeze({ client_id: "gemini", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique3([...inspection.actions, "CONFLICT"])) });
+    const providerWrite = type !== "ADOPT_EXACT_ENTRY";
+    let source = userFile;
+    try {
+      if (providerWrite) source = await writableFileEvidence3(captureFingerprint, userFile);
+    } catch (error2) {
+      const status2 = planningFailure3(error2);
+      return Object.freeze({ client_id: "gemini", status: status2, operations: Object.freeze([]), actions: Object.freeze(unique3([...inspection.actions, status2])) });
+    }
+    const readOnly = readOnlyRows3(inspection.files, providerWrite ? source.path : null);
+    const common = operationCommon3({
+      id: type === "CREATE_ENTRY" ? "gemini-create-user-uemcp" : type === "ADOPT_EXACT_ENTRY" ? "gemini-adopt-user-uemcp" : "gemini-update-user-uemcp",
+      type,
+      current: user,
+      source,
+      context,
+      readOnly,
+      desired,
+      inspection
+    });
+    let operation = common;
+    if (type === "ADOPT_EXACT_ENTRY") {
+      operation = Object.freeze({
+        ...common,
+        ledger_only: true,
+        adoption: Object.freeze({
+          operation_id: common.operation_id,
+          type: "ADOPT_EXACT_ENTRY",
+          ownership_key: ownershipKey({ clientId: "gemini", configPath: source.path, scope: "user", entryName: "uemcp" }),
+          current_entry_sha256: user.entry_sha256,
+          current_config_sha256: user.config_sha256,
+          plan_digest: context.planDigest
+        })
+      });
+    } else {
+      operation = Object.freeze({
+        ...common,
+        explicit_owned_replacement: type === "UPDATE_OWNED_FIELDS" && approvedOwnedReplacement(context, user.ownership),
+        shadows_extension: extensionConflict
+      });
+    }
+    const status = type === "CREATE_ENTRY" ? "CREATE" : type === "ADOPT_EXACT_ENTRY" ? "ADOPT" : "UPDATE";
+    return Object.freeze({ client_id: "gemini", status, operations: Object.freeze([operation]), actions: inspection.actions });
+  }
+  async function snapshot(context, operations) {
+    const writable = [];
+    const readOnly = /* @__PURE__ */ new Map();
+    for (const operation of operations) {
+      if (operation.ledger_only !== true) {
+        writable.push({
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope_kind: operation.scope_kind,
+          fingerprint: operation.fingerprint,
+          owned_paths: operation.owned_paths,
+          shared_resource_id: operation.shared_resource_id
+        });
+      } else {
+        readOnly.set(pathIdentity4(operation.path), {
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          fingerprint: operation.fingerprint
+        });
+      }
+      for (const row of operation.read_only_paths ?? []) {
+        if (!writable.some((candidate) => pathIdentity4(candidate.path) === pathIdentity4(row.path))) readOnly.set(pathIdentity4(row.path), row);
+      }
+    }
+    return Object.freeze({ writable_paths: writable, read_only_paths: [...readOnly.values()] });
+  }
+  async function apply(context, operations) {
+    if (!context.transaction?.writeFile || !context.transaction?.ownershipLedger) fail11("Gemini apply requires the transaction capability", "INVALID_TRANSACTION_CAPABILITY");
+    for (const operation of operations) {
+      if (operation.client_id !== "gemini" || operation.write_supported !== true || operation.selected !== true) {
+        fail11("Gemini apply received an unapproved operation", "UNAPPROVED_OPERATION_SET");
+      }
+      const current = await readCurrentDocument3(fsImpl, operation.path, "Gemini user config");
+      const entry = getJsoncValue(current.document, ENTRY_PATH);
+      assertOperationPrecondition3(operation, current.bytes, entry);
+      if (operation.type === "ADOPT_EXACT_ENTRY") {
+        await adoptExactEntry({
+          ledger: context.transaction.ownershipLedger,
+          location: { clientId: "gemini", configPath: operation.path, scope: "user", entryName: "uemcp" },
+          currentEntry: entry,
+          desiredEntry: operation.desired_entry,
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
+        });
+        continue;
+      }
+      if (!["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(operation.type)) fail11("Gemini operation type is unsupported", "UNAPPROVED_OPERATION_SET");
+      const edit = applyOwnedFields2(current.document, operation.desired_entry, operation.type === "CREATE_ENTRY");
+      if (!edit?.changed) fail11("Gemini targeted edit produced no change", "TRANSACTION_PRECONDITION_CHANGED");
+      const parsed = parseJsoncDocument(edit.after_bytes, { pathLabel: "Gemini updated user config", allowTrailingComma: false });
+      const afterEntry = getJsoncValue(parsed, ENTRY_PATH);
+      if (!physicalMatches3(afterEntry, operation.desired_entry)) fail11("Gemini write did not produce the canonical owned projection", "STRUCTURAL_VERIFY_FAILED");
+      const written = await context.transaction.writeFile(operation.path, edit.after_bytes, {
+        parse: (bytes) => parseJsoncDocument(bytes, { pathLabel: "Gemini updated user config", allowTrailingComma: false })
+      });
+      await recordOwnedWrite({
+        ledger: context.transaction.ownershipLedger,
+        location: { clientId: "gemini", configPath: operation.path, scope: "user", entryName: "uemcp" },
+        beforeEntry: entry ?? null,
+        afterEntry,
+        ownedPaths: ownedPathsForClient("gemini", afterEntry),
+        appliedConfigHash: written.content_sha256,
+        planDigest: context.planDigest
+      });
+    }
+    return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
+  }
+  async function verify(context, operations) {
+    for (const operation of operations) {
+      const current = await readCurrentDocument3(fsImpl, operation.path, "Gemini verification config");
+      const entry = getJsoncValue(current.document, ENTRY_PATH);
+      if (!physicalMatches3(entry, operation.desired_entry)) fail11("Gemini user entry does not match the canonical descriptor", "STRUCTURAL_VERIFY_FAILED");
+    }
+    const native = await inspectNative3(runner, context, await detect(context));
+    const operationStatus = operations.find((row) => row.verification_status)?.verification_status ?? null;
+    if (operationStatus) return Object.freeze({ status: operationStatus, native });
+    if (native.status === "CONNECTED") return Object.freeze({ status: "READY", native });
+    if (native.status === "DISABLED" || native.status === "BLOCKED") return Object.freeze({ status: "CLIENT_ENABLEMENT_REQUIRED", native });
+    return Object.freeze({ status: "POLICY_UNKNOWN", native });
+  }
+  async function rollback(context, records) {
+    return Object.freeze({ status: "delegated", count: records.length });
+  }
+  function protocolLaunch(context, inspection) {
+    return PRIVATE_EFFECTIVE_PROTOCOL_LAUNCH.get(inspection) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+  return Object.freeze({ id: "gemini", detect, inspect, plan, snapshot, apply, verify, protocolLaunch, rollback });
+}
+
+// server/deployment/adapters/vscode.mjs
+import * as defaultFs8 from "node:fs/promises";
+import {
+  dirname as dirname6,
+  isAbsolute as isAbsolute9,
+  join as join7,
+  resolve as resolve7,
+  win32 as win329
+} from "node:path";
+var DEFAULT_LIMITS4 = Object.freeze({
+  fileBytes: 16 * 1024 * 1024,
+  aggregateBytes: 64 * 1024 * 1024,
+  metadataBytes: 4 * 1024 * 1024,
+  profileRecords: 256
+});
+var ENTRY_PATH2 = Object.freeze(["servers", "uemcp"]);
+var STATIC_ACTIONS = Object.freeze(["RESTART_REQUIRED", "CLIENT_ENABLEMENT_REVIEW_REQUIRED"]);
+var LEDGER_FAILURES3 = /* @__PURE__ */ new Set([
+  "ledger_storage_invalid",
+  "ledger_read_failed",
+  "ledger_parse_failed",
+  "ledger_schema_invalid",
+  "ledger_self_hash_mismatch",
+  "ledger_record_invalid"
+]);
+var PRIVATE_PROTOCOL_LAUNCH4 = /* @__PURE__ */ new WeakMap();
+var VSCODE_NATIVE_MUTATION_CHARACTERIZATION = Object.freeze({
+  version: "1.128.1",
+  profile_can_create_missing: true,
+  add_mcp_profile_writes_default: true,
+  same_name_replaces_full_object: true,
+  mutating_cli_allowed: false
+});
+var VsCodeAdapterError = class extends Error {
+  constructor(message, code = "VSCODE_ADAPTER_FAILED", details = {}) {
+    super(message);
+    this.name = "VsCodeAdapterError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail12(message, code = "VSCODE_ADAPTER_FAILED", details = {}) {
+  throw new VsCodeAdapterError(message, code, details);
+}
+function absolutePath5(value) {
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute9(value) || win329.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+}
+function plainObject4(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+function unique4(values) {
+  return [...new Set(values)];
+}
+function normalizedLimits4(input = {}) {
+  const limits = { ...DEFAULT_LIMITS4, ...input };
+  if (!Number.isSafeInteger(limits.fileBytes) || limits.fileBytes <= 0 || !Number.isSafeInteger(limits.aggregateBytes) || limits.aggregateBytes < limits.fileBytes || !Number.isSafeInteger(limits.metadataBytes) || limits.metadataBytes <= 0 || limits.metadataBytes > limits.fileBytes || !Number.isSafeInteger(limits.profileRecords) || limits.profileRecords <= 0) {
+    fail12("VS Code inspection limits are invalid", "INVALID_INSPECTION_LIMIT");
+  }
+  return Object.freeze(limits);
+}
+function location4(path, allowedRoot, scope, writable = false) {
+  return Object.freeze({
+    path: resolve7(path),
+    allowed_root: resolve7(allowedRoot),
+    scope,
+    writable
+  });
+}
+function resolveVsCodeLocations(context = {}) {
+  if (!absolutePath5(context.workspaceRoot)) fail12("VS Code inspection requires an absolute workspace root", "INVALID_CLIENT_LOCATION");
+  const env = context.env ?? process.env;
+  const appData = readWindowsEnvironmentValue(env, "APPDATA");
+  const configuredRoot = context.vscodeUserDataRoot;
+  if (configuredRoot !== void 0 && configuredRoot !== null && configuredRoot !== "" && !absolutePath5(configuredRoot)) {
+    fail12("VS Code user-data root must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
+  }
+  if (!configuredRoot && !absolutePath5(appData)) fail12("VS Code inspection requires an absolute APPDATA", "INVALID_CLIENT_LOCATION");
+  const userDataRoot = resolve7(configuredRoot || join7(appData, "Code"));
+  const userWriteRoot = resolve7(configuredRoot ? dirname6(userDataRoot) : appData);
+  const userRoot = join7(userDataRoot, "User");
+  const profilesRoot = join7(userRoot, "profiles");
+  return Object.freeze({
+    user_data_root: userDataRoot,
+    user_root: resolve7(userRoot),
+    profiles_root: resolve7(profilesRoot),
+    default_user: location4(join7(userRoot, "mcp.json"), userWriteRoot, "user:default", true),
+    profile_metadata: location4(join7(userRoot, "globalStorage", "storage.json"), userRoot, "profile_metadata"),
+    workspace: location4(join7(context.workspaceRoot, ".vscode", "mcp.json"), context.workspaceRoot, "workspace")
+  });
+}
+function physicalVsCodeEntry(descriptor) {
+  if (!descriptor || descriptor.name !== "uemcp" || descriptor.transport !== "stdio" || !absolutePath5(descriptor.command) || !Array.isArray(descriptor.args) || !descriptor.args.every((value) => typeof value === "string")) {
+    fail12("VS Code desired descriptor is invalid", "INVALID_DESCRIPTOR");
+  }
+  return Object.freeze({
+    type: "stdio",
+    command: resolve7(descriptor.command),
+    args: Object.freeze([...descriptor.args])
+  });
+}
+function strictMetadataDocument(bytes, { pathLabel, maxBytes }) {
+  const document = parseJsoncDocument(bytes, { pathLabel, maxBytes, allowTrailingComma: false });
+  let value;
+  try {
+    value = JSON.parse(document.text);
+  } catch {
+    fail12("VS Code profile metadata must contain strict JSON", "MALFORMED_CONFIG");
+  }
+  if (!plainObject4(value)) fail12("VS Code profile metadata must contain an object", "MALFORMED_CONFIG");
+  return Object.freeze({ ...document, parsed_value: value, strict_json: true });
+}
+async function readConfigFile4(fsImpl, captureFingerprint, entry, tracker, limits, { metadata = false } = {}) {
+  const maxBytes = metadata ? limits.metadataBytes : limits.fileBytes;
+  return readBoundedConfigFile({
+    fsImpl,
+    captureFingerprint,
+    entry,
+    tracker,
+    limits: { ...limits, fileBytes: maxBytes },
+    parseBytes: (bytes) => metadata ? strictMetadataDocument(bytes, { pathLabel: "VS Code profile metadata", maxBytes }) : parseJsoncDocument(bytes, { pathLabel: `VS Code ${entry.scope}`, maxBytes })
+  });
+}
+function validateEntry2(entry, label) {
+  if (!plainObject4(entry)) fail12(`${label} must be an object`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "type") && typeof entry.type !== "string") fail12(`${label} type is invalid`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "command") && typeof entry.command !== "string") fail12(`${label} command is invalid`, "MALFORMED_CONFIG");
+  if (Object.hasOwn(entry, "args") && (!Array.isArray(entry.args) || !entry.args.every((value) => typeof value === "string"))) {
+    fail12(`${label} args are invalid`, "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "env") && (!plainObject4(entry.env) || !Object.values(entry.env).every((value) => typeof value === "string"))) {
+    fail12(`${label} environment is invalid`, "MALFORMED_CONFIG");
+  }
+  if (Object.hasOwn(entry, "cwd") && entry.cwd !== null && typeof entry.cwd !== "string") fail12(`${label} cwd is invalid`, "MALFORMED_CONFIG");
+}
+function validateConfig(file) {
+  if (!file.exists) return;
+  const root = file.document.parsed_value;
+  if (!plainObject4(root)) fail12(`VS Code ${file.scope} config must be an object`, "MALFORMED_CONFIG");
+  if (root.servers !== void 0 && !plainObject4(root.servers)) fail12(`VS Code ${file.scope} servers must be an object`, "MALFORMED_CONFIG");
+  for (const [name, entry] of Object.entries(root.servers ?? {})) validateEntry2(entry, `VS Code ${file.scope} server ${name}`);
+}
+function physicalMatches4(current, desired) {
+  return plainObject4(current) && current.type === desired.type && current.command === desired.command && Array.isArray(current.args) && JSON.stringify(current.args) === JSON.stringify(desired.args);
+}
+function environmentEvidence5(entry) {
+  if (!plainObject4(entry?.env)) return Object.freeze({ keys: Object.freeze([]), value_hashes: Object.freeze({}) });
+  const keys = Object.keys(entry.env).sort();
+  return Object.freeze({
+    keys: Object.freeze(keys),
+    value_hashes: Object.freeze(Object.fromEntries(keys.map((key) => [key, sha256Canonical(entry.env[key])])))
+  });
+}
+function reviewActions4(entry) {
+  const actions = [];
+  const keys = Object.keys(plainObject4(entry?.env) ? entry.env : {});
+  if (keys.some(isSensitiveClientEnvironmentName)) actions.push("CUSTOM_ENV_REVIEW_REQUIRED");
+  if (entry?.cwd !== void 0 && entry.cwd !== null) actions.push("CUSTOM_LAUNCH_REVIEW_REQUIRED");
+  return actions;
+}
+function physicalEvidence4(entry) {
+  if (!plainObject4(entry)) return null;
+  return Object.freeze({
+    type: Object.hasOwn(entry, "type") ? entry.type : null,
+    command_sha256: Object.hasOwn(entry, "command") ? sha256Canonical(entry.command) : null,
+    args_count: Array.isArray(entry.args) ? entry.args.length : null,
+    args_sha256: Object.hasOwn(entry, "args") ? sha256Canonical(entry.args) : null
+  });
+}
+function safeOwnershipEvidence4(value) {
+  if (!value) return null;
+  return Object.freeze({
+    ownership_key: value.ownership_key,
+    owned_paths: value.owned_paths,
+    owned_diff: Object.freeze(value.owned_diff.map((diff) => Object.freeze({
+      path: diff.path,
+      current_present: diff.current_present,
+      desired_present: diff.desired_present,
+      ...diff.current_present ? { current_sha256: sha256Canonical(diff.current_value) } : {},
+      ...diff.desired_present ? { desired_sha256: sha256Canonical(diff.desired_value) } : {}
+    }))),
+    client_diff: value.client_diff,
+    environment: value.environment,
+    state: value.state,
+    recommended_action: value.recommended_action,
+    ...value.stale_reason ? { stale_reason: value.stale_reason } : {}
+  });
+}
+function ownershipLedgerStatus3(ownership) {
+  if (ownership?.stale_reason && LEDGER_FAILURES3.has(ownership.stale_reason)) {
+    return Object.freeze({ status: "INVALID", reason: ownership.stale_reason });
+  }
+  return Object.freeze({ status: "VALID", reason: null });
+}
+async function occurrence2(source, desired, {
+  active = true,
+  profileName = null,
+  requestedContexts = [],
+  ownership = false,
+  ledger = null
+} = {}) {
+  if (!source.exists) return null;
+  const entry = getJsoncValue(source.document, ENTRY_PATH2);
+  if (entry === void 0) return null;
+  validateEntry2(entry, `VS Code ${source.scope} uemcp`);
+  const owned = ownership ? await inspectOwnership({
+    ledger,
+    currentEntry: entry,
+    desiredEntry: desired,
+    location: { clientId: "vscode", configPath: source.path, scope: source.scope, entryName: "uemcp" }
+  }) : null;
+  const result2 = Object.freeze({
+    scope: source.scope,
+    path: source.path,
+    allowed_root: source.allowed_root,
+    active,
+    profile_name: profileName,
+    requested_contexts: Object.freeze([...requestedContexts]),
+    matching: physicalMatches4(entry, desired),
+    physical_entry: physicalEvidence4(entry),
+    entry_sha256: sha256Canonical(entry),
+    config_sha256: sha256Bytes(source.bytes),
+    environment: environmentEvidence5(entry),
+    custom_launch: entry.cwd !== void 0 && entry.cwd !== null,
+    review_actions: Object.freeze(reviewActions4(entry)),
+    ownership: safeOwnershipEvidence4(owned)
+  });
+  PRIVATE_PROTOCOL_LAUNCH4.set(result2, Object.freeze({
+    env_overlay: Object.freeze({ ...plainObject4(entry.env) ? entry.env : {} }),
+    cwd: typeof entry.cwd === "string" ? entry.cwd : null
+  }));
+  return result2;
+}
+function publicFileEvidence4(file) {
+  return Object.freeze({
+    path: file.path,
+    allowed_root: file.allowed_root,
+    scope: file.scope,
+    writable: file.writable,
+    exists: file.exists,
+    config_sha256: file.exists && file.bytes ? sha256Bytes(file.bytes) : file.fingerprint?.content_sha256 ?? null,
+    fingerprint: file.fingerprint
+  });
+}
+function statusFromError4(error2) {
+  if (error2?.code === "INSPECTION_LIMIT_EXCEEDED") return "INSPECTION_LIMIT_EXCEEDED";
+  if (error2?.code === "MALFORMED_CONFIG" || error2?.name === "ConfigFormatError") return "MALFORMED_CONFIG";
+  if (["UNSAFE_CONFIG_PATH", "UNSAFE_EVIDENCE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT"].includes(error2?.code)) return "UNSAFE_CONFIG_PATH";
+  throw error2;
+}
+function safeProfileLocation(value) {
+  if (typeof value !== "string" || value === "" || value !== value.trim() || value === "." || value === ".." || /[<>:"/\\|?*\x00-\x1f]/.test(value) || /[. ]$/.test(value) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(value) || value.toLowerCase() === "agents" || isAbsolute9(value) || win329.isAbsolute(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+    fail12("VS Code profile location is unsafe", "UNSAFE_CONFIG_PATH");
+  }
+  return value;
+}
+function parseProfiles(metadata, locations, limits) {
+  if (!metadata.exists) return Object.freeze([]);
+  const root = metadata.document.parsed_value;
+  const stored = root.userDataProfiles;
+  if (stored === void 0) return Object.freeze([]);
+  if (!Array.isArray(stored)) fail12("VS Code userDataProfiles must be an array", "MALFORMED_CONFIG");
+  if (stored.length > limits.profileRecords) fail12("VS Code profile record count exceeds its limit", "INSPECTION_LIMIT_EXCEEDED");
+  const names = /* @__PURE__ */ new Set();
+  const profileLocations = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const record2 of stored) {
+    if (!plainObject4(record2) || typeof record2.name !== "string" || record2.name.trim() === "" || record2.name !== record2.name.trim()) {
+      fail12("VS Code profile record name is invalid", "MALFORMED_CONFIG");
+    }
+    const profileLocation = safeProfileLocation(record2.location);
+    const nameKey = record2.name.toLowerCase();
+    const locationKey = profileLocation.toLowerCase();
+    if (names.has(nameKey) || profileLocations.has(locationKey)) {
+      fail12("VS Code profile metadata is ambiguous", "MALFORMED_CONFIG");
+    }
+    names.add(nameKey);
+    profileLocations.add(locationKey);
+    const flags = record2.useDefaultFlags;
+    if (flags !== void 0 && (!plainObject4(flags) || !Object.values(flags).every((value) => typeof value === "boolean"))) {
+      fail12("VS Code profile useDefaultFlags is invalid", "MALFORMED_CONFIG");
+    }
+    const inheritedDefault = flags?.mcp === true;
+    const profileRoot = join7(locations.profiles_root, profileLocation);
+    const resource = inheritedDefault ? locations.default_user : location4(join7(profileRoot, "mcp.json"), locations.default_user.allowed_root, `user:profile:${profileLocation}`, true);
+    rows.push(Object.freeze({
+      name: record2.name,
+      location: profileLocation,
+      inherited_default: inheritedDefault,
+      resource
+    }));
+  }
+  return Object.freeze(rows);
+}
+function selectedProfileResource(context, locations, profiles) {
+  const requested = context.vscodeProfile;
+  if (requested === null || requested === void 0) {
+    return Object.freeze({
+      profile: null,
+      resource: locations.default_user,
+      inherited_default: false
+    });
+  }
+  if (typeof requested !== "string" || requested.trim() === "" || requested !== requested.trim()) {
+    fail12("VS Code requested profile is invalid", "VSCODE_PROFILE_NOT_FOUND");
+  }
+  const matches = profiles.filter((row) => row.name === requested);
+  if (matches.length !== 1) fail12("VS Code requested profile was not found", "VSCODE_PROFILE_NOT_FOUND");
+  return Object.freeze({
+    profile: matches[0],
+    resource: matches[0].resource,
+    inherited_default: matches[0].inherited_default
+  });
+}
+function pathIdentity5(path) {
+  return win329.normalize(resolve7(path)).toLowerCase();
+}
+async function captureLaunchEvidence4(captureFingerprint, context, detection) {
+  const candidates = [
+    ["client_launch_command", detection.launch.command],
+    ...detection.launch.args_prefix.map((path, index) => [`client_launch_arg_${index}`, path]),
+    ["server_launch_command", context.descriptor.command],
+    ...context.descriptor.args.filter(absolutePath5).map((path, index) => [`server_launch_arg_${index}`, path])
+  ];
+  const seen = /* @__PURE__ */ new Set();
+  const rows = [];
+  for (const [scope, path] of candidates) {
+    const key = pathIdentity5(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname6(path)], writable: false });
+    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+      fail12("VS Code launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
+    }
+    rows.push(Object.freeze({
+      path: resolve7(path),
+      allowed_root: resolve7(dirname6(path)),
+      scope,
+      writable: false,
+      exists: true,
+      config_sha256: fingerprint.content_sha256,
+      fingerprint
+    }));
+  }
+  return rows;
+}
+function readOnlyRows4(files, writablePath = null) {
+  const writableKey = writablePath ? pathIdentity5(writablePath) : null;
+  return files.filter((file) => pathIdentity5(file.path) !== writableKey).map((file) => ({ path: file.path, allowed_root: file.allowed_root, fingerprint: file.fingerprint }));
+}
+async function writableFileEvidence4(captureFingerprint, file) {
+  const fingerprint = await captureFingerprint(file.path, { allowedRoots: [file.allowed_root], writable: true });
+  return { ...file, fingerprint };
+}
+function planningFailure4(error2) {
+  if (["READ_ONLY_TARGET", "UNSAFE_WRITABLE_PATH", "PATH_OUTSIDE_WRITABLE_ROOT", "METADATA_INSPECTION_FAILED"].includes(error2?.code)) return error2.code;
+  throw error2;
+}
+function missing5(error2) {
+  return error2?.code === "ENOENT" || error2?.code === "ENOTDIR";
+}
+async function readCurrentDocument4(fsImpl, path, label) {
+  try {
+    const bytes = await fsImpl.readFile(path);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label }) };
+  } catch (error2) {
+    if (!missing5(error2)) throw error2;
+    const bytes = Buffer.alloc(0);
+    return { bytes, document: parseJsoncDocument(bytes, { pathLabel: label }) };
+  }
+}
+function assertOperationPrecondition4(operation, bytes, entry) {
+  const configHash = bytes.length === 0 && operation.current_config_sha256 === null ? null : sha256Bytes(bytes);
+  if (configHash !== operation.current_config_sha256) fail12("VS Code config changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+  const entryHash = entry === void 0 ? null : sha256Canonical(entry);
+  if (entryHash !== operation.current_entry_sha256) fail12("VS Code entry changed after planning", "TRANSACTION_PRECONDITION_CHANGED");
+}
+function applyOwnedFields3(document, desired, replaceWhole) {
+  if (replaceWhole) return setJsoncValue(document, ENTRY_PATH2, desired);
+  return setJsoncValues(document, ["type", "command", "args"].map((key) => ({
+    path: [...ENTRY_PATH2, key],
+    value: desired[key]
+  })));
+}
+function createVsCodeAdapter({
+  fsImpl = defaultFs8,
+  captureFingerprint = captureClientPathFingerprint,
+  limits: limitOverrides = {}
+} = {}) {
+  const limits = normalizedLimits4(limitOverrides);
+  async function detect(context) {
+    validateClientLaunchContract(context?.launch);
+    if (context.launch.client_id !== "vscode") fail12("VS Code launch evidence is invalid", "INVALID_CLIENT_LAUNCH");
+    return Object.freeze({
+      client_id: "vscode",
+      version: context.launch.version,
+      compatibility: context.launch.compatibility,
+      write_supported: context.launch.write_supported === true,
+      launch: context.launch,
+      locations: resolveVsCodeLocations(context)
+    });
+  }
+  async function inspect(context, detection) {
+    if (detection?.client_id !== "vscode") fail12("VS Code detection is invalid", "INVALID_CLIENT_DETECTION");
+    const desired = physicalVsCodeEntry(context.descriptor);
+    try {
+      const tracker = { total: 0 };
+      const metadata = await readConfigFile4(fsImpl, captureFingerprint, detection.locations.profile_metadata, tracker, limits, { metadata: true });
+      const profiles = parseProfiles(metadata, detection.locations, limits);
+      const selection = selectedProfileResource(context, detection.locations, profiles);
+      const resourceLocations = /* @__PURE__ */ new Map([[pathIdentity5(detection.locations.default_user.path), detection.locations.default_user]]);
+      const resourceContexts = /* @__PURE__ */ new Map([[pathIdentity5(detection.locations.default_user.path), ["default"]]]);
+      for (const profile of profiles) resourceLocations.set(pathIdentity5(profile.resource.path), profile.resource);
+      for (const profile of profiles) {
+        const key = pathIdentity5(profile.resource.path);
+        const contexts = resourceContexts.get(key) ?? [];
+        contexts.push(`profile:${profile.name}${profile.inherited_default ? " (useDefaultFlags.mcp)" : ""}`);
+        resourceContexts.set(key, contexts);
+      }
+      const resourceFiles = /* @__PURE__ */ new Map();
+      for (const [key, resource] of resourceLocations) {
+        resourceFiles.set(key, await readConfigFile4(fsImpl, captureFingerprint, resource, tracker, limits));
+      }
+      const selected2 = resourceFiles.get(pathIdentity5(selection.resource.path));
+      const workspace = await readConfigFile4(fsImpl, captureFingerprint, detection.locations.workspace, tracker, limits);
+      for (const file of resourceFiles.values()) validateConfig(file);
+      validateConfig(workspace);
+      const selectedOccurrence = await occurrence2(selected2, desired, {
+        profileName: selection.profile?.name ?? null,
+        requestedContexts: resourceContexts.get(pathIdentity5(selection.resource.path)) ?? [],
+        ownership: true,
+        ledger: context.ownershipLedger
+      });
+      const workspaceOccurrence = await occurrence2(workspace, desired);
+      const otherOccurrences = [];
+      for (const [key, file] of resourceFiles) {
+        if (key === pathIdentity5(selection.resource.path)) continue;
+        const profileNames = profiles.filter((profile) => pathIdentity5(profile.resource.path) === key).map((profile) => profile.name);
+        const row = await occurrence2(file, desired, {
+          active: false,
+          profileName: profileNames[0] ?? null,
+          requestedContexts: resourceContexts.get(key) ?? []
+        });
+        if (row) otherOccurrences.push(row);
+      }
+      const occurrences = [selectedOccurrence, ...otherOccurrences, workspaceOccurrence].filter(Boolean);
+      const effective = workspaceOccurrence ?? selectedOccurrence;
+      const registration = effective ? effective.matching ? "CONFIGURED" : "CONFLICT" : "ABSENT";
+      const actions = [
+        ...STATIC_ACTIONS,
+        ...occurrences.flatMap((row) => row.review_actions),
+        ...otherOccurrences.length > 0 ? ["SHADOWED"] : [],
+        ...workspaceOccurrence ? [workspaceOccurrence.matching ? "SHADOWED" : "CONFLICT"] : [],
+        ...registration === "CONFLICT" ? ["CONFLICT"] : []
+      ];
+      let ownership = selectedOccurrence?.ownership ?? null;
+      if (!ownership) {
+        ownership = safeOwnershipEvidence4(await inspectOwnership({
+          ledger: context.ownershipLedger,
+          currentEntry: desired,
+          desiredEntry: desired,
+          location: {
+            clientId: "vscode",
+            configPath: selected2.path,
+            scope: selected2.scope,
+            entryName: "uemcp"
+          }
+        }));
+      }
+      const launchEvidence = await captureLaunchEvidence4(captureFingerprint, context, detection);
+      return Object.freeze({
+        client_id: "vscode",
+        registration,
+        enablement: "UNKNOWN",
+        activation: "UNKNOWN",
+        actions: Object.freeze(unique4(actions)),
+        selected_resource: Object.freeze({
+          scope: selected2.scope,
+          path: selected2.path,
+          allowed_root: selected2.allowed_root,
+          writable: true,
+          inherited_default: selection.inherited_default,
+          requested_profile: selection.profile?.name ?? null
+        }),
+        effective: effective ? Object.freeze({ scope: effective.scope, path: effective.path, matching: effective.matching }) : null,
+        occurrences: Object.freeze(occurrences),
+        profiles: Object.freeze(profiles.map((profile) => Object.freeze({
+          name: profile.name,
+          location: profile.location,
+          inherited_default: profile.inherited_default,
+          resource_path: profile.resource.path
+        }))),
+        files: Object.freeze([
+          ...[metadata, ...resourceFiles.values(), workspace].map(publicFileEvidence4),
+          ...launchEvidence
+        ]),
+        ownership_ledger: ownershipLedgerStatus3(ownership),
+        desired
+      });
+    } catch (error2) {
+      const status = statusFromError4(error2);
+      return Object.freeze({
+        client_id: "vscode",
+        registration: status,
+        enablement: "UNKNOWN",
+        activation: "UNKNOWN",
+        actions: Object.freeze(unique4([...STATIC_ACTIONS, status])),
+        selected_resource: null,
+        effective: null,
+        occurrences: Object.freeze([]),
+        profiles: Object.freeze([]),
+        files: Object.freeze([]),
+        ownership_ledger: Object.freeze({ status: "UNKNOWN", reason: null }),
+        desired
+      });
+    }
+  }
+  async function plan(context, inspection, descriptor) {
+    if (inspection?.client_id !== "vscode") fail12("VS Code inspection is invalid", "INVALID_CLIENT_INSPECTION");
+    if (typeof context.planDigest !== "string" || !/^[0-9a-f]{64}$/.test(context.planDigest)) fail12("VS Code plan digest is invalid", "INVALID_PLAN_DIGEST");
+    const desired = physicalVsCodeEntry(descriptor);
+    if (["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(inspection.registration)) {
+      return Object.freeze({ client_id: "vscode", status: inspection.registration, operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (!context.launch.write_supported) {
+      return Object.freeze({ client_id: "vscode", status: "UNSUPPORTED_VERSION", operations: Object.freeze([]), actions: Object.freeze(["UNSUPPORTED_VERSION"]) });
+    }
+    if (inspection.ownership_ledger?.status === "INVALID") {
+      return Object.freeze({
+        client_id: "vscode",
+        status: "OWNERSHIP_LEDGER_INVALID",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique4([...inspection.actions, "OWNERSHIP_LEDGER_INVALID"]))
+      });
+    }
+    if (inspection.effective?.scope === "workspace") {
+      return Object.freeze({
+        client_id: "vscode",
+        status: inspection.effective.matching ? "NO_OP" : "CONFLICT",
+        operations: Object.freeze([]),
+        actions: Object.freeze(unique4([...inspection.actions, inspection.effective.matching ? "SHADOWED" : "CONFLICT"]))
+      });
+    }
+    const current = inspection.occurrences.find((row) => row.active === true && pathIdentity5(row.path) === pathIdentity5(inspection.selected_resource.path));
+    if (current?.matching && current.ownership?.recommended_action === "ADOPT_EXACT_ENTRY") {
+      const source2 = inspection.files.find((file) => pathIdentity5(file.path) === pathIdentity5(inspection.selected_resource.path));
+      const operation2 = Object.freeze({
+        operation_id: "vscode-adopt-selected-uemcp",
+        client_id: "vscode",
+        selected: true,
+        write_supported: true,
+        type: "ADOPT_EXACT_ENTRY",
+        path: source2.path,
+        allowed_root: source2.allowed_root,
+        scope_kind: inspection.selected_resource.scope.startsWith("user:profile:") ? "profile" : "user",
+        ownership_scope: source2.scope,
+        fingerprint: source2.fingerprint,
+        current_config_sha256: current.config_sha256,
+        current_entry_sha256: current.entry_sha256,
+        owned_paths: Object.freeze(["/type", "/command", "/args"]),
+        shared_resource_id: null,
+        plan_digest: context.planDigest,
+        read_only_paths: Object.freeze(readOnlyRows4(inspection.files)),
+        desired_entry: desired,
+        json_path: ENTRY_PATH2,
+        external_write: false,
+        verification_status: "RESTART_REQUIRED",
+        ledger_only: true,
+        adoption: Object.freeze({
+          operation_id: "vscode-adopt-selected-uemcp",
+          type: "ADOPT_EXACT_ENTRY",
+          ownership_key: ownershipKey({ clientId: "vscode", configPath: source2.path, scope: source2.scope, entryName: "uemcp" }),
+          current_entry_sha256: current.entry_sha256,
+          current_config_sha256: current.config_sha256,
+          plan_digest: context.planDigest
+        })
+      });
+      return Object.freeze({ client_id: "vscode", status: "ADOPT", operations: Object.freeze([operation2]), actions: inspection.actions });
+    }
+    if (current?.matching) {
+      return Object.freeze({ client_id: "vscode", status: "NO_OP", operations: Object.freeze([]), actions: inspection.actions });
+    }
+    if (current && current.ownership?.state !== "owned_matching" && !approvedOwnedReplacement(context, current.ownership)) {
+      return Object.freeze({ client_id: "vscode", status: "CONFLICT", operations: Object.freeze([]), actions: Object.freeze(unique4([...inspection.actions, "CONFLICT"])) });
+    }
+    let source = inspection.files.find((file) => pathIdentity5(file.path) === pathIdentity5(inspection.selected_resource.path));
+    try {
+      source = await writableFileEvidence4(captureFingerprint, source);
+    } catch (error2) {
+      const status = planningFailure4(error2);
+      return Object.freeze({ client_id: "vscode", status, operations: Object.freeze([]), actions: Object.freeze(unique4([...inspection.actions, status])) });
+    }
+    const operationType = current ? "UPDATE_OWNED_FIELDS" : "CREATE_ENTRY";
+    const operation = Object.freeze({
+      operation_id: current ? "vscode-update-selected-uemcp" : "vscode-create-selected-uemcp",
+      client_id: "vscode",
+      selected: true,
+      write_supported: true,
+      type: operationType,
+      path: source.path,
+      allowed_root: source.allowed_root,
+      scope_kind: inspection.selected_resource.scope.startsWith("user:profile:") ? "profile" : "user",
+      ownership_scope: source.scope,
+      fingerprint: source.fingerprint,
+      current_config_sha256: source.config_sha256 ?? null,
+      current_entry_sha256: current?.entry_sha256 ?? null,
+      owned_paths: Object.freeze(["/type", "/command", "/args"]),
+      shared_resource_id: null,
+      plan_digest: context.planDigest,
+      read_only_paths: Object.freeze(readOnlyRows4(inspection.files, source.path)),
+      desired_entry: desired,
+      json_path: ENTRY_PATH2,
+      external_write: false,
+      verification_status: "RESTART_REQUIRED",
+      explicit_owned_replacement: current !== void 0 && approvedOwnedReplacement(context, current.ownership)
+    });
+    return Object.freeze({ client_id: "vscode", status: current ? "UPDATE" : "CREATE", operations: Object.freeze([operation]), actions: inspection.actions });
+  }
+  async function snapshot(context, operations) {
+    const writable = [];
+    const readOnly = /* @__PURE__ */ new Map();
+    for (const operation of operations) {
+      if (operation.ledger_only !== true) {
+        writable.push({
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          scope_kind: operation.scope_kind,
+          fingerprint: operation.fingerprint,
+          owned_paths: operation.owned_paths,
+          shared_resource_id: operation.shared_resource_id
+        });
+      } else {
+        readOnly.set(pathIdentity5(operation.path), {
+          path: operation.path,
+          allowed_root: operation.allowed_root,
+          fingerprint: operation.fingerprint
+        });
+      }
+      for (const row of operation.read_only_paths ?? []) {
+        if (!writable.some((candidate) => pathIdentity5(candidate.path) === pathIdentity5(row.path))) {
+          readOnly.set(pathIdentity5(row.path), row);
+        }
+      }
+    }
+    return Object.freeze({ writable_paths: writable, read_only_paths: [...readOnly.values()] });
+  }
+  async function apply(context, operations) {
+    if (!context.transaction?.ownershipLedger) fail12("VS Code apply requires the transaction ownership capability", "INVALID_TRANSACTION_CAPABILITY");
+    for (const operation of operations) {
+      if (operation.client_id !== "vscode" || operation.write_supported !== true || operation.selected !== true) {
+        fail12("VS Code apply received an unapproved operation", "UNAPPROVED_OPERATION_SET");
+      }
+      const current = await readCurrentDocument4(fsImpl, operation.path, "VS Code selected config");
+      const entry = getJsoncValue(current.document, ENTRY_PATH2);
+      assertOperationPrecondition4(operation, current.bytes, entry);
+      const ownershipLocation = {
+        clientId: "vscode",
+        configPath: operation.path,
+        scope: operation.ownership_scope,
+        entryName: "uemcp"
+      };
+      if (operation.type === "ADOPT_EXACT_ENTRY") {
+        await adoptExactEntry({
+          ledger: context.transaction.ownershipLedger,
+          location: ownershipLocation,
+          currentEntry: entry,
+          desiredEntry: operation.desired_entry,
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
+        });
+        continue;
+      }
+      if (!context.transaction.writeFile || !["CREATE_ENTRY", "UPDATE_OWNED_FIELDS"].includes(operation.type)) {
+        fail12("VS Code operation type is unsupported", "UNAPPROVED_OPERATION_SET");
+      }
+      const edit = applyOwnedFields3(current.document, operation.desired_entry, operation.type === "CREATE_ENTRY");
+      if (!edit.changed) fail12("VS Code targeted edit produced no change", "TRANSACTION_PRECONDITION_CHANGED");
+      const parsed = parseJsoncDocument(edit.after_bytes, { pathLabel: "VS Code updated selected config" });
+      const afterEntry = getJsoncValue(parsed, ENTRY_PATH2);
+      if (!physicalMatches4(afterEntry, operation.desired_entry)) fail12("VS Code write did not produce the canonical owned projection", "STRUCTURAL_VERIFY_FAILED");
+      const written = await context.transaction.writeFile(operation.path, edit.after_bytes, {
+        parse: (bytes) => parseJsoncDocument(bytes, { pathLabel: "VS Code updated selected config" })
+      });
+      await recordOwnedWrite({
+        ledger: context.transaction.ownershipLedger,
+        location: ownershipLocation,
+        beforeEntry: entry ?? null,
+        afterEntry,
+        ownedPaths: ownedPathsForClient("vscode", afterEntry),
+        appliedConfigHash: written.content_sha256,
+        planDigest: context.planDigest
+      });
+    }
+    return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
+  }
+  async function verify(context, operations) {
+    for (const operation of operations) {
+      const current = await readCurrentDocument4(fsImpl, operation.path, "VS Code verification config");
+      const entry = getJsoncValue(current.document, ENTRY_PATH2);
+      if (!physicalMatches4(entry, operation.desired_entry)) fail12("VS Code selected entry does not match the canonical descriptor", "STRUCTURAL_VERIFY_FAILED");
+    }
+    return Object.freeze({
+      status: "RESTART_REQUIRED",
+      registration: "CONFIGURED",
+      enablement: "UNKNOWN",
+      activation: "UNKNOWN",
+      actions: STATIC_ACTIONS
+    });
+  }
+  async function rollback(context, records) {
+    return Object.freeze({ status: "delegated", count: records.length });
+  }
+  function protocolLaunch(context, inspection) {
+    const effective = inspection?.effective;
+    const occurrence3 = inspection?.occurrences?.find((row) => row.scope === effective?.scope && row.path === effective?.path);
+    return PRIVATE_PROTOCOL_LAUNCH4.get(occurrence3) ?? Object.freeze({ env_overlay: Object.freeze({}), cwd: null });
+  }
+  return Object.freeze({
+    id: "vscode",
+    detect,
+    inspect,
+    plan,
+    snapshot,
+    apply,
+    verify,
+    protocolLaunch,
+    rollback
   });
 }
 
-// server/deployment/orchestrator.mjs
-import { dirname as dirname3 } from "node:path";
+// server/deployment/bundle-freshness.mjs
+import * as defaultFs9 from "node:fs/promises";
+import { dirname as dirname7, isAbsolute as isAbsolute10, join as join8, relative as relative7, resolve as resolve8, sep as sep7 } from "node:path";
+var SHA256 = /^[0-9a-f]{64}$/;
+var MANIFEST_KEYS = /* @__PURE__ */ new Set([
+  "schema_version",
+  "entry",
+  "node_minimum",
+  "esbuild_version",
+  "source_inputs",
+  "package_lock_sha256",
+  "bundled_packages",
+  "notices_sha256",
+  "input_manifest_sha256",
+  "bundle_sha256"
+]);
+var BundleFreshnessError = class extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = "BundleFreshnessError";
+    this.code = "BUNDLE_FRESHNESS_FAILED";
+    this.details = details;
+  }
+};
+function fail13(message, details) {
+  throw new BundleFreshnessError(message, details);
+}
+function plainObject5(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+function exactKeys3(value, expected, label) {
+  if (!plainObject5(value)) fail13(`${label} must be an object`);
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail13(`${label} has an unexpected schema`);
+}
+function ordinalCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function validateRelativeSourcePath(value) {
+  if (typeof value !== "string" || value === "" || value.includes("\\") || isAbsolute10(value)) return false;
+  const segments = value.split("/");
+  return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+function validateManifest(value) {
+  exactKeys3(value, MANIFEST_KEYS, "bundle manifest");
+  if (value.schema_version !== "1.0" || value.entry !== "dist/deploy-uemcp.mjs") fail13("bundle manifest interface is unsupported");
+  if (value.node_minimum !== "22.0.0" || value.esbuild_version !== "0.28.1") fail13("bundle manifest toolchain identity is unsupported");
+  for (const key of ["package_lock_sha256", "notices_sha256", "input_manifest_sha256", "bundle_sha256"]) {
+    if (!SHA256.test(value[key] ?? "")) fail13(`bundle manifest ${key} is invalid`);
+  }
+  if (!Array.isArray(value.source_inputs) || value.source_inputs.length === 0) fail13("bundle manifest source inputs are empty");
+  const sourcePaths = [];
+  for (const row of value.source_inputs) {
+    exactKeys3(row, /* @__PURE__ */ new Set(["path", "sha256"]), "bundle source input");
+    if (!validateRelativeSourcePath(row.path) || !SHA256.test(row.sha256 ?? "")) fail13("bundle source input is invalid");
+    sourcePaths.push(row.path);
+  }
+  if (new Set(sourcePaths).size !== sourcePaths.length || JSON.stringify(sourcePaths) !== JSON.stringify([...sourcePaths].sort(ordinalCompare))) {
+    fail13("bundle source inputs are duplicated or unsorted");
+  }
+  if (!Array.isArray(value.bundled_packages) || value.bundled_packages.length === 0) fail13("bundle package identities are empty");
+  const packageKeys = [];
+  for (const row of value.bundled_packages) {
+    exactKeys3(row, /* @__PURE__ */ new Set(["name", "version", "license"]), "bundled package");
+    if (![row.name, row.version, row.license].every((field) => typeof field === "string" && field !== "")) fail13("bundled package identity is invalid");
+    packageKeys.push(`${row.name}\0${row.version}`);
+  }
+  if (new Set(packageKeys).size !== packageKeys.length || JSON.stringify(packageKeys) !== JSON.stringify([...packageKeys].sort(ordinalCompare))) {
+    fail13("bundled package identities are duplicated or unsorted");
+  }
+  const aggregate = sha256Canonical({
+    source_inputs: value.source_inputs,
+    package_lock_sha256: value.package_lock_sha256,
+    bundled_packages: value.bundled_packages,
+    notices_sha256: value.notices_sha256
+  });
+  if (aggregate !== value.input_manifest_sha256) fail13("bundle aggregate input hash changed");
+  return value;
+}
+function contained5(root, path) {
+  const rel = relative7(resolve8(root), resolve8(path));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep7}`) && !isAbsolute10(rel);
+}
+async function exactFile(path, { repoRoot, fsImpl, label, maximumBytes = null }) {
+  if (!contained5(repoRoot, path)) fail13(`${label} escaped the repository root`);
+  const fingerprint = await fingerprintPath(path, { allowedRoots: [repoRoot], fsImpl });
+  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count !== 1) {
+    fail13(`${label} is missing or not a regular single-link file`);
+  }
+  if (maximumBytes !== null && fingerprint.size > maximumBytes) fail13(`${label} exceeds its size limit`);
+  return fingerprint;
+}
+async function verifyDeploymentBundleFreshness({
+  repoRoot,
+  activeEntryPath,
+  manifestPath = null,
+  fsImpl = defaultFs9
+} = {}) {
+  if (!isAbsolute10(repoRoot ?? "") || !isAbsolute10(activeEntryPath ?? "")) fail13("bundle freshness requires absolute repository and entry paths");
+  const canonicalRepo = resolve8(repoRoot);
+  const canonicalManifest = resolve8(manifestPath ?? join8(canonicalRepo, "dist", "deploy-uemcp.manifest.json"));
+  await exactFile(canonicalManifest, { repoRoot: canonicalRepo, fsImpl, label: "bundle manifest", maximumBytes: 1024 * 1024 });
+  let manifest;
+  try {
+    manifest = validateManifest(JSON.parse(await fsImpl.readFile(canonicalManifest, "utf8")));
+  } catch (error2) {
+    if (error2 instanceof BundleFreshnessError) throw error2;
+    fail13("bundle manifest is not valid JSON");
+  }
+  const sourceEntry = resolve8(canonicalRepo, "server", "deploy-uemcp.mjs");
+  const candidateEntry = resolve8(activeEntryPath) === sourceEntry ? resolve8(canonicalRepo, ...manifest.entry.split("/")) : resolve8(activeEntryPath);
+  const bundle = await exactFile(candidateEntry, { repoRoot: canonicalRepo, fsImpl, label: "deployment bundle" });
+  if (bundle.sha256 !== manifest.bundle_sha256) fail13("deployment bundle hash changed");
+  const lock = await exactFile(join8(canonicalRepo, "server", "package-lock.json"), { repoRoot: canonicalRepo, fsImpl, label: "package lock" });
+  if (lock.sha256 !== manifest.package_lock_sha256) fail13("package lock hash changed");
+  for (const row of manifest.source_inputs) {
+    const sourcePath = resolve8(canonicalRepo, ...row.path.split("/"));
+    const source = await exactFile(sourcePath, { repoRoot: canonicalRepo, fsImpl, label: `source input ${row.path}` });
+    if (source.sha256 !== row.sha256) fail13("first-party bundle input changed", { path: row.path });
+  }
+  const notices = await exactFile(join8(dirname7(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
+    repoRoot: canonicalRepo,
+    fsImpl,
+    label: "third-party notices",
+    maximumBytes: 4 * 1024 * 1024
+  });
+  if (notices.sha256 !== manifest.notices_sha256) fail13("third-party notices hash changed");
+  return Object.freeze({
+    schema_version: manifest.schema_version,
+    bundle_sha256: manifest.bundle_sha256,
+    notices_sha256: manifest.notices_sha256,
+    input_manifest_sha256: manifest.input_manifest_sha256,
+    source_input_count: manifest.source_inputs.length,
+    bundled_package_count: manifest.bundled_packages.length
+  });
+}
+
+// server/deployment/client-domain.mjs
+import * as defaultFs11 from "node:fs/promises";
+import { posix as posix5, resolve as resolve10, win32 as win3211 } from "node:path";
+
+// server/deployment/client-process.mjs
+import * as defaultFs10 from "node:fs/promises";
+import {
+  basename,
+  dirname as dirname8,
+  extname,
+  isAbsolute as isAbsolute11,
+  join as join9,
+  relative as relative8,
+  resolve as resolve9,
+  sep as sep8
+} from "node:path";
+var CLIENTS = Object.freeze({
+  claude: Object.freeze({
+    command_name: "claude",
+    package_id: "@anthropic-ai/claude-code",
+    bin_name: "claude",
+    signer: CLIENT_NATIVE_IDENTITIES.claude.signer_name
+  }),
+  codex: Object.freeze({
+    command_name: "codex",
+    package_id: "@openai/codex",
+    bin_name: "codex"
+  }),
+  gemini: Object.freeze({
+    command_name: "gemini",
+    package_id: "@google/gemini-cli",
+    bin_name: "gemini"
+  }),
+  vscode: Object.freeze({
+    command_name: "code",
+    signer: CLIENT_NATIVE_IDENTITIES.vscode.signer_name
+  })
+});
+var MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
+var MAX_VSCODE_WRAPPER_BYTES = 64 * 1024;
+var MAX_CLIENT_CANDIDATES = 64;
+var PACKAGE_ID = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
+var RUNTIME_FINGERPRINT_FIELDS = Object.freeze([
+  "entry_count",
+  "file_count",
+  "manifest_sha256",
+  "max_bytes",
+  "max_entries",
+  "max_files",
+  "max_packages",
+  "package_count",
+  "package_id",
+  "resolution_root",
+  "root",
+  "total_bytes"
+]);
+function runtimeFingerprintMismatchDetails(observed, expected) {
+  return {
+    reason: "RUNTIME_FINGERPRINT_MISMATCH",
+    changed_fields: RUNTIME_FINGERPRINT_FIELDS.filter((field) => observed?.[field] !== expected?.[field])
+  };
+}
+var ClientProcessError = class extends Error {
+  constructor(message, code = "NOT_INSTALLED", details = {}) {
+    super(message);
+    this.name = "ClientProcessError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail14(message, code = "NOT_INSTALLED", details = {}) {
+  throw new ClientProcessError(message, code, details);
+}
+function pathKey3(path) {
+  const value = resolve9(path);
+  return process.platform === "win32" ? value.toLowerCase() : value;
+}
+function contained6(root, candidate) {
+  const rel = relative8(pathKey3(root), pathKey3(candidate));
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep8}`) && !isAbsolute11(rel);
+}
+function runtimeFingerprint({
+  packageRoot,
+  resolutionRoot,
+  packageId,
+  packageCount,
+  entryCount,
+  fileCount,
+  totalBytes,
+  manifestSha256
+}) {
+  return Object.freeze({
+    root: resolve9(packageRoot),
+    resolution_root: resolve9(resolutionRoot),
+    package_id: packageId,
+    package_count: packageCount,
+    entry_count: entryCount,
+    file_count: fileCount,
+    total_bytes: totalBytes,
+    manifest_sha256: manifestSha256,
+    ...NPM_RUNTIME_LIMITS
+  });
+}
+function packageParts(packageId) {
+  if (typeof packageId !== "string" || !PACKAGE_ID.test(packageId)) {
+    fail14("client package dependency name is invalid");
+  }
+  return packageId.split("/");
+}
+function dependencyRows(manifest) {
+  const dependencies = /* @__PURE__ */ new Map();
+  const add = (value, required2, label) => {
+    if (value === void 0) return;
+    if (!value || Array.isArray(value) || typeof value !== "object") {
+      fail14(`client package ${label} must be an object`);
+    }
+    const rows = Object.entries(value);
+    if (rows.length > NPM_RUNTIME_LIMITS.max_packages) fail14("client package dependency list exceeds its limit");
+    for (const [name, version2] of rows) {
+      packageParts(name);
+      if (typeof version2 !== "string" || version2.trim() === "") fail14(`client package ${label} version is invalid`);
+      dependencies.set(name, required2);
+    }
+  };
+  add(manifest.dependencies, true, "dependencies");
+  add(manifest.optionalDependencies, false, "optionalDependencies");
+  const peerMeta = manifest.peerDependenciesMeta;
+  if (peerMeta !== void 0 && (!peerMeta || Array.isArray(peerMeta) || typeof peerMeta !== "object")) {
+    fail14("client package peerDependenciesMeta must be an object");
+  }
+  if (peerMeta && Object.keys(peerMeta).length > NPM_RUNTIME_LIMITS.max_packages) {
+    fail14("client package peer dependency metadata exceeds its limit");
+  }
+  if (peerMeta) {
+    for (const [name, value] of Object.entries(peerMeta)) {
+      packageParts(name);
+      if (!value || Array.isArray(value) || typeof value !== "object" || value.optional !== void 0 && typeof value.optional !== "boolean") {
+        fail14("client package peer dependency metadata is invalid");
+      }
+    }
+  }
+  if (manifest.peerDependencies !== void 0) {
+    const peers = manifest.peerDependencies;
+    if (!peers || Array.isArray(peers) || typeof peers !== "object") fail14("client package peerDependencies must be an object");
+    if (Object.keys(peers).length > NPM_RUNTIME_LIMITS.max_packages) fail14("client package peer dependency list exceeds its limit");
+    for (const [name, version2] of Object.entries(peers)) {
+      packageParts(name);
+      if (typeof version2 !== "string" || version2.trim() === "") fail14("client package peer dependency version is invalid");
+      if (!dependencies.has(name)) dependencies.set(name, peerMeta?.[name]?.optional !== true);
+    }
+  }
+  return [...dependencies].map(([name, required2]) => ({ name, required: required2 }));
+}
+async function packageDocument(path, fsImpl) {
+  let bytes;
+  try {
+    bytes = await fsImpl.readFile(path);
+  } catch {
+    fail14("client package manifest is missing");
+  }
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
+  if (bytes.length > MAX_PACKAGE_JSON_BYTES) fail14("client package manifest exceeds its byte limit");
+  try {
+    return {
+      bytes,
+      value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))
+    };
+  } catch {
+    fail14("client package manifest is malformed");
+  }
+}
+async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot, fsImpl) {
+  const boundary = dirname8(resolutionRoot);
+  const parts = packageParts(dependencyName);
+  let current = packageRoot;
+  while (true) {
+    if (basename(current).toLowerCase() !== "node_modules") {
+      const candidate = join9(current, "node_modules", ...parts);
+      if (contained6(resolutionRoot, candidate)) {
+        try {
+          await fsImpl.lstat(candidate);
+          return await canonicalDirectory(candidate, { fsImpl, allowedRoots: [resolutionRoot] });
+        } catch (error2) {
+          if (error2?.code !== "ENOENT") throw error2;
+        }
+      }
+    }
+    if (pathKey3(current) === pathKey3(boundary)) break;
+    const parent = dirname8(current);
+    if (parent === current || !contained6(boundary, parent)) break;
+    current = parent;
+  }
+  return null;
+}
+async function captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner) {
+  const canonicalResolutionRoot = await canonicalDirectory(resolutionRoot, {
+    fsImpl,
+    allowedRoots: [resolutionRoot]
+  });
+  const canonicalPackageRoot = await canonicalDirectory(packageRoot, {
+    fsImpl,
+    allowedRoots: [canonicalResolutionRoot]
+  });
+  if (!contained6(canonicalResolutionRoot, canonicalPackageRoot)) fail14("client package root escapes its resolution root");
+  const packages = /* @__PURE__ */ new Map();
+  const queue = [{ root: canonicalPackageRoot, expectedName: packageId }];
+  const manifestProofs = [];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const key = pathKey3(current.root);
+    if (packages.has(key)) continue;
+    if (packages.size >= NPM_RUNTIME_LIMITS.max_packages) fail14("client package runtime exceeds its package limit");
+    const manifestPath = join9(current.root, "package.json");
+    const document = await packageDocument(manifestPath, fsImpl);
+    if (!document.value || Array.isArray(document.value) || typeof document.value !== "object" || typeof document.value.name !== "string" || document.value.name.trim() === "") {
+      fail14("client package manifest identity is invalid");
+    }
+    if (current.expectedName !== null && document.value.name !== current.expectedName) {
+      fail14("client package identity changed during runtime inspection");
+    }
+    packages.set(key, current.root);
+    manifestProofs.push({ path: manifestPath, sha256: sha256Bytes(document.bytes) });
+    for (const dependency of dependencyRows(document.value)) {
+      const dependencyRoot = await resolveDependencyRoot(current.root, dependency.name, canonicalResolutionRoot, fsImpl);
+      if (dependencyRoot === null) {
+        if (dependency.required) fail14("required client package dependency is missing");
+        continue;
+      }
+      queue.push({ root: dependencyRoot, expectedName: null });
+    }
+  }
+  const packageRoots = [...packages.values()].sort((left, right) => left.length - right.length || (left < right ? -1 : left > right ? 1 : 0));
+  const disjointRoots = [];
+  for (const root of packageRoots) {
+    if (!disjointRoots.some((parent) => contained6(parent, root))) disjointRoots.push(root);
+  }
+  return runtimeTreePinner({
+    roots: disjointRoots,
+    maxEntries: NPM_RUNTIME_LIMITS.max_entries,
+    maxFiles: NPM_RUNTIME_LIMITS.max_files,
+    maxBytes: NPM_RUNTIME_LIMITS.max_bytes,
+    callback: async (guard) => {
+      guard?.assertPinned?.();
+      let entryCount = 0;
+      let fileCount = 0;
+      let totalBytes = 0;
+      const entries = [];
+      for (const root of disjointRoots) {
+        const tree = await fingerprintDirectory(root, {
+          allowedRoots: [canonicalResolutionRoot],
+          fsImpl,
+          maxEntries: NPM_RUNTIME_LIMITS.max_entries - entryCount,
+          maxFiles: NPM_RUNTIME_LIMITS.max_files - fileCount,
+          maxBytes: NPM_RUNTIME_LIMITS.max_bytes - totalBytes
+        });
+        guard?.assertPinned?.();
+        const prefix = relative8(canonicalResolutionRoot, root).replace(/\\/g, "/");
+        if (prefix === ".." || prefix.startsWith("../") || isAbsolute11(prefix)) fail14("client package tree escapes its resolution root");
+        entryCount += tree.entry_count;
+        fileCount += tree.file_count;
+        totalBytes += tree.total_bytes;
+        for (const entry of tree.entries) {
+          entries.push({ ...entry, path: prefix === "" ? entry.path : `${prefix}/${entry.path}` });
+        }
+      }
+      entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      const entryByPath = new Map(entries.map((entry) => [entry.path, entry]));
+      for (const proof of manifestProofs) {
+        const path = relative8(canonicalResolutionRoot, proof.path).replace(/\\/g, "/");
+        if (entryByPath.get(path)?.sha256 !== proof.sha256) fail14("client package manifest changed during runtime inspection");
+      }
+      guard?.assertPinned?.();
+      return runtimeFingerprint({
+        packageRoot: canonicalPackageRoot,
+        resolutionRoot: canonicalResolutionRoot,
+        packageId,
+        packageCount: packages.size,
+        entryCount,
+        fileCount,
+        totalBytes,
+        manifestSha256: sha256Canonical(entries)
+      });
+    }
+  });
+}
+async function captureClientRuntimeFingerprint(packageRoot, {
+  resolutionRoot = packageRoot,
+  packageId,
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees
+} = {}) {
+  if (typeof runtimeTreePinner !== "function") fail14("client runtime tree pinner is invalid");
+  return captureNpmRuntime(packageRoot, resolutionRoot, packageId, fsImpl, runtimeTreePinner);
+}
+async function revalidateClientLaunchRuntime(launch, {
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees
+} = {}) {
+  if (launch?.source !== "npm_package") return true;
+  let observed;
+  try {
+    observed = await captureClientRuntimeFingerprint(launch.fingerprint?.runtime_tree?.root, {
+      resolutionRoot: launch.fingerprint?.runtime_tree?.resolution_root,
+      packageId: launch.package_id,
+      fsImpl,
+      runtimeTreePinner
+    });
+  } catch (error2) {
+    fail14("client npm runtime tree is no longer safe", "CLIENT_RUNTIME_CHANGED", {
+      reason: "RUNTIME_CAPTURE_FAILED",
+      cause_code: error2?.code ?? "UNKNOWN"
+    });
+  }
+  if (sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.runtime_tree)) {
+    fail14(
+      "client npm runtime tree changed after discovery",
+      "CLIENT_RUNTIME_CHANGED",
+      runtimeFingerprintMismatchDetails(observed, launch.fingerprint.runtime_tree)
+    );
+  }
+  return true;
+}
+function launchFileEvidence(launch) {
+  const paths = [launch.command];
+  const fingerprints = [launch.fingerprint?.command];
+  for (let index = 0; index < launch.args_prefix.length; index += 1) {
+    const value = launch.args_prefix[index];
+    if (!isAbsolute11(value)) continue;
+    paths.push(value);
+    fingerprints.push(launch.fingerprint?.args_prefix?.[index]);
+  }
+  return { paths, fingerprints };
+}
+function frozenLaunchCopy(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenLaunchCopy));
+  if (value !== null && typeof value === "object") {
+    return Object.freeze(Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, frozenLaunchCopy(child)])
+    ));
+  }
+  return value;
+}
+async function withPinnedClientLaunch(launch, {
+  callback,
+  env = process.env,
+  runner = null,
+  authenticodeInspector = inspectAuthenticode,
+  fsImpl = defaultFs10,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles
+} = {}) {
+  if (typeof callback !== "function" || typeof runtimeTreePinner !== "function" || typeof launchFilePinner !== "function") {
+    fail14("client launch pin contract is invalid", "INVALID_CLIENT_LAUNCH");
+  }
+  if (!launch || !absoluteSafePath(launch.command) || !Array.isArray(launch.args_prefix) || launch.args_prefix.some((path) => !absoluteSafePath(path)) || !launch.fingerprint?.command || !Array.isArray(launch.fingerprint.args_prefix) || launch.fingerprint.args_prefix.length !== launch.args_prefix.length || !["native", "npm_package"].includes(launch.source)) {
+    fail14("client launch pin evidence is invalid", "INVALID_CLIENT_LAUNCH");
+  }
+  const pinnedLaunch = frozenLaunchCopy(launch);
+  const evidence = launchFileEvidence(pinnedLaunch);
+  const runWithFilesPinned = (treeGuard) => launchFilePinner({
+    paths: evidence.paths,
+    callback: async (fileGuard) => {
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      const changedFields = /* @__PURE__ */ new Set();
+      for (let index = 0; index < evidence.paths.length; index += 1) {
+        const path = evidence.paths[index];
+        const observed = await fingerprintPath(path, { allowedRoots: [dirname8(path)], fsImpl });
+        if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
+          changedFields.add(index === 0 ? "command" : "args_prefix");
+        }
+      }
+      if (changedFields.size > 0) {
+        fail14("client launch file changed after discovery", "CLIENT_RUNTIME_CHANGED", {
+          reason: "RUNTIME_FINGERPRINT_MISMATCH",
+          changed_fields: [...changedFields]
+        });
+      }
+      if (pinnedLaunch.source === "native" && CLIENT_NATIVE_IDENTITIES[pinnedLaunch.client_id]) {
+        await revalidatePinnedNativeAuthority(pinnedLaunch, {
+          env,
+          runner,
+          fsImpl,
+          authenticodeInspector
+        });
+      }
+      treeGuard?.assertPinned?.();
+      fileGuard?.assertPinned?.();
+      return callback(Object.freeze({
+        assertPinned() {
+          treeGuard?.assertPinned?.();
+          fileGuard?.assertPinned?.();
+        }
+      }), pinnedLaunch);
+    }
+  });
+  if (pinnedLaunch.source !== "npm_package") return runWithFilesPinned(null);
+  const expectedRuntime = pinnedLaunch.fingerprint?.runtime_tree;
+  return captureNpmRuntime(
+    expectedRuntime?.root,
+    expectedRuntime?.resolution_root,
+    pinnedLaunch.package_id,
+    fsImpl,
+    (pinOptions) => runtimeTreePinner({
+      ...pinOptions,
+      callback: async (treeGuard) => {
+        const observed = await pinOptions.callback(treeGuard);
+        if (sha256Canonical(observed) !== sha256Canonical(expectedRuntime)) {
+          fail14(
+            "client npm runtime tree changed after discovery",
+            "CLIENT_RUNTIME_CHANGED",
+            runtimeFingerprintMismatchDetails(observed, expectedRuntime)
+          );
+        }
+        treeGuard?.assertPinned?.();
+        return runWithFilesPinned(treeGuard);
+      }
+    })
+  );
+}
+async function revalidatePinnedNativeAuthority(launch, {
+  env,
+  runner,
+  fsImpl,
+  authenticodeInspector
+}) {
+  if (!env || typeof env !== "object" || !runner?.run || typeof authenticodeInspector !== "function") {
+    fail14("native client authority dependencies are unavailable", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED"
+    });
+  }
+  let canonicalAllowedPaths;
+  try {
+    canonicalAllowedPaths = (await Promise.all(expectedNativePaths(launch.client_id, env).map(async (path) => {
+      try {
+        return resolve9(await fsImpl.realpath(resolve9(path)));
+      } catch {
+        return null;
+      }
+    }))).filter(Boolean);
+  } catch {
+    canonicalAllowedPaths = [];
+  }
+  if (!canonicalAllowedPaths.some((path) => pathKey3(path) === pathKey3(launch.command))) {
+    fail14("native client path is no longer authorized", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED",
+      changed_fields: ["command"]
+    });
+  }
+  let observed = null;
+  try {
+    observed = await validAuthenticode(launch.command, launch.client_id, {
+      env,
+      runner,
+      fsImpl,
+      authenticodeInspector
+    });
+  } catch {
+    observed = null;
+  }
+  if (observed === null || sha256Canonical(observed) !== sha256Canonical(launch.fingerprint.authenticode)) {
+    fail14("native client signature changed after discovery", "CLIENT_RUNTIME_CHANGED", {
+      reason: "NATIVE_AUTHORITY_CHANGED",
+      changed_fields: ["authenticode"]
+    });
+  }
+}
+function absoluteSafePath(path) {
+  return typeof path === "string" && isAbsolute11(path) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path);
+}
+async function canonicalAllowlistedRoots(allowedRoots, fsImpl) {
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) {
+    fail14("client launch allowlisted roots are invalid");
+  }
+  const canonical = [];
+  try {
+    for (const root of allowedRoots) canonical.push(resolve9(await fsImpl.realpath(resolve9(root))));
+  } catch {
+    fail14("client launch allowlisted root is unavailable");
+  }
+  return canonical;
+}
+async function canonicalFile(path, {
+  fsImpl,
+  allowedRoots,
+  basenameRequired = null,
+  allowHardLinks = false
+} = {}) {
+  if (!absoluteSafePath(path)) fail14("client launch candidate path is unsafe");
+  const requested = resolve9(path);
+  let requestedStat;
+  let canonical;
+  let stat;
+  try {
+    requestedStat = await fsImpl.lstat(requested);
+    if (requestedStat.isSymbolicLink()) fail14("client launch candidate is linked");
+    canonical = resolve9(await fsImpl.realpath(requested));
+    stat = await fsImpl.lstat(canonical);
+  } catch (error2) {
+    if (error2 instanceof ClientProcessError) throw error2;
+    fail14("client launch candidate is missing");
+  }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || !allowHardLinks && stat.nlink !== 1) {
+    fail14(`client launch candidate must be a regular ${allowHardLinks ? "non-symbolic" : "single-link"} file`);
+  }
+  if (basenameRequired && basename(canonical).toLowerCase() !== basenameRequired.toLowerCase()) fail14("client launch candidate basename is invalid");
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some((root) => contained6(root, canonical))) fail14("client launch candidate escapes its allowlisted root");
+  const fingerprint = await fingerprintPath(canonical, { allowedRoots: canonicalRoots, fsImpl });
+  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count < 1 || !allowHardLinks && fingerprint.link_count !== 1) {
+    fail14("client launch candidate fingerprint is unsafe");
+  }
+  return { path: canonical, fingerprint };
+}
+async function canonicalDirectory(path, { fsImpl, allowedRoots }) {
+  if (!absoluteSafePath(path)) fail14("client package directory is unsafe");
+  const requested = resolve9(path);
+  let requestedStat;
+  let canonical;
+  let stat;
+  try {
+    requestedStat = await fsImpl.lstat(requested);
+    if (requestedStat.isSymbolicLink()) fail14("client package directory is linked");
+    canonical = resolve9(await fsImpl.realpath(requested));
+    stat = await fsImpl.lstat(canonical);
+  } catch (error2) {
+    if (error2 instanceof ClientProcessError) throw error2;
+    fail14("client package directory is missing");
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) fail14("client package path is not a directory");
+  const canonicalRoots = await canonicalAllowlistedRoots(allowedRoots, fsImpl);
+  if (!canonicalRoots.some((root) => contained6(root, canonical))) fail14("client package directory escapes its allowlisted root");
+  return canonical;
+}
+function candidateRows(clientId, candidates) {
+  if (Array.isArray(candidates)) return candidates;
+  if (candidates && Object.hasOwn(candidates, clientId)) return candidates[clientId];
+  return null;
+}
+function npmPrefixes(env, candidates) {
+  const rows = [];
+  const appData = readWindowsEnvironmentValue(env, "APPDATA");
+  const npmConfigPrefix = readWindowsEnvironmentValue(env, "NPM_CONFIG_PREFIX");
+  if (appData) rows.push(join9(appData, "npm"));
+  if (npmConfigPrefix) rows.push(resolve9(npmConfigPrefix));
+  for (const path of candidates?.npmPrefixes ?? []) rows.push(resolve9(path));
+  return [...new Map(rows.map((path) => [pathKey3(path), resolve9(path)])).values()];
+}
+function expectedNativePaths(clientId, env) {
+  if (clientId === "claude") {
+    const userProfile = readWindowsEnvironmentValue(env, "USERPROFILE");
+    return userProfile ? [join9(userProfile, ".local", "bin", "claude.exe")] : [];
+  }
+  if (clientId === "vscode") {
+    const localAppData = readWindowsEnvironmentValue(env, "LOCALAPPDATA");
+    const programFiles = readWindowsEnvironmentValue(env, "PROGRAMFILES");
+    return [
+      localAppData ? join9(localAppData, "Programs", "Microsoft VS Code", "Code.exe") : null,
+      programFiles ? join9(programFiles, "Microsoft VS Code", "Code.exe") : null
+    ].filter(Boolean);
+  }
+  return [];
+}
+async function discoverWithWhere(clientId, { env, runner, fsImpl }) {
+  const systemRoot = readWindowsEnvironmentValue(env, "SYSTEMROOT") || readWindowsEnvironmentValue(env, "WINDIR");
+  if (!systemRoot) return [];
+  const wherePath = join9(systemRoot, "System32", "where.exe");
+  let where;
+  try {
+    where = await canonicalFile(wherePath, {
+      fsImpl,
+      allowedRoots: [join9(systemRoot, "System32")],
+      basenameRequired: "where.exe",
+      allowHardLinks: true
+    });
+  } catch {
+    return [];
+  }
+  const path = readWindowsEnvironmentValue(env, "PATH");
+  const pathExt = readWindowsEnvironmentValue(env, "PATHEXT");
+  const discoveryEnv = {
+    SystemRoot: resolve9(systemRoot),
+    WINDIR: resolve9(systemRoot),
+    ...typeof path === "string" ? { PATH: path } : {},
+    ...typeof pathExt === "string" ? { PATHEXT: pathExt } : {}
+  };
+  const result2 = await runner.run(where.path, [CLIENTS[clientId].command_name], {
+    env: discoveryEnv,
+    shell: false,
+    timeoutMs: 5e3,
+    outputLimitBytes: 64 * 1024
+  });
+  if (result2.status !== "exited" || ![0, 1].includes(result2.exitCode)) return [];
+  return result2.exitCode === 0 ? result2.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) : [];
+}
+async function readPackageJson(path, fsImpl) {
+  return (await packageDocument(path, fsImpl)).value;
+}
+async function readUtf8(path, fsImpl, byteLimit, label) {
+  let bytes;
+  try {
+    bytes = await fsImpl.readFile(path);
+  } catch {
+    fail14(`${label} is unreadable`);
+  }
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
+  if (bytes.length > byteLimit) fail14(`${label} exceeds its byte limit`);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail14(`${label} is not valid UTF-8`);
+  }
+}
+function parseVsCodeWrapper(content, wrapperDir, installRoot) {
+  const references = [...content.matchAll(/"%~dp0([^"\r\n]+)"/gi)].map((match) => resolve9(wrapperDir, match[1].replace(/[\\/]/g, sep8)));
+  const expectedCommand = join9(installRoot, "Code.exe");
+  if (references.length !== 2 || references.some((path) => !contained6(installRoot, path)) || pathKey3(references[0]) !== pathKey3(expectedCommand) || !isVersionedVsCodeCli(installRoot, references[1])) {
+    fail14("VS Code wrapper does not describe one canonical same-root CLI tuple");
+  }
+  return { command: expectedCommand, cli: references[1] };
+}
+function isVersionedVsCodeCli(installRoot, cliPath) {
+  const rel = relative8(installRoot, cliPath);
+  const parts = rel.split(sep8);
+  return parts.length === 5 && parts[0] !== "" && parts[0] !== "." && parts[0] !== ".." && parts.slice(1).map((value) => value.toLowerCase()).join("/") === "resources/app/out/cli.js";
+}
+async function discoverVersionedVsCodeCli(installRoot, fsImpl) {
+  let entries;
+  try {
+    entries = await fsImpl.readdir(installRoot, { withFileTypes: true });
+  } catch {
+    fail14("VS Code install root is unreadable");
+  }
+  if (entries.length > MAX_CLIENT_CANDIDATES) fail14("VS Code install root exceeds its bounded candidate limit");
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const versionRoot = join9(installRoot, entry.name);
+    let canonicalRoot;
+    try {
+      canonicalRoot = await canonicalDirectory(versionRoot, { fsImpl, allowedRoots: [installRoot] });
+      if (pathKey3(dirname8(canonicalRoot)) !== pathKey3(installRoot)) continue;
+      const cli = await canonicalFile(join9(canonicalRoot, "resources", "app", "out", "cli.js"), {
+        fsImpl,
+        allowedRoots: [canonicalRoot],
+        basenameRequired: "cli.js"
+      });
+      if (isVersionedVsCodeCli(installRoot, cli.path)) candidates.push(cli.path);
+    } catch (error2) {
+      if (!(error2 instanceof ClientProcessError)) throw error2;
+    }
+  }
+  if (candidates.length !== 1) fail14("VS Code install must expose exactly one versioned CLI candidate");
+  return candidates[0];
+}
+async function resolveNodeExecutable(candidates, fsImpl) {
+  const nodePath = candidates?.nodeExecutable ?? process.execPath;
+  return canonicalFile(resolve9(nodePath), {
+    fsImpl,
+    allowedRoots: [dirname8(resolve9(nodePath))],
+    basenameRequired: process.platform === "win32" ? "node.exe" : basename(process.execPath)
+  });
+}
+async function resolveNpmCandidate(clientId, candidate, {
+  env,
+  fsImpl,
+  candidates,
+  runtimeTreePinner
+}) {
+  const config2 = CLIENTS[clientId];
+  if (!config2.package_id) fail14("client does not support npm package resolution");
+  const prefixes = npmPrefixes(env, candidates);
+  const matchingPrefix = prefixes.find((prefix) => pathKey3(dirname8(resolve9(candidate))) === pathKey3(prefix));
+  if (!matchingPrefix) fail14("npm shim is outside an allowlisted prefix");
+  const expectedNames = [config2.bin_name, `${config2.bin_name}.cmd`, `${config2.bin_name}.ps1`];
+  if (!expectedNames.includes(basename(candidate).toLowerCase())) fail14("npm shim basename is invalid");
+  await canonicalFile(resolve9(candidate), { fsImpl, allowedRoots: [matchingPrefix] });
+  const modulesRoot = await canonicalDirectory(join9(matchingPrefix, "node_modules"), {
+    fsImpl,
+    allowedRoots: [matchingPrefix]
+  });
+  const requestedPackageRoot = join9(modulesRoot, ...config2.package_id.split("/"));
+  const packageRoot = await canonicalDirectory(requestedPackageRoot, {
+    fsImpl,
+    allowedRoots: [modulesRoot]
+  });
+  const manifestFile = await canonicalFile(join9(packageRoot, "package.json"), {
+    fsImpl,
+    allowedRoots: [packageRoot],
+    basenameRequired: "package.json"
+  });
+  const manifest = await readPackageJson(manifestFile.path, fsImpl);
+  if (manifest.name !== config2.package_id || typeof manifest.version !== "string") fail14("client package identity is invalid");
+  const binPath = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[config2.bin_name];
+  if (typeof binPath !== "string" || binPath.trim() === "") fail14("client package bin entry is missing");
+  const requestedEntry = resolve9(packageRoot, binPath);
+  if (!contained6(packageRoot, requestedEntry)) fail14("client package bin entry escapes its package root");
+  const entry = await canonicalFile(requestedEntry, { fsImpl, allowedRoots: [packageRoot] });
+  const node = await resolveNodeExecutable(candidates, fsImpl);
+  let runtimeTree;
+  try {
+    runtimeTree = await captureClientRuntimeFingerprint(packageRoot, {
+      resolutionRoot: modulesRoot,
+      packageId: config2.package_id,
+      fsImpl,
+      runtimeTreePinner
+    });
+  } catch (error2) {
+    fail14("client npm runtime tree is unsafe or exceeds its inspection limits", "NOT_INSTALLED", {
+      cause_code: error2?.code ?? "UNKNOWN",
+      cause_reason: error2 instanceof ClientProcessError ? error2.message : null
+    });
+  }
+  return {
+    command: node.path,
+    args_prefix: [entry.path],
+    env_overlay: {},
+    package_id: config2.package_id,
+    source: "npm_package",
+    fingerprint: {
+      command: node.fingerprint,
+      args_prefix: [entry.fingerprint],
+      package_manifest: manifestFile.fingerprint,
+      runtime_tree: runtimeTree,
+      env_overlay_sha256: sha256Canonical({})
+    }
+  };
+}
+async function validAuthenticode(path, clientId, { env, runner, fsImpl, authenticodeInspector }) {
+  const expected = CLIENTS[clientId].signer;
+  const result2 = await authenticodeInspector(path, {
+    runner,
+    systemRoot: readWindowsEnvironmentValue(env, "SYSTEMROOT") || readWindowsEnvironmentValue(env, "WINDIR"),
+    expectedSignerNames: [expected],
+    allowedRoots: [dirname8(path)],
+    fsImpl
+  });
+  return result2?.status === "valid" && result2.signer_name === expected ? result2 : null;
+}
+async function resolveNativeCandidate(clientId, candidate, context) {
+  const allowedPaths = expectedNativePaths(clientId, context.env).map((path) => resolve9(path));
+  let commandCandidate = resolve9(candidate);
+  let cliCandidate = null;
+  let discoveryClue = null;
+  if (clientId === "vscode" && basename(commandCandidate).toLowerCase() === "code.cmd") {
+    const installRoot2 = dirname8(dirname8(commandCandidate));
+    const expectedCommand = allowedPaths.find((path) => pathKey3(dirname8(path)) === pathKey3(installRoot2));
+    if (!expectedCommand || pathKey3(dirname8(commandCandidate)) !== pathKey3(join9(installRoot2, "bin"))) {
+      fail14("VS Code wrapper is outside its standard install root");
+    }
+    discoveryClue = await canonicalFile(commandCandidate, {
+      fsImpl: context.fsImpl,
+      allowedRoots: [installRoot2],
+      basenameRequired: "code.cmd"
+    });
+    const wrapperContent = await readUtf8(discoveryClue.path, context.fsImpl, MAX_VSCODE_WRAPPER_BYTES, "VS Code wrapper");
+    const canonicalInstallRoot = dirname8(dirname8(discoveryClue.path));
+    const wrapperTuple = parseVsCodeWrapper(wrapperContent, dirname8(discoveryClue.path), canonicalInstallRoot);
+    commandCandidate = expectedCommand;
+    cliCandidate = wrapperTuple.cli;
+  }
+  const expected = allowedPaths.find((path) => pathKey3(path) === pathKey3(commandCandidate));
+  if (!expected) fail14("native client path is outside its allowlist");
+  const command = await canonicalFile(commandCandidate, {
+    fsImpl: context.fsImpl,
+    allowedRoots: [dirname8(expected)],
+    basenameRequired: clientId === "vscode" ? "Code.exe" : "claude.exe"
+  });
+  const signature = await validAuthenticode(command.path, clientId, context);
+  if (!signature) fail14("native client signature is invalid");
+  if (clientId === "claude") {
+    return {
+      command: command.path,
+      args_prefix: [],
+      env_overlay: {},
+      package_id: null,
+      source: "native",
+      fingerprint: {
+        command: command.fingerprint,
+        args_prefix: [],
+        authenticode: signature,
+        env_overlay_sha256: sha256Canonical({})
+      }
+    };
+  }
+  const installRoot = dirname8(command.path);
+  const selectedCli = cliCandidate ?? await discoverVersionedVsCodeCli(installRoot, context.fsImpl);
+  const cli = await canonicalFile(selectedCli, {
+    fsImpl: context.fsImpl,
+    allowedRoots: [installRoot],
+    basenameRequired: "cli.js"
+  });
+  return {
+    command: command.path,
+    args_prefix: [cli.path],
+    env_overlay: expectedClientLaunchOverlay("vscode"),
+    package_id: null,
+    source: "native",
+    fingerprint: {
+      command: command.fingerprint,
+      args_prefix: [cli.fingerprint],
+      authenticode: signature,
+      env_overlay_sha256: sha256Canonical(expectedClientLaunchOverlay("vscode")),
+      ...discoveryClue ? { discovery_clue: discoveryClue.fingerprint } : {}
+    }
+  };
+}
+async function resolveCandidate(clientId, candidate, context) {
+  const extension = extname(candidate).toLowerCase();
+  if (clientId === "vscode" || clientId === "claude" && extension === ".exe") {
+    return resolveNativeCandidate(clientId, candidate, context);
+  }
+  if (extension === ".cmd" || extension === ".ps1" || extension === "") {
+    return resolveNpmCandidate(clientId, candidate, context);
+  }
+  fail14("client candidate type is unsupported");
+}
+function parseVersionOutput(stdout) {
+  for (const line of String(stdout ?? "").split(/\r?\n/)) {
+    const match = /(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/.exec(line.trim());
+    if (match) return match[1];
+  }
+  return null;
+}
+async function probeVersion(launch, {
+  env,
+  runner,
+  fsImpl,
+  authenticodeInspector,
+  runtimeTreePinner,
+  launchFilePinner
+}) {
+  const childEnv = clientProcessEnvironment(env, launch.env_overlay);
+  const result2 = await withPinnedClientLaunch(launch, {
+    env,
+    runner,
+    authenticodeInspector,
+    fsImpl,
+    runtimeTreePinner,
+    launchFilePinner,
+    callback: (guard, pinnedLaunch) => runner.run(pinnedLaunch.command, [...pinnedLaunch.args_prefix, "--version"], {
+      env: childEnv,
+      shell: false,
+      timeoutMs: 1e4,
+      outputLimitBytes: 64 * 1024
+    })
+  });
+  if (result2.status !== "exited" || result2.exitCode !== 0) fail14("client version probe failed", "VERSION_PROBE_FAILED");
+  const version2 = parseVersionOutput(result2.stdout);
+  if (!version2) fail14("client version output is unsupported", "VERSION_PROBE_FAILED");
+  return version2;
+}
+function launchIdentity(launch) {
+  return sha256Canonical({
+    command: pathKey3(launch.command),
+    args_prefix: launch.args_prefix.map((value) => absoluteSafePath(value) ? pathKey3(value) : value),
+    env_overlay: launch.env_overlay,
+    package_id: launch.package_id,
+    source: launch.source
+  });
+}
+async function resolveClientLaunch(clientId, {
+  env = process.env,
+  fsImpl = defaultFs10,
+  runner,
+  candidates = null,
+  authenticodeInspector = inspectAuthenticode,
+  runtimeTreePinner = withPinnedWindowsTrees,
+  launchFilePinner = withPinnedWindowsFiles
+} = {}) {
+  if (!CLIENT_IDS.includes(clientId)) fail14("client ID is unsupported", "UNSUPPORTED_CLIENT");
+  if (!runner?.run) fail14("client resolution requires a bounded process runner", "CLIENT_DISCOVERY_FAILED");
+  const explicitRows = candidateRows(clientId, candidates);
+  const discovered = explicitRows === null ? await discoverWithWhere(clientId, { env, runner, fsImpl }) : explicitRows;
+  if (!Array.isArray(discovered)) fail14("client candidate list is invalid", "CLIENT_DISCOVERY_FAILED");
+  if (discovered.length > MAX_CLIENT_CANDIDATES) fail14("client candidate list exceeds its bounded limit", "CLIENT_DISCOVERY_FAILED");
+  const unique6 = [...new Map(discovered.filter((path) => typeof path === "string" && path.trim() !== "" && absoluteSafePath(path)).map((path) => [pathKey3(path), resolve9(path)])).values()];
+  if (unique6.length === 0) fail14("client is not installed");
+  const valid = [];
+  const rejected = [];
+  for (const candidate of unique6) {
+    try {
+      valid.push(await resolveCandidate(clientId, candidate, {
+        env,
+        fsImpl,
+        runner,
+        candidates,
+        authenticodeInspector,
+        runtimeTreePinner
+      }));
+    } catch (error2) {
+      if (!(error2 instanceof ClientProcessError)) throw error2;
+      rejected.push({
+        code: error2.details?.cause_code ?? error2.code,
+        reason: error2.details?.cause_reason ?? error2.message
+      });
+    }
+  }
+  if (valid.length === 0) {
+    fail14("no safe client launch candidate was found", "NOT_INSTALLED", {
+      candidate_count: unique6.length,
+      rejection_codes: [...new Set(rejected.map((row) => row.code))].sort(),
+      rejection_reasons: [...new Set(rejected.map((row) => row.reason))].sort()
+    });
+  }
+  const uniqueLaunches = [...new Map(valid.map((launch) => [launchIdentity(launch), launch])).values()];
+  let lastProbeError = null;
+  const viable = [];
+  for (const launch of uniqueLaunches) {
+    try {
+      const version2 = await probeVersion(launch, {
+        env,
+        runner,
+        fsImpl,
+        authenticodeInspector,
+        runtimeTreePinner,
+        launchFilePinner
+      });
+      const compatibility = classifySupportedVersion(clientId, version2);
+      const result2 = {
+        client_id: clientId,
+        command: launch.command,
+        args_prefix: Object.freeze([...launch.args_prefix]),
+        env_overlay: Object.freeze({ ...launch.env_overlay }),
+        package_id: launch.package_id,
+        source: launch.source,
+        version: version2,
+        compatibility,
+        fingerprint: Object.freeze(launch.fingerprint),
+        write_supported: compatibility === "release_gated"
+      };
+      validateClientLaunchContract(result2);
+      viable.push(Object.freeze(result2));
+    } catch (error2) {
+      if (error2?.code !== "VERSION_PROBE_FAILED") throw error2;
+      lastProbeError = error2;
+    }
+  }
+  if (viable.length > 1) {
+    fail14("multiple distinct client installations are viable", "AMBIGUOUS_CLIENT_INSTALLATION", {
+      candidate_count: viable.length
+    });
+  }
+  if (viable.length === 1) return viable[0];
+  throw lastProbeError ?? new ClientProcessError("client version probe failed", "VERSION_PROBE_FAILED");
+}
+
+// server/deployment/client-discovery.mjs
+var ClientDiscoveryError = class extends Error {
+  constructor(message, code = "CLIENT_DISCOVERY_FAILED", details = {}) {
+    super(message);
+    this.name = "ClientDiscoveryError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail15(message, code = "CLIENT_DISCOVERY_FAILED", details = {}) {
+  throw new ClientDiscoveryError(message, code, details);
+}
+function safeErrorCode(error2) {
+  const code = error2?.code;
+  return typeof code === "string" && /^[A-Z0-9_]+$/.test(code) ? code : "CLIENT_DISCOVERY_FAILED";
+}
+function absentRow(clientId, errorCode = "NOT_INSTALLED") {
+  return Object.freeze({
+    client_id: clientId,
+    version: null,
+    compatibility: "not_installed",
+    write_supported: false,
+    launch: null,
+    discovery_status: errorCode
+  });
+}
+function failedRow(clientId, errorCode) {
+  return Object.freeze({
+    client_id: clientId,
+    version: null,
+    compatibility: "known_unsupported",
+    write_supported: false,
+    launch: null,
+    discovery_status: errorCode
+  });
+}
+function normalizeResolved(clientId, launch) {
+  if (!launch || launch.client_id !== clientId || typeof launch.version !== "string" || launch.version.trim() === "" || !["release_gated", "known_unsupported", "unknown_newer"].includes(launch.compatibility) || typeof launch.write_supported !== "boolean" || launch.write_supported !== (launch.compatibility === "release_gated")) {
+    fail15("client resolver returned an invalid launch row");
+  }
+  return Object.freeze({
+    client_id: clientId,
+    version: launch.version,
+    compatibility: launch.compatibility,
+    write_supported: launch.write_supported,
+    launch,
+    discovery_status: "DETECTED"
+  });
+}
+function resolverFor(clientId, resolvers) {
+  if (resolvers === null || resolvers === void 0) {
+    return (options) => resolveClientLaunch(clientId, options);
+  }
+  if (!resolvers || typeof resolvers !== "object" || Array.isArray(resolvers)) {
+    fail15("client resolvers must be an object");
+  }
+  const resolver = resolvers[clientId];
+  if (typeof resolver !== "function") fail15("client resolver set is incomplete");
+  return resolver;
+}
+async function discoverClients({
+  env = process.env,
+  workspaceRoot,
+  requestedProfile = null,
+  resolvers = null,
+  fsImpl,
+  runner
+} = {}) {
+  if (!env || typeof env !== "object" || Array.isArray(env)) fail15("client discovery environment is invalid");
+  if (typeof workspaceRoot !== "string" || workspaceRoot.trim() === "") fail15("client discovery workspace is invalid");
+  if (requestedProfile !== null && (typeof requestedProfile !== "string" || requestedProfile.trim() === "")) {
+    fail15("requested client profile is invalid");
+  }
+  const rows = [];
+  for (const clientId of CLIENT_IDS) {
+    let launch;
+    try {
+      launch = await resolverFor(clientId, resolvers)({
+        clientId,
+        env,
+        workspaceRoot,
+        requestedProfile,
+        ...fsImpl ? { fsImpl } : {},
+        ...runner ? { runner } : {}
+      });
+    } catch (error2) {
+      const hasStableCode = typeof error2?.code === "string" && /^[A-Z0-9_]+$/.test(error2.code);
+      if (!hasStableCode) {
+        fail15("client resolver failed unexpectedly", "CLIENT_DISCOVERY_FAILED", { client_id: clientId });
+      }
+      const code = safeErrorCode(error2);
+      if (code === "NOT_INSTALLED") rows.push(absentRow(clientId));
+      else if (CLIENT_DISCOVERY_FAILURE_CODES.includes(code)) {
+        rows.push(failedRow(clientId, code));
+      } else {
+        fail15("client resolver returned an unsupported failure", "CLIENT_DISCOVERY_FAILED", { client_id: clientId, resolver_code: code });
+      }
+      continue;
+    }
+    rows.push(normalizeResolved(clientId, launch));
+  }
+  return Object.freeze(rows);
+}
+function normalizeSelectionIds(values, label) {
+  if (!Array.isArray(values)) fail15(`${label} must be an array`, "INVALID_CLIENT_SELECTION");
+  if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !CLIENT_IDS.includes(value))) {
+    fail15(`${label} contains an invalid client ID`, "INVALID_CLIENT_SELECTION");
+  }
+  return values;
+}
+function normalizeDiscovered(discovered) {
+  if (!Array.isArray(discovered)) fail15("discovered clients must be an array", "INVALID_CLIENT_SELECTION");
+  const known = /* @__PURE__ */ new Map();
+  for (const row of discovered) {
+    if (!row || typeof row !== "object" || !CLIENT_IDS.includes(row.client_id)) continue;
+    if (known.has(row.client_id)) fail15("discovered client IDs must be unique", "INVALID_CLIENT_SELECTION");
+    known.set(row.client_id, row);
+  }
+  return CLIENT_IDS.map((clientId) => known.get(clientId) ?? absentRow(clientId));
+}
+function selectClients(discovered, { include = [], exclude = [] } = {}) {
+  const includeIds = normalizeSelectionIds(include, "include");
+  const excludeIds = normalizeSelectionIds(exclude, "exclude");
+  const excluded = new Set(excludeIds);
+  if (includeIds.some((clientId) => excluded.has(clientId))) {
+    fail15("include and exclude client IDs overlap", "INVALID_CLIENT_SELECTION");
+  }
+  const included = new Set(includeIds);
+  const exactInclude = includeIds.length > 0;
+  return Object.freeze(normalizeDiscovered(discovered).map((row) => {
+    const installed = row.compatibility !== "not_installed";
+    const explicitlyExcluded = excluded.has(row.client_id) || exactInclude && !included.has(row.client_id);
+    const selected2 = installed && !explicitlyExcluded && (included.has(row.client_id) || !exactInclude && row.compatibility === "release_gated");
+    let status = "UNKNOWN";
+    let enablement = "UNKNOWN";
+    let activation = "UNKNOWN";
+    let selectionReason = selected2 ? included.has(row.client_id) ? "included" : "default" : "inspect_only";
+    if (!installed && explicitlyExcluded) {
+      status = "NOT_SELECTED";
+      enablement = "NOT_SELECTED";
+      activation = "NOT_SELECTED";
+      selectionReason = excluded.has(row.client_id) ? "excluded" : "not_included";
+    } else if (!installed) {
+      status = "NOT_INSTALLED";
+      enablement = "NOT_INSTALLED";
+      activation = "NOT_INSTALLED";
+      selectionReason = included.has(row.client_id) ? "included_not_installed" : "not_installed";
+    } else if (explicitlyExcluded) {
+      status = "NOT_SELECTED";
+      enablement = "NOT_SELECTED";
+      activation = "NOT_SELECTED";
+      selectionReason = excluded.has(row.client_id) ? "excluded" : "not_included";
+    }
+    return Object.freeze({
+      ...row,
+      selected: selected2,
+      status,
+      enablement,
+      activation,
+      selection_reason: selectionReason
+    });
+  }));
+}
 
 // server/node_modules/zod/v4/core/core.js
 var NEVER = Object.freeze({
@@ -9483,50 +22340,50 @@ function formatError(error2, _mapper) {
 // server/node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
-  const result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise) {
+  const result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise) {
     throw new $ZodAsyncError();
   }
-  if (result.issues.length) {
-    const e = new (_params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+  if (result2.issues.length) {
+    const e = new (_params?.Err ?? _Err)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())));
     captureStackTrace(e, _params?.callee);
     throw e;
   }
-  return result.value;
+  return result2.value;
 };
 var _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
-  let result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise)
-    result = await result;
-  if (result.issues.length) {
-    const e = new (params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+  let result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise)
+    result2 = await result2;
+  if (result2.issues.length) {
+    const e = new (params?.Err ?? _Err)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())));
     captureStackTrace(e, params?.callee);
     throw e;
   }
-  return result.value;
+  return result2.value;
 };
 var _safeParse = (_Err) => (schema, value, _ctx) => {
   const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
-  const result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise) {
+  const result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise) {
     throw new $ZodAsyncError();
   }
-  return result.issues.length ? {
+  return result2.issues.length ? {
     success: false,
-    error: new (_Err ?? $ZodError)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-  } : { success: true, data: result.value };
+    error: new (_Err ?? $ZodError)(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+  } : { success: true, data: result2.value };
 };
 var safeParse = /* @__PURE__ */ _safeParse($ZodRealError);
 var _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
-  let result = schema._zod.run({ value, issues: [] }, ctx);
-  if (result instanceof Promise)
-    result = await result;
-  return result.issues.length ? {
+  let result2 = schema._zod.run({ value, issues: [] }, ctx);
+  if (result2 instanceof Promise)
+    result2 = await result2;
+  return result2.issues.length ? {
     success: false,
-    error: new _Err(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-  } : { success: true, data: result.value };
+    error: new _Err(result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+  } : { success: true, data: result2.value };
 };
 var safeParseAsync = /* @__PURE__ */ _safeParseAsync($ZodRealError);
 
@@ -10079,13 +22936,13 @@ var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
       return payload;
     };
     inst._zod.run = (payload, ctx) => {
-      const result = inst._zod.parse(payload, ctx);
-      if (result instanceof Promise) {
+      const result2 = inst._zod.parse(payload, ctx);
+      if (result2 instanceof Promise) {
         if (ctx.async === false)
           throw new $ZodAsyncError();
-        return result.then((result2) => runChecks(result2, checks, ctx));
+        return result2.then((result3) => runChecks(result3, checks, ctx));
       }
-      return runChecks(result, checks, ctx);
+      return runChecks(result2, checks, ctx);
     };
   }
   inst["~standard"] = {
@@ -10482,11 +23339,11 @@ var $ZodNever = /* @__PURE__ */ $constructor("$ZodNever", (inst, def) => {
     return payload;
   };
 });
-function handleArrayResult(result, final, index) {
-  if (result.issues.length) {
-    final.issues.push(...prefixIssues(index, result.issues));
+function handleArrayResult(result2, final, index) {
+  if (result2.issues.length) {
+    final.issues.push(...prefixIssues(index, result2.issues));
   }
-  final.value[index] = result.value;
+  final.value[index] = result2.value;
 }
 var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
   $ZodType.init(inst, def);
@@ -10505,14 +23362,14 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
     const proms = [];
     for (let i = 0; i < input.length; i++) {
       const item = input[i];
-      const result = def.element._zod.run({
+      const result2 = def.element._zod.run({
         value: item,
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        proms.push(result.then((result2) => handleArrayResult(result2, payload, i)));
+      if (result2 instanceof Promise) {
+        proms.push(result2.then((result3) => handleArrayResult(result3, payload, i)));
       } else {
-        handleArrayResult(result, payload, i);
+        handleArrayResult(result2, payload, i);
       }
     }
     if (proms.length) {
@@ -10521,28 +23378,28 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
     return payload;
   };
 });
-function handleObjectResult(result, final, key) {
-  if (result.issues.length) {
-    final.issues.push(...prefixIssues(key, result.issues));
+function handleObjectResult(result2, final, key) {
+  if (result2.issues.length) {
+    final.issues.push(...prefixIssues(key, result2.issues));
   }
-  final.value[key] = result.value;
+  final.value[key] = result2.value;
 }
-function handleOptionalObjectResult(result, final, key, input) {
-  if (result.issues.length) {
+function handleOptionalObjectResult(result2, final, key, input) {
+  if (result2.issues.length) {
     if (input[key] === void 0) {
       if (key in input) {
         final.value[key] = void 0;
       } else {
-        final.value[key] = result.value;
+        final.value[key] = result2.value;
       }
     } else {
-      final.issues.push(...prefixIssues(key, result.issues));
+      final.issues.push(...prefixIssues(key, result2.issues));
     }
-  } else if (result.value === void 0) {
+  } else if (result2.value === void 0) {
     if (key in input)
       final.value[key] = void 0;
   } else {
-    final.value[key] = result.value;
+    final.value[key] = result2.value;
   }
 }
 var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
@@ -10708,9 +23565,9 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
   };
 });
 function handleUnionResults(results, final, inst, ctx) {
-  for (const result of results) {
-    if (result.issues.length === 0) {
-      final.value = result.value;
+  for (const result2 of results) {
+    if (result2.issues.length === 0) {
+      final.value = result2.value;
       return final;
     }
   }
@@ -10718,7 +23575,7 @@ function handleUnionResults(results, final, inst, ctx) {
     code: "invalid_union",
     input: final.value,
     inst,
-    errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+    errors: results.map((result2) => result2.issues.map((iss) => finalizeIssue(iss, ctx, config())))
   });
   return final;
 }
@@ -10743,17 +23600,17 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
     let async = false;
     const results = [];
     for (const option of def.options) {
-      const result = option._zod.run({
+      const result2 = option._zod.run({
         value: payload.value,
         issues: []
       }, ctx);
-      if (result instanceof Promise) {
-        results.push(result);
+      if (result2 instanceof Promise) {
+        results.push(result2);
         async = true;
       } else {
-        if (result.issues.length === 0)
-          return result;
-        results.push(result);
+        if (result2.issues.length === 0)
+          return result2;
+        results.push(result2);
       }
     }
     if (!async)
@@ -10886,21 +23743,21 @@ function mergeValues(a, b) {
   }
   return { valid: false, mergeErrorPath: [] };
 }
-function handleIntersectionResults(result, left, right) {
+function handleIntersectionResults(result2, left, right) {
   if (left.issues.length) {
-    result.issues.push(...left.issues);
+    result2.issues.push(...left.issues);
   }
   if (right.issues.length) {
-    result.issues.push(...right.issues);
+    result2.issues.push(...right.issues);
   }
-  if (aborted(result))
-    return result;
+  if (aborted(result2))
+    return result2;
   const merged = mergeValues(left.value, right.value);
   if (!merged.valid) {
     throw new Error(`Unmergable intersection. Error path: ${JSON.stringify(merged.mergeErrorPath)}`);
   }
-  result.value = merged.data;
-  return result;
+  result2.value = merged.data;
+  return result2;
 }
 var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
   $ZodType.init(inst, def);
@@ -10921,19 +23778,19 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
       payload.value = {};
       for (const key of values) {
         if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
-          const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
-          if (result instanceof Promise) {
-            proms.push(result.then((result2) => {
-              if (result2.issues.length) {
-                payload.issues.push(...prefixIssues(key, result2.issues));
+          const result2 = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+          if (result2 instanceof Promise) {
+            proms.push(result2.then((result3) => {
+              if (result3.issues.length) {
+                payload.issues.push(...prefixIssues(key, result3.issues));
               }
-              payload.value[key] = result2.value;
+              payload.value[key] = result3.value;
             }));
           } else {
-            if (result.issues.length) {
-              payload.issues.push(...prefixIssues(key, result.issues));
+            if (result2.issues.length) {
+              payload.issues.push(...prefixIssues(key, result2.issues));
             }
-            payload.value[key] = result.value;
+            payload.value[key] = result2.value;
           }
         }
       }
@@ -10973,19 +23830,19 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
           payload.value[keyResult.value] = keyResult.value;
           continue;
         }
-        const result = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
-        if (result instanceof Promise) {
-          proms.push(result.then((result2) => {
-            if (result2.issues.length) {
-              payload.issues.push(...prefixIssues(key, result2.issues));
+        const result2 = def.valueType._zod.run({ value: input[key], issues: [] }, ctx);
+        if (result2 instanceof Promise) {
+          proms.push(result2.then((result3) => {
+            if (result3.issues.length) {
+              payload.issues.push(...prefixIssues(key, result3.issues));
             }
-            payload.value[keyResult.value] = result2.value;
+            payload.value[keyResult.value] = result3.value;
           }));
         } else {
-          if (result.issues.length) {
-            payload.issues.push(...prefixIssues(key, result.issues));
+          if (result2.issues.length) {
+            payload.issues.push(...prefixIssues(key, result2.issues));
           }
-          payload.value[keyResult.value] = result.value;
+          payload.value[keyResult.value] = result2.value;
         }
       }
     }
@@ -11097,11 +23954,11 @@ var $ZodDefault = /* @__PURE__ */ $constructor("$ZodDefault", (inst, def) => {
       payload.value = def.defaultValue;
       return payload;
     }
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => handleDefaultResult(result2, def));
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => handleDefaultResult(result3, def));
     }
-    return handleDefaultResult(result, def);
+    return handleDefaultResult(result2, def);
   };
 });
 function handleDefaultResult(payload, def) {
@@ -11128,11 +23985,11 @@ var $ZodNonOptional = /* @__PURE__ */ $constructor("$ZodNonOptional", (inst, def
     return v ? new Set([...v].filter((x) => x !== void 0)) : void 0;
   });
   inst._zod.parse = (payload, ctx) => {
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => handleNonOptionalResult(result2, inst));
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => handleNonOptionalResult(result3, inst));
     }
-    return handleNonOptionalResult(result, inst);
+    return handleNonOptionalResult(result2, inst);
   };
 });
 function handleNonOptionalResult(payload, inst) {
@@ -11152,15 +24009,15 @@ var $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
   defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
   defineLazy(inst._zod, "values", () => def.innerType._zod.values);
   inst._zod.parse = (payload, ctx) => {
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then((result2) => {
-        payload.value = result2.value;
-        if (result2.issues.length) {
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then((result3) => {
+        payload.value = result3.value;
+        if (result3.issues.length) {
           payload.value = def.catchValue({
             ...payload,
             error: {
-              issues: result2.issues.map((iss) => finalizeIssue(iss, ctx, config()))
+              issues: result3.issues.map((iss) => finalizeIssue(iss, ctx, config()))
             },
             input: payload.value
           });
@@ -11169,12 +24026,12 @@ var $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
         return payload;
       });
     }
-    payload.value = result.value;
-    if (result.issues.length) {
+    payload.value = result2.value;
+    if (result2.issues.length) {
       payload.value = def.catchValue({
         ...payload,
         error: {
-          issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config()))
+          issues: result2.issues.map((iss) => finalizeIssue(iss, ctx, config()))
         },
         input: payload.value
       });
@@ -11209,11 +24066,11 @@ var $ZodReadonly = /* @__PURE__ */ $constructor("$ZodReadonly", (inst, def) => {
   defineLazy(inst._zod, "optin", () => def.innerType._zod.optin);
   defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
   inst._zod.parse = (payload, ctx) => {
-    const result = def.innerType._zod.run(payload, ctx);
-    if (result instanceof Promise) {
-      return result.then(handleReadonlyResult);
+    const result2 = def.innerType._zod.run(payload, ctx);
+    if (result2 instanceof Promise) {
+      return result2.then(handleReadonlyResult);
     }
-    return handleReadonlyResult(result);
+    return handleReadonlyResult(result2);
   };
 });
 function handleReadonlyResult(payload) {
@@ -11236,8 +24093,8 @@ var $ZodCustom = /* @__PURE__ */ $constructor("$ZodCustom", (inst, def) => {
     return;
   };
 });
-function handleRefineResult(result, payload, input, inst) {
-  if (!result) {
+function handleRefineResult(result2, payload, input, inst) {
+  if (!result2) {
     const _iss = {
       code: "custom",
       input,
@@ -11866,12 +24723,12 @@ function isZ4Schema(s) {
 }
 function safeParse2(schema, data) {
   if (isZ4Schema(schema)) {
-    const result2 = safeParse(schema, data);
-    return result2;
+    const result3 = safeParse(schema, data);
+    return result3;
   }
   const v3Schema = schema;
-  const result = v3Schema.safeParse(data);
-  return result;
+  const result2 = v3Schema.safeParse(data);
+  return result2;
 }
 function getObjectShape(schema) {
   if (!schema)
@@ -11998,7 +24855,7 @@ var ZodRealError = $constructor("ZodError", initializer2, {
 });
 
 // server/node_modules/zod/v4/classic/parse.js
-var parse3 = /* @__PURE__ */ _parse(ZodRealError);
+var parse5 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
 var safeParseAsync2 = /* @__PURE__ */ _safeParseAsync(ZodRealError);
@@ -12026,7 +24883,7 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
     reg.add(inst, meta);
     return inst;
   });
-  inst.parse = (data, params) => parse3(inst, data, params, { callee: inst.parse });
+  inst.parse = (data, params) => parse5(inst, data, params, { callee: inst.parse });
   inst.safeParse = (data, params) => safeParse3(inst, data, params);
   inst.parseAsync = async (data, params) => parseAsync2(inst, data, params, { callee: inst.parseAsync });
   inst.safeParseAsync = async (data, params) => safeParseAsync2(inst, data, params);
@@ -14158,11 +27015,11 @@ function getMethodLiteral(schema) {
   return value;
 }
 function parseWithCompat(schema, data) {
-  const result = safeParse2(schema, data);
-  if (!result.success) {
-    throw result.error;
+  const result2 = safeParse2(schema, data);
+  if (!result2.success) {
+    throw result2.error;
   }
-  return result.data;
+  return result2.data;
 }
 
 // server/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
@@ -14240,12 +27097,12 @@ var Protocol = class {
             return await handleTaskResult();
           }
           if (isTerminal(task.status)) {
-            const result = await this._taskStore.getTaskResult(taskId, extra.sessionId);
+            const result2 = await this._taskStore.getTaskResult(taskId, extra.sessionId);
             this._clearTaskQueue(taskId);
             return {
-              ...result,
+              ...result2,
               _meta: {
-                ...result._meta,
+                ...result2._meta,
                 [RELATED_TASK_META_KEY]: {
                   taskId
                 }
@@ -14470,12 +27327,12 @@ var Protocol = class {
       if (taskCreationParams) {
         this.assertTaskHandlerCapability(request.method);
       }
-    }).then(() => handler(request, fullExtra)).then(async (result) => {
+    }).then(() => handler(request, fullExtra)).then(async (result2) => {
       if (abortController.signal.aborted) {
         return;
       }
       const response = {
-        result,
+        result: result2,
         jsonrpc: "2.0",
         id: request.id
       };
@@ -14561,9 +27418,9 @@ var Protocol = class {
     this._cleanupTimeout(messageId);
     let isTaskResponse = false;
     if (isJSONRPCResultResponse(response) && response.result && typeof response.result === "object") {
-      const result = response.result;
-      if (result.task && typeof result.task === "object") {
-        const task = result.task;
+      const result2 = response.result;
+      if (result2.task && typeof result2.task === "object") {
+        const task = result2.task;
         if (typeof task.taskId === "string") {
           isTaskResponse = true;
           this._taskProgressTokens.set(task.taskId, messageId);
@@ -14620,8 +27477,8 @@ var Protocol = class {
     const { task } = options ?? {};
     if (!task) {
       try {
-        const result = await this.request(request, resultSchema, options);
-        yield { type: "result", result };
+        const result2 = await this.request(request, resultSchema, options);
+        yield { type: "result", result: result2 };
       } catch (error2) {
         yield {
           type: "error",
@@ -14644,8 +27501,8 @@ var Protocol = class {
         yield { type: "taskStatus", task: task2 };
         if (isTerminal(task2.status)) {
           if (task2.status === "completed") {
-            const result = await this.getTaskResult({ taskId }, resultSchema, options);
-            yield { type: "result", result };
+            const result2 = await this.getTaskResult({ taskId }, resultSchema, options);
+            yield { type: "result", result: result2 };
           } else if (task2.status === "failed") {
             yield {
               type: "error",
@@ -14660,12 +27517,12 @@ var Protocol = class {
           return;
         }
         if (task2.status === "input_required") {
-          const result = await this.getTaskResult({ taskId }, resultSchema, options);
-          yield { type: "result", result };
+          const result2 = await this.getTaskResult({ taskId }, resultSchema, options);
+          yield { type: "result", result: result2 };
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve13) => setTimeout(resolve13, pollInterval));
+        await new Promise((resolve21) => setTimeout(resolve21, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -14682,7 +27539,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve13, reject) => {
+    return new Promise((resolve21, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -14760,7 +27617,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve13(parseResult.data);
+            resolve21(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -15021,12 +27878,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve13, reject) => {
+    return new Promise((resolve21, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve13, interval);
+      const timeoutId = setTimeout(resolve21, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -15055,8 +27912,8 @@ var Protocol = class {
         }
         return task;
       },
-      storeTaskResult: async (taskId, status, result) => {
-        await taskStore.storeTaskResult(taskId, status, result, sessionId);
+      storeTaskResult: async (taskId, status, result2) => {
+        await taskStore.storeTaskResult(taskId, status, result2, sessionId);
         const task = await taskStore.getTask(taskId, sessionId);
         if (task) {
           const notification = TaskStatusNotificationSchema.parse({
@@ -15103,20 +27960,20 @@ function isPlainObject3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function mergeCapabilities(base, additional) {
-  const result = { ...base };
+  const result2 = { ...base };
   for (const key in additional) {
     const k = key;
     const addValue = additional[k];
     if (addValue === void 0)
       continue;
-    const baseValue = result[k];
+    const baseValue = result2[k];
     if (isPlainObject3(baseValue) && isPlainObject3(addValue)) {
-      result[k] = { ...baseValue, ...addValue };
+      result2[k] = { ...baseValue, ...addValue };
     } else {
-      result[k] = addValue;
+      result2[k] = addValue;
     }
   }
-  return result;
+  return result2;
 }
 
 // server/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
@@ -15240,17 +28097,17 @@ var ExperimentalClientTasks = class {
     const validator = clientInternal.getToolOutputValidator(params.name);
     for await (const message of stream) {
       if (message.type === "result" && validator) {
-        const result = message.result;
-        if (!result.structuredContent && !result.isError) {
+        const result2 = message.result;
+        if (!result2.structuredContent && !result2.isError) {
           yield {
             type: "error",
             error: new McpError(ErrorCode.InvalidRequest, `Tool ${params.name} has an output schema but did not return structured content`)
           };
           return;
         }
-        if (result.structuredContent) {
+        if (result2.structuredContent) {
           try {
-            const validationResult = validator(result.structuredContent);
+            const validationResult = validator(result2.structuredContent);
             if (!validationResult.valid) {
               yield {
                 type: "error",
@@ -15444,20 +28301,20 @@ var Client = class extends Protocol {
   _setupListChangedHandlers(config2) {
     if (config2.tools && this._serverCapabilities?.tools?.listChanged) {
       this._setupListChangedHandler("tools", ToolListChangedNotificationSchema, config2.tools, async () => {
-        const result = await this.listTools();
-        return result.tools;
+        const result2 = await this.listTools();
+        return result2.tools;
       });
     }
     if (config2.prompts && this._serverCapabilities?.prompts?.listChanged) {
       this._setupListChangedHandler("prompts", PromptListChangedNotificationSchema, config2.prompts, async () => {
-        const result = await this.listPrompts();
-        return result.prompts;
+        const result2 = await this.listPrompts();
+        return result2.prompts;
       });
     }
     if (config2.resources && this._serverCapabilities?.resources?.listChanged) {
       this._setupListChangedHandler("resources", ResourceListChangedNotificationSchema, config2.resources, async () => {
-        const result = await this.listResources();
-        return result.resources;
+        const result2 = await this.listResources();
+        return result2.resources;
       });
     }
   }
@@ -15526,16 +28383,16 @@ var Client = class extends Protocol {
         if (params.mode === "url" && !supportsUrlMode) {
           throw new McpError(ErrorCode.InvalidParams, "Client does not support URL-mode elicitation requests");
         }
-        const result = await Promise.resolve(handler(request, extra));
+        const result2 = await Promise.resolve(handler(request, extra));
         if (params.task) {
-          const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
+          const taskValidationResult = safeParse2(CreateTaskResultSchema, result2);
           if (!taskValidationResult.success) {
             const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
             throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
           }
           return taskValidationResult.data;
         }
-        const validationResult = safeParse2(ElicitResultSchema, result);
+        const validationResult = safeParse2(ElicitResultSchema, result2);
         if (!validationResult.success) {
           const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
           throw new McpError(ErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
@@ -15562,9 +28419,9 @@ var Client = class extends Protocol {
           throw new McpError(ErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
         }
         const { params } = validatedRequest.data;
-        const result = await Promise.resolve(handler(request, extra));
+        const result2 = await Promise.resolve(handler(request, extra));
         if (params.task) {
-          const taskValidationResult = safeParse2(CreateTaskResultSchema, result);
+          const taskValidationResult = safeParse2(CreateTaskResultSchema, result2);
           if (!taskValidationResult.success) {
             const errorMessage = taskValidationResult.error instanceof Error ? taskValidationResult.error.message : String(taskValidationResult.error);
             throw new McpError(ErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
@@ -15573,7 +28430,7 @@ var Client = class extends Protocol {
         }
         const hasTools = params.tools || params.toolChoice;
         const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-        const validationResult = safeParse2(resultSchema, result);
+        const validationResult = safeParse2(resultSchema, result2);
         if (!validationResult.success) {
           const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
           throw new McpError(ErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
@@ -15595,7 +28452,7 @@ var Client = class extends Protocol {
       return;
     }
     try {
-      const result = await this.request({
+      const result2 = await this.request({
         method: "initialize",
         params: {
           protocolVersion: LATEST_PROTOCOL_VERSION,
@@ -15603,18 +28460,18 @@ var Client = class extends Protocol {
           clientInfo: this._clientInfo
         }
       }, InitializeResultSchema, options);
-      if (result === void 0) {
-        throw new Error(`Server sent invalid initialize result: ${result}`);
+      if (result2 === void 0) {
+        throw new Error(`Server sent invalid initialize result: ${result2}`);
       }
-      if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result.protocolVersion)) {
-        throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+      if (!SUPPORTED_PROTOCOL_VERSIONS.includes(result2.protocolVersion)) {
+        throw new Error(`Server's protocol version is not supported: ${result2.protocolVersion}`);
       }
-      this._serverCapabilities = result.capabilities;
-      this._serverVersion = result.serverInfo;
+      this._serverCapabilities = result2.capabilities;
+      this._serverVersion = result2.serverInfo;
       if (transport.setProtocolVersion) {
-        transport.setProtocolVersion(result.protocolVersion);
+        transport.setProtocolVersion(result2.protocolVersion);
       }
-      this._instructions = result.instructions;
+      this._instructions = result2.instructions;
       await this.notification({
         method: "notifications/initialized"
       });
@@ -15782,15 +28639,15 @@ var Client = class extends Protocol {
     if (this.isToolTaskRequired(params.name)) {
       throw new McpError(ErrorCode.InvalidRequest, `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`);
     }
-    const result = await this.request({ method: "tools/call", params }, resultSchema, options);
+    const result2 = await this.request({ method: "tools/call", params }, resultSchema, options);
     const validator = this.getToolOutputValidator(params.name);
     if (validator) {
-      if (!result.structuredContent && !result.isError) {
+      if (!result2.structuredContent && !result2.isError) {
         throw new McpError(ErrorCode.InvalidRequest, `Tool ${params.name} has an output schema but did not return structured content`);
       }
-      if (result.structuredContent) {
+      if (result2.structuredContent) {
         try {
-          const validationResult = validator(result.structuredContent);
+          const validationResult = validator(result2.structuredContent);
           if (!validationResult.valid) {
             throw new McpError(ErrorCode.InvalidParams, `Structured content does not match the tool's output schema: ${validationResult.errorMessage}`);
           }
@@ -15802,7 +28659,7 @@ var Client = class extends Protocol {
         }
       }
     }
-    return result;
+    return result2;
   }
   isToolTask(toolName) {
     if (!this._serverCapabilities?.tasks?.requests?.tools?.call) {
@@ -15846,9 +28703,9 @@ var Client = class extends Protocol {
     return this._cachedToolOutputValidators.get(toolName);
   }
   async listTools(params, options) {
-    const result = await this.request({ method: "tools/list", params }, ListToolsResultSchema, options);
-    this.cacheToolMetadata(result.tools);
-    return result;
+    const result2 = await this.request({ method: "tools/list", params }, ListToolsResultSchema, options);
+    this.cacheToolMetadata(result2.tools);
+    return result2;
   }
   /**
    * Set up a single list changed handler.
@@ -15896,201 +28753,226 @@ var Client = class extends Protocol {
   }
 };
 
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
-var import_cross_spawn = __toESM(require_cross_spawn(), 1);
-import process2 from "node:process";
-import { PassThrough } from "node:stream";
+// server/deployment/protocol-smoke.mjs
+import { isAbsolute as isAbsolute12, posix as posix4, win32 as win3210 } from "node:path";
 
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
-var ReadBuffer = class {
-  append(chunk) {
-    this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
-  }
-  readMessage() {
-    if (!this._buffer) {
-      return null;
-    }
-    const index = this._buffer.indexOf("\n");
-    if (index === -1) {
-      return null;
-    }
-    const line = this._buffer.toString("utf8", 0, index).replace(/\r$/, "");
-    this._buffer = this._buffer.subarray(index + 1);
-    return deserializeMessage(line);
-  }
-  clear() {
-    this._buffer = void 0;
+// server/deployment/bounded-stdio-transport.mjs
+import { spawn as defaultSpawn3 } from "node:child_process";
+import { PassThrough } from "node:stream";
+var DEFAULT_STDOUT_LIMIT_BYTES = 8 * 1024 * 1024;
+var DEFAULT_STDERR_LIMIT_BYTES = 64 * 1024;
+var DEFAULT_STDIO_CLOSE_DEADLINE_MS = 6e3;
+var BoundedStdioTransportError = class extends Error {
+  constructor(message, code = "STDIO_TRANSPORT_FAILED") {
+    super(message);
+    this.name = "BoundedStdioTransportError";
+    this.code = code;
   }
 };
-function deserializeMessage(line) {
-  return JSONRPCMessageSchema.parse(JSON.parse(line));
-}
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
-}
-
-// server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
-var DEFAULT_INHERITED_ENV_VARS = process2.platform === "win32" ? [
-  "APPDATA",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "LOCALAPPDATA",
-  "PATH",
-  "PROCESSOR_ARCHITECTURE",
-  "SYSTEMDRIVE",
-  "SYSTEMROOT",
-  "TEMP",
-  "USERNAME",
-  "USERPROFILE",
-  "PROGRAMFILES"
-] : (
-  /* list inspired by the default env inheritance of sudo */
-  ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
-);
-function getDefaultEnvironment() {
-  const env = {};
-  for (const key of DEFAULT_INHERITED_ENV_VARS) {
-    const value = process2.env[key];
-    if (value === void 0) {
-      continue;
-    }
-    if (value.startsWith("()")) {
-      continue;
-    }
-    env[key] = value;
+function validateLimit(value, maximum, label) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new BoundedStdioTransportError(`${label} must be a positive integer no larger than ${maximum}`, "INVALID_STDIO_LIMIT");
   }
-  return env;
+  return value;
 }
-var StdioClientTransport = class {
-  constructor(server) {
-    this._readBuffer = new ReadBuffer();
-    this._stderrStream = null;
-    this._serverParams = server;
-    if (server.stderr === "pipe" || server.stderr === "overlapped") {
-      this._stderrStream = new PassThrough();
-    }
-  }
-  /**
-   * Starts the server process and prepares to communicate with it.
-   */
-  async start() {
-    if (this._process) {
-      throw new Error("StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.");
-    }
-    return new Promise((resolve13, reject) => {
-      this._process = (0, import_cross_spawn.default)(this._serverParams.command, this._serverParams.args ?? [], {
-        // merge default env with server env because mcp server needs some env vars
-        env: {
-          ...getDefaultEnvironment(),
-          ...this._serverParams.env
-        },
-        stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
-        shell: false,
-        windowsHide: process2.platform === "win32",
-        cwd: this._serverParams.cwd
-      });
-      this._process.on("error", (error2) => {
-        reject(error2);
-        this.onerror?.(error2);
-      });
-      this._process.on("spawn", () => {
-        resolve13();
-      });
-      this._process.on("close", (_code) => {
-        this._process = void 0;
-        this.onclose?.();
-      });
-      this._process.stdin?.on("error", (error2) => {
-        this.onerror?.(error2);
-      });
-      this._process.stdout?.on("data", (chunk) => {
-        this._readBuffer.append(chunk);
-        this.processReadBuffer();
-      });
-      this._process.stdout?.on("error", (error2) => {
-        this.onerror?.(error2);
-      });
-      if (this._stderrStream && this._process.stderr) {
-        this._process.stderr.pipe(this._stderrStream);
-      }
+function observeClose(child) {
+  let closed = false;
+  let resolveClose;
+  const closePromise = new Promise((resolvePromise) => {
+    resolveClose = resolvePromise;
+  });
+  child.once("close", () => {
+    closed = true;
+    resolveClose();
+  });
+  return async (timeoutMs) => {
+    if (closed) return;
+    let timer;
+    const timeout = new Promise((resolvePromise) => {
+      timer = setTimeout(resolvePromise, timeoutMs);
     });
-  }
-  /**
-   * The stderr stream of the child process, if `StdioServerParameters.stderr` was set to "pipe" or "overlapped".
-   *
-   * If stderr piping was requested, a PassThrough stream is returned _immediately_, allowing callers to
-   * attach listeners before the start method is invoked. This prevents loss of any early
-   * error output emitted by the child process.
-   */
-  get stderr() {
-    if (this._stderrStream) {
-      return this._stderrStream;
+    await Promise.race([closePromise, timeout]);
+    clearTimeout(timer);
+  };
+}
+var BoundedStdioClientTransport = class {
+  constructor(server, {
+    stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+    stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES,
+    spawnImpl = defaultSpawn3,
+    terminateTree = null,
+    closeGraceMs = 250
+  } = {}) {
+    if (!server || typeof server.command !== "string" || server.command.trim() === "") {
+      throw new BoundedStdioTransportError("stdio server command is required", "INVALID_STDIO_SERVER");
     }
-    return this._process?.stderr ?? null;
+    if (!Array.isArray(server.args ?? []) || !(server.args ?? []).every((arg) => typeof arg === "string")) {
+      throw new BoundedStdioTransportError("stdio server args must be strings", "INVALID_STDIO_SERVER");
+    }
+    if (typeof spawnImpl !== "function") throw new BoundedStdioTransportError("spawnImpl must be a function", "INVALID_STDIO_SERVER");
+    if (terminateTree !== null && typeof terminateTree !== "function") {
+      throw new BoundedStdioTransportError("terminateTree must be a function or null", "INVALID_STDIO_SERVER");
+    }
+    if (!Number.isSafeInteger(closeGraceMs) || closeGraceMs <= 0 || closeGraceMs > 5e3) {
+      throw new BoundedStdioTransportError("closeGraceMs is invalid", "INVALID_STDIO_LIMIT");
+    }
+    this._server = server;
+    this._stdoutLimitBytes = validateLimit(stdoutLimitBytes, DEFAULT_STDOUT_LIMIT_BYTES, "stdoutLimitBytes");
+    this._stderrLimitBytes = validateLimit(stderrLimitBytes, DEFAULT_STDERR_LIMIT_BYTES, "stderrLimitBytes");
+    this._spawn = spawnImpl;
+    this._terminateTree = terminateTree ?? ((child) => terminateProcessTree(child, { spawnImpl }));
+    this._closeGraceMs = closeGraceMs;
+    this._stderrStream = new PassThrough();
+    this._stdoutChunks = [];
+    this._pendingStdoutBytes = 0;
+    this._stdoutBytes = 0;
+    this._stderrBytes = 0;
+    this._process = null;
+    this._started = false;
+    this._failed = false;
+    this._closePromise = null;
   }
-  /**
-   * The child process pid spawned by this transport.
-   *
-   * This is only available after the transport has been started.
-   */
+  get stderr() {
+    return this._stderrStream;
+  }
   get pid() {
     return this._process?.pid ?? null;
   }
-  processReadBuffer() {
-    while (true) {
-      try {
-        const message = this._readBuffer.readMessage();
-        if (message === null) {
-          break;
-        }
-        this.onmessage?.(message);
-      } catch (error2) {
-        this.onerror?.(error2);
-      }
+  _fail(error2) {
+    if (this._failed) return;
+    this._failed = true;
+    this.onerror?.(error2);
+    void this.close();
+  }
+  _parseLine(lineBytes) {
+    const end = lineBytes.at(-1) === 13 ? lineBytes.length - 1 : lineBytes.length;
+    try {
+      const message = JSONRPCMessageSchema.parse(JSON.parse(lineBytes.toString("utf8", 0, end)));
+      this.onmessage?.(message);
+    } catch (error2) {
+      this._fail(error2);
     }
+  }
+  _handleStdout(value) {
+    if (this._failed || this._closePromise) return;
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    this._stdoutBytes += chunk.length;
+    if (this._stdoutBytes > this._stdoutLimitBytes) {
+      this._fail(new BoundedStdioTransportError("stdio stdout limit exceeded", "STDOUT_LIMIT_EXCEEDED"));
+      return;
+    }
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf(10, start);
+      if (newline === -1) break;
+      const tail = chunk.subarray(start, newline);
+      const line = this._stdoutChunks.length === 0 ? tail : Buffer.concat([...this._stdoutChunks, tail], this._pendingStdoutBytes + tail.length);
+      this._stdoutChunks = [];
+      this._pendingStdoutBytes = 0;
+      this._parseLine(line);
+      if (this._failed) return;
+      start = newline + 1;
+    }
+    if (start < chunk.length) {
+      const remaining = Buffer.from(chunk.subarray(start));
+      this._stdoutChunks.push(remaining);
+      this._pendingStdoutBytes += remaining.length;
+    }
+  }
+  _handleStderr(value) {
+    if (this._failed || this._closePromise) return;
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    const remaining = Math.max(0, this._stderrLimitBytes - this._stderrBytes);
+    if (remaining > 0) this._stderrStream.write(chunk.subarray(0, remaining));
+    this._stderrBytes += chunk.length;
+    if (this._stderrBytes > this._stderrLimitBytes) {
+      this._fail(new BoundedStdioTransportError("stdio stderr limit exceeded", "STDERR_LIMIT_EXCEEDED"));
+    }
+  }
+  async start() {
+    if (this._started) throw new BoundedStdioTransportError("stdio transport already started", "STDIO_ALREADY_STARTED");
+    this._started = true;
+    return await new Promise((resolvePromise, rejectPromise) => {
+      let spawned = false;
+      let child;
+      try {
+        child = this._spawn(this._server.command, this._server.args ?? [], {
+          env: { ...this._server.env ?? {} },
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
+          windowsHide: process.platform === "win32",
+          ...this._server.cwd ? { cwd: this._server.cwd } : {}
+        });
+      } catch (error2) {
+        rejectPromise(error2);
+        return;
+      }
+      this._process = child;
+      child.once("spawn", () => {
+        spawned = true;
+        resolvePromise();
+      });
+      child.once("error", (error2) => {
+        if (!spawned) rejectPromise(error2);
+        this._fail(error2);
+      });
+      child.once("close", () => {
+        if (this._process === child) this._process = null;
+        this._stderrStream.end();
+        this.onclose?.();
+      });
+      child.stdin?.on("error", (error2) => this._fail(error2));
+      child.stdout?.on("data", (chunk) => this._handleStdout(chunk));
+      child.stdout?.on("error", (error2) => this._fail(error2));
+      child.stderr?.on("data", (chunk) => this._handleStderr(chunk));
+      child.stderr?.on("error", (error2) => this._fail(error2));
+    });
+  }
+  async send(message) {
+    const stdin = this._process?.stdin;
+    if (!stdin || this._closePromise) throw new BoundedStdioTransportError("stdio transport is not connected", "STDIO_NOT_CONNECTED");
+    const bytes = `${JSON.stringify(message)}
+`;
+    await new Promise((resolvePromise, rejectPromise) => {
+      stdin.write(bytes, (error2) => {
+        if (error2) rejectPromise(error2);
+        else resolvePromise();
+      });
+    });
   }
   async close() {
-    if (this._process) {
-      const processToClose = this._process;
-      this._process = void 0;
-      const closePromise = new Promise((resolve13) => {
-        processToClose.once("close", () => {
-          resolve13();
-        });
-      });
-      try {
-        processToClose.stdin?.end();
-      } catch {
-      }
-      await Promise.race([closePromise, new Promise((resolve13) => setTimeout(resolve13, 2e3).unref())]);
-      if (processToClose.exitCode === null) {
+    if (this._closePromise) return await this._closePromise;
+    this._closePromise = (async () => {
+      const child = this._process;
+      if (child) {
+        const waitForClose = observeClose(child);
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            await this._terminateTree(child);
+          } catch {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+            }
+          }
+        }
         try {
-          processToClose.kill("SIGTERM");
+          child.stdin?.end();
         } catch {
         }
-        await Promise.race([closePromise, new Promise((resolve13) => setTimeout(resolve13, 2e3).unref())]);
-      }
-      if (processToClose.exitCode === null) {
-        try {
-          processToClose.kill("SIGKILL");
-        } catch {
+        await waitForClose(this._closeGraceMs);
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+          }
+          await waitForClose(this._closeGraceMs);
         }
       }
-    }
-    this._readBuffer.clear();
-  }
-  send(message) {
-    return new Promise((resolve13) => {
-      if (!this._process?.stdin) {
-        throw new Error("Not connected");
-      }
-      const json = serializeMessage(message);
-      if (this._process.stdin.write(json)) {
-        resolve13();
-      } else {
-        this._process.stdin.once("drain", resolve13);
-      }
-    });
+      this._stdoutChunks = [];
+      this._pendingStdoutBytes = 0;
+    })();
+    return await this._closePromise;
   }
 };
 
@@ -16111,7 +28993,6 @@ function withDeadline(promise, timeoutMs, phase) {
     promise,
     new Promise((resolvePromise, rejectPromise) => {
       timer = setTimeout(() => rejectPromise(new SmokeDeadlineError(phase)), timeoutMs);
-      timer.unref?.();
     })
   ]).finally(() => clearTimeout(timer));
 }
@@ -16128,28 +29009,73 @@ function baseEvidence(status, started) {
     duration_ms: Math.max(0, nowMs() - started)
   };
 }
+function absoluteDescriptorPath(value) {
+  return typeof value === "string" && (isAbsolute12(value) || win3210.isAbsolute(value) || posix4.isAbsolute(value));
+}
+async function withPinnedDescriptorLaunch(descriptor, {
+  callback,
+  launchFilePinner = withPinnedWindowsFiles
+} = {}) {
+  if (typeof callback !== "function" || typeof launchFilePinner !== "function") {
+    const error2 = new Error("descriptor launch pin contract is invalid");
+    error2.code = "INVALID_DESCRIPTOR_LAUNCH";
+    throw error2;
+  }
+  const validated = validateDescriptorContract(descriptor);
+  const validatedDescriptor = Object.freeze({
+    ...validated,
+    args: Object.freeze([...validated.args]),
+    env: Object.freeze({ ...validated.env })
+  });
+  const paths = [.../* @__PURE__ */ new Set([
+    validatedDescriptor.command,
+    ...validatedDescriptor.args.filter(absoluteDescriptorPath)
+  ])];
+  return launchFilePinner({
+    paths,
+    callback: async (guard) => {
+      guard?.assertPinned?.();
+      const value = await callback(
+        guard ?? Object.freeze({ assertPinned() {
+        } }),
+        validatedDescriptor
+      );
+      guard?.assertPinned?.();
+      return value;
+    }
+  });
+}
 async function smokeDescriptor(descriptor, {
   clientInfo = { name: "uemcp-deployment-smoke", version: "1.0.0" },
   timeoutMs = 15e3,
   expectedServerName = "uemcp",
-  transportFactory = (parameters) => new StdioClientTransport(parameters)
+  transportFactory = null,
+  effectiveEnvironment = null,
+  effectiveCwd = null,
+  stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+  stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES
 } = {}) {
   const validatedDescriptor = validateDescriptorContract(descriptor);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("timeoutMs must be a positive integer");
-  if (typeof transportFactory !== "function") throw new Error("transportFactory must be a function");
+  if (transportFactory !== null && typeof transportFactory !== "function") throw new Error("transportFactory must be a function or null");
+  if (effectiveEnvironment !== null && (!effectiveEnvironment || typeof effectiveEnvironment !== "object" || Array.isArray(effectiveEnvironment) || Object.values(effectiveEnvironment).some((value) => typeof value !== "string"))) {
+    throw new Error("effectiveEnvironment must be a string map or null");
+  }
+  if (effectiveCwd !== null && (typeof effectiveCwd !== "string" || effectiveCwd.trim() === "")) {
+    throw new Error("effectiveCwd must be a non-empty string or null");
+  }
   const started = nowMs();
   const parameters = {
     command: validatedDescriptor.command,
     args: [...validatedDescriptor.args],
-    env: exactChildEnvironment(validatedDescriptor.env),
+    env: effectiveEnvironment === null ? exactChildEnvironment(validatedDescriptor.env) : { ...effectiveEnvironment },
     stderr: "pipe"
   };
-  if (validatedDescriptor.cwd !== null) parameters.cwd = validatedDescriptor.cwd;
-  const transport = transportFactory(parameters);
+  const launchCwd = effectiveCwd ?? validatedDescriptor.cwd;
+  if (launchCwd !== null) parameters.cwd = launchCwd;
+  const transport = transportFactory === null ? new BoundedStdioClientTransport(parameters, { stdoutLimitBytes, stderrLimitBytes }) : transportFactory(parameters);
   const client = new Client(clientInfo, { capabilities: {} });
-  let stderrBytes = 0;
-  transport.stderr?.on?.("data", (chunk) => {
-    stderrBytes = Math.min(8 * 1024, stderrBytes + Buffer.byteLength(chunk));
+  transport.stderr?.on?.("data", () => {
   });
   try {
     try {
@@ -16187,7 +29113,7 @@ async function smokeDescriptor(descriptor, {
       duration_ms: Math.max(0, nowMs() - started)
     };
   } finally {
-    await withDeadline(client.close(), Math.min(5e3, Math.max(1e3, timeoutMs)), "close").catch(() => {
+    await withDeadline(client.close(), DEFAULT_STDIO_CLOSE_DEADLINE_MS, "close").catch(() => {
     });
   }
 }
@@ -16214,8 +29140,2308 @@ function createGenericClientResult({ descriptor, smoke }) {
   };
 }
 
+// server/deployment/client-domain.mjs
+var DOMAIN_NAME = "clients";
+var DOMAIN_ORDER = 30;
+var REVIEW_ACTIONS = /* @__PURE__ */ new Set(["CUSTOM_ENV_REVIEW_REQUIRED", "CUSTOM_LAUNCH_REVIEW_REQUIRED"]);
+var READY_REGISTRATION = /* @__PURE__ */ new Set(["CONFIGURED", "ALREADY_CONFIGURED", "MATCHING_EFFECTIVE", "MATCHING_SHADOWED"]);
+var BLOCKED_INSPECTION_STATUSES = /* @__PURE__ */ new Set(["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"]);
+var ROLLBACK_TERMINAL_STATUSES = /* @__PURE__ */ new Set(["ROLLED_BACK", "ROLLBACK_CONFLICT", "ROLLBACK_FAILED"]);
+var TRANSACTION_RESULT_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "ACTION_REQUIRED", ...ROLLBACK_TERMINAL_STATUSES]);
+var TRANSACTION_READY_CLIENT_STATUSES = /* @__PURE__ */ new Set(["APPLIED", "MATCHING", "NO_OP", "READY"]);
+var TRANSACTION_ACTION_CLIENT_STATUSES = /* @__PURE__ */ new Set([
+  "ACTION_REQUIRED",
+  "CLIENT_ENABLEMENT_REQUIRED",
+  "DISABLED",
+  "PENDING_APPROVAL",
+  "PENDING_RESTART",
+  "PENDING_TRUST",
+  "POLICY_UNKNOWN",
+  "RESTART_REQUIRED"
+]);
+var ROLLBACK_PATH_STATUSES = /* @__PURE__ */ new Set(["restored", "conflict", "failed"]);
+var RUNTIME_DIAGNOSTIC_REASONS = /* @__PURE__ */ new Set(["NATIVE_AUTHORITY_CHANGED", "RUNTIME_CAPTURE_FAILED", "RUNTIME_FINGERPRINT_MISMATCH"]);
+var RUNTIME_CAUSE_CODES = /* @__PURE__ */ new Set([
+  "CLIENT_RUNTIME_CHANGED",
+  "FILE_PIN_FAILED",
+  "INVALID_CLIENT_LAUNCH",
+  "INVALID_FILE_PIN",
+  "INVALID_TREE_PIN",
+  "NOT_INSTALLED",
+  "SYSTEM_ROOT_UNAVAILABLE",
+  "TREE_PIN_FAILED"
+]);
+var CLIENT_LAUNCH_FINGERPRINT_FIELDS = /* @__PURE__ */ new Set([
+  "args_prefix",
+  "authenticode",
+  "command",
+  "entry_count",
+  "file_count",
+  "manifest_sha256",
+  "max_bytes",
+  "max_entries",
+  "max_files",
+  "max_packages",
+  "package_count",
+  "package_id",
+  "resolution_root",
+  "root",
+  "total_bytes"
+]);
+var DISCOVERY_ENVIRONMENT_NAMES = /* @__PURE__ */ new Set([
+  "APPDATA",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "COMSPEC",
+  "GEMINI_CLI_HOME",
+  "GEMINI_CLI_TRUSTED_FOLDERS_PATH",
+  "GEMINI_CLI_TRUST_WORKSPACE",
+  "HOME",
+  "LOCALAPPDATA",
+  "NPM_CONFIG_PREFIX",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PATH",
+  "PATHEXT",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "WINDIR"
+]);
+var ACTION_ALIASES = Object.freeze({
+  DISABLED: "CLIENT_ENABLEMENT_REQUIRED",
+  PENDING_RESTART: "RESTART_REQUIRED",
+  REJECTED: "CLIENT_ENABLEMENT_REQUIRED",
+  OWNERSHIP_LEDGER_INVALID: "CONFLICT",
+  READ_ONLY_TARGET: "CONFLICT",
+  UNSAFE_CONFIG_PATH: "MALFORMED_CONFIG",
+  UNSAFE_WRITABLE_PATH: "CONFLICT",
+  METADATA_INSPECTION_FAILED: "CONFLICT",
+  SHADOWED: null,
+  READY: null,
+  NO_OP: null,
+  APPLIED: null,
+  PRESENT: null,
+  CONNECTED: null
+});
+var ACTION_MESSAGES = Object.freeze({
+  CLIENT_ENABLEMENT_REQUIRED: "Enable the UEMCP registration in the client before relying on it.",
+  CLIENT_ENABLEMENT_REVIEW_REQUIRED: "Review client enablement before relying on the registration.",
+  CLIENT_APPLY_ACTION_REQUIRED: "Complete the retained client apply or cleanup action before treating the transaction as healthy.",
+  CONFLICT: "Review the existing client registration before replacing owned fields.",
+  CUSTOM_ENV_REVIEW_REQUIRED: "Review the custom protocol environment names and hashes before launch.",
+  CUSTOM_LAUNCH_REVIEW_REQUIRED: "Review the custom protocol working directory before launch.",
+  INITIALIZE_FAILED: "The effective client launch did not complete MCP initialize.",
+  INSPECTION_LIMIT_EXCEEDED: "Client configuration inspection exceeded its bounded limit.",
+  MALFORMED_CONFIG: "Repair the malformed client configuration before continuing.",
+  NOT_INSTALLED: "Install a supported client release or exclude this client.",
+  PENDING_APPROVAL: "Approve the UEMCP registration in the client.",
+  PENDING_TRUST: "Trust the workspace or registration in the client.",
+  POLICY_BLOCKED: "Client policy blocks UEMCP enablement.",
+  POLICY_UNKNOWN: "Review client policy because enablement could not be proven.",
+  RESTART_REQUIRED: "Restart the client to load the reviewed registration.",
+  ROLLBACK_CONFLICT: "Resolve the client configuration conflict retained after rollback.",
+  ROLLBACK_FAILED: "Recover the client configuration from the retained rollback evidence.",
+  SYNC_FAILED: "Inspect the committed client configuration and retry with a new plan.",
+  TOOLS_LIST_FAILED: "The effective client launch initialized but did not complete tools/list.",
+  UNSUPPORTED_VERSION: "The installed client release is outside the exact write gate and remains inspect-only."
+});
+var ClientDomainError = class extends Error {
+  constructor(message, code = "CLIENT_DOMAIN_FAILED", details = {}) {
+    super(message);
+    this.name = "ClientDomainError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function fail16(message, code = "CLIENT_DOMAIN_FAILED", details = {}) {
+  throw new ClientDomainError(message, code, details);
+}
+function plainObject6(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function unique5(values) {
+  return [...new Set(values)];
+}
+function pathKey4(path) {
+  if (typeof path !== "string") return null;
+  if (win3211.isAbsolute(path)) return `win:${win3211.normalize(path).toLowerCase()}`;
+  if (posix5.isAbsolute(path)) return `posix:${posix5.normalize(path)}`;
+  return null;
+}
+function hasOnlyKeys(value, allowed) {
+  return plainObject6(value) && Object.keys(value).every((key) => allowed.has(key));
+}
+function actionCode(value) {
+  const candidate = typeof value === "string" ? value : value?.code;
+  if (Object.hasOwn(ACTION_CODES, candidate)) return candidate;
+  if (Object.hasOwn(ACTION_ALIASES, candidate)) return ACTION_ALIASES[candidate];
+  fail16("client adapter emitted an unmapped action", "INVALID_CLIENT_ACTION");
+}
+function normalizeAction(value) {
+  const code = actionCode(value);
+  if (!code) return null;
+  const command = plainObject6(value) && value.code === code && value.command !== void 0 ? value.command : null;
+  return Object.freeze({
+    code,
+    message: ACTION_MESSAGES[code] ?? "Review the client state before continuing.",
+    command: command ?? null
+  });
+}
+function normalizeActions(values) {
+  const mapped = values.map(normalizeAction).filter(Boolean);
+  const byDigest = new Map(mapped.map((action2) => [sha256Canonical(action2), action2]));
+  return Object.freeze([...byDigest.values()]);
+}
+function adapterMap2(adapters) {
+  if (!Array.isArray(adapters)) fail16("client adapters must be an array");
+  const map = /* @__PURE__ */ new Map();
+  for (const adapter of adapters) {
+    if (!adapter || !CLIENT_IDS.includes(adapter.id) || map.has(adapter.id) || ["detect", "inspect", "plan", "snapshot", "apply", "verify"].some((name) => typeof adapter[name] !== "function")) {
+      fail16("client adapter set is invalid");
+    }
+    map.set(adapter.id, adapter);
+  }
+  if (CLIENT_IDS.some((clientId) => !map.has(clientId))) fail16("client adapter set is incomplete");
+  return map;
+}
+function selectionInput(context) {
+  const input = context.clientSelection ?? context.client_selection ?? {};
+  return {
+    include: input.include ?? [],
+    exclude: input.exclude ?? [],
+    vscodeProfile: input.vscodeProfile ?? input.vscode_profile ?? null
+  };
+}
+function profileFromPlan(plan) {
+  const stage = plan?.stages?.find((candidate) => candidate.name === DOMAIN_NAME);
+  return stage?.evidence?.vscode_profile ?? null;
+}
+function clientStageFromPlan(plan) {
+  return plan?.stages?.find((candidate) => candidate.name === DOMAIN_NAME) ?? null;
+}
+function discoveryContextDigest(context, requestedProfile) {
+  const environment = Object.entries(context.env ?? process.env).filter(([name, value]) => {
+    const normalized = name.toUpperCase();
+    return value !== void 0 && value !== null && (DISCOVERY_ENVIRONMENT_NAMES.has(normalized) || normalized.startsWith("UEMCP_") || normalized.startsWith("UNREAL_"));
+  }).map(([name, value]) => Object.freeze({ name: name.toUpperCase(), value: String(value) })).sort((left, right) => left.name.localeCompare(right.name) || left.value.localeCompare(right.value));
+  return sha256Canonical({
+    active_directory: context.activeDirectory ?? null,
+    client_decisions: context.request?.client_decisions ?? null,
+    environment,
+    known_folders: {
+      program_data: context.knownFolders?.programData ?? null,
+      program_files: context.knownFolders?.programFiles ?? null
+    },
+    project_root: context.projectRoot ?? null,
+    repo_root: context.repoRoot ?? null,
+    requested_profile: requestedProfile,
+    state_root: context.stateRoot ?? null,
+    vscode_user_data_root: context.vscodeUserDataRoot ?? null,
+    workspace_root: context.workspaceRoot ?? context.repoRoot ?? null
+  });
+}
+function publicLaunchContract(launch) {
+  if (launch === null) return null;
+  const { env_overlay: ignoredOverlay, fingerprint, ...publicLaunch } = launch;
+  const { env_overlay_sha256: ignoredOverlayHash, ...publicFingerprint } = fingerprint ?? {};
+  return Object.freeze({
+    ...publicLaunch,
+    fingerprint: Object.freeze(publicFingerprint)
+  });
+}
+function restoreLaunchContract(clientId, publicLaunch) {
+  if (publicLaunch === null) return null;
+  const overlay = expectedClientLaunchOverlay(clientId);
+  return Object.freeze({
+    ...publicLaunch,
+    env_overlay: overlay,
+    fingerprint: Object.freeze({
+      ...publicLaunch.fingerprint,
+      env_overlay_sha256: sha256Canonical(overlay)
+    })
+  });
+}
+function discoveryFromPlan(plan) {
+  const stage = clientStageFromPlan(plan);
+  const plannedClients = new Map((plan?.clients ?? []).map((row) => [row.adapter, row]));
+  const evidence = new Map((stage?.evidence?.clients ?? []).map((row) => [row.adapter, row]));
+  return Object.freeze(CLIENT_IDS.map((clientId) => {
+    const client = plannedClients.get(clientId);
+    const clientEvidence2 = evidence.get(clientId);
+    if (!client || !clientEvidence2) fail16("saved plan is missing client discovery evidence", "INVALID_PLAN");
+    const launch = restoreLaunchContract(clientId, clientEvidence2.launch_contract ?? null);
+    if (launch !== null && (!plainObject6(launch) || launch.client_id !== clientId || launch.version !== client.version || launch.compatibility !== client.compatibility || launch.write_supported !== client.write_supported)) {
+      fail16("saved client launch evidence is inconsistent", "INVALID_PLAN");
+    }
+    if (launch === null && client.version !== null) fail16("saved plan is missing a detected client launch", "INVALID_PLAN");
+    if (launch !== null) {
+      try {
+        validateClientLaunchContract(launch);
+      } catch {
+        fail16("saved client launch contract is invalid", "INVALID_PLAN");
+      }
+    }
+    return Object.freeze({
+      client_id: clientId,
+      version: client.version,
+      compatibility: client.compatibility,
+      write_supported: client.write_supported,
+      launch,
+      discovery_status: clientEvidence2.discovery_status
+    });
+  }));
+}
+function selectionFromPlan(discovered, plan) {
+  const planned = new Map((plan?.clients ?? []).map((row) => [row.adapter, row]));
+  const stage = plan?.stages?.find((candidate) => candidate.name === DOMAIN_NAME);
+  const selectionReasons = new Map((stage?.evidence?.clients ?? []).map((row) => [row.adapter, row.selection]));
+  return Object.freeze(discovered.map((row) => {
+    const saved = planned.get(row.client_id);
+    if (!saved) fail16("saved plan is missing a client row", "INVALID_PLAN");
+    if (saved.version !== row.version || saved.compatibility !== row.compatibility || saved.write_supported !== row.write_supported) {
+      fail16("client release evidence changed after planning", "PLAN_STALE", { client_id: row.client_id });
+    }
+    if (row.compatibility === "not_installed") {
+      const notSelected = saved.status === "NOT_SELECTED";
+      return Object.freeze({
+        ...row,
+        selected: false,
+        status: notSelected ? "NOT_SELECTED" : "NOT_INSTALLED",
+        enablement: notSelected ? "NOT_SELECTED" : "NOT_INSTALLED",
+        activation: notSelected ? "NOT_SELECTED" : "NOT_INSTALLED",
+        selection_reason: selectionReasons.get(row.client_id) ?? (notSelected ? "saved_not_selected" : "not_installed")
+      });
+    }
+    if (!saved.selected && saved.status === "NOT_SELECTED") {
+      return Object.freeze({ ...row, selected: false, status: "NOT_SELECTED", enablement: "NOT_SELECTED", activation: "NOT_SELECTED", selection_reason: "saved_not_selected" });
+    }
+    return Object.freeze({ ...row, selected: saved.selected, status: "UNKNOWN", enablement: "UNKNOWN", activation: "UNKNOWN", selection_reason: saved.selected ? "saved_selected" : "inspect_only" });
+  }));
+}
+function safeClientStatus(status) {
+  if (CLIENT_STATE_VALUES.status.includes(status)) return status;
+  if (status === "UNSAFE_CONFIG_PATH") return "MALFORMED_CONFIG";
+  if (status === "OWNERSHIP_LEDGER_INVALID") return "CONFLICT";
+  return "UNKNOWN";
+}
+function safeEnablement(value) {
+  return CLIENT_STATE_VALUES.enablement.includes(value) ? value : "UNKNOWN";
+}
+function safeActivation(value) {
+  return CLIENT_STATE_VALUES.activation.includes(value) ? value : "UNKNOWN";
+}
+function defaultScope(clientId, requestedProfile) {
+  if (clientId === "vscode") return requestedProfile ? `profile:${requestedProfile}` : "user";
+  return "user";
+}
+function environmentRows(inspection) {
+  const rows = [];
+  for (const occurrence3 of inspection?.occurrences ?? []) {
+    const keys = occurrence3?.environment?.keys ?? [];
+    const hashes = occurrence3?.environment?.value_hashes ?? {};
+    for (const name of keys) {
+      const valueSha256 = hashes[name];
+      if (typeof name === "string" && /^[0-9a-f]{64}$/.test(valueSha256 ?? "")) {
+        rows.push(Object.freeze({ name, value_sha256: valueSha256 }));
+      }
+    }
+  }
+  const byDigest = new Map(rows.map((row) => [sha256Canonical(row), row]));
+  return Object.freeze([...byDigest.values()].sort((left, right) => left.name.localeCompare(right.name) || left.value_sha256.localeCompare(right.value_sha256)));
+}
+function ownedDiffRows(inspection) {
+  const rows = [];
+  for (const occurrence3 of inspection?.occurrences ?? []) {
+    for (const diff of occurrence3?.ownership?.owned_diff ?? []) {
+      if (!plainObject6(diff) || typeof diff.path !== "string") continue;
+      rows.push(Object.freeze({
+        path: diff.path,
+        current_present: diff.current_present === true,
+        desired_present: diff.desired_present === true,
+        ...typeof diff.current_sha256 === "string" ? { current_sha256: diff.current_sha256 } : {},
+        ...typeof diff.desired_sha256 === "string" ? { desired_sha256: diff.desired_sha256 } : {}
+      }));
+    }
+  }
+  return Object.freeze(rows);
+}
+function reviewCodes(inspection) {
+  return new Set((inspection?.actions ?? []).map(actionCode).filter((code) => REVIEW_ACTIONS.has(code)));
+}
+function approvedReviewCodes(plan, clientId) {
+  if (!plan) return /* @__PURE__ */ new Set();
+  const client = plan.clients?.find((row) => row.adapter === clientId);
+  return new Set([
+    ...client?.actions ?? [],
+    ...plan.actions ?? []
+  ].map(actionCode).filter((code) => REVIEW_ACTIONS.has(code)));
+}
+function canLaunchProtocol(inspection, approvedPlan, clientId) {
+  if (BLOCKED_INSPECTION_STATUSES.has(inspection?.registration)) return false;
+  const required2 = reviewCodes(inspection);
+  if (required2.size === 0) return true;
+  const approved = approvedReviewCodes(approvedPlan, clientId);
+  return [...required2].every((code) => approved.has(code));
+}
+function smokeEvidence(smoke) {
+  return {
+    protocol_status: smoke?.status ?? "UNKNOWN",
+    instruction_bytes: Number.isSafeInteger(smoke?.instruction_bytes) ? smoke.instruction_bytes : 0,
+    tool_count: Number.isSafeInteger(smoke?.tool_count) ? smoke.tool_count : 0,
+    initial_tool_names: Array.isArray(smoke?.initial_tool_names) ? [...smoke.initial_tool_names] : [],
+    duration_ms: Number.isFinite(smoke?.duration_ms) ? smoke.duration_ms : 0
+  };
+}
+function publicClient(row, inspection, planResult, requestedProfile, smoke, includeAbsenceAction = false) {
+  if (row.status === "NOT_SELECTED") {
+    return Object.freeze({
+      adapter: row.client_id,
+      version: row.version,
+      compatibility: row.compatibility,
+      write_supported: row.write_supported,
+      selected: false,
+      scope: defaultScope(row.client_id, requestedProfile),
+      status: "NOT_SELECTED",
+      enablement: "NOT_SELECTED",
+      activation: "NOT_SELECTED",
+      actions: Object.freeze([])
+    });
+  }
+  if (row.compatibility === "not_installed") {
+    return Object.freeze({
+      adapter: row.client_id,
+      version: null,
+      compatibility: "not_installed",
+      write_supported: false,
+      selected: false,
+      scope: defaultScope(row.client_id, requestedProfile),
+      status: "NOT_INSTALLED",
+      enablement: "NOT_INSTALLED",
+      activation: "NOT_INSTALLED",
+      actions: normalizeActions(includeAbsenceAction ? ["NOT_INSTALLED"] : [])
+    });
+  }
+  if (row.launch === null && row.discovery_status !== "NOT_INSTALLED") {
+    const action2 = row.discovery_status === "VERSION_PROBE_FAILED" ? "UNSUPPORTED_VERSION" : "CONFLICT";
+    return Object.freeze({
+      adapter: row.client_id,
+      version: null,
+      compatibility: "known_unsupported",
+      write_supported: false,
+      selected: row.selected === true,
+      scope: defaultScope(row.client_id, requestedProfile),
+      status: "UNKNOWN",
+      enablement: "UNKNOWN",
+      activation: "UNKNOWN",
+      actions: normalizeActions([action2])
+    });
+  }
+  const actionValues = [
+    ...inspection?.actions ?? [],
+    ...inspection?.remediation_actions ?? [],
+    ...planResult?.actions ?? [],
+    ...row.compatibility === "release_gated" ? [] : ["UNSUPPORTED_VERSION"],
+    ...["INITIALIZE_FAILED", "TOOLS_LIST_FAILED"].includes(smoke?.status) ? [smoke.status] : []
+  ];
+  const status = safeClientStatus(inspection?.registration ?? "UNKNOWN");
+  return Object.freeze({
+    adapter: row.client_id,
+    version: row.version,
+    compatibility: row.compatibility,
+    write_supported: row.write_supported,
+    selected: row.selected === true,
+    scope: inspection?.effective?.scope ?? planResult?.operations?.[0]?.scope_kind ?? defaultScope(row.client_id, requestedProfile),
+    status,
+    enablement: safeEnablement(inspection?.enablement),
+    activation: safeActivation(inspection?.activation),
+    actions: normalizeActions(actionValues)
+  });
+}
+function clientEvidence(row, inspection, planResult, client, smoke) {
+  return Object.freeze({
+    adapter: row.client_id,
+    selected: client.selected,
+    selection: row.selection_reason,
+    discovery_status: row.discovery_status ?? "DETECTED",
+    launch_contract: publicLaunchContract(row.launch),
+    current_scopes: Object.freeze(unique5((inspection?.occurrences ?? []).map((occurrence3) => occurrence3.scope).filter((value) => typeof value === "string"))),
+    effective_scope: inspection?.effective?.scope ?? null,
+    operation: planResult?.status ?? "INSPECT_ONLY",
+    touched_paths: Object.freeze(unique5((planResult?.operations ?? []).map((operation) => operation.path).filter((value) => typeof value === "string"))),
+    owned_diffs: ownedDiffRows(inspection),
+    environment: environmentRows(inspection),
+    custom_working_directory: (inspection?.occurrences ?? []).some((occurrence3) => occurrence3.custom_launch === true),
+    structural_status: client.status,
+    native_status: typeof inspection?.native?.status === "string" ? inspection.native.status : "UNKNOWN",
+    ...smokeEvidence(smoke),
+    enablement: client.enablement,
+    activation: client.activation
+  });
+}
+function terminalClientView(record2, status, actionCode2) {
+  const client = Object.freeze({
+    ...record2.client,
+    status,
+    enablement: "UNKNOWN",
+    activation: "UNKNOWN",
+    actions: normalizeActions([...record2.client.actions, actionCode2])
+  });
+  const evidence = Object.freeze({
+    ...record2.evidence,
+    structural_status: status,
+    native_status: "UNKNOWN",
+    protocol_status: "UNKNOWN",
+    enablement: "UNKNOWN",
+    activation: "UNKNOWN"
+  });
+  return Object.freeze({ client, evidence });
+}
+function stageState(clients, evidenceRows) {
+  const selected2 = clients.filter((client) => client.selected);
+  const considered = selected2.length > 0 ? selected2 : clients.filter((client) => client.status !== "NOT_SELECTED");
+  const evidence = new Map(evidenceRows.map((row) => [row.adapter, row]));
+  const actionCodes2 = new Set(considered.flatMap((client) => client.actions.map((action2) => action2.code)));
+  const first = (values) => values.find((value) => value !== void 0 && value !== null);
+  const activation = first(considered.map((client) => ["PENDING_TRUST", "PENDING_APPROVAL", "REJECTED", "RESTART_REQUIRED"].includes(client.activation) ? client.activation : null));
+  const enablement = first(considered.map((client) => ["POLICY_BLOCKED", "DISABLED", "POLICY_UNKNOWN"].includes(client.enablement) ? client.enablement : null));
+  const protocol = first(considered.map((client) => {
+    const value = evidence.get(client.adapter)?.protocol_status;
+    return ["INITIALIZE_FAILED", "TOOLS_LIST_FAILED"].includes(value) ? value : null;
+  }));
+  const structural = first(considered.map((client) => ["CONFLICT", "MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED"].includes(client.status) ? client.status : null));
+  let status = protocol ?? activation ?? enablement ?? structural;
+  if (!status && actionCodes2.has("UNSUPPORTED_VERSION")) status = "UNSUPPORTED_VERSION";
+  if (!status && [...actionCodes2].some((code) => REVIEW_ACTIONS.has(code))) status = "UNKNOWN";
+  if (!status && selected2.length === 0 && clients.some((client) => client.status === "NOT_SELECTED") && actionCodes2.size === 0) status = "NOT_SELECTED";
+  if (!status && considered.every((client) => client.status === "NOT_INSTALLED")) status = "NOT_INSTALLED";
+  if (!status && selected2.length === 0) status = considered.length === 0 ? "NOT_INSTALLED" : "UNKNOWN";
+  if (!status) {
+    const healthy = selected2.every((client) => READY_REGISTRATION.has(client.status) && client.enablement === "ENABLED" && client.activation === "CONNECTED" && evidence.get(client.adapter)?.protocol_status === "HEALTHY");
+    status = healthy ? "HEALTHY" : selected2.find((client) => client.status === "ABSENT")?.status ?? "UNKNOWN";
+  }
+  if (!Object.hasOwn(STAGE_STATUSES, status)) status = "UNKNOWN";
+  return {
+    status,
+    result: ["HEALTHY", "NOT_SELECTED"].includes(status) ? "ready" : "action_required"
+  };
+}
+function stableClientFingerprint(fingerprint) {
+  const { atime_ms: ignoredAccessTime, ...stable } = fingerprint;
+  return Object.freeze(stable);
+}
+function planPreconditions(records, operations, ownershipFingerprint, ownershipPath, ownershipRoot) {
+  const rows = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = ({ path, allowed_root: allowedRoot, fingerprint, writable }) => {
+    if (typeof path !== "string" || typeof allowedRoot !== "string" || !plainObject6(fingerprint)) return;
+    const key = path.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(Object.freeze({
+      kind: "client_path",
+      label: `clients:path:${rows.length + 1}`,
+      canonical_path: path,
+      allowed_root: allowedRoot,
+      writable,
+      fingerprint: stableClientFingerprint(fingerprint)
+    }));
+  };
+  for (const operation of operations) {
+    add({ ...operation, writable: operation.ledger_only !== true });
+    for (const row of operation.read_only_paths ?? []) add({ ...row, writable: false });
+  }
+  const writablePaths = new Set(operations.filter((operation) => operation.ledger_only !== true).map((operation) => operation.path.toLowerCase()));
+  for (const record2 of records) {
+    for (const file of record2.inspection?.files ?? []) {
+      add({ ...file, writable: writablePaths.has(file.path.toLowerCase()) });
+    }
+    const runtime = record2.inspection === null ? null : record2.row.launch?.fingerprint?.runtime_tree;
+    if (runtime) {
+      const key = `runtime:${runtime.root.toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        rows.push(Object.freeze({
+          kind: "client_runtime_tree",
+          label: `clients:runtime:${record2.row.client_id}`,
+          canonical_path: runtime.root,
+          allowed_root: runtime.resolution_root,
+          writable: false,
+          fingerprint: runtime
+        }));
+      }
+    }
+  }
+  if (operations.length > 0) {
+    add({ path: ownershipPath, allowed_root: ownershipRoot, fingerprint: ownershipFingerprint, writable: true });
+  }
+  return Object.freeze(rows);
+}
+function stableErrorCode(value, fallback = "UNKNOWN") {
+  return typeof value === "string" && /^[A-Z0-9_]+$/.test(value) ? value : fallback;
+}
+function clientRuntimeFailureDetails(clientId, error2) {
+  const nested = plainObject6(error2?.details) ? error2.details : {};
+  const causeCode = Object.hasOwn(nested, "cause_code") ? nested.cause_code : error2?.code;
+  const details = {
+    client_id: clientId,
+    cause_code: RUNTIME_CAUSE_CODES.has(causeCode) ? causeCode : "UNKNOWN"
+  };
+  if (RUNTIME_DIAGNOSTIC_REASONS.has(nested.reason)) details.runtime_reason = nested.reason;
+  if (Array.isArray(nested.changed_fields)) {
+    const changedFields = [...new Set(nested.changed_fields.filter((field) => CLIENT_LAUNCH_FINGERPRINT_FIELDS.has(field)))].sort();
+    if (changedFields.length > 0) details.changed_fields = changedFields;
+  }
+  return details;
+}
+function publicTransactionEvidence(result2) {
+  if (!plainObject6(result2) || typeof result2.status !== "string") return null;
+  const rollback = plainObject6(result2.rollback) ? Object.freeze({
+    reason_code: stableErrorCode(result2.rollback.reason_code, "APPLY_FAILED"),
+    paths: Object.freeze((result2.rollback.paths ?? []).filter(plainObject6).map((row) => Object.freeze({
+      status: typeof row.status === "string" ? row.status : "unknown",
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      code: stableErrorCode(row.code)
+    }))),
+    hook_errors: Object.freeze((result2.rollback.hook_errors ?? []).filter(plainObject6).map((row) => Object.freeze({
+      client_id: typeof row.client_id === "string" ? row.client_id : "transaction",
+      code: stableErrorCode(row.code)
+    })))
+  }) : null;
+  return Object.freeze({
+    status: stableErrorCode(result2.status),
+    clients: Object.freeze((result2.clients ?? []).filter(plainObject6).map((row) => Object.freeze({
+      client_id: CLIENT_IDS.includes(row.client_id) ? row.client_id : "unknown",
+      status: stableErrorCode(row.status),
+      ...row.error_code ? { error_code: stableErrorCode(row.error_code) } : {}
+    }))),
+    touched_files: Object.freeze((result2.touched_files ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      applied_sha256: typeof row.applied_sha256 === "string" && /^[0-9a-f]{64}$/.test(row.applied_sha256) ? row.applied_sha256 : null
+    }))),
+    rollback,
+    retained_snapshots: Object.freeze((result2.retained_snapshots ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      retained_until: typeof row.retained_until === "string" ? row.retained_until : null
+    }))),
+    cleanup_actions: Object.freeze((result2.cleanup_actions ?? []).filter(plainObject6).map((row) => Object.freeze({
+      path: typeof row.path === "string" ? row.path : "<unknown>",
+      code: stableErrorCode(row.code)
+    })))
+  });
+}
+function validTransactionResult(result2, operations, writablePreconditions) {
+  const resultKeys = /* @__PURE__ */ new Set(["status", "clients", "touched_files", "rollback", "retained_snapshots", "cleanup_actions"]);
+  if (!hasOnlyKeys(result2, resultKeys) || !TRANSACTION_RESULT_STATUSES.has(result2.status) || !Array.isArray(result2.clients) || !Array.isArray(result2.touched_files) || !Array.isArray(result2.retained_snapshots) || result2.cleanup_actions !== void 0 && !Array.isArray(result2.cleanup_actions)) {
+    return false;
+  }
+  const allowedPaths = new Set(writablePreconditions.map((row) => pathKey4(row.canonical_path)).filter(Boolean));
+  const operationClients = new Set(operations.map((operation) => operation.client_id));
+  const operationPaths = new Map(operations.map((operation) => [pathKey4(operation.path), operation]));
+  const requiredWritePaths = new Set(allowedPaths);
+  const clientIds = result2.clients.map((row) => row?.client_id);
+  if (new Set(clientIds).size !== clientIds.length || result2.clients.some((row) => !hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "status", "error_code"])) || !operationClients.has(row.client_id) || !TRANSACTION_READY_CLIENT_STATUSES.has(row.status) && !TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status) && row.status !== "FAILED" || (row.status === "FAILED" ? stableErrorCode(row.error_code, null) === null : row.error_code !== void 0))) {
+    return false;
+  }
+  const success = result2.status === "APPLIED" || result2.status === "ACTION_REQUIRED";
+  if (success && (clientIds.length !== operationClients.size || [...operationClients].some((clientId) => !clientIds.includes(clientId)) || result2.clients.some((row) => row.status === "FAILED"))) return false;
+  if (result2.status === "APPLIED" && result2.clients.some((row) => !TRANSACTION_READY_CLIENT_STATUSES.has(row.status))) return false;
+  const touchedKeys = [];
+  for (const row of result2.touched_files) {
+    const key = pathKey4(row?.path);
+    const operation = operationPaths.get(key);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "applied_sha256"])) || !key || !allowedPaths.has(key) || row.applied_sha256 !== null && !/^[0-9a-f]{64}$/.test(row.applied_sha256 ?? "") || row.applied_sha256 === null && operation?.delete_after_verify !== true) {
+      return false;
+    }
+    touchedKeys.push(key);
+  }
+  if (new Set(touchedKeys).size !== touchedKeys.length || success && operations.length > 0 && touchedKeys.length === 0 || success && [...requiredWritePaths].some((key) => !touchedKeys.includes(key))) {
+    return false;
+  }
+  const retainedKeys = [];
+  for (const row of result2.retained_snapshots) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "retained_until"])) || !key || !allowedPaths.has(key) || row.retained_until !== null && (typeof row.retained_until !== "string" || !Number.isFinite(Date.parse(row.retained_until)))) {
+      return false;
+    }
+    retainedKeys.push(key);
+  }
+  if (new Set(retainedKeys).size !== retainedKeys.length) return false;
+  const cleanupActions = result2.cleanup_actions ?? [];
+  const cleanupKeys = [];
+  for (const row of cleanupActions) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["path", "code"])) || !key || !allowedPaths.has(key) || stableErrorCode(row.code, null) === null) return false;
+    cleanupKeys.push(`${key}:${row.code}`);
+  }
+  if (new Set(cleanupKeys).size !== cleanupKeys.length) return false;
+  if (success) {
+    if (result2.rollback !== null) return false;
+    const hasFollowUp = result2.clients.some((row) => TRANSACTION_ACTION_CLIENT_STATUSES.has(row.status)) || result2.retained_snapshots.length > 0 || cleanupActions.length > 0;
+    return result2.status === "ACTION_REQUIRED" ? hasFollowUp : !hasFollowUp;
+  }
+  if (!hasOnlyKeys(result2.rollback, /* @__PURE__ */ new Set(["reason_code", "paths", "hook_errors"])) || stableErrorCode(result2.rollback.reason_code, null) === null || !Array.isArray(result2.rollback.paths) || !Array.isArray(result2.rollback.hook_errors)) return false;
+  const rollbackKeys = [];
+  for (const row of result2.rollback.paths) {
+    const key = pathKey4(row?.path);
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["status", "path", "code"])) || !ROLLBACK_PATH_STATUSES.has(row.status) || !key || !allowedPaths.has(key) || (row.status === "restored" ? row.code !== void 0 : stableErrorCode(row.code, null) === null)) return false;
+    rollbackKeys.push(key);
+  }
+  if (new Set(rollbackKeys).size !== rollbackKeys.length || rollbackKeys.length !== touchedKeys.length || touchedKeys.some((key) => !rollbackKeys.includes(key))) return false;
+  for (const row of result2.rollback.hook_errors) {
+    if (!hasOnlyKeys(row, /* @__PURE__ */ new Set(["client_id", "code"])) || ![...CLIENT_IDS, "transaction"].includes(row.client_id) || stableErrorCode(row.code, null) === null) return false;
+  }
+  const hasConflict = result2.rollback.paths.some((row) => row.status === "conflict");
+  const hasFailure = result2.rollback.paths.some((row) => row.status === "failed") || result2.rollback.hook_errors.length > 0;
+  if (result2.status === "ROLLED_BACK") return !hasConflict && !hasFailure && result2.retained_snapshots.length === 0;
+  if (result2.status === "ROLLBACK_CONFLICT") return hasConflict;
+  return result2.status === "ROLLBACK_FAILED" && !hasConflict && hasFailure;
+}
+function ownershipLedger(fsImpl, localState, now) {
+  if (!localState?.paths) {
+    return Object.freeze({ read: async () => null, now: () => now.toISOString() });
+  }
+  const path = localState.paths().ownership;
+  return Object.freeze({
+    async read() {
+      try {
+        return JSON.parse(await fsImpl.readFile(path, "utf8"));
+      } catch (error2) {
+        if (error2?.code === "ENOENT" || error2?.code === "ENOTDIR") return null;
+        throw error2;
+      }
+    },
+    now: () => now.toISOString()
+  });
+}
+function createClientDomain({
+  adapters,
+  transaction,
+  discovery = discoverClients,
+  protocolSmoke = smokeDescriptor,
+  captureFingerprint = captureClientPathFingerprint,
+  captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+  revalidateRuntime = revalidateClientLaunchRuntime,
+  pinClientLaunch = withPinnedClientLaunch,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
+  evidenceFilePinner = withPinnedWindowsFiles,
+  fsImpl = defaultFs11
+} = {}) {
+  const mappedAdapters = adapterMap2(adapters);
+  if (typeof transaction !== "function" && (!transaction || typeof transaction.snapshot !== "function" || typeof transaction.apply !== "function")) {
+    fail16("client domain requires a transaction factory or transaction");
+  }
+  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof revalidateRuntime !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function" || typeof evidenceFilePinner !== "function") {
+    fail16("client domain dependencies are invalid");
+  }
+  async function withPinnedInspectionEvidence(context, inspection, callback) {
+    if (typeof callback !== "function") fail16("inspection evidence callback is invalid", "INVALID_CLIENT_LAUNCH");
+    await recheckInspectionPreconditions(context, inspection);
+    const present = /* @__PURE__ */ new Map();
+    const absent = /* @__PURE__ */ new Map();
+    for (const file of inspection?.files ?? []) {
+      if (!plainObject6(file) || typeof file.path !== "string" || !plainObject6(file.fingerprint)) continue;
+      const key = pathKey4(file.path);
+      const target = file.fingerprint.exists === true ? present : absent;
+      target.set(key, resolve10(file.path));
+    }
+    for (const key of present.keys()) absent.delete(key);
+    const paths = [...present.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right)));
+    const absentPaths = [...absent.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right)));
+    const invoke = async (guard) => {
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      let value;
+      let callbackError = null;
+      try {
+        value = await callback(guard);
+      } catch (error2) {
+        callbackError = error2;
+      }
+      guard?.assertPinned?.();
+      await recheckInspectionPreconditions(context, inspection);
+      guard?.assertPinned?.();
+      if (callbackError) throw callbackError;
+      return value;
+    };
+    if (paths.length === 0 && absentPaths.length === 0) {
+      return invoke(Object.freeze({ assertPinned() {
+      } }));
+    }
+    const pin = context.evidenceFilePinner ?? evidenceFilePinner;
+    if (typeof pin !== "function") fail16("inspection evidence pinner is invalid", "INVALID_CLIENT_LAUNCH");
+    return pin({
+      paths,
+      absentPaths,
+      callback: invoke,
+      systemRoot: readWindowsEnvironmentValue(context.env ?? process.env, "SYSTEMROOT") || readWindowsEnvironmentValue(context.env ?? process.env, "WINDIR")
+    });
+  }
+  async function discover(context, approvedPlan = null) {
+    const selection = selectionInput(context);
+    const requestedProfile = approvedPlan ? profileFromPlan(approvedPlan) : selection.vscodeProfile;
+    const contextSha256 = discoveryContextDigest(context, requestedProfile);
+    let rows;
+    if (approvedPlan) {
+      const plannedSha256 = clientStageFromPlan(approvedPlan)?.evidence?.discovery_context_sha256;
+      if (typeof plannedSha256 !== "string" || !/^[0-9a-f]{64}$/.test(plannedSha256)) {
+        fail16("saved plan is missing client discovery context", "INVALID_PLAN");
+      }
+      if (plannedSha256 !== contextSha256) fail16("client discovery context changed after planning", "PLAN_STALE");
+      rows = discoveryFromPlan(approvedPlan);
+    } else {
+      rows = await discovery({
+        env: context.env ?? process.env,
+        workspaceRoot: context.workspaceRoot ?? context.repoRoot,
+        requestedProfile,
+        fsImpl: context.fsImpl ?? fsImpl,
+        runner: context.processRunner
+      });
+    }
+    return {
+      requestedProfile,
+      contextSha256,
+      rows: approvedPlan ? selectionFromPlan(rows, approvedPlan) : selectClients(rows, { include: selection.include, exclude: selection.exclude })
+    };
+  }
+  function adapterContext(context, row, requestedProfile, planDigest, ledger) {
+    const outerGuard = context.beforeActiveClientLaunch;
+    return Object.freeze({
+      ...context,
+      launch: row.launch,
+      planDigest,
+      ownershipLedger: ledger,
+      vscodeProfile: requestedProfile,
+      beforeActiveClientLaunch: async (evidence) => {
+        try {
+          await revalidateRuntime(row.launch, {
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner
+          });
+        } catch (error2) {
+          fail16("client runtime changed before active launch", "PLAN_STALE", clientRuntimeFailureDetails(row.client_id, error2));
+        }
+        await outerGuard?.(evidence);
+      },
+      withActiveClientLaunch: async (evidence, callback) => {
+        if (!plainObject6(evidence) || evidence.client_id !== row.client_id || evidence.kind !== "native" || typeof callback !== "function") {
+          fail16("adapter active-launch pin evidence is invalid", "INVALID_CLIENT_LAUNCH");
+        }
+        await outerGuard?.(evidence);
+        try {
+          return await pinClientLaunch(row.launch, {
+            callback,
+            env: context.env ?? process.env,
+            runner: context.processRunner,
+            authenticodeInspector: context.authenticodeInspector,
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner,
+            launchFilePinner: context.launchFilePinner
+          });
+        } catch (error2) {
+          fail16("client launch changed before process completion", "PLAN_STALE", clientRuntimeFailureDetails(row.client_id, error2));
+        }
+      }
+    });
+  }
+  async function inspectRows(context, selectedRows, requestedProfile, planDigest, { plan: plan2 = false, approvedPlan = null } = {}) {
+    const ledger = ownershipLedger(context.fsImpl ?? fsImpl, context.localState, context.now instanceof Date ? context.now : new Date(context.now ?? Date.now()));
+    const records = [];
+    const hasSelected = selectedRows.some((row) => row.selected);
+    const hasNotSelected = selectedRows.some((row) => row.status === "NOT_SELECTED");
+    for (const row of selectedRows) {
+      if (row.compatibility === "not_installed" || row.status === "NOT_SELECTED" || row.launch === null) {
+        const includeAbsenceAction = row.selection_reason === "included_not_installed" || !hasSelected && !hasNotSelected;
+        const client2 = publicClient(row, null, null, requestedProfile, null, includeAbsenceAction);
+        records.push({ row, adapter: mappedAdapters.get(row.client_id), context: null, detection: null, inspection: null, planResult: null, smoke: null, client: client2, evidence: clientEvidence(row, null, null, client2, null) });
+        continue;
+      }
+      const adapter = mappedAdapters.get(row.client_id);
+      const currentContext = adapterContext(context, row, requestedProfile, planDigest, ledger);
+      const detection = await adapter.detect(currentContext);
+      const inspection = await settleInspection(currentContext, adapter, detection);
+      const planResult = plan2 && row.selected ? await adapter.plan(currentContext, inspection, context.descriptor) : null;
+      let smoke = { status: "UNKNOWN" };
+      if (row.compatibility === "release_gated" && row.write_supported === true && canLaunchProtocol(inspection, approvedPlan, row.client_id)) {
+        const launch = typeof adapter.protocolLaunch === "function" ? await adapter.protocolLaunch(currentContext, inspection) : { env_overlay: {}, cwd: null };
+        if (!plainObject6(launch?.env_overlay) || Object.values(launch.env_overlay).some((value) => typeof value !== "string")) {
+          fail16("adapter private protocol environment is invalid", "INVALID_CLIENT_LAUNCH");
+        }
+        const effectiveEnvironment = protocolProcessEnvironment(context.env ?? process.env, launch.env_overlay);
+        smoke = await withPinnedInspectionEvidence(currentContext, inspection, async (inspectionGuard) => {
+          await currentContext.beforeActiveClientLaunch?.({ client_id: row.client_id, kind: "protocol" });
+          inspectionGuard?.assertPinned?.();
+          return descriptorLaunchPinner(context.descriptor, {
+            launchFilePinner: context.launchFilePinner,
+            callback: async (descriptorGuard, pinnedDescriptor) => {
+              inspectionGuard?.assertPinned?.();
+              descriptorGuard?.assertPinned?.();
+              return protocolSmoke(pinnedDescriptor, {
+                effectiveEnvironment,
+                effectiveCwd: launch.cwd ?? null
+              });
+            }
+          });
+        });
+      }
+      const client = publicClient(row, inspection, planResult, requestedProfile, smoke);
+      records.push({
+        row,
+        adapter,
+        context: currentContext,
+        detection,
+        inspection,
+        planResult,
+        smoke,
+        client,
+        evidence: clientEvidence(row, inspection, planResult, client, smoke)
+      });
+    }
+    return records;
+  }
+  function aggregate(records, requestedProfile, {
+    changed = false,
+    transactionResult = null,
+    contextSha256 = null,
+    affectedClientIds = []
+  } = {}) {
+    const transactionStatus = transactionResult?.status ?? null;
+    const affected = new Set(affectedClientIds);
+    const terminalStatus = ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? transactionStatus : null;
+    const views = records.map((record2) => terminalStatus && affected.has(record2.row.client_id) ? terminalClientView(record2, terminalStatus, terminalStatus) : record2);
+    const clients = Object.freeze(views.map((record2) => record2.client));
+    const evidenceRows = Object.freeze(views.map((record2) => record2.evidence));
+    const transactionActions = transactionStatus === "ACTION_REQUIRED" ? ["CLIENT_APPLY_ACTION_REQUIRED"] : ["ROLLBACK_CONFLICT", "ROLLBACK_FAILED"].includes(transactionStatus) ? [transactionStatus] : [];
+    const actions = normalizeActions([...clients.flatMap((client) => client.actions), ...transactionActions]);
+    let state = stageState(clients, evidenceRows);
+    if (transactionStatus === "ROLLED_BACK" || transactionStatus === "ROLLBACK_CONFLICT") {
+      state = { status: transactionStatus, result: "rolled_back" };
+    } else if (transactionStatus === "ROLLBACK_FAILED") {
+      state = { status: transactionStatus, result: "failed" };
+    } else if (transactionStatus === "ACTION_REQUIRED") {
+      state = { status: "CLIENT_APPLY_ACTION_REQUIRED", result: "action_required" };
+    }
+    const stage = createStageResult({
+      name: DOMAIN_NAME,
+      status: state.status,
+      changed,
+      result: state.result,
+      evidence: {
+        vscode_profile: requestedProfile,
+        discovery_context_sha256: contextSha256,
+        clients: evidenceRows,
+        ...transactionStatus ? { transaction_status: transactionStatus } : {},
+        ...transactionResult ? { transaction: publicTransactionEvidence(transactionResult) } : {}
+      },
+      actions
+    });
+    return Object.freeze({ stage, clients, actions });
+  }
+  function committedInspectionFailure(records, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds) {
+    const affected = new Set(affectedClientIds);
+    const views = records.map((record2) => affected.has(record2.row.client_id) ? terminalClientView(record2, "UNKNOWN", "SYNC_FAILED") : record2);
+    const clients = Object.freeze(views.map((record2) => record2.client));
+    const evidenceRows = Object.freeze(views.map((record2) => record2.evidence));
+    const actions = normalizeActions([...clients.flatMap((client) => client.actions), "SYNC_FAILED"]);
+    const stage = createStageResult({
+      name: DOMAIN_NAME,
+      status: "SYNC_FAILED",
+      changed: true,
+      result: "failed",
+      progress: "committed",
+      evidence: {
+        vscode_profile: requestedProfile,
+        discovery_context_sha256: contextSha256,
+        clients: evidenceRows,
+        transaction_status: transactionResult.status,
+        transaction: publicTransactionEvidence(transactionResult),
+        error_code: error2?.code === "INVALID_CLIENT_TRANSACTION_RESULT" ? "INVALID_CLIENT_TRANSACTION_RESULT" : "CLIENT_POST_COMMIT_INSPECTION_FAILED"
+      },
+      actions
+    });
+    return Object.freeze({ stage, clients, actions });
+  }
+  async function plan(context) {
+    if (!context.descriptor) fail16("client planning context is incomplete");
+    const { rows, requestedProfile, contextSha256 } = await discover(context);
+    const planDigest = sha256Canonical({
+      source: context.source,
+      request: context.request,
+      descriptor: context.descriptor,
+      client_selection: selectionInput(context),
+      now: context.now instanceof Date ? context.now.toISOString() : context.now
+    });
+    const records = await inspectRows(context, rows, requestedProfile, planDigest, { plan: true });
+    const blocked = records.filter((record2) => record2.row.selected && BLOCKED_INSPECTION_STATUSES.has(record2.inspection?.registration));
+    if (blocked.length > 0) {
+      fail16("selected client inspection cannot bind a complete apply plan", "CLIENT_INSPECTION_UNBOUND", {
+        clients: blocked.map((record2) => ({
+          client_id: record2.row.client_id,
+          status: record2.inspection.registration
+        }))
+      });
+    }
+    const operations = Object.freeze(records.filter((record2) => record2.row.selected).flatMap((record2) => record2.planResult?.operations ?? []).map((operation) => Object.freeze({
+      ...operation,
+      domain: DOMAIN_NAME,
+      domain_order: DOMAIN_ORDER,
+      kind: "CLIENT_CONFIG_WRITE"
+    })));
+    let ownershipFingerprint = null;
+    if (operations.length > 0 && !context.localState?.paths) fail16("client write planning requires local state");
+    const ownershipPath = context.localState?.paths().ownership ?? null;
+    const ownershipRoot = context.localState?.paths().state ?? null;
+    if (operations.length > 0) {
+      ownershipFingerprint = await captureFingerprint(ownershipPath, {
+        allowedRoots: [ownershipRoot],
+        fsImpl: context.fsImpl ?? fsImpl,
+        writable: true
+      });
+    }
+    const preconditions = planPreconditions(records, operations, ownershipFingerprint, ownershipPath, ownershipRoot);
+    const normalized = aggregate(records, requestedProfile, { contextSha256 });
+    return Object.freeze({
+      stages: Object.freeze([normalized.stage]),
+      operations,
+      preconditions,
+      clients: normalized.clients,
+      actions: normalized.actions
+    });
+  }
+  function boundAdapters(records, operations) {
+    const byClient = new Map(records.map((record2) => [record2.row.client_id, record2]));
+    const operationClients = new Set(operations.map((operation) => operation.client_id));
+    return CLIENT_IDS.filter((clientId) => operationClients.has(clientId)).map((clientId) => {
+      const adapter = mappedAdapters.get(clientId);
+      const record2 = byClient.get(clientId);
+      const inspectedContext = record2?.context ?? {};
+      const withContext = (transactionContext) => {
+        const transactionBefore = transactionContext.beforeActiveClientLaunch;
+        const transactionWith = transactionContext.withActiveClientLaunch;
+        const inspectedBefore = inspectedContext.beforeActiveClientLaunch;
+        const inspectedWith = inspectedContext.withActiveClientLaunch;
+        const noPin = Object.freeze({ assertPinned() {
+        } });
+        const combinedGuard = (transactionGuard, inspectedGuard) => Object.freeze({
+          assertPinned() {
+            transactionGuard?.assertPinned?.();
+            inspectedGuard?.assertPinned?.();
+          }
+        });
+        return Object.freeze({
+          ...inspectedContext,
+          ...transactionContext,
+          launch: inspectedContext.launch ?? transactionContext.launch ?? null,
+          planDigest: inspectedContext.planDigest ?? transactionContext.planDigest,
+          ownershipLedger: inspectedContext.ownershipLedger ?? transactionContext.ownershipLedger,
+          vscodeProfile: inspectedContext.vscodeProfile ?? transactionContext.vscodeProfile,
+          beforeActiveClientLaunch: async (evidence) => {
+            await transactionBefore?.(evidence);
+            await inspectedBefore?.(evidence);
+          },
+          withActiveClientLaunch: async (evidence, callback) => {
+            if (typeof callback !== "function") fail16("active launch callback is invalid", "INVALID_CLIENT_LAUNCH");
+            const withinTransaction = async (transactionGuard = noPin, transactionLaunch = null) => {
+              transactionGuard?.assertPinned?.();
+              if (typeof inspectedWith === "function") {
+                return inspectedWith(evidence, async (inspectedGuard = noPin, inspectedLaunch = null) => {
+                  const guard = combinedGuard(transactionGuard, inspectedGuard);
+                  guard.assertPinned();
+                  return callback(guard, inspectedLaunch ?? transactionLaunch ?? inspectedContext.launch ?? null);
+                });
+              }
+              await inspectedBefore?.(evidence);
+              transactionGuard?.assertPinned?.();
+              return callback(transactionGuard, inspectedContext.launch ?? transactionLaunch ?? null);
+            };
+            if (typeof transactionWith === "function") return transactionWith(evidence, withinTransaction);
+            await transactionBefore?.(evidence);
+            return withinTransaction(noPin, transactionContext.launch ?? null);
+          }
+        });
+      };
+      return Object.freeze({
+        id: clientId,
+        snapshot: (context, operations2) => adapter.snapshot(withContext(context), operations2),
+        apply: (context, operations2) => adapter.apply(withContext(context), operations2),
+        verify: (context, operations2) => adapter.verify(withContext(context), operations2),
+        rollback: typeof adapter.rollback === "function" ? (context, rows) => adapter.rollback(withContext(context), rows) : void 0
+      });
+    });
+  }
+  function assertAuthorizedClientOperations(records, operations) {
+    const byClient = new Map(records.map((record2) => [record2.row.client_id, record2]));
+    const failures = [];
+    for (const operation of operations) {
+      const record2 = byClient.get(operation.client_id);
+      if (!record2 || record2.row.selected !== true || record2.row.compatibility !== "release_gated" || record2.row.write_supported !== true || record2.row.launch === null || !record2.inspection || BLOCKED_INSPECTION_STATUSES.has(record2.inspection.registration)) {
+        failures.push({ client_id: operation.client_id ?? "unknown" });
+      }
+    }
+    if (failures.length > 0) {
+      fail16("approved client operations no longer have complete selected-client evidence", "CLIENT_INSPECTION_UNBOUND", { clients: failures });
+    }
+  }
+  async function inspectionPreconditionFailures(context, inspection) {
+    const failures = [];
+    for (const [index, file] of (inspection?.files ?? []).entries()) {
+      if (!plainObject6(file) || typeof file.path !== "string" || typeof file.allowed_root !== "string" || !plainObject6(file.fingerprint)) {
+        failures.push({ reason: "INSPECTION_FINGERPRINT_MISSING" });
+        continue;
+      }
+      try {
+        const observed = stableClientFingerprint(await captureFingerprint(file.path, {
+          allowedRoots: [file.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: file.writable === true
+        }));
+        const expected = stableClientFingerprint(file.fingerprint);
+        if (sha256Canonical(observed) !== sha256Canonical(expected)) {
+          const changedFields = unique5([...Object.keys(expected), ...Object.keys(observed)]).filter((key) => sha256Canonical(expected[key] ?? null) !== sha256Canonical(observed[key] ?? null));
+          failures.push({ reason: "INSPECTION_FINGERPRINT_CHANGED", evidence_index: index, changed_fields: changedFields });
+        }
+      } catch (error2) {
+        failures.push({ reason: stableErrorCode(error2?.code, "FINGERPRINT_FAILED") });
+      }
+    }
+    return failures;
+  }
+  function throwInspectionPreconditionFailures(failures) {
+    if (failures.length > 0) fail16("client evidence changed after inspection", "PLAN_STALE", { failures });
+  }
+  async function recheckInspectionPreconditions(context, inspection) {
+    throwInspectionPreconditionFailures(await inspectionPreconditionFailures(context, inspection));
+  }
+  async function settleInspection(context, adapter, detection) {
+    let inspection = await adapter.inspect(context, detection);
+    const failures = await inspectionPreconditionFailures(context, inspection);
+    if (failures.length === 0) return inspection;
+    if (failures.some((row) => row.reason !== "INSPECTION_FINGERPRINT_CHANGED")) {
+      throwInspectionPreconditionFailures(failures);
+    }
+    inspection = await adapter.inspect(context, detection);
+    await recheckInspectionPreconditions(context, inspection);
+    return inspection;
+  }
+  async function recheckActiveLaunchPreconditions(context, approvedPlan, {
+    transactionOwnsWrites = false,
+    committedTouchedHashes = /* @__PURE__ */ new Map()
+  } = {}) {
+    if (context.applyLease && typeof context.localState?.validateApplyLease === "function") {
+      await context.localState.validateApplyLease(context.applyLease);
+    }
+    const failures = [];
+    for (const precondition of approvedPlan.preconditions.filter((row) => ["client_path", "client_runtime_tree"].includes(row.kind))) {
+      if (transactionOwnsWrites && precondition.writable === true) continue;
+      let observed;
+      try {
+        observed = precondition.kind === "client_runtime_tree" ? await captureRuntimeFingerprint(precondition.canonical_path, {
+          resolutionRoot: precondition.fingerprint.resolution_root,
+          packageId: precondition.fingerprint.package_id,
+          fsImpl: context.fsImpl ?? fsImpl
+        }) : stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
+          allowedRoots: [precondition.allowed_root],
+          fsImpl: context.fsImpl ?? fsImpl,
+          writable: precondition.writable === true
+        }));
+      } catch (error2) {
+        failures.push({ label: precondition.label, reason: stableErrorCode(error2?.code, "FINGERPRINT_FAILED") });
+        continue;
+      }
+      const committedHash = precondition.kind === "client_path" && precondition.writable === true ? committedTouchedHashes.get(pathKey4(precondition.canonical_path)) : void 0;
+      const committedMismatch = committedHash !== void 0 && (observed.content_sha256 !== committedHash || observed.exists !== (committedHash !== null));
+      const plannedMismatch = committedHash === void 0 && sha256Canonical(observed) !== sha256Canonical(precondition.fingerprint);
+      if (committedMismatch || plannedMismatch) {
+        failures.push({ label: precondition.label, reason: "FINGERPRINT_CHANGED" });
+      }
+    }
+    if (failures.length > 0) fail16("client evidence changed before active verification", "PLAN_STALE", { failures });
+  }
+  async function apply(context, operations = []) {
+    const approvedPlan = context.approvedPlan;
+    if (!approvedPlan || !/^[0-9a-f]{64}$/.test(approvedPlan.digest ?? "")) fail16("client apply requires the approved saved plan", "INVALID_PLAN");
+    const approvedOperations = approvedPlan.operations.filter((operation) => operation.domain === DOMAIN_NAME);
+    if (sha256Canonical(operations) !== sha256Canonical(approvedOperations)) {
+      fail16("client apply operation set differs from the approved plan", "UNAPPROVED_OPERATION_SET");
+    }
+    const affectedClientIds = unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId)));
+    let transactionOwnsWrites = false;
+    const committedTouchedHashes = /* @__PURE__ */ new Map();
+    const applyContext = {
+      ...context,
+      beforeActiveClientLaunch: async (evidence) => {
+        if (!plainObject6(evidence) || !CLIENT_IDS.includes(evidence.client_id) || !["native", "protocol"].includes(evidence.kind)) {
+          fail16("adapter active-launch guard evidence is invalid", "INVALID_CLIENT_LAUNCH");
+        }
+        await recheckActiveLaunchPreconditions(context, approvedPlan, { transactionOwnsWrites, committedTouchedHashes });
+      }
+    };
+    const { rows, requestedProfile, contextSha256 } = await discover(applyContext, approvedPlan);
+    const before = await inspectRows(applyContext, rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    assertAuthorizedClientOperations(before, operations);
+    let transactionResult = null;
+    if (operations.length > 0) {
+      const ownership = approvedPlan.preconditions.find((precondition) => precondition.kind === "client_path" && precondition.canonical_path === applyContext.localState.paths().ownership);
+      if (!ownership?.fingerprint) fail16("approved client plan lacks the ownership precondition", "INVALID_PLAN");
+      const activeTransaction = typeof transaction === "function" ? transaction({ externalLease: applyContext.applyLease, context: applyContext }) : transaction;
+      const transactionAdapters = boundAdapters(before, operations);
+      const writablePreconditions = approvedPlan.preconditions.filter((precondition) => precondition.kind === "client_path" && precondition.writable === true);
+      const transactionSnapshot = await activeTransaction.snapshot({
+        planDigest: approvedPlan.digest,
+        adapters: transactionAdapters,
+        operations,
+        context: applyContext,
+        ownershipFingerprint: ownership.fingerprint
+      });
+      transactionOwnsWrites = true;
+      transactionResult = await activeTransaction.apply({
+        planDigest: approvedPlan.digest,
+        adapters: transactionAdapters,
+        operations,
+        context: applyContext
+      });
+      transactionOwnsWrites = false;
+      if (!validTransactionResult(transactionResult, operations, writablePreconditions)) {
+        const uncertainPaths = /* @__PURE__ */ new Map();
+        for (const path of [
+          ...writablePreconditions.map((precondition) => precondition.canonical_path),
+          ...Array.isArray(transactionSnapshot?.writable_paths) ? transactionSnapshot.writable_paths : []
+        ]) {
+          const key = pathKey4(path);
+          if (key) uncertainPaths.set(key, path);
+        }
+        const invalidResult = Object.freeze({
+          status: "UNKNOWN",
+          clients: Object.freeze(unique5(operations.map((operation) => operation.client_id).filter((clientId) => CLIENT_IDS.includes(clientId))).map((clientId) => Object.freeze({ client_id: clientId, status: "UNKNOWN" }))),
+          touched_files: Object.freeze([...uncertainPaths.values()].sort((left, right) => pathKey4(left).localeCompare(pathKey4(right))).map((path) => Object.freeze({ path, applied_sha256: null }))),
+          rollback: null,
+          retained_snapshots: Object.freeze([])
+        });
+        return committedInspectionFailure(
+          before,
+          requestedProfile,
+          invalidResult,
+          contextSha256,
+          Object.assign(new Error("client transaction result is invalid"), { code: "INVALID_CLIENT_TRANSACTION_RESULT" }),
+          affectedClientIds
+        );
+      }
+      for (const row of transactionResult.touched_files) {
+        committedTouchedHashes.set(pathKey4(row.path), row.applied_sha256);
+      }
+      if (["APPLIED", "ACTION_REQUIRED"].includes(transactionResult.status)) {
+        try {
+          await recheckActiveLaunchPreconditions(context, approvedPlan, { committedTouchedHashes });
+        } catch (error2) {
+          return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds);
+        }
+      }
+    }
+    const changed = (transactionResult?.touched_files?.length ?? 0) > 0;
+    if (ROLLBACK_TERMINAL_STATUSES.has(transactionResult?.status)) {
+      return aggregate(before, requestedProfile, { changed, transactionResult, contextSha256, affectedClientIds });
+    }
+    let after;
+    try {
+      const afterDiscovery = await discover(applyContext, approvedPlan);
+      after = await inspectRows(applyContext, afterDiscovery.rows, requestedProfile, approvedPlan.digest, { approvedPlan });
+    } catch (error2) {
+      if (["APPLIED", "ACTION_REQUIRED"].includes(transactionResult?.status)) {
+        return committedInspectionFailure(before, requestedProfile, transactionResult, contextSha256, error2, affectedClientIds);
+      }
+      throw error2;
+    }
+    return aggregate(after, requestedProfile, {
+      changed,
+      transactionResult,
+      contextSha256
+    });
+  }
+  async function verify(context) {
+    if (!context.descriptor) fail16("client verification context is incomplete");
+    const { rows, requestedProfile, contextSha256 } = await discover(context);
+    const records = await inspectRows(context, rows, requestedProfile, "0".repeat(64));
+    return aggregate(records, requestedProfile, { contextSha256 });
+  }
+  function canFingerprintPrecondition(precondition) {
+    return ["client_path", "client_runtime_tree"].includes(precondition?.kind);
+  }
+  async function fingerprintPrecondition(precondition, context) {
+    if (precondition.kind === "client_runtime_tree") {
+      return captureRuntimeFingerprint(precondition.canonical_path, {
+        resolutionRoot: precondition.fingerprint.resolution_root,
+        packageId: precondition.fingerprint.package_id,
+        fsImpl: context.fsImpl ?? fsImpl
+      });
+    }
+    return stableClientFingerprint(await captureFingerprint(precondition.canonical_path, {
+      allowedRoots: [precondition.allowed_root],
+      fsImpl: context.fsImpl ?? fsImpl,
+      writable: precondition.writable === true
+    }));
+  }
+  return Object.freeze({
+    name: DOMAIN_NAME,
+    order: DOMAIN_ORDER,
+    plan,
+    apply,
+    verify,
+    canFingerprintPrecondition,
+    fingerprintPrecondition
+  });
+}
+
+// server/deployment/descriptor.mjs
+import * as defaultFs12 from "node:fs/promises";
+import { isAbsolute as isAbsolute13, posix as posix6, resolve as resolve11, win32 as win3212 } from "node:path";
+var DESCRIPTOR_KEYS = ["name", "transport", "command", "args", "env", "cwd"];
+var DescriptorError = class extends Error {
+  constructor(message, code = "INVALID_DESCRIPTOR", details = {}) {
+    super(message);
+    this.name = "DescriptorError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function normalizePath(value) {
+  const normalized = resolve11(value).replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function absolutePath6(value) {
+  return typeof value === "string" && (isAbsolute13(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
+}
+function exactDescriptorShape(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...DESCRIPTOR_KEYS].sort());
+}
+async function createCanonicalDescriptor({ nodeExecutable, serverEntry, allowedRoots, fsImpl = defaultFs12 } = {}) {
+  if (!absolutePath6(nodeExecutable) || !absolutePath6(serverEntry)) {
+    throw new DescriptorError("descriptor paths must be absolute");
+  }
+  const node = await fingerprintPath(nodeExecutable, { allowedRoots, fsImpl });
+  const server = await fingerprintPath(serverEntry, { allowedRoots, fsImpl });
+  for (const [label, fingerprint] of [["Node executable", node], ["server entry", server]]) {
+    if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
+      throw new DescriptorError(`${label} must be a regular non-linked file`);
+    }
+  }
+  return Object.freeze({
+    name: "uemcp",
+    transport: "stdio",
+    command: node.real_path,
+    args: Object.freeze([server.real_path]),
+    env: Object.freeze({}),
+    cwd: null
+  });
+}
+function descriptorsEqual(actual, expected) {
+  if (!exactDescriptorShape(actual) || !exactDescriptorShape(expected)) return false;
+  if (actual.name !== expected.name || actual.transport !== expected.transport || actual.cwd !== expected.cwd) return false;
+  if (!absolutePath6(actual.command) || !absolutePath6(expected.command) || normalizePath(actual.command) !== normalizePath(expected.command)) return false;
+  if (!Array.isArray(actual.args) || !Array.isArray(expected.args) || actual.args.length !== expected.args.length) return false;
+  for (let index = 0; index < actual.args.length; index += 1) {
+    const left = actual.args[index];
+    const right = expected.args[index];
+    if (typeof left !== "string" || typeof right !== "string") return false;
+    if (absolutePath6(left) && absolutePath6(right)) {
+      if (normalizePath(left) !== normalizePath(right)) return false;
+    } else if (left !== right) return false;
+  }
+  if (actual.env === null || expected.env === null || typeof actual.env !== "object" || typeof expected.env !== "object") return false;
+  if (JSON.stringify(Object.fromEntries(Object.entries(actual.env).sort())) !== JSON.stringify(Object.fromEntries(Object.entries(expected.env).sort()))) return false;
+  return true;
+}
+
+// server/deployment/local-state.mjs
+import { spawn as defaultSpawn4 } from "node:child_process";
+import { randomBytes as randomBytes3 } from "node:crypto";
+import * as defaultFs13 from "node:fs/promises";
+import { basename as basename2, dirname as dirname9, isAbsolute as isAbsolute14, join as join10, parse as parse6, relative as relative9, resolve as resolve12, sep as sep9 } from "node:path";
+var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
+var SHA2562 = /^[0-9a-f]{64}$/;
+var LEASE_OWNER_TOKEN = /^[0-9a-f]{48}$/;
+var LEASE_COORDINATOR_OUTPUT_LIMIT = 8 * 1024;
+var LEASE_COORDINATOR_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$mutex = $null
+$acquired = $false
+try {
+  $mutex = [System.Threading.Mutex]::new($false, $env:UEMCP_LEASE_MUTEX_NAME)
+  try {
+    $acquired = $mutex.WaitOne([int]$env:UEMCP_LEASE_MUTEX_WAIT_MS)
+  } catch [System.Threading.AbandonedMutexException] {
+    $acquired = $true
+  }
+  if (-not $acquired) {
+    [Console]::Error.Write('mutex timeout')
+    exit 73
+  }
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'RELEASE') {
+    throw 'invalid mutex release signal'
+  }
+} catch {
+  [Console]::Error.Write($_.Exception.GetType().FullName)
+  exit 74
+} finally {
+  if ($acquired -and $null -ne $mutex) {
+    $mutex.ReleaseMutex()
+  }
+  if ($null -ne $mutex) {
+    $mutex.Dispose()
+  }
+}
+`;
+var LEASE_PROCESS_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+try {
+  $pidValue = [int]$env:UEMCP_LEASE_PID
+  $processValue = Get-Process -Id $pidValue -ErrorAction Stop
+  $start = [DateTimeOffset]$processValue.StartTime.ToUniversalTime()
+  [Console]::Out.Write((@{ state = 'alive'; process_start = $start.ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress))
+} catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
+  [Console]::Out.Write('{"state":"dead"}')
+} catch {
+  [Console]::Out.Write('{"state":"unknown"}')
+}
+`;
+var inProcessLeaseQueues = /* @__PURE__ */ new Map();
+var LocalStateError = class extends Error {
+  constructor(message, code = "LOCAL_STATE_UNAVAILABLE", details = {}) {
+    super(message);
+    this.name = "LocalStateError";
+    this.code = code;
+    this.details = details;
+  }
+};
+function contained7(root, candidate) {
+  const normalizedRoot = process.platform === "win32" ? resolve12(root).toLowerCase() : resolve12(root);
+  const normalizedCandidate = process.platform === "win32" ? resolve12(candidate).toLowerCase() : resolve12(candidate);
+  const rel = relative9(normalizedRoot, normalizedCandidate);
+  return rel === "" || !rel.startsWith(`..${sep9}`) && rel !== ".." && !isAbsolute14(rel);
+}
+function safeSegment(value, label) {
+  if (typeof value !== "string" || value === "." || value === ".." || !/^[A-Za-z0-9._-]+$/.test(value)) {
+    throw new LocalStateError(`${label} contains unsafe characters`);
+  }
+  return value;
+}
+function scratchName(path) {
+  return join10(dirname9(path), `.${randomBytes3(16).toString("hex")}.tmp`);
+}
+function leasePathKey(path) {
+  const absolute = resolve12(path);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
+function createInProcessLeaseCoordinator(root) {
+  const key = leasePathKey(root);
+  return async (callback) => {
+    if (typeof callback !== "function") throw new LocalStateError("lease coordinator callback is invalid", "LEASE_COORDINATOR_UNAVAILABLE");
+    const previous = inProcessLeaseQueues.get(key) ?? Promise.resolve();
+    let release;
+    const current = new Promise((resolvePromise) => {
+      release = resolvePromise;
+    });
+    inProcessLeaseQueues.set(key, current);
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (inProcessLeaseQueues.get(key) === current) inProcessLeaseQueues.delete(key);
+    }
+  };
+}
+function encodedPowerShell2(script) {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+function createApplyLeaseCoordinator({
+  root,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  spawnImpl = defaultSpawn4,
+  waitMs = 15e3
+} = {}) {
+  if (typeof root !== "string" || !isAbsolute14(root)) {
+    throw new LocalStateError("lease coordinator root must be absolute", "LEASE_COORDINATOR_UNAVAILABLE");
+  }
+  if (typeof spawnImpl !== "function" || !Number.isSafeInteger(waitMs) || waitMs <= 0) {
+    throw new LocalStateError("lease coordinator options are invalid", "LEASE_COORDINATOR_UNAVAILABLE");
+  }
+  if (platform !== "win32") return createInProcessLeaseCoordinator(root);
+  if (typeof systemRoot !== "string" || !isAbsolute14(systemRoot)) {
+    throw new LocalStateError("SystemRoot is required for the apply-lease coordinator", "LEASE_COORDINATOR_UNAVAILABLE");
+  }
+  const powershell = resolve12(join10(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+  const mutexName = `Local\\UEMCP.DeploymentApply.${sha256Bytes(Buffer.from(leasePathKey(root), "utf8"))}`;
+  const script = encodedPowerShell2(LEASE_COORDINATOR_SCRIPT);
+  return async (callback) => {
+    if (typeof callback !== "function") throw new LocalStateError("lease coordinator callback is invalid", "LEASE_COORDINATOR_UNAVAILABLE");
+    let child;
+    try {
+      child = spawnImpl(powershell, [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        script
+      ], {
+        env: {
+          SystemRoot: resolve12(systemRoot),
+          WINDIR: resolve12(systemRoot),
+          UEMCP_LEASE_MUTEX_NAME: mutexName,
+          UEMCP_LEASE_MUTEX_WAIT_MS: String(waitMs)
+        },
+        shell: false,
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+    } catch {
+      throw new LocalStateError("apply-lease coordinator could not start", "LEASE_COORDINATOR_UNAVAILABLE");
+    }
+    let stdout = "";
+    let stderr = "";
+    let outputBytes = 0;
+    let closed = false;
+    let closeCode = null;
+    let closeSignal = null;
+    let ready = false;
+    let settleReady;
+    let rejectReady;
+    const readyPromise = new Promise((resolvePromise, rejectPromise) => {
+      settleReady = resolvePromise;
+      rejectReady = rejectPromise;
+    });
+    const closePromise = new Promise((resolvePromise) => {
+      child.once("close", (code, signal) => {
+        closed = true;
+        closeCode = code;
+        closeSignal = signal;
+        if (!ready) rejectReady(new LocalStateError("apply-lease coordinator exited before acquisition", "LEASE_COORDINATOR_UNAVAILABLE"));
+        resolvePromise();
+      });
+    });
+    const failCoordinator = (message) => {
+      if (!ready) rejectReady(new LocalStateError(message, "LEASE_COORDINATOR_UNAVAILABLE"));
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+    };
+    const capture = (chunk, stream) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      outputBytes += bytes.byteLength;
+      if (outputBytes > LEASE_COORDINATOR_OUTPUT_LIMIT) {
+        failCoordinator("apply-lease coordinator exceeded its output limit");
+        return;
+      }
+      if (stream === "stdout") {
+        stdout += bytes.toString("utf8");
+        const newline = stdout.indexOf("\n");
+        if (!ready && newline >= 0) {
+          const line = stdout.slice(0, newline).replace(/\r$/, "");
+          if (line !== "READY") {
+            failCoordinator("apply-lease coordinator returned an invalid handshake");
+            return;
+          }
+          ready = true;
+          settleReady();
+        }
+      } else {
+        stderr += bytes.toString("utf8");
+      }
+    };
+    child.stdout?.on("data", (chunk) => capture(chunk, "stdout"));
+    child.stderr?.on("data", (chunk) => capture(chunk, "stderr"));
+    child.stdin?.once("error", () => {
+    });
+    child.once("error", () => failCoordinator("apply-lease coordinator failed to start"));
+    const acquisitionTimer = setTimeout(() => failCoordinator("apply-lease coordinator timed out"), waitMs + 5e3);
+    try {
+      await readyPromise;
+    } finally {
+      clearTimeout(acquisitionTimer);
+    }
+    let value;
+    let callbackError = null;
+    try {
+      value = await callback();
+    } catch (error2) {
+      callbackError = error2;
+    }
+    if (!closed && child.stdin) {
+      child.stdin.end("RELEASE\n");
+    }
+    if (!closed) {
+      let releaseTimer;
+      const releaseTimeout = new Promise((resolvePromise) => {
+        releaseTimer = setTimeout(resolvePromise, 5e3);
+      });
+      await Promise.race([closePromise, releaseTimeout]);
+      clearTimeout(releaseTimer);
+    }
+    if (!closed) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+      await Promise.race([closePromise, new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+    }
+    if (callbackError) throw callbackError;
+    if (!closed || closeCode !== 0 || closeSignal !== null || stderr !== "") {
+      throw new LocalStateError("apply-lease coordinator did not release cleanly", "LEASE_COORDINATOR_UNAVAILABLE");
+    }
+    return value;
+  };
+}
+async function exists(fsImpl, path) {
+  try {
+    await fsImpl.lstat(path);
+    return true;
+  } catch (error2) {
+    if (error2?.code === "ENOENT") return false;
+    throw error2;
+  }
+}
+async function assertNoLinkedTargetPath(path, { fsImpl, code }) {
+  if (typeof path !== "string" || !isAbsolute14(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path)) {
+    throw new LocalStateError("snapshot target path is unsafe", code);
+  }
+  const absolute = resolve12(path);
+  const root = parse6(absolute).root;
+  const segments = relative9(root, absolute).split(sep9).filter(Boolean);
+  let current = root;
+  for (const segment of segments) {
+    current = join10(current, segment);
+    try {
+      const stat = await fsImpl.lstat(current);
+      if (stat.isSymbolicLink()) throw new LocalStateError("snapshot target path contains a symbolic link or junction", code);
+    } catch (error2) {
+      if (error2?.code !== "ENOENT") throw error2;
+    }
+  }
+  return absolute;
+}
+function stableFileIdentity(stat) {
+  return {
+    dev: Number(stat.dev),
+    ino: Number(stat.ino),
+    birthtime_ms: Number(stat.birthtimeMs)
+  };
+}
+function sameStableFile2(left, right) {
+  return left.isFile() && right.isFile() && !left.isSymbolicLink() && !right.isSymbolicLink() && Number(left.nlink) === 1 && Number(right.nlink) === 1 && Number(left.dev) === Number(right.dev) && Number(left.ino) === Number(right.ino) && Number(left.birthtimeMs) === Number(right.birthtimeMs) && Number(left.size) === Number(right.size) && Number(left.mtimeMs) === Number(right.mtimeMs) && Number(left.ctimeMs) === Number(right.ctimeMs);
+}
+async function readStableSingleLinkFile(path, { fsImpl, code, missingAllowed = true }) {
+  let pathBefore;
+  try {
+    pathBefore = await fsImpl.lstat(path);
+  } catch (error2) {
+    if (error2?.code !== "ENOENT" || !missingAllowed) throw error2;
+    try {
+      await fsImpl.lstat(path);
+    } catch (secondError) {
+      if (secondError?.code === "ENOENT") return { exists: false, bytes: null, stat: null };
+      throw secondError;
+    }
+    throw new LocalStateError("snapshot target appeared during inspection", code);
+  }
+  if (!pathBefore.isFile() || pathBefore.isSymbolicLink() || Number(pathBefore.nlink) !== 1) {
+    throw new LocalStateError("snapshot target must be a regular single-link file", code);
+  }
+  let handle;
+  try {
+    handle = await fsImpl.open(path, "r");
+    const handleBefore = await handle.stat();
+    if (!sameStableFile2(pathBefore, handleBefore)) {
+      throw new LocalStateError("snapshot target changed before its read handle was secured", code);
+    }
+    const bytes = await handle.readFile();
+    const handleAfter = await handle.stat();
+    const pathAfter = await fsImpl.lstat(path);
+    if (!sameStableFile2(handleBefore, handleAfter) || !sameStableFile2(handleAfter, pathAfter) || bytes.byteLength !== Number(handleAfter.size)) {
+      throw new LocalStateError("snapshot target changed while it was read", code);
+    }
+    return { exists: true, bytes, stat: pathBefore };
+  } catch (error2) {
+    if (error2?.code === "ENOENT" && missingAllowed) {
+      throw new LocalStateError("snapshot target disappeared during inspection", code);
+    }
+    throw error2;
+  } finally {
+    await handle?.close().catch(() => {
+    });
+  }
+}
+async function inspectLeaseOwnerProcess({ pid, process_start: expectedStart } = {}, {
+  runner = createProcessRunner(),
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR
+} = {}) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return "unknown";
+  if (!Number.isFinite(expectedStart)) return "unknown";
+  if (pid === process.pid) {
+    const observedStart = Math.round(Date.now() - process.uptime() * 1e3);
+    return Math.abs(observedStart - Number(expectedStart)) < 5e3 ? "alive" : "dead";
+  }
+  if (platform === "win32") {
+    if (!systemRoot || !runner?.run) return "unknown";
+    const powershell = resolve12(join10(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+    let result2;
+    try {
+      result2 = await runner.run(powershell, [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "-"
+      ], {
+        env: {
+          SystemRoot: resolve12(systemRoot),
+          WINDIR: resolve12(systemRoot),
+          UEMCP_LEASE_PID: String(pid)
+        },
+        stdin: `${LEASE_PROCESS_SCRIPT}
+
+`,
+        timeoutMs: 1e4,
+        outputLimitBytes: 8 * 1024
+      });
+    } catch {
+      return "unknown";
+    }
+    if (result2.status !== "exited" || result2.exitCode !== 0 || result2.stderr !== "") return "unknown";
+    try {
+      const parsed = JSON.parse(result2.stdout);
+      const keys = Object.keys(parsed).sort().join(",");
+      if (keys === "state" && parsed.state === "dead") return "dead";
+      if (keys === "process_start,state" && parsed.state === "alive" && Number.isSafeInteger(parsed.process_start)) {
+        return Math.abs(parsed.process_start - Number(expectedStart)) < 5e3 ? "alive" : "dead";
+      }
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return "unknown";
+  } catch (error2) {
+    return error2?.code === "ESRCH" ? "dead" : "unknown";
+  }
+}
+function parseWhoamiCsv(text) {
+  const match = /^"(?:[^"]|"")*","(S-\d(?:-\d+)+)"\s*$/i.exec(text.trim());
+  return match?.[1] ?? null;
+}
+async function defaultAclRestrictor(path) {
+  if (process.platform !== "win32") return;
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  if (!systemRoot) throw new LocalStateError("SystemRoot is required to restrict local state ACLs");
+  const runner = createProcessRunner();
+  const whoami = resolve12(join10(systemRoot, "System32", "whoami.exe"));
+  const icacls = resolve12(join10(systemRoot, "System32", "icacls.exe"));
+  const identity = await runner.run(whoami, ["/user", "/fo", "csv", "/nh"], {
+    env: { SystemRoot: resolve12(systemRoot), WINDIR: resolve12(systemRoot) },
+    timeoutMs: 1e4,
+    outputLimitBytes: 8 * 1024
+  });
+  const sid = identity.status === "exited" && identity.exitCode === 0 && identity.stderr === "" ? parseWhoamiCsv(identity.stdout) : null;
+  if (!sid) throw new LocalStateError("could not resolve the current user SID");
+  const restricted = await runner.run(icacls, [
+    resolve12(path),
+    "/inheritance:r",
+    "/grant:r",
+    `*${sid}:(OI)(CI)F`,
+    "*S-1-5-18:(OI)(CI)F"
+  ], {
+    env: { SystemRoot: resolve12(systemRoot), WINDIR: resolve12(systemRoot) },
+    timeoutMs: 15e3,
+    outputLimitBytes: 16 * 1024
+  });
+  if (restricted.status !== "exited" || restricted.exitCode !== 0) {
+    throw new LocalStateError("could not restrict local state ACLs");
+  }
+}
+function createLocalState({
+  root,
+  fsImpl = defaultFs13,
+  aclRestrictor = defaultAclRestrictor,
+  processInspector = inspectLeaseOwnerProcess,
+  leaseCoordinator,
+  treeRemover,
+  clock = Date.now,
+  sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+} = {}) {
+  const selectedRoot = root ?? (process.env.LOCALAPPDATA ? join10(process.env.LOCALAPPDATA, "UEMCP") : null);
+  if (!selectedRoot) throw new LocalStateError("LOCALAPPDATA is unavailable and no local-state root was injected");
+  const absoluteRoot = resolve12(selectedRoot);
+  const coordinateLease = leaseCoordinator ?? createApplyLeaseCoordinator({ root: absoluteRoot });
+  if (treeRemover !== void 0 && typeof treeRemover !== "function") {
+    throw new LocalStateError("local-state tree remover is invalid");
+  }
+  const treeDeleteRunner = treeRemover === void 0 ? createProcessRunner() : null;
+  const removeTree = treeRemover ?? ((options) => deleteWindowsTreeNoFollow({
+    ...options,
+    runner: treeDeleteRunner,
+    fsImpl
+  }));
+  if (typeof coordinateLease !== "function") {
+    throw new LocalStateError("lease coordinator is invalid", "LEASE_COORDINATOR_UNAVAILABLE");
+  }
+  const pathSet = Object.freeze({
+    root: absoluteRoot,
+    state: join10(absoluteRoot, "state"),
+    plans: join10(absoluteRoot, "plans"),
+    receipts: join10(absoluteRoot, "receipts"),
+    snapshots: join10(absoluteRoot, "snapshots"),
+    ownership: join10(absoluteRoot, "state", "ownership-v1.json"),
+    dependencyStamp: join10(absoluteRoot, "state", "dependency-stamp-v1.json"),
+    targets: join10(absoluteRoot, "state", ".uemcp-targets.json"),
+    lock: join10(absoluteRoot, "state", "deployment-apply-v1.lock"),
+    replayLedger: join10(absoluteRoot, "plans", "applied-v1.json"),
+    applyJournals: join10(absoluteRoot, "plans", "apply-journal-v1")
+  });
+  const restrictedDirectories = /* @__PURE__ */ new Set();
+  const activeLeaseTokens = /* @__PURE__ */ new Set();
+  function assertLocalPath(path) {
+    const absolute = resolve12(path);
+    if (!contained7(absoluteRoot, absolute)) throw new LocalStateError("path escapes the local-state root", "LOCAL_STATE_PATH_ESCAPE");
+    return absolute;
+  }
+  async function assertNoLinkedLocalPath(path) {
+    const absolute = assertLocalPath(path);
+    const segments = relative9(absoluteRoot, absolute).split(sep9).filter(Boolean);
+    let current = absoluteRoot;
+    const pathSegments = [null, ...segments];
+    for (const [index, segment] of pathSegments.entries()) {
+      if (segment !== null) current = join10(current, segment);
+      try {
+        const stat = await fsImpl.lstat(current);
+        if (stat.isSymbolicLink()) throw new LocalStateError("local-state path contains a symbolic link or junction", "LOCAL_STATE_PATH_ESCAPE");
+        if (index === pathSegments.length - 1 && stat.isFile() && stat.nlink !== 1) {
+          throw new LocalStateError("local-state file has multiple hard links", "LOCAL_STATE_PATH_ESCAPE");
+        }
+      } catch (error2) {
+        if (error2?.code !== "ENOENT") throw error2;
+      }
+    }
+    return absolute;
+  }
+  async function ensureDirectory(path) {
+    const absolute = await assertNoLinkedLocalPath(path);
+    await fsImpl.mkdir(absolute, { recursive: true });
+    await assertNoLinkedLocalPath(absolute);
+    const key = process.platform === "win32" ? absolute.toLowerCase() : absolute;
+    if (!restrictedDirectories.has(key)) {
+      await aclRestrictor(absolute);
+      restrictedDirectories.add(key);
+    }
+    return absolute;
+  }
+  async function writeBytesAtomic(path, bytes) {
+    const absolute = assertLocalPath(path);
+    await ensureDirectory(dirname9(absolute));
+    await assertNoLinkedLocalPath(absolute);
+    const scratch = scratchName(absolute);
+    let handle;
+    try {
+      handle = await fsImpl.open(scratch, "wx", 384);
+      await handle.writeFile(bytes);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await fsImpl.rename(scratch, absolute);
+    } finally {
+      if (handle) await handle.close().catch(() => {
+      });
+      await fsImpl.rm(scratch, { force: true }).catch(() => {
+      });
+    }
+  }
+  async function readJson(path) {
+    const absolute = await assertNoLinkedLocalPath(path);
+    try {
+      return JSON.parse(await fsImpl.readFile(absolute, "utf8"));
+    } catch (error2) {
+      if (error2?.code === "ENOENT") return null;
+      if (error2 instanceof SyntaxError) throw new LocalStateError("local-state JSON is malformed", "MALFORMED_LOCAL_STATE");
+      throw error2;
+    }
+  }
+  async function writeJsonAtomic(path, value) {
+    await writeBytesAtomic(path, Buffer.from(`${canonicalJson(value)}
+`, "utf8"));
+  }
+  async function createSnapshot(targetPath, { transactionId = randomBytes3(12).toString("hex"), retainOnConflict = false } = {}) {
+    const id = safeSegment(transactionId, "transactionId");
+    const directory = join10(pathSet.snapshots, id, randomBytes3(8).toString("hex"));
+    if (!contained7(pathSet.snapshots, directory)) throw new LocalStateError("snapshot transaction escapes the snapshot root");
+    await ensureDirectory(directory);
+    const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: "UNSAFE_SNAPSHOT_TARGET" });
+    const captured = await readStableSingleLinkFile(absoluteTarget, {
+      fsImpl,
+      code: "UNSAFE_SNAPSHOT_TARGET"
+    });
+    const { bytes, stat } = captured;
+    if (captured.exists) {
+      await writeBytesAtomic(join10(directory, "payload.bin"), bytes);
+    }
+    const metadata = {
+      schema_version: "1.0",
+      snapshot_id: `${id}/${directory.split(/[\\/]/).at(-1)}`,
+      target_path: absoluteTarget,
+      exists: captured.exists,
+      size: stat === null ? null : Number(stat.size),
+      identity: stat === null ? null : stableFileIdentity(stat),
+      mode: stat === null ? null : stat.mode,
+      atime_ms: stat === null ? null : stat.atimeMs,
+      mtime_ms: stat === null ? null : stat.mtimeMs,
+      original_sha256: bytes === null ? null : sha256Bytes(bytes),
+      retained_until: retainOnConflict ? new Date(Number(clock()) + SNAPSHOT_RETENTION_MS).toISOString() : null
+    };
+    await writeJsonAtomic(join10(directory, "metadata.json"), metadata);
+    return Object.freeze({
+      id: metadata.snapshot_id,
+      path_label: `snapshots/${metadata.snapshot_id}`,
+      directory,
+      metadata
+    });
+  }
+  async function restoreSnapshot(snapshot, { expectedCurrentHash } = {}) {
+    if (!snapshot?.directory || !contained7(pathSet.snapshots, snapshot.directory)) {
+      throw new LocalStateError("snapshot is outside the local-state root", "INVALID_SNAPSHOT");
+    }
+    const metadata = await readJson(join10(snapshot.directory, "metadata.json"));
+    if (!metadata) throw new LocalStateError("snapshot metadata is missing", "INVALID_SNAPSHOT");
+    await assertNoLinkedTargetPath(metadata.target_path, { fsImpl, code: "ROLLBACK_CONFLICT" });
+    if (expectedCurrentHash !== null && !/^[0-9a-f]{64}$/.test(expectedCurrentHash ?? "")) {
+      throw new LocalStateError("rollback requires an exact expected current hash or null", "INVALID_ROLLBACK_PRECONDITION");
+    }
+    let currentHash = null;
+    try {
+      const current = await readStableSingleLinkFile(metadata.target_path, {
+        fsImpl,
+        code: "ROLLBACK_CONFLICT"
+      });
+      currentHash = current.exists ? sha256Bytes(current.bytes) : null;
+    } catch (error2) {
+      if (error2?.code !== "ENOENT") throw error2;
+    }
+    if (currentHash !== expectedCurrentHash) {
+      throw new LocalStateError("rollback target no longer matches applied bytes", "ROLLBACK_CONFLICT");
+    }
+    if (!metadata.exists) {
+      await fsImpl.rm(metadata.target_path, { force: true });
+      return { status: "restored_absent" };
+    }
+    const payloadResult = await readStableSingleLinkFile(join10(snapshot.directory, "payload.bin"), {
+      fsImpl,
+      code: "INVALID_SNAPSHOT",
+      missingAllowed: false
+    });
+    const payload = payloadResult.bytes;
+    if (sha256Bytes(payload) !== metadata.original_sha256) {
+      throw new LocalStateError("snapshot payload hash is invalid", "INVALID_SNAPSHOT");
+    }
+    const targetScratch = scratchName(metadata.target_path);
+    let handle;
+    try {
+      handle = await fsImpl.open(targetScratch, "wx", metadata.mode ?? 384);
+      await handle.writeFile(payload);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await fsImpl.rename(targetScratch, metadata.target_path);
+      if (metadata.mode !== null) await fsImpl.chmod(metadata.target_path, metadata.mode);
+      if (metadata.atime_ms !== null && metadata.mtime_ms !== null) {
+        await fsImpl.utimes(metadata.target_path, metadata.atime_ms / 1e3, metadata.mtime_ms / 1e3);
+      }
+    } finally {
+      if (handle) await handle.close().catch(() => {
+      });
+      await fsImpl.rm(targetScratch, { force: true }).catch(() => {
+      });
+    }
+    return { status: "restored" };
+  }
+  async function deleteSnapshot(snapshot) {
+    if (!snapshot?.directory || !contained7(pathSet.snapshots, snapshot.directory)) {
+      throw new LocalStateError("snapshot is outside the local-state root", "INVALID_SNAPSHOT");
+    }
+    await assertNoLinkedLocalPath(snapshot.directory);
+    await removeTree({ targetPath: snapshot.directory, allowedRoot: pathSet.snapshots });
+    if (await exists(fsImpl, snapshot.directory)) {
+      throw new LocalStateError("snapshot cleanup could not be verified", "SNAPSHOT_DELETE_FAILED");
+    }
+  }
+  async function cleanupExpired() {
+    await assertNoLinkedLocalPath(pathSet.snapshots);
+    if (!await exists(fsImpl, pathSet.snapshots)) return { deleted: 0 };
+    let deleted = 0;
+    const transactions = await fsImpl.readdir(pathSet.snapshots, { withFileTypes: true });
+    for (const transaction of transactions) {
+      if (!transaction.isDirectory()) continue;
+      const transactionPath = join10(pathSet.snapshots, transaction.name);
+      for (const entry of await fsImpl.readdir(transactionPath, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const directory = join10(transactionPath, entry.name);
+        const metadata = await readJson(join10(directory, "metadata.json")).catch(() => null);
+        if (metadata?.retained_until && Date.parse(metadata.retained_until) <= Number(clock())) {
+          await removeTree({ targetPath: directory, allowedRoot: pathSet.snapshots });
+          if (await exists(fsImpl, directory)) {
+            throw new LocalStateError("expired snapshot cleanup could not be verified", "SNAPSHOT_DELETE_FAILED");
+          }
+          deleted += 1;
+        }
+      }
+    }
+    return { deleted };
+  }
+  async function readReplayLedger() {
+    const ledger = await readJson(pathSet.replayLedger);
+    if (ledger === null) return { schema_version: "1.0", applied: {} };
+    if (!ledger || typeof ledger !== "object" || Array.isArray(ledger) || Object.keys(ledger).sort().join(",") !== "applied,schema_version" || ledger.schema_version !== "1.0" || !ledger.applied || typeof ledger.applied !== "object" || Array.isArray(ledger.applied)) {
+      throw new LocalStateError("replay ledger is malformed", "MALFORMED_LOCAL_STATE");
+    }
+    for (const [digest, record2] of Object.entries(ledger.applied)) {
+      const keys = record2 && typeof record2 === "object" && !Array.isArray(record2) ? Object.keys(record2).sort().join(",") : "";
+      if (!SHA2562.test(digest) || keys !== "applied_at" && keys !== "applied_at,receipt_sha256" || typeof record2.applied_at !== "string" || !Number.isFinite(Date.parse(record2.applied_at)) || record2.receipt_sha256 !== void 0 && !SHA2562.test(record2.receipt_sha256)) {
+        throw new LocalStateError("replay ledger applied record is malformed", "MALFORMED_LOCAL_STATE");
+      }
+    }
+    return ledger;
+  }
+  function validateDigest(digest) {
+    if (!SHA2562.test(digest ?? "")) throw new LocalStateError("digest must be lowercase SHA-256", "INVALID_DIGEST");
+    return digest;
+  }
+  function applyJournalPath(digest) {
+    return join10(pathSet.applyJournals, `${validateDigest(digest)}.json`);
+  }
+  function validateJournalReceipt(receipt) {
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || receipt.kind !== "deployment" || typeof receipt.path_label !== "string" || !/^receipts\/[A-Za-z0-9._-]+\.json$/.test(receipt.path_label) || !SHA2562.test(receipt.sha256 ?? "") || !receipt.document || typeof receipt.document !== "object" || Array.isArray(receipt.document) || receipt.document.path_label !== receipt.path_label || receipt.document.receipt_sha256 !== receipt.sha256) {
+      throw new LocalStateError("apply journal receipt is invalid", "MALFORMED_LOCAL_STATE");
+    }
+    const body = { ...receipt.document };
+    delete body.receipt_sha256;
+    if (sha256Canonical(body) !== receipt.sha256) {
+      throw new LocalStateError("apply journal receipt hash is invalid", "MALFORMED_LOCAL_STATE");
+    }
+    return receipt;
+  }
+  function journalReceiptFromPrepared(preparedReceipt) {
+    const reference = preparedReceipt?.reference;
+    if (!reference || !preparedReceipt?.document) {
+      throw new LocalStateError("prepared recovery receipt is required", "MALFORMED_LOCAL_STATE");
+    }
+    if (reference.path !== join10(pathSet.receipts, basename2(reference.path_label ?? ""))) {
+      throw new LocalStateError("prepared receipt path is outside the receipt root", "LOCAL_STATE_PATH_ESCAPE");
+    }
+    return validateJournalReceipt({
+      kind: reference.kind,
+      path_label: reference.path_label,
+      sha256: reference.sha256,
+      document: preparedReceipt.document
+    });
+  }
+  function validateApplyJournal(record2, digest) {
+    if (!record2 || typeof record2 !== "object" || Array.isArray(record2) || record2.schema_version !== "1.0" || record2.kind !== "uemcp.deployment.apply-journal" || record2.plan_digest !== digest || !["applying", "receipt_pending", "committed"].includes(record2.state) || typeof record2.started_at !== "string" || !Number.isFinite(Date.parse(record2.started_at))) {
+      throw new LocalStateError("apply journal is malformed", "MALFORMED_LOCAL_STATE");
+    }
+    const expectedKeys = ["schema_version", "kind", "plan_digest", "state", "started_at", "receipt"];
+    if (Object.keys(record2).sort().join(",") !== expectedKeys.sort().join(",")) {
+      throw new LocalStateError("apply journal has unknown fields", "MALFORMED_LOCAL_STATE");
+    }
+    if (record2.state === "applying") {
+      if (record2.receipt !== null) validateJournalReceipt(record2.receipt);
+    } else {
+      validateJournalReceipt(record2.receipt);
+    }
+    return record2;
+  }
+  async function readApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const record2 = await readJson(applyJournalPath(normalized));
+    return record2 === null ? null : validateApplyJournal(record2, normalized);
+  }
+  async function beginApplyJournal(digest, preparedReceipt) {
+    const normalized = validateDigest(digest);
+    if (await readApplyJournal(normalized)) throw new LocalStateError("plan digest already has an apply journal", "PLAN_REPLAYED");
+    const ledger = await readReplayLedger();
+    if (Object.hasOwn(ledger.applied ?? {}, normalized)) throw new LocalStateError("plan digest was already applied", "PLAN_REPLAYED");
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
+    await writeJsonAtomic(applyJournalPath(normalized), {
+      schema_version: "1.0",
+      kind: "uemcp.deployment.apply-journal",
+      plan_digest: normalized,
+      state: "applying",
+      started_at: new Date(Number(clock())).toISOString(),
+      receipt
+    });
+  }
+  async function stageApplyJournal(digest, preparedReceipt) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current?.state !== "applying") throw new LocalStateError("apply journal is not ready for terminal receipt staging", "MALFORMED_LOCAL_STATE");
+    const receipt = journalReceiptFromPrepared(preparedReceipt);
+    await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: "receipt_pending", receipt });
+  }
+  async function ensureJournalReceipt(record2) {
+    const receipt = validateJournalReceipt(record2.receipt);
+    const fileName = basename2(receipt.path_label);
+    const path = join10(pathSet.receipts, fileName);
+    if (receipt.path_label !== `receipts/${fileName}`) {
+      throw new LocalStateError("apply journal receipt path is unsafe", "LOCAL_STATE_PATH_ESCAPE");
+    }
+    const existing = await readJson(path);
+    if (existing === null) {
+      await writeJsonAtomic(path, receipt.document);
+    } else if (canonicalJson(existing) !== canonicalJson(receipt.document)) {
+      throw new LocalStateError("existing receipt differs from the apply journal", "RECEIPT_INTEGRITY_FAILED");
+    }
+    return { kind: receipt.kind, path_label: receipt.path_label, path, sha256: receipt.sha256 };
+  }
+  async function completeApplyJournal(digest, reference = null) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (!current || !["applying", "receipt_pending", "committed"].includes(current.state) || current.state === "applying" && current.receipt === null) {
+      throw new LocalStateError("apply journal has no terminal receipt", "MALFORMED_LOCAL_STATE");
+    }
+    const expected = current.receipt;
+    if (reference && (reference.kind !== expected.kind || reference.path_label !== expected.path_label || reference.sha256 !== expected.sha256)) {
+      throw new LocalStateError("written receipt does not match the apply journal", "RECEIPT_INTEGRITY_FAILED");
+    }
+    const resolvedReference = await ensureJournalReceipt(current);
+    if (current.state !== "committed") {
+      await writeJsonAtomic(applyJournalPath(normalized), { ...current, state: "committed" });
+    }
+    return resolvedReference;
+  }
+  async function clearApplyJournal(digest) {
+    const normalized = validateDigest(digest);
+    const current = await readApplyJournal(normalized);
+    if (current === null) return;
+    if (current.state !== "applying") throw new LocalStateError("terminal apply journal cannot be cleared", "PLAN_REPLAYED");
+    const path = applyJournalPath(normalized);
+    await assertNoLinkedLocalPath(path);
+    await fsImpl.rm(path, { force: true });
+  }
+  async function wasDigestApplied(digest) {
+    validateDigest(digest);
+    const journal = await readApplyJournal(digest);
+    if (journal) {
+      if (journal.state === "applying" && journal.receipt === null) {
+        throw new LocalStateError("interrupted apply journal lacks recovery evidence", "MALFORMED_LOCAL_STATE");
+      }
+      if (journal.state !== "committed") await completeApplyJournal(digest);
+      return true;
+    }
+    const ledger = await readReplayLedger();
+    return Object.hasOwn(ledger.applied ?? {}, digest);
+  }
+  async function markDigestApplied(digest, evidence = {}) {
+    validateDigest(digest);
+    if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) || Object.keys(evidence).some((key) => key !== "receipt_sha256") || evidence.receipt_sha256 !== void 0 && !SHA2562.test(evidence.receipt_sha256)) {
+      throw new LocalStateError("replay evidence is invalid", "INVALID_REPLAY_EVIDENCE");
+    }
+    const ledger = await readReplayLedger();
+    ledger.schema_version = "1.0";
+    ledger.applied ??= {};
+    ledger.applied[digest] = { applied_at: new Date(Number(clock())).toISOString(), ...evidence };
+    await writeJsonAtomic(pathSet.replayLedger, ledger);
+  }
+  function validLeaseRecord(record2) {
+    return record2 !== null && typeof record2 === "object" && !Array.isArray(record2) && Object.keys(record2).sort().join(",") === "acquired_at,owner_token,pid,process_start" && LEASE_OWNER_TOKEN.test(record2.owner_token ?? "") && Number.isSafeInteger(record2.pid) && record2.pid > 0 && Number.isSafeInteger(record2.process_start) && Number.isFinite(Date.parse(record2.acquired_at));
+  }
+  function leasePublishPath(ownerToken) {
+    return `${pathSet.lock}.${ownerToken}.publishing`;
+  }
+  function sameFileIdentity(left, right) {
+    return left.dev === right.dev && left.ino === right.ino;
+  }
+  async function inspectLease() {
+    try {
+      await assertNoLinkedLocalPath(pathSet.state);
+      const stat = await fsImpl.lstat(pathSet.lock);
+      if (!stat.isFile() || stat.isSymbolicLink() || !Number.isSafeInteger(stat.nlink) || stat.nlink < 1) return { state: "unsafe" };
+      const record2 = JSON.parse(await fsImpl.readFile(pathSet.lock, "utf8"));
+      if (!validLeaseRecord(record2)) return { state: "malformed" };
+      if (stat.nlink === 2) {
+        const publishPath = leasePublishPath(record2.owner_token);
+        let publishStat;
+        try {
+          publishStat = await fsImpl.lstat(publishPath);
+        } catch (error2) {
+          if (error2?.code === "ENOENT") return { state: "unsafe" };
+          throw error2;
+        }
+        if (!publishStat.isFile() || publishStat.isSymbolicLink() || publishStat.nlink !== 2 || !sameFileIdentity(stat, publishStat)) return { state: "unsafe" };
+        await fsImpl.unlink(publishPath);
+        const healed = await fsImpl.lstat(pathSet.lock);
+        if (!healed.isFile() || healed.isSymbolicLink() || healed.nlink !== 1 || !sameFileIdentity(stat, healed)) {
+          return { state: "unsafe" };
+        }
+      } else if (stat.nlink !== 1) {
+        return { state: "unsafe" };
+      }
+      return { state: "valid", record: record2 };
+    } catch (error2) {
+      if (error2?.code === "ENOENT") return { state: "absent" };
+      if (error2 instanceof SyntaxError) return { state: "malformed" };
+      throw error2;
+    }
+  }
+  async function publishLease(record2) {
+    const scratch = leasePublishPath(record2.owner_token);
+    let handle;
+    let published = false;
+    try {
+      handle = await fsImpl.open(scratch, "wx", 384);
+      await handle.writeFile(`${canonicalJson(record2)}
+`, "utf8");
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      try {
+        await fsImpl.link(scratch, pathSet.lock);
+        published = true;
+      } catch (error2) {
+        if (error2?.code !== "EEXIST") throw error2;
+      }
+      return published;
+    } finally {
+      if (handle) await handle.close().catch(() => {
+      });
+      await fsImpl.rm(scratch, { force: true }).catch(() => {
+      });
+    }
+  }
+  function createLeaseCapability(ownerToken) {
+    let released = false;
+    let releasePromise = null;
+    activeLeaseTokens.add(ownerToken);
+    return Object.freeze({
+      ownerToken,
+      async release(providedToken = ownerToken) {
+        if (released) return;
+        if (providedToken !== ownerToken) throw new LocalStateError("apply lease owner token does not match", "LEASE_OWNER_MISMATCH");
+        releasePromise ??= coordinateLease(async () => {
+          const current = await inspectLease();
+          if (current.state !== "valid" || current.record.owner_token !== ownerToken) {
+            activeLeaseTokens.delete(ownerToken);
+            throw new LocalStateError("apply lease ownership changed", "LEASE_OWNER_MISMATCH");
+          }
+          await fsImpl.unlink(pathSet.lock);
+          activeLeaseTokens.delete(ownerToken);
+          released = true;
+        });
+        return releasePromise;
+      }
+    });
+  }
+  async function acquireApplyLease({
+    pid = process.pid,
+    processStart = Math.round(Date.now() - process.uptime() * 1e3),
+    waitMs = 0,
+    pollMs = 50,
+    staleGraceMs = 5e3,
+    expiresAt = null
+  } = {}) {
+    await ensureDirectory(pathSet.state);
+    const startedWaiting = Number(clock());
+    while (true) {
+      if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
+        throw new LocalStateError("plan expired while waiting for the apply lease", "PLAN_EXPIRED");
+      }
+      const ownerToken = randomBytes3(24).toString("hex");
+      const record2 = {
+        owner_token: ownerToken,
+        pid,
+        process_start: processStart,
+        acquired_at: new Date(Number(clock())).toISOString()
+      };
+      const attempted = await coordinateLease(async () => {
+        if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
+          throw new LocalStateError("plan expired while waiting for the apply lease", "PLAN_EXPIRED");
+        }
+        let observed2 = await inspectLease();
+        if (observed2.state !== "absent") return { acquired: false, observed: observed2 };
+        if (await publishLease(record2)) return { acquired: true, observed: null };
+        observed2 = await inspectLease();
+        return { acquired: false, observed: observed2 };
+      });
+      if (attempted.acquired) return createLeaseCapability(ownerToken);
+      const observed = attempted.observed;
+      if (observed.state === "valid") {
+        const ownerState = await processInspector(observed.record);
+        const age = Number(clock()) - Date.parse(observed.record.acquired_at);
+        if (ownerState === "dead" && age >= staleGraceMs) {
+          const observedBytes = canonicalJson(observed.record);
+          const reclaimed = await coordinateLease(async () => {
+            const current = await inspectLease();
+            if (current.state !== "valid" || canonicalJson(current.record) !== observedBytes) return false;
+            await fsImpl.unlink(pathSet.lock);
+            return true;
+          });
+          if (reclaimed) continue;
+        }
+      }
+      if (Number(clock()) - startedWaiting >= waitMs) {
+        throw new LocalStateError("another deployment apply owns the local lease", "APPLY_IN_PROGRESS");
+      }
+      await sleep(Math.min(pollMs, Math.max(1, waitMs - (Number(clock()) - startedWaiting))));
+    }
+  }
+  async function validateApplyLease(lease) {
+    const ownerToken = lease?.ownerToken;
+    if (!LEASE_OWNER_TOKEN.test(ownerToken ?? "") || !activeLeaseTokens.has(ownerToken)) {
+      throw new LocalStateError("apply lease capability is not active", "LEASE_OWNER_MISMATCH");
+    }
+    return coordinateLease(async () => {
+      const current = await inspectLease();
+      if (current.state !== "valid" || current.record.owner_token !== ownerToken) {
+        activeLeaseTokens.delete(ownerToken);
+        throw new LocalStateError("apply lease ownership changed", "LEASE_OWNER_MISMATCH");
+      }
+      return true;
+    });
+  }
+  return Object.freeze({
+    paths: () => pathSet,
+    readJson,
+    writeJsonAtomic,
+    acquireApplyLease,
+    validateApplyLease,
+    createSnapshot,
+    restoreSnapshot,
+    deleteSnapshot,
+    cleanupExpired,
+    beginApplyJournal,
+    stageApplyJournal,
+    completeApplyJournal,
+    clearApplyJournal,
+    readApplyJournal,
+    markDigestApplied,
+    wasDigestApplied
+  });
+}
+
+// server/deployment/orchestrator.mjs
+import { dirname as dirname10, isAbsolute as isAbsolute16, resolve as resolve14 } from "node:path";
+
 // server/deployment/plan-document.mjs
-import { isAbsolute as isAbsolute7, posix as posix5, win32 as win325 } from "node:path";
+import { isAbsolute as isAbsolute15, posix as posix7, win32 as win3213 } from "node:path";
 
 // server/deployment/redaction.mjs
 var DEFAULT_SECRET_KEYS = Object.freeze([
@@ -16322,7 +31548,92 @@ var PLAN_KEYS = /* @__PURE__ */ new Set([
   "digest"
 ]);
 var DOMAIN_ORDERS = Object.freeze({ prerequisites: 10, target: 20, clients: 30, plugin: 40 });
-var SHA2562 = /^[0-9a-f]{64}$/;
+var SHA2563 = /^[0-9a-f]{64}$/;
+var CLIENT_STAGE_EVIDENCE_KEYS = /* @__PURE__ */ new Set(["vscode_profile", "discovery_context_sha256", "clients"]);
+var CLIENT_EVIDENCE_KEYS = /* @__PURE__ */ new Set([
+  "adapter",
+  "selected",
+  "selection",
+  "discovery_status",
+  "launch_contract",
+  "current_scopes",
+  "effective_scope",
+  "operation",
+  "touched_paths",
+  "owned_diffs",
+  "environment",
+  "custom_working_directory",
+  "structural_status",
+  "native_status",
+  "protocol_status",
+  "instruction_bytes",
+  "tool_count",
+  "initial_tool_names",
+  "duration_ms",
+  "enablement",
+  "activation"
+]);
+var CLIENT_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  "included",
+  "default",
+  "inspect_only",
+  "excluded",
+  "not_included",
+  "included_not_installed",
+  "not_installed"
+]);
+var CLIENT_SELECTED_SELECTION_VALUES = /* @__PURE__ */ new Set(["included", "default"]);
+var CLIENT_MISSING_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  "included_not_installed",
+  "not_installed"
+]);
+var CLIENT_NOT_INSTALLED_SELECTION_VALUES = /* @__PURE__ */ new Set([
+  ...CLIENT_MISSING_SELECTION_VALUES,
+  "excluded",
+  "not_included"
+]);
+var CLIENT_DISCOVERY_STATUS_VALUES = /* @__PURE__ */ new Set([
+  "DETECTED",
+  "NOT_INSTALLED",
+  ...CLIENT_DISCOVERY_FAILURE_CODES
+]);
+var CLIENT_OPERATION_VALUES = /* @__PURE__ */ new Set([
+  "INSPECT_ONLY",
+  "MALFORMED_CONFIG",
+  "INSPECTION_LIMIT_EXCEEDED",
+  "UNSAFE_CONFIG_PATH",
+  "UNSUPPORTED_VERSION",
+  "OWNERSHIP_LEDGER_INVALID",
+  "POLICY_UNKNOWN",
+  "POLICY_BLOCKED",
+  "CONFLICT",
+  "READ_ONLY_TARGET",
+  "UNSAFE_WRITABLE_PATH",
+  "PATH_OUTSIDE_WRITABLE_ROOT",
+  "METADATA_INSPECTION_FAILED",
+  "ADOPT",
+  "NO_OP",
+  "CREATE",
+  "UPDATE",
+  "MIGRATE"
+]);
+var CLIENT_NATIVE_STATUS_VALUES = /* @__PURE__ */ new Set([
+  "UNKNOWN",
+  "NOT_CHECKED",
+  "ABSENT",
+  "TIMEOUT",
+  "FAILED",
+  "REJECTED",
+  "PENDING_APPROVAL",
+  "CONNECTED",
+  "PRESENT",
+  "AMBIGUOUS",
+  "INCONSISTENT",
+  "DISCONNECTED",
+  "DISABLED",
+  "BLOCKED"
+]);
+var CLIENT_PROTOCOL_STATUS_VALUES = /* @__PURE__ */ new Set(["UNKNOWN", "HEALTHY", "INITIALIZE_FAILED", "TOOLS_LIST_FAILED"]);
 var DeploymentPlanError = class extends Error {
   constructor(message, code = "INVALID_PLAN", details = {}) {
     super(message);
@@ -16331,44 +31642,186 @@ var DeploymentPlanError = class extends Error {
     this.details = details;
   }
 };
-function fail4(message, code, details) {
+function fail17(message, code, details) {
   throw new DeploymentPlanError(message, code, details);
 }
-function absolutePath3(value) {
-  return typeof value === "string" && (isAbsolute7(value) || win325.isAbsolute(value) || posix5.isAbsolute(value));
+function absolutePath7(value) {
+  return typeof value === "string" && (isAbsolute15(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
+}
+function pathIdentity6(value) {
+  return /^(?:[a-z]:[\\/]|\\\\)/i.test(value) ? win3213.resolve(value).toLowerCase() : posix7.resolve(value);
 }
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
 }
 function isoTime(value, label) {
   const date3 = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date3.getTime())) fail4(`${label} is invalid`, "INVALID_PLAN");
+  if (!Number.isFinite(date3.getTime())) fail17(`${label} is invalid`, "INVALID_PLAN");
   return date3.toISOString();
 }
-function exactKeys2(value, keys, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) fail4(`${label} must be an object`, "INVALID_PLAN");
+function exactKeys4(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail17(`${label} must be an object`, "INVALID_PLAN");
   const actual = Object.keys(value);
-  const missing = [...keys].filter((key) => !Object.hasOwn(value, key));
+  const missing6 = [...keys].filter((key) => !Object.hasOwn(value, key));
   const unknown2 = actual.filter((key) => !keys.has(key));
-  if (missing.length || unknown2.length) fail4(`${label} has invalid keys`, "INVALID_PLAN", { missing, unknown: unknown2 });
+  if (missing6.length || unknown2.length) fail17(`${label} has invalid keys`, "INVALID_PLAN", { missing: missing6, unknown: unknown2 });
+}
+function exactOptionalKeys(value, required2, optional2, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail17(`${label} must be an object`, "INVALID_PLAN");
+  const allowed = /* @__PURE__ */ new Set([...required2, ...optional2]);
+  const missing6 = [...required2].filter((key) => !Object.hasOwn(value, key));
+  const unknown2 = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing6.length || unknown2.length) fail17(`${label} has invalid keys`, "INVALID_PLAN", { missing: missing6, unknown: unknown2 });
+}
+function uniqueStrings(values, label, { absolute = false } = {}) {
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.trim() === "" || absolute && !absolutePath7(value)) || new Set(values).size !== values.length) {
+    fail17(`${label} must contain unique valid strings`, "INVALID_PLAN");
+  }
+}
+function validateOwnedDiffRows(rows, label) {
+  if (!Array.isArray(rows)) fail17(`${label} must be an array`, "INVALID_PLAN");
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label}[${index}]`;
+    exactOptionalKeys(
+      row,
+      /* @__PURE__ */ new Set(["path", "current_present", "desired_present"]),
+      /* @__PURE__ */ new Set(["current_sha256", "desired_sha256"]),
+      rowLabel
+    );
+    if (typeof row.path !== "string" || row.path.trim() === "" || typeof row.current_present !== "boolean" || typeof row.desired_present !== "boolean" || Object.hasOwn(row, "current_sha256") !== row.current_present || Object.hasOwn(row, "desired_sha256") !== row.desired_present || ["current_sha256", "desired_sha256"].some((key) => Object.hasOwn(row, key) && !SHA2563.test(row[key]))) {
+      fail17(`${rowLabel} is invalid`, "INVALID_PLAN");
+    }
+  }
+}
+function validateEnvironmentRows(rows, label) {
+  if (!Array.isArray(rows)) fail17(`${label} must be an array`, "INVALID_PLAN");
+  const identities = /* @__PURE__ */ new Set();
+  for (const [index, row] of rows.entries()) {
+    exactKeys4(row, /* @__PURE__ */ new Set(["name", "value_sha256"]), `${label}[${index}]`);
+    if (typeof row.name !== "string" || row.name.trim() === "" || !SHA2563.test(row.value_sha256)) {
+      fail17(`${label}[${index}] is invalid`, "INVALID_PLAN");
+    }
+    const identity = `${row.name}\0${row.value_sha256}`;
+    if (identities.has(identity)) fail17(`${label} contains duplicate rows`, "INVALID_PLAN");
+    identities.add(identity);
+  }
+}
+function validateClientEvidenceRow(row, client, label) {
+  exactKeys4(row, CLIENT_EVIDENCE_KEYS, label);
+  if (!CLIENT_IDS.includes(row.adapter) || typeof row.selected !== "boolean" || !CLIENT_SELECTION_VALUES.has(row.selection) || !CLIENT_DISCOVERY_STATUS_VALUES.has(row.discovery_status) || !CLIENT_OPERATION_VALUES.has(row.operation) || typeof row.custom_working_directory !== "boolean" || !CLIENT_STATE_VALUES.status.includes(row.structural_status) || !CLIENT_NATIVE_STATUS_VALUES.has(row.native_status) || !CLIENT_PROTOCOL_STATUS_VALUES.has(row.protocol_status) || !Number.isSafeInteger(row.instruction_bytes) || row.instruction_bytes < 0 || !Number.isSafeInteger(row.tool_count) || row.tool_count < 0 || !Number.isFinite(row.duration_ms) || row.duration_ms < 0 || !CLIENT_STATE_VALUES.enablement.includes(row.enablement) || !CLIENT_STATE_VALUES.activation.includes(row.activation)) {
+    fail17(`${label} has invalid values`, "INVALID_PLAN");
+  }
+  if (row.selected !== CLIENT_SELECTED_SELECTION_VALUES.has(row.selection) || row.launch_contract === null && row.discovery_status === "DETECTED" || row.launch_contract !== null && row.discovery_status !== "DETECTED" || CLIENT_MISSING_SELECTION_VALUES.has(row.selection) && row.discovery_status !== "NOT_INSTALLED" || row.discovery_status === "NOT_INSTALLED" && !CLIENT_NOT_INSTALLED_SELECTION_VALUES.has(row.selection)) {
+    fail17(`${label} has contradictory selection or discovery evidence`, "INVALID_PLAN");
+  }
+  uniqueStrings(row.current_scopes, `${label}.current_scopes`);
+  uniqueStrings(row.touched_paths, `${label}.touched_paths`, { absolute: true });
+  uniqueStrings(row.initial_tool_names, `${label}.initial_tool_names`);
+  if (row.effective_scope !== null && (typeof row.effective_scope !== "string" || row.effective_scope.trim() === "")) {
+    fail17(`${label}.effective_scope is invalid`, "INVALID_PLAN");
+  }
+  validateOwnedDiffRows(row.owned_diffs, `${label}.owned_diffs`);
+  validateEnvironmentRows(row.environment, `${label}.environment`);
+  if (row.launch_contract !== null) {
+    try {
+      validatePublicClientLaunchContract(row.launch_contract);
+    } catch {
+      fail17(`${label}.launch_contract is invalid`, "INVALID_PLAN");
+    }
+  }
+  if (!client || row.selected !== client.selected || row.structural_status !== client.status || row.enablement !== client.enablement || row.activation !== client.activation || row.discovery_status === "NOT_INSTALLED" !== (client.compatibility === "not_installed") || CLIENT_DISCOVERY_FAILURE_CODES.includes(row.discovery_status) && client.compatibility !== "known_unsupported" || row.launch_contract === null !== (client.version === null) || row.launch_contract !== null && (row.launch_contract.client_id !== row.adapter || row.launch_contract.version !== client.version || row.launch_contract.compatibility !== client.compatibility || row.launch_contract.write_supported !== client.write_supported)) {
+    fail17(`${label} is inconsistent with its public client row`, "INVALID_PLAN");
+  }
+  return row;
+}
+function validateClientStageEvidence(stage, clients) {
+  exactKeys4(stage.evidence, CLIENT_STAGE_EVIDENCE_KEYS, "plan client stage evidence");
+  if (stage.evidence.vscode_profile !== null && (typeof stage.evidence.vscode_profile !== "string" || stage.evidence.vscode_profile.trim() === "")) {
+    fail17("plan client profile evidence is invalid", "INVALID_PLAN");
+  }
+  if (!SHA2563.test(stage.evidence.discovery_context_sha256 ?? "") || !Array.isArray(stage.evidence.clients)) {
+    fail17("plan client stage evidence is invalid", "INVALID_PLAN");
+  }
+  const clientByAdapter = new Map(clients.filter((client) => CLIENT_IDS.includes(client.adapter)).map((client) => [client.adapter, client]));
+  const evidenceByAdapter = /* @__PURE__ */ new Map();
+  for (const [index, row] of stage.evidence.clients.entries()) {
+    validateClientEvidenceRow(row, clientByAdapter.get(row?.adapter), `plan client evidence[${index}]`);
+    if (evidenceByAdapter.has(row.adapter)) fail17("plan client evidence adapter IDs must be unique", "INVALID_PLAN");
+    evidenceByAdapter.set(row.adapter, row);
+  }
+  if (clientByAdapter.size !== CLIENT_IDS.length || evidenceByAdapter.size !== CLIENT_IDS.length || CLIENT_IDS.some((clientId) => !clientByAdapter.has(clientId) || !evidenceByAdapter.has(clientId))) {
+    fail17("plan client stage must cover the closed client set", "INVALID_PLAN");
+  }
+  return stage.evidence.clients;
+}
+function validateClientSelectionAuthority(request, clients, evidenceRows) {
+  const included = new Set(request.selected_clients);
+  const excluded = new Set(request.excluded_clients);
+  if ([...included, ...excluded].some((clientId) => !CLIENT_IDS.includes(clientId))) {
+    fail17("plan request contains an unsupported client selection", "INVALID_PLAN");
+  }
+  if ([...included].some((clientId) => excluded.has(clientId))) {
+    fail17("plan request client selections overlap", "INVALID_PLAN");
+  }
+  const exactInclude = included.size > 0;
+  const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  if (evidenceRows.length === 0) {
+    for (const client of clients) {
+      if (client.selected === true && (excluded.has(client.adapter) || exactInclude && !included.has(client.adapter))) {
+        fail17("plan client selection does not match the reviewed request", "INVALID_PLAN", { adapter: client.adapter });
+      }
+    }
+    return;
+  }
+  const evidenceByAdapter = new Map(evidenceRows.map((row) => [row.adapter, row]));
+  for (const adapter of CLIENT_IDS) {
+    const client = clientByAdapter.get(adapter);
+    const evidence = evidenceByAdapter.get(adapter);
+    if (!client || !evidence) fail17("plan selection authority must cover the closed client set", "INVALID_PLAN");
+    const notInstalled = evidence.discovery_status === "NOT_INSTALLED";
+    let expectedSelection;
+    let expectedSelected;
+    if (excluded.has(adapter)) {
+      expectedSelection = "excluded";
+      expectedSelected = false;
+    } else if (exactInclude && !included.has(adapter)) {
+      expectedSelection = "not_included";
+      expectedSelected = false;
+    } else if (included.has(adapter)) {
+      expectedSelection = notInstalled ? "included_not_installed" : "included";
+      expectedSelected = !notInstalled;
+    } else if (notInstalled) {
+      expectedSelection = "not_installed";
+      expectedSelected = false;
+    } else if (client.compatibility === "release_gated") {
+      expectedSelection = "default";
+      expectedSelected = true;
+    } else {
+      expectedSelection = "inspect_only";
+      expectedSelected = false;
+    }
+    if (evidence.selection !== expectedSelection || evidence.selected !== expectedSelected || client.selected !== expectedSelected) {
+      fail17("plan client selection does not match the reviewed request", "INVALID_PLAN", { adapter });
+    }
+  }
 }
 function validateOperation(operation) {
-  if (operation === null || typeof operation !== "object" || Array.isArray(operation)) fail4("plan operation must be an object", "INVALID_PLAN");
-  if (typeof operation.operation_id !== "string" || operation.operation_id.trim() === "") fail4("plan operation ID is invalid", "INVALID_PLAN");
+  if (operation === null || typeof operation !== "object" || Array.isArray(operation)) fail17("plan operation must be an object", "INVALID_PLAN");
+  if (typeof operation.operation_id !== "string" || operation.operation_id.trim() === "") fail17("plan operation ID is invalid", "INVALID_PLAN");
   if (!Object.hasOwn(DOMAIN_ORDERS, operation.domain) || operation.domain_order !== DOMAIN_ORDERS[operation.domain]) {
-    fail4("plan operation domain/order is invalid", "INVALID_PLAN");
+    fail17("plan operation domain/order is invalid", "INVALID_PLAN");
   }
-  if (typeof operation.kind !== "string" || operation.kind.trim() === "") fail4("plan operation kind is invalid", "INVALID_PLAN");
+  if (typeof operation.kind !== "string" || operation.kind.trim() === "") fail17("plan operation kind is invalid", "INVALID_PLAN");
   assertNoSecretMaterial(operation);
   return cloneCanonical(operation);
 }
 function validatePrecondition(precondition) {
   if (precondition === null || typeof precondition !== "object" || Array.isArray(precondition)) {
-    fail4("plan precondition must be an object", "INVALID_PLAN");
+    fail17("plan precondition must be an object", "INVALID_PLAN");
   }
-  if (typeof precondition.kind !== "string" || precondition.kind.trim() === "") fail4("plan precondition kind is invalid", "INVALID_PLAN");
-  if (typeof precondition.label !== "string" || precondition.label.trim() === "") fail4("plan precondition label is invalid", "INVALID_PLAN");
-  if (!absolutePath3(precondition.canonical_path)) fail4("plan precondition path must be absolute", "INVALID_PLAN");
+  if (typeof precondition.kind !== "string" || precondition.kind.trim() === "") fail17("plan precondition kind is invalid", "INVALID_PLAN");
+  if (typeof precondition.label !== "string" || precondition.label.trim() === "") fail17("plan precondition label is invalid", "INVALID_PLAN");
+  if (!absolutePath7(precondition.canonical_path)) fail17("plan precondition path must be absolute", "INVALID_PLAN");
   assertNoSecretMaterial(precondition);
   return cloneCanonical(precondition);
 }
@@ -16385,52 +31838,112 @@ function sortPreconditions(preconditions) {
   });
 }
 function validatePlanDocument(plan) {
-  exactKeys2(plan, PLAN_KEYS, "plan");
+  exactKeys4(plan, PLAN_KEYS, "plan");
   if (plan.schema_version !== DEPLOYMENT_SCHEMA_VERSION || plan.kind !== "uemcp.deployment.plan") {
-    fail4("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
+    fail17("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
   }
-  if (!["setup", "sync", "repair"].includes(plan.operation)) fail4("plan operation is invalid", "INVALID_PLAN");
-  if (!Object.values(OUTCOMES).includes(plan.outcome)) fail4("plan outcome is invalid", "INVALID_PLAN");
+  if (!["setup", "sync", "repair"].includes(plan.operation)) fail17("plan operation is invalid", "INVALID_PLAN");
+  if (!Object.values(OUTCOMES).includes(plan.outcome)) fail17("plan outcome is invalid", "INVALID_PLAN");
   const created = isoTime(plan.created_at, "plan.created_at");
   const expires = isoTime(plan.expires_at, "plan.expires_at");
-  if (Date.parse(expires) <= Date.parse(created)) fail4("plan expiry must be after creation", "INVALID_PLAN");
+  if (Date.parse(expires) <= Date.parse(created)) fail17("plan expiry must be after creation", "INVALID_PLAN");
   validateSourceContract(plan.source);
   const request = validateRequestContract(plan.request);
   validateDescriptorContract(plan.descriptor);
-  if (!Array.isArray(plan.stages) || plan.stages.length === 0) fail4("plan stages must be non-empty", "INVALID_PLAN");
+  if (!Array.isArray(plan.stages) || plan.stages.length === 0) fail17("plan stages must be non-empty", "INVALID_PLAN");
   plan.stages.forEach(validateStageContract);
-  if (!Array.isArray(plan.clients)) fail4("plan clients must be an array", "INVALID_PLAN");
+  if (!Array.isArray(plan.clients)) fail17("plan clients must be an array", "INVALID_PLAN");
   const clients = plan.clients.map(validateClientContract);
   if (!Array.isArray(plan.operations) || !Array.isArray(plan.preconditions) || !Array.isArray(plan.actions)) {
-    fail4("plan operations, preconditions, and actions must be arrays", "INVALID_PLAN");
+    fail17("plan operations, preconditions, and actions must be arrays", "INVALID_PLAN");
   }
   const operations = plan.operations.map(validateOperation);
   const preconditions = plan.preconditions.map(validatePrecondition);
   plan.actions.forEach(validateActionContract);
-  if (!SHA2562.test(plan.digest)) fail4("plan digest must be lowercase SHA-256", "INVALID_PLAN");
-  if (new Set(operations.map((row) => row.operation_id)).size !== operations.length) fail4("plan operation IDs must be unique", "INVALID_PLAN");
-  if (new Set(preconditions.map((row) => row.label)).size !== preconditions.length) fail4("plan precondition labels must be unique", "INVALID_PLAN");
+  if (!SHA2563.test(plan.digest)) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
+  if (new Set(operations.map((row) => row.operation_id)).size !== operations.length) fail17("plan operation IDs must be unique", "INVALID_PLAN");
+  if (new Set(preconditions.map((row) => row.label)).size !== preconditions.length) fail17("plan precondition labels must be unique", "INVALID_PLAN");
   const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  const clientStages = plan.stages.filter((stage) => stage.name === "clients");
+  if (clientStages.length > 1) fail17("plan contains duplicate client stages", "INVALID_PLAN");
+  const [clientStage] = clientStages;
+  const hasClientOperations = operations.some((operation) => operation.domain === "clients");
+  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0 || request.excluded_clients.length > 0)) {
+    fail17("plan is missing the client stage", "INVALID_PLAN");
+  }
+  let clientEvidenceRows = [];
+  if (clientStage) {
+    const hasStructuredEvidence = Object.keys(clientStage.evidence).length > 0;
+    if (hasStructuredEvidence || hasClientOperations) {
+      clientEvidenceRows = validateClientStageEvidence(clientStage, clients);
+    } else {
+      exactKeys4(clientStage.evidence, /* @__PURE__ */ new Set(), "empty plan client stage evidence");
+    }
+  }
+  const clientEvidence2 = new Map(clientEvidenceRows.map((row) => [row.adapter, row]));
+  if (clientByAdapter.size !== clients.length || clientEvidence2.size !== clientEvidenceRows.length) {
+    fail17("plan client rows and evidence must use unique adapter IDs", "INVALID_PLAN");
+  }
+  if (CLIENT_IDS.every((adapter) => clientByAdapter.has(adapter)) && clientEvidenceRows.length === 0) {
+    fail17("plan closed client rows require complete client evidence", "INVALID_PLAN");
+  }
+  if (clientEvidenceRows.length > 0 || request.selected_clients.length > 0 || request.excluded_clients.length > 0) {
+    validateClientSelectionAuthority(request, clients, clientEvidenceRows);
+  }
+  const probeFailureCodes = new Set(CLIENT_DISCOVERY_FAILURE_CODES);
   for (const adapter of request.selected_clients) {
     const client = clientByAdapter.get(adapter);
-    if (!client || !client.selected || typeof client.version !== "string" || client.version.trim() === "" || client.scope.trim() === "") {
-      fail4("selected client lacks detected version/scope evidence", "INVALID_PLAN", { adapter });
+    const evidence = clientEvidence2.get(adapter);
+    const detectedSelection = client?.selected === true && typeof client.version === "string" && client.version.trim() !== "";
+    const requestedAbsence = client?.selected === false && client.version === null && client.compatibility === "not_installed" && client.status === "NOT_INSTALLED" && evidence?.discovery_status === "NOT_INSTALLED" && evidence?.selection === "included_not_installed" && evidence?.launch_contract === null;
+    const requestedProbeFailure = client?.selected === true && client.version === null && client.compatibility === "known_unsupported" && client.status === "UNKNOWN" && probeFailureCodes.has(evidence?.discovery_status) && evidence?.selection === "included" && evidence?.launch_contract === null;
+    if (!client || client.scope.trim() === "" || !detectedSelection && !requestedAbsence && !requestedProbeFailure) {
+      fail17("requested client lacks valid detection or absence evidence", "INVALID_PLAN", { adapter });
+    }
+  }
+  const clientOperations = operations.filter((operation) => operation.domain === "clients");
+  const clientPathPreconditions = preconditions.filter((precondition) => precondition.kind === "client_path");
+  const operationPaths = /* @__PURE__ */ new Map();
+  for (const operation of clientOperations) {
+    const client = clientByAdapter.get(operation.client_id);
+    const evidence = clientEvidence2.get(operation.client_id);
+    if (operation.kind !== "CLIENT_CONFIG_WRITE" || operation.selected !== true || operation.write_supported !== true || !client || client.selected !== true || client.compatibility !== "release_gated" || client.write_supported !== true || typeof client.version !== "string" || !evidence || evidence.selected !== true || evidence.launch_contract === null || ["MALFORMED_CONFIG", "INSPECTION_LIMIT_EXCEEDED", "UNSAFE_CONFIG_PATH"].includes(evidence.structural_status) || !absolutePath7(operation.path)) {
+      fail17("client operation lacks a selected release-gated authorization row", "INVALID_PLAN", { client_id: operation.client_id ?? null });
+    }
+    const matchingPreconditions = clientPathPreconditions.filter((precondition) => pathIdentity6(precondition.canonical_path) === pathIdentity6(operation.path));
+    const [operationPrecondition] = matchingPreconditions;
+    const { atime_ms: ignoredAccessTime, ...stableOperationFingerprint } = operation.fingerprint ?? {};
+    if (matchingPreconditions.length !== 1 || operationPrecondition.writable !== (operation.ledger_only !== true) || typeof operation.allowed_root !== "string" || typeof operationPrecondition.allowed_root !== "string" || pathIdentity6(operationPrecondition.allowed_root) !== pathIdentity6(operation.allowed_root) || canonicalJson(operationPrecondition.fingerprint) !== canonicalJson(stableOperationFingerprint)) {
+      fail17("client operation is not bound to one exact path precondition", "INVALID_PLAN", { client_id: operation.client_id ?? null });
+    }
+    const paths = operationPaths.get(operation.client_id) ?? [];
+    paths.push(operation.path);
+    operationPaths.set(operation.client_id, paths);
+  }
+  for (const [adapter, evidence] of clientEvidence2) {
+    const plannedPaths = [...new Set(operationPaths.get(adapter) ?? [])].sort();
+    const evidencePaths = Array.isArray(evidence.touched_paths) ? [...new Set(evidence.touched_paths.filter(absolutePath7))].sort() : [];
+    if (plannedPaths.length !== (operationPaths.get(adapter) ?? []).length || evidencePaths.length !== (evidence.touched_paths ?? []).length || canonicalJson(plannedPaths) !== canonicalJson(evidencePaths)) {
+      fail17("client operations do not match their reviewed touched-path evidence", "INVALID_PLAN", { adapter });
+    }
+    if (plannedPaths.length > 0 && ["INSPECT_ONLY", "NO_OP"].includes(evidence.operation)) {
+      fail17("client write operation is inconsistent with inspect-only evidence", "INVALID_PLAN", { adapter });
     }
   }
   assertNoSecretMaterial(plan);
   return true;
 }
 function validatePlanStructure(plan) {
-  exactKeys2(plan, PLAN_KEYS, "plan");
+  exactKeys4(plan, PLAN_KEYS, "plan");
   if (plan.schema_version !== DEPLOYMENT_SCHEMA_VERSION || plan.kind !== "uemcp.deployment.plan") {
-    fail4("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
+    fail17("plan interface is unsupported", "UNSUPPORTED_INTERFACE");
   }
-  if (!SHA2562.test(plan.digest ?? "")) fail4("plan digest must be lowercase SHA-256", "INVALID_PLAN");
+  if (!SHA2563.test(plan.digest ?? "")) fail17("plan digest must be lowercase SHA-256", "INVALID_PLAN");
   canonicalJson(plan);
 }
 function computePlanDigest(planWithoutDigest) {
   if (planWithoutDigest === null || typeof planWithoutDigest !== "object" || Array.isArray(planWithoutDigest)) {
-    fail4("plan digest input must be an object", "INVALID_PLAN");
+    fail17("plan digest input must be an object", "INVALID_PLAN");
   }
   const body = { ...planWithoutDigest };
   delete body.digest;
@@ -16450,7 +31963,7 @@ function createPlanDocument({
   now = /* @__PURE__ */ new Date(),
   ttlMs = PLAN_TTL_MS
 }) {
-  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) fail4("plan TTL must be a positive integer", "INVALID_PLAN");
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) fail17("plan TTL must be a positive integer", "INVALID_PLAN");
   const createdAt = isoTime(now, "plan creation time");
   const expiresAt = new Date(Date.parse(createdAt) + ttlMs).toISOString();
   const body = {
@@ -16477,11 +31990,11 @@ function createPlanDocument({
 function validatePlanEnvelope({ plan, approvedDigest, now = /* @__PURE__ */ new Date() }) {
   validatePlanStructure(plan);
   const computed = computePlanDigest(plan);
-  if (computed !== plan.digest || !SHA2562.test(approvedDigest) || approvedDigest !== plan.digest) {
-    fail4("plan digest does not match stored and approved bytes", "PLAN_DIGEST_MISMATCH");
+  if (computed !== plan.digest || !SHA2563.test(approvedDigest) || approvedDigest !== plan.digest) {
+    fail17("plan digest does not match stored and approved bytes", "PLAN_DIGEST_MISMATCH");
   }
   const observedNow = Date.parse(isoTime(now, "validation time"));
-  if (observedNow >= Date.parse(plan.expires_at)) fail4("plan has expired", "PLAN_EXPIRED");
+  if (observedNow >= Date.parse(plan.expires_at)) fail17("plan has expired", "PLAN_EXPIRED");
   validatePlanDocument(plan);
   return true;
 }
@@ -16494,7 +32007,7 @@ async function validatePlanForApply({
 }) {
   validatePlanEnvelope({ plan, approvedDigest, now });
   if (localState?.wasDigestApplied && await localState.wasDigestApplied(plan.digest)) {
-    fail4("plan digest was already applied", "PLAN_REPLAYED");
+    fail17("plan digest was already applied", "PLAN_REPLAYED");
   }
   const failures = [];
   for (const precondition of plan.preconditions) {
@@ -16521,14 +32034,14 @@ async function validatePlanForApply({
       failures.push({ label: precondition.label, reason: "version_changed" });
     }
   }
-  if (failures.length > 0) fail4("one or more plan preconditions changed", "PLAN_STALE", { failures });
+  if (failures.length > 0) fail17("one or more plan preconditions changed", "PLAN_STALE", { failures });
   return { ok: true, plan: cloneCanonical(plan) };
 }
 
 // server/deployment/receipts.mjs
-import * as defaultFs5 from "node:fs/promises";
-import { basename, join as join5, resolve as resolve5 } from "node:path";
-var SHA2563 = /^[0-9a-f]{64}$/;
+import * as defaultFs14 from "node:fs/promises";
+import { basename as basename3, join as join11, resolve as resolve13 } from "node:path";
+var SHA2564 = /^[0-9a-f]{64}$/;
 var ReceiptError = class extends Error {
   constructor(message, code = "RECEIPT_INTEGRITY_FAILED", details = {}) {
     super(message);
@@ -16542,11 +32055,11 @@ function safeTimestamp(timestamp) {
   if (!Number.isFinite(date3.getTime())) throw new ReceiptError("result timestamp is invalid");
   return date3.toISOString().replace(/[-:.]/g, "");
 }
-function actionCodes(result) {
+function actionCodes(result2) {
   const values = [];
-  for (const action2 of result.actions ?? []) values.push(action2.code);
-  for (const stage of result.stages ?? []) for (const action2 of stage.actions ?? []) values.push(action2.code);
-  for (const client of result.clients ?? []) for (const action2 of client.actions ?? []) values.push(action2.code);
+  for (const action2 of result2.actions ?? []) values.push(action2.code);
+  for (const stage of result2.stages ?? []) for (const action2 of stage.actions ?? []) values.push(action2.code);
+  for (const client of result2.clients ?? []) for (const action2 of client.actions ?? []) values.push(action2.code);
   return [...new Set(values)].sort();
 }
 function sanitizeStage(stage) {
@@ -16555,6 +32068,8 @@ function sanitizeStage(stage) {
     status: stage.status,
     mandatory: stage.mandatory,
     changed: stage.changed,
+    result: stage.result,
+    progress: stage.progress,
     evidence: redactSecrets(stage.evidence ?? {}),
     action_codes: [...new Set((stage.actions ?? []).map((action2) => action2.code))].sort()
   };
@@ -16573,49 +32088,69 @@ function sanitizeClient(client) {
     action_codes: [...new Set((client.actions ?? []).map((action2) => action2.code))].sort()
   };
 }
-function receiptBody({ result, plan, pathLabel }) {
+function receiptBody({ result: result2, plan, pathLabel }) {
   return {
     schema_version: "1.0",
     kind: "uemcp.deployment.receipt",
     path_label: pathLabel,
-    operation: result.operation,
-    timestamp: result.timestamp,
-    outcome: result.outcome,
-    source: redactSecrets(result.source),
-    request: redactSecrets(result.request),
+    operation: result2.operation,
+    timestamp: result2.timestamp,
+    outcome: result2.outcome,
+    source: redactSecrets(result2.source),
+    request: redactSecrets(result2.request),
     descriptor: {
-      name: result.descriptor.name,
-      transport: result.descriptor.transport,
-      command: result.descriptor.command,
-      args: [...result.descriptor.args],
+      name: result2.descriptor.name,
+      transport: result2.descriptor.transport,
+      command: result2.descriptor.command,
+      args: [...result2.descriptor.args],
       env: {},
-      cwd: result.descriptor.cwd
+      cwd: result2.descriptor.cwd
     },
     plan: {
       digest: plan.digest,
       created_at: plan.created_at,
       expires_at: plan.expires_at
     },
-    stages: (result.stages ?? []).map(sanitizeStage),
-    clients: (result.clients ?? []).map(sanitizeClient),
-    action_codes: actionCodes(result)
+    stages: (result2.stages ?? []).map(sanitizeStage),
+    clients: (result2.clients ?? []).map(sanitizeClient),
+    action_codes: actionCodes(result2)
   };
 }
-async function writeReceipt({ localState, result, plan }) {
-  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError("local state is required to write a receipt");
-  if (!SHA2563.test(plan?.digest ?? "")) throw new ReceiptError("receipt requires a valid plan digest");
-  const fileName = `${safeTimestamp(result.timestamp)}-${result.operation}-${plan.digest}.json`;
+function prepareReceipt({ localState, result: result2, plan }) {
+  if (!localState?.paths) throw new ReceiptError("local state is required to prepare a receipt");
+  if (!SHA2564.test(plan?.digest ?? "")) throw new ReceiptError("receipt requires a valid plan digest");
+  const fileName = `${safeTimestamp(result2.timestamp)}-${result2.operation}-${plan.digest}.json`;
   const pathLabel = `receipts/${fileName}`;
-  const path = join5(localState.paths().receipts, fileName);
-  const body = receiptBody({ result, plan, pathLabel });
+  const path = join11(localState.paths().receipts, fileName);
+  const body = receiptBody({ result: result2, plan, pathLabel });
   const receipt = { ...body, receipt_sha256: sha256Canonical(body) };
-  await localState.writeJsonAtomic(path, receipt);
-  return {
-    kind: "deployment",
-    path_label: pathLabel,
-    path,
-    sha256: receipt.receipt_sha256
-  };
+  return Object.freeze({
+    reference: Object.freeze({
+      kind: "deployment",
+      path_label: pathLabel,
+      path,
+      sha256: receipt.receipt_sha256
+    }),
+    document: Object.freeze(receipt)
+  });
+}
+async function writePreparedReceipt({ localState, prepared }) {
+  if (!localState?.paths || !localState?.writeJsonAtomic) throw new ReceiptError("local state is required to write a receipt");
+  const reference = prepared?.reference;
+  const document = prepared?.document;
+  const expectedPath = reference?.path_label ? join11(localState.paths().receipts, basename3(reference.path_label)) : null;
+  if (!reference || reference.kind !== "deployment" || reference.path !== expectedPath || reference.path_label !== `receipts/${basename3(reference.path_label ?? "")}` || !SHA2564.test(reference.sha256 ?? "") || document?.receipt_sha256 !== reference.sha256) {
+    throw new ReceiptError("prepared receipt is invalid");
+  }
+  const body = { ...document };
+  delete body.receipt_sha256;
+  if (sha256Canonical(body) !== reference.sha256) throw new ReceiptError("prepared receipt hash is invalid");
+  await localState.writeJsonAtomic(reference.path, document);
+  return reference;
+}
+async function writeReceipt({ localState, result: result2, plan, prepared = null }) {
+  const selected2 = prepared ?? prepareReceipt({ localState, result: result2, plan });
+  return await writePreparedReceipt({ localState, prepared: selected2 });
 }
 
 // server/deployment/orchestrator.mjs
@@ -16635,12 +32170,28 @@ function normalizeClock(clock) {
 function normalizeRequest(input, forcedOperation = null) {
   const operation = forcedOperation ?? input?.operation;
   if (!["setup", "sync", "repair", "verify", "doctor"].includes(operation)) throw new OrchestratorError("request operation is invalid", "INVALID_REQUEST");
+  const selectedClients = input?.client_selection?.include ?? input?.includeClients ?? input?.selected_clients ?? [];
+  const excludedClients = input?.client_selection?.exclude ?? input?.excludeClients ?? input?.excluded_clients ?? [];
   const request = validateRequestContract({
     requested_project: input?.requested_project ?? null,
     requested_profile: input?.requested_profile ?? null,
-    selected_clients: input?.selected_clients ?? []
+    selected_clients: selectedClients,
+    excluded_clients: excludedClients,
+    client_decisions: input?.client_decisions ?? {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false
+    }
   });
-  return { operation, request };
+  return {
+    operation,
+    request,
+    clientSelection: {
+      include: request.selected_clients,
+      exclude: request.excluded_clients,
+      vscodeProfile: input?.client_selection?.vscode_profile ?? input?.vscodeProfile ?? null
+    }
+  };
 }
 function validateDomains(domains) {
   if (!Array.isArray(domains)) throw new OrchestratorError("domains must be an array");
@@ -16658,6 +32209,22 @@ function validateDomains(domains) {
   }
   return rows;
 }
+function normalizeKnownFolders(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new OrchestratorError("trusted Windows known folders are unavailable");
+  }
+  const paths = {
+    programData: value.programData,
+    programFiles: value.programFiles
+  };
+  if (Object.values(paths).some((path) => typeof path !== "string" || path.trim() === "" || !isAbsolute16(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new OrchestratorError("trusted Windows known folders are invalid");
+  }
+  return Object.freeze({
+    programData: resolve14(paths.programData),
+    programFiles: resolve14(paths.programFiles)
+  });
+}
 function normalizeDomainPlan(value, domain) {
   if (!value || !Array.isArray(value.stages) || !Array.isArray(value.operations) || !Array.isArray(value.preconditions)) {
     throw new OrchestratorError("domain plan result is incomplete");
@@ -16673,6 +32240,15 @@ function normalizeDomainPlan(value, domain) {
     actions: value.actions ?? []
   };
 }
+function normalizeDomainExecution(value) {
+  if (value?.stage) {
+    if (!Array.isArray(value.clients ?? []) || !Array.isArray(value.actions ?? [])) {
+      throw new OrchestratorError("domain execution result is incomplete");
+    }
+    return { stage: value.stage, clients: value.clients ?? [], actions: value.actions ?? [] };
+  }
+  return { stage: value, clients: [], actions: [] };
+}
 function actionForSmoke(smoke) {
   if (smoke.status === "INITIALIZE_FAILED") {
     return { code: "INITIALIZE_FAILED", message: "The canonical descriptor did not complete MCP initialize.", command: null };
@@ -16685,23 +32261,67 @@ function actionForSmoke(smoke) {
 function receiptContractReference(reference) {
   return { kind: reference.kind, path_label: reference.path_label, sha256: reference.sha256 };
 }
-function currentActions(stages, clients) {
-  const unique = /* @__PURE__ */ new Map();
+function requireApplyJournal(localState) {
+  const methods = ["beginApplyJournal", "stageApplyJournal", "completeApplyJournal", "clearApplyJournal"];
+  if (methods.some((name) => typeof localState?.[name] !== "function")) {
+    throw new OrchestratorError("local state lacks the durable apply journal contract", "LOCAL_STATE_UNAVAILABLE");
+  }
+}
+function prepareInterruptedApplyReceipt(localState, plan, now) {
+  const action2 = {
+    code: "SYNC_FAILED",
+    message: "A prior apply was interrupted; inspect current deployment state and create a new plan.",
+    command: null
+  };
+  const stage = createStageResult({
+    name: "orchestrator",
+    status: "SYNC_FAILED",
+    changed: true,
+    result: "failed",
+    progress: "committed",
+    evidence: {
+      error_code: "APPLY_INTERRUPTED",
+      mutation_state: "unknown"
+    },
+    actions: [action2]
+  });
+  const result2 = createMachineResult({
+    operation: "apply",
+    source: plan.source,
+    request: plan.request,
+    descriptor: plan.descriptor,
+    plan: {
+      digest: plan.digest,
+      created_at: plan.created_at,
+      expires_at: plan.expires_at,
+      preconditions_valid: true
+    },
+    stages: [stage],
+    clients: plan.clients,
+    receipts: [],
+    actions: [action2],
+    now
+  });
+  return prepareReceipt({ localState, result: result2, plan });
+}
+function currentActions(stages, clients, domainActions = []) {
+  const unique6 = /* @__PURE__ */ new Map();
   const actions = [
     ...stages.flatMap((stage) => stage.actions),
-    ...clients.flatMap((client) => client.actions)
+    ...clients.flatMap((client) => client.actions),
+    ...domainActions
   ];
-  for (const action2 of actions) unique.set(sha256Canonical(action2), action2);
-  return [...unique.values()];
+  for (const action2 of actions) unique6.set(sha256Canonical(action2), action2);
+  return [...unique6.values()];
 }
 function terminalDomainException(domain, error2) {
-  const actionCode = Object.hasOwn(ACTION_CODES, error2?.code) ? error2.code : "SYNC_FAILED";
+  const actionCode2 = Object.hasOwn(ACTION_CODES, error2?.code) ? error2.code : "SYNC_FAILED";
   return createStageResult({
     name: domain.name,
     status: "SYNC_FAILED",
     result: "failed",
     actions: [{
-      code: actionCode,
+      code: actionCode2,
       message: "A deployment domain failed after earlier progress was committed.",
       command: null
     }]
@@ -16709,6 +32329,7 @@ function terminalDomainException(domain, error2) {
 }
 function createDeploymentOrchestrator({
   repoRoot,
+  workspaceRoot = process.cwd(),
   stateRoot,
   fsImpl,
   processRunner,
@@ -16717,21 +32338,35 @@ function createDeploymentOrchestrator({
   localState,
   sourceProvider,
   descriptorProvider,
+  knownFoldersProvider = null,
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   includeGenericClient = true,
   applyWaitMs = 3e4
 } = {}) {
   if (!repoRoot || !stateRoot) throw new OrchestratorError("repoRoot and stateRoot are required");
+  if (typeof workspaceRoot !== "string" || !isAbsolute16(workspaceRoot)) {
+    throw new OrchestratorError("workspaceRoot must be an absolute path");
+  }
+  const activeWorkspaceRoot = resolve14(workspaceRoot);
   if (!localState) throw new OrchestratorError("localState is required");
-  if (typeof sourceProvider !== "function" || typeof descriptorProvider !== "function") {
+  if (typeof sourceProvider !== "function" || typeof descriptorProvider !== "function" || typeof protocolSmoke !== "function" || typeof descriptorLaunchPinner !== "function") {
     throw new OrchestratorError("source and descriptor providers are required");
   }
   const orderedDomains = validateDomains(domains);
+  const hasClientDomain = orderedDomains.some((domain) => domain.name === "clients");
+  if (hasClientDomain && typeof knownFoldersProvider !== "function") {
+    throw new OrchestratorError("knownFoldersProvider is required with the client domain");
+  }
+  if (knownFoldersProvider !== null && typeof knownFoldersProvider !== "function") {
+    throw new OrchestratorError("knownFoldersProvider is invalid");
+  }
   async function buildContext(normalized, overrides = {}) {
     const source = overrides.source ?? await sourceProvider({ repoRoot, processRunner, fsImpl });
     const descriptor = overrides.descriptor ?? await descriptorProvider({ repoRoot, processRunner, fsImpl });
+    const knownFolders = hasClientDomain ? normalizeKnownFolders(await knownFoldersProvider({ processRunner, fsImpl })) : null;
     return {
       repoRoot,
       stateRoot,
@@ -16740,23 +32375,40 @@ function createDeploymentOrchestrator({
       localState,
       operation: normalized.operation,
       request: normalized.request,
+      clientSelection: normalized.clientSelection,
+      env: process.env,
+      workspaceRoot: activeWorkspaceRoot,
       source,
       descriptor,
-      now: normalizeClock(clock)
+      now: normalizeClock(clock),
+      ...overrides.privateContext ?? {},
+      ...knownFolders ? { knownFolders } : {}
     };
   }
   async function appendGenericSupport(context, aggregate) {
-    if (!includeGenericClient || aggregate.clients.length > 0) return;
-    const smoke = await protocolSmoke(context.descriptor);
+    const hasGeneric = aggregate.clients.some((client2) => client2.adapter === "generic-mcp-host");
+    const hasReleaseGatedClient = aggregate.clients.some((client2) => client2.adapter !== "generic-mcp-host" && client2.compatibility === "release_gated");
+    if (!includeGenericClient || hasGeneric || hasReleaseGatedClient) return;
+    const smoke = await descriptorLaunchPinner(context.descriptor, {
+      launchFilePinner: context.launchFilePinner,
+      callback: (guard, pinnedDescriptor) => protocolSmoke(pinnedDescriptor)
+    });
     const client = createGenericClientResult({ descriptor: context.descriptor, smoke });
-    aggregate.clients.push(client);
+    aggregate.clients = [...aggregate.clients, client];
     aggregate.actions.push(...client.actions);
-    aggregate.stages.push(createStageResult({
+    const clientStageIndex = aggregate.stages.findIndex((stage) => stage.name === "clients");
+    const existingClientStage = aggregate.stages[clientStageIndex];
+    const clientStage = createStageResult({
       name: "clients",
       status: "MANUAL_REGISTRATION_REQUIRED",
+      mandatory: existingClientStage?.mandatory ?? true,
+      changed: existingClientStage?.changed ?? false,
+      evidence: existingClientStage?.evidence ?? {},
       result: "action_required",
-      actions: client.actions
-    }));
+      actions: [...existingClientStage?.actions ?? [], ...client.actions]
+    });
+    if (clientStageIndex >= 0) aggregate.stages[clientStageIndex] = clientStage;
+    else aggregate.stages.push(clientStage);
     const smokeAction = actionForSmoke(smoke);
     aggregate.stages.push(createStageResult({
       name: "protocol",
@@ -16815,7 +32467,7 @@ function createDeploymentOrchestrator({
     const domain = orderedDomains.find((candidate) => typeof candidate.fingerprintPrecondition === "function" && candidate.canFingerprintPrecondition?.(precondition) !== false);
     if (domain) return domain.fingerprintPrecondition(precondition, context);
     return fingerprintPath(precondition.canonical_path, {
-      allowedRoots: [dirname3(precondition.canonical_path)],
+      allowedRoots: [dirname10(precondition.canonical_path)],
       fsImpl
     });
   }
@@ -16831,7 +32483,11 @@ function createDeploymentOrchestrator({
     });
     try {
       const normalized = normalizeRequest({ operation: plan.operation, ...plan.request });
-      const context = await buildContext(normalized, { source: plan.source, descriptor: plan.descriptor });
+      const context = await buildContext(normalized, {
+        source: plan.source,
+        descriptor: plan.descriptor,
+        privateContext: { approvedPlan: plan, applyLease: lease }
+      });
       await validatePlanForApply({
         plan,
         approvedDigest,
@@ -16844,35 +32500,50 @@ function createDeploymentOrchestrator({
       if (sha256Canonical(currentSource) !== sha256Canonical(plan.source) || !descriptorsEqual(currentDescriptor, plan.descriptor)) {
         throw new OrchestratorError("source or descriptor changed after planning", "PLAN_STALE");
       }
+      let journalStarted = false;
+      const interruptedReceipt = prepareInterruptedApplyReceipt(localState, plan, context.now);
+      if (plan.operations.length > 0) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
+        journalStarted = true;
+      }
       const stages = [];
+      let domainClients = [];
+      const domainActions = [];
       let prerequisitesBlocked = false;
       for (const domain of orderedDomains) {
         const operations = plan.operations.filter((operation) => operation.domain === domain.name);
-        let stage;
+        let execution;
         let stageOutcome;
         try {
-          stage = operations.length > 0 ? await domain.apply(context, operations) : await domain.verify(context);
-          stageOutcome = reduceOutcome([stage]);
+          const value = operations.length > 0 || domain.name === "clients" ? await domain.apply(context, operations) : await domain.verify(context);
+          execution = normalizeDomainExecution(value);
+          stageOutcome = reduceOutcome([execution.stage]);
         } catch (error2) {
           if (!shouldRecordPlanDigest(stages)) throw error2;
           stages.push(terminalDomainException(domain, error2));
           break;
         }
-        stages.push(stage);
+        stages.push(execution.stage);
+        if (execution.clients.length > 0) domainClients = execution.clients;
+        domainActions.push(...execution.actions);
         if (domain.name === "prerequisites" && stageOutcome !== "HEALTHY") {
           prerequisitesBlocked = true;
           break;
         }
       }
       if (stages.length === 0) stages.push(createStageResult({ name: "prerequisites", status: "NOT_CHECKED", result: "action_required" }));
-      let clients = prerequisitesBlocked ? [] : plan.clients;
+      let clients = prerequisitesBlocked ? [] : domainClients.length > 0 ? domainClients : plan.clients;
       if (!prerequisitesBlocked && includeGenericClient && plan.clients.some((client) => client.adapter === "generic-mcp-host")) {
-        const generic = { stages: [], clients: [], actions: [] };
-        await appendGenericSupport(context, generic);
-        stages.push(...generic.stages);
-        clients = generic.clients;
+        const fallback = {
+          stages,
+          clients: clients.filter((client) => client.adapter !== "generic-mcp-host"),
+          actions: domainActions
+        };
+        await appendGenericSupport(context, fallback);
+        clients = fallback.clients;
       }
-      const actions = currentActions(stages, clients);
+      const actions = currentActions(stages, clients, domainActions);
       const planSummary = {
         digest: plan.digest,
         created_at: plan.created_at,
@@ -16891,8 +32562,21 @@ function createDeploymentOrchestrator({
         actions,
         now: context.now
       });
-      const receipt = await receiptWriter({ localState, result: initial, plan });
-      const result = createMachineResult({
+      const consumesPlan = shouldRecordPlanDigest(stages);
+      if (consumesPlan && !journalStarted) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
+        journalStarted = true;
+      }
+      const prepared = prepareReceipt({ localState, result: initial, plan });
+      if (consumesPlan) await localState.stageApplyJournal(plan.digest, prepared);
+      else if (journalStarted) {
+        await localState.clearApplyJournal(plan.digest);
+        journalStarted = false;
+      }
+      const receipt = await receiptWriter({ localState, result: initial, plan, prepared });
+      if (consumesPlan) await localState.completeApplyJournal(plan.digest, receipt);
+      const result2 = createMachineResult({
         operation: "apply",
         source: plan.source,
         request: plan.request,
@@ -16904,10 +32588,7 @@ function createDeploymentOrchestrator({
         actions,
         now: context.now
       });
-      if (shouldRecordPlanDigest(stages)) {
-        await localState.markDigestApplied(plan.digest, { receipt_sha256: receipt.sha256 });
-      }
-      return result;
+      return result2;
     } finally {
       await lease.release();
     }
@@ -16918,10 +32599,11 @@ function createDeploymentOrchestrator({
     const aggregate = { stages: [], clients: [], actions: [] };
     let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
-      const stage = await domain.verify(context);
-      aggregate.stages.push(stage);
-      aggregate.actions.push(...stage.actions);
-      if (domain.name === "prerequisites" && reduceOutcome([stage]) !== "HEALTHY") prerequisitesBlocked = true;
+      const execution = normalizeDomainExecution(await domain.verify(context));
+      aggregate.stages.push(execution.stage);
+      if (execution.clients.length > 0) aggregate.clients = execution.clients;
+      aggregate.actions.push(...execution.stage.actions, ...execution.actions);
+      if (domain.name === "prerequisites" && reduceOutcome([execution.stage]) !== "HEALTHY") prerequisitesBlocked = true;
     }
     if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) aggregate.stages.push(createStageResult({ name: "prerequisites", status: "NOT_CHECKED", result: "action_required" }));
@@ -16948,8 +32630,8 @@ function createDeploymentOrchestrator({
 }
 
 // server/deployment/prerequisites.mjs
-import * as defaultFs6 from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute8, join as join6, posix as posix6, resolve as resolve6, win32 as win326 } from "node:path";
+import * as defaultFs15 from "node:fs/promises";
+import { dirname as dirname11, isAbsolute as isAbsolute17, join as join12, posix as posix8, resolve as resolve15, win32 as win3214 } from "node:path";
 var INSTALL_MODE = "production-no-scripts";
 var VALIDATION_COMMAND = "npm ls --omit=dev --all --json";
 var PrerequisiteError = class extends Error {
@@ -16960,10 +32642,10 @@ var PrerequisiteError = class extends Error {
     this.details = details;
   }
 };
-function absolutePath4(value) {
-  return typeof value === "string" && (isAbsolute8(value) || win326.isAbsolute(value) || posix6.isAbsolute(value));
+function absolutePath8(value) {
+  return typeof value === "string" && (isAbsolute17(value) || win3214.isAbsolute(value) || posix8.isAbsolute(value));
 }
-function fail5(message, code, details) {
+function fail18(message, code, details) {
   throw new PrerequisiteError(message, code, details);
 }
 function parseNodeVersion(text) {
@@ -16994,20 +32676,20 @@ function sameFingerprint(left, right) {
 async function inspectNodeRuntime({
   executable = process.execPath,
   runner,
-  allowedRoots = [dirname4(resolve6(executable))],
-  fsImpl = defaultFs6
+  allowedRoots = [dirname11(resolve15(executable))],
+  fsImpl = defaultFs15
 } = {}) {
-  if (!runner?.run) fail5("runtime inspection requires a bounded process runner", "INVALID_PREREQUISITE_INPUT");
-  if (!absolutePath4(executable)) fail5("Node executable must be absolute", "INVALID_PREREQUISITE_INPUT");
+  if (!runner?.run) fail18("runtime inspection requires a bounded process runner", "INVALID_PREREQUISITE_INPUT");
+  if (!absolutePath8(executable)) fail18("Node executable must be absolute", "INVALID_PREREQUISITE_INPUT");
   let requestedFingerprint;
   try {
     requestedFingerprint = await fingerprintPath(executable, { allowedRoots, fsImpl });
   } catch (error2) {
-    if (error2?.code === "ENOENT") return { status: "NODE_MISSING", executable: resolve6(executable), version: null, fingerprint: null };
+    if (error2?.code === "ENOENT") return { status: "NODE_MISSING", executable: resolve15(executable), version: null, fingerprint: null };
     throw error2;
   }
   if (!requestedFingerprint.exists) {
-    return { status: "NODE_MISSING", executable: resolve6(executable), version: null, fingerprint: requestedFingerprint };
+    return { status: "NODE_MISSING", executable: resolve15(executable), version: null, fingerprint: requestedFingerprint };
   }
   if (requestedFingerprint.kind !== "file") {
     return { status: "NODE_UNSUPPORTED", executable: requestedFingerprint.real_path, version: null, fingerprint: requestedFingerprint };
@@ -17015,12 +32697,12 @@ async function inspectNodeRuntime({
   const canonicalExecutable = requestedFingerprint.real_path;
   const sameCanonicalPath = process.platform === "win32" ? requestedFingerprint.canonical_path.toLowerCase() === canonicalExecutable.toLowerCase() : requestedFingerprint.canonical_path === canonicalExecutable;
   const fingerprint = requestedFingerprint.link_kind === "none" && sameCanonicalPath ? requestedFingerprint : await fingerprintPath(canonicalExecutable, { allowedRoots, fsImpl });
-  const result = await runner.run(canonicalExecutable, ["--version"], {
+  const result2 = await runner.run(canonicalExecutable, ["--version"], {
     env: {},
     timeoutMs: 1e4,
     outputLimitBytes: 8 * 1024
   });
-  const version2 = result.status === "exited" && result.exitCode === 0 && result.stderr === "" ? parseNodeVersion(result.stdout) : null;
+  const version2 = result2.status === "exited" && result2.exitCode === 0 && result2.stderr === "" ? parseNodeVersion(result2.stdout) : null;
   return {
     status: version2 !== null && version2.major >= 22 ? "READY" : "NODE_UNSUPPORTED",
     executable: canonicalExecutable,
@@ -17047,11 +32729,11 @@ function dependencyCandidates(fromKey, name) {
 }
 function productionClosure(lock) {
   if (lock === null || typeof lock !== "object" || Array.isArray(lock) || lock.lockfileVersion !== 3) {
-    fail5("package-lock.json must use lockfileVersion 3", "LOCK_DRIFT");
+    fail18("package-lock.json must use lockfileVersion 3", "LOCK_DRIFT");
   }
   const packages = lock.packages;
   if (packages === null || typeof packages !== "object" || Array.isArray(packages) || !packages[""]) {
-    fail5("package-lock.json has no root package", "LOCK_DRIFT");
+    fail18("package-lock.json has no root package", "LOCK_DRIFT");
   }
   const queue = [];
   const enqueueDependencies = (entry, fromKey) => {
@@ -17067,12 +32749,12 @@ function productionClosure(lock) {
   while (queue.length > 0) {
     const request = queue.shift();
     const key = dependencyCandidates(request.fromKey, request.name).find((candidate) => packages[candidate]);
-    if (!key) fail5("production dependency is missing from package-lock.json", "LOCK_DRIFT", { package: request.name });
+    if (!key) fail18("production dependency is missing from package-lock.json", "LOCK_DRIFT", { package: request.name });
     if (visited.has(key)) continue;
     visited.add(key);
     const entry = packages[key];
     if (entry.dev === true && entry.optional !== true) {
-      fail5("production dependency resolves only to a dev package", "LOCK_DRIFT", { package: request.name });
+      fail18("production dependency resolves only to a dev package", "LOCK_DRIFT", { package: request.name });
     }
     const name = packageNameForKey(key) ?? request.name;
     rows.push({ key, name, version: entry.version ?? null, hasInstallScript: entry.hasInstallScript === true });
@@ -17082,26 +32764,26 @@ function productionClosure(lock) {
   return rows;
 }
 async function resolveNpmCli(nodeRuntime, { runner, fsImpl }) {
-  const npmRoot = join6(dirname4(nodeRuntime.executable), "node_modules", "npm");
-  const packagePath = join6(npmRoot, "package.json");
+  const npmRoot = join12(dirname11(nodeRuntime.executable), "node_modules", "npm");
+  const packagePath = join12(npmRoot, "package.json");
   const packageFingerprint = await fingerprintPath(packagePath, { allowedRoots: [npmRoot], fsImpl });
   if (!packageFingerprint.exists || packageFingerprint.kind !== "file" || packageFingerprint.link_kind !== "none") {
-    fail5("the selected Node runtime has no attributable npm package", "LOCK_DRIFT");
+    fail18("the selected Node runtime has no attributable npm package", "LOCK_DRIFT");
   }
   let packageJson;
   try {
     packageJson = JSON.parse(await fsImpl.readFile(packagePath, "utf8"));
   } catch {
-    fail5("the selected npm package metadata is malformed", "LOCK_DRIFT");
+    fail18("the selected npm package metadata is malformed", "LOCK_DRIFT");
   }
   const bin = typeof packageJson.bin === "string" ? packageJson.bin : packageJson.bin?.npm;
   if (packageJson.name !== "npm" || typeof packageJson.version !== "string" || typeof bin !== "string") {
-    fail5("the selected npm package metadata is incomplete", "LOCK_DRIFT");
+    fail18("the selected npm package metadata is incomplete", "LOCK_DRIFT");
   }
-  const npmCli = resolve6(npmRoot, bin);
+  const npmCli = resolve15(npmRoot, bin);
   const cliFingerprint = await fingerprintPath(npmCli, { allowedRoots: [npmRoot], fsImpl });
   if (!cliFingerprint.exists || cliFingerprint.kind !== "file" || cliFingerprint.link_kind !== "none") {
-    fail5("the selected npm CLI is unavailable", "LOCK_DRIFT");
+    fail18("the selected npm CLI is unavailable", "LOCK_DRIFT");
   }
   const versionResult = await runner.run(nodeRuntime.executable, [npmCli, "--version"], {
     env: {},
@@ -17109,7 +32791,7 @@ async function resolveNpmCli(nodeRuntime, { runner, fsImpl }) {
     outputLimitBytes: 8 * 1024
   });
   const observedVersion = versionResult.status === "exited" && versionResult.exitCode === 0 && versionResult.stderr === "" ? versionResult.stdout.trim() : null;
-  if (observedVersion !== packageJson.version) fail5("npm package and executable versions disagree", "LOCK_DRIFT");
+  if (observedVersion !== packageJson.version) fail18("npm package and executable versions disagree", "LOCK_DRIFT");
   return { npmRoot, npmCli, version: observedVersion, cliFingerprint };
 }
 function expectedStamp({ lockSha256, nodeRuntime, npm }) {
@@ -17133,14 +32815,14 @@ function stampMatches(actual, expected) {
   return sha256Canonical(comparable) === sha256Canonical(expected);
 }
 async function readLock(serverRoot, fsImpl) {
-  const lockPath = join6(resolve6(serverRoot), "package-lock.json");
+  const lockPath = join12(resolve15(serverRoot), "package-lock.json");
   let bytes;
   let lock;
   try {
     bytes = await fsImpl.readFile(lockPath);
     lock = JSON.parse(bytes.toString("utf8"));
   } catch {
-    fail5("package-lock.json is missing or malformed", "LOCK_DRIFT");
+    fail18("package-lock.json is missing or malformed", "LOCK_DRIFT");
   }
   return { lockPath, bytes, lock, sha256: sha256Bytes(bytes), closure: productionClosure(lock) };
 }
@@ -17149,11 +32831,11 @@ async function inspectDependencies({
   nodeRuntime,
   runner,
   localState,
-  fsImpl = defaultFs6
+  fsImpl = defaultFs15
 } = {}) {
-  if (nodeRuntime?.status !== "READY" || !nodeRuntime.version) fail5("dependencies cannot be inspected before Node is ready", "NODE_UNSUPPORTED");
-  if (!runner?.run || !localState?.readJson || !localState?.paths) fail5("dependency inspection inputs are incomplete", "INVALID_PREREQUISITE_INPUT");
-  const root = resolve6(serverRoot);
+  if (nodeRuntime?.status !== "READY" || !nodeRuntime.version) fail18("dependencies cannot be inspected before Node is ready", "NODE_UNSUPPORTED");
+  if (!runner?.run || !localState?.readJson || !localState?.paths) fail18("dependency inspection inputs are incomplete", "INVALID_PREREQUISITE_INPUT");
+  const root = resolve15(serverRoot);
   const lock = await readLock(root, fsImpl);
   const blockedPackages = lock.closure.filter((row) => row.hasInstallScript).map((row) => ({ name: row.name, version: row.version }));
   if (blockedPackages.length > 0) {
@@ -17192,7 +32874,7 @@ function action(code, message) {
 }
 function planPrerequisiteOperations({ node, dependencies }) {
   if (!node || !["READY", "NODE_MISSING", "NODE_UNSUPPORTED"].includes(node.status)) {
-    fail5("Node readiness result is invalid", "INVALID_PREREQUISITE_INPUT");
+    fail18("Node readiness result is invalid", "INVALID_PREREQUISITE_INPUT");
   }
   if (node.status !== "READY") {
     const actions2 = [action("NODE_INSTALL_REQUIRED", "Install a supported Node.js 22 or newer runtime before deployment can continue.")];
@@ -17203,7 +32885,7 @@ function planPrerequisiteOperations({ node, dependencies }) {
       actions: actions2
     };
   }
-  if (!dependencies) fail5("dependency readiness result is required when Node is ready", "INVALID_PREREQUISITE_INPUT");
+  if (!dependencies) fail18("dependency readiness result is required when Node is ready", "INVALID_PREREQUISITE_INPUT");
   if (dependencies.status === "DEPENDENCY_POLICY_BLOCKED") {
     const actions2 = [action("DEPENDENCY_POLICY_BLOCKED", "A production dependency requires lifecycle scripts and needs a reviewed policy change.")];
     return {
@@ -17221,14 +32903,14 @@ function planPrerequisiteOperations({ node, dependencies }) {
       actions: []
     };
   }
-  if (dependencies.status !== "STALE") fail5("dependency readiness status is invalid", "INVALID_PREREQUISITE_INPUT");
+  if (dependencies.status !== "STALE") fail18("dependency readiness status is invalid", "INVALID_PREREQUISITE_INPUT");
   const actions = [action("DEPENDENCIES_INSTALL_REQUIRED", "Install and validate the locked production dependency closure.")];
   const operation = {
     operation_id: "prerequisites:install-dependencies",
     domain: "prerequisites",
     domain_order: 10,
     kind: "INSTALL_DEPENDENCIES",
-    server_root: dirname4(dependencies.lock_path),
+    server_root: dirname11(dependencies.lock_path),
     node_executable: node.executable,
     node_version: node.version.raw,
     node_fingerprint: prerequisiteFingerprintIdentity(node.fingerprint),
@@ -17252,24 +32934,24 @@ async function applyDependencyOperation(operation, {
   serverRoot,
   runner,
   localState,
-  fsImpl = defaultFs6,
+  fsImpl = defaultFs15,
   clock = Date.now
 } = {}) {
-  if (operation?.kind !== "INSTALL_DEPENDENCIES") fail5("unsupported prerequisite operation", "INVALID_PREREQUISITE_OPERATION");
-  if (resolve6(serverRoot) !== resolve6(operation.server_root)) fail5("server root differs from the reviewed operation", "LOCK_DRIFT");
+  if (operation?.kind !== "INSTALL_DEPENDENCIES") fail18("unsupported prerequisite operation", "INVALID_PREREQUISITE_OPERATION");
+  if (resolve15(serverRoot) !== resolve15(operation.server_root)) fail18("server root differs from the reviewed operation", "LOCK_DRIFT");
   const currentNode = await inspectNodeRuntime({
     executable: operation.node_executable,
     runner,
-    allowedRoots: [dirname4(operation.node_executable)],
+    allowedRoots: [dirname11(operation.node_executable)],
     fsImpl
   });
   if (currentNode.status !== "READY" || currentNode.version.raw !== operation.node_version || !sameFingerprint(currentNode.fingerprint, operation.node_fingerprint)) {
-    fail5("Node runtime changed after planning", "LOCK_DRIFT");
+    fail18("Node runtime changed after planning", "LOCK_DRIFT");
   }
   const beforeLock = await readLock(serverRoot, fsImpl);
-  if (beforeLock.sha256 !== operation.lock_sha256) fail5("package lock changed after planning", "LOCK_DRIFT");
-  const npmFingerprint = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname4(dirname4(operation.npm_cli))], fsImpl });
-  if (!sameFingerprint(npmFingerprint, operation.npm_fingerprint)) fail5("npm CLI changed after planning", "LOCK_DRIFT");
+  if (beforeLock.sha256 !== operation.lock_sha256) fail18("package lock changed after planning", "LOCK_DRIFT");
+  const npmFingerprint = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname11(dirname11(operation.npm_cli))], fsImpl });
+  if (!sameFingerprint(npmFingerprint, operation.npm_fingerprint)) fail18("npm CLI changed after planning", "LOCK_DRIFT");
   const install = await runner.run(operation.node_executable, [
     operation.npm_cli,
     "ci",
@@ -17278,7 +32960,7 @@ async function applyDependencyOperation(operation, {
     "--no-audit",
     "--no-fund"
   ], {
-    cwd: resolve6(serverRoot),
+    cwd: resolve15(serverRoot),
     env: {},
     timeoutMs: 10 * 60 * 1e3,
     outputLimitBytes: 1024 * 1024
@@ -17294,7 +32976,7 @@ async function applyDependencyOperation(operation, {
       "--all",
       "--json"
     ], {
-      cwd: resolve6(serverRoot),
+      cwd: resolve15(serverRoot),
       env: {},
       timeoutMs: 3e4,
       outputLimitBytes: 1024 * 1024
@@ -17305,11 +32987,11 @@ async function applyDependencyOperation(operation, {
     const afterNode = await inspectNodeRuntime({
       executable: operation.node_executable,
       runner,
-      allowedRoots: [dirname4(operation.node_executable)],
+      allowedRoots: [dirname11(operation.node_executable)],
       fsImpl
     });
     const afterLock = await readLock(serverRoot, fsImpl);
-    const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname4(dirname4(operation.npm_cli))], fsImpl });
+    const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname11(dirname11(operation.npm_cli))], fsImpl });
     if (afterNode.status !== "READY" || afterNode.version.raw !== operation.node_version || !sameFingerprint(afterNode.fingerprint, operation.node_fingerprint) || afterLock.sha256 !== operation.lock_sha256 || !sameFingerprint(afterNpm, operation.npm_fingerprint)) {
       return { status: "INSTALL_FAILED", changed: true };
     }
@@ -17331,7 +33013,7 @@ function createPrerequisiteDomain({
   serverRoot,
   runner,
   localState,
-  fsImpl = defaultFs6,
+  fsImpl = defaultFs15,
   nodeExecutable = process.execPath,
   clock = Date.now
 } = {}) {
@@ -17339,7 +33021,7 @@ function createPrerequisiteDomain({
     const node = await inspectNodeRuntime({
       executable: nodeExecutable,
       runner,
-      allowedRoots: [dirname4(nodeExecutable)],
+      allowedRoots: [dirname11(nodeExecutable)],
       fsImpl
     });
     const dependencies = node.status === "READY" ? await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState, fsImpl }) : null;
@@ -17353,7 +33035,7 @@ function createPrerequisiteDomain({
     },
     async apply(context, operations) {
       if (!Array.isArray(operations) || operations.length > 1) {
-        fail5("prerequisite domain accepts at most one reviewed operation", "INVALID_PREREQUISITE_OPERATION");
+        fail18("prerequisite domain accepts at most one reviewed operation", "INVALID_PREREQUISITE_OPERATION");
       }
       if (operations.length === 0) return (await inspect()).stages[0];
       const applied = await applyDependencyOperation(operations[0], {
@@ -17383,218 +33065,28 @@ function createPrerequisiteDomain({
     },
     async fingerprintPrecondition(precondition) {
       if (precondition.label === "node-runtime") {
-        const node = await inspectNodeRuntime({ executable: precondition.canonical_path, runner, allowedRoots: [dirname4(precondition.canonical_path)], fsImpl });
+        const node = await inspectNodeRuntime({ executable: precondition.canonical_path, runner, allowedRoots: [dirname11(precondition.canonical_path)], fsImpl });
         return { fingerprint: prerequisiteFingerprintIdentity(node.fingerprint), version: node.version?.raw ?? null };
       }
       if (precondition.label === "npm-cli") {
-        const observed = await fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname4(dirname4(precondition.canonical_path))], fsImpl });
+        const observed = await fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname11(dirname11(precondition.canonical_path))], fsImpl });
         const version2 = await runner.run(nodeExecutable, [precondition.canonical_path, "--version"], { env: {}, timeoutMs: 1e4, outputLimitBytes: 8 * 1024 });
         return {
           fingerprint: prerequisiteFingerprintIdentity(observed),
           version: version2.status === "exited" && version2.exitCode === 0 ? version2.stdout.trim() : null
         };
       }
-      return fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname4(precondition.canonical_path)], fsImpl });
+      return fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname11(precondition.canonical_path)], fsImpl });
     }
   });
 }
 
 // server/deployment/source-provenance.mjs
-import * as defaultFs8 from "node:fs/promises";
-import { dirname as dirname6, isAbsolute as isAbsolute9, join as join8, posix as posix7, relative as relative4, resolve as resolve8, sep as sep4, win32 as win327 } from "node:path";
-
-// server/deployment/windows-native.mjs
-import * as defaultFs7 from "node:fs/promises";
-import { dirname as dirname5, join as join7, parse as parse4, resolve as resolve7 } from "node:path";
-var AUTHENTICODE_SCRIPT = String.raw`
-$ErrorActionPreference = 'Stop'
-$module = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
-Import-Module -Name $module -Force
-$signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $env:UEMCP_AUTHENTICODE_TARGET
-$name = $null
-$thumbprint = $null
-if ($null -ne $signature.SignerCertificate) {
-  $name = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
-  $thumbprint = $signature.SignerCertificate.Thumbprint
-}
-[ordered]@{ status = [string]$signature.Status; signer_name = $name; thumbprint = $thumbprint } | ConvertTo-Json -Compress
-`.trim();
-var METADATA_SCRIPT = String.raw`
-$ErrorActionPreference = 'Stop'
-$target = $env:UEMCP_METADATA_TARGET
-$maxStreams = [int]$env:UEMCP_MAX_STREAMS
-$maxBytes = [long]$env:UEMCP_MAX_STREAM_BYTES
-$item = Get-Item -LiteralPath $target -Force
-$acl = Get-Acl -LiteralPath $target
-$streams = @(Get-Item -LiteralPath $target -Stream * -ErrorAction Stop | Where-Object { $_.Stream -ne ':$DATA' -and $_.Stream -ne '::$DATA' } | Sort-Object Stream)
-if ($streams.Count -gt $maxStreams) { throw 'STREAM_COUNT_LIMIT' }
-$streamRows = @()
-$streamBytes = [long]0
-foreach ($stream in $streams) {
-  $bytes = [System.IO.File]::ReadAllBytes($stream.FileName + ':' + $stream.Stream)
-  $streamBytes += $bytes.LongLength
-  if ($streamBytes -gt $maxBytes) { throw 'STREAM_BYTE_LIMIT' }
-  $hash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-  $streamRows += [ordered]@{ name = $stream.Stream; size = $bytes.LongLength; sha256 = $hash }
-}
-$metadata = [ordered]@{
-  owner = $acl.Owner
-  sddl = $acl.Sddl
-  creation_time_utc_ticks = $item.CreationTimeUtc.Ticks
-  attributes = [int64]$item.Attributes
-  streams = $streamRows
-}
-$json = $metadata | ConvertTo-Json -Compress -Depth 8
-$hashBytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($json))
-[ordered]@{
-  metadata_sha256 = [Convert]::ToHexString($hashBytes).ToLowerInvariant()
-  stream_count = $streams.Count
-  stream_bytes = $streamBytes
-} | ConvertTo-Json -Compress
-`.trim();
-var REPLACE_SCRIPT = String.raw`
-$ErrorActionPreference = 'Stop'
-try {
-  [System.IO.File]::Replace($env:UEMCP_REPLACEMENT_PATH, $env:UEMCP_DESTINATION_PATH, $null, $false)
-  [ordered]@{ status = 'replaced' } | ConvertTo-Json -Compress
-} catch {
-  [ordered]@{ status = 'failed'; error_code = $_.Exception.GetType().FullName } | ConvertTo-Json -Compress
-  exit 1
-}
-`.trim();
-var WindowsNativeError = class extends Error {
-  constructor(message, code = "WINDOWS_NATIVE_FAILED", details = {}) {
-    super(message);
-    this.name = "WindowsNativeError";
-    this.code = code;
-    this.details = details;
-  }
-};
-function powershellPath(systemRoot) {
-  if (typeof systemRoot !== "string" || systemRoot.trim() === "") {
-    throw new WindowsNativeError("SystemRoot is required", "SYSTEM_ROOT_UNAVAILABLE");
-  }
-  return resolve7(join7(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
-}
-function powershellArgs() {
-  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"];
-}
-function minimalEnvironment(systemRoot, extra) {
-  return {
-    SystemRoot: resolve7(systemRoot),
-    WINDIR: resolve7(systemRoot),
-    PSModulePath: join7(resolve7(systemRoot), "System32", "WindowsPowerShell", "v1.0", "Modules"),
-    ...extra
-  };
-}
-function parseSingleJson(result, expectedKeys) {
-  if (result?.status !== "exited" || result.exitCode !== 0 || typeof result.stderr !== "string" || result.stderr.length !== 0) {
-    throw new WindowsNativeError("bounded PowerShell helper did not exit cleanly");
-  }
-  const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (stdout === "" || stdout.includes("\n") || stdout.includes("\r")) {
-    throw new WindowsNativeError("PowerShell helper returned malformed or extra output");
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    throw new WindowsNativeError("PowerShell helper returned invalid JSON");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new WindowsNativeError("PowerShell helper returned a non-object");
-  }
-  const keys = Object.keys(parsed).sort();
-  const expected = [...expectedKeys].sort();
-  if (JSON.stringify(keys) !== JSON.stringify(expected)) {
-    throw new WindowsNativeError("PowerShell helper returned an unexpected schema");
-  }
-  return parsed;
-}
-async function assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks = false }) {
-  const fingerprint = await fingerprintPath(path, { allowedRoots, fsImpl });
-  if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
-    throw new WindowsNativeError("Windows-native helper target must be a regular non-linked file", "UNSAFE_PATH_TYPE");
-  }
-  if (!allowMultipleLinks && fingerprint.link_count !== 1) {
-    throw new WindowsNativeError("Windows-native helper target must have one hard link", "UNSAFE_LINK_COUNT");
-  }
-  return fingerprint;
-}
-async function inspectAuthenticode(executable, {
-  runner,
-  systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  expectedSignerNames = [],
-  allowedRoots = [dirname5(resolve7(executable))],
-  fsImpl = defaultFs7
-} = {}) {
-  if (!runner?.run) throw new WindowsNativeError("runner is required");
-  let fingerprint;
-  try {
-    fingerprint = await assertRegularSinglePath(executable, { allowedRoots, fsImpl, allowMultipleLinks: true });
-    const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
-      env: minimalEnvironment(systemRoot, { UEMCP_AUTHENTICODE_TARGET: fingerprint.canonical_path }),
-      stdin: `${AUTHENTICODE_SCRIPT}
-
-`,
-      timeoutMs: 15e3,
-      outputLimitBytes: 8 * 1024
-    });
-    const parsed = parseSingleJson(result, ["status", "signer_name", "thumbprint"]);
-    const signerName = parsed.signer_name === null ? null : String(parsed.signer_name);
-    const thumbprint = parsed.thumbprint === null ? null : String(parsed.thumbprint).toUpperCase();
-    const signatureValid = String(parsed.status).toLowerCase() === "valid";
-    const signerAllowed = expectedSignerNames.length === 0 || signerName !== null && expectedSignerNames.some((name) => name.localeCompare(signerName, void 0, { sensitivity: "accent" }) === 0);
-    const thumbprintValid = thumbprint === null || /^[0-9A-F]{2,128}$/.test(thumbprint);
-    return {
-      status: signatureValid && signerAllowed && thumbprintValid ? "valid" : "invalid",
-      signer_name: signerName,
-      thumbprint: thumbprintValid ? thumbprint : null
-    };
-  } catch {
-    return { status: "unavailable", signer_name: null, thumbprint: null };
-  }
-}
-async function replaceFilePreservingMetadata({
-  replacementPath,
-  destinationPath,
-  runner,
-  systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  fsImpl = defaultFs7
-}) {
-  if (!runner?.run) throw new WindowsNativeError("runner is required");
-  const replacement = resolve7(replacementPath);
-  const destination = resolve7(destinationPath);
-  if (dirname5(replacement).toLowerCase() !== dirname5(destination).toLowerCase() || parse4(replacement).root.toLowerCase() !== parse4(destination).root.toLowerCase()) {
-    throw new WindowsNativeError("replacement and destination must share one directory and volume", "REPLACEMENT_BOUNDARY_VIOLATION");
-  }
-  await assertRegularSinglePath(replacement, { allowedRoots: [dirname5(destination)], fsImpl });
-  await assertRegularSinglePath(destination, { allowedRoots: [dirname5(destination)], fsImpl });
-  const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
-    env: minimalEnvironment(systemRoot, {
-      UEMCP_REPLACEMENT_PATH: replacement,
-      UEMCP_DESTINATION_PATH: destination
-    }),
-    stdin: `${REPLACE_SCRIPT}
-
-`,
-    timeoutMs: 3e4,
-    outputLimitBytes: 8 * 1024
-  });
-  const parsed = parseSingleJson(result, ["status"]);
-  if (parsed.status !== "replaced") throw new WindowsNativeError("metadata-preserving replacement failed");
-  return { status: "replaced" };
-}
-var WINDOWS_NATIVE_SCRIPTS = Object.freeze({
-  authenticode: AUTHENTICODE_SCRIPT,
-  metadata: METADATA_SCRIPT,
-  replace: REPLACE_SCRIPT
-});
-
-// server/deployment/source-provenance.mjs
+import * as defaultFs16 from "node:fs/promises";
+import { dirname as dirname12, isAbsolute as isAbsolute18, join as join13, posix as posix9, relative as relative10, resolve as resolve16, sep as sep10, win32 as win3215 } from "node:path";
 var PROVENANCE_FILE = ".uemcp-source-provenance.json";
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
-var SHA2564 = /^[0-9a-f]{64}$/;
+var SHA2565 = /^[0-9a-f]{64}$/;
 var SourceProvenanceError = class extends Error {
   constructor(message, code = "SOURCE_PROVENANCE_UNKNOWN", details = {}) {
     super(message);
@@ -17603,17 +33095,17 @@ var SourceProvenanceError = class extends Error {
     this.details = details;
   }
 };
-function fail6(message, details) {
+function fail19(message, details) {
   throw new SourceProvenanceError(message, "SOURCE_PROVENANCE_UNKNOWN", details);
 }
-function exactKeys3(value, expected, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) fail6(`${label} must be an object`);
+function exactKeys5(value, expected, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail19(`${label} must be an object`);
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail6(`${label} has an unexpected schema`);
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail19(`${label} has an unexpected schema`);
 }
 function slash(value) {
-  return value.split(sep4).join("/");
+  return value.split(sep10).join("/");
 }
 function isSafePayloadPath(value) {
   return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && !value.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
@@ -17655,22 +33147,22 @@ function gitCandidatePaths(environment) {
   const candidates = [];
   for (const root of [environment.ProgramFiles, environment["ProgramFiles(x86)"]]) {
     if (!root) continue;
-    candidates.push(join8(root, "Git", "cmd", "git.exe"));
-    candidates.push(join8(root, "Git", "bin", "git.exe"));
+    candidates.push(join13(root, "Git", "cmd", "git.exe"));
+    candidates.push(join13(root, "Git", "bin", "git.exe"));
   }
-  if (environment.LOCALAPPDATA) candidates.push(join8(environment.LOCALAPPDATA, "Programs", "Git", "cmd", "git.exe"));
-  return [...new Set(candidates.map((candidate) => resolve8(candidate)))];
+  if (environment.LOCALAPPDATA) candidates.push(join13(environment.LOCALAPPDATA, "Programs", "Git", "cmd", "git.exe"));
+  return [...new Set(candidates.map((candidate) => resolve16(candidate)))];
 }
 async function selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment }) {
-  const candidates = gitExecutable ? [resolve8(gitExecutable)] : gitCandidatePaths(environment);
+  const candidates = gitExecutable ? [resolve16(gitExecutable)] : gitCandidatePaths(environment);
   for (const candidate of candidates) {
     try {
-      const fingerprint = await fingerprintPath(candidate, { allowedRoots: [dirname6(candidate)], fsImpl });
+      const fingerprint = await fingerprintPath(candidate, { allowedRoots: [dirname12(candidate)], fsImpl });
       if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") continue;
       const signature = await authenticodeInspector(candidate, {
         runner,
         systemRoot: environment.SystemRoot || environment.WINDIR,
-        allowedRoots: [dirname6(candidate)],
+        allowedRoots: [dirname12(candidate)],
         fsImpl
       });
       if (signature.status !== "valid") continue;
@@ -17685,44 +33177,44 @@ async function selectGitExecutable({ gitExecutable, fsImpl, runner, authenticode
     } catch {
     }
   }
-  fail6("no attributable Git executable is available");
+  fail19("no attributable Git executable is available");
 }
 async function runGit(runner, executable, args, repoRoot, { allowFailure = false } = {}) {
-  const result = await runner.run(executable, args, {
+  const result2 = await runner.run(executable, args, {
     cwd: repoRoot,
     env: {},
     timeoutMs: 15e3,
     outputLimitBytes: 1024 * 1024
   });
-  if (result.status !== "exited" || !allowFailure && result.exitCode !== 0 || result.stderr !== "") {
-    if (allowFailure && result.status === "exited") return null;
-    fail6("Git provenance command failed", { command: args[0] });
+  if (result2.status !== "exited" || !allowFailure && result2.exitCode !== 0 || result2.stderr !== "") {
+    if (allowFailure && result2.status === "exited") return null;
+    fail19("Git provenance command failed", { command: args[0] });
   }
-  return result.exitCode === 0 ? result.stdout.trim() : null;
+  return result2.exitCode === 0 ? result2.stdout.trim() : null;
 }
 async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authenticodeInspector, environment }) {
   const gitPath = await selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment });
   const reportedTopLevel = await runGit(runner, gitPath, ["rev-parse", "--show-toplevel"], repoRoot);
-  if (!(isAbsolute9(reportedTopLevel) || win327.isAbsolute(reportedTopLevel) || posix7.isAbsolute(reportedTopLevel))) {
-    fail6("Git returned a non-absolute top-level path");
+  if (!(isAbsolute18(reportedTopLevel) || win3215.isAbsolute(reportedTopLevel) || posix9.isAbsolute(reportedTopLevel))) {
+    fail19("Git returned a non-absolute top-level path");
   }
   let topLevel;
   try {
-    topLevel = resolve8(await fsImpl.realpath(resolve8(reportedTopLevel)));
+    topLevel = resolve16(await fsImpl.realpath(resolve16(reportedTopLevel)));
   } catch {
-    fail6("Git top-level is unavailable");
+    fail19("Git top-level is unavailable");
   }
-  const expectedRoot = process.platform === "win32" ? resolve8(repoRoot).toLowerCase() : resolve8(repoRoot);
+  const expectedRoot = process.platform === "win32" ? resolve16(repoRoot).toLowerCase() : resolve16(repoRoot);
   const observedRoot = process.platform === "win32" ? topLevel.toLowerCase() : topLevel;
-  if (expectedRoot !== observedRoot) fail6("Git top-level does not match the requested repository root");
+  if (expectedRoot !== observedRoot) fail19("Git top-level does not match the requested repository root");
   const remote = await runGit(runner, gitPath, ["config", "--get", "remote.origin.url"], repoRoot, { allowFailure: true });
   const gitCommit = await runGit(runner, gitPath, ["rev-parse", "HEAD"], repoRoot);
-  if (!GIT_OBJECT_ID2.test(gitCommit)) fail6("Git returned a non-canonical object ID");
+  if (!GIT_OBJECT_ID2.test(gitCommit)) fail19("Git returned a non-canonical object ID");
   const status = await runGit(runner, gitPath, ["status", "--porcelain=v1", "--untracked-files=all"], repoRoot);
   return {
     kind: "git_checkout",
     repository: normalizeRepository(remote),
-    repo_root: resolve8(repoRoot),
+    repo_root: resolve16(repoRoot),
     git_commit: gitCommit,
     dirty: status.length > 0,
     archive: null
@@ -17732,13 +33224,13 @@ async function readArchiveDocument(path, fsImpl) {
   let parsed;
   try {
     const stat = await fsImpl.lstat(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail6("archive provenance file must be a regular single-link file");
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail19("archive provenance file must be a regular single-link file");
     parsed = JSON.parse(await fsImpl.readFile(path, "utf8"));
   } catch (error2) {
     if (error2 instanceof SourceProvenanceError) throw error2;
-    fail6("archive provenance file is missing or malformed");
+    fail19("archive provenance file is missing or malformed");
   }
-  exactKeys3(parsed, /* @__PURE__ */ new Set([
+  exactKeys5(parsed, /* @__PURE__ */ new Set([
     "schema_version",
     "kind",
     "repository",
@@ -17751,32 +33243,32 @@ async function readArchiveDocument(path, fsImpl) {
     "downloaded_at",
     "provenance_sha256"
   ]), "archive provenance");
-  if (parsed.schema_version !== "1.0" || parsed.kind !== "pinned_github_archive") fail6("archive provenance kind/schema is unsupported");
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.repository)) fail6("archive repository identity is invalid");
-  if (typeof parsed.requested_ref !== "string" || parsed.requested_ref.trim() === "") fail6("archive requested ref is invalid");
-  if (!GIT_OBJECT_ID2.test(parsed.git_commit)) fail6("archive Git object ID is invalid");
+  if (parsed.schema_version !== "1.0" || parsed.kind !== "pinned_github_archive") fail19("archive provenance kind/schema is unsupported");
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.repository)) fail19("archive repository identity is invalid");
+  if (typeof parsed.requested_ref !== "string" || parsed.requested_ref.trim() === "") fail19("archive requested ref is invalid");
+  if (!GIT_OBJECT_ID2.test(parsed.git_commit)) fail19("archive Git object ID is invalid");
   for (const key of ["archive_sha256", "bundle_manifest_sha256", "payload_manifest_sha256", "provenance_sha256"]) {
-    if (!SHA2564.test(parsed[key])) fail6(`archive ${key} is invalid`);
+    if (!SHA2565.test(parsed[key])) fail19(`archive ${key} is invalid`);
   }
   if (!Number.isFinite(Date.parse(parsed.downloaded_at)) || new Date(parsed.downloaded_at).toISOString() !== parsed.downloaded_at) {
-    fail6("archive download timestamp is invalid");
+    fail19("archive download timestamp is invalid");
   }
-  if (!Array.isArray(parsed.payload_entries)) fail6("archive payload entries must be an array");
+  if (!Array.isArray(parsed.payload_entries)) fail19("archive payload entries must be an array");
   let previous = null;
   for (const entry of parsed.payload_entries) {
-    exactKeys3(entry, /* @__PURE__ */ new Set(["path", "size", "sha256"]), "archive payload entry");
-    if (!isSafePayloadPath(entry.path) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !SHA2564.test(entry.sha256)) {
-      fail6("archive payload entry is invalid");
+    exactKeys5(entry, /* @__PURE__ */ new Set(["path", "size", "sha256"]), "archive payload entry");
+    if (!isSafePayloadPath(entry.path) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !SHA2565.test(entry.sha256)) {
+      fail19("archive payload entry is invalid");
     }
     if (previous !== null && previous >= entry.path) {
-      fail6("archive payload entries must be unique and ordinal sorted");
+      fail19("archive payload entries must be unique and ordinal sorted");
     }
     previous = entry.path;
   }
-  if (sha256Canonical(parsed.payload_entries) !== parsed.payload_manifest_sha256) fail6("archive payload manifest hash is invalid");
+  if (sha256Canonical(parsed.payload_entries) !== parsed.payload_manifest_sha256) fail19("archive payload manifest hash is invalid");
   const withoutSelfHash = { ...parsed };
   delete withoutSelfHash.provenance_sha256;
-  if (sha256Canonical(withoutSelfHash) !== parsed.provenance_sha256) fail6("archive provenance self-hash is invalid");
+  if (sha256Canonical(withoutSelfHash) !== parsed.provenance_sha256) fail19("archive provenance self-hash is invalid");
   return parsed;
 }
 function ignoredArchivePath(path, bundleRelative) {
@@ -17784,51 +33276,51 @@ function ignoredArchivePath(path, bundleRelative) {
 }
 async function collectArchiveFiles(repoRoot, fsImpl) {
   const files = [];
-  async function visit(directory) {
+  async function visit2(directory) {
     const entries = await fsImpl.readdir(directory, { withFileTypes: true });
     entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (const entry of entries) {
-      const path = join8(directory, entry.name);
-      const rel = slash(relative4(repoRoot, path));
+      const path = join13(directory, entry.name);
+      const rel = slash(relative10(repoRoot, path));
       const stat = await fsImpl.lstat(path);
-      if (stat.isSymbolicLink()) fail6("archive contains a linked path", { path: rel });
-      if (stat.isDirectory()) await visit(path);
+      if (stat.isSymbolicLink()) fail19("archive contains a linked path", { path: rel });
+      if (stat.isDirectory()) await visit2(path);
       else if (stat.isFile()) files.push(rel);
-      else fail6("archive contains an unsupported path type", { path: rel });
+      else fail19("archive contains an unsupported path type", { path: rel });
     }
   }
-  await visit(repoRoot);
+  await visit2(repoRoot);
   return files;
 }
 async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
-  if (!bundleManifestPath) fail6("archive provenance requires a bundle manifest path");
-  const document = await readArchiveDocument(join8(repoRoot, PROVENANCE_FILE), fsImpl);
+  if (!bundleManifestPath) fail19("archive provenance requires a bundle manifest path");
+  const document = await readArchiveDocument(join13(repoRoot, PROVENANCE_FILE), fsImpl);
   let bundlePath;
   try {
-    const requestedBundlePath = resolve8(bundleManifestPath);
+    const requestedBundlePath = resolve16(bundleManifestPath);
     const stat = await fsImpl.lstat(requestedBundlePath);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail6("bundle manifest must be a regular single-link file");
-    bundlePath = resolve8(await fsImpl.realpath(requestedBundlePath));
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail19("bundle manifest must be a regular single-link file");
+    bundlePath = resolve16(await fsImpl.realpath(requestedBundlePath));
   } catch (error2) {
     if (error2 instanceof SourceProvenanceError) throw error2;
-    fail6("bundle manifest is missing");
+    fail19("bundle manifest is missing");
   }
-  const bundleRelative = slash(relative4(repoRoot, bundlePath));
-  if (bundleRelative.startsWith("../") || isAbsolute9(bundleRelative)) fail6("bundle manifest escapes the archive root");
+  const bundleRelative = slash(relative10(repoRoot, bundlePath));
+  if (bundleRelative.startsWith("../") || isAbsolute18(bundleRelative)) fail19("bundle manifest escapes the archive root");
   let bundleBytes;
   try {
     bundleBytes = await fsImpl.readFile(bundlePath);
   } catch {
-    fail6("bundle manifest is missing");
+    fail19("bundle manifest is missing");
   }
-  if (sha256Bytes(bundleBytes) !== document.bundle_manifest_sha256) fail6("bundle manifest hash does not match archive provenance");
+  if (sha256Bytes(bundleBytes) !== document.bundle_manifest_sha256) fail19("bundle manifest hash does not match archive provenance");
   const expectedPaths = new Set(document.payload_entries.map((entry) => entry.path));
   const currentEntries = [];
   for (const entry of document.payload_entries) {
-    const path = resolve8(repoRoot, ...entry.path.split("/"));
+    const path = resolve16(repoRoot, ...entry.path.split("/"));
     try {
       const stat = await fsImpl.lstat(path);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail6("archive payload path changed identity", { path: entry.path });
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) fail19("archive payload path changed identity", { path: entry.path });
       const bytes = await fsImpl.readFile(path);
       currentEntries.push({ path: entry.path, size: bytes.byteLength, sha256: sha256Bytes(bytes) });
     } catch (error2) {
@@ -17839,12 +33331,12 @@ async function inspectArchive({ repoRoot, bundleManifestPath, fsImpl }) {
   }
   const allFiles = await collectArchiveFiles(repoRoot, fsImpl);
   const extras = allFiles.filter((path) => !expectedPaths.has(path) && !ignoredArchivePath(path, bundleRelative));
-  if (extras.length > 0) fail6("archive contains files outside its attributable payload", { count: extras.length });
+  if (extras.length > 0) fail19("archive contains files outside its attributable payload", { count: extras.length });
   const currentManifest = sha256Canonical(currentEntries);
   return {
     kind: "pinned_archive",
     repository: document.repository,
-    repo_root: resolve8(repoRoot),
+    repo_root: resolve16(repoRoot),
     git_commit: document.git_commit,
     dirty: currentManifest !== document.payload_manifest_sha256,
     archive: {
@@ -17859,23 +33351,23 @@ async function inspectSourceProvenance({
   repoRoot,
   bundleManifestPath = null,
   runner = createProcessRunner(),
-  fsImpl = defaultFs8,
+  fsImpl = defaultFs16,
   gitExecutable = null,
   authenticodeInspector = inspectAuthenticode,
   environment = process.env
 } = {}) {
-  if (typeof repoRoot !== "string" || !(isAbsolute9(repoRoot) || win327.isAbsolute(repoRoot) || posix7.isAbsolute(repoRoot))) {
-    fail6("repository root must be absolute");
+  if (typeof repoRoot !== "string" || !(isAbsolute18(repoRoot) || win3215.isAbsolute(repoRoot) || posix9.isAbsolute(repoRoot))) {
+    fail19("repository root must be absolute");
   }
   let canonicalRoot;
   try {
-    canonicalRoot = resolve8(await fsImpl.realpath(resolve8(repoRoot)));
+    canonicalRoot = resolve16(await fsImpl.realpath(resolve16(repoRoot)));
   } catch {
-    fail6("repository root is unavailable");
+    fail19("repository root is unavailable");
   }
-  const gitMarker = await pathExists(fsImpl, join8(canonicalRoot, ".git"));
+  const gitMarker = await pathExists(fsImpl, join13(canonicalRoot, ".git"));
   if (gitMarker) {
-    if (gitMarker.isSymbolicLink() || !gitMarker.isDirectory() && !gitMarker.isFile()) fail6("Git marker has an unsafe path type");
+    if (gitMarker.isSymbolicLink() || !gitMarker.isDirectory() && !gitMarker.isFile()) fail19("Git marker has an unsafe path type");
     return inspectCheckout({
       repoRoot: canonicalRoot,
       fsImpl,
@@ -17885,22 +33377,22 @@ async function inspectSourceProvenance({
       environment
     });
   }
-  const archiveMarker = await pathExists(fsImpl, join8(canonicalRoot, PROVENANCE_FILE));
+  const archiveMarker = await pathExists(fsImpl, join13(canonicalRoot, PROVENANCE_FILE));
   if (archiveMarker) return inspectArchive({ repoRoot: canonicalRoot, bundleManifestPath, fsImpl });
-  fail6("source has neither an attributable checkout nor pinned archive provenance");
+  fail19("source has neither an attributable checkout nor pinned archive provenance");
 }
 
 // server/deployment/target-domain.mjs
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes5 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
-import { dirname as dirname9, extname as extname3, isAbsolute as isAbsolute11, join as join11, parse as parse5, posix as posix8, relative as relative5, resolve as resolve11, sep as sep5, win32 as win328 } from "node:path";
+import { dirname as dirname15, extname as extname4, isAbsolute as isAbsolute20, join as join16, parse as parse7, posix as posix10, relative as relative11, resolve as resolve19, sep as sep11, win32 as win3216 } from "node:path";
 
 // server/project-targets.mjs
-import { createHash as createHash2, randomBytes as randomBytes2 } from "node:crypto";
+import { createHash as createHash2, randomBytes as randomBytes4 } from "node:crypto";
 import {
   closeSync,
-  existsSync as existsSync2,
+  existsSync as existsSync3,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -17911,7 +33403,7 @@ import {
   statSync as statSync2,
   writeFileSync
 } from "node:fs";
-import { basename as basename3, dirname as dirname8, extname as extname2, isAbsolute as isAbsolute10, join as join10, resolve as resolve10 } from "node:path";
+import { basename as basename5, dirname as dirname14, extname as extname3, isAbsolute as isAbsolute19, join as join15, resolve as resolve18 } from "node:path";
 
 // server/project-errors.mjs
 var PROJECT_ERROR_CODES = Object.freeze({
@@ -17938,25 +33430,25 @@ var PROJECT_ERROR_CODES = Object.freeze({
 
 // server/project-identity.mjs
 import {
-  existsSync,
+  existsSync as existsSync2,
   readdirSync,
   realpathSync,
   statSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename as basename2, dirname as dirname7, extname, join as join9, resolve as resolve9 } from "node:path";
+import { basename as basename4, dirname as dirname13, extname as extname2, join as join14, resolve as resolve17 } from "node:path";
 function displayPath(pathValue) {
   return String(pathValue || "").replace(/\\/g, "/").replace(/\/+$/, "");
 }
 function normalizeComparisonPath(pathValue) {
   if (!pathValue) return "";
-  return displayPath(resolve9(pathValue)).toLowerCase();
+  return displayPath(resolve17(pathValue)).toLowerCase();
 }
 
 // server/project-targets.mjs
 var DEFAULT_FS = {
   closeSync,
-  existsSync: existsSync2,
+  existsSync: existsSync3,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -17997,34 +33489,34 @@ function resolveDefaultTargetsPath({
 } = {}) {
   if (!repoRoot) throw new ProjectTargetPathError("resolveDefaultTargetsPath requires repoRoot");
   if (explicitTargetsPath) {
-    if (!isAbsolute10(explicitTargetsPath) || extname2(explicitTargetsPath).toLowerCase() !== ".json") {
+    if (!isAbsolute19(explicitTargetsPath) || extname3(explicitTargetsPath).toLowerCase() !== ".json") {
       throw new ProjectTargetPathError("Explicit target registry must be an absolute .json path.");
     }
-    return resolve10(explicitTargetsPath);
+    return resolve18(explicitTargetsPath);
   }
-  const absoluteRepoRoot = resolve10(repoRoot);
+  const absoluteRepoRoot = resolve18(repoRoot);
   let kind = sourceKind;
   if (kind === null) {
-    if (fsImpl.existsSync(join10(absoluteRepoRoot, ".git"))) kind = "git_checkout";
-    else if (fsImpl.existsSync(join10(absoluteRepoRoot, ".uemcp-source-provenance.json"))) kind = "pinned_archive";
+    if (fsImpl.existsSync(join15(absoluteRepoRoot, ".git"))) kind = "git_checkout";
+    else if (fsImpl.existsSync(join15(absoluteRepoRoot, ".uemcp-source-provenance.json"))) kind = "pinned_archive";
     else kind = "git_checkout";
   }
-  if (kind === "git_checkout") return join10(absoluteRepoRoot, ".uemcp-targets.json");
+  if (kind === "git_checkout") return join15(absoluteRepoRoot, ".uemcp-targets.json");
   if (kind === "pinned_archive") {
     if (!stateRoot) throw new ProjectTargetPathError("Pinned archive target registration requires stable local state.", "LOCAL_STATE_UNAVAILABLE");
-    return join10(resolve10(stateRoot), ".uemcp-targets.json");
+    return join15(resolve18(stateRoot), ".uemcp-targets.json");
   }
   throw new ProjectTargetPathError(`Unknown source kind: ${kind}`);
 }
 function writeStructuredFileAtomic(configPath, serialized, fsImpl) {
-  const dir = dirname8(configPath);
+  const dir = dirname14(configPath);
   if (dir) fsImpl.mkdirSync(dir, { recursive: true });
   const supportsAtomicWrite = ["openSync", "fsyncSync", "closeSync", "renameSync", "rmSync"].every((name) => typeof fsImpl[name] === "function");
   if (!supportsAtomicWrite) {
     fsImpl.writeFileSync(configPath, serialized, "utf8");
     return;
   }
-  const scratchPath = join10(dir, `.${randomBytes2(16).toString("hex")}.scratch`);
+  const scratchPath = join15(dir, `.${randomBytes4(16).toString("hex")}.scratch`);
   let handle = null;
   try {
     handle = fsImpl.openSync(scratchPath, "wx", 384);
@@ -18050,7 +33542,7 @@ function shortHash(text) {
   return createHash2("sha1").update(text).digest("hex").slice(0, 8);
 }
 function targetAliasStem(uprojectPath) {
-  const stem = basename3(uprojectPath, extname2(uprojectPath)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const stem = basename5(uprojectPath, extname3(uprojectPath)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return stem || `target-${shortHash(uprojectPath)}`;
 }
 function uniqueTargetAlias(baseAlias, targets, uprojectPath) {
@@ -18124,27 +33616,27 @@ var TargetDomainError = class extends Error {
     this.details = details;
   }
 };
-function absolutePath5(value) {
-  return typeof value === "string" && (isAbsolute11(value) || win328.isAbsolute(value) || posix8.isAbsolute(value));
+function absolutePath9(value) {
+  return typeof value === "string" && (isAbsolute20(value) || win3216.isAbsolute(value) || posix10.isAbsolute(value));
 }
-function pathKey2(value) {
-  const normalized = resolve11(value);
+function pathKey5(value) {
+  const normalized = resolve19(value);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
-function contained3(root, candidate) {
-  const rel = relative5(pathKey2(root), pathKey2(candidate));
-  return rel === "" || !rel.startsWith(`..${sep5}`) && rel !== ".." && !isAbsolute11(rel);
+function contained8(root, candidate) {
+  const rel = relative11(pathKey5(root), pathKey5(candidate));
+  return rel === "" || !rel.startsWith(`..${sep11}`) && rel !== ".." && !isAbsolute20(rel);
 }
 function devicePath(value) {
   return /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 async function assertNoLinkedAncestors(path, asyncFs) {
-  const absolute = resolve11(path);
-  const root = parse5(absolute).root;
-  const segments = relative5(root, absolute).split(sep5).filter(Boolean);
+  const absolute = resolve19(path);
+  const root = parse7(absolute).root;
+  const segments = relative11(root, absolute).split(sep11).filter(Boolean);
   let current = root;
   for (const segment of segments) {
-    current = join11(current, segment);
+    current = join16(current, segment);
     try {
       const stat = await asyncFs.lstat(current);
       if (stat.isSymbolicLink()) throw new TargetDomainError("path contains a symbolic link or junction", "INVALID_TARGET");
@@ -18155,29 +33647,29 @@ async function assertNoLinkedAncestors(path, asyncFs) {
   }
 }
 async function validateProjectPath(projectPath, asyncFs) {
-  if (!absolutePath5(projectPath) || extname3(projectPath).toLowerCase() !== ".uproject" || devicePath(projectPath)) {
+  if (!absolutePath9(projectPath) || extname4(projectPath).toLowerCase() !== ".uproject" || devicePath(projectPath)) {
     throw new TargetDomainError("requested project must be an absolute non-device .uproject path");
   }
   await assertNoLinkedAncestors(projectPath, asyncFs);
-  const fingerprint = await fingerprintPath(projectPath, { allowedRoots: [dirname9(projectPath)], fsImpl: asyncFs });
+  const fingerprint = await fingerprintPath(projectPath, { allowedRoots: [dirname15(projectPath)], fsImpl: asyncFs });
   if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count !== 1) {
     throw new TargetDomainError("requested project must be a regular single-link file");
   }
   return fingerprint.real_path;
 }
 async function validateConfigPath(configPath, { generatedRoot, asyncFs }) {
-  if (!absolutePath5(configPath) || extname3(configPath).toLowerCase() !== ".json" || devicePath(configPath)) {
+  if (!absolutePath9(configPath) || extname4(configPath).toLowerCase() !== ".json" || devicePath(configPath)) {
     throw new TargetDomainError("target registry must be an absolute non-device .json path");
   }
-  const absolute = resolve11(configPath);
-  if (generatedRoot && !contained3(generatedRoot, absolute)) {
+  const absolute = resolve19(configPath);
+  if (generatedRoot && !contained8(generatedRoot, absolute)) {
     throw new TargetDomainError("generated target registry escaped its source/state root");
   }
   await assertNoLinkedAncestors(absolute, asyncFs);
   return absolute;
 }
 async function compositeFingerprint(path, { asyncFs, windowsNative, processRunner, systemRoot }) {
-  const base = await fingerprintPath(path, { allowedRoots: [dirname9(path)], fsImpl: asyncFs });
+  const base = await fingerprintPath(path, { allowedRoots: [dirname15(path)], fsImpl: asyncFs });
   if (base.exists && (base.kind !== "file" || base.link_kind !== "none" || base.link_count !== 1)) {
     throw new TargetDomainError("target registry must be a regular single-link file");
   }
@@ -18186,7 +33678,7 @@ async function compositeFingerprint(path, { asyncFs, windowsNative, processRunne
     metadata = await windowsNative.fingerprintWindowsFileMetadata(path, {
       runner: processRunner,
       systemRoot,
-      allowedRoots: [dirname9(path)],
+      allowedRoots: [dirname15(path)],
       fsImpl: asyncFs
     });
   } else if (base.exists) {
@@ -18234,9 +33726,9 @@ function createTargetDomain({
   processRunner = null,
   systemRoot = process.env.SystemRoot || process.env.WINDIR
 } = {}) {
-  if (!absolutePath5(repoRoot)) throw new TargetDomainError("target domain requires an absolute repository root");
+  if (!absolutePath9(repoRoot)) throw new TargetDomainError("target domain requires an absolute repository root");
   const explicit = targetsPath !== null;
-  const inferredSourceKind = sourceKind ?? (fsImpl.existsSync(join11(resolve11(repoRoot), ".git")) ? "git_checkout" : fsImpl.existsSync(join11(resolve11(repoRoot), ".uemcp-source-provenance.json")) ? "pinned_archive" : "git_checkout");
+  const inferredSourceKind = sourceKind ?? (fsImpl.existsSync(join16(resolve19(repoRoot), ".git")) ? "git_checkout" : fsImpl.existsSync(join16(resolve19(repoRoot), ".uemcp-source-provenance.json")) ? "pinned_archive" : "git_checkout");
   const configPath = resolveDefaultTargetsPath({
     repoRoot,
     stateRoot,
@@ -18249,7 +33741,7 @@ function createTargetDomain({
   async function inspectContext(context) {
     const requestedProject = context?.request?.requested_project ?? null;
     if (requestedProject === null) {
-      if (!explicit) return { requestedProject: null, configPath: resolve11(configPath), fingerprint: null };
+      if (!explicit) return { requestedProject: null, configPath: resolve19(configPath), fingerprint: null };
       const validatedConfigPath2 = await validateConfigPath(configPath, { generatedRoot, asyncFs });
       const fingerprint2 = await compositeFingerprint(validatedConfigPath2, {
         asyncFs,
@@ -18362,8 +33854,8 @@ function createTargetDomain({
       if (sha256Bytes(bytes) !== operation.proposed_sha256) {
         throw new TargetDomainError("proposed target registry bytes do not match the plan", "PLAN_STALE");
       }
-      await asyncFs.mkdir(dirname9(operation.config_path), { recursive: true });
-      const scratchPath = join11(dirname9(operation.config_path), `.${randomBytes3(16).toString("hex")}.scratch`);
+      await asyncFs.mkdir(dirname15(operation.config_path), { recursive: true });
+      const scratchPath = join16(dirname15(operation.config_path), `.${randomBytes5(16).toString("hex")}.scratch`);
       let handle;
       let committed = false;
       try {
@@ -18420,7 +33912,7 @@ function createTargetDomain({
         await asyncFs.rm(scratchPath, { force: true }).catch(() => {
         });
       }
-      const after = await fingerprintPath(operation.config_path, { allowedRoots: [dirname9(operation.config_path)], fsImpl: asyncFs });
+      const after = await fingerprintPath(operation.config_path, { allowedRoots: [dirname15(operation.config_path)], fsImpl: asyncFs });
       if (after.sha256 !== operation.proposed_sha256) return committedSyncFailure();
       return createStageResult({ name: "target", status: "REGISTERED", changed: true, progress: "committed" });
     },
@@ -18454,16 +33946,17 @@ function createTargetDomain({
 var HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
-  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
 `;
 var INTERFACE_ERROR_CODES = /* @__PURE__ */ new Set(["CLI_USAGE", "INVALID_CONTRACT", "INVALID_PLAN", "UNSUPPORTED_INTERFACE"]);
 var SAFE_DIAGNOSTICS = Object.freeze({
   APPLY_IN_PROGRESS: "another deployment apply is in progress",
   BUNDLE_FRESHNESS_FAILED: "deployment bundle freshness verification failed",
+  CLIENT_INSPECTION_UNBOUND: "selected client inspection could not produce complete apply evidence",
   DEPENDENCY_POLICY_BLOCKED: "dependency policy blocked deployment",
   INSTALL_FAILED: "dependency installation failed",
   INVALID_CONTRACT: "machine contract validation failed",
@@ -18506,17 +33999,28 @@ function parseArgs(argv) {
     project: null,
     profile: null,
     targetsFile: null,
+    outputPlan: null,
     planFile: null,
     approveDigest: null,
-    nonInteractive: false
+    nonInteractive: false,
+    includeClients: [],
+    excludeClients: [],
+    vscodeProfile: null,
+    replaceOwnedClientFields: false,
+    shadowGeminiExtension: false,
+    migrateLegacyClaudeProject: false
   };
   const seen = /* @__PURE__ */ new Set();
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (seen.has(flag)) throw new UsageError("duplicate flag");
-    seen.add(flag);
+    const repeatable = flag === "--include-client" || flag === "--exclude-client";
+    if (!repeatable && seen.has(flag)) throw new UsageError("duplicate flag");
+    if (!repeatable) seen.add(flag);
     if (flag === "--json") parsed.json = true;
     else if (flag === "--non-interactive") parsed.nonInteractive = true;
+    else if (flag === "--replace-owned-client-fields") parsed.replaceOwnedClientFields = true;
+    else if (flag === "--shadow-gemini-extension") parsed.shadowGeminiExtension = true;
+    else if (flag === "--migrate-legacy-claude-project") parsed.migrateLegacyClaudeProject = true;
     else if (flag === "--operation") {
       parsed.operation = takeValue(argv, index, flag);
       index += 1;
@@ -18529,56 +34033,81 @@ function parseArgs(argv) {
     } else if (flag === "--targets-file") {
       parsed.targetsFile = takeValue(argv, index, flag);
       index += 1;
+    } else if (flag === "--output-plan") {
+      parsed.outputPlan = takeValue(argv, index, flag);
+      index += 1;
     } else if (flag === "--plan-file") {
       parsed.planFile = takeValue(argv, index, flag);
       index += 1;
     } else if (flag === "--approve-digest") {
       parsed.approveDigest = takeValue(argv, index, flag);
       index += 1;
+    } else if (flag === "--include-client" || flag === "--exclude-client") {
+      const value = takeValue(argv, index, flag);
+      if (!CLIENT_IDS.includes(value)) throw new UsageError("unknown client ID");
+      const target = flag === "--include-client" ? parsed.includeClients : parsed.excludeClients;
+      if (target.includes(value)) throw new UsageError("duplicate client selection");
+      target.push(value);
+      index += 1;
+    } else if (flag === "--vscode-profile") {
+      parsed.vscodeProfile = takeValue(argv, index, flag);
+      index += 1;
     } else throw new UsageError("unknown flag");
   }
-  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null;
+  const clientFlags = parsed.includeClients.length > 0 || parsed.excludeClients.length > 0 || parsed.vscodeProfile !== null;
+  const decisionFlags = parsed.replaceOwnedClientFields || parsed.shadowGeminiExtension || parsed.migrateLegacyClaudeProject;
+  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null || clientFlags || decisionFlags;
   if (command === "plan") {
     if (!["setup", "sync"].includes(parsed.operation)) throw new UsageError("plan requires --operation setup or sync");
     if (parsed.planFile || parsed.approveDigest || parsed.nonInteractive) throw new UsageError("plan does not accept apply flags");
   } else if (command === "apply") {
-    if (!parsed.planFile || !isAbsolute12(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
+    if (!parsed.planFile || !isAbsolute21(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
       throw new UsageError("apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive");
     }
-    if (requestFlags || parsed.operation !== null) throw new UsageError("apply request overrides are forbidden");
-  } else {
-    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    if (requestFlags || parsed.operation !== null || parsed.outputPlan !== null) throw new UsageError("apply request overrides are forbidden");
+  } else if (command !== "repair") {
+    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive || parsed.outputPlan !== null) {
       throw new UsageError(`${command} does not accept plan/apply flags`);
     }
+    if (decisionFlags) throw new UsageError(`${command} does not accept repair decisions`);
+  } else if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    throw new UsageError("repair does not accept plan/apply flags");
   }
-  if (parsed.targetsFile !== null && (!isAbsolute12(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith(".json"))) {
+  if (parsed.targetsFile !== null && (!isAbsolute21(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith(".json"))) {
     throw new UsageError("--targets-file must be an absolute .json path");
   }
-  if (parsed.project !== null && (!isAbsolute12(parsed.project) || extname4(parsed.project).toLowerCase() !== ".uproject")) {
+  if (parsed.outputPlan !== null && (!isAbsolute21(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith(".json"))) {
+    throw new UsageError("--output-plan must be an absolute .json path");
+  }
+  if (parsed.project !== null && (!isAbsolute21(parsed.project) || extname5(parsed.project).toLowerCase() !== ".uproject")) {
     throw new UsageError("--project must be an absolute .uproject path");
   }
   if (parsed.profile !== null && parsed.profile.trim() === "") throw new UsageError("--profile must be non-empty");
+  if (parsed.vscodeProfile !== null && parsed.vscodeProfile.trim() === "") throw new UsageError("--vscode-profile must be non-empty");
   if (parsed.project !== null && parsed.profile !== null) throw new UsageError("--project and --profile are mutually exclusive");
+  if (parsed.includeClients.some((clientId) => parsed.excludeClients.includes(clientId))) {
+    throw new UsageError("client include and exclude selections overlap");
+  }
   return parsed;
 }
 function locateRepository() {
-  const moduleDirectory = dirname10(fileURLToPath2(import.meta.url));
+  const moduleDirectory = dirname16(fileURLToPath2(import.meta.url));
   let candidate = moduleDirectory;
   for (let depth = 0; depth < 8; depth += 1) {
-    const serverRoot = join12(candidate, "server");
-    if (existsSync3(join12(serverRoot, "server.mjs")) && existsSync3(join12(serverRoot, "package-lock.json"))) {
+    const serverRoot = join17(candidate, "server");
+    if (existsSync4(join17(serverRoot, "server.mjs")) && existsSync4(join17(serverRoot, "package-lock.json"))) {
       return { repoRoot: candidate, serverRoot };
     }
-    const parent = dirname10(candidate);
+    const parent = dirname16(candidate);
     if (parent === candidate) break;
     candidate = parent;
   }
-  if (basename4(moduleDirectory).toLowerCase() === "server" && existsSync3(join12(moduleDirectory, "server.mjs"))) {
-    return { repoRoot: dirname10(moduleDirectory), serverRoot: moduleDirectory };
+  if (basename6(moduleDirectory).toLowerCase() === "server" && existsSync4(join17(moduleDirectory, "server.mjs"))) {
+    return { repoRoot: dirname16(moduleDirectory), serverRoot: moduleDirectory };
   }
   throw new UsageError("deployment entry is not inside a UEMCP repository");
 }
-function createDefaultOrchestrator({ targetsFile = null } = {}) {
+function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process.cwd() } = {}) {
   const { repoRoot, serverRoot } = locateRepository();
   const activeEntryPath = fileURLToPath2(import.meta.url);
   const processRunner = createProcessRunner();
@@ -18597,22 +34126,39 @@ function createDefaultOrchestrator({ targetsFile = null } = {}) {
       stateRoot,
       targetsPath: targetsFile,
       processRunner
+    }),
+    createClientDomain({
+      adapters: [
+        createClaudeAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createCodexAdapter({ fsImpl: fsPromises, runner: processRunner, captureFingerprint: captureClientPathFingerprint }),
+        createGeminiAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createVsCodeAdapter({ fsImpl: fsPromises })
+      ],
+      transaction: ({ externalLease }) => createClientTransaction({
+        localState,
+        fsImpl: fsPromises,
+        processRunner,
+        externalLease
+      }),
+      fsImpl: fsPromises
     })
   ];
-  const manifestPath = join12(repoRoot, "dist", "deploy-uemcp.manifest.json");
+  const manifestPath = join17(repoRoot, "dist", "deploy-uemcp.manifest.json");
   return createDeploymentOrchestrator({
     repoRoot,
+    workspaceRoot,
     stateRoot,
     fsImpl: fsPromises,
     processRunner,
     localState,
     domains,
+    knownFoldersProvider: ({ processRunner: activeRunner }) => resolveWindowsKnownFolders({ runner: activeRunner }),
     sourceProvider: async () => {
       await verifyDeploymentBundleFreshness({ repoRoot, activeEntryPath, fsImpl: fsPromises });
       return {
         ...await inspectSourceProvenance({
           repoRoot,
-          bundleManifestPath: existsSync3(manifestPath) ? manifestPath : null,
+          bundleManifestPath: existsSync4(manifestPath) ? manifestPath : null,
           runner: processRunner,
           fsImpl: fsPromises
         }),
@@ -18621,8 +34167,8 @@ function createDefaultOrchestrator({ targetsFile = null } = {}) {
     },
     descriptorProvider: () => createCanonicalDescriptor({
       nodeExecutable: process.execPath,
-      serverEntry: join12(serverRoot, "server.mjs"),
-      allowedRoots: [dirname10(process.execPath), serverRoot],
+      serverEntry: join17(serverRoot, "server.mjs"),
+      allowedRoots: [dirname16(process.execPath), serverRoot],
       fsImpl: fsPromises
     })
   });
@@ -18632,7 +34178,18 @@ function requestFrom(parsed) {
     ...parsed.operation ? { operation: parsed.operation } : {},
     requested_project: parsed.project,
     requested_profile: parsed.profile,
-    selected_clients: []
+    selected_clients: parsed.includeClients,
+    excluded_clients: parsed.excludeClients,
+    client_selection: {
+      include: parsed.includeClients,
+      exclude: parsed.excludeClients,
+      vscode_profile: parsed.vscodeProfile
+    },
+    client_decisions: {
+      replace_owned_fields: parsed.replaceOwnedClientFields,
+      shadow_gemini_extension: parsed.shadowGeminiExtension,
+      migrate_legacy_claude_project: parsed.migrateLegacyClaudeProject
+    }
   };
 }
 function writeMachineValue(stream, value) {
@@ -18646,6 +34203,30 @@ function writeHumanValue(stream, value) {
 `);
   for (const action2 of value.actions ?? []) stream.write(`action: ${action2.code} - ${action2.message}
 `);
+}
+async function publishPlanCreateOnly(targetPath, value) {
+  const resolvedTarget = resolve20(targetPath);
+  const scratchPath = join17(dirname16(resolvedTarget), `.${basename6(resolvedTarget)}.${randomUUID()}.tmp`);
+  let scratchCreated = false;
+  try {
+    const handle = await fsPromises.open(scratchPath, "wx", 384);
+    scratchCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}
+`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsPromises.link(scratchPath, resolvedTarget);
+  } catch (error2) {
+    if (error2?.code === "EEXIST") throw new UsageError("--output-plan target already exists");
+    if (error2 instanceof UsageError) throw error2;
+    throw new UsageError("--output-plan could not be published");
+  } finally {
+    if (scratchCreated) await fsPromises.unlink(scratchPath).catch(() => {
+    });
+  }
 }
 async function runCli(argv, {
   orchestrator = null,
@@ -18669,12 +34250,13 @@ async function runCli(argv, {
     else {
       let plan;
       try {
-        plan = JSON.parse(await fsPromises.readFile(resolve12(parsed.planFile), "utf8"));
+        plan = JSON.parse(await fsPromises.readFile(resolve20(parsed.planFile), "utf8"));
       } catch {
         throw new UsageError("apply plan file is missing or malformed");
       }
       value = await activeOrchestrator.apply({ plan, approvedDigest: parsed.approveDigest });
     }
+    if (parsed.outputPlan !== null) await publishPlanCreateOnly(parsed.outputPlan, value);
     if (parsed.json) writeMachineValue(stdout, value);
     else writeHumanValue(stdout, value);
     return exitCodeForOutcome(value.outcome);
@@ -18688,7 +34270,7 @@ async function runCli(argv, {
     return exitCode;
   }
 }
-var invokedPath = process.argv[1] ? pathToFileURL(resolve12(process.argv[1])).href : null;
+var invokedPath = process.argv[1] ? pathToFileURL(resolve20(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
   process.exitCode = await runCli(process.argv.slice(2));
 }

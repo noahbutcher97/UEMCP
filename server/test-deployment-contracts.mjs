@@ -2,10 +2,13 @@
 //
 // Run: cd server && node test-deployment-contracts.mjs
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import * as asyncFs from 'node:fs/promises';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -15,10 +18,13 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import {
   ACTION_CODES,
   CLIENT_COMPATIBILITY,
@@ -37,15 +43,25 @@ import {
 } from './deployment/contracts.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints.mjs';
+import { withPinnedClientLaunch } from './deployment/client-process.mjs';
 import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
-import { createProcessRunner } from './deployment/process-runner.mjs';
+import { createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
 import {
   WINDOWS_NATIVE_SCRIPTS,
+  deleteWindowsTreeNoFollow,
   fingerprintWindowsFileMetadata,
   inspectAuthenticode,
   replaceFilePreservingMetadata,
+  resolveWindowsKnownFolders,
+  withPinnedWindowsAncestry,
+  withPinnedWindowsFiles,
+  withPinnedWindowsTrees,
 } from './deployment/windows-native.mjs';
-import { createLocalState, inspectLeaseOwnerProcess } from './deployment/local-state.mjs';
+import {
+  createApplyLeaseCoordinator,
+  createLocalState,
+  inspectLeaseOwnerProcess,
+} from './deployment/local-state.mjs';
 import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 
 const t = new TestRunner('Deployment Contract Tests');
@@ -59,8 +75,9 @@ DEPLOYED_BUILD_REQUIRED DEPLOYED_BUILD_CURRENT BUILD_REQUIRED BUILD_FAILED UNKNO
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
-ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
-ENABLED DISABLED CONNECTED PENDING_TRUST RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
+ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
+CLIENT_APPLY_ACTION_REQUIRED
+ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
 VERIFIED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH NOT_CHECKED
@@ -70,12 +87,13 @@ const EXPECTED_ACTIONS = `
 NODE_INSTALL_REQUIRED DEPENDENCIES_INSTALL_REQUIRED DEPENDENCY_POLICY_BLOCKED SOURCE_PROVENANCE_UNKNOWN LOCAL_STATE_UNAVAILABLE APPLY_IN_PROGRESS
 INSTALL_FAILED SYNC_FAILED BUILD_REQUIRED BUILD_FAILED UNKNOWN_TOOLCHAIN
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH
-PENDING_TRUST RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
+PENDING_TRUST PENDING_APPROVAL RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
 CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
-PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT
+PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
+CLIENT_APPLY_ACTION_REQUIRED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 
@@ -135,6 +153,12 @@ function validRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    excluded_clients: [],
+    client_decisions: {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
     ...overrides,
   };
 }
@@ -202,7 +226,7 @@ function validMachineInput(overrides = {}) {
     actions: [validAction()],
   });
   t.assert(stage.name === 'clients' && stage.status === 'RESTART_REQUIRED', 'stage constructor preserves validated fields');
-  t.assert(!Object.hasOwn(stage, 'result') && !Object.hasOwn(stage, 'progress'), 'internal reduction facts are not serialized');
+  t.assert(stage.result === 'action_required' && stage.progress === 'none', 'stage reduction facts are serialized for independent validation');
   t.assert(throwsCode(() => createStageResult({ name: '', status: 'READY' }), 'INVALID_CONTRACT'), 'empty stage name is rejected');
   t.assert(throwsCode(() => createStageResult({ name: 'x', status: '' }), 'INVALID_CONTRACT'), 'empty stage status is rejected');
   t.assert(throwsCode(() => createStageResult({ name: 'x', status: 'NOT_A_STATUS' }), 'INVALID_CONTRACT'), 'unknown stage status is rejected');
@@ -226,16 +250,19 @@ function validMachineInput(overrides = {}) {
   const committed = createStageResult({ name: 'five', status: 'CURRENT', result: 'ready', progress: 'committed', changed: true });
   const rolledBack = createStageResult({ name: 'six', status: 'ROLLED_BACK', result: 'rolled_back' });
   const optionalSkipped = createStageResult({ name: 'seven', status: 'NOT_CHECKED', mandatory: false, result: 'skipped' });
+  const rollbackFailed = createStageResult({ name: 'eight', status: 'ROLLBACK_FAILED', result: 'failed', progress: 'committed', changed: true });
 
   t.assert(reduceOutcome([ready, unusualReady]) === 'HEALTHY', 'status names do not determine a healthy outcome');
   t.assert(reduceOutcome([ready, restart]) === 'ACTION_REQUIRED', 'human-only action reduces to ACTION_REQUIRED');
   t.assert(reduceOutcome([failed]) === 'FAILED', 'mandatory failure without useful progress reduces to FAILED');
   t.assert(reduceOutcome([committed, failed]) === 'PARTIAL', 'committed progress plus mandatory failure reduces to PARTIAL');
   t.assert(reduceOutcome([rolledBack]) === 'FAILED', 'fully rolled-back mandatory transaction reduces to FAILED');
+  t.assert(reduceOutcome([rollbackFailed]) === 'PARTIAL', 'failed rollback with retained mutation reduces to PARTIAL');
   t.assert(reduceOutcome([ready, createStageResult({ name: 'optional', status: 'INSTALL_FAILED', mandatory: false, result: 'failed' })]) === 'ACTION_REQUIRED', 'optional failure remains visible as ACTION_REQUIRED');
   t.assert(reduceOutcome([ready, optionalSkipped]) === 'HEALTHY', 'optional skipped work does not make a healthy result actionable');
   t.assert(shouldRecordPlanDigest([committed]) === true, 'committed apply progress consumes the approved plan');
   t.assert(shouldRecordPlanDigest([rolledBack]) === true, 'fully rolled-back apply progress consumes the approved plan');
+  t.assert(shouldRecordPlanDigest([rollbackFailed]) === true, 'failed rollback with retained mutation consumes the approved plan');
   t.assert(shouldRecordPlanDigest([failed, restart]) === false, 'failure or action without apply progress remains retryable');
 }
 
@@ -254,7 +281,20 @@ function validMachineInput(overrides = {}) {
   t.assert(result.kind === 'uemcp.deployment.result' && result.outcome === 'HEALTHY', 'machine result is constructed with reduced outcome');
   t.assert(result.timestamp === '2026-07-15T12:00:00.000Z', 'machine result uses the injected timestamp');
   t.assert(validateMachineResult(result) === true, 'machine result validates against schema 1.0');
-  t.assert(!Object.hasOwn(result.stages[0], 'result'), 'serialized machine stages omit internal reduction facts');
+  t.assert(result.stages[0].result === 'ready' && result.stages[0].progress === 'none', 'serialized machine stages retain outcome reduction facts');
+  t.assert(result.request.client_decisions.replace_owned_fields === false, 'machine requests retain digest-bound client repair decisions');
+  const excludedRequest = createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['gemini'] }) }));
+  t.assert(JSON.stringify(excludedRequest.request.excluded_clients) === JSON.stringify(['gemini']), 'machine requests retain digest-bound explicit client exclusions');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['gemini', 'gemini'] }) })), 'INVALID_CONTRACT'), 'duplicate client exclusions are rejected');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ selected_clients: ['unknown-client'] }) })), 'INVALID_CONTRACT'), 'unknown selected client IDs are rejected by the shared request contract');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['unknown-client'] }) })), 'INVALID_CONTRACT'), 'unknown excluded client IDs are rejected by the shared request contract');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ selected_clients: ['gemini'], excluded_clients: ['gemini'] }) })), 'INVALID_CONTRACT'), 'overlapping client selections and exclusions are rejected');
+  const missingExclusions = structuredClone(result.request);
+  delete missingExclusions.excluded_clients;
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: missingExclusions })), 'INVALID_CONTRACT'), 'client exclusion authority is required by the request contract');
+  t.assert(throwsCode(() => validateMachineResult({ ...structuredClone(result), outcome: 'FAILED' }), 'INVALID_CONTRACT'), 'machine result validation rejects an outcome that contradicts its stages');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true } }) })), 'INVALID_CONTRACT'), 'partial client decision objects are rejected');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true, shadow_gemini_extension: false, migrate_legacy_claude_project: false, extra: false } }) })), 'INVALID_CONTRACT'), 'unknown client decisions are rejected');
 
   const archived = createMachineResult(validMachineInput({
     source: validSource({
@@ -278,6 +318,26 @@ function validMachineInput(overrides = {}) {
 
   const withClient = createMachineResult(validMachineInput({ clients: [validClient()] }));
   t.assert(withClient.clients[0].status === 'CONFIGURED', 'field-specific valid client states are accepted');
+  t.assert(throwsCode(() => validateMachineResult({
+    ...structuredClone(withClient),
+    clients: [structuredClone(withClient.clients[0]), structuredClone(withClient.clients[0])],
+  }), 'INVALID_CONTRACT'), 'machine result validation rejects duplicate client adapter identities');
+  const withReceipt = createMachineResult(validMachineInput({
+    receipts: [{ kind: 'deployment', path_label: 'receipts/result.json', sha256: 'a'.repeat(64) }],
+  }));
+  t.assert(throwsCode(() => validateMachineResult({
+    ...structuredClone(withReceipt),
+    receipts: [structuredClone(withReceipt.receipts[0]), structuredClone(withReceipt.receipts[0])],
+  }), 'INVALID_CONTRACT'), 'machine result validation rejects duplicate receipt identities');
+  const pendingApproval = createMachineResult(validMachineInput({
+    clients: [validClient({
+      activation: 'PENDING_APPROVAL',
+      actions: [validAction({ code: 'PENDING_APPROVAL', message: 'Approve the server in the client.' })],
+    })],
+  }));
+  t.assert(pendingApproval.clients[0].activation === 'PENDING_APPROVAL', 'client approval remains distinct from workspace trust');
+  const rejected = createMachineResult(validMachineInput({ clients: [validClient({ activation: 'REJECTED' })] }));
+  t.assert(rejected.clients[0].activation === 'REJECTED', 'client rejection remains distinct from structural enablement');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ compatibility: 'unknown_newer', write_supported: true })] })), 'INVALID_CONTRACT'), 'unknown newer clients cannot be write-supported');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ compatibility: 'release_gated', write_supported: false })] })), 'INVALID_CONTRACT'), 'release-gated clients must be write-supported');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ clients: [validClient({ status: 'READY' })] })), 'INVALID_CONTRACT'), 'client structural status uses its field-specific subset');
@@ -303,16 +363,23 @@ function validMachineInput(overrides = {}) {
 }
 
 function makePrimitiveRoot(label = 'uemcp-deployment-primitives-') {
-  const root = join(tmpdir(), `${label}${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot(label);
 }
 
 function cleanupPrimitiveRoot(root, label = 'uemcp-') {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, label);
+}
+
+function directoryChain(path) {
+  const absolute = resolve(path);
+  const volume = parse(absolute).root;
+  const result = [volume];
+  let current = volume;
+  for (const part of relative(volume, absolute).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    result.push(current);
+  }
+  return result;
 }
 
 async function rejectsCode(fn, code) {
@@ -356,11 +423,70 @@ async function rejectsCode(fn, code) {
     const file = await fingerprintPath(payload, { allowedRoots: [root] });
     t.assert(file.exists && file.kind === 'file' && file.sha256 === sha256Bytes(Buffer.from([0, 255, 10, 13])), 'file fingerprint hashes exact bytes');
     t.assert(file.link_count >= 2, 'file fingerprint records hard-link count');
+    let boundedReads = 0;
+    const boundedFs = {
+      ...asyncFs,
+      async readFile(...args) {
+        boundedReads += 1;
+        return asyncFs.readFile(...args);
+      },
+    };
+    t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: [root], fsImpl: boundedFs, maxBytes: 3 }), 'FINGERPRINT_BYTE_LIMIT'), 'file fingerprint rejects an oversized file before hashing');
+    t.assert(boundedReads === 0, 'oversized fingerprint rejection performs no file read');
+    const growthFs = {
+      ...asyncFs,
+      async lstat(...args) {
+        const stat = await asyncFs.lstat(...args);
+        return new Proxy(stat, {
+          get(target, property) {
+            return property === 'size' ? 1 : Reflect.get(target, property, target);
+          },
+        });
+      },
+    };
+    t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: [root], fsImpl: growthFs, maxBytes: 3 }), 'FINGERPRINT_BYTE_LIMIT'), 'file growth after the initial stat remains bounded by the fingerprint read');
+    const unstableFingerprintFs = {
+      ...asyncFs,
+      async open(path, flags, mode) {
+        const handle = await asyncFs.open(path, flags, mode);
+        if (resolve(path) !== resolve(payload) || flags !== 'r') return handle;
+        let statCalls = 0;
+        return {
+          async stat() {
+            statCalls += 1;
+            const stat = await handle.stat();
+            if (statCalls < 2) return stat;
+            return new Proxy(stat, {
+              get(targetStat, property) {
+                if (property === 'ino') return Number(targetStat.ino) + 65_536;
+                const value = Reflect.get(targetStat, property, targetStat);
+                return typeof value === 'function' ? value.bind(targetStat) : value;
+              },
+            });
+          },
+          readFile: (...args) => handle.readFile(...args),
+          read: (...args) => handle.read(...args),
+          close: () => handle.close(),
+        };
+      },
+    };
+    t.assert(await rejectsCode(
+      () => fingerprintPath(payload, { allowedRoots: [root], fsImpl: unstableFingerprintFs }),
+      'FINGERPRINT_CHANGED_DURING_READ',
+    ), 'file fingerprint rejects identity drift observed through its open read handle');
     const missing = await fingerprintPath(join(root, 'missing.txt'), { allowedRoots: [root] });
     t.assert(!missing.exists && missing.kind === 'missing' && missing.sha256 === null, 'missing path has an explicit fingerprint');
     const directory = await fingerprintDirectory(tree, { allowedRoots: [root] });
     t.assert(directory.entries.map(entry => entry.path).join(',') === 'a.txt,b.txt', 'directory manifest paths are slash-normalized and ordinal sorted');
     t.assert(directory.manifest_sha256 === sha256Canonical(directory.entries), 'directory manifest hash covers exact entry rows');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxFiles: 1 }), 'FINGERPRINT_FILE_LIMIT'), 'directory manifest rejects a runtime tree above its file ceiling');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxEntries: 1 }), 'FINGERPRINT_ENTRY_LIMIT'), 'directory manifest rejects a runtime tree above its traversal ceiling');
+    t.assert(await rejectsCode(() => fingerprintDirectory(tree, { allowedRoots: [root], maxBytes: 1 }), 'FINGERPRINT_BYTE_LIMIT'), 'directory manifest rejects aggregate runtime bytes above their ceiling');
+    const linkedTree = join(root, 'linked-tree');
+    mkdirSync(linkedTree);
+    writeFileSync(join(linkedTree, 'runtime.mjs'), 'runtime', 'utf8');
+    linkSync(join(linkedTree, 'runtime.mjs'), join(linkedTree, 'runtime-alias.mjs'));
+    t.assert(await rejectsCode(() => fingerprintDirectory(linkedTree, { allowedRoots: [root], maxFiles: 10, maxEntries: 10, maxBytes: 1024 }), 'UNSAFE_LINK_TYPE'), 'directory manifest rejects multiply linked runtime files');
     t.assert(await rejectsCode(() => fingerprintPath(payload, { allowedRoots: ['relative-root'] }), 'INVALID_ALLOWED_ROOT'), 'relative allowed roots are rejected');
 
     const outside = makePrimitiveRoot('uemcp-outside-');
@@ -429,6 +555,102 @@ async function rejectsCode(fn, code) {
   t.assert(probed.status === 'exited' && spawnOptions.shell === false && spawnOptions.windowsHide === true, 'real spawn is forced to shell:false with a hidden Windows child');
 }
 
+// Process-tree termination uses one absolute Windows primitive and deterministic fallback.
+{
+  const calls = [];
+  const directSignals = [];
+  const child = {
+    pid: 4242,
+    kill(signal) {
+      directSignals.push(signal);
+    },
+  };
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl(executable, args, options) {
+      calls.push({ executable, args, options });
+      const killer = new EventEmitter();
+      killer.pid = 4343;
+      killer.kill = () => {};
+      queueMicrotask(() => killer.emit('close', 0, null));
+      return killer;
+    },
+  });
+  t.assert(calls.length === 1
+    && calls[0].executable === 'C:\\Windows\\System32\\taskkill.exe'
+    && JSON.stringify(calls[0].args) === JSON.stringify(['/PID', '4242', '/T', '/F']), 'Windows tree termination uses absolute taskkill with exact non-shell arguments');
+  t.assert(calls[0].options.shell === false
+    && calls[0].options.windowsHide === true
+    && Object.keys(calls[0].options.env).sort().join(',') === 'SystemRoot,WINDIR', 'taskkill runs hidden with a minimal fixed environment');
+  t.assert(directSignals.length === 0, 'successful tree termination does not redundantly signal the direct child');
+
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      const killer = new EventEmitter();
+      killer.pid = 4344;
+      killer.kill = () => {};
+      queueMicrotask(() => killer.emit('close', 1, null));
+      return killer;
+    },
+  });
+  t.assert(directSignals.at(-1) === 'SIGKILL', 'failed taskkill falls back to the requested direct-child signal');
+
+  let timedOutKillerSignal = null;
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    timeoutMs: 5,
+    spawnImpl() {
+      const killer = new EventEmitter();
+      killer.pid = 4345;
+      killer.kill = signal => {
+        timedOutKillerSignal = signal;
+      };
+      return killer;
+    },
+  });
+  t.assert(timedOutKillerSignal === 'SIGKILL'
+    && directSignals.at(-1) === 'SIGKILL', 'taskkill timeout kills the helper and falls back to the direct child');
+
+  const signalsBeforeSpawnFailure = directSignals.length;
+  await terminateProcessTree(child, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      throw new Error('injected spawn failure');
+    },
+  });
+  t.assert(directSignals.length === signalsBeforeSpawnFailure + 1
+    && directSignals.at(-1) === 'SIGKILL', 'taskkill spawn failure falls back to the direct child');
+
+  let invalidSpawned = false;
+  await terminateProcessTree({ pid: 0, kill() {} }, {
+    platform: 'win32',
+    systemRoot: 'C:\\Windows',
+    spawnImpl() {
+      invalidSpawned = true;
+    },
+  });
+  t.assert(invalidSpawned === false, 'invalid child identity never reaches taskkill');
+
+  const deadlineModules = [
+    'bounded-stdio-transport.mjs',
+    'local-state.mjs',
+    'process-runner.mjs',
+    'protocol-smoke.mjs',
+    'windows-native.mjs',
+  ];
+  t.assert(deadlineModules.every(name => !readFileSync(join(import.meta.dirname, 'deployment', name), 'utf8').includes('.unref')),
+    'awaited deployment deadlines remain event-loop referenced until settlement');
+  const windowsNativeSource = readFileSync(join(import.meta.dirname, 'deployment', 'windows-native.mjs'), 'utf8');
+  t.assert((windowsNativeSource.match(/acquisitionTimeoutMs = PIN_ACQUISITION_TIMEOUT_MS/g) ?? []).length === 3
+    && windowsNativeSource.includes('const PIN_ACQUISITION_TIMEOUT_MS = 30_000;'),
+    'all Windows pin helpers share one bounded cold-start acquisition deadline');
+}
+
 // Windows-native helpers use fixed stdin programs and dedicated environment values.
 {
   const root = makePrimitiveRoot();
@@ -443,6 +665,9 @@ async function rejectsCode(fn, code) {
     const fakeRunner = {
       async run(executable, args, options) {
         calls.push({ executable, args, options });
+        if (options.stdin.includes('SHGetKnownFolderPath')) {
+          return { status: 'exited', exitCode: 0, stdout: '{"program_data":"D:\\\\PolicyData","program_files":"E:\\\\Programs"}', stderr: '' };
+        }
         if (options.env.UEMCP_AUTHENTICODE_TARGET) {
           return { status: 'exited', exitCode: 0, stdout: '{"status":"Valid","signer_name":"Trusted Signer","thumbprint":"ABC123"}\r\n', stderr: '' };
         }
@@ -484,14 +709,414 @@ async function rejectsCode(fn, code) {
     t.assert(metadata.metadata_sha256 === 'a'.repeat(64) && metadata.stream_count === 1, 'metadata helper returns only aggregate evidence');
     const metadataCall = calls.find(call => call.options.env.UEMCP_METADATA_TARGET);
     t.assert(!metadataCall.options.stdin.includes(target) && !JSON.stringify(metadata).includes('tool with'), 'metadata helper does not expose paths or stream details');
+    t.assert(metadataCall.options.timeoutMs === 30_000, 'metadata helper retains the bounded production timeout by default');
+    await fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 60_000 });
+    t.assert(calls.at(-1).options.timeoutMs === 60_000, 'metadata helper accepts a bounded integration timeout override');
+    t.assert(await rejectsCode(
+      () => fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 0 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'metadata helper rejects a non-positive timeout override');
+    t.assert(await rejectsCode(
+      () => fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 120_001 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'metadata helper rejects an override above the integration ceiling');
+
+    const knownFolders = await resolveWindowsKnownFolders({ runner: fakeRunner, platform: 'win32', systemRoot: 'C:\\Windows' });
+    t.assert(knownFolders.programData === 'D:\\PolicyData' && knownFolders.programFiles === 'E:\\Programs', 'known-folder helper returns normalized ProgramData and Program Files paths');
+    const knownFolderCall = calls.find(call => call.options.stdin.includes('SHGetKnownFolderPath'));
+    t.assert(knownFolderCall.options.timeoutMs === 30_000, 'known-folder helper uses the standard bounded production timeout');
+    t.assert(knownFolderCall.executable === resolve('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+      && JSON.stringify(Object.keys(knownFolderCall.options.env).sort()) === JSON.stringify(['PSModulePath', 'SystemRoot', 'WINDIR'].sort()),
+    'known-folder resolution uses fixed System32 PowerShell with no inherited folder environment values');
+    t.assert(WINDOWS_NATIVE_SCRIPTS.known_folders.includes('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
+      && WINDOWS_NATIVE_SCRIPTS.known_folders.includes('905e63b6-c1bf-494e-b29c-65b732d3d21a')
+      && WINDOWS_NATIVE_SCRIPTS.known_folders.includes('Marshal.FreeCoTaskMem'),
+    'known-folder helper calls the canonical ProgramData and Program Files IDs and releases native memory');
+    const relativeKnownFolderRunner = {
+      async run() {
+        return { status: 'exited', exitCode: 0, stdout: '{"program_data":"relative","program_files":"E:\\\\Programs"}', stderr: '' };
+      },
+    };
+    t.assert(await rejectsCode(
+      () => resolveWindowsKnownFolders({ runner: relativeKnownFolderRunner, platform: 'win32', systemRoot: 'C:\\Windows' }),
+      'INVALID_KNOWN_FOLDER_RESULT',
+    ), 'known-folder helper rejects non-absolute native results');
 
     const replaced = await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows' });
     t.assert(replaced.status === 'replaced', 'replacement helper accepts a normalized success response');
     const replaceCall = calls.find(call => call.options.env.UEMCP_REPLACEMENT_PATH);
     t.assert(!replaceCall.options.stdin.includes(replacement) && !replaceCall.args.join(' ').includes(destination), 'replacement paths are not interpolated into source or arguments');
+    t.assert(replaceCall.options.timeoutMs === 30_000, 'replacement helper retains the bounded production timeout by default');
+    await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows', timeoutMs: 60_000 });
+    t.assert(calls.at(-1).options.timeoutMs === 60_000, 'replacement helper accepts a bounded integration timeout override');
+    t.assert(await rejectsCode(
+      () => replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows', timeoutMs: 1.5 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'replacement helper rejects a non-integer timeout override');
     t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
+
+    if (process.platform === 'win32') {
+      let liveKnownFolders = null;
+      let liveKnownFolderError = null;
+      try {
+        liveKnownFolders = await resolveWindowsKnownFolders({ runner: createProcessRunner(), timeoutMs: 60_000 });
+      } catch (error) {
+        liveKnownFolderError = error;
+      }
+      t.assert(liveKnownFolderError === null, 'live Windows known-folder API completes within the integration timeout', liveKnownFolderError?.code);
+      if (liveKnownFolders) {
+        t.assert(isAbsolute(liveKnownFolders.programData) && isAbsolute(liveKnownFolders.programFiles), 'live Windows known-folder API returns two absolute policy roots');
+      }
+    }
   } finally {
     cleanupPrimitiveRoot(root);
+  }
+}
+
+// The ancestry holder validates a direct chain and proves real Windows rename containment.
+{
+  const root = makePrimitiveRoot('uemcp-ancestry-pin-');
+  try {
+    const volume = parse(resolve(root)).root;
+    let spawnCalls = 0;
+    const invalid = [volume, join(volume, 'first'), join(volume, 'unrelated')];
+    t.assert(await rejectsCode(() => withPinnedWindowsAncestry({
+      directories: invalid,
+      callback: async () => {},
+      spawnImpl() {
+        spawnCalls += 1;
+      },
+    }), 'INVALID_ANCESTRY_PIN'), 'non-contiguous ancestry is rejected before helper spawn');
+    t.assert(spawnCalls === 0, 'invalid ancestry never starts PowerShell');
+    t.assert(WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x10080')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x3')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x02200000')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('0x04200100')
+      && WINDOWS_NATIVE_SCRIPTS.ancestry_pin.includes('GetFileInformationByHandle'), 'ancestry helper requests delete access without delete sharing and checks reparse attributes by handle');
+
+    if (process.platform === 'win32') {
+      const pinRoot = join(root, 'owned-root');
+      const destinationParent = join(pinRoot, 'nested', 'destination');
+      mkdirSync(destinationParent, { recursive: true });
+      let parentRenameBlocked = false;
+      let ancestorRenameBlocked = false;
+      await withPinnedWindowsAncestry({
+        directories: directoryChain(destinationParent),
+        callback: async guard => {
+          guard.assertPinned();
+          try {
+            await asyncFs.rename(destinationParent, join(dirname(destinationParent), 'moved-destination'));
+          } catch {
+            parentRenameBlocked = true;
+          }
+          try {
+            await asyncFs.rename(pinRoot, join(root, 'moved-owned-root'));
+          } catch {
+            ancestorRenameBlocked = true;
+          }
+          const scratch = join(destinationParent, '.publish.tmp');
+          const target = join(destinationParent, 'published.json');
+          await asyncFs.writeFile(scratch, Buffer.from('{}\n'));
+          await asyncFs.rename(scratch, target);
+          guard.assertPinned();
+          t.assert((await asyncFs.readFile(target, 'utf8')) === '{}\n', 'pinned parent still permits intended child-file publication');
+        },
+      });
+      t.assert(parentRenameBlocked && ancestorRenameBlocked, 'held delete handles block direct-parent and ancestor substitution');
+      t.assert(!(await asyncFs.readdir(destinationParent)).some(name => name.startsWith('.uemcp-pin-')), 'delete-on-close pin leaves no sentinel residue');
+
+      const outside = join(root, 'outside');
+      const linked = join(root, 'linked');
+      mkdirSync(outside);
+      symlinkSync(outside, linked, 'junction');
+      let linkedCallback = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsAncestry({
+        directories: directoryChain(linked),
+        callback: async () => {
+          linkedCallback = true;
+        },
+      }), 'ANCESTRY_PIN_FAILED'), 'native ancestry acquisition rejects a junction by its opened handle');
+      t.assert(linkedCallback === false, 'junction rejection occurs before the mutation callback');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-ancestry-pin-');
+  }
+}
+
+// Runtime manifests hold every package-tree identity stable for their complete hash pass.
+{
+  const root = makePrimitiveRoot('uemcp-tree-pin-');
+  try {
+    const pinnedScript = join(root, 'pinned-launch.mjs');
+    writeFileSync(pinnedScript, 'export const pinned = true;\n', 'utf8');
+    const mutableLaunch = {
+      command: resolve(process.execPath),
+      args_prefix: [resolve(pinnedScript)],
+      source: 'native',
+      fingerprint: {
+        command: await fingerprintPath(process.execPath, { allowedRoots: [dirname(process.execPath)] }),
+        args_prefix: [await fingerprintPath(pinnedScript, { allowedRoots: [root] })],
+      },
+    };
+    await withPinnedClientLaunch(mutableLaunch, {
+      launchFilePinner: async ({ paths, callback }) => {
+        t.assert(paths.includes(resolve(process.execPath)) && paths.includes(resolve(pinnedScript)), 'client launch pinner receives the validated executable and script tuple');
+        mutableLaunch.command = join(root, 'replaced-node.exe');
+        mutableLaunch.args_prefix[0] = join(root, 'replaced-script.mjs');
+        return callback(Object.freeze({ assertPinned() {} }));
+      },
+      callback: async (guard, pinnedLaunch) => {
+        guard.assertPinned();
+        t.assert(pinnedLaunch?.command === resolve(process.execPath)
+          && pinnedLaunch.args_prefix[0] === resolve(pinnedScript)
+          && Object.isFrozen(pinnedLaunch)
+          && Object.isFrozen(pinnedLaunch.args_prefix)
+          && Object.isFrozen(pinnedLaunch.fingerprint), 'client callback receives the frozen launch tuple whose files were pinned');
+      },
+    });
+    const nonClosingChild = () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = new EventEmitter();
+      child.stdin.write = () => true;
+      child.stdin.end = () => {};
+      child.kill = () => true;
+      return child;
+    };
+    for (const [label, expectedCode, invoke] of [
+      ['runtime tree', 'TREE_PIN_FAILED', child => withPinnedWindowsTrees({
+        roots: [root],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {},
+        platform: 'win32',
+        spawnImpl: () => child,
+        acquisitionTimeoutMs: 5,
+        releaseTimeoutMs: 5,
+      })],
+      ['launch file', 'FILE_PIN_FAILED', child => withPinnedWindowsFiles({
+        paths: [join(root, 'launch.mjs')],
+        callback: async () => {},
+        platform: 'win32',
+        spawnImpl: () => child,
+        acquisitionTimeoutMs: 5,
+        releaseTimeoutMs: 5,
+      })],
+    ]) {
+      const outcome = await Promise.race([
+        invoke(nonClosingChild()).then(() => 'UNEXPECTED_SUCCESS', error => error?.code ?? 'UNKNOWN_ERROR'),
+        new Promise(resolvePromise => setTimeout(() => resolvePromise('UNBOUNDED_WAIT'), 150)),
+      ]);
+      t.assert(outcome === expectedCode, `${label} acquisition cleanup remains bounded when its helper never closes`);
+    }
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('ShareRead')
+        && !WINDOWS_NATIVE_SCRIPTS.tree_pin.includes('ShareWrite'),
+      'runtime tree pin opens every descendant without write or delete sharing',
+    );
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.file_pin.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.file_pin.includes('ShareRead'),
+      'launch file pin opens exact files as reparse-point objects without write or delete sharing',
+    );
+    if (process.platform === 'win32') {
+      const tree = join(root, 'runtime');
+      const nested = join(tree, 'nested');
+      const payload = join(nested, 'runtime.mjs');
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(payload, 'export const value = 1;\n', 'utf8');
+      let fileWriteBlocked = false;
+      let directoryRenameBlocked = false;
+      await withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async guard => {
+          guard.assertPinned();
+          const fingerprint = await fingerprintDirectory(tree, { allowedRoots: [root] });
+          t.assert(fingerprint.file_count === 1, 'runtime tree remains readable while its identities are pinned');
+          try {
+            await asyncFs.writeFile(payload, 'changed', 'utf8');
+          } catch {
+            fileWriteBlocked = true;
+          }
+          try {
+            await asyncFs.rename(nested, join(tree, 'moved'));
+          } catch {
+            directoryRenameBlocked = true;
+          }
+          guard.assertPinned();
+        },
+      });
+      t.assert(fileWriteBlocked && directoryRenameBlocked, 'runtime tree pin blocks content writes and identity substitution');
+
+      const pinnedNode = join(root, 'pinned-node.exe');
+      copyFileSync(process.execPath, pinnedNode);
+      let filePinWriteBlocked = false;
+      let filePinRenameBlocked = false;
+      await withPinnedWindowsFiles({
+        paths: [pinnedNode, payload],
+        callback: async guard => {
+          guard.assertPinned();
+          t.assert((await asyncFs.readFile(payload, 'utf8')).includes('value = 1'), 'launch file remains readable while pinned');
+          const childResult = await new Promise((resolvePromise, rejectPromise) => {
+            const child = spawn(pinnedNode, [payload], {
+              env: {},
+              shell: false,
+              windowsHide: true,
+              stdio: 'ignore',
+            });
+            child.once('error', rejectPromise);
+            child.once('close', (code, signal) => resolvePromise({ code, signal }));
+          });
+          t.assert(childResult.code === 0 && childResult.signal === null, 'exact file pins permit the intended child process to load and exit');
+          try {
+            await asyncFs.writeFile(payload, 'changed', 'utf8');
+          } catch {
+            filePinWriteBlocked = true;
+          }
+          try {
+            await asyncFs.rename(payload, join(nested, 'moved.mjs'));
+          } catch {
+            filePinRenameBlocked = true;
+          }
+        },
+      });
+      t.assert(filePinWriteBlocked && filePinRenameBlocked, 'launch file pin blocks byte mutation and path substitution through process completion');
+
+      const absentEvidence = join(root, 'transient-evidence.json');
+      let absentEvidenceChanged = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsFiles({
+        paths: [payload],
+        absentPaths: [absentEvidence],
+        callback: async guard => {
+          guard.assertPinned();
+          await asyncFs.writeFile(absentEvidence, '{"transient":true}\n', 'utf8');
+          absentEvidenceChanged = true;
+          await asyncFs.rm(absentEvidence, { force: true });
+        },
+      }), 'FILE_PIN_FAILED'), 'file pin rejects transient creation and removal of approved-absent evidence');
+      t.assert(absentEvidenceChanged && !existsSync(absentEvidence), 'absent evidence monitoring detects namespace drift even when final absence matches');
+
+      const watchedRoot = join(root, 'watched-absence');
+      const missingAncestor = join(watchedRoot, 'missing');
+      const nestedAbsentEvidence = join(missingAncestor, 'evidence.json');
+      const junctionTarget = join(root, 'absence-junction-target');
+      mkdirSync(watchedRoot);
+      mkdirSync(junctionTarget);
+      let junctionBytesObserved = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsFiles({
+        paths: [payload],
+        absentPaths: [nestedAbsentEvidence],
+        callback: async guard => {
+          guard.assertPinned();
+          symlinkSync(junctionTarget, missingAncestor, 'junction');
+          writeFileSync(join(junctionTarget, 'evidence.json'), '{"transient_junction":true}\n', 'utf8');
+          junctionBytesObserved = readFileSync(nestedAbsentEvidence, 'utf8').includes('transient_junction');
+          rmSync(join(junctionTarget, 'evidence.json'), { force: true });
+          rmSync(missingAncestor, { force: true });
+        },
+      }), 'FILE_PIN_FAILED'), 'file pin rejects a transient junction introduced in approved-absent ancestry');
+      t.assert(junctionBytesObserved && !existsSync(nestedAbsentEvidence) && !existsSync(missingAncestor), 'missing-ancestor monitoring rejects transient redirected bytes even when every component is absent afterward');
+
+      const addedPath = join(tree, 'new-runtime.mjs');
+      let childCreationObserved = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          await asyncFs.writeFile(addedPath, 'new', 'utf8');
+          childCreationObserved = true;
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree pin rejects namespace growth observed during the hash pass');
+      t.assert(childCreationObserved, 'runtime tree watcher detects namespace growth that Windows permits beneath an open directory handle');
+      await asyncFs.rm(addedPath, { force: true });
+
+      const racedPath = join(tree, 'raced-runtime.mjs');
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [tree],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          await asyncFs.writeFile(racedPath, 'new', 'utf8');
+          await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
+          throw Object.assign(new Error('callback also failed'), { code: 'CALLBACK_FAILED' });
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree integrity failure outranks a concurrent callback failure');
+      await asyncFs.rm(racedPath, { force: true });
+
+      const outside = join(root, 'outside-tree');
+      const linked = join(root, 'linked-tree-root');
+      mkdirSync(outside);
+      symlinkSync(outside, linked, 'junction');
+      let linkedCallback = false;
+      t.assert(await rejectsCode(() => withPinnedWindowsTrees({
+        roots: [linked],
+        maxEntries: 8,
+        maxFiles: 4,
+        maxBytes: 1024,
+        callback: async () => {
+          linkedCallback = true;
+        },
+      }), 'TREE_PIN_FAILED'), 'runtime tree pin rejects a junction root by its opened handle');
+      t.assert(linkedCallback === false, 'linked runtime tree is rejected before hashing starts');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-tree-pin-');
+  }
+}
+
+// Recursive cleanup deletes reparse points as objects while preserving their targets.
+{
+  const root = makePrimitiveRoot('uemcp-delete-tree-');
+  try {
+    let runnerCalls = 0;
+    const neverRunner = {
+      async run() {
+        runnerCalls += 1;
+        throw new Error('must not run');
+      },
+    };
+    t.assert(await rejectsCode(() => deleteWindowsTreeNoFollow({
+      targetPath: root,
+      allowedRoot: root,
+      runner: neverRunner,
+    }), 'INVALID_TREE_DELETE'), 'no-follow tree deletion cannot remove its allowed root');
+    t.assert(runnerCalls === 0, 'invalid tree deletion never starts PowerShell');
+    t.assert(
+      WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('OpenReparsePoint')
+        && WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('SetFileInformationByHandle')
+        && !WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('Remove-Item')
+        && !WINDOWS_NATIVE_SCRIPTS.delete_tree.includes('Directory.Delete'),
+      'tree deletion opens reparse points as objects and deletes by handle without pathname-recursive APIs',
+    );
+
+    if (process.platform === 'win32') {
+      const allowedRoot = join(root, 'owned');
+      const target = join(allowedRoot, 'discard');
+      const outside = join(root, 'outside');
+      mkdirSync(target, { recursive: true });
+      mkdirSync(outside);
+      writeFileSync(join(target, 'inside.txt'), 'inside', 'utf8');
+      writeFileSync(join(outside, 'sentinel.txt'), 'outside', 'utf8');
+      symlinkSync(outside, join(target, 'redirect'), 'junction');
+      const deleted = await deleteWindowsTreeNoFollow({
+        targetPath: target,
+        allowedRoot,
+        runner: createProcessRunner(),
+      });
+      t.assert(deleted.status === 'removed' && !existsSync(target), 'native no-follow tree deletion removes the owned tree');
+      t.assert(readFileSync(join(outside, 'sentinel.txt'), 'utf8') === 'outside', 'native no-follow tree deletion removes a junction without traversing its target');
+    }
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-delete-tree-');
   }
 }
 
@@ -517,19 +1142,48 @@ async function rejectsCode(fn, code) {
   t.assert(calls.every(call => call.options.env.UEMCP_LEASE_PID === '4242' && !call.options.stdin.includes('4242') && call.options.stdin.endsWith('\n\n')), 'lease PID is passed only through a bounded helper environment');
 }
 
+// The lease coordinator admits only one mutation callback for a local-state root at a time.
+{
+  const root = makePrimitiveRoot('uemcp-lease-coordinator-');
+  try {
+    const coordinate = createApplyLeaseCoordinator({ root });
+    let active = 0;
+    let maximumActive = 0;
+    await Promise.all([0, 1].map(() => coordinate(async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 40));
+      active -= 1;
+    })));
+    t.assert(maximumActive === 1, 'apply-lease coordinator serializes concurrent mutation callbacks');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-coordinator-');
+  }
+}
+
 // Local state is injectable, atomic, replay-aware, and lease protected.
 {
   const root = makePrimitiveRoot('uemcp-local-state-');
   const aclCalls = [];
+  const deletedTrees = [];
   let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
   const processStates = new Map();
+  let coordinatedMutations = 0;
   const localState = createLocalState({
     root,
     aclRestrictor: async path => aclCalls.push(path),
     processInspector: async ({ pid, process_start }) => processStates.get(`${pid}:${process_start}`) ?? 'unknown',
+    leaseCoordinator: async callback => {
+      coordinatedMutations += 1;
+      return callback();
+    },
     clock: () => nowMs,
     sleep: async ms => {
       nowMs += ms;
+    },
+    treeRemover: async ({ targetPath, allowedRoot }) => {
+      deletedTrees.push({ targetPath: resolve(targetPath), allowedRoot: resolve(allowedRoot) });
+      await asyncFs.rm(targetPath, { recursive: true, force: true });
     },
   });
   try {
@@ -576,10 +1230,101 @@ async function rejectsCode(fn, code) {
     await localState.restoreSnapshot(absentSnapshot, { expectedCurrentHash: sha256Bytes(Buffer.from('created')) });
     t.assert(!existsSync(absentTarget), 'snapshot restores an originally absent file to absence');
 
+    const unstableTarget = join(root, 'unstable-snapshot.bin');
+    writeFileSync(unstableTarget, 'before', 'utf8');
+    const unstableFs = {
+      ...asyncFs,
+      async open(path, flags, mode) {
+        const handle = await asyncFs.open(path, flags, mode);
+        if (resolve(path) !== resolve(unstableTarget) || flags !== 'r') return handle;
+        let statCalls = 0;
+        return {
+          async stat() {
+            statCalls += 1;
+            const stat = await handle.stat();
+            if (statCalls < 2) return stat;
+            return new Proxy(stat, {
+              get(targetStat, property) {
+                if (property === 'ino') return Number(targetStat.ino) + 65_536;
+                const value = Reflect.get(targetStat, property, targetStat);
+                return typeof value === 'function' ? value.bind(targetStat) : value;
+              },
+            });
+          },
+          readFile: (...args) => handle.readFile(...args),
+          close: () => handle.close(),
+        };
+      },
+    };
+    const unstableState = createLocalState({
+      root: join(root, 'unstable-local-state'),
+      fsImpl: unstableFs,
+      aclRestrictor: async () => {},
+      leaseCoordinator: async callback => callback(),
+    });
+    t.assert(await rejectsCode(
+      () => unstableState.createSnapshot(unstableTarget, { transactionId: 'unstable-read' }),
+      'UNSAFE_SNAPSHOT_TARGET',
+    ), 'snapshot creation rejects a file identity change observed through its open read handle');
+
+    const disposableSnapshot = await localState.createSnapshot(target, { transactionId: 'tx-delete' });
+    await localState.deleteSnapshot(disposableSnapshot);
+    t.assert(
+      deletedTrees.some(row => row.targetPath === resolve(disposableSnapshot.directory)
+        && row.allowedRoot === resolve(localState.paths().snapshots)),
+      'snapshot cleanup delegates recursive deletion to the no-follow tree remover within the snapshot root',
+    );
+
     const digest = '9'.repeat(64);
     t.assert(!(await localState.wasDigestApplied(digest)), 'fresh digest is not replayed');
     await localState.markDigestApplied(digest, { receipt_sha256: '8'.repeat(64) });
     t.assert(await localState.wasDigestApplied(digest), 'applied digest is persisted for replay protection');
+
+    const hasApplyJournal = ['beginApplyJournal', 'stageApplyJournal', 'completeApplyJournal', 'clearApplyJournal', 'readApplyJournal']
+      .every(name => typeof localState[name] === 'function');
+    t.assert(hasApplyJournal, 'local state exposes a durable apply-journal lifecycle');
+    if (hasApplyJournal) {
+      const preparedReceiptFor = (planDigest, fileName) => {
+        const receiptBody = {
+          schema_version: '1.0',
+          kind: 'uemcp.deployment.receipt',
+          path_label: `receipts/${fileName}`,
+          plan: { digest: planDigest },
+        };
+        const receiptDocument = { ...receiptBody, receipt_sha256: sha256Canonical(receiptBody) };
+        return {
+          reference: {
+            kind: 'deployment',
+            path_label: receiptDocument.path_label,
+            path: join(paths.receipts, fileName),
+            sha256: receiptDocument.receipt_sha256,
+          },
+          document: receiptDocument,
+        };
+      };
+      const unreceiptedDigest = '4'.repeat(64);
+      t.assert(await rejectsCode(() => localState.beginApplyJournal(unreceiptedDigest), 'MALFORMED_LOCAL_STATE'), 'apply journal cannot begin without durable recovery evidence');
+      t.assert((await localState.readApplyJournal(unreceiptedDigest)) === null, 'rejected unreceipted apply journal leaves no replay residue');
+      const uncertainDigest = '6'.repeat(64);
+      await localState.beginApplyJournal(uncertainDigest, preparedReceiptFor(uncertainDigest, 'journal-uncertain.json'));
+      t.assert(await localState.wasDigestApplied(uncertainDigest), 'an in-progress apply journal blocks ambiguous replay');
+      t.assert((await localState.readApplyJournal(uncertainDigest)).state === 'committed', 'an interrupted apply publishes its prepared recovery receipt during replay inspection');
+
+      const clearableDigest = '5'.repeat(64);
+      await localState.beginApplyJournal(clearableDigest, preparedReceiptFor(clearableDigest, 'journal-clearable.json'));
+      await localState.clearApplyJournal(clearableDigest);
+      t.assert(!(await localState.wasDigestApplied(clearableDigest)), 'a proven no-progress journal can be cleared without consuming the plan');
+
+      const journalDigest = '7'.repeat(64);
+      const preparedReceipt = preparedReceiptFor(journalDigest, 'journal-recovery.json');
+      const receiptDocument = preparedReceipt.document;
+      await localState.beginApplyJournal(journalDigest, preparedReceiptFor(journalDigest, 'journal-interrupted.json'));
+      await localState.stageApplyJournal(journalDigest, preparedReceipt);
+      t.assert(!existsSync(preparedReceipt.reference.path), 'receipt-pending journal is durable before the receipt file exists');
+      t.assert(await localState.wasDigestApplied(journalDigest), 'replay inspection reconciles a pending terminal receipt and consumes the digest');
+      t.assert(JSON.parse(readFileSync(preparedReceipt.reference.path, 'utf8')).receipt_sha256 === receiptDocument.receipt_sha256, 'journal reconciliation recreates the exact prepared receipt');
+      t.assert((await localState.readApplyJournal(journalDigest)).state === 'committed', 'journal reconciliation reaches one committed terminal state');
+    }
 
     processStates.set('123:1000', 'alive');
     const lease = await localState.acquireApplyLease({ pid: 123, processStart: 1000, waitMs: 0 });
@@ -592,7 +1337,7 @@ async function rejectsCode(fn, code) {
     t.assert(await rejectsCode(() => localState.acquireApplyLease({ pid: 456, processStart: 2000, waitMs: 0 }), 'APPLY_IN_PROGRESS'), 'malformed lease residue is never broken automatically');
     rmSync(paths.lock, { force: true });
 
-    const deadLease = { owner_token: 'dead-owner-token', pid: 321, process_start: 3000, acquired_at: new Date(nowMs - 60_000).toISOString() };
+    const deadLease = { owner_token: 'd'.repeat(48), pid: 321, process_start: 3000, acquired_at: new Date(nowMs - 60_000).toISOString() };
     mkdirSync(dirname(paths.lock), { recursive: true });
     writeFileSync(paths.lock, canonicalJson(deadLease), 'utf8');
     processStates.set('321:3000', 'dead');
@@ -600,8 +1345,137 @@ async function rejectsCode(fn, code) {
     const reclaimed = await localState.acquireApplyLease({ pid: 654, processStart: 4000, waitMs: 100, pollMs: 5, staleGraceMs: 5_000 });
     t.assert(reclaimed.ownerToken !== deadLease.owner_token, 'proven-dead lease is reclaimed after the grace period');
     await reclaimed.release();
+    t.assert(coordinatedMutations >= 6, 'lease publication, inspection, reclamation, and release use the injected coordinator');
   } finally {
     cleanupPrimitiveRoot(root, 'uemcp-local-state-');
+  }
+}
+
+// Interrupted publication never exposes a partial lease record at the canonical lock path.
+{
+  const root = makePrimitiveRoot('uemcp-lease-partial-');
+  let injected = false;
+  const fsImpl = {
+    ...asyncFs,
+    async open(path, flags, mode) {
+      const handle = await asyncFs.open(path, flags, mode);
+      if (!injected && flags === 'wx' && String(path).includes('deployment-apply-v1.lock')) {
+        injected = true;
+        return {
+          async writeFile() {
+            await handle.writeFile('{"owner_token"', 'utf8');
+            const error = new Error('injected partial lease publication');
+            error.code = 'INJECTED_PARTIAL_WRITE';
+            throw error;
+          },
+          sync: (...args) => handle.sync(...args),
+          close: (...args) => handle.close(...args),
+        };
+      }
+      return handle;
+    },
+  };
+  try {
+    const localState = createLocalState({
+      root,
+      fsImpl,
+      aclRestrictor: async () => {},
+      leaseCoordinator: callback => callback(),
+    });
+    const paths = localState.paths();
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0 }), 'INJECTED_PARTIAL_WRITE'), 'partial lease publication failure is surfaced');
+    t.assert(!existsSync(paths.lock), 'partial lease publication never creates the canonical lock');
+    const residue = existsSync(paths.state) ? await asyncFs.readdir(paths.state) : [];
+    t.assert(!residue.some(name => name.includes('deployment-apply-v1.lock')), 'failed lease publication cleans its private scratch record');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-partial-');
+  }
+}
+
+// Stale-owner reclamation revalidates identity before removing the observed lease.
+{
+  const root = makePrimitiveRoot('uemcp-lease-reclaim-race-');
+  let nowMs = Date.parse('2026-07-15T12:00:00.000Z');
+  let paths;
+  const freshRecord = {
+    owner_token: 'f'.repeat(48),
+    pid: 777,
+    process_start: 7000,
+    acquired_at: new Date(nowMs).toISOString(),
+  };
+  const localState = createLocalState({
+    root,
+    aclRestrictor: async () => {},
+    leaseCoordinator: callback => callback(),
+    clock: () => nowMs,
+    processInspector: async () => {
+      rmSync(paths.lock, { force: true });
+      writeFileSync(paths.lock, `${canonicalJson(freshRecord)}\n`, 'utf8');
+      return 'dead';
+    },
+  });
+  try {
+    paths = localState.paths();
+    mkdirSync(dirname(paths.lock), { recursive: true });
+    const staleRecord = {
+      owner_token: 'd'.repeat(48),
+      pid: 321,
+      process_start: 3000,
+      acquired_at: new Date(nowMs - 60_000).toISOString(),
+    };
+    writeFileSync(paths.lock, `${canonicalJson(staleRecord)}\n`, 'utf8');
+    nowMs += 10_000;
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0, staleGraceMs: 5_000 }), 'APPLY_IN_PROGRESS'), 'stale claimant cannot remove a replacement owner published after inspection');
+    t.assert(JSON.parse(readFileSync(paths.lock, 'utf8')).owner_token === freshRecord.owner_token, 'replacement owner remains at the canonical lock path');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-reclaim-race-');
+  }
+}
+
+// A complete hard-link publication residue is healed without weakening malformed-lock handling.
+{
+  const root = makePrimitiveRoot('uemcp-lease-publish-recovery-');
+  try {
+    const localState = createLocalState({
+      root,
+      aclRestrictor: async () => {},
+      leaseCoordinator: callback => callback(),
+      processInspector: async () => 'alive',
+    });
+    const paths = localState.paths();
+    mkdirSync(dirname(paths.lock), { recursive: true });
+    const record = {
+      owner_token: 'c'.repeat(48),
+      pid: 888,
+      process_start: 8000,
+      acquired_at: '2026-07-15T12:00:00.000Z',
+    };
+    const scratch = `${paths.lock}.${record.owner_token}.publishing`;
+    writeFileSync(scratch, `${canonicalJson(record)}\n`, 'utf8');
+    linkSync(scratch, paths.lock);
+    t.assert(await rejectsCode(() => localState.acquireApplyLease({ waitMs: 0 }), 'APPLY_IN_PROGRESS'), 'complete interrupted publication remains an active lease');
+    t.assert(!existsSync(scratch) && (await asyncFs.lstat(paths.lock)).nlink === 1, 'recognized publish residue is reduced to one canonical link');
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-lease-publish-recovery-');
+  }
+}
+
+// Parseable replay-ledger corruption fails closed instead of silently becoming an empty ledger.
+for (const [label, document] of [
+  ['missing schema and applied map', {}],
+  ['unknown schema version', { schema_version: '2.0', applied: {} }],
+  ['invalid digest key', { schema_version: '1.0', applied: { not_a_digest: { applied_at: '2026-07-15T12:00:00.000Z' } } }],
+  ['invalid applied record', { schema_version: '1.0', applied: { ['1'.repeat(64)]: {} } }],
+]) {
+  const root = makePrimitiveRoot('uemcp-replay-ledger-');
+  try {
+    const localState = createLocalState({ root, aclRestrictor: async () => {} });
+    const paths = localState.paths();
+    mkdirSync(dirname(paths.replayLedger), { recursive: true });
+    writeFileSync(paths.replayLedger, `${JSON.stringify(document)}\n`, 'utf8');
+    t.assert(await rejectsCode(() => localState.wasDigestApplied('2'.repeat(64)), 'MALFORMED_LOCAL_STATE'), `${label} replay ledger fails closed`);
+  } finally {
+    cleanupPrimitiveRoot(root, 'uemcp-replay-ledger-');
   }
 }
 

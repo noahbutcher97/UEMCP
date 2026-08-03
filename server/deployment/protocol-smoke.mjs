@@ -1,7 +1,14 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { isAbsolute, posix, win32 } from 'node:path';
 
+import {
+  BoundedStdioClientTransport,
+  DEFAULT_STDIO_CLOSE_DEADLINE_MS,
+  DEFAULT_STDERR_LIMIT_BYTES,
+  DEFAULT_STDOUT_LIMIT_BYTES,
+} from './bounded-stdio-transport.mjs';
 import { validateDescriptorContract } from './contracts.mjs';
+import { withPinnedWindowsFiles } from './windows-native.mjs';
 
 class SmokeDeadlineError extends Error {
   constructor(phase) {
@@ -21,7 +28,6 @@ function withDeadline(promise, timeoutMs, phase) {
     promise,
     new Promise((resolvePromise, rejectPromise) => {
       timer = setTimeout(() => rejectPromise(new SmokeDeadlineError(phase)), timeoutMs);
-      timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -41,29 +47,81 @@ function baseEvidence(status, started) {
   };
 }
 
+function absoluteDescriptorPath(value) {
+  return typeof value === 'string'
+    && (isAbsolute(value) || win32.isAbsolute(value) || posix.isAbsolute(value));
+}
+
+export async function withPinnedDescriptorLaunch(descriptor, {
+  callback,
+  launchFilePinner = withPinnedWindowsFiles,
+} = {}) {
+  if (typeof callback !== 'function' || typeof launchFilePinner !== 'function') {
+    const error = new Error('descriptor launch pin contract is invalid');
+    error.code = 'INVALID_DESCRIPTOR_LAUNCH';
+    throw error;
+  }
+  const validated = validateDescriptorContract(descriptor);
+  const validatedDescriptor = Object.freeze({
+    ...validated,
+    args: Object.freeze([...validated.args]),
+    env: Object.freeze({ ...validated.env }),
+  });
+  const paths = [...new Set([
+    validatedDescriptor.command,
+    ...validatedDescriptor.args.filter(absoluteDescriptorPath),
+  ])];
+  return launchFilePinner({
+    paths,
+    callback: async guard => {
+      guard?.assertPinned?.();
+      const value = await callback(
+        guard ?? Object.freeze({ assertPinned() {} }),
+        validatedDescriptor,
+      );
+      guard?.assertPinned?.();
+      return value;
+    },
+  });
+}
+
 export async function smokeDescriptor(descriptor, {
   clientInfo = { name: 'uemcp-deployment-smoke', version: '1.0.0' },
   timeoutMs = 15_000,
   expectedServerName = 'uemcp',
-  transportFactory = parameters => new StdioClientTransport(parameters),
+  transportFactory = null,
+  effectiveEnvironment = null,
+  effectiveCwd = null,
+  stdoutLimitBytes = DEFAULT_STDOUT_LIMIT_BYTES,
+  stderrLimitBytes = DEFAULT_STDERR_LIMIT_BYTES,
 } = {}) {
   const validatedDescriptor = validateDescriptorContract(descriptor);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be a positive integer');
-  if (typeof transportFactory !== 'function') throw new Error('transportFactory must be a function');
+  if (transportFactory !== null && typeof transportFactory !== 'function') throw new Error('transportFactory must be a function or null');
+  if (effectiveEnvironment !== null
+    && (!effectiveEnvironment || typeof effectiveEnvironment !== 'object' || Array.isArray(effectiveEnvironment)
+      || Object.values(effectiveEnvironment).some(value => typeof value !== 'string'))) {
+    throw new Error('effectiveEnvironment must be a string map or null');
+  }
+  if (effectiveCwd !== null && (typeof effectiveCwd !== 'string' || effectiveCwd.trim() === '')) {
+    throw new Error('effectiveCwd must be a non-empty string or null');
+  }
   const started = nowMs();
   const parameters = {
     command: validatedDescriptor.command,
     args: [...validatedDescriptor.args],
-    env: exactChildEnvironment(validatedDescriptor.env),
+    env: effectiveEnvironment === null
+      ? exactChildEnvironment(validatedDescriptor.env)
+      : { ...effectiveEnvironment },
     stderr: 'pipe',
   };
-  if (validatedDescriptor.cwd !== null) parameters.cwd = validatedDescriptor.cwd;
-  const transport = transportFactory(parameters);
+  const launchCwd = effectiveCwd ?? validatedDescriptor.cwd;
+  if (launchCwd !== null) parameters.cwd = launchCwd;
+  const transport = transportFactory === null
+    ? new BoundedStdioClientTransport(parameters, { stdoutLimitBytes, stderrLimitBytes })
+    : transportFactory(parameters);
   const client = new Client(clientInfo, { capabilities: {} });
-  let stderrBytes = 0;
-  transport.stderr?.on?.('data', chunk => {
-    stderrBytes = Math.min(8 * 1024, stderrBytes + Buffer.byteLength(chunk));
-  });
+  transport.stderr?.on?.('data', () => {});
 
   try {
     try {
@@ -102,7 +160,7 @@ export async function smokeDescriptor(descriptor, {
       duration_ms: Math.max(0, nowMs() - started),
     };
   } finally {
-    await withDeadline(client.close(), Math.min(5_000, Math.max(1_000, timeoutMs)), 'close').catch(() => {});
+    await withDeadline(client.close(), DEFAULT_STDIO_CLOSE_DEADLINE_MS, 'close').catch(() => {});
   }
 }
 

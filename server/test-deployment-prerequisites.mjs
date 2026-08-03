@@ -2,19 +2,20 @@
 //
 // Run: cd server && node test-deployment-prerequisites.mjs
 
-import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
   readFileSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
 import {
   applyDependencyOperation,
   createPrerequisiteDomain,
@@ -27,16 +28,11 @@ import {
 const t = new TestRunner('Deployment Prerequisite Tests');
 
 function makeRoot(label = 'uemcp-prerequisite-') {
-  const root = join(tmpdir(), `${label}${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot(label);
 }
 
 function cleanup(root, label = 'uemcp-prerequisite-') {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, label);
 }
 
 function sameFileIdentity(left, right) {

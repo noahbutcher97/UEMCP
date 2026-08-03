@@ -1,0 +1,3 @@
+uemcp:
+  Scope: Project
+  Status: \u2718 Rejected (see disabledMcpjsonServers in settings)

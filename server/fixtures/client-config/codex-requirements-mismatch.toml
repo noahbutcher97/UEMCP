@@ -1,0 +1,2 @@
+[mcp_servers.uemcp.identity]
+command = { executable = "C:\\Wrong\\node.exe", args = [{ match = "exact", value = "D:\\Wrong\\server.mjs" }] }

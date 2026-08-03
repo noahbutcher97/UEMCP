@@ -13,6 +13,7 @@ const MANIFEST_KEYS = new Set([
   'source_inputs',
   'package_lock_sha256',
   'bundled_packages',
+  'notices_sha256',
   'input_manifest_sha256',
   'bundle_sha256',
 ]);
@@ -57,7 +58,7 @@ function validateManifest(value) {
   exactKeys(value, MANIFEST_KEYS, 'bundle manifest');
   if (value.schema_version !== '1.0' || value.entry !== 'dist/deploy-uemcp.mjs') fail('bundle manifest interface is unsupported');
   if (value.node_minimum !== '22.0.0' || value.esbuild_version !== '0.28.1') fail('bundle manifest toolchain identity is unsupported');
-  for (const key of ['package_lock_sha256', 'input_manifest_sha256', 'bundle_sha256']) {
+  for (const key of ['package_lock_sha256', 'notices_sha256', 'input_manifest_sha256', 'bundle_sha256']) {
     if (!SHA256.test(value[key] ?? '')) fail(`bundle manifest ${key} is invalid`);
   }
   if (!Array.isArray(value.source_inputs) || value.source_inputs.length === 0) fail('bundle manifest source inputs are empty');
@@ -84,6 +85,7 @@ function validateManifest(value) {
     source_inputs: value.source_inputs,
     package_lock_sha256: value.package_lock_sha256,
     bundled_packages: value.bundled_packages,
+    notices_sha256: value.notices_sha256,
   });
   if (aggregate !== value.input_manifest_sha256) fail('bundle aggregate input hash changed');
   return value;
@@ -136,16 +138,18 @@ export async function verifyDeploymentBundleFreshness({
     const source = await exactFile(sourcePath, { repoRoot: canonicalRepo, fsImpl, label: `source input ${row.path}` });
     if (source.sha256 !== row.sha256) fail('first-party bundle input changed', { path: row.path });
   }
-  await exactFile(join(dirname(canonicalManifest), 'THIRD_PARTY_NOTICES.txt'), {
+  const notices = await exactFile(join(dirname(canonicalManifest), 'THIRD_PARTY_NOTICES.txt'), {
     repoRoot: canonicalRepo,
     fsImpl,
     label: 'third-party notices',
     maximumBytes: 4 * 1024 * 1024,
   });
+  if (notices.sha256 !== manifest.notices_sha256) fail('third-party notices hash changed');
 
   return Object.freeze({
     schema_version: manifest.schema_version,
     bundle_sha256: manifest.bundle_sha256,
+    notices_sha256: manifest.notices_sha256,
     input_manifest_sha256: manifest.input_manifest_sha256,
     source_input_count: manifest.source_inputs.length,
     bundled_package_count: manifest.bundled_packages.length,

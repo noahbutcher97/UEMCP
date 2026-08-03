@@ -1,0 +1,23 @@
+# Preserve top-level comments and formatting.
+model = "gpt-5.4"
+
+[mcp_servers.uemcp]
+# Preserve the command comment during the targeted update.
+command = "__OLD_NODE__"
+args = ["__OLD_SERVER__"]
+enabled = false
+required = true
+startup_timeout_sec = 45
+tool_timeout_sec = 90
+default_tools_approval_mode = "writes"
+enabled_tools = ["get_editor_state"]
+disabled_tools = ["delete_asset"]
+cwd = "C:\\CustomWorkspace"
+env = { API_TOKEN = "do-not-serialize", HARMLESS = "preserve-me" }
+
+[mcp_servers.uemcp.tools.get_editor_state]
+approval_mode = "prompt"
+
+[mcp_servers.other]
+command = "C:\\Tools\\other.exe"
+args = ["serve"]

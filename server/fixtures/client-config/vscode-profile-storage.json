@@ -1,0 +1,21 @@
+{
+  "telemetry.machineId": "preserve-unrelated-storage",
+  "userDataProfiles": [
+    {
+      "location": "work-profile-id",
+      "name": "Work",
+      "icon": "briefcase",
+      "useDefaultFlags": {
+        "settings": true,
+        "mcp": false
+      }
+    },
+    {
+      "location": "shared-profile-id",
+      "name": "Shared",
+      "useDefaultFlags": {
+        "mcp": true
+      }
+    }
+  ]
+}

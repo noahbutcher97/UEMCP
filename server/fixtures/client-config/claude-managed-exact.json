@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "uemcp": {
+      "type": "stdio",
+      "command": "__NODE__",
+      "args": ["__SERVER__"]
+    }
+  }
+}

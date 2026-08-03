@@ -2,7 +2,8 @@
 //
 // Run: cd server && node test-project-hygiene.mjs
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,18 @@ import { TestRunner } from './test-helpers.mjs';
 const t = new TestRunner('Project Hygiene Tests');
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const rotationWorkflow = readFileSync(join(repoRoot, '.github', 'workflows', 'rotation.yml'), 'utf8');
+
+t.assert(/^permissions:\r?\n  contents: read$/m.test(rotationWorkflow),
+  'rotation workflow grants the GitHub token read-only repository contents access');
+t.assert(rotationWorkflow.includes('actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0')
+  && rotationWorkflow.includes('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0')
+  && !/uses:\s+actions\/(?:checkout|setup-node)@v\d+/i.test(rotationWorkflow),
+  'rotation workflow pins current GitHub actions to immutable release commits');
+t.assert(/^\s+persist-credentials: false$/m.test(rotationWorkflow),
+  'rotation checkout does not persist repository credentials');
+t.assert(/^\s+timeout-minutes: 30$/m.test(rotationWorkflow),
+  'rotation job has a bounded ceiling above its reviewed per-file budgets');
 
 function makeTempRoot() {
   return mkdtempSync(join(tmpdir(), 'uemcp-project-hygiene-'));
@@ -25,6 +38,23 @@ function cleanup(dir) {
     throw new Error(`refusing to clean unexpected temp path: ${dir}`);
   }
   rmSync(dir, { recursive: true, force: true });
+}
+
+function runProcess(command, args, { cwd, input } = {}) {
+  return spawnSync(command, args, {
+    cwd,
+    input,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+}
+
+function runGit(cwd, args) {
+  const result = runProcess('git', args, { cwd });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
+  }
+  return result.stdout.trim();
 }
 
 {
@@ -72,6 +102,25 @@ function cleanup(dir) {
 {
   const root = makeTempRoot();
   try {
+    const repoRoot = join(root, 'repo');
+    const genericRoots = [
+      join(root, 'server', 'fixtures', 'uemcp-fixture'),
+      join(root, 'Fixture', 'UEMCPFixture'),
+    ];
+    const registered = genericRoots.flatMap(projectRoot => registerProjectCodenames({
+      projectRoot,
+      repoRoot,
+      stderr: { write() {} },
+    }).registered);
+    t.assert(registered.length === 0, `fixture project names are skipped (got ${registered.join(',')})`);
+  } finally {
+    cleanup(root);
+  }
+}
+
+{
+  const root = makeTempRoot();
+  try {
     const repoRoot = join(root, 'repo-file');
     writeFileSync(repoRoot, 'not a directory', 'utf8');
     const result = registerProjectCodenames({
@@ -98,6 +147,10 @@ function cleanup(dir) {
   for (const [name, source] of [['setup-uemcp.bat', setupBat], ['sync-plugin.bat', syncBat]]) {
     t.assert(source.includes('rev-parse --git-path info/forbidden-tokens'), `${name} resolves forbidden-tokens through git-path`);
     t.assert(source.includes('if not defined TOKENS_PATH set "TOKENS_PATH=%UEMCP_PATH%\\.git\\info\\forbidden-tokens"'), `${name} keeps a non-git fallback for forbidden-tokens`);
+    t.assert(
+      source.includes("'fixture','fixtures','uemcpfixture','uemcp-fixture'"),
+      `${name} rejects generic fixture project names`
+    );
   }
   t.assert(resolveGitInfoPath(repoRoot, 'info/known-test-targets.txt').replace(/\\/g, '/').includes('/.git/info/known-test-targets.txt'),
     'project hygiene resolves known-test-targets through git info path');
@@ -111,6 +164,92 @@ function cleanup(dir) {
     preCommit.includes('known_targets="$(resolve_git_info_file "info/known-test-targets.txt")"'),
     'pre-commit resolves known-test-targets through the same git info helper'
   );
+}
+
+{
+  const root = makeTempRoot();
+  try {
+    const remoteRoot = join(root, 'origin.git');
+    const privateRemoteRoot = join(root, 'private.git');
+    const testRepo = join(root, 'repo');
+    const token = 'ZXQGateToken7';
+
+    runGit(root, ['init', '--bare', remoteRoot]);
+    runGit(root, ['init', '--bare', privateRemoteRoot]);
+    mkdirSync(testRepo);
+    runGit(testRepo, ['init']);
+    runGit(testRepo, ['config', 'user.name', 'UEMCP Hygiene Test']);
+    runGit(testRepo, ['config', 'user.email', 'uemcp-hygiene@example.invalid']);
+    writeFileSync(join(testRepo, 'published.txt'), `${token}\n`, 'utf8');
+    runGit(testRepo, ['add', 'published.txt']);
+    runGit(testRepo, ['commit', '-m', 'Published baseline']);
+    runGit(testRepo, ['branch', '-M', 'main']);
+    runGit(testRepo, ['remote', 'add', 'origin', remoteRoot]);
+    runGit(testRepo, ['push', '-u', 'origin', 'main']);
+
+    runGit(testRepo, ['checkout', '-b', 'range-check']);
+    writeFileSync(join(testRepo, 'clean.txt'), 'clean branch content\n', 'utf8');
+    runGit(testRepo, ['add', 'clean.txt']);
+    runGit(testRepo, ['commit', '-m', 'Clean branch commit']);
+    runGit(testRepo, ['push', 'origin', 'HEAD:refs/heads/range-check']);
+
+    mkdirSync(join(testRepo, '.githooks'), { recursive: true });
+    writeFileSync(
+      join(testRepo, '.githooks', 'pre-push'),
+      readFileSync(join(repoRoot, '.githooks', 'pre-push'), 'utf8'),
+      'utf8'
+    );
+    chmodSync(join(testRepo, '.githooks', 'pre-push'), 0o755);
+    writeFileSync(join(testRepo, '.git', 'info', 'forbidden-tokens'), `${token}\n`, 'utf8');
+
+    const hookConfig = ['-c', 'core.hooksPath=.githooks'];
+    const cleanResult = runProcess('git', [
+      ...hookConfig,
+      'push',
+      '--dry-run',
+      'origin',
+      'HEAD:refs/heads/range-check-new',
+    ], { cwd: testRepo });
+    t.assert(
+      cleanResult.status === 0,
+      'pre-push ignores forbidden content already reachable from the destination remote',
+      cleanResult.stderr || cleanResult.stdout
+    );
+
+    writeFileSync(join(testRepo, 'outgoing.txt'), `${token}\n`, 'utf8');
+    runGit(testRepo, ['add', 'outgoing.txt']);
+    runGit(testRepo, ['commit', '-m', 'Outgoing forbidden content']);
+    runGit(testRepo, ['remote', 'add', 'private', privateRemoteRoot]);
+    runGit(testRepo, ['push', 'private', 'range-check']);
+    runGit(testRepo, ['fetch', 'private']);
+    const forbiddenNewBranchResult = runProcess('git', [
+      ...hookConfig,
+      'push',
+      '--dry-run',
+      'origin',
+      'HEAD:refs/heads/range-check-new',
+    ], { cwd: testRepo });
+    t.assert(
+      forbiddenNewBranchResult.status === 1 && /Push blocked/.test(forbiddenNewBranchResult.stderr),
+      'pre-push still blocks forbidden content absent from the destination remote',
+      forbiddenNewBranchResult.stderr || forbiddenNewBranchResult.stdout
+    );
+
+    const forbiddenExistingBranchResult = runProcess('git', [
+      ...hookConfig,
+      'push',
+      '--dry-run',
+      'origin',
+      'HEAD:refs/heads/range-check',
+    ], { cwd: testRepo });
+    t.assert(
+      forbiddenExistingBranchResult.status === 1 && /Push blocked/.test(forbiddenExistingBranchResult.stderr),
+      'pre-push retains existing-branch range enforcement',
+      forbiddenExistingBranchResult.stderr || forbiddenExistingBranchResult.stdout
+    );
+  } finally {
+    cleanup(root);
+  }
 }
 
 process.exit(t.summary());

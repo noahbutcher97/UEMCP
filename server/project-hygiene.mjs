@@ -8,6 +8,7 @@ const SKIP_LITERALS = new Set([
   'binaries', 'deriveddatacache', 'programs', 'restricted', 'platforms',
   'editor', 'build', 'target', 'public', 'private', 'default', 'local',
   'staged', 'cooked', 'tools', 'batchfiles',
+  'fixture', 'fixtures', 'uemcpfixture', 'uemcp-fixture',
 ]);
 
 const VERSION_PATTERN = /^\d+(\.\d+)*$/;

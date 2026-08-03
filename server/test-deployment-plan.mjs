@@ -2,7 +2,6 @@
 //
 // Run: cd server && node test-deployment-plan.mjs
 
-import { randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -16,14 +15,20 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+  uncontendedTestLeaseCoordinator,
+} from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes } from './deployment/canonical-json.mjs';
 import { createMachineResult, createStageResult } from './deployment/contracts.mjs';
 import { createCanonicalDescriptor, descriptorsEqual } from './deployment/descriptor.mjs';
 import { fingerprintPath } from './deployment/fingerprints.mjs';
-import { createDeploymentOrchestrator } from './deployment/orchestrator.mjs';
+import { createLocalState } from './deployment/local-state.mjs';
+import { createDeploymentOrchestrator as createProductionDeploymentOrchestrator } from './deployment/orchestrator.mjs';
 import {
   computePlanDigest,
   createPlanDocument,
@@ -41,17 +46,23 @@ import {
 
 const t = new TestRunner('Deployment Plan Tests');
 
+function createDeploymentOrchestrator(options) {
+  return createProductionDeploymentOrchestrator({
+    ...options,
+    knownFoldersProvider: options.knownFoldersProvider ?? (async () => ({
+      programData: 'C:\\ProgramData',
+      programFiles: 'C:\\Program Files',
+    })),
+    descriptorLaunchPinner: options.descriptorLaunchPinner ?? (async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor)),
+  });
+}
+
 function makeRoot(label = 'uemcp-plan-') {
-  const root = join(tmpdir(), `${label}${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot(label);
 }
 
 function cleanup(root, label = 'uemcp-plan-') {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/${label}`)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, label);
 }
 
 function sameFileIdentity(left, right) {
@@ -74,6 +85,48 @@ function writeProject(root, name = 'SampleProject') {
   const path = join(root, `${name}.uproject`);
   writeFileSync(path, '{"FileVersion":3}\n', 'utf8');
   return path;
+}
+
+function withApplyJournal(localState, onEvent = () => {}) {
+  const journals = new Map();
+  return {
+    ...localState,
+    paths: localState.paths ?? (() => ({ receipts: resolve(join(tmpdir(), 'uemcp-test-receipts')) })),
+    async wasDigestApplied(digest) {
+      onEvent('journal:checked');
+      if (journals.has(digest)) return true;
+      return typeof localState.wasDigestApplied === 'function'
+        ? await localState.wasDigestApplied(digest)
+        : false;
+    },
+    async beginApplyJournal(digest, prepared) {
+      if (journals.has(digest)) throw Object.assign(new Error('replayed journal'), { code: 'PLAN_REPLAYED' });
+      if (!prepared?.reference || !prepared?.document) throw new Error('journal recovery receipt is missing');
+      journals.set(digest, { state: 'applying', prepared });
+      onEvent('journal:begun');
+    },
+    async stageApplyJournal(digest, prepared) {
+      const journal = journals.get(digest);
+      if (journal?.state !== 'applying') throw new Error('journal is not applying');
+      journals.set(digest, { state: 'receipt_pending', prepared });
+      onEvent('journal:staged');
+    },
+    async completeApplyJournal(digest, reference) {
+      const journal = journals.get(digest);
+      if (journal?.state !== 'receipt_pending'
+        || journal.prepared.reference.sha256 !== reference.sha256) throw new Error('journal receipt mismatch');
+      journals.set(digest, { ...journal, state: 'committed' });
+      onEvent('journal:committed');
+      return reference;
+    },
+    async clearApplyJournal(digest) {
+      journals.delete(digest);
+      onEvent('journal:cleared');
+    },
+    journalState(digest) {
+      return journals.get(digest)?.state ?? null;
+    },
+  };
 }
 
 // The descriptor is exact, project-neutral, and path canonical.
@@ -317,6 +370,12 @@ function sampleRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    excluded_clients: [],
+    client_decisions: {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
     ...overrides,
   };
 }
@@ -360,7 +419,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(plan.kind === 'uemcp.deployment.plan' && plan.schema_version === '1.0', 'saved plan uses the versioned public kind');
     t.assert(plan.created_at === '2026-07-15T12:00:00.000Z' && plan.expires_at === '2026-07-15T12:30:00.000Z', 'saved plan expires exactly 30 minutes after creation');
     t.assert(plan.digest === computePlanDigest({ ...plan, digest: undefined }), 'stored digest covers the canonical plan body');
-    t.assert(!Object.hasOwn(plan.stages[0], 'result') && !Object.hasOwn(plan.stages[0], 'progress'), 'saved plan stages keep the locked public schema');
+    t.assert(plan.stages[0].result === 'action_required' && plan.stages[0].progress === 'none', 'saved plan stages keep independently verifiable reduction facts');
 
     const reorderedSource = {
       orchestrator_version: '1.0.0',
@@ -383,6 +442,16 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       },
     });
     t.assert(operationChanged.digest !== plan.digest, 'operation identity changes the plan digest');
+    const decisionChanged = createReviewedPlan({
+      root,
+      reviewed,
+      overrides: {
+        request: sampleRequest({
+          client_decisions: { ...sampleRequest().client_decisions, replace_owned_fields: true },
+        }),
+      },
+    });
+    t.assert(decisionChanged.digest !== plan.digest, 'client repair decisions change the reviewed plan digest');
     const expiryChanged = createReviewedPlan({ root, reviewed, overrides: { ttlMs: 60_000 } });
     t.assert(expiryChanged.digest !== plan.digest, 'expiry changes the plan digest');
 
@@ -475,6 +544,78 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
   }
 }
 
+// Trusted Windows known folders are resolved into every fresh orchestration context.
+{
+  const root = makeRoot();
+  try {
+    const redirected = Object.freeze({
+      programData: resolve(join(root, 'redirected-program-data')),
+      programFiles: resolve(join(root, 'redirected-program-files')),
+    });
+    const observed = [];
+    let providerCalls = 0;
+    const clientDomain = {
+      name: 'clients',
+      order: 30,
+      async plan(context) {
+        observed.push(context.knownFolders);
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' })],
+          operations: [],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() {
+        return createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' });
+      },
+      async verify(context) {
+        observed.push(context.knownFolders);
+        return createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' });
+      },
+    };
+    const baseOptions = {
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      processRunner: Object.freeze({ kind: 'test-runner' }),
+      domains: [clientDomain],
+      localState: {},
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    };
+    t.assert(await rejectsCode(
+      () => createProductionDeploymentOrchestrator(baseOptions),
+      'ORCHESTRATOR_FAILED',
+    ), 'a client-domain orchestrator requires an explicit trusted known-folder provider');
+    const invalidOrchestrator = createDeploymentOrchestrator({
+      ...baseOptions,
+      knownFoldersProvider: async () => ({ programData: 'relative', programFiles: redirected.programFiles }),
+    });
+    t.assert(await rejectsCode(
+      () => invalidOrchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] }),
+      'ORCHESTRATOR_FAILED',
+    ), 'invalid known-folder provider output fails before domain planning');
+    t.assert(observed.length === 0, 'invalid known-folder output never reaches a deployment domain');
+    const orchestrator = createDeploymentOrchestrator({
+      ...baseOptions,
+      knownFoldersProvider: async ({ processRunner }) => {
+        providerCalls += 1;
+        t.assert(processRunner?.kind === 'test-runner', 'known-folder provider receives the orchestrator process runner');
+        return redirected;
+      },
+    });
+    await orchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] });
+    await orchestrator.verify({ requested_project: null, requested_profile: null, selected_clients: [] });
+    t.assert(providerCalls === 2 && observed.length === 2, 'plan and standalone verification resolve trusted known folders independently');
+    t.assert(observed.every(value => value?.programData === redirected.programData && value?.programFiles === redirected.programFiles), 'every domain receives the redirected known-folder roots');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Orchestration composes deterministic domains and never replans during apply.
 {
   const root = makeRoot();
@@ -526,7 +667,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       order: 20,
       applyStage: () => createStageResult({ name: 'target', status: 'INVALID_TARGET', result: 'failed' }),
     });
-    const localState = {
+    const localState = withApplyJournal({
       async acquireApplyLease() {
         leaseHeld = true;
         calls.push('lease:acquired');
@@ -545,7 +686,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         calls.push('replay:marked');
         replayMarked = true;
       },
-    };
+    }, event => calls.push(event));
     const orchestrator = createDeploymentOrchestrator({
       repoRoot: root,
       stateRoot: join(root, 'state'),
@@ -556,7 +697,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         return sampleSource(root);
       },
       descriptorProvider: async () => sampleDescriptor(root),
-      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/sample.json', sha256: 'd'.repeat(64) }),
+      receiptWriter: async ({ prepared }) => prepared.reference,
       includeGenericClient: false,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
@@ -565,7 +706,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(calls.slice(0, 2).join(',') === 'plan:prerequisites,plan:target', 'domain planning is sorted by locked numeric order');
     t.assert(plan.operations.map(row => row.domain).join(',') === 'prerequisites,target', 'plan operations preserve deterministic domain order');
     const unsupportedPlan = structuredClone(plan);
-    unsupportedPlan.operations.push({ operation_id: 'clients:unsupported', domain: 'clients', domain_order: 30, kind: 'CLIENT_WRITE' });
+    unsupportedPlan.operations.push({ operation_id: 'plugin:unsupported', domain: 'plugin', domain_order: 40, kind: 'PLUGIN_WRITE' });
     unsupportedPlan.digest = computePlanDigest(unsupportedPlan);
     t.assert(await rejectsCode(() => orchestrator.apply({ plan: unsupportedPlan, approvedDigest: unsupportedPlan.digest }), 'UNSUPPORTED_INTERFACE'), 'apply rejects operations whose domain is unavailable in this orchestrator');
     t.assert(!calls.includes('lease:acquired'), 'unsupported operation domain is rejected before lease acquisition');
@@ -576,14 +717,228 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(calls.includes('apply:prerequisites:prerequisites:operation') && calls.includes('apply:target:target:operation'), 'each domain receives only its own operations');
     t.assert(result.outcome === 'PARTIAL' && result.plan.digest === plan.digest, 'committed success plus mandatory failure produces a digest-linked PARTIAL result');
     t.assert(!result.actions.some(action => action.code === 'DEPENDENCIES_INSTALL_REQUIRED'), 'apply omits remediation that the current stages resolved');
-    t.assert(result.receipts.length === 1 && replayMarked, 'terminal apply writes receipt evidence and marks replay before release');
+    t.assert(result.receipts.length === 1 && localState.journalState(plan.digest) === 'committed', 'terminal apply writes receipt evidence and commits its replay journal before release');
     t.assert(calls.indexOf('replay:checked') < calls.indexOf('source:checked'), 'replay rejection precedes fresh source and executable inspection');
-    t.assert(calls.indexOf('replay:marked') < calls.indexOf('lease:released'), 'replay bookkeeping completes while the apply lease is held');
+    t.assert(calls.indexOf('journal:committed') < calls.indexOf('lease:released'), 'replay bookkeeping completes while the apply lease is held');
 
     const verified = await orchestrator.verify(request);
     t.assert(verified.operation === 'verify' && verified.plan === null, 'standalone verify never fabricates a consumed plan');
     const repaired = await orchestrator.repair(request);
     t.assert(repaired.kind === 'uemcp.deployment.plan' && repaired.operation === 'repair', 'repair is a digest-bound planning operation only');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Receipt and replay state reconcile across either terminal persistence failure boundary.
+{
+  const root = makeRoot();
+  try {
+    for (const failureMode of ['receipt_write', 'journal_complete']) {
+      const caseRoot = join(root, failureMode);
+      mkdirSync(caseRoot, { recursive: true });
+      const baseLocalState = createLocalState({
+        root: join(caseRoot, 'local-state'),
+        aclRestrictor: async () => {},
+        processInspector: async () => 'alive',
+        leaseCoordinator: uncontendedTestLeaseCoordinator,
+        clock: () => Date.parse('2026-07-15T12:00:00.000Z'),
+      });
+      let applyCalls = 0;
+      let failCompletion = failureMode === 'journal_complete';
+      const localState = failureMode === 'journal_complete'
+        ? Object.freeze({
+            ...baseLocalState,
+            async completeApplyJournal(digest, reference) {
+              if (failCompletion) {
+                failCompletion = false;
+                throw Object.assign(new Error('injected journal completion failure'), { code: 'LOCAL_STATE_UNAVAILABLE' });
+              }
+              return await baseLocalState.completeApplyJournal(digest, reference);
+            },
+          })
+        : baseLocalState;
+      const domain = {
+        name: 'prerequisites',
+        order: 10,
+        async plan() {
+          return {
+            stages: [createStageResult({ name: 'prerequisites', status: 'STALE', result: 'action_required' })],
+            operations: [{ operation_id: `prerequisites:${failureMode}`, domain: 'prerequisites', domain_order: 10, kind: 'JOURNALED_WRITE' }],
+            preconditions: [],
+            clients: [],
+            actions: [],
+          };
+        },
+        async apply() {
+          applyCalls += 1;
+          return createStageResult({ name: 'prerequisites', status: 'READY', changed: true, progress: 'committed' });
+        },
+        async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+      };
+      const orchestrator = createDeploymentOrchestrator({
+        repoRoot: caseRoot,
+        stateRoot: join(caseRoot, 'state'),
+        domains: [domain],
+        localState,
+        sourceProvider: async () => sampleSource(caseRoot),
+        descriptorProvider: async () => sampleDescriptor(caseRoot),
+        receiptWriter: failureMode === 'receipt_write'
+          ? async () => { throw Object.assign(new Error('injected receipt write failure'), { code: 'RECEIPT_WRITE_FAILED' }); }
+          : writeReceipt,
+        includeGenericClient: false,
+        clock: () => new Date('2026-07-15T12:00:00.000Z'),
+      });
+      const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] };
+      const plan = await orchestrator.plan(request);
+      const failed = await orchestrator.apply({ plan, approvedDigest: plan.digest }).then(
+        value => ({ value }),
+        error => ({ error }),
+      );
+      t.assert(failed.error && applyCalls === 1, `${failureMode} surfaces only after committed domain progress (${failed.error?.code ?? 'no-error'}: ${failed.error?.message ?? 'none'})`);
+      t.assert((await baseLocalState.readApplyJournal(plan.digest))?.state === 'receipt_pending', `${failureMode} retains a receipt-pending write-ahead record`);
+      t.assert(await baseLocalState.wasDigestApplied(plan.digest), `${failureMode} reconciliation consumes the committed plan digest`);
+      const reconciled = await baseLocalState.readApplyJournal(plan.digest);
+      let receipt = null;
+      if (reconciled?.receipt) {
+        const receiptPath = join(baseLocalState.paths().receipts, reconciled.receipt.path_label.split('/').at(-1));
+        receipt = await readAndVerifyReceipt(receiptPath);
+      }
+      t.assert(reconciled?.state === 'committed' && receipt?.plan.digest === plan.digest, `${failureMode} reconciliation restores the exact terminal receipt`);
+      t.assert(await rejectsCode(
+        () => orchestrator.apply({ plan, approvedDigest: plan.digest }),
+        'PLAN_REPLAYED',
+      ) && applyCalls === 1, `${failureMode} reconciliation rejects replay before another domain mutation`);
+    }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// A crash boundary after domain commit but before terminal receipt staging publishes the prewritten recovery receipt.
+{
+  const root = makeRoot();
+  try {
+    const baseLocalState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+      leaseCoordinator: uncontendedTestLeaseCoordinator,
+      clock: () => Date.parse('2026-07-15T12:00:00.000Z'),
+    });
+    let failStage = true;
+    const localState = Object.freeze({
+      ...baseLocalState,
+      async stageApplyJournal(digest, prepared) {
+        if (failStage) {
+          failStage = false;
+          throw Object.assign(new Error('injected crash before terminal receipt staging'), { code: 'LOCAL_STATE_UNAVAILABLE' });
+        }
+        return baseLocalState.stageApplyJournal(digest, prepared);
+      },
+    });
+    const marker = join(root, 'committed-domain-state.txt');
+    let applyCalls = 0;
+    const domain = {
+      name: 'prerequisites',
+      order: 10,
+      async plan() {
+        return {
+          stages: [createStageResult({ name: 'prerequisites', status: 'STALE', result: 'action_required' })],
+          operations: [{ operation_id: 'prerequisites:crash-recovery', domain: 'prerequisites', domain_order: 10, kind: 'JOURNALED_WRITE' }],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() {
+        applyCalls += 1;
+        writeFileSync(marker, 'committed\n', 'utf8');
+        return createStageResult({ name: 'prerequisites', status: 'READY', changed: true, progress: 'committed' });
+      },
+      async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      domains: [domain],
+      localState,
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      receiptWriter: writeReceipt,
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] };
+    const plan = await orchestrator.plan(request);
+    const failed = await orchestrator.apply({ plan, approvedDigest: plan.digest }).then(
+      value => ({ value }),
+      error => ({ error }),
+    );
+    const interrupted = await baseLocalState.readApplyJournal(plan.digest);
+    t.assert(failed.error && applyCalls === 1 && existsSync(marker), 'terminal staging interruption occurs only after observable committed domain progress');
+    t.assert(interrupted?.state === 'applying' && interrupted.receipt?.document, 'applying journal already contains a durable recovery receipt');
+    t.assert(await baseLocalState.wasDigestApplied(plan.digest), 'restart reconciliation consumes an interrupted apply without replaying mutation');
+    const reconciled = await baseLocalState.readApplyJournal(plan.digest);
+    let receipt = null;
+    if (reconciled?.receipt) {
+      const receiptPath = join(baseLocalState.paths().receipts, reconciled.receipt.path_label.split('/').at(-1));
+      receipt = await readAndVerifyReceipt(receiptPath);
+    }
+    t.assert(reconciled.state === 'committed' && receipt.outcome === 'PARTIAL', 'interrupted apply reconciliation publishes a committed partial receipt');
+    t.assert(receipt?.stages?.[0]?.evidence?.error_code === 'APPLY_INTERRUPTED'
+      && receipt?.stages?.[0]?.evidence?.mutation_state === 'unknown', 'interrupted apply receipt states the conservative mutation uncertainty explicitly');
+    t.assert(await rejectsCode(
+      () => orchestrator.apply({ plan, approvedDigest: plan.digest }),
+      'PLAN_REPLAYED',
+    ) && applyCalls === 1, 'interrupted apply recovery rejects replay before another domain mutation');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Client workspace inspection follows the invocation workspace, not Unreal target selection.
+{
+  const root = makeRoot();
+  try {
+    const activeWorkspace = join(root, 'active-workspace');
+    const unrealProject = writeProject(join(root, 'UnrealProject'));
+    mkdirSync(activeWorkspace, { recursive: true });
+    const observed = [];
+    const clients = {
+      name: 'clients',
+      order: 30,
+      async plan(context) {
+        observed.push({ operation: 'plan', workspaceRoot: context.workspaceRoot, request: context.request });
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'NOT_SELECTED', result: 'ready' })],
+          operations: [],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() { throw new Error('apply is not expected'); },
+      async verify(context) {
+        observed.push({ operation: 'verify', workspaceRoot: context.workspaceRoot, request: context.request });
+        return { stage: createStageResult({ name: 'clients', status: 'NOT_SELECTED', result: 'ready' }), clients: [], actions: [] };
+      },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      workspaceRoot: activeWorkspace,
+      stateRoot: join(root, 'state'),
+      domains: [clients],
+      localState: { wasDigestApplied: async () => false },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    await orchestrator.plan({ operation: 'setup', requested_project: unrealProject, requested_profile: null, selected_clients: [] });
+    await orchestrator.verify({ requested_project: null, requested_profile: 'smoke', selected_clients: [] });
+    t.assert(observed.every(row => row.workspaceRoot === resolve(activeWorkspace)), 'client domains retain the explicit invocation workspace for project and profile requests');
+    t.assert(observed[0].workspaceRoot !== dirname(unrealProject) && observed[1].workspaceRoot !== root, 'Unreal target selection and the UEMCP source root cannot silently redefine provider workspace scope');
   } finally {
     cleanup(root);
   }
@@ -707,11 +1062,12 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         async apply() { counters.target += 1; return targetApply(); },
         async verify() { return createStageResult({ name: 'target', status: 'ALREADY_REGISTERED' }); },
       };
-      const localState = {
+      const localState = withApplyJournal({
         async acquireApplyLease() { return { async release() {} }; },
         async wasDigestApplied() { return false; },
-        async markDigestApplied() { counters.replay += 1; },
-      };
+      }, event => {
+        if (event === 'journal:committed') counters.replay += 1;
+      });
       return createDeploymentOrchestrator({
         repoRoot: root,
         stateRoot: join(root, 'state'),
@@ -719,9 +1075,9 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         localState,
         sourceProvider: async () => sampleSource(root),
         descriptorProvider: async () => sampleDescriptor(root),
-        receiptWriter: async () => {
+        receiptWriter: async ({ prepared }) => {
           counters.receipt += 1;
-          return { kind: 'deployment', path_label: 'receipts/gate.json', sha256: '3'.repeat(64) };
+          return prepared.reference;
         },
         includeGenericClient,
         protocolSmoke: async () => {
@@ -784,11 +1140,11 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       async apply() { return createStageResult({ name: 'prerequisites', status: 'INSTALL_FAILED', result: 'failed' }); },
       async verify() { return createStageResult({ name: 'prerequisites', status: 'STALE', result: 'action_required' }); },
     };
-    const localState = {
+    const localState = withApplyJournal({
       async acquireApplyLease() { return { async release() {} }; },
       async wasDigestApplied() { return false; },
       async markDigestApplied() { replayMarks += 1; },
-    };
+    });
     const orchestrator = createDeploymentOrchestrator({
       repoRoot: root,
       stateRoot: join(root, 'state'),
@@ -796,7 +1152,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       localState,
       sourceProvider: async () => sampleSource(root),
       descriptorProvider: async () => sampleDescriptor(root),
-      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/failed.json', sha256: 'e'.repeat(64) }),
+      receiptWriter: async ({ prepared }) => prepared.reference,
       includeGenericClient: false,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
@@ -841,7 +1197,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       },
       async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
     };
-    const localState = {
+    const localState = withApplyJournal({
       async acquireApplyLease() {
         if (leaseHeld) await new Promise(resolvePromise => leaseWaiters.push(resolvePromise));
         leaseHeld = true;
@@ -854,7 +1210,9 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       },
       async wasDigestApplied() { return replayMarked; },
       async markDigestApplied() { replayMarked = true; },
-    };
+    }, event => {
+      if (event === 'journal:committed') replayMarked = true;
+    });
     const orchestrator = createDeploymentOrchestrator({
       repoRoot: root,
       stateRoot: join(root, 'state'),
@@ -866,7 +1224,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         fingerprintCalls += 1;
         return { exists: false };
       },
-      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/concurrent.json', sha256: 'f'.repeat(64) }),
+      receiptWriter: async ({ prepared }) => prepared.reference,
       includeGenericClient: false,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
@@ -905,14 +1263,14 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       repoRoot: root,
       stateRoot: join(root, 'state'),
       domains: [domain],
-      localState: {
+      localState: withApplyJournal({
         async acquireApplyLease() { return { async release() {} }; },
         async wasDigestApplied() { return false; },
         async markDigestApplied() { replayMarks += 1; },
-      },
+      }),
       sourceProvider: async () => sampleSource(root),
       descriptorProvider: async () => sampleDescriptor(root),
-      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/no-op.json', sha256: '1'.repeat(64) }),
+      receiptWriter: async ({ prepared }) => prepared.reference,
       includeGenericClient: false,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
@@ -940,17 +1298,17 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         async apply() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
         async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
       }],
-      localState: {
+      localState: withApplyJournal({
         async acquireApplyLease() { return { async release() {} }; },
         async wasDigestApplied() { return false; },
-      },
+      }),
       sourceProvider: async () => sampleSource(root),
       descriptorProvider: async () => sampleDescriptor(root),
       protocolSmoke: async () => {
         smokeCalls += 1;
         return { status: 'HEALTHY', initialize: { server_name: 'uemcp', server_version: '1.0.0' }, instruction_bytes: 10, tool_count: 1, initial_tool_names: ['one'], duration_ms: 1 };
       },
-      receiptWriter: async () => ({ kind: 'deployment', path_label: 'receipts/generic.json', sha256: '2'.repeat(64) }),
+      receiptWriter: async ({ prepared }) => prepared.reference,
       clock: () => new Date('2026-07-15T12:00:00.000Z'),
     });
     const plan = await orchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] });
@@ -979,10 +1337,11 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       stages: [createStageResult({ name: 'prerequisites', status: 'READY' })],
       now: new Date('2026-07-15T12:00:00.000Z'),
     });
+    let dispatchedRequest = null;
     const cliOrchestrator = {
-      async plan() { return plan; },
+      async plan(request) { dispatchedRequest = structuredClone(request); return plan; },
       async repair() { return { ...plan, operation: 'repair', digest: computePlanDigest({ ...plan, operation: 'repair' }) }; },
-      async verify() { return result; },
+      async verify(request) { dispatchedRequest = structuredClone(request); return result; },
       async doctor() { return { ...result, operation: 'doctor' }; },
       async apply() { return { ...result, operation: 'apply', plan: { digest: plan.digest, created_at: plan.created_at, expires_at: plan.expires_at, preconditions_valid: true } }; },
     };
@@ -994,6 +1353,19 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     };
     const planExit = await runCli(['plan', '--operation', 'setup', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(planExit === 10 && JSON.parse(stdout).kind === 'uemcp.deployment.plan' && stderr === '', 'plan JSON is stdout-only and exits for its embedded ACTION_REQUIRED outcome');
+    stdout = '';
+    stderr = '';
+    const outputPlanPath = join(root, 'saved-plan.json');
+    const outputPlanExit = await runCli(['plan', '--operation', 'setup', '--output-plan', outputPlanPath, '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(outputPlanExit === 10
+      && JSON.parse(readFileSync(outputPlanPath, 'utf8')).digest === plan.digest
+      && statSync(outputPlanPath).nlink === 1, 'plan writes one complete create-only UTF-8 review file for apply');
+    const savedPlanBytes = readFileSync(outputPlanPath);
+    stdout = '';
+    stderr = '';
+    const duplicateOutputExit = await runCli(['plan', '--operation', 'setup', '--output-plan', outputPlanPath, '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(duplicateOutputExit === 64
+      && readFileSync(outputPlanPath).equals(savedPlanBytes), 'plan output refuses to replace an existing reviewed file');
     stdout = '';
     stderr = '';
     const verifyExit = await runCli(['verify', '--json'], { orchestrator: cliOrchestrator, ...streams });
@@ -1012,6 +1384,26 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(conflictingTargetExit === 64 && stdout === '', 'direct project and profile selectors are mutually exclusive');
     stdout = '';
     stderr = '';
+    const selectedClientExit = await runCli(['verify', '--include-client', 'claude', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(selectedClientExit === 0 && JSON.stringify(dispatchedRequest.selected_clients) === JSON.stringify(['claude']), 'CLI explicit includes populate the public selected_clients request field');
+    stdout = '';
+    stderr = '';
+    const decisionExit = await runCli(['plan', '--operation', 'setup', '--replace-owned-client-fields', '--shadow-gemini-extension', '--migrate-legacy-claude-project', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(decisionExit === 10 && JSON.stringify(dispatchedRequest.client_decisions) === JSON.stringify({
+      replace_owned_fields: true,
+      shadow_gemini_extension: true,
+      migrate_legacy_claude_project: true,
+    }), 'CLI forwards explicit client repair decisions into public plan evidence');
+    stdout = '';
+    stderr = '';
+    const inspectionDecisionExit = await runCli(['verify', '--replace-owned-client-fields', '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(inspectionDecisionExit === 64 && stdout === '', 'standalone inspection rejects write-authorizing client decisions');
+    stdout = '';
+    stderr = '';
+    const inspectionOutputExit = await runCli(['verify', '--output-plan', join(root, 'invalid-output.json'), '--json'], { orchestrator: cliOrchestrator, ...streams });
+    t.assert(inspectionOutputExit === 64 && stdout === '', 'standalone inspection rejects plan-output authority');
+    stdout = '';
+    stderr = '';
     const planPath = join(root, 'reviewed-plan.json');
     writeFileSync(planPath, JSON.stringify(plan), 'utf8');
     const invalidPlanOrchestrator = {
@@ -1024,6 +1416,18 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     };
     const schemaExit = await runCli(['apply', '--plan-file', planPath, '--approve-digest', plan.digest, '--non-interactive', '--json'], { orchestrator: invalidPlanOrchestrator, ...streams });
     t.assert(schemaExit === 64 && stdout === '' && stderr.startsWith('INVALID_PLAN:'), 'plan schema failures use the locked usage-interface exit');
+    stdout = '';
+    stderr = '';
+    const blockedClientOrchestrator = {
+      ...cliOrchestrator,
+      async plan() {
+        const error = new Error('provider-specific detail');
+        error.code = 'CLIENT_INSPECTION_UNBOUND';
+        throw error;
+      },
+    };
+    const blockedClientExit = await runCli(['plan', '--operation', 'setup', '--json'], { orchestrator: blockedClientOrchestrator, ...streams });
+    t.assert(blockedClientExit === 30 && stdout === '' && stderr.startsWith('CLIENT_INSPECTION_UNBOUND:'), 'blocked client inspection has a stable redacted planning diagnostic');
     stdout = '';
     stderr = '';
     const diagnosticCanary = 'stderr-secret-canary';
@@ -1045,6 +1449,226 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     stderr = '';
     const repairExit = await runCli(['repair', '--yes', '--json'], { orchestrator: cliOrchestrator, ...streams });
     t.assert(repairExit === 64 && stdout === '', 'repair rejects direct-apply flags');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Client domains may return post-operation rows/actions while legacy domains keep returning a bare stage.
+{
+  const root = makeRoot();
+  try {
+    const action = {
+      code: 'PENDING_TRUST',
+      message: 'Review client trust before activation.',
+      command: null,
+    };
+    const clientRow = overrides => ({
+      adapter: 'claude',
+      version: '2.1.210',
+      compatibility: 'release_gated',
+      write_supported: true,
+      selected: true,
+      scope: 'user',
+      status: 'CONFIGURED',
+      enablement: 'ENABLED',
+      activation: 'UNKNOWN',
+      actions: [],
+      ...overrides,
+    });
+    let applyCalls = 0;
+    const clientDomain = {
+      name: 'clients',
+      order: 30,
+      async plan() {
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'READY' })],
+          operations: [],
+          preconditions: [],
+          clients: [clientRow({ status: 'ABSENT' })],
+          actions: [],
+        };
+      },
+      async apply() {
+        applyCalls += 1;
+        return {
+          stage: createStageResult({ name: 'clients', status: 'READY' }),
+          clients: [clientRow({ activation: 'CONNECTED' })],
+          actions: [],
+        };
+      },
+      async verify() {
+        return {
+          stage: createStageResult({ name: 'clients', status: 'PENDING_TRUST', result: 'action_required', actions: [action] }),
+          clients: [clientRow({ activation: 'PENDING_TRUST', actions: [action] })],
+          actions: [action],
+        };
+      },
+    };
+    const orchestrator = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      domains: [clientDomain],
+      localState: withApplyJournal({
+        async acquireApplyLease() { return { ownerToken: 'a'.repeat(48), async release() {} }; },
+        async wasDigestApplied() { return false; },
+        async markDigestApplied() {},
+      }),
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      receiptWriter: async ({ prepared }) => prepared.reference,
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: ['claude'] };
+    const plan = await orchestrator.plan(request);
+    const applied = await orchestrator.apply({ plan, approvedDigest: plan.digest });
+    t.assert(applyCalls === 1, 'client apply runs even when the saved selection has no write operation');
+    t.assert(applied.clients[0].activation === 'CONNECTED' && plan.clients[0].activation === 'UNKNOWN', 'apply returns fresh client rows without mutating saved plan clients');
+    const verified = await orchestrator.verify(request);
+    t.assert(verified.clients[0].activation === 'PENDING_TRUST' && verified.actions.some(row => row.code === 'PENDING_TRUST'), 'standalone inspection consumes normalized client rows and actions');
+
+    const bareDomain = {
+      name: 'prerequisites',
+      order: 10,
+      async plan() { return { stages: [createStageResult({ name: 'prerequisites', status: 'READY' })], operations: [], preconditions: [] }; },
+      async apply() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+      async verify() { return createStageResult({ name: 'prerequisites', status: 'READY' }); },
+    };
+    const legacy = createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, 'legacy-state'),
+      domains: [bareDomain],
+      localState: { async wasDigestApplied() { return false; } },
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+    });
+    const legacyResult = await legacy.verify({ requested_project: null, requested_profile: null, selected_clients: [] });
+    t.assert(legacyResult.stages[0].status === 'READY' && legacyResult.clients.length === 0, 'orchestrator preserves bare-stage compatibility for existing domains');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Known client rows do not suppress the generic descriptor when no release-gated host exists.
+{
+  const root = makeRoot();
+  try {
+    const knownRows = supported => ['claude', 'codex', 'gemini', 'vscode'].map((adapter, index) => ({
+      adapter,
+      version: supported && index === 0 ? '2.1.210' : null,
+      compatibility: supported && index === 0 ? 'release_gated' : 'not_installed',
+      write_supported: supported && index === 0,
+      selected: supported && index === 0,
+      scope: 'user',
+      status: supported && index === 0 ? 'CONFIGURED' : 'NOT_INSTALLED',
+      enablement: supported && index === 0 ? 'ENABLED' : 'NOT_INSTALLED',
+      activation: supported && index === 0 ? 'CONNECTED' : 'NOT_INSTALLED',
+      actions: [],
+    })).filter((row, index) => !supported || index === 0);
+    const absentEvidence = rows => ({
+      vscode_profile: null,
+      discovery_context_sha256: 'a'.repeat(64),
+      clients: rows.map(row => ({
+        adapter: row.adapter,
+        selected: false,
+        selection: 'not_installed',
+        discovery_status: 'NOT_INSTALLED',
+        launch_contract: null,
+        current_scopes: [],
+        effective_scope: null,
+        operation: 'INSPECT_ONLY',
+        touched_paths: [],
+        owned_diffs: [],
+        environment: [],
+        custom_working_directory: false,
+        structural_status: 'NOT_INSTALLED',
+        native_status: 'UNKNOWN',
+        protocol_status: 'UNKNOWN',
+        instruction_bytes: 0,
+        tool_count: 0,
+        initial_tool_names: [],
+        duration_ms: 0,
+        enablement: 'NOT_INSTALLED',
+        activation: 'NOT_INSTALLED',
+      })),
+    });
+    const makeClientDomain = supported => {
+      const rows = knownRows(supported);
+      const execution = () => ({
+        stage: createStageResult({
+          name: 'clients',
+          status: supported ? 'HEALTHY' : 'NOT_INSTALLED',
+          result: supported ? 'ready' : 'action_required',
+          evidence: supported ? {} : absentEvidence(rows),
+        }),
+        clients: rows,
+        actions: [],
+      });
+      return {
+        name: 'clients',
+        order: 30,
+        async plan() {
+          const value = execution();
+          return { stages: [value.stage], operations: [], preconditions: [], clients: value.clients, actions: [] };
+        },
+        async apply() { return execution(); },
+        async verify() { return execution(); },
+      };
+    };
+    let descriptorPinCalls = 0;
+    let descriptorPinDepth = 0;
+    const makeOrchestrator = supported => createDeploymentOrchestrator({
+      repoRoot: root,
+      stateRoot: join(root, supported ? 'supported-state' : 'generic-state'),
+      domains: [makeClientDomain(supported)],
+      localState: withApplyJournal({
+        async acquireApplyLease() { return { ownerToken: 'b'.repeat(48), async release() {} }; },
+        async wasDigestApplied() { return false; },
+        async markDigestApplied() {},
+      }),
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      descriptorLaunchPinner: async (descriptor, { callback }) => {
+        t.assert(descriptor.command === sampleDescriptor(root).command, 'generic descriptor pinner receives the canonical launch descriptor');
+        descriptorPinCalls += 1;
+        descriptorPinDepth += 1;
+        try {
+          return await callback(Object.freeze({ assertPinned() {} }), descriptor);
+        } finally {
+          descriptorPinDepth -= 1;
+        }
+      },
+      protocolSmoke: async () => {
+        t.assert(descriptorPinDepth === 1, 'generic protocol smoke runs while its exact launch files remain pinned');
+        return {
+          status: 'HEALTHY',
+          initialize: { server_name: 'uemcp', server_version: '1.0.0' },
+          instruction_bytes: 10,
+          tool_count: 1,
+          initial_tool_names: ['one'],
+          duration_ms: 1,
+        };
+      },
+      receiptWriter: async ({ prepared }) => prepared.reference,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    });
+    const request = { operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] };
+    const genericOrchestrator = makeOrchestrator(false);
+    const plan = await genericOrchestrator.plan(request);
+    t.assert(plan.clients.length === 5 && plan.clients.slice(0, 4).every(client => client.status === 'NOT_INSTALLED'), 'generic fallback retains every known client row');
+    t.assert(plan.clients.at(-1)?.adapter === 'generic-mcp-host' && plan.clients.at(-1)?.status === 'MANUAL_REGISTRATION_REQUIRED', 'no release-gated host appends the generic manual descriptor');
+    t.assert(plan.stages.filter(stage => stage.name === 'clients').length === 1, 'generic fallback keeps one aggregate clients stage');
+    const applied = await genericOrchestrator.apply({ plan, approvedDigest: plan.digest });
+    t.assert(applied.clients.length === 5 && applied.clients.at(-1)?.adapter === 'generic-mcp-host', 'apply refresh retains known rows and the saved generic fallback');
+    const verified = await genericOrchestrator.verify(request);
+    t.assert(verified.clients.length === 5 && verified.clients.at(-1)?.adapter === 'generic-mcp-host', 'standalone verification retains known rows and generic fallback');
+    t.assert(descriptorPinCalls === 3 && descriptorPinDepth === 0, 'generic protocol launch is pinned once for plan, apply refresh, and verify');
+
+    const supportedPlan = await makeOrchestrator(true).plan(request);
+    t.assert(supportedPlan.clients.length === 1 && !supportedPlan.clients.some(client => client.adapter === 'generic-mcp-host'), 'a detected release-gated host suppresses generic manual registration');
+    t.assert(descriptorPinCalls === 3, 'release-gated client support does not run duplicate generic descriptor smoke');
   } finally {
     cleanup(root);
   }

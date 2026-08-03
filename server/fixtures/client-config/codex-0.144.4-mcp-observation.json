@@ -1,0 +1,30 @@
+{
+  "version": "0.144.4",
+  "fresh_add_exit_code": 0,
+  "same_name_add_exit_code": 0,
+  "same_name_replaced_existing_table": true,
+  "existing_file_add_preserved_exact_bytes": false,
+  "existing_file_add_normalized_crlf": true,
+  "isolated_home_files_after_fresh_add": [
+    "config.toml"
+  ],
+  "list_json_includes": [
+    "name",
+    "enabled",
+    "disabled_reason",
+    "transport",
+    "startup_timeout_sec",
+    "tool_timeout_sec"
+  ],
+  "get_json_includes": [
+    "name",
+    "enabled",
+    "disabled_reason",
+    "transport",
+    "enabled_tools",
+    "disabled_tools",
+    "startup_timeout_sec",
+    "tool_timeout_sec"
+  ],
+  "activation_proven": false
+}

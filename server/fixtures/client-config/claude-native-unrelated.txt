@@ -1,0 +1,1 @@
+other-server: https://example.invalid/mcp - \u2714 Connected

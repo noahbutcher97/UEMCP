@@ -16,6 +16,10 @@
 //   node run-rotation.mjs --include-live-gated   # also include test-m1-ping
 //   npm test                           # via package.json scripts.test
 //
+// Ordinary files have a five-minute budget. Reviewed process-heavy files have
+// bounded overrides in rotation-timeouts.mjs so slower hosted runners fail
+// distinctly without dropping their integration assertions.
+//
 // Exit codes:
 //   0  — every test green and no import errors
 //   1  — at least one import error, assertion failure, or pre-summary crash
@@ -36,6 +40,7 @@ import {
   detectOracleFreshnessMarkers,
 } from './rotation-oracle-freshness.mjs';
 import { extractAssertionFailureDetails } from './rotation-failure-details.mjs';
+import { rotationFileTimeoutMs } from './rotation-timeouts.mjs';
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -111,8 +116,9 @@ function parseCounts(stdout, stderr) {
   }
 
   // Skipped marker (test-m1-ping when editor not running)
-  if (/⊘\s+skipped:/.test(stdout)) {
-    return { passed: 0, failed: 0, total: 0, skipped: true, skipReason: 'live-editor-gated' };
+  const explicitSkip = stdout.match(/⊘\s+skipped:\s*([^\r\n]*)/);
+  if (explicitSkip) {
+    return { passed: 0, failed: 0, total: 0, skipped: true, skipReason: explicitSkip[1].trim() || 'explicit skip' };
   }
 
   // Env-fixture skip — fixture-dependent tests print this when UNREAL_PROJECT_ROOT
@@ -129,7 +135,8 @@ function parseCounts(stdout, stderr) {
   return null;
 }
 
-function classify(exitCode, counts, importError) {
+function classify(exitCode, counts, importError, timedOut) {
+  if (timedOut) return 'TIMED_OUT';
   // Import error means we couldn't import the file. By definition that means the
   // test body never ran, so no Pass/Fail/Total summary should exist. If counts WERE
   // parsed, the file imported fine and any SyntaxError / "Cannot find" string in
@@ -149,20 +156,22 @@ function classify(exitCode, counts, importError) {
 
 function runOne(file) {
   const start = Date.now();
+  const timeoutMs = rotationFileTimeoutMs(file);
   const result = spawnSync('node', [file], {
     cwd: SERVER_DIR,
     encoding: 'utf8',
     env: process.env,
-    timeout: 5 * 60 * 1000,
+    timeout: timeoutMs,
     maxBuffer: 64 * 1024 * 1024,
   });
 
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
   const exitCode = result.status === null ? -1 : result.status;
+  const timedOut = result.error?.code === 'ETIMEDOUT';
   const counts = parseCounts(stdout, stderr);
   const importError = detectImportError(stderr);
-  const kind = classify(exitCode, counts, importError);
+  const kind = classify(exitCode, counts, importError, timedOut);
   const oracleFreshness = detectOracleFreshnessMarkers(stdout);
   const failureDetails = kind === 'ASSERTION_FAILED'
     ? extractAssertionFailureDetails(stdout, stderr)
@@ -176,6 +185,8 @@ function runOne(file) {
     importError,
     oracleFreshness,
     failureDetails,
+    timedOut,
+    timeoutMs,
     elapsedMs: Date.now() - start,
     stdout,
     stderr,
@@ -208,6 +219,7 @@ function main() {
   let aggFailed = 0;
   const importErrors = [];
   const assertionFailures = [];
+  const timeouts = [];
   const crashes = [];
   const noSummary = [];
   const skipped = [];
@@ -238,6 +250,9 @@ function main() {
         case 'ASSERTION_FAILED':
           console.log(`✗ ${r.counts.passed}/${r.counts.total} — ${r.counts.failed} FAILED (${r.elapsedMs}ms)`);
           break;
+        case 'TIMED_OUT':
+          console.log(`✗ TIMED_OUT budget=${r.timeoutMs}ms (${r.elapsedMs}ms)`);
+          break;
         case 'CRASHED_NO_SUMMARY':
           console.log(`✗ CRASHED_NO_SUMMARY exit=${r.exitCode} (${r.elapsedMs}ms)`);
           break;
@@ -251,6 +266,7 @@ function main() {
 
     if (r.kind === 'IMPORT_ERROR') importErrors.push(r);
     else if (r.kind === 'ASSERTION_FAILED') assertionFailures.push(r);
+    else if (r.kind === 'TIMED_OUT') timeouts.push(r);
     else if (r.kind === 'CRASHED_NO_SUMMARY') crashes.push(r);
     else if (r.kind === 'NO_SUMMARY_PARSED' || r.kind === 'UNKNOWN') noSummary.push(r);
     else if (r.kind === 'SKIPPED') skipped.push(r);
@@ -266,6 +282,8 @@ function main() {
         counts: r.counts, importError: r.importError,
         oracleFreshness: r.oracleFreshness,
         failureDetails: r.failureDetails,
+        timedOut: r.timedOut,
+        timeoutMs: r.timeoutMs,
         elapsedMs: r.elapsedMs,
       })),
       aggregate,
@@ -273,6 +291,7 @@ function main() {
       oracleFreshness: oracleFreshness.entries,
       importErrorCount: importErrors.length,
       assertionFailureCount: assertionFailures.length,
+      timeoutCount: timeouts.length,
       crashCount: crashes.length,
       noSummaryCount: noSummary.length,
     }, null, 2));
@@ -301,6 +320,17 @@ function main() {
         console.log(`        ${r.importError}`);
         const tailErr = tail(r.stderr, 3);
         if (tailErr) console.log(`        ${tailErr}`);
+      }
+    }
+    if (timeouts.length > 0) {
+      console.log('');
+      console.log('  Per-file timeouts (test process exceeded its explicit budget):');
+      for (const r of timeouts) {
+        console.log(`    ✗ ${r.file} (${r.timeoutMs}ms budget)`);
+        const tailOut = tail(r.stdout, 5);
+        const tailErr = tail(r.stderr, 5);
+        if (tailOut) console.log(`        stdout: ${tailOut}`);
+        if (tailErr) console.log(`        stderr: ${tailErr}`);
       }
     }
     if (crashes.length > 0) {
@@ -350,13 +380,15 @@ function main() {
         passed: r.counts?.passed ?? 0,
         failed: r.counts?.failed ?? 0,
         total: r.counts?.total ?? 0,
+        timedOut: r.timedOut,
+        timeoutMs: r.timeoutMs,
         oracleFreshness: r.oracleFreshness,
       })),
     }, null, 2));
     if (!FLAG_JSON) console.log(`Snapshot written to ${snapshotPath}\n`);
   }
 
-  const hadFailure = importErrors.length + assertionFailures.length + crashes.length + noSummary.length > 0;
+  const hadFailure = importErrors.length + assertionFailures.length + timeouts.length + crashes.length + noSummary.length > 0;
   process.exit(hadFailure ? 1 : 0);
 }
 

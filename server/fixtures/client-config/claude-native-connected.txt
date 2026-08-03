@@ -1,0 +1,4 @@
+uemcp:
+  Scope: User
+  Status: \u2714 Connected
+  Type: stdio

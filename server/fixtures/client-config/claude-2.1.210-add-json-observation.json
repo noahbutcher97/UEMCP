@@ -1,0 +1,10 @@
+{
+  "version": "2.1.210",
+  "isolated_config_outputs": [
+    ".claude.json",
+    "backups/.claude.json.backup.<timestamp>"
+  ],
+  "duplicate_same_name_exit_code": 1,
+  "duplicate_preserved_existing_config_sha256": true,
+  "production_policy": "READ_ONLY_NATIVE_MCP_SUBCOMMANDS"
+}

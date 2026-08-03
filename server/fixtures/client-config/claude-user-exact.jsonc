@@ -1,0 +1,20 @@
+{
+  "theme": "dark",
+  "mcpServers": {
+    "other": {
+      "type": "http",
+      "url": "https://example.invalid/mcp"
+    },
+    "uemcp": {
+      "type": "stdio",
+      "command": "__NODE__",
+      "args": ["__SERVER__"],
+      "cwd": "D:\\Projects\\PinnedWorkspace",
+      "env": {
+        "UEMCP_PRIVATE_TOKEN": "do-not-serialize",
+        "HARMLESS": "preserve-me"
+      }
+    }
+  },
+  "unrelatedSecret": "leave-this-byte-for-byte"
+}

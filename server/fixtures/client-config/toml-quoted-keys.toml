@@ -1,0 +1,6 @@
+["mcp_servers"."uemcp"]
+command = 'C:\Program Files\nodejs\node.exe'
+args = ['D:\DevTools\UEMCP\server\server.mjs']
+
+[unrelated."dotted.key"]
+value = true

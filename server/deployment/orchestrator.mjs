@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 import {
   ACTION_CODES,
@@ -11,13 +11,17 @@ import {
 import { sha256Canonical } from './canonical-json.mjs';
 import { descriptorsEqual } from './descriptor.mjs';
 import { fingerprintPath } from './fingerprints.mjs';
-import { createGenericClientResult, smokeDescriptor } from './protocol-smoke.mjs';
+import {
+  createGenericClientResult,
+  smokeDescriptor,
+  withPinnedDescriptorLaunch,
+} from './protocol-smoke.mjs';
 import {
   createPlanDocument,
   validatePlanEnvelope,
   validatePlanForApply,
 } from './plan-document.mjs';
-import { writeReceipt } from './receipts.mjs';
+import { prepareReceipt, writeReceipt } from './receipts.mjs';
 
 const DOMAIN_ORDERS = Object.freeze({ prerequisites: 10, target: 20, clients: 30, plugin: 40 });
 
@@ -38,12 +42,28 @@ function normalizeClock(clock) {
 function normalizeRequest(input, forcedOperation = null) {
   const operation = forcedOperation ?? input?.operation;
   if (!['setup', 'sync', 'repair', 'verify', 'doctor'].includes(operation)) throw new OrchestratorError('request operation is invalid', 'INVALID_REQUEST');
+  const selectedClients = input?.client_selection?.include ?? input?.includeClients ?? input?.selected_clients ?? [];
+  const excludedClients = input?.client_selection?.exclude ?? input?.excludeClients ?? input?.excluded_clients ?? [];
   const request = validateRequestContract({
     requested_project: input?.requested_project ?? null,
     requested_profile: input?.requested_profile ?? null,
-    selected_clients: input?.selected_clients ?? [],
+    selected_clients: selectedClients,
+    excluded_clients: excludedClients,
+    client_decisions: input?.client_decisions ?? {
+      replace_owned_fields: false,
+      shadow_gemini_extension: false,
+      migrate_legacy_claude_project: false,
+    },
   });
-  return { operation, request };
+  return {
+    operation,
+    request,
+    clientSelection: {
+      include: request.selected_clients,
+      exclude: request.excluded_clients,
+      vscodeProfile: input?.client_selection?.vscode_profile ?? input?.vscodeProfile ?? null,
+    },
+  };
 }
 
 function validateDomains(domains) {
@@ -63,6 +83,26 @@ function validateDomains(domains) {
   return rows;
 }
 
+function normalizeKnownFolders(value) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    throw new OrchestratorError('trusted Windows known folders are unavailable');
+  }
+  const paths = {
+    programData: value.programData,
+    programFiles: value.programFiles,
+  };
+  if (Object.values(paths).some(path => typeof path !== 'string'
+    || path.trim() === ''
+    || !isAbsolute(path)
+    || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new OrchestratorError('trusted Windows known folders are invalid');
+  }
+  return Object.freeze({
+    programData: resolve(paths.programData),
+    programFiles: resolve(paths.programFiles),
+  });
+}
+
 function normalizeDomainPlan(value, domain) {
   if (!value || !Array.isArray(value.stages) || !Array.isArray(value.operations) || !Array.isArray(value.preconditions)) {
     throw new OrchestratorError('domain plan result is incomplete');
@@ -79,6 +119,16 @@ function normalizeDomainPlan(value, domain) {
   };
 }
 
+function normalizeDomainExecution(value) {
+  if (value?.stage) {
+    if (!Array.isArray(value.clients ?? []) || !Array.isArray(value.actions ?? [])) {
+      throw new OrchestratorError('domain execution result is incomplete');
+    }
+    return { stage: value.stage, clients: value.clients ?? [], actions: value.actions ?? [] };
+  }
+  return { stage: value, clients: [], actions: [] };
+}
+
 function actionForSmoke(smoke) {
   if (smoke.status === 'INITIALIZE_FAILED') {
     return { code: 'INITIALIZE_FAILED', message: 'The canonical descriptor did not complete MCP initialize.', command: null };
@@ -93,11 +143,57 @@ function receiptContractReference(reference) {
   return { kind: reference.kind, path_label: reference.path_label, sha256: reference.sha256 };
 }
 
-function currentActions(stages, clients) {
+function requireApplyJournal(localState) {
+  const methods = ['beginApplyJournal', 'stageApplyJournal', 'completeApplyJournal', 'clearApplyJournal'];
+  if (methods.some(name => typeof localState?.[name] !== 'function')) {
+    throw new OrchestratorError('local state lacks the durable apply journal contract', 'LOCAL_STATE_UNAVAILABLE');
+  }
+}
+
+function prepareInterruptedApplyReceipt(localState, plan, now) {
+  const action = {
+    code: 'SYNC_FAILED',
+    message: 'A prior apply was interrupted; inspect current deployment state and create a new plan.',
+    command: null,
+  };
+  const stage = createStageResult({
+    name: 'orchestrator',
+    status: 'SYNC_FAILED',
+    changed: true,
+    result: 'failed',
+    progress: 'committed',
+    evidence: {
+      error_code: 'APPLY_INTERRUPTED',
+      mutation_state: 'unknown',
+    },
+    actions: [action],
+  });
+  const result = createMachineResult({
+    operation: 'apply',
+    source: plan.source,
+    request: plan.request,
+    descriptor: plan.descriptor,
+    plan: {
+      digest: plan.digest,
+      created_at: plan.created_at,
+      expires_at: plan.expires_at,
+      preconditions_valid: true,
+    },
+    stages: [stage],
+    clients: plan.clients,
+    receipts: [],
+    actions: [action],
+    now,
+  });
+  return prepareReceipt({ localState, result, plan });
+}
+
+function currentActions(stages, clients, domainActions = []) {
   const unique = new Map();
   const actions = [
     ...stages.flatMap(stage => stage.actions),
     ...clients.flatMap(client => client.actions),
+    ...domainActions,
   ];
   for (const action of actions) unique.set(sha256Canonical(action), action);
   return [...unique.values()];
@@ -119,6 +215,7 @@ function terminalDomainException(domain, error) {
 
 export function createDeploymentOrchestrator({
   repoRoot,
+  workspaceRoot = process.cwd(),
   stateRoot,
   fsImpl,
   processRunner,
@@ -127,22 +224,41 @@ export function createDeploymentOrchestrator({
   localState,
   sourceProvider,
   descriptorProvider,
+  knownFoldersProvider = null,
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
+  descriptorLaunchPinner = withPinnedDescriptorLaunch,
   includeGenericClient = true,
   applyWaitMs = 30_000,
 } = {}) {
   if (!repoRoot || !stateRoot) throw new OrchestratorError('repoRoot and stateRoot are required');
+  if (typeof workspaceRoot !== 'string' || !isAbsolute(workspaceRoot)) {
+    throw new OrchestratorError('workspaceRoot must be an absolute path');
+  }
+  const activeWorkspaceRoot = resolve(workspaceRoot);
   if (!localState) throw new OrchestratorError('localState is required');
-  if (typeof sourceProvider !== 'function' || typeof descriptorProvider !== 'function') {
+  if (typeof sourceProvider !== 'function'
+    || typeof descriptorProvider !== 'function'
+    || typeof protocolSmoke !== 'function'
+    || typeof descriptorLaunchPinner !== 'function') {
     throw new OrchestratorError('source and descriptor providers are required');
   }
   const orderedDomains = validateDomains(domains);
+  const hasClientDomain = orderedDomains.some(domain => domain.name === 'clients');
+  if (hasClientDomain && typeof knownFoldersProvider !== 'function') {
+    throw new OrchestratorError('knownFoldersProvider is required with the client domain');
+  }
+  if (knownFoldersProvider !== null && typeof knownFoldersProvider !== 'function') {
+    throw new OrchestratorError('knownFoldersProvider is invalid');
+  }
 
   async function buildContext(normalized, overrides = {}) {
     const source = overrides.source ?? await sourceProvider({ repoRoot, processRunner, fsImpl });
     const descriptor = overrides.descriptor ?? await descriptorProvider({ repoRoot, processRunner, fsImpl });
+    const knownFolders = hasClientDomain
+      ? normalizeKnownFolders(await knownFoldersProvider({ processRunner, fsImpl }))
+      : null;
     return {
       repoRoot,
       stateRoot,
@@ -151,24 +267,42 @@ export function createDeploymentOrchestrator({
       localState,
       operation: normalized.operation,
       request: normalized.request,
+      clientSelection: normalized.clientSelection,
+      env: process.env,
+      workspaceRoot: activeWorkspaceRoot,
       source,
       descriptor,
       now: normalizeClock(clock),
+      ...(overrides.privateContext ?? {}),
+      ...(knownFolders ? { knownFolders } : {}),
     };
   }
 
   async function appendGenericSupport(context, aggregate) {
-    if (!includeGenericClient || aggregate.clients.length > 0) return;
-    const smoke = await protocolSmoke(context.descriptor);
+    const hasGeneric = aggregate.clients.some(client => client.adapter === 'generic-mcp-host');
+    const hasReleaseGatedClient = aggregate.clients.some(client =>
+      client.adapter !== 'generic-mcp-host' && client.compatibility === 'release_gated');
+    if (!includeGenericClient || hasGeneric || hasReleaseGatedClient) return;
+    const smoke = await descriptorLaunchPinner(context.descriptor, {
+      launchFilePinner: context.launchFilePinner,
+      callback: (guard, pinnedDescriptor) => protocolSmoke(pinnedDescriptor),
+    });
     const client = createGenericClientResult({ descriptor: context.descriptor, smoke });
-    aggregate.clients.push(client);
+    aggregate.clients = [...aggregate.clients, client];
     aggregate.actions.push(...client.actions);
-    aggregate.stages.push(createStageResult({
+    const clientStageIndex = aggregate.stages.findIndex(stage => stage.name === 'clients');
+    const existingClientStage = aggregate.stages[clientStageIndex];
+    const clientStage = createStageResult({
       name: 'clients',
       status: 'MANUAL_REGISTRATION_REQUIRED',
+      mandatory: existingClientStage?.mandatory ?? true,
+      changed: existingClientStage?.changed ?? false,
+      evidence: existingClientStage?.evidence ?? {},
       result: 'action_required',
-      actions: client.actions,
-    }));
+      actions: [...(existingClientStage?.actions ?? []), ...client.actions],
+    });
+    if (clientStageIndex >= 0) aggregate.stages[clientStageIndex] = clientStage;
+    else aggregate.stages.push(clientStage);
     const smokeAction = actionForSmoke(smoke);
     aggregate.stages.push(createStageResult({
       name: 'protocol',
@@ -247,7 +381,11 @@ export function createDeploymentOrchestrator({
     });
     try {
       const normalized = normalizeRequest({ operation: plan.operation, ...plan.request });
-      const context = await buildContext(normalized, { source: plan.source, descriptor: plan.descriptor });
+      const context = await buildContext(normalized, {
+        source: plan.source,
+        descriptor: plan.descriptor,
+        privateContext: { approvedPlan: plan, applyLease: lease },
+      });
       await validatePlanForApply({
         plan,
         approvedDigest,
@@ -261,37 +399,53 @@ export function createDeploymentOrchestrator({
         throw new OrchestratorError('source or descriptor changed after planning', 'PLAN_STALE');
       }
 
+      let journalStarted = false;
+      const interruptedReceipt = prepareInterruptedApplyReceipt(localState, plan, context.now);
+      if (plan.operations.length > 0) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
+        journalStarted = true;
+      }
+
       const stages = [];
+      let domainClients = [];
+      const domainActions = [];
       let prerequisitesBlocked = false;
       for (const domain of orderedDomains) {
         const operations = plan.operations.filter(operation => operation.domain === domain.name);
-        let stage;
+        let execution;
         let stageOutcome;
         try {
-          stage = operations.length > 0
+          const value = operations.length > 0 || domain.name === 'clients'
             ? await domain.apply(context, operations)
             : await domain.verify(context);
-          stageOutcome = reduceOutcome([stage]);
+          execution = normalizeDomainExecution(value);
+          stageOutcome = reduceOutcome([execution.stage]);
         } catch (error) {
           if (!shouldRecordPlanDigest(stages)) throw error;
           stages.push(terminalDomainException(domain, error));
           break;
         }
-        stages.push(stage);
+        stages.push(execution.stage);
+        if (execution.clients.length > 0) domainClients = execution.clients;
+        domainActions.push(...execution.actions);
         if (domain.name === 'prerequisites' && stageOutcome !== 'HEALTHY') {
           prerequisitesBlocked = true;
           break;
         }
       }
       if (stages.length === 0) stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));
-      let clients = prerequisitesBlocked ? [] : plan.clients;
+      let clients = prerequisitesBlocked ? [] : (domainClients.length > 0 ? domainClients : plan.clients);
       if (!prerequisitesBlocked && includeGenericClient && plan.clients.some(client => client.adapter === 'generic-mcp-host')) {
-        const generic = { stages: [], clients: [], actions: [] };
-        await appendGenericSupport(context, generic);
-        stages.push(...generic.stages);
-        clients = generic.clients;
+        const fallback = {
+          stages,
+          clients: clients.filter(client => client.adapter !== 'generic-mcp-host'),
+          actions: domainActions,
+        };
+        await appendGenericSupport(context, fallback);
+        clients = fallback.clients;
       }
-      const actions = currentActions(stages, clients);
+      const actions = currentActions(stages, clients, domainActions);
       const planSummary = {
         digest: plan.digest,
         created_at: plan.created_at,
@@ -310,7 +464,20 @@ export function createDeploymentOrchestrator({
         actions,
         now: context.now,
       });
-      const receipt = await receiptWriter({ localState, result: initial, plan });
+      const consumesPlan = shouldRecordPlanDigest(stages);
+      if (consumesPlan && !journalStarted) {
+        requireApplyJournal(localState);
+        await localState.beginApplyJournal(plan.digest, interruptedReceipt);
+        journalStarted = true;
+      }
+      const prepared = prepareReceipt({ localState, result: initial, plan });
+      if (consumesPlan) await localState.stageApplyJournal(plan.digest, prepared);
+      else if (journalStarted) {
+        await localState.clearApplyJournal(plan.digest);
+        journalStarted = false;
+      }
+      const receipt = await receiptWriter({ localState, result: initial, plan, prepared });
+      if (consumesPlan) await localState.completeApplyJournal(plan.digest, receipt);
       const result = createMachineResult({
         operation: 'apply',
         source: plan.source,
@@ -323,9 +490,6 @@ export function createDeploymentOrchestrator({
         actions,
         now: context.now,
       });
-      if (shouldRecordPlanDigest(stages)) {
-        await localState.markDigestApplied(plan.digest, { receipt_sha256: receipt.sha256 });
-      }
       return result;
     } finally {
       await lease.release();
@@ -338,10 +502,11 @@ export function createDeploymentOrchestrator({
     const aggregate = { stages: [], clients: [], actions: [] };
     let prerequisitesBlocked = false;
     for (const domain of orderedDomains) {
-      const stage = await domain.verify(context);
-      aggregate.stages.push(stage);
-      aggregate.actions.push(...stage.actions);
-      if (domain.name === 'prerequisites' && reduceOutcome([stage]) !== 'HEALTHY') prerequisitesBlocked = true;
+      const execution = normalizeDomainExecution(await domain.verify(context));
+      aggregate.stages.push(execution.stage);
+      if (execution.clients.length > 0) aggregate.clients = execution.clients;
+      aggregate.actions.push(...execution.stage.actions, ...execution.actions);
+      if (domain.name === 'prerequisites' && reduceOutcome([execution.stage]) !== 'HEALTHY') prerequisitesBlocked = true;
     }
     if (!prerequisitesBlocked) await appendGenericSupport(context, aggregate);
     if (aggregate.stages.length === 0) aggregate.stages.push(createStageResult({ name: 'prerequisites', status: 'NOT_CHECKED', result: 'action_required' }));

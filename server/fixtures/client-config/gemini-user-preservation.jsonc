@@ -1,0 +1,18 @@
+{
+  // User-owned Gemini settings must survive targeted edits.
+  "mcpServers": {
+    "other": { "httpUrl": "https://example.invalid/mcp" },
+    "uemcp": {
+      "command": "__COMMAND__",
+      "args": ["__SERVER__"],
+      "trust": false,
+      "cwd": "C:\\Preserve\\WorkingDirectory",
+      "env": {
+        "UEMCP_PRIVATE_TOKEN": "do-not-serialize",
+        "HARMLESS": "preserve-me"
+      },
+      "timeout": 4700
+    }
+  },
+  "unrelated": { "keep": true }
+}

@@ -2,14 +2,20 @@
 //
 // Run: cd server && node test-protocol-smoke.mjs
 
-import { randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TestRunner } from './test-helpers.mjs';
-import { createGenericClientResult, smokeDescriptor } from './deployment/protocol-smoke.mjs';
+import {
+  cleanupCanonicalScratchRoot,
+  createCanonicalScratchRoot,
+  TestRunner,
+} from './test-helpers.mjs';
+import {
+  createGenericClientResult,
+  smokeDescriptor,
+  withPinnedDescriptorLaunch,
+} from './deployment/protocol-smoke.mjs';
 
 const t = new TestRunner('Deployment Protocol Smoke Tests');
 const here = dirname(fileURLToPath(import.meta.url));
@@ -28,16 +34,11 @@ const expectedManagementTools = Object.freeze([
 ]);
 
 function makeRoot() {
-  const root = join(tmpdir(), `uemcp protocol smoke ${randomUUID()}`);
-  mkdirSync(root);
-  return root;
+  return createCanonicalScratchRoot('uemcp protocol smoke ');
 }
 
 function cleanup(root) {
-  const normalized = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const expected = resolve(tmpdir()).replace(/\\/g, '/').toLowerCase();
-  if (!normalized.startsWith(`${expected}/uemcp protocol smoke `)) throw new Error(`refusing to clean unexpected path: ${root}`);
-  rmSync(root, { recursive: true, force: true });
+  cleanupCanonicalScratchRoot(root, 'uemcp protocol smoke ');
 }
 
 function descriptor(script, mode = 'normal') {
@@ -49,6 +50,56 @@ function descriptor(script, mode = 'normal') {
     env: {},
     cwd: null,
   };
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Every descriptor process holds its exact executable and absolute script paths through completion.
+{
+  let pinDepth = 0;
+  const mutableDescriptor = descriptor(sampleServer);
+  const value = await withPinnedDescriptorLaunch(mutableDescriptor, {
+    launchFilePinner: async ({ paths, callback }) => {
+      t.assert(paths.includes(resolve(process.execPath)) && paths.includes(resolve(sampleServer)), 'descriptor launch pin receives the executable and absolute script paths');
+      mutableDescriptor.command = join(dirname(process.execPath), 'replaced-node.exe');
+      pinDepth += 1;
+      try {
+        return await callback(Object.freeze({
+          assertPinned() {
+            if (pinDepth !== 1) throw new Error('descriptor launch pin was lost');
+          },
+        }));
+      } finally {
+        pinDepth -= 1;
+      }
+    },
+    callback: async (guard, pinnedDescriptor) => {
+      guard.assertPinned();
+      t.assert(pinDepth === 1, 'descriptor launch callback runs while exact files remain pinned');
+      t.assert(pinnedDescriptor?.command === resolve(process.execPath)
+        && pinnedDescriptor.args[0] === resolve(sampleServer)
+        && Object.isFrozen(pinnedDescriptor)
+        && Object.isFrozen(pinnedDescriptor.args), 'descriptor launch callback receives the frozen tuple whose files were pinned');
+      return 'pinned';
+    },
+  });
+  t.assert(value === 'pinned' && pinDepth === 0, 'descriptor launch pin returns callback results and releases afterward');
+}
+
+async function waitForProcessExit(pid, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processIsAlive(pid)) return true;
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 25));
+  }
+  return !processIsAlive(pid);
 }
 
 // A path with spaces launches without PATH, cwd, or project environment assistance.
@@ -74,6 +125,24 @@ function descriptor(script, mode = 'normal') {
   }
 }
 
+// Private launch overrides do not weaken the serialized canonical descriptor.
+{
+  const root = makeRoot();
+  try {
+    const canonical = descriptor(sampleServer, 'report-launch');
+    const smoke = await smokeDescriptor(canonical, {
+      expectedServerName: 'sample-mcp',
+      timeoutMs: 2_000,
+      effectiveEnvironment: { PATH: '', SMOKE_ENV_PROBE: 'private-value' },
+      effectiveCwd: root,
+    });
+    t.assert(smoke.status === 'HEALTHY' && smoke.initialize?.server_version === `private-value|${resolve(root)}`, 'protocol smoke uses the exact private environment and cwd');
+    t.assert(JSON.stringify(canonical) === JSON.stringify(descriptor(sampleServer, 'report-launch')), 'private launch overrides do not mutate the canonical descriptor');
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Initialize and list failures remain bounded and separately classified.
 for (const [mode, expectedStatus] of [
   ['hang-initialize', 'INITIALIZE_FAILED'],
@@ -89,6 +158,48 @@ for (const [mode, expectedStatus] of [
     timeoutMs: 250,
   });
   t.assert(smoke.status === expectedStatus, `${mode} is bounded as ${expectedStatus}`);
+}
+
+// Oversized unterminated stdout and excessive stderr terminate before the protocol deadline.
+for (const [mode, limitOption] of [
+  ['flood-stdout', { stdoutLimitBytes: 16 * 1024 }],
+  ['flood-stderr', { stderrLimitBytes: 16 * 1024 }],
+]) {
+  const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
+    expectedServerName: 'sample-mcp',
+    timeoutMs: 5_000,
+    ...limitOption,
+  });
+  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < 3_500, `${mode} is output-bounded before the protocol deadline`);
+}
+
+// Protocol deadline cleanup terminates descendants, including when the direct peer exits on EOF.
+for (const [mode, label] of [
+  ['spawn-descendant-hang', 'hanging parent'],
+  ['spawn-descendant-exit-on-eof', 'EOF-exiting parent'],
+]) {
+  const root = makeRoot();
+  let descendantPid = null;
+  try {
+    const pidFile = join(root, 'descendant.pid');
+    const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
+      expectedServerName: 'sample-mcp',
+      timeoutMs: 250,
+      effectiveEnvironment: { PATH: '', UEMCP_DESCENDANT_PID_FILE: pidFile },
+    });
+    descendantPid = Number(readFileSync(pidFile, 'utf8'));
+    t.assert(smoke.status === 'INITIALIZE_FAILED' && Number.isSafeInteger(descendantPid), `${label} deadline scenario starts one recorded descendant process`);
+    t.assert(await waitForProcessExit(descendantPid), `${label} protocol close terminates the complete stdio process tree`);
+  } finally {
+    if (descendantPid !== null && processIsAlive(descendantPid)) {
+      try {
+        process.kill(descendantPid, 'SIGKILL');
+      } catch {
+        // The descendant may have exited during cleanup.
+      }
+    }
+    cleanup(root);
+  }
 }
 
 // The real no-project UEMCP server proves the same descriptor contract.

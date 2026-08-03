@@ -1,0 +1,9 @@
+{
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": [
+    { "serverCommand": ["__NODE__", "__SERVER__"] }
+  ],
+  "deniedMcpServers": [
+    { "serverName": "uemcp" }
+  ]
+}

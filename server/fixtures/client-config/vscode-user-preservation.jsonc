@@ -1,0 +1,34 @@
+{
+  // Inputs belong to VS Code and must survive targeted MCP edits.
+  "inputs": [
+    {
+      "id": "project-token",
+      "type": "promptString",
+      "password": true
+    }
+  ],
+  "servers": {
+    "other": {
+      "type": "http",
+      "url": "https://example.invalid/mcp"
+    },
+    "uemcp": {
+      "type": "stdio",
+      "command": "__OLD_COMMAND__",
+      "args": ["__OLD_ARG__"],
+      "env": {
+        "UEMCP_SECRET_TOKEN": "keep-this-value",
+        "HARMLESS": "also-keep"
+      },
+      "cwd": "C:\\Preserve\\Workspace",
+      "sandbox": {
+        "enabled": false,
+        "network": "host"
+      },
+      "unknownProviderField": "preserve"
+    }
+  },
+  "unknownTopLevel": {
+    "preserve": true
+  },
+}

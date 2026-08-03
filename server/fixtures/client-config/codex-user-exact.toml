@@ -1,0 +1,22 @@
+# User-owned settings and comments must survive UEMCP operations.
+model = "gpt-5.4"
+
+[mcp_servers.other]
+url = "https://example.invalid/mcp"
+
+[mcp_servers.uemcp]
+# Keep this comment attached to the launch command.
+command = "__NODE__"
+args = ["__SERVER__"]
+enabled = false
+required = true
+startup_timeout_sec = 45
+tool_timeout_sec = 90
+default_tools_approval_mode = "prompt"
+enabled_tools = ["get_editor_state"]
+disabled_tools = ["delete_asset"]
+cwd = "C:\\CustomWorkspace"
+env = { API_TOKEN = "do-not-serialize", HARMLESS = "preserve-me" }
+
+[mcp_servers.uemcp.tools.get_editor_state]
+approval_mode = "auto"

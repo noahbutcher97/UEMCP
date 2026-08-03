@@ -2,11 +2,19 @@
 
 import * as fsPromises from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { exitCodeForOutcome } from './deployment/contracts.mjs';
+import { createClaudeAdapter } from './deployment/adapters/claude.mjs';
+import { createCodexAdapter } from './deployment/adapters/codex.mjs';
+import { createGeminiAdapter } from './deployment/adapters/gemini.mjs';
+import { createVsCodeAdapter } from './deployment/adapters/vscode.mjs';
 import { verifyDeploymentBundleFreshness } from './deployment/bundle-freshness.mjs';
+import { CLIENT_IDS } from './deployment/client-contract.mjs';
+import { createClientDomain } from './deployment/client-domain.mjs';
+import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { createCanonicalDescriptor } from './deployment/descriptor.mjs';
 import { createLocalState } from './deployment/local-state.mjs';
 import { createDeploymentOrchestrator } from './deployment/orchestrator.mjs';
@@ -14,20 +22,22 @@ import { createPrerequisiteDomain } from './deployment/prerequisites.mjs';
 import { createProcessRunner } from './deployment/process-runner.mjs';
 import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 import { createTargetDomain } from './deployment/target-domain.mjs';
+import { resolveWindowsKnownFolders } from './deployment/windows-native.mjs';
 
 const HELP = `UEMCP deployment machine interface
 
 Usage:
-  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs plan --operation <setup|sync> [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
   deploy-uemcp.mjs apply --plan-file <path.json> --approve-digest <sha256> --non-interactive [--json]
-  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
-  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs verify [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs doctor [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--targets-file <absolute.json>] [--json]
+  deploy-uemcp.mjs repair [--project <path.uproject>] [--profile <name>] [--include-client <id>] [--exclude-client <id>] [--vscode-profile <name>] [--replace-owned-client-fields] [--shadow-gemini-extension] [--migrate-legacy-claude-project] [--targets-file <absolute.json>] [--output-plan <absolute.json>] [--json]
 `;
 const INTERFACE_ERROR_CODES = new Set(['CLI_USAGE', 'INVALID_CONTRACT', 'INVALID_PLAN', 'UNSUPPORTED_INTERFACE']);
 const SAFE_DIAGNOSTICS = Object.freeze({
   APPLY_IN_PROGRESS: 'another deployment apply is in progress',
   BUNDLE_FRESHNESS_FAILED: 'deployment bundle freshness verification failed',
+  CLIENT_INSPECTION_UNBOUND: 'selected client inspection could not produce complete apply evidence',
   DEPENDENCY_POLICY_BLOCKED: 'dependency policy blocked deployment',
   INSTALL_FAILED: 'dependency installation failed',
   INVALID_CONTRACT: 'machine contract validation failed',
@@ -73,26 +83,49 @@ function parseArgs(argv) {
     project: null,
     profile: null,
     targetsFile: null,
+    outputPlan: null,
     planFile: null,
     approveDigest: null,
     nonInteractive: false,
+    includeClients: [],
+    excludeClients: [],
+    vscodeProfile: null,
+    replaceOwnedClientFields: false,
+    shadowGeminiExtension: false,
+    migrateLegacyClaudeProject: false,
   };
   const seen = new Set();
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (seen.has(flag)) throw new UsageError('duplicate flag');
-    seen.add(flag);
+    const repeatable = flag === '--include-client' || flag === '--exclude-client';
+    if (!repeatable && seen.has(flag)) throw new UsageError('duplicate flag');
+    if (!repeatable) seen.add(flag);
     if (flag === '--json') parsed.json = true;
     else if (flag === '--non-interactive') parsed.nonInteractive = true;
+    else if (flag === '--replace-owned-client-fields') parsed.replaceOwnedClientFields = true;
+    else if (flag === '--shadow-gemini-extension') parsed.shadowGeminiExtension = true;
+    else if (flag === '--migrate-legacy-claude-project') parsed.migrateLegacyClaudeProject = true;
     else if (flag === '--operation') { parsed.operation = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--project') { parsed.project = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--profile') { parsed.profile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--targets-file') { parsed.targetsFile = takeValue(argv, index, flag); index += 1; }
+    else if (flag === '--output-plan') { parsed.outputPlan = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--plan-file') { parsed.planFile = takeValue(argv, index, flag); index += 1; }
     else if (flag === '--approve-digest') { parsed.approveDigest = takeValue(argv, index, flag); index += 1; }
+    else if (flag === '--include-client' || flag === '--exclude-client') {
+      const value = takeValue(argv, index, flag);
+      if (!CLIENT_IDS.includes(value)) throw new UsageError('unknown client ID');
+      const target = flag === '--include-client' ? parsed.includeClients : parsed.excludeClients;
+      if (target.includes(value)) throw new UsageError('duplicate client selection');
+      target.push(value);
+      index += 1;
+    }
+    else if (flag === '--vscode-profile') { parsed.vscodeProfile = takeValue(argv, index, flag); index += 1; }
     else throw new UsageError('unknown flag');
   }
-  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null;
+  const clientFlags = parsed.includeClients.length > 0 || parsed.excludeClients.length > 0 || parsed.vscodeProfile !== null;
+  const decisionFlags = parsed.replaceOwnedClientFields || parsed.shadowGeminiExtension || parsed.migrateLegacyClaudeProject;
+  const requestFlags = parsed.project !== null || parsed.profile !== null || parsed.targetsFile !== null || clientFlags || decisionFlags;
   if (command === 'plan') {
     if (!['setup', 'sync'].includes(parsed.operation)) throw new UsageError('plan requires --operation setup or sync');
     if (parsed.planFile || parsed.approveDigest || parsed.nonInteractive) throw new UsageError('plan does not accept apply flags');
@@ -100,20 +133,30 @@ function parseArgs(argv) {
     if (!parsed.planFile || !isAbsolute(parsed.planFile) || !parsed.approveDigest || !/^[0-9a-f]{64}$/.test(parsed.approveDigest) || !parsed.nonInteractive) {
       throw new UsageError('apply requires an absolute --plan-file, a lowercase --approve-digest, and --non-interactive');
     }
-    if (requestFlags || parsed.operation !== null) throw new UsageError('apply request overrides are forbidden');
-  } else {
-    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    if (requestFlags || parsed.operation !== null || parsed.outputPlan !== null) throw new UsageError('apply request overrides are forbidden');
+  } else if (command !== 'repair') {
+    if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive || parsed.outputPlan !== null) {
       throw new UsageError(`${command} does not accept plan/apply flags`);
     }
+    if (decisionFlags) throw new UsageError(`${command} does not accept repair decisions`);
+  } else if (parsed.operation !== null || parsed.planFile || parsed.approveDigest || parsed.nonInteractive) {
+    throw new UsageError('repair does not accept plan/apply flags');
   }
   if (parsed.targetsFile !== null && (!isAbsolute(parsed.targetsFile) || !parsed.targetsFile.toLowerCase().endsWith('.json'))) {
     throw new UsageError('--targets-file must be an absolute .json path');
+  }
+  if (parsed.outputPlan !== null && (!isAbsolute(parsed.outputPlan) || !parsed.outputPlan.toLowerCase().endsWith('.json'))) {
+    throw new UsageError('--output-plan must be an absolute .json path');
   }
   if (parsed.project !== null && (!isAbsolute(parsed.project) || extname(parsed.project).toLowerCase() !== '.uproject')) {
     throw new UsageError('--project must be an absolute .uproject path');
   }
   if (parsed.profile !== null && parsed.profile.trim() === '') throw new UsageError('--profile must be non-empty');
+  if (parsed.vscodeProfile !== null && parsed.vscodeProfile.trim() === '') throw new UsageError('--vscode-profile must be non-empty');
   if (parsed.project !== null && parsed.profile !== null) throw new UsageError('--project and --profile are mutually exclusive');
+  if (parsed.includeClients.some(clientId => parsed.excludeClients.includes(clientId))) {
+    throw new UsageError('client include and exclude selections overlap');
+  }
   return parsed;
 }
 
@@ -135,7 +178,7 @@ function locateRepository() {
   throw new UsageError('deployment entry is not inside a UEMCP repository');
 }
 
-export function createDefaultOrchestrator({ targetsFile = null } = {}) {
+export function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process.cwd() } = {}) {
   const { repoRoot, serverRoot } = locateRepository();
   const activeEntryPath = fileURLToPath(import.meta.url);
   const processRunner = createProcessRunner();
@@ -155,15 +198,32 @@ export function createDefaultOrchestrator({ targetsFile = null } = {}) {
       targetsPath: targetsFile,
       processRunner,
     }),
+    createClientDomain({
+      adapters: [
+        createClaudeAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createCodexAdapter({ fsImpl: fsPromises, runner: processRunner, captureFingerprint: captureClientPathFingerprint }),
+        createGeminiAdapter({ fsImpl: fsPromises, runner: processRunner }),
+        createVsCodeAdapter({ fsImpl: fsPromises }),
+      ],
+      transaction: ({ externalLease }) => createClientTransaction({
+        localState,
+        fsImpl: fsPromises,
+        processRunner,
+        externalLease,
+      }),
+      fsImpl: fsPromises,
+    }),
   ];
   const manifestPath = join(repoRoot, 'dist', 'deploy-uemcp.manifest.json');
   return createDeploymentOrchestrator({
     repoRoot,
+    workspaceRoot,
     stateRoot,
     fsImpl: fsPromises,
     processRunner,
     localState,
     domains,
+    knownFoldersProvider: ({ processRunner: activeRunner }) => resolveWindowsKnownFolders({ runner: activeRunner }),
     sourceProvider: async () => {
       await verifyDeploymentBundleFreshness({ repoRoot, activeEntryPath, fsImpl: fsPromises });
       return {
@@ -190,7 +250,18 @@ function requestFrom(parsed) {
     ...(parsed.operation ? { operation: parsed.operation } : {}),
     requested_project: parsed.project,
     requested_profile: parsed.profile,
-    selected_clients: [],
+    selected_clients: parsed.includeClients,
+    excluded_clients: parsed.excludeClients,
+    client_selection: {
+      include: parsed.includeClients,
+      exclude: parsed.excludeClients,
+      vscode_profile: parsed.vscodeProfile,
+    },
+    client_decisions: {
+      replace_owned_fields: parsed.replaceOwnedClientFields,
+      shadow_gemini_extension: parsed.shadowGeminiExtension,
+      migrate_legacy_claude_project: parsed.migrateLegacyClaudeProject,
+    },
   };
 }
 
@@ -202,6 +273,29 @@ function writeHumanValue(stream, value) {
   stream.write(`${value.operation ?? value.kind}: ${value.outcome ?? 'ready'}\n`);
   if (value.digest) stream.write(`digest: ${value.digest}\n`);
   for (const action of value.actions ?? []) stream.write(`action: ${action.code} - ${action.message}\n`);
+}
+
+async function publishPlanCreateOnly(targetPath, value) {
+  const resolvedTarget = resolve(targetPath);
+  const scratchPath = join(dirname(resolvedTarget), `.${basename(resolvedTarget)}.${randomUUID()}.tmp`);
+  let scratchCreated = false;
+  try {
+    const handle = await fsPromises.open(scratchPath, 'wx', 0o600);
+    scratchCreated = true;
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsPromises.link(scratchPath, resolvedTarget);
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new UsageError('--output-plan target already exists');
+    if (error instanceof UsageError) throw error;
+    throw new UsageError('--output-plan could not be published');
+  } finally {
+    if (scratchCreated) await fsPromises.unlink(scratchPath).catch(() => {});
+  }
 }
 
 export async function runCli(argv, {
@@ -232,6 +326,7 @@ export async function runCli(argv, {
       }
       value = await activeOrchestrator.apply({ plan, approvedDigest: parsed.approveDigest });
     }
+    if (parsed.outputPlan !== null) await publishPlanCreateOnly(parsed.outputPlan, value);
     if (parsed.json) writeMachineValue(stdout, value);
     else writeHumanValue(stdout, value);
     return exitCodeForOutcome(value.outcome);

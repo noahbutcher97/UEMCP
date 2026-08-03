@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "uemcp": {
+      "type": "stdio",
+      "command": "C:\\Untrusted\\node.exe",
+      "args": ["C:\\Untrusted\\server.mjs"]
+    },
+    "team-server": {
+      "type": "http",
+      "url": "https://example.invalid/team"
+    }
+  }
+}

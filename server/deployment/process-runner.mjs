@@ -1,5 +1,5 @@
 import { spawn as defaultSpawn } from 'node:child_process';
-import { isAbsolute, join, posix, win32 } from 'node:path';
+import { isAbsolute, posix, win32 } from 'node:path';
 
 export class ProcessRunnerError extends Error {
   constructor(message, code = 'PROCESS_RUNNER_ERROR', details = {}) {
@@ -18,37 +18,70 @@ function elapsed(clock, started) {
   return Math.max(0, Number(clock()) - started);
 }
 
-async function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
-  if (!child?.pid) return;
-  if (process.platform !== 'win32') {
-    child.kill('SIGKILL');
+function killDirectChild(child, signal) {
+  try {
+    child.kill(signal);
+  } catch {
+    // The child may already have exited.
+  }
+}
+
+export async function terminateProcessTree(child, {
+  spawnImpl = defaultSpawn,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  signal = 'SIGKILL',
+  timeoutMs = 5_000,
+} = {}) {
+  if (!Number.isSafeInteger(child?.pid) || child.pid <= 0) return;
+  if (typeof spawnImpl !== 'function' || typeof signal !== 'string'
+    || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new ProcessRunnerError('process-tree termination options are invalid', 'INVALID_TERMINATION_OPTIONS');
+  }
+  if (platform !== 'win32') {
+    killDirectChild(child, signal);
     return;
   }
-  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
-  if (!systemRoot) {
-    child.kill('SIGKILL');
+  if (typeof systemRoot !== 'string'
+    || !/^[A-Za-z]:[\\/]/.test(systemRoot)) {
+    killDirectChild(child, signal);
     return;
   }
-  const taskkill = join(systemRoot, 'System32', 'taskkill.exe');
-  await new Promise(resolve => {
+  const normalizedRoot = win32.resolve(systemRoot);
+  const taskkill = win32.resolve(normalizedRoot, 'System32', 'taskkill.exe');
+  await new Promise(resolvePromise => {
     let killer;
+    let settled = false;
+    let timer;
+    const finish = fallback => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (fallback) killDirectChild(child, signal);
+      resolvePromise();
+    };
     try {
       killer = spawnImpl(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
+        env: { SystemRoot: normalizedRoot, WINDIR: normalizedRoot },
         shell: false,
         windowsHide: true,
         stdio: 'ignore',
       });
     } catch {
-      child.kill('SIGKILL');
-      resolve();
+      finish(true);
       return;
     }
-    killer.once('error', () => {
-      child.kill('SIGKILL');
-      resolve();
-    });
-    killer.once('close', () => resolve());
+    killer.once('error', () => finish(true));
+    killer.once('close', code => finish(code !== 0));
+    timer = setTimeout(() => {
+      killDirectChild(killer, 'SIGKILL');
+      finish(true);
+    }, timeoutMs);
   });
+}
+
+function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
+  return terminateProcessTree(child, { spawnImpl });
 }
 
 export function createProcessRunner({
@@ -127,7 +160,6 @@ export function createProcessRunner({
             }
           });
           killFallbackTimer = setTimeout(() => settle(terminalStatus), 5_000);
-          killFallbackTimer.unref?.();
         };
 
         const capture = (chunk, stream) => {
@@ -167,7 +199,6 @@ export function createProcessRunner({
         child.once('close', (code, signal) => settle(terminalStatus ?? 'exited', code, signal));
 
         timer = setTimeout(() => terminateOnce('timed_out'), timeoutMs);
-        timer.unref?.();
 
         if (child.stdin) {
           child.stdin.once('error', () => {});

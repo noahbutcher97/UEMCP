@@ -1,5 +1,7 @@
 import { isAbsolute, posix, win32 } from 'node:path';
 
+import { CLIENT_IDS } from './client-ids.mjs';
+
 export const DEPLOYMENT_SCHEMA_VERSION = '1.0';
 export const PLAN_TTL_MS = 30 * 60 * 1000;
 
@@ -27,8 +29,9 @@ DEPLOYED_BUILD_REQUIRED DEPLOYED_BUILD_CURRENT BUILD_REQUIRED BUILD_FAILED UNKNO
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
-ROLLED_BACK ROLLBACK_CONFLICT UNSUPPORTED_VERSION
-ENABLED DISABLED CONNECTED PENDING_TRUST RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
+ROLLED_BACK ROLLBACK_CONFLICT ROLLBACK_FAILED UNSUPPORTED_VERSION
+CLIENT_APPLY_ACTION_REQUIRED
+ENABLED DISABLED CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED POLICY_BLOCKED POLICY_UNKNOWN
 NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
 HEALTHY INITIALIZE_FAILED TOOLS_LIST_FAILED
 VERIFIED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH NOT_CHECKED
@@ -38,12 +41,13 @@ const ACTION_CODE_VALUES = `
 NODE_INSTALL_REQUIRED DEPENDENCIES_INSTALL_REQUIRED DEPENDENCY_POLICY_BLOCKED SOURCE_PROVENANCE_UNKNOWN LOCAL_STATE_UNAVAILABLE APPLY_IN_PROGRESS
 INSTALL_FAILED SYNC_FAILED BUILD_REQUIRED BUILD_FAILED UNKNOWN_TOOLCHAIN
 EDITOR_RESTART_REQUIRED EDITOR_LOCKED EDITOR_CLOSED PLUGIN_NOT_LOADED PROJECT_MISMATCH
-PENDING_TRUST RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
+PENDING_TRUST PENDING_APPROVAL RESTART_REQUIRED CLIENT_ENABLEMENT_REQUIRED CLIENT_ENABLEMENT_REVIEW_REQUIRED
 CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED MALFORMED_PROJECT_PLUGIN_LIST
 POLICY_BLOCKED POLICY_UNKNOWN CUSTOM_ENV_REVIEW_REQUIRED CUSTOM_LAUNCH_REVIEW_REQUIRED
 UNSUPPORTED_VERSION NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED
 UNCLASSIFIED_PLUGIN_CONTENT UNCLASSIFIED_TARGET_CONTENT INITIALIZE_FAILED TOOLS_LIST_FAILED
-PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT
+PLAN_STALE PLAN_DIGEST_MISMATCH PLAN_EXPIRED PLAN_REPLAYED ROLLBACK_CONFLICT ROLLBACK_FAILED
+CLIENT_APPLY_ACTION_REQUIRED
 UNSUPPORTED_INTERFACE ELICITATION_UNAVAILABLE
 `.trim().split(/\s+/);
 
@@ -63,15 +67,14 @@ export const CLIENT_STATE_VALUES = Object.freeze({
   status: Object.freeze(`
 ABSENT CONFIGURED ALREADY_CONFIGURED MATCHING_EFFECTIVE MATCHING_SHADOWED
 CONFLICT_EFFECTIVE SHADOWED CONFLICT MALFORMED_CONFIG INSPECTION_LIMIT_EXCEEDED ROLLED_BACK
-ROLLBACK_CONFLICT NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
+ROLLBACK_CONFLICT ROLLBACK_FAILED NOT_SELECTED NOT_INSTALLED MANUAL_REGISTRATION_REQUIRED UNKNOWN
   `.trim().split(/\s+/)),
   enablement: Object.freeze('ENABLED DISABLED POLICY_BLOCKED POLICY_UNKNOWN NOT_SELECTED NOT_INSTALLED UNKNOWN'.split(' ')),
-  activation: Object.freeze('CONNECTED PENDING_TRUST RESTART_REQUIRED NOT_SELECTED NOT_INSTALLED UNKNOWN'.split(' ')),
+  activation: Object.freeze('CONNECTED PENDING_TRUST PENDING_APPROVAL REJECTED RESTART_REQUIRED NOT_SELECTED NOT_INSTALLED UNKNOWN'.split(' ')),
 });
 
 const STAGE_RESULTS = new Set(['ready', 'action_required', 'failed', 'rolled_back', 'skipped']);
 const STAGE_PROGRESS = new Set(['none', 'committed']);
-const stageFacts = new WeakMap();
 const SECRET_KEY = /(?:^|[_-])(token|secret|password|passphrase|authorization|cookie|api[_-]?key)(?:$|[_-])/i;
 const HEX_64 = /^[0-9a-f]{64}$/;
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -185,16 +188,28 @@ function validateActions(actions, label = 'actions') {
 }
 
 function validatePublicStage(stage) {
-  assertExactKeys(stage, new Set(['name', 'status', 'mandatory', 'changed', 'evidence', 'actions']), 'stage');
+  assertExactKeys(stage, new Set(['name', 'status', 'mandatory', 'changed', 'evidence', 'actions', 'result', 'progress']), 'stage');
   assertNonEmptyString(stage.name, 'stage.name');
   if (!STAGE_STATUS_VALUES.includes(stage.status)) fail('stage.status is unknown', { status: stage.status });
   assertBoolean(stage.mandatory, 'stage.mandatory');
   assertBoolean(stage.changed, 'stage.changed');
+  if (!STAGE_RESULTS.has(stage.result)) fail('stage.result is unknown', { result: stage.result });
+  if (!STAGE_PROGRESS.has(stage.progress)) fail('stage.progress is unknown', { progress: stage.progress });
+  if (stage.progress === 'committed' && !stage.changed) fail('committed stage progress requires changed=true');
   if (!isPlainObject(stage.evidence)) fail('stage.evidence must be an object');
   assertNoSecretKeys(stage.evidence, 'stage.evidence');
   const evidence = cloneJsonValue(stage.evidence, 'stage.evidence');
   const actions = validateActions(stage.actions, 'stage.actions');
-  return { name: stage.name, status: stage.status, mandatory: stage.mandatory, changed: stage.changed, evidence, actions };
+  return {
+    name: stage.name,
+    status: stage.status,
+    mandatory: stage.mandatory,
+    changed: stage.changed,
+    evidence,
+    actions,
+    result: stage.result,
+    progress: stage.progress,
+  };
 }
 
 export function createStageResult(input) {
@@ -213,23 +228,15 @@ export function createStageResult(input) {
     result = 'ready',
     progress = changed ? 'committed' : 'none',
   } = input;
-  if (!STAGE_RESULTS.has(result)) fail('stage.result is unknown', { result });
-  if (!STAGE_PROGRESS.has(progress)) fail('stage.progress is unknown', { progress });
-  if (progress === 'committed' && !changed) fail('committed stage progress requires changed=true');
-  const publicStage = Object.freeze(validatePublicStage({ name, status, mandatory, changed, evidence, actions }));
-  stageFacts.set(publicStage, Object.freeze({ result, progress }));
-  return publicStage;
-}
-
-function readStageFacts(stage) {
-  const facts = stageFacts.get(stage);
-  if (!facts) fail('stage was not created by createStageResult');
-  return facts;
+  return Object.freeze(validatePublicStage({ name, status, mandatory, changed, evidence, actions, result, progress }));
 }
 
 function validatedStageRows(stages) {
   if (!Array.isArray(stages) || stages.length === 0) fail('stages must be a non-empty array');
-  return stages.map(stage => ({ stage: validatePublicStage(stage), facts: readStageFacts(stage) }));
+  return stages.map(value => {
+    const stage = validatePublicStage(value);
+    return { stage, facts: Object.freeze({ result: stage.result, progress: stage.progress }) };
+  });
 }
 
 export function reduceOutcome(stages) {
@@ -280,7 +287,7 @@ function validateSource(source) {
 }
 
 function validateRequest(request) {
-  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients']), 'request');
+  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients', 'excluded_clients', 'client_decisions']), 'request');
   for (const key of ['requested_project', 'requested_profile']) {
     if (request[key] !== null && typeof request[key] !== 'string') fail(`request.${key} must be a string or null`);
   }
@@ -289,6 +296,27 @@ function validateRequest(request) {
   }
   if (new Set(request.selected_clients).size !== request.selected_clients.length) {
     fail('request.selected_clients must not contain duplicates');
+  }
+  if (!Array.isArray(request.excluded_clients) || !request.excluded_clients.every(value => typeof value === 'string')) {
+    fail('request.excluded_clients must be an array of strings');
+  }
+  if (new Set(request.excluded_clients).size !== request.excluded_clients.length) {
+    fail('request.excluded_clients must not contain duplicates');
+  }
+  if ([...request.selected_clients, ...request.excluded_clients].some(value => !CLIENT_IDS.includes(value))) {
+    fail('request client selections must use supported client IDs');
+  }
+  const excluded = new Set(request.excluded_clients);
+  if (request.selected_clients.some(value => excluded.has(value))) {
+    fail('request selected and excluded clients must not overlap');
+  }
+  assertExactKeys(request.client_decisions, new Set([
+    'replace_owned_fields',
+    'shadow_gemini_extension',
+    'migrate_legacy_claude_project',
+  ]), 'request.client_decisions');
+  for (const [key, value] of Object.entries(request.client_decisions)) {
+    if (typeof value !== 'boolean') fail(`request.client_decisions.${key} must be boolean`);
   }
   return cloneJsonValue(request, 'request');
 }
@@ -339,7 +367,13 @@ function validateClient(client) {
     fail('NOT_SELECTED client state must be consistent');
   }
   if (client.compatibility === 'not_installed') {
-    if (client.version !== null || client.status !== 'NOT_INSTALLED' || client.enablement !== 'NOT_INSTALLED' || client.activation !== 'NOT_INSTALLED') {
+    const absent = client.status === 'NOT_INSTALLED'
+      && client.enablement === 'NOT_INSTALLED'
+      && client.activation === 'NOT_INSTALLED';
+    const explicitlyNotSelected = client.status === 'NOT_SELECTED'
+      && client.enablement === 'NOT_SELECTED'
+      && client.activation === 'NOT_SELECTED';
+    if (client.version !== null || (!absent && !explicitlyNotSelected)) {
       fail('not-installed client state must be consistent');
     }
   }
@@ -376,10 +410,16 @@ function validateMachineResultInternal(value) {
   }
   if (!Array.isArray(value.stages) || value.stages.length === 0) fail('machine result stages must be non-empty');
   value.stages.forEach(validatePublicStage);
+  if (new Set(value.stages.map(stage => stage.name)).size !== value.stages.length) fail('machine result stage names must be unique');
+  if (reduceOutcome(value.stages) !== value.outcome) fail('machine result outcome contradicts its stages');
   if (!Array.isArray(value.clients)) fail('machine result clients must be an array');
   value.clients.forEach(validateClient);
+  if (new Set(value.clients.map(client => client.adapter)).size !== value.clients.length) fail('machine result client adapters must be unique');
   if (!Array.isArray(value.receipts)) fail('machine result receipts must be an array');
   value.receipts.forEach(validateReceipt);
+  if (new Set(value.receipts.map(receipt => `${receipt.kind}\0${receipt.path_label}`)).size !== value.receipts.length) {
+    fail('machine result receipt identities must be unique');
+  }
   validateActions(value.actions);
 }
 
