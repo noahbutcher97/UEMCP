@@ -1468,11 +1468,11 @@ async function rejectedError(fn) {
       && result.fingerprint.runtime_tree.total_bytes > 0
       && /^[0-9a-f]{64}$/.test(result.fingerprint.runtime_tree.manifest_sha256), 'npm launch binds a bounded aggregate fingerprint of its declared package runtime closure');
     write(layout.runtime, 'export const runtime = null;\n');
-    const runtimeDriftError = await rejectedError(() => revalidateClientLaunchRuntime(result));
+    const runtimeDriftError = await rejectedError(() => revalidateClientLaunchRuntime(result, { runtimeTreePinner }));
     t.assert(runtimeDriftError?.code === 'CLIENT_RUNTIME_CHANGED', 'runtime sibling drift invalidates the resolved npm launch');
     t.assert(runtimeDriftError?.details?.reason === 'RUNTIME_FINGERPRINT_MISMATCH'
       && JSON.stringify(runtimeDriftError.details.changed_fields) === JSON.stringify(['manifest_sha256']),
-      'runtime drift diagnostics expose only the mismatched fingerprint field names');
+      `runtime drift diagnostics expose only the mismatched fingerprint field names (${runtimeDriftError?.details?.reason ?? 'no reason'}: ${JSON.stringify(runtimeDriftError?.details?.changed_fields ?? [])})`);
     const runtimeCaptureError = await rejectedError(() => revalidateClientLaunchRuntime(result, {
       runtimeTreePinner: async () => {
         const error = new Error('fixture tree pin failed');
