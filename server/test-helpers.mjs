@@ -67,6 +67,12 @@ export function cleanupCanonicalScratchRoot(root, prefix, { parentRoot = tmpdir(
   rmSync(canonicalRoot, { recursive: true, force: true });
 }
 
+// Unit fixtures using this helper must not exercise coordinator contention.
+export async function uncontendedTestLeaseCoordinator(callback) {
+  if (typeof callback !== 'function') throw new TypeError('test lease callback is required');
+  return callback();
+}
+
 /**
  * FakeTcpResponder — queues canned responses and records all calls.
  *

@@ -21,6 +21,7 @@ import {
   cleanupCanonicalScratchRoot,
   createCanonicalScratchRoot,
   TestRunner,
+  uncontendedTestLeaseCoordinator,
 } from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes } from './deployment/canonical-json.mjs';
 import { createMachineResult, createStageResult } from './deployment/contracts.mjs';
@@ -664,6 +665,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
         root: join(caseRoot, 'local-state'),
         aclRestrictor: async () => {},
         processInspector: async () => 'alive',
+        leaseCoordinator: uncontendedTestLeaseCoordinator,
         clock: () => Date.parse('2026-07-15T12:00:00.000Z'),
       });
       let applyCalls = 0;
@@ -745,6 +747,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       root: join(root, 'local-state'),
       aclRestrictor: async () => {},
       processInspector: async () => 'alive',
+      leaseCoordinator: uncontendedTestLeaseCoordinator,
       clock: () => Date.parse('2026-07-15T12:00:00.000Z'),
     });
     let failStage = true;

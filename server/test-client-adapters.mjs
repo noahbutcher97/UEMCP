@@ -23,6 +23,7 @@ import {
   cleanupCanonicalScratchRoot,
   createCanonicalScratchRoot,
   TestRunner,
+  uncontendedTestLeaseCoordinator,
 } from './test-helpers.mjs';
 import {
   CLAUDE_NATIVE_MUTATION_CHARACTERIZATION,
@@ -83,7 +84,7 @@ import {
 import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
 import { captureClientPathFingerprint, createClientTransaction } from './deployment/client-transaction.mjs';
 import { getJsoncValue, parseJsoncDocument } from './deployment/jsonc-config.mjs';
-import { createLocalState } from './deployment/local-state.mjs';
+import { createLocalState as createLocalStateProduction } from './deployment/local-state.mjs';
 import { ownedPathsForClient, recordOwnedWrite } from './deployment/ownership-ledger.mjs';
 import { createPlanDocument, validatePlanDocumentContract } from './deployment/plan-document.mjs';
 import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/toml-config.mjs';
@@ -114,6 +115,22 @@ function revalidateClientLaunchRuntime(launch, options = {}) {
   return revalidateClientLaunchRuntimeProduction(launch, {
     ...options,
     runtimeTreePinner,
+  });
+}
+
+async function removeTestTree({ targetPath }) {
+  await asyncFs.rm(targetPath, { recursive: true, force: true });
+}
+
+function createLocalState(options = {}) {
+  const {
+    leaseCoordinator = uncontendedTestLeaseCoordinator,
+    treeRemover = removeTestTree,
+  } = options;
+  return createLocalStateProduction({
+    ...options,
+    leaseCoordinator,
+    treeRemover,
   });
 }
 

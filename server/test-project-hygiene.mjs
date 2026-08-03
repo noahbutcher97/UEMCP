@@ -24,8 +24,8 @@ t.assert(rotationWorkflow.includes('actions/checkout@9c091bb21b7c1c1d1991bb908d8
   'rotation workflow pins current GitHub actions to immutable release commits');
 t.assert(/^\s+persist-credentials: false$/m.test(rotationWorkflow),
   'rotation checkout does not persist repository credentials');
-t.assert(/^\s+timeout-minutes: 15$/m.test(rotationWorkflow),
-  'rotation job has a bounded timeout above its hosted baseline');
+t.assert(/^\s+timeout-minutes: 30$/m.test(rotationWorkflow),
+  'rotation job has a bounded ceiling above its reviewed per-file budgets');
 
 function makeTempRoot() {
   return mkdtempSync(join(tmpdir(), 'uemcp-project-hygiene-'));

@@ -52,4 +52,18 @@ runner.assert(
   'rotation preserves each explicit skip reason instead of relabeling every gate as live-editor-only',
 );
 
+runner.assert(
+  rotationSource.includes("from './rotation-timeouts.mjs'")
+    && rotationSource.includes('const timeoutMs = rotationFileTimeoutMs(file)')
+    && rotationSource.includes('timeout: timeoutMs'),
+  'rotation applies the reviewed per-file timeout policy',
+);
+
+runner.assert(
+  rotationSource.includes("result.error?.code === 'ETIMEDOUT'")
+    && rotationSource.includes("case 'TIMED_OUT':")
+    && rotationSource.includes('timeoutCount: timeouts.length'),
+  'rotation distinguishes an explicit test timeout from a generic pre-summary crash',
+);
+
 process.exit(runner.summary());

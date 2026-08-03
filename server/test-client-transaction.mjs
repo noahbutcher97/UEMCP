@@ -10,6 +10,7 @@ import {
   cleanupCanonicalScratchRoot,
   createCanonicalScratchRoot,
   TestRunner,
+  uncontendedTestLeaseCoordinator,
 } from './test-helpers.mjs';
 import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canonical-json.mjs';
 import {
@@ -151,6 +152,7 @@ function createTestLocalState(root, calls = []) {
     root: join(root, 'local-state'),
     aclRestrictor: async () => {},
     processInspector: async () => 'alive',
+    leaseCoordinator: uncontendedTestLeaseCoordinator,
     treeRemover: async ({ targetPath }) => asyncFs.rm(targetPath, { recursive: true, force: true }),
   });
   return Object.freeze({
