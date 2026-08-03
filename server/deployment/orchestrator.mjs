@@ -83,6 +83,26 @@ function validateDomains(domains) {
   return rows;
 }
 
+function normalizeKnownFolders(value) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') {
+    throw new OrchestratorError('trusted Windows known folders are unavailable');
+  }
+  const paths = {
+    programData: value.programData,
+    programFiles: value.programFiles,
+  };
+  if (Object.values(paths).some(path => typeof path !== 'string'
+    || path.trim() === ''
+    || !isAbsolute(path)
+    || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new OrchestratorError('trusted Windows known folders are invalid');
+  }
+  return Object.freeze({
+    programData: resolve(paths.programData),
+    programFiles: resolve(paths.programFiles),
+  });
+}
+
 function normalizeDomainPlan(value, domain) {
   if (!value || !Array.isArray(value.stages) || !Array.isArray(value.operations) || !Array.isArray(value.preconditions)) {
     throw new OrchestratorError('domain plan result is incomplete');
@@ -204,6 +224,7 @@ export function createDeploymentOrchestrator({
   localState,
   sourceProvider,
   descriptorProvider,
+  knownFoldersProvider = null,
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
@@ -224,10 +245,20 @@ export function createDeploymentOrchestrator({
     throw new OrchestratorError('source and descriptor providers are required');
   }
   const orderedDomains = validateDomains(domains);
+  const hasClientDomain = orderedDomains.some(domain => domain.name === 'clients');
+  if (hasClientDomain && typeof knownFoldersProvider !== 'function') {
+    throw new OrchestratorError('knownFoldersProvider is required with the client domain');
+  }
+  if (knownFoldersProvider !== null && typeof knownFoldersProvider !== 'function') {
+    throw new OrchestratorError('knownFoldersProvider is invalid');
+  }
 
   async function buildContext(normalized, overrides = {}) {
     const source = overrides.source ?? await sourceProvider({ repoRoot, processRunner, fsImpl });
     const descriptor = overrides.descriptor ?? await descriptorProvider({ repoRoot, processRunner, fsImpl });
+    const knownFolders = hasClientDomain
+      ? normalizeKnownFolders(await knownFoldersProvider({ processRunner, fsImpl }))
+      : null;
     return {
       repoRoot,
       stateRoot,
@@ -243,6 +274,7 @@ export function createDeploymentOrchestrator({
       descriptor,
       now: normalizeClock(clock),
       ...(overrides.privateContext ?? {}),
+      ...(knownFolders ? { knownFolders } : {}),
     };
   }
 

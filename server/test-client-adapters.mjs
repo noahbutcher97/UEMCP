@@ -2968,6 +2968,10 @@ if (process.platform === 'win32') {
     });
     const locations = resolveClaudeLocations(context);
     t.assert(locations.managed_config.path === resolve(join(trusted, 'ClaudeCode', 'managed-mcp.json')), 'Claude managed policy ignores spoofed ProgramFiles environment input');
+    t.assert(throwsCode(
+      () => resolveClaudeLocations({ ...context, knownFolders: undefined }),
+      'INVALID_CLIENT_LOCATION',
+    ), 'Claude refuses to inspect managed policy without a trusted Program Files root');
   } finally {
     cleanup(root);
   }
@@ -3020,6 +3024,10 @@ if (process.platform === 'win32') {
       join(activeDirectory, '.codex', 'config.toml'),
     ].map(path => resolve(path)).join('|'), 'Codex project configs are enumerated root-to-active-directory');
     t.assert(locations.system_requirements.path === resolve(join(trustedProgramData, 'OpenAI', 'Codex', 'requirements.toml')), 'Codex requirements use the trusted ProgramData known folder');
+    t.assert(throwsCode(
+      () => resolveCodexLocations({ ...context, knownFolders: undefined }),
+      'INVALID_CLIENT_LOCATION',
+    ), 'Codex refuses to inspect administrative requirements without a trusted ProgramData root');
     const lowerHome = resolve(join(root, 'lower-codex-home'));
     const lowerContext = codexContext(root, { env: { CODEX_HOME: undefined, codex_home: lowerHome } });
     t.assert(resolveCodexLocations(lowerContext).user.path === resolve(join(lowerHome, 'config.toml')), 'Codex home lookup is case-insensitive');
@@ -3695,6 +3703,10 @@ for (const representation of ['dotted', 'inline']) {
     t.assert(locations.project.path === resolve(join(context.workspaceRoot, '.gemini', 'settings.json')), 'Gemini project settings remain workspace scoped');
     t.assert(locations.system_defaults.path === resolve(join(context.knownFolders.programData, 'gemini-cli', 'system-defaults.json')), 'Gemini system defaults use trusted ProgramData evidence');
     t.assert(locations.system_override.path === resolve(join(context.knownFolders.programData, 'gemini-cli', 'settings.json')), 'Gemini system override uses trusted ProgramData evidence');
+    t.assert(throwsCode(
+      () => resolveGeminiLocations({ ...context, knownFolders: undefined }),
+      'INVALID_CLIENT_LOCATION',
+    ), 'Gemini refuses to inspect system policy without a trusted ProgramData root');
     const lowerCaseHome = resolve(join(root, 'lower-case-gemini-home'));
     const lowerCaseContext = geminiContext(root, {
       env: { GEMINI_CLI_HOME: undefined, gemini_cli_home: lowerCaseHome },
@@ -5106,6 +5118,11 @@ function recreatePlan(candidate) {
       env: { ...context.env, NPM_CONFIG_PREFIX: resolve(join(root, 'changed-npm-prefix')) },
       approvedPlan: plan,
     }, []), 'PLAN_STALE'), 'client apply binds npm discovery-prefix authority into the reviewed context');
+    t.assert(await rejectsCode(() => domain.apply({
+      ...context,
+      knownFolders: { ...context.knownFolders, programData: resolve(join(root, 'changed-program-data')) },
+      approvedPlan: plan,
+    }, []), 'PLAN_STALE'), 'client apply binds trusted Windows known-folder roots into the reviewed context');
     t.assert(discoveryCalls === 1, 'discovery-context drift fails before a child version probe');
   } finally {
     cleanup(root);

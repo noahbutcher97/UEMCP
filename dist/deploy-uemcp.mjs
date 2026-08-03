@@ -11384,6 +11384,45 @@ $json = $metadata | ConvertTo-Json -Compress -Depth 8
   stream_bytes = $streamBytes
 } | ConvertTo-Json -Compress
 `.trim();
+var KNOWN_FOLDERS_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class UemcpKnownFoldersNative
+{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHGetKnownFolderPath(
+        ref Guid folderId,
+        uint flags,
+        IntPtr token,
+        out IntPtr path);
+
+    public static string Resolve(string id)
+    {
+        Guid folderId = new Guid(id);
+        IntPtr path = IntPtr.Zero;
+        try
+        {
+            int result = SHGetKnownFolderPath(ref folderId, 0, IntPtr.Zero, out path);
+            if (result != 0) { throw new COMException("SHGetKnownFolderPath failed", result); }
+            string value = Marshal.PtrToStringUni(path);
+            if (String.IsNullOrWhiteSpace(value)) { throw new InvalidOperationException("Known folder path is empty"); }
+            return value;
+        }
+        finally
+        {
+            if (path != IntPtr.Zero) { Marshal.FreeCoTaskMem(path); }
+        }
+    }
+}
+'@
+[ordered]@{
+  program_data = [UemcpKnownFoldersNative]::Resolve('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
+  program_files = [UemcpKnownFoldersNative]::Resolve('905e63b6-c1bf-494e-b29c-65b732d3d21a')
+} | ConvertTo-Json -Compress
+`.trim();
 var REPLACE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -12260,6 +12299,12 @@ function parseSingleJson(result2, expectedKeys) {
 function windowsPathKey(path) {
   return resolve2(path).toLowerCase();
 }
+function validatedKnownFolder(value) {
+  if (typeof value !== "string" || value.trim() === "" || !isAbsolute4(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+    throw new WindowsNativeError("Windows known-folder helper returned an invalid path", "INVALID_KNOWN_FOLDER_RESULT");
+  }
+  return resolve2(value);
+}
 async function waitForHelperClose(closePromise, timeoutMs) {
   let timer;
   const closed = await Promise.race([
@@ -12999,6 +13044,31 @@ async function inspectAuthenticode(executable, {
     return { status: "unavailable", signer_name: null, thumbprint: null };
   }
 }
+async function resolveWindowsKnownFolders({
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 15e3
+} = {}) {
+  if (platform !== "win32") {
+    throw new WindowsNativeError("known-folder resolution requires Windows", "UNSUPPORTED_PLATFORM");
+  }
+  if (!runner?.run) throw new WindowsNativeError("runner is required");
+  validateHelperTimeout(timeoutMs);
+  const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {}),
+    stdin: `${KNOWN_FOLDERS_SCRIPT}
+
+`,
+    timeoutMs,
+    outputLimitBytes: 8 * 1024
+  });
+  const parsed = parseSingleJson(result2, ["program_data", "program_files"]);
+  return Object.freeze({
+    programData: validatedKnownFolder(parsed.program_data),
+    programFiles: validatedKnownFolder(parsed.program_files)
+  });
+}
 async function fingerprintWindowsFileMetadata(path, {
   runner,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
@@ -13086,6 +13156,7 @@ var WINDOWS_NATIVE_SCRIPTS = Object.freeze({
   authenticode: AUTHENTICODE_SCRIPT,
   delete_tree: DELETE_TREE_SCRIPT,
   file_pin: FILE_PIN_SCRIPT,
+  known_folders: KNOWN_FOLDERS_SCRIPT,
   metadata: METADATA_SCRIPT,
   replace: REPLACE_SCRIPT,
   tree_pin: TREE_PIN_SCRIPT
@@ -16309,7 +16380,7 @@ function resolveClaudeLocations(context = {}) {
   const configRoot = resolve4(isolatedHome || join4(userProfile, ".claude"));
   const statePath = join4(stateRoot, ".claude.json");
   const settingsPath = isolatedHome ? join4(stateRoot, "settings.json") : join4(userProfile, ".claude", "settings.json");
-  const knownProgramFiles = context.knownFolders?.programFiles ?? "C:\\Program Files";
+  const knownProgramFiles = context.knownFolders?.programFiles;
   if (!absolutePath2(knownProgramFiles)) fail8("Claude managed policy root is invalid", "INVALID_CLIENT_LOCATION");
   const programFiles = resolve4(knownProgramFiles);
   const managedRoot = join4(programFiles, "ClaudeCode");
@@ -17685,7 +17756,7 @@ function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS2.p
   for (const segment of segments) directories.push(join5(directories.at(-1), segment));
   if (!Number.isSafeInteger(projectLayers) || projectLayers <= 0) fail10("Codex project layer limit is invalid", "INVALID_INSPECTION_LIMIT");
   if (directories.length > projectLayers) fail10("Codex project layer count exceeds its limit", "INSPECTION_LIMIT_EXCEEDED");
-  const knownProgramData = context.knownFolders?.programData ?? "C:\\ProgramData";
+  const knownProgramData = context.knownFolders?.programData;
   if (!absolutePath3(knownProgramData)) fail10("Codex requirements root is invalid", "INVALID_CLIENT_LOCATION");
   const programData = resolve5(knownProgramData);
   const requirementsRoot = join5(programData, "OpenAI", "Codex");
@@ -18571,7 +18642,7 @@ function resolveGeminiLocations(context = {}) {
   const globalDir = join6(homeRoot, ".gemini");
   const userWriteRoot = configuredHome ? dirname5(homeRoot) : homeRoot;
   const extensionsRoot = join6(globalDir, "extensions");
-  const knownProgramData = context.knownFolders?.programData ?? "C:\\ProgramData";
+  const knownProgramData = context.knownFolders?.programData;
   if (!absolutePath4(knownProgramData)) fail11("Gemini system policy root is invalid", "INVALID_CLIENT_LOCATION");
   const systemRoot = join6(resolve6(knownProgramData), "gemini-cli");
   const trustedFoldersOverride = readWindowsEnvironmentValue(env, "GEMINI_CLI_TRUSTED_FOLDERS_PATH");
@@ -32138,6 +32209,22 @@ function validateDomains(domains) {
   }
   return rows;
 }
+function normalizeKnownFolders(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new OrchestratorError("trusted Windows known folders are unavailable");
+  }
+  const paths = {
+    programData: value.programData,
+    programFiles: value.programFiles
+  };
+  if (Object.values(paths).some((path) => typeof path !== "string" || path.trim() === "" || !isAbsolute16(path) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(path))) {
+    throw new OrchestratorError("trusted Windows known folders are invalid");
+  }
+  return Object.freeze({
+    programData: resolve14(paths.programData),
+    programFiles: resolve14(paths.programFiles)
+  });
+}
 function normalizeDomainPlan(value, domain) {
   if (!value || !Array.isArray(value.stages) || !Array.isArray(value.operations) || !Array.isArray(value.preconditions)) {
     throw new OrchestratorError("domain plan result is incomplete");
@@ -32251,6 +32338,7 @@ function createDeploymentOrchestrator({
   localState,
   sourceProvider,
   descriptorProvider,
+  knownFoldersProvider = null,
   fingerprint = null,
   receiptWriter = writeReceipt,
   protocolSmoke = smokeDescriptor,
@@ -32268,9 +32356,17 @@ function createDeploymentOrchestrator({
     throw new OrchestratorError("source and descriptor providers are required");
   }
   const orderedDomains = validateDomains(domains);
+  const hasClientDomain = orderedDomains.some((domain) => domain.name === "clients");
+  if (hasClientDomain && typeof knownFoldersProvider !== "function") {
+    throw new OrchestratorError("knownFoldersProvider is required with the client domain");
+  }
+  if (knownFoldersProvider !== null && typeof knownFoldersProvider !== "function") {
+    throw new OrchestratorError("knownFoldersProvider is invalid");
+  }
   async function buildContext(normalized, overrides = {}) {
     const source = overrides.source ?? await sourceProvider({ repoRoot, processRunner, fsImpl });
     const descriptor = overrides.descriptor ?? await descriptorProvider({ repoRoot, processRunner, fsImpl });
+    const knownFolders = hasClientDomain ? normalizeKnownFolders(await knownFoldersProvider({ processRunner, fsImpl })) : null;
     return {
       repoRoot,
       stateRoot,
@@ -32285,7 +32381,8 @@ function createDeploymentOrchestrator({
       source,
       descriptor,
       now: normalizeClock(clock),
-      ...overrides.privateContext ?? {}
+      ...overrides.privateContext ?? {},
+      ...knownFolders ? { knownFolders } : {}
     };
   }
   async function appendGenericSupport(context, aggregate) {
@@ -34055,6 +34152,7 @@ function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process
     processRunner,
     localState,
     domains,
+    knownFoldersProvider: ({ processRunner: activeRunner }) => resolveWindowsKnownFolders({ runner: activeRunner }),
     sourceProvider: async () => {
       await verifyDeploymentBundleFreshness({ repoRoot, activeEntryPath, fsImpl: fsPromises });
       return {

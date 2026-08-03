@@ -114,7 +114,7 @@ export function resolveClaudeLocations(context = {}) {
   const settingsPath = isolatedHome
     ? join(stateRoot, 'settings.json')
     : join(userProfile, '.claude', 'settings.json');
-  const knownProgramFiles = context.knownFolders?.programFiles ?? 'C:\\Program Files';
+  const knownProgramFiles = context.knownFolders?.programFiles;
   if (!absolutePath(knownProgramFiles)) fail('Claude managed policy root is invalid', 'INVALID_CLIENT_LOCATION');
   const programFiles = resolve(knownProgramFiles);
   const managedRoot = join(programFiles, 'ClaudeCode');

@@ -22,6 +22,7 @@ import { createPrerequisiteDomain } from './deployment/prerequisites.mjs';
 import { createProcessRunner } from './deployment/process-runner.mjs';
 import { inspectSourceProvenance } from './deployment/source-provenance.mjs';
 import { createTargetDomain } from './deployment/target-domain.mjs';
+import { resolveWindowsKnownFolders } from './deployment/windows-native.mjs';
 
 const HELP = `UEMCP deployment machine interface
 
@@ -222,6 +223,7 @@ export function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = 
     processRunner,
     localState,
     domains,
+    knownFoldersProvider: ({ processRunner: activeRunner }) => resolveWindowsKnownFolders({ runner: activeRunner }),
     sourceProvider: async () => {
       await verifyDeploymentBundleFreshness({ repoRoot, activeEntryPath, fsImpl: fsPromises });
       return {

@@ -49,6 +49,10 @@ const t = new TestRunner('Deployment Plan Tests');
 function createDeploymentOrchestrator(options) {
   return createProductionDeploymentOrchestrator({
     ...options,
+    knownFoldersProvider: options.knownFoldersProvider ?? (async () => ({
+      programData: 'C:\\ProgramData',
+      programFiles: 'C:\\Program Files',
+    })),
     descriptorLaunchPinner: options.descriptorLaunchPinner ?? (async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor)),
   });
 }
@@ -535,6 +539,78 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     parsed.outcome = 'FAILED';
     writeFileSync(reference.path, `${canonicalJson(parsed)}\n`, 'utf8');
     t.assert(await rejectsCode(() => readAndVerifyReceipt(reference.path), 'RECEIPT_INTEGRITY_FAILED'), 'tampered receipt fails its canonical self-hash');
+  } finally {
+    cleanup(root);
+  }
+}
+
+// Trusted Windows known folders are resolved into every fresh orchestration context.
+{
+  const root = makeRoot();
+  try {
+    const redirected = Object.freeze({
+      programData: resolve(join(root, 'redirected-program-data')),
+      programFiles: resolve(join(root, 'redirected-program-files')),
+    });
+    const observed = [];
+    let providerCalls = 0;
+    const clientDomain = {
+      name: 'clients',
+      order: 30,
+      async plan(context) {
+        observed.push(context.knownFolders);
+        return {
+          stages: [createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' })],
+          operations: [],
+          preconditions: [],
+          clients: [],
+          actions: [],
+        };
+      },
+      async apply() {
+        return createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' });
+      },
+      async verify(context) {
+        observed.push(context.knownFolders);
+        return createStageResult({ name: 'clients', status: 'NOT_INSTALLED', result: 'action_required' });
+      },
+    };
+    const baseOptions = {
+      repoRoot: root,
+      stateRoot: join(root, 'state'),
+      processRunner: Object.freeze({ kind: 'test-runner' }),
+      domains: [clientDomain],
+      localState: {},
+      sourceProvider: async () => sampleSource(root),
+      descriptorProvider: async () => sampleDescriptor(root),
+      includeGenericClient: false,
+      clock: () => new Date('2026-07-15T12:00:00.000Z'),
+    };
+    t.assert(await rejectsCode(
+      () => createProductionDeploymentOrchestrator(baseOptions),
+      'ORCHESTRATOR_FAILED',
+    ), 'a client-domain orchestrator requires an explicit trusted known-folder provider');
+    const invalidOrchestrator = createDeploymentOrchestrator({
+      ...baseOptions,
+      knownFoldersProvider: async () => ({ programData: 'relative', programFiles: redirected.programFiles }),
+    });
+    t.assert(await rejectsCode(
+      () => invalidOrchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] }),
+      'ORCHESTRATOR_FAILED',
+    ), 'invalid known-folder provider output fails before domain planning');
+    t.assert(observed.length === 0, 'invalid known-folder output never reaches a deployment domain');
+    const orchestrator = createDeploymentOrchestrator({
+      ...baseOptions,
+      knownFoldersProvider: async ({ processRunner }) => {
+        providerCalls += 1;
+        t.assert(processRunner?.kind === 'test-runner', 'known-folder provider receives the orchestrator process runner');
+        return redirected;
+      },
+    });
+    await orchestrator.plan({ operation: 'setup', requested_project: null, requested_profile: null, selected_clients: [] });
+    await orchestrator.verify({ requested_project: null, requested_profile: null, selected_clients: [] });
+    t.assert(providerCalls === 2 && observed.length === 2, 'plan and standalone verification resolve trusted known folders independently');
+    t.assert(observed.every(value => value?.programData === redirected.programData && value?.programFiles === redirected.programFiles), 'every domain receives the redirected known-folder roots');
   } finally {
     cleanup(root);
   }

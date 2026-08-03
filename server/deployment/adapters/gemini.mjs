@@ -124,7 +124,7 @@ export function resolveGeminiLocations(context = {}) {
   const globalDir = join(homeRoot, '.gemini');
   const userWriteRoot = configuredHome ? dirname(homeRoot) : homeRoot;
   const extensionsRoot = join(globalDir, 'extensions');
-  const knownProgramData = context.knownFolders?.programData ?? 'C:\\ProgramData';
+  const knownProgramData = context.knownFolders?.programData;
   if (!absolutePath(knownProgramData)) fail('Gemini system policy root is invalid', 'INVALID_CLIENT_LOCATION');
   const systemRoot = join(resolve(knownProgramData), 'gemini-cli');
   const trustedFoldersOverride = readWindowsEnvironmentValue(env, 'GEMINI_CLI_TRUSTED_FOLDERS_PATH');

@@ -18,7 +18,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, parse, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 import {
   cleanupCanonicalScratchRoot,
@@ -52,6 +52,7 @@ import {
   fingerprintWindowsFileMetadata,
   inspectAuthenticode,
   replaceFilePreservingMetadata,
+  resolveWindowsKnownFolders,
   withPinnedWindowsAncestry,
   withPinnedWindowsFiles,
   withPinnedWindowsTrees,
@@ -664,6 +665,9 @@ async function rejectsCode(fn, code) {
     const fakeRunner = {
       async run(executable, args, options) {
         calls.push({ executable, args, options });
+        if (options.stdin.includes('SHGetKnownFolderPath')) {
+          return { status: 'exited', exitCode: 0, stdout: '{"program_data":"D:\\\\PolicyData","program_files":"E:\\\\Programs"}', stderr: '' };
+        }
         if (options.env.UEMCP_AUTHENTICODE_TARGET) {
           return { status: 'exited', exitCode: 0, stdout: '{"status":"Valid","signer_name":"Trusted Signer","thumbprint":"ABC123"}\r\n', stderr: '' };
         }
@@ -717,6 +721,26 @@ async function rejectsCode(fn, code) {
       'INVALID_WINDOWS_HELPER_TIMEOUT',
     ), 'metadata helper rejects an override above the integration ceiling');
 
+    const knownFolders = await resolveWindowsKnownFolders({ runner: fakeRunner, platform: 'win32', systemRoot: 'C:\\Windows' });
+    t.assert(knownFolders.programData === 'D:\\PolicyData' && knownFolders.programFiles === 'E:\\Programs', 'known-folder helper returns normalized ProgramData and Program Files paths');
+    const knownFolderCall = calls.find(call => call.options.stdin.includes('SHGetKnownFolderPath'));
+    t.assert(knownFolderCall.executable === resolve('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+      && JSON.stringify(Object.keys(knownFolderCall.options.env).sort()) === JSON.stringify(['PSModulePath', 'SystemRoot', 'WINDIR'].sort()),
+    'known-folder resolution uses fixed System32 PowerShell with no inherited folder environment values');
+    t.assert(WINDOWS_NATIVE_SCRIPTS.known_folders.includes('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
+      && WINDOWS_NATIVE_SCRIPTS.known_folders.includes('905e63b6-c1bf-494e-b29c-65b732d3d21a')
+      && WINDOWS_NATIVE_SCRIPTS.known_folders.includes('Marshal.FreeCoTaskMem'),
+    'known-folder helper calls the canonical ProgramData and Program Files IDs and releases native memory');
+    const relativeKnownFolderRunner = {
+      async run() {
+        return { status: 'exited', exitCode: 0, stdout: '{"program_data":"relative","program_files":"E:\\\\Programs"}', stderr: '' };
+      },
+    };
+    t.assert(await rejectsCode(
+      () => resolveWindowsKnownFolders({ runner: relativeKnownFolderRunner, platform: 'win32', systemRoot: 'C:\\Windows' }),
+      'INVALID_KNOWN_FOLDER_RESULT',
+    ), 'known-folder helper rejects non-absolute native results');
+
     const replaced = await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows' });
     t.assert(replaced.status === 'replaced', 'replacement helper accepts a normalized success response');
     const replaceCall = calls.find(call => call.options.env.UEMCP_REPLACEMENT_PATH);
@@ -729,6 +753,11 @@ async function rejectsCode(fn, code) {
       'INVALID_WINDOWS_HELPER_TIMEOUT',
     ), 'replacement helper rejects a non-integer timeout override');
     t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
+
+    if (process.platform === 'win32') {
+      const liveKnownFolders = await resolveWindowsKnownFolders({ runner: createProcessRunner() });
+      t.assert(isAbsolute(liveKnownFolders.programData) && isAbsolute(liveKnownFolders.programFiles), 'live Windows known-folder API returns two absolute policy roots');
+    }
   } finally {
     cleanupPrimitiveRoot(root);
   }

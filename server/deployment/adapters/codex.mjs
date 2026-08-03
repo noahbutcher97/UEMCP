@@ -124,7 +124,7 @@ export function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LI
   if (!Number.isSafeInteger(projectLayers) || projectLayers <= 0) fail('Codex project layer limit is invalid', 'INVALID_INSPECTION_LIMIT');
   if (directories.length > projectLayers) fail('Codex project layer count exceeds its limit', 'INSPECTION_LIMIT_EXCEEDED');
 
-  const knownProgramData = context.knownFolders?.programData ?? 'C:\\ProgramData';
+  const knownProgramData = context.knownFolders?.programData;
   if (!absolutePath(knownProgramData)) fail('Codex requirements root is invalid', 'INVALID_CLIENT_LOCATION');
   const programData = resolve(knownProgramData);
   const requirementsRoot = join(programData, 'OpenAI', 'Codex');

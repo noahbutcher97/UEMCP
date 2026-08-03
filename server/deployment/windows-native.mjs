@@ -59,6 +59,46 @@ $json = $metadata | ConvertTo-Json -Compress -Depth 8
 } | ConvertTo-Json -Compress
 `.trim();
 
+const KNOWN_FOLDERS_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class UemcpKnownFoldersNative
+{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHGetKnownFolderPath(
+        ref Guid folderId,
+        uint flags,
+        IntPtr token,
+        out IntPtr path);
+
+    public static string Resolve(string id)
+    {
+        Guid folderId = new Guid(id);
+        IntPtr path = IntPtr.Zero;
+        try
+        {
+            int result = SHGetKnownFolderPath(ref folderId, 0, IntPtr.Zero, out path);
+            if (result != 0) { throw new COMException("SHGetKnownFolderPath failed", result); }
+            string value = Marshal.PtrToStringUni(path);
+            if (String.IsNullOrWhiteSpace(value)) { throw new InvalidOperationException("Known folder path is empty"); }
+            return value;
+        }
+        finally
+        {
+            if (path != IntPtr.Zero) { Marshal.FreeCoTaskMem(path); }
+        }
+    }
+}
+'@
+[ordered]@{
+  program_data = [UemcpKnownFoldersNative]::Resolve('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
+  program_files = [UemcpKnownFoldersNative]::Resolve('905e63b6-c1bf-494e-b29c-65b732d3d21a')
+} | ConvertTo-Json -Compress
+`.trim();
+
 const REPLACE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -949,6 +989,16 @@ function windowsPathKey(path) {
   return resolve(path).toLowerCase();
 }
 
+function validatedKnownFolder(value) {
+  if (typeof value !== 'string'
+    || value.trim() === ''
+    || !isAbsolute(value)
+    || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+    throw new WindowsNativeError('Windows known-folder helper returned an invalid path', 'INVALID_KNOWN_FOLDER_RESULT');
+  }
+  return resolve(value);
+}
+
 async function waitForHelperClose(closePromise, timeoutMs) {
   let timer;
   const closed = await Promise.race([
@@ -1759,6 +1809,30 @@ export async function inspectAuthenticode(executable, {
   }
 }
 
+export async function resolveWindowsKnownFolders({
+  runner,
+  platform = process.platform,
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 15_000,
+} = {}) {
+  if (platform !== 'win32') {
+    throw new WindowsNativeError('known-folder resolution requires Windows', 'UNSUPPORTED_PLATFORM');
+  }
+  if (!runner?.run) throw new WindowsNativeError('runner is required');
+  validateHelperTimeout(timeoutMs);
+  const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
+    env: minimalEnvironment(systemRoot, {}),
+    stdin: `${KNOWN_FOLDERS_SCRIPT}\n\n`,
+    timeoutMs,
+    outputLimitBytes: 8 * 1024,
+  });
+  const parsed = parseSingleJson(result, ['program_data', 'program_files']);
+  return Object.freeze({
+    programData: validatedKnownFolder(parsed.program_data),
+    programFiles: validatedKnownFolder(parsed.program_files),
+  });
+}
+
 export async function fingerprintWindowsFileMetadata(path, {
   runner,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
@@ -1851,6 +1925,7 @@ export const WINDOWS_NATIVE_SCRIPTS = Object.freeze({
   authenticode: AUTHENTICODE_SCRIPT,
   delete_tree: DELETE_TREE_SCRIPT,
   file_pin: FILE_PIN_SCRIPT,
+  known_folders: KNOWN_FOLDERS_SCRIPT,
   metadata: METADATA_SCRIPT,
   replace: REPLACE_SCRIPT,
   tree_pin: TREE_PIN_SCRIPT,
