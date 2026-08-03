@@ -76,8 +76,8 @@ import { createClientDomain } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
 import {
   captureClientRuntimeFingerprint,
-  revalidateClientLaunchRuntime,
-  resolveClientLaunch,
+  revalidateClientLaunchRuntime as revalidateClientLaunchRuntimeProduction,
+  resolveClientLaunch as resolveClientLaunchProduction,
   withPinnedClientLaunch,
 } from './deployment/client-process.mjs';
 import { approvedOwnedReplacement } from './deployment/client-decisions.mjs';
@@ -91,6 +91,31 @@ import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/to
 const t = new TestRunner('Client Adapter Tests');
 const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
 const TEST_PLAN_DIGEST = 'a'.repeat(64);
+
+// Adapter unit cases inject pin lifetimes; real Windows helpers have dedicated integration coverage.
+async function withDeterministicTestPin({ callback }) {
+  return callback(Object.freeze({ assertPinned() {} }));
+}
+
+function resolveClientLaunch(clientId, options = {}) {
+  const {
+    runtimeTreePinner = withDeterministicTestPin,
+    launchFilePinner = withDeterministicTestPin,
+  } = options;
+  return resolveClientLaunchProduction(clientId, {
+    ...options,
+    runtimeTreePinner,
+    launchFilePinner,
+  });
+}
+
+function revalidateClientLaunchRuntime(launch, options = {}) {
+  const { runtimeTreePinner = withDeterministicTestPin } = options;
+  return revalidateClientLaunchRuntimeProduction(launch, {
+    ...options,
+    runtimeTreePinner,
+  });
+}
 
 function clientRequest(decisions = {}) {
   return {
@@ -1554,13 +1579,12 @@ if (process.platform === 'win32') {
     mkdirSync(realHome);
     symlinkSync(realHome, aliasHome, 'junction');
     const layout = npmInstall(aliasHome, 'codex', { packageName: '@openai/codex' });
-    const passthroughPinner = async ({ callback }) => callback(Object.freeze({ assertPinned() {} }));
     const result = await resolveClientLaunch('codex', {
       env: layout.env,
       runner: runnerFor('0.144.4'),
       candidates: { codex: [layout.shim], nodeExecutable: layout.nodeExecutable },
-      runtimeTreePinner: passthroughPinner,
-      launchFilePinner: passthroughPinner,
+      runtimeTreePinner: withDeterministicTestPin,
+      launchFilePinner: withDeterministicTestPin,
     });
     t.assert(result.command === await canonicalPath(layout.nodeExecutable),
       'canonical npm-prefix aliases retain the same allowlisted client launch');
@@ -1923,13 +1947,12 @@ if (process.platform === 'win32') {
     const code = write(join(installRoot, 'Code.exe'), 'code-binary');
     const cli = write(join(installRoot, '5264f2156c', 'resources', 'app', 'out', 'cli.js'), 'export {};\n');
     const wrapper = vscodeWrapper(installRoot);
-    const passthroughPinner = async ({ callback }) => callback(Object.freeze({ assertPinned() {} }));
     const result = await resolveClientLaunch('vscode', {
       env,
       runner: runnerFor('1.128.1'),
       candidates: { vscode: [wrapper] },
       authenticodeInspector: signer(),
-      launchFilePinner: passthroughPinner,
+      launchFilePinner: withDeterministicTestPin,
     });
     t.assert(result.command === await canonicalPath(code)
       && result.args_prefix[0] === await canonicalPath(cli),
