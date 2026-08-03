@@ -1,5 +1,7 @@
 import { isAbsolute, posix, win32 } from 'node:path';
 
+import { CLIENT_IDS } from './client-ids.mjs';
+
 export const DEPLOYMENT_SCHEMA_VERSION = '1.0';
 export const PLAN_TTL_MS = 30 * 60 * 1000;
 
@@ -285,7 +287,7 @@ function validateSource(source) {
 }
 
 function validateRequest(request) {
-  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients', 'client_decisions']), 'request');
+  assertExactKeys(request, new Set(['requested_project', 'requested_profile', 'selected_clients', 'excluded_clients', 'client_decisions']), 'request');
   for (const key of ['requested_project', 'requested_profile']) {
     if (request[key] !== null && typeof request[key] !== 'string') fail(`request.${key} must be a string or null`);
   }
@@ -294,6 +296,19 @@ function validateRequest(request) {
   }
   if (new Set(request.selected_clients).size !== request.selected_clients.length) {
     fail('request.selected_clients must not contain duplicates');
+  }
+  if (!Array.isArray(request.excluded_clients) || !request.excluded_clients.every(value => typeof value === 'string')) {
+    fail('request.excluded_clients must be an array of strings');
+  }
+  if (new Set(request.excluded_clients).size !== request.excluded_clients.length) {
+    fail('request.excluded_clients must not contain duplicates');
+  }
+  if ([...request.selected_clients, ...request.excluded_clients].some(value => !CLIENT_IDS.includes(value))) {
+    fail('request client selections must use supported client IDs');
+  }
+  const excluded = new Set(request.excluded_clients);
+  if (request.selected_clients.some(value => excluded.has(value))) {
+    fail('request selected and excluded clients must not overlap');
   }
   assertExactKeys(request.client_decisions, new Set([
     'replace_owned_fields',

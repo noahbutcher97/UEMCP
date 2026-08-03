@@ -21,9 +21,12 @@ repeatable `--include-client <id>` and `--exclude-client <id>`,
 `--vscode-profile <name>`, and `--targets-file <absolute.json>`. Client IDs are
 limited to `claude`, `codex`, `gemini`, and `vscode`; include/exclude overlap is
 invalid. Explicit includes are also retained in
-`request.selected_clients`. Release-gated detected clients are selected by
-default. A direct project and a profile are mutually exclusive. Direct projects
-must be absolute `.uproject` paths. An explicit
+`request.selected_clients`; explicit exclusions are retained in
+`request.excluded_clients`. The plan validator binds all closed client rows to
+those exact request sets. Release-gated detected clients are selected by
+default only when no exact include or exclusion removes them. A direct project
+and a profile are mutually exclusive. Direct projects must be absolute
+`.uproject` paths. An explicit
 targets file is path-validated by the target domain and its composite
 fingerprint is bound into a plan even when no direct project registration is
 requested. When registration is planned, the canonical registry path is also
@@ -145,6 +148,7 @@ writes.
     requested_project,
     requested_profile,
     selected_clients,
+    excluded_clients,
     client_decisions: {
       replace_owned_fields,
       shadow_gemini_extension,

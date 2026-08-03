@@ -24,7 +24,8 @@ implicitly.
 ## Selection And Workspace
 
 Repeatable `--include-client` values are recorded in the public
-`request.selected_clients` field and also drive exact selection. Exclusions
+`request.selected_clients` field and also drive exact selection. Repeatable
+`--exclude-client` values are recorded in `request.excluded_clients`; exclusions
 remain visible as `NOT_SELECTED`. Apply accepts no selection override and
 replays only the selected rows and operations in the approved plan.
 An explicitly requested unavailable client remains a valid targeted
@@ -35,6 +36,12 @@ discovery evidence rather than inferring availability from a null version.
 Selection reasons are semantic authority: only `included` and `default` may be
 selected, missing-client reasons require `NOT_INSTALLED` discovery, and a
 detected launch cannot use a missing-client reason.
+The validator recomputes every closed client's expected selected state and
+selection reason from the digest-bound include/exclude request. Exact includes
+cannot acquire an additional selected row, explicit exclusions cannot become
+default-selected rows, and include/exclude overlap is invalid. A closed client
+result set requires the complete structured evidence set, and discovery status
+must agree with the public compatibility row.
 Every client write operation is also bound to the matching selected,
 release-gated client row and its inspection evidence. Its exact physical paths
 must equal that row's reviewed `touched_paths`; a missing launch contract,

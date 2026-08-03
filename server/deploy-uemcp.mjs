@@ -249,6 +249,7 @@ function requestFrom(parsed) {
     requested_project: parsed.project,
     requested_profile: parsed.profile,
     selected_clients: parsed.includeClients,
+    excluded_clients: parsed.excludeClients,
     client_selection: {
       include: parsed.includeClients,
       exclude: parsed.excludeClients,

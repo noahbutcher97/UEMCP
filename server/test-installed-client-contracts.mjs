@@ -220,6 +220,7 @@ function contextFor(root, isolated, clientId, approvedPlan = null, applyLease = 
       requested_project: null,
       requested_profile: null,
       selected_clients: [clientId],
+      excluded_clients: [],
       client_decisions: {
         replace_owned_fields: false,
         shadow_gemini_extension: false,

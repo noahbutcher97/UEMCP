@@ -152,6 +152,7 @@ function validRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    excluded_clients: [],
     client_decisions: {
       replace_owned_fields: false,
       shadow_gemini_extension: false,
@@ -281,6 +282,15 @@ function validMachineInput(overrides = {}) {
   t.assert(validateMachineResult(result) === true, 'machine result validates against schema 1.0');
   t.assert(result.stages[0].result === 'ready' && result.stages[0].progress === 'none', 'serialized machine stages retain outcome reduction facts');
   t.assert(result.request.client_decisions.replace_owned_fields === false, 'machine requests retain digest-bound client repair decisions');
+  const excludedRequest = createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['gemini'] }) }));
+  t.assert(JSON.stringify(excludedRequest.request.excluded_clients) === JSON.stringify(['gemini']), 'machine requests retain digest-bound explicit client exclusions');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['gemini', 'gemini'] }) })), 'INVALID_CONTRACT'), 'duplicate client exclusions are rejected');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ selected_clients: ['unknown-client'] }) })), 'INVALID_CONTRACT'), 'unknown selected client IDs are rejected by the shared request contract');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ excluded_clients: ['unknown-client'] }) })), 'INVALID_CONTRACT'), 'unknown excluded client IDs are rejected by the shared request contract');
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ selected_clients: ['gemini'], excluded_clients: ['gemini'] }) })), 'INVALID_CONTRACT'), 'overlapping client selections and exclusions are rejected');
+  const missingExclusions = structuredClone(result.request);
+  delete missingExclusions.excluded_clients;
+  t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: missingExclusions })), 'INVALID_CONTRACT'), 'client exclusion authority is required by the request contract');
   t.assert(throwsCode(() => validateMachineResult({ ...structuredClone(result), outcome: 'FAILED' }), 'INVALID_CONTRACT'), 'machine result validation rejects an outcome that contradicts its stages');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true } }) })), 'INVALID_CONTRACT'), 'partial client decision objects are rejected');
   t.assert(throwsCode(() => createMachineResult(validMachineInput({ request: validRequest({ client_decisions: { replace_owned_fields: true, shadow_gemini_extension: false, migrate_legacy_claude_project: false, extra: false } }) })), 'INVALID_CONTRACT'), 'unknown client decisions are rejected');

@@ -1,10 +1,11 @@
 import { win32 } from 'node:path';
 
 import { sha256Canonical } from './canonical-json.mjs';
+import { CLIENT_IDS } from './client-ids.mjs';
+
+export { CLIENT_IDS } from './client-ids.mjs';
 
 const frozenVersions = versions => Object.freeze([...versions]);
-
-export const CLIENT_IDS = Object.freeze(['claude', 'codex', 'gemini', 'vscode']);
 
 export const CLIENT_NATIVE_IDENTITIES = Object.freeze({
   claude: Object.freeze({ executable: 'claude.exe', signer_name: 'Anthropic, PBC', args_prefix_length: 0 }),

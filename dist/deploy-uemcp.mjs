@@ -9801,6 +9801,11 @@ import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
 // server/deployment/contracts.mjs
 import { isAbsolute, posix, win32 } from "node:path";
+
+// server/deployment/client-ids.mjs
+var CLIENT_IDS = Object.freeze(["claude", "codex", "gemini", "vscode"]);
+
+// server/deployment/contracts.mjs
 var DEPLOYMENT_SCHEMA_VERSION = "1.0";
 var PLAN_TTL_MS = 30 * 60 * 1e3;
 var OUTCOMES = Object.freeze({
@@ -10055,7 +10060,7 @@ function validateSource(source) {
   return cloneJsonValue(source, "source");
 }
 function validateRequest(request) {
-  assertExactKeys(request, /* @__PURE__ */ new Set(["requested_project", "requested_profile", "selected_clients", "client_decisions"]), "request");
+  assertExactKeys(request, /* @__PURE__ */ new Set(["requested_project", "requested_profile", "selected_clients", "excluded_clients", "client_decisions"]), "request");
   for (const key of ["requested_project", "requested_profile"]) {
     if (request[key] !== null && typeof request[key] !== "string") fail(`request.${key} must be a string or null`);
   }
@@ -10064,6 +10069,19 @@ function validateRequest(request) {
   }
   if (new Set(request.selected_clients).size !== request.selected_clients.length) {
     fail("request.selected_clients must not contain duplicates");
+  }
+  if (!Array.isArray(request.excluded_clients) || !request.excluded_clients.every((value) => typeof value === "string")) {
+    fail("request.excluded_clients must be an array of strings");
+  }
+  if (new Set(request.excluded_clients).size !== request.excluded_clients.length) {
+    fail("request.excluded_clients must not contain duplicates");
+  }
+  if ([...request.selected_clients, ...request.excluded_clients].some((value) => !CLIENT_IDS.includes(value))) {
+    fail("request client selections must use supported client IDs");
+  }
+  const excluded = new Set(request.excluded_clients);
+  if (request.selected_clients.some((value) => excluded.has(value))) {
+    fail("request selected and excluded clients must not overlap");
   }
   assertExactKeys(request.client_decisions, /* @__PURE__ */ new Set([
     "replace_owned_fields",
@@ -10461,7 +10479,6 @@ import {
 // server/deployment/client-contract.mjs
 import { win32 as win322 } from "node:path";
 var frozenVersions = (versions) => Object.freeze([...versions]);
-var CLIENT_IDS = Object.freeze(["claude", "codex", "gemini", "vscode"]);
 var CLIENT_NATIVE_IDENTITIES = Object.freeze({
   claude: Object.freeze({ executable: "claude.exe", signer_name: "Anthropic, PBC", args_prefix_length: 0 }),
   vscode: Object.freeze({ executable: "Code.exe", signer_name: "Microsoft Corporation", args_prefix_length: 1 })
@@ -31530,7 +31547,7 @@ function validateClientEvidenceRow(row, client, label) {
       fail17(`${label}.launch_contract is invalid`, "INVALID_PLAN");
     }
   }
-  if (!client || row.selected !== client.selected || row.structural_status !== client.status || row.enablement !== client.enablement || row.activation !== client.activation || row.launch_contract === null !== (client.version === null) || row.launch_contract !== null && (row.launch_contract.client_id !== row.adapter || row.launch_contract.version !== client.version || row.launch_contract.compatibility !== client.compatibility || row.launch_contract.write_supported !== client.write_supported)) {
+  if (!client || row.selected !== client.selected || row.structural_status !== client.status || row.enablement !== client.enablement || row.activation !== client.activation || row.discovery_status === "NOT_INSTALLED" !== (client.compatibility === "not_installed") || CLIENT_DISCOVERY_FAILURE_CODES.includes(row.discovery_status) && client.compatibility !== "known_unsupported" || row.launch_contract === null !== (client.version === null) || row.launch_contract !== null && (row.launch_contract.client_id !== row.adapter || row.launch_contract.version !== client.version || row.launch_contract.compatibility !== client.compatibility || row.launch_contract.write_supported !== client.write_supported)) {
     fail17(`${label} is inconsistent with its public client row`, "INVALID_PLAN");
   }
   return row;
@@ -31543,7 +31560,7 @@ function validateClientStageEvidence(stage, clients) {
   if (!SHA2563.test(stage.evidence.discovery_context_sha256 ?? "") || !Array.isArray(stage.evidence.clients)) {
     fail17("plan client stage evidence is invalid", "INVALID_PLAN");
   }
-  const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  const clientByAdapter = new Map(clients.filter((client) => CLIENT_IDS.includes(client.adapter)).map((client) => [client.adapter, client]));
   const evidenceByAdapter = /* @__PURE__ */ new Map();
   for (const [index, row] of stage.evidence.clients.entries()) {
     validateClientEvidenceRow(row, clientByAdapter.get(row?.adapter), `plan client evidence[${index}]`);
@@ -31554,6 +31571,57 @@ function validateClientStageEvidence(stage, clients) {
     fail17("plan client stage must cover the closed client set", "INVALID_PLAN");
   }
   return stage.evidence.clients;
+}
+function validateClientSelectionAuthority(request, clients, evidenceRows) {
+  const included = new Set(request.selected_clients);
+  const excluded = new Set(request.excluded_clients);
+  if ([...included, ...excluded].some((clientId) => !CLIENT_IDS.includes(clientId))) {
+    fail17("plan request contains an unsupported client selection", "INVALID_PLAN");
+  }
+  if ([...included].some((clientId) => excluded.has(clientId))) {
+    fail17("plan request client selections overlap", "INVALID_PLAN");
+  }
+  const exactInclude = included.size > 0;
+  const clientByAdapter = new Map(clients.map((client) => [client.adapter, client]));
+  if (evidenceRows.length === 0) {
+    for (const client of clients) {
+      if (client.selected === true && (excluded.has(client.adapter) || exactInclude && !included.has(client.adapter))) {
+        fail17("plan client selection does not match the reviewed request", "INVALID_PLAN", { adapter: client.adapter });
+      }
+    }
+    return;
+  }
+  const evidenceByAdapter = new Map(evidenceRows.map((row) => [row.adapter, row]));
+  for (const adapter of CLIENT_IDS) {
+    const client = clientByAdapter.get(adapter);
+    const evidence = evidenceByAdapter.get(adapter);
+    if (!client || !evidence) fail17("plan selection authority must cover the closed client set", "INVALID_PLAN");
+    const notInstalled = evidence.discovery_status === "NOT_INSTALLED";
+    let expectedSelection;
+    let expectedSelected;
+    if (excluded.has(adapter)) {
+      expectedSelection = "excluded";
+      expectedSelected = false;
+    } else if (exactInclude && !included.has(adapter)) {
+      expectedSelection = "not_included";
+      expectedSelected = false;
+    } else if (included.has(adapter)) {
+      expectedSelection = notInstalled ? "included_not_installed" : "included";
+      expectedSelected = !notInstalled;
+    } else if (notInstalled) {
+      expectedSelection = "not_installed";
+      expectedSelected = false;
+    } else if (client.compatibility === "release_gated") {
+      expectedSelection = "default";
+      expectedSelected = true;
+    } else {
+      expectedSelection = "inspect_only";
+      expectedSelected = false;
+    }
+    if (evidence.selection !== expectedSelection || evidence.selected !== expectedSelected || client.selected !== expectedSelected) {
+      fail17("plan client selection does not match the reviewed request", "INVALID_PLAN", { adapter });
+    }
+  }
 }
 function validateOperation(operation) {
   if (operation === null || typeof operation !== "object" || Array.isArray(operation)) fail17("plan operation must be an object", "INVALID_PLAN");
@@ -31618,7 +31686,7 @@ function validatePlanDocument(plan) {
   if (clientStages.length > 1) fail17("plan contains duplicate client stages", "INVALID_PLAN");
   const [clientStage] = clientStages;
   const hasClientOperations = operations.some((operation) => operation.domain === "clients");
-  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0)) {
+  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0 || request.excluded_clients.length > 0)) {
     fail17("plan is missing the client stage", "INVALID_PLAN");
   }
   let clientEvidenceRows = [];
@@ -31633,6 +31701,12 @@ function validatePlanDocument(plan) {
   const clientEvidence2 = new Map(clientEvidenceRows.map((row) => [row.adapter, row]));
   if (clientByAdapter.size !== clients.length || clientEvidence2.size !== clientEvidenceRows.length) {
     fail17("plan client rows and evidence must use unique adapter IDs", "INVALID_PLAN");
+  }
+  if (CLIENT_IDS.every((adapter) => clientByAdapter.has(adapter)) && clientEvidenceRows.length === 0) {
+    fail17("plan closed client rows require complete client evidence", "INVALID_PLAN");
+  }
+  if (clientEvidenceRows.length > 0 || request.selected_clients.length > 0 || request.excluded_clients.length > 0) {
+    validateClientSelectionAuthority(request, clients, clientEvidenceRows);
   }
   const probeFailureCodes = new Set(CLIENT_DISCOVERY_FAILURE_CODES);
   for (const adapter of request.selected_clients) {
@@ -31914,10 +31988,13 @@ function normalizeClock(clock) {
 function normalizeRequest(input, forcedOperation = null) {
   const operation = forcedOperation ?? input?.operation;
   if (!["setup", "sync", "repair", "verify", "doctor"].includes(operation)) throw new OrchestratorError("request operation is invalid", "INVALID_REQUEST");
+  const selectedClients = input?.client_selection?.include ?? input?.includeClients ?? input?.selected_clients ?? [];
+  const excludedClients = input?.client_selection?.exclude ?? input?.excludeClients ?? input?.excluded_clients ?? [];
   const request = validateRequestContract({
     requested_project: input?.requested_project ?? null,
     requested_profile: input?.requested_profile ?? null,
-    selected_clients: input?.selected_clients ?? [],
+    selected_clients: selectedClients,
+    excluded_clients: excludedClients,
     client_decisions: input?.client_decisions ?? {
       replace_owned_fields: false,
       shadow_gemini_extension: false,
@@ -31928,8 +32005,8 @@ function normalizeRequest(input, forcedOperation = null) {
     operation,
     request,
     clientSelection: {
-      include: input?.client_selection?.include ?? input?.includeClients ?? request.selected_clients,
-      exclude: input?.client_selection?.exclude ?? input?.excludeClients ?? [],
+      include: request.selected_clients,
+      exclude: request.excluded_clients,
       vscodeProfile: input?.client_selection?.vscode_profile ?? input?.vscodeProfile ?? null
     }
   };
@@ -33893,6 +33970,7 @@ function requestFrom(parsed) {
     requested_project: parsed.project,
     requested_profile: parsed.profile,
     selected_clients: parsed.includeClients,
+    excluded_clients: parsed.excludeClients,
     client_selection: {
       include: parsed.includeClients,
       exclude: parsed.excludeClients,

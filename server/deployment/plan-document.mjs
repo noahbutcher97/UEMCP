@@ -265,6 +265,8 @@ function validateClientEvidenceRow(row, client, label) {
     || row.structural_status !== client.status
     || row.enablement !== client.enablement
     || row.activation !== client.activation
+    || ((row.discovery_status === 'NOT_INSTALLED') !== (client.compatibility === 'not_installed'))
+    || (CLIENT_DISCOVERY_FAILURE_CODES.includes(row.discovery_status) && client.compatibility !== 'known_unsupported')
     || (row.launch_contract === null) !== (client.version === null)
     || (row.launch_contract !== null && (row.launch_contract.client_id !== row.adapter
       || row.launch_contract.version !== client.version
@@ -284,7 +286,9 @@ function validateClientStageEvidence(stage, clients) {
   if (!SHA256.test(stage.evidence.discovery_context_sha256 ?? '') || !Array.isArray(stage.evidence.clients)) {
     fail('plan client stage evidence is invalid', 'INVALID_PLAN');
   }
-  const clientByAdapter = new Map(clients.map(client => [client.adapter, client]));
+  const clientByAdapter = new Map(clients
+    .filter(client => CLIENT_IDS.includes(client.adapter))
+    .map(client => [client.adapter, client]));
   const evidenceByAdapter = new Map();
   for (const [index, row] of stage.evidence.clients.entries()) {
     validateClientEvidenceRow(row, clientByAdapter.get(row?.adapter), `plan client evidence[${index}]`);
@@ -297,6 +301,58 @@ function validateClientStageEvidence(stage, clients) {
     fail('plan client stage must cover the closed client set', 'INVALID_PLAN');
   }
   return stage.evidence.clients;
+}
+
+function validateClientSelectionAuthority(request, clients, evidenceRows) {
+  const included = new Set(request.selected_clients);
+  const excluded = new Set(request.excluded_clients);
+  if ([...included, ...excluded].some(clientId => !CLIENT_IDS.includes(clientId))) {
+    fail('plan request contains an unsupported client selection', 'INVALID_PLAN');
+  }
+  if ([...included].some(clientId => excluded.has(clientId))) {
+    fail('plan request client selections overlap', 'INVALID_PLAN');
+  }
+  const exactInclude = included.size > 0;
+  const clientByAdapter = new Map(clients.map(client => [client.adapter, client]));
+  if (evidenceRows.length === 0) {
+    for (const client of clients) {
+      if (client.selected === true && (excluded.has(client.adapter) || (exactInclude && !included.has(client.adapter)))) {
+        fail('plan client selection does not match the reviewed request', 'INVALID_PLAN', { adapter: client.adapter });
+      }
+    }
+    return;
+  }
+  const evidenceByAdapter = new Map(evidenceRows.map(row => [row.adapter, row]));
+  for (const adapter of CLIENT_IDS) {
+    const client = clientByAdapter.get(adapter);
+    const evidence = evidenceByAdapter.get(adapter);
+    if (!client || !evidence) fail('plan selection authority must cover the closed client set', 'INVALID_PLAN');
+    const notInstalled = evidence.discovery_status === 'NOT_INSTALLED';
+    let expectedSelection;
+    let expectedSelected;
+    if (excluded.has(adapter)) {
+      expectedSelection = 'excluded';
+      expectedSelected = false;
+    } else if (exactInclude && !included.has(adapter)) {
+      expectedSelection = 'not_included';
+      expectedSelected = false;
+    } else if (included.has(adapter)) {
+      expectedSelection = notInstalled ? 'included_not_installed' : 'included';
+      expectedSelected = !notInstalled;
+    } else if (notInstalled) {
+      expectedSelection = 'not_installed';
+      expectedSelected = false;
+    } else if (client.compatibility === 'release_gated') {
+      expectedSelection = 'default';
+      expectedSelected = true;
+    } else {
+      expectedSelection = 'inspect_only';
+      expectedSelected = false;
+    }
+    if (evidence.selection !== expectedSelection || evidence.selected !== expectedSelected || client.selected !== expectedSelected) {
+      fail('plan client selection does not match the reviewed request', 'INVALID_PLAN', { adapter });
+    }
+  }
 }
 
 function validateOperation(operation) {
@@ -368,7 +424,7 @@ function validatePlanDocument(plan) {
   if (clientStages.length > 1) fail('plan contains duplicate client stages', 'INVALID_PLAN');
   const [clientStage] = clientStages;
   const hasClientOperations = operations.some(operation => operation.domain === 'clients');
-  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0)) {
+  if (!clientStage && (hasClientOperations || request.selected_clients.length > 0 || request.excluded_clients.length > 0)) {
     fail('plan is missing the client stage', 'INVALID_PLAN');
   }
   let clientEvidenceRows = [];
@@ -383,6 +439,12 @@ function validatePlanDocument(plan) {
   const clientEvidence = new Map(clientEvidenceRows.map(row => [row.adapter, row]));
   if (clientByAdapter.size !== clients.length || clientEvidence.size !== clientEvidenceRows.length) {
     fail('plan client rows and evidence must use unique adapter IDs', 'INVALID_PLAN');
+  }
+  if (CLIENT_IDS.every(adapter => clientByAdapter.has(adapter)) && clientEvidenceRows.length === 0) {
+    fail('plan closed client rows require complete client evidence', 'INVALID_PLAN');
+  }
+  if (clientEvidenceRows.length > 0 || request.selected_clients.length > 0 || request.excluded_clients.length > 0) {
+    validateClientSelectionAuthority(request, clients, clientEvidenceRows);
   }
   const probeFailureCodes = new Set(CLIENT_DISCOVERY_FAILURE_CODES);
   for (const adapter of request.selected_clients) {

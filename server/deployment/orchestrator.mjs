@@ -42,10 +42,13 @@ function normalizeClock(clock) {
 function normalizeRequest(input, forcedOperation = null) {
   const operation = forcedOperation ?? input?.operation;
   if (!['setup', 'sync', 'repair', 'verify', 'doctor'].includes(operation)) throw new OrchestratorError('request operation is invalid', 'INVALID_REQUEST');
+  const selectedClients = input?.client_selection?.include ?? input?.includeClients ?? input?.selected_clients ?? [];
+  const excludedClients = input?.client_selection?.exclude ?? input?.excludeClients ?? input?.excluded_clients ?? [];
   const request = validateRequestContract({
     requested_project: input?.requested_project ?? null,
     requested_profile: input?.requested_profile ?? null,
-    selected_clients: input?.selected_clients ?? [],
+    selected_clients: selectedClients,
+    excluded_clients: excludedClients,
     client_decisions: input?.client_decisions ?? {
       replace_owned_fields: false,
       shadow_gemini_extension: false,
@@ -56,8 +59,8 @@ function normalizeRequest(input, forcedOperation = null) {
     operation,
     request,
     clientSelection: {
-      include: input?.client_selection?.include ?? input?.includeClients ?? request.selected_clients,
-      exclude: input?.client_selection?.exclude ?? input?.excludeClients ?? [],
+      include: request.selected_clients,
+      exclude: request.excluded_clients,
       vscodeProfile: input?.client_selection?.vscode_profile ?? input?.vscodeProfile ?? null,
     },
   };

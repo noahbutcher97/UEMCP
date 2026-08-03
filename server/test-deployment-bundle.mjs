@@ -237,7 +237,9 @@ try {
     include: ['claude'],
     exclude: ['gemini'],
     vscode_profile: 'Work',
-  }) && JSON.stringify(forwardedRequest.selected_clients) === JSON.stringify(['claude']), 'CLI forwards selection as public request evidence and private orchestration input');
+  })
+    && JSON.stringify(forwardedRequest.selected_clients) === JSON.stringify(['claude'])
+    && JSON.stringify(forwardedRequest.excluded_clients) === JSON.stringify(['gemini']), 'CLI forwards include and exclude authority as public request evidence and private orchestration input');
 
   const trackable = artifactNames.every(name => spawnSync('git', ['check-ignore', '-q', `dist/${name}`], { cwd: repoRoot, windowsHide: true }).status === 1);
   const ignoredScratch = spawnSync('git', ['check-ignore', '-q', 'dist/scratch.txt'], { cwd: repoRoot, windowsHide: true }).status === 0;

@@ -365,6 +365,7 @@ function sampleRequest(overrides = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    excluded_clients: [],
     client_decisions: {
       replace_owned_fields: false,
       shadow_gemini_extension: false,
@@ -1486,15 +1487,44 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
       enablement: supported && index === 0 ? 'ENABLED' : 'NOT_INSTALLED',
       activation: supported && index === 0 ? 'CONNECTED' : 'NOT_INSTALLED',
       actions: [],
-    }));
+    })).filter((row, index) => !supported || index === 0);
+    const absentEvidence = rows => ({
+      vscode_profile: null,
+      discovery_context_sha256: 'a'.repeat(64),
+      clients: rows.map(row => ({
+        adapter: row.adapter,
+        selected: false,
+        selection: 'not_installed',
+        discovery_status: 'NOT_INSTALLED',
+        launch_contract: null,
+        current_scopes: [],
+        effective_scope: null,
+        operation: 'INSPECT_ONLY',
+        touched_paths: [],
+        owned_diffs: [],
+        environment: [],
+        custom_working_directory: false,
+        structural_status: 'NOT_INSTALLED',
+        native_status: 'UNKNOWN',
+        protocol_status: 'UNKNOWN',
+        instruction_bytes: 0,
+        tool_count: 0,
+        initial_tool_names: [],
+        duration_ms: 0,
+        enablement: 'NOT_INSTALLED',
+        activation: 'NOT_INSTALLED',
+      })),
+    });
     const makeClientDomain = supported => {
+      const rows = knownRows(supported);
       const execution = () => ({
         stage: createStageResult({
           name: 'clients',
           status: supported ? 'HEALTHY' : 'NOT_INSTALLED',
           result: supported ? 'ready' : 'action_required',
+          evidence: supported ? {} : absentEvidence(rows),
         }),
-        clients: knownRows(supported),
+        clients: rows,
         actions: [],
       });
       return {
@@ -1558,7 +1588,7 @@ function createReviewedPlan({ root, reviewed, now = new Date('2026-07-15T12:00:0
     t.assert(descriptorPinCalls === 3 && descriptorPinDepth === 0, 'generic protocol launch is pinned once for plan, apply refresh, and verify');
 
     const supportedPlan = await makeOrchestrator(true).plan(request);
-    t.assert(supportedPlan.clients.length === 4 && !supportedPlan.clients.some(client => client.adapter === 'generic-mcp-host'), 'a detected release-gated host suppresses generic manual registration');
+    t.assert(supportedPlan.clients.length === 1 && !supportedPlan.clients.some(client => client.adapter === 'generic-mcp-host'), 'a detected release-gated host suppresses generic manual registration');
     t.assert(descriptorPinCalls === 3, 'release-gated client support does not run duplicate generic descriptor smoke');
   } finally {
     cleanup(root);

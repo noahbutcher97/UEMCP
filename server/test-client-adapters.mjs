@@ -97,6 +97,7 @@ function clientRequest(decisions = {}) {
     requested_project: null,
     requested_profile: null,
     selected_clients: [],
+    excluded_clients: [],
     client_decisions: {
       replace_owned_fields: false,
       shadow_gemini_extension: false,
@@ -4206,6 +4207,7 @@ function aggregateContext(root, overrides = {}) {
       requested_project: null,
       requested_profile: null,
       selected_clients: overrides.selectedClients ?? [],
+      excluded_clients: overrides.excludedClients ?? overrides.exclude ?? [],
       client_decisions: clientRequest().client_decisions,
     },
     clientSelection: {
@@ -4277,6 +4279,67 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   });
 }
 
+function forgeAdditionalSelectedClient(basePlan, root, clientId, selection) {
+  const candidate = structuredClone(basePlan);
+  const clientIndex = candidate.clients.findIndex(row => row.adapter === clientId);
+  const evidenceRows = candidate.stages.find(stage => stage.name === 'clients').evidence.clients;
+  const evidenceIndex = evidenceRows.findIndex(row => row.adapter === clientId);
+  const operation = {
+    ...aggregateClientOperation(root, clientId),
+    domain: 'clients',
+    domain_order: 30,
+    kind: 'CLIENT_CONFIG_WRITE',
+  };
+  const { atime_ms: ignoredAccessTime, ...stableFingerprint } = operation.fingerprint;
+  candidate.clients[clientIndex] = {
+    ...candidate.clients[clientIndex],
+    selected: true,
+    status: 'CONFIGURED',
+    enablement: 'ENABLED',
+    activation: 'CONNECTED',
+  };
+  evidenceRows[evidenceIndex] = {
+    ...evidenceRows[evidenceIndex],
+    selected: true,
+    selection,
+    current_scopes: ['user'],
+    effective_scope: 'user',
+    operation: 'UPDATE',
+    touched_paths: [operation.path],
+    structural_status: 'CONFIGURED',
+    native_status: 'PRESENT',
+    protocol_status: 'HEALTHY',
+    enablement: 'ENABLED',
+    activation: 'CONNECTED',
+  };
+  candidate.operations.push(operation);
+  candidate.preconditions.push({
+    kind: 'client_path',
+    label: `clients:path:forged:${clientId}`,
+    canonical_path: operation.path,
+    allowed_root: operation.allowed_root,
+    writable: true,
+    fingerprint: stableFingerprint,
+  });
+  return candidate;
+}
+
+function recreatePlan(candidate) {
+  return createPlanDocument({
+    operation: candidate.operation,
+    outcome: candidate.outcome,
+    source: candidate.source,
+    request: candidate.request,
+    descriptor: candidate.descriptor,
+    stages: candidate.stages,
+    clients: candidate.clients,
+    operations: candidate.operations,
+    preconditions: candidate.preconditions,
+    actions: candidate.actions,
+    now: new Date(candidate.created_at),
+  });
+}
+
 // Saved client-stage authorization evidence is a closed schema at every nesting level.
 {
   const root = makeRoot();
@@ -4339,6 +4402,17 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
           }];
         },
       },
+      {
+        label: 'not-installed discovery with unsupported public compatibility',
+        mutate(candidate) {
+          const missingClient = candidate.clients.find(row => row.compatibility === 'not_installed');
+          missingClient.compatibility = 'known_unsupported';
+        },
+      },
+      {
+        label: 'missing closed-client evidence surface',
+        mutate(candidate) { candidate.stages.find(stage => stage.name === 'clients').evidence = {}; },
+      },
     ];
     for (const mutation of mutations) {
       const candidate = structuredClone(plan);
@@ -4400,6 +4474,14 @@ function aggregatePlanDocument(context, planned, outcome = 'ACTION_REQUIRED') {
   t.assert(subsetPlanError === null
     && subsetPlan?.clients.find(row => row.adapter === 'codex')?.status === 'NOT_SELECTED',
   `an installed client excluded by an exact include remains valid plan evidence (${subsetPlanError?.code ?? 'no error'}: ${subsetPlanError?.message ?? 'none'})`);
+
+  const forgedExactInclude = forgeAdditionalSelectedClient(subsetPlan, root, 'codex', 'included');
+  t.assert(throwsCode(() => recreatePlan(forgedExactInclude), 'INVALID_PLAN'), 'an exact-include plan cannot splice in another coherent selected-client write');
+
+  const excludedContext = aggregateContext(root, { operation: 'setup', exclude: ['codex'] });
+  const excludedPlan = aggregatePlanDocument(excludedContext, await subsetDomain.plan(excludedContext));
+  const forgedExplicitExclude = forgeAdditionalSelectedClient(excludedPlan, root, 'codex', 'default');
+  t.assert(throwsCode(() => recreatePlan(forgedExplicitExclude), 'INVALID_PLAN'), 'an explicitly excluded client cannot be rewritten into a default-selected write');
 
   const missingResolvers = Object.fromEntries(CLIENT_IDS.map(clientId => [clientId, async () => {
     throw Object.assign(new Error('not installed'), { code: 'NOT_INSTALLED' });
