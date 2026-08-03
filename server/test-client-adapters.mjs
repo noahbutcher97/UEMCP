@@ -73,10 +73,10 @@ import {
   validateClientLaunchContract,
   validatePublicClientLaunchContract,
 } from './deployment/client-contract.mjs';
-import { createClientDomain } from './deployment/client-domain.mjs';
+import { createClientDomain as createClientDomainProduction } from './deployment/client-domain.mjs';
 import { discoverClients, selectClients } from './deployment/client-discovery.mjs';
 import {
-  captureClientRuntimeFingerprint,
+  captureClientRuntimeFingerprint as captureClientRuntimeFingerprintProduction,
   revalidateClientLaunchRuntime as revalidateClientLaunchRuntimeProduction,
   resolveClientLaunch as resolveClientLaunchProduction,
   withPinnedClientLaunch,
@@ -115,6 +115,48 @@ function revalidateClientLaunchRuntime(launch, options = {}) {
   return revalidateClientLaunchRuntimeProduction(launch, {
     ...options,
     runtimeTreePinner,
+  });
+}
+
+function captureClientRuntimeFingerprint(root, options = {}) {
+  const { runtimeTreePinner = withDeterministicTestPin } = options;
+  return captureClientRuntimeFingerprintProduction(root, {
+    ...options,
+    runtimeTreePinner,
+  });
+}
+
+function pinClientLaunchForTest(launch, options = {}) {
+  const {
+    runtimeTreePinner = withDeterministicTestPin,
+    launchFilePinner = withDeterministicTestPin,
+  } = options;
+  return withPinnedClientLaunch(launch, {
+    ...options,
+    runtimeTreePinner,
+    launchFilePinner,
+  });
+}
+
+async function pinDescriptorLaunchForTest(descriptor, { callback }) {
+  return callback(Object.freeze({ assertPinned() {} }), descriptor);
+}
+
+function createClientDomain(options = {}) {
+  const {
+    captureFingerprint = async path => simpleFingerprint(path),
+    captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+    pinClientLaunch = pinClientLaunchForTest,
+    descriptorLaunchPinner = pinDescriptorLaunchForTest,
+    evidenceFilePinner = withDeterministicTestPin,
+  } = options;
+  return createClientDomainProduction({
+    ...options,
+    captureFingerprint,
+    captureRuntimeFingerprint,
+    pinClientLaunch,
+    descriptorLaunchPinner,
+    evidenceFilePinner,
   });
 }
 

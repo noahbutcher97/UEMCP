@@ -10,7 +10,6 @@ import { TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('Rotation Timeout Policy Tests');
 const extendedFiles = [
-  'test-client-adapters.mjs',
   'test-client-transaction.mjs',
   'test-deployment-contracts.mjs',
 ];
@@ -23,7 +22,7 @@ runner.assert(
 runner.assert(
   Object.isFrozen(ROTATION_FILE_TIMEOUT_OVERRIDES_MS)
     && JSON.stringify(Object.keys(ROTATION_FILE_TIMEOUT_OVERRIDES_MS).sort()) === JSON.stringify(extendedFiles),
-  'only the three process and Windows integration-heavy suites receive extended budgets',
+  'only the two Windows integration-heavy suites receive extended budgets',
 );
 
 for (const file of extendedFiles) {
@@ -34,8 +33,13 @@ for (const file of extendedFiles) {
 }
 
 runner.assert(
+  rotationFileTimeoutMs('test-client-adapters.mjs') === DEFAULT_ROTATION_FILE_TIMEOUT_MS,
+  'fixture-isolated adapter tests retain the default budget',
+);
+
+runner.assert(
   rotationFileTimeoutMs('test-phase1.mjs') === DEFAULT_ROTATION_FILE_TIMEOUT_MS,
-  'unlisted test files use the default budget',
+  'other unlisted test files use the default budget',
 );
 
 runner.assert(

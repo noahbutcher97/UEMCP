@@ -2,7 +2,6 @@ export const DEFAULT_ROTATION_FILE_TIMEOUT_MS = 5 * 60 * 1000;
 
 // These suites retain bounded process and Windows-native integration lanes.
 export const ROTATION_FILE_TIMEOUT_OVERRIDES_MS = Object.freeze({
-  'test-client-adapters.mjs': 8 * 60 * 1000,
   'test-client-transaction.mjs': 8 * 60 * 1000,
   'test-deployment-contracts.mjs': 8 * 60 * 1000,
 });
