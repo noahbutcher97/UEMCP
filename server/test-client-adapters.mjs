@@ -146,6 +146,7 @@ function createClientDomain(options = {}) {
   const {
     captureFingerprint = async path => simpleFingerprint(path),
     captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+    revalidateRuntime = revalidateClientLaunchRuntime,
     pinClientLaunch = pinClientLaunchForTest,
     descriptorLaunchPinner = pinDescriptorLaunchForTest,
     evidenceFilePinner = withDeterministicTestPin,
@@ -154,6 +155,7 @@ function createClientDomain(options = {}) {
     ...options,
     captureFingerprint,
     captureRuntimeFingerprint,
+    revalidateRuntime,
     pinClientLaunch,
     descriptorLaunchPinner,
     evidenceFilePinner,
@@ -5183,6 +5185,7 @@ function recreatePlan(candidate) {
       : absentClient(clientId));
     const base = aggregateAdapter('claude');
     let reachedLaunch = false;
+    let revalidateCalls = 0;
     const adapter = Object.freeze({
       ...base,
       async inspect(context, detection) {
@@ -5197,6 +5200,10 @@ function recreatePlan(candidate) {
       discovery: async () => rows,
       transaction: () => { throw new Error('transaction is not expected'); },
       protocolSmoke: async () => { throw new Error('runtime drift must block protocol smoke'); },
+      revalidateRuntime: async (candidate, options) => {
+        revalidateCalls += 1;
+        return revalidateClientLaunchRuntime(candidate, options);
+      },
     });
     const activeLaunchError = await rejectedError(() => domain.verify(aggregateContext(root)));
     t.assert(activeLaunchError?.code === 'PLAN_STALE', 'npm runtime drift is rejected by the immediate native-launch guard');
@@ -5205,6 +5212,7 @@ function recreatePlan(candidate) {
       && activeLaunchError.details.runtime_reason === 'RUNTIME_FINGERPRINT_MISMATCH'
       && JSON.stringify(activeLaunchError.details.changed_fields) === JSON.stringify(['manifest_sha256', 'total_bytes']),
       'active-launch drift preserves secret-safe nested runtime diagnostics');
+    t.assert(revalidateCalls === 1, 'immediate native-launch guard uses the injected runtime revalidator exactly once');
     t.assert(!reachedLaunch, 'runtime drift is rejected before the guarded client process executes');
   } finally {
     cleanup(root);

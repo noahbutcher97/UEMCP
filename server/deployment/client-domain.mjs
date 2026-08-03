@@ -815,6 +815,7 @@ export function createClientDomain({
   protocolSmoke = smokeDescriptor,
   captureFingerprint = captureClientPathFingerprint,
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+  revalidateRuntime = revalidateClientLaunchRuntime,
   pinClientLaunch = withPinnedClientLaunch,
   descriptorLaunchPinner = withPinnedDescriptorLaunch,
   evidenceFilePinner = withPinnedWindowsFiles,
@@ -828,6 +829,7 @@ export function createClientDomain({
     || typeof protocolSmoke !== 'function'
     || typeof captureFingerprint !== 'function'
     || typeof captureRuntimeFingerprint !== 'function'
+    || typeof revalidateRuntime !== 'function'
     || typeof pinClientLaunch !== 'function'
     || typeof descriptorLaunchPinner !== 'function'
     || typeof evidenceFilePinner !== 'function') {
@@ -919,7 +921,10 @@ export function createClientDomain({
       vscodeProfile: requestedProfile,
       beforeActiveClientLaunch: async evidence => {
         try {
-          await revalidateClientLaunchRuntime(row.launch, { fsImpl: context.fsImpl ?? fsImpl });
+          await revalidateRuntime(row.launch, {
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner,
+          });
         } catch (error) {
           fail('client runtime changed before active launch', 'PLAN_STALE', clientRuntimeFailureDetails(row.client_id, error));
         }

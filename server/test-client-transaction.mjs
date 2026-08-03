@@ -20,6 +20,13 @@ import {
 import { createLocalState } from './deployment/local-state.mjs';
 import { createProcessRunner } from './deployment/process-runner.mjs';
 import {
+  deleteWindowsTreeNoFollow,
+  fingerprintWindowsFileMetadata,
+  replaceFilePreservingMetadata,
+  withPinnedWindowsAncestry,
+  withPinnedWindowsFiles,
+} from './deployment/windows-native.mjs';
+import {
   adoptExactEntry,
   deduplicateOwnershipLocations,
   inspectOwnership,
@@ -298,6 +305,26 @@ async function setExplicitTestDacl(path) {
   if (result.status !== 'exited' || result.exitCode !== 0) {
     throw new Error(`could not establish explicit test DACL (${result.status}, exit ${result.exitCode})`);
   }
+}
+
+function realWindowsIntegrationNative() {
+  const timeoutMs = 60_000;
+  const releaseTimeoutMs = 15_000;
+  return Object.freeze({
+    deleteTreeNoFollow: options => deleteWindowsTreeNoFollow(options),
+    fingerprintWindowsFileMetadata: (path, options) => fingerprintWindowsFileMetadata(path, { ...options, timeoutMs }),
+    replaceFilePreservingMetadata: options => replaceFilePreservingMetadata({ ...options, timeoutMs }),
+    withPinnedAncestry: options => withPinnedWindowsAncestry({
+      ...options,
+      acquisitionTimeoutMs: timeoutMs,
+      releaseTimeoutMs,
+    }),
+    withPinnedFiles: options => withPinnedWindowsFiles({
+      ...options,
+      acquisitionTimeoutMs: timeoutMs,
+      releaseTimeoutMs,
+    }),
+  });
 }
 
 async function rejectsCode(fn, code) {
@@ -2261,35 +2288,36 @@ if (process.platform === 'win32') {
   try {
     const home = join(root, 'client-home');
     const localState = createTestLocalState(root);
+    const windowsNative = realWindowsIntegrationNative();
     const path = writeBytes(join(home, 'claude.json'), Buffer.from('{"state":"original"}\r\n'));
     const streamPath = `${path}:uemcp-canary`;
     await asyncFs.writeFile(streamPath, Buffer.from('canary-value'));
     await setExplicitTestDacl(path);
 
-    const before = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
-    const operation = await transactionOperation('claude', path, home, undefined);
+    const before = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs, windowsNative });
+    const operation = await transactionOperation('claude', path, home, windowsNative);
     const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
-      allowedRoots: [localState.paths().state], fsImpl: asyncFs,
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
     });
-    const transaction = createClientTransaction({ localState, fsImpl: asyncFs });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
     const adapter = fakeAdapter('claude');
     await transaction.snapshot({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {}, ownershipFingerprint });
     const applied = await transaction.apply({ planDigest: PLAN_DIGEST, adapters: [adapter], operations: [operation], context: {} });
-    const afterApply = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
+    const afterApply = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs, windowsNative });
     t.assert(applied.status === 'APPLIED', `real Windows metadata-preserving apply succeeds (got ${applied.status}, rollback ${applied.rollback?.reason_code ?? 'none'})`);
     t.assert(afterApply.metadata_sha256 === before.metadata_sha256 && (await asyncFs.readFile(streamPath, 'utf8')) === 'canary-value', 'real apply preserves explicit DACL and canary alternate stream');
     t.assert(!(await asyncFs.readdir(home)).some(name => name.endsWith('.uemcp-backup') || name.endsWith('.uemcp-write')), 'real apply leaves no replacement or backup artifact');
 
     const appliedBytes = await asyncFs.readFile(path);
     const appliedStat = await asyncFs.lstat(path);
-    const rollbackOperation = await transactionOperation('claude', path, home, undefined, {
+    const rollbackOperation = await transactionOperation('claude', path, home, windowsNative, {
       operation_id: 'claude-rollback-write',
       desired_text: '{"state":"second-write"}\n',
     });
     const rollbackOwnership = await captureClientPathFingerprint(localState.paths().ownership, {
-      allowedRoots: [localState.paths().state], fsImpl: asyncFs,
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
     });
-    const rollbackTransaction = createClientTransaction({ localState, fsImpl: asyncFs });
+    const rollbackTransaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
     const failingAdapter = fakeAdapter('claude', { failAfterWrite: true });
     await rollbackTransaction.snapshot({
       planDigest: PLAN_DIGEST,
@@ -2304,7 +2332,7 @@ if (process.platform === 'win32') {
       operations: [rollbackOperation],
       context: {},
     });
-    const afterRollback = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs });
+    const afterRollback = await captureClientPathFingerprint(path, { allowedRoots: [home], fsImpl: asyncFs, windowsNative });
     t.assert(rolledBack.status === 'ROLLED_BACK' && (await asyncFs.readFile(path)).equals(appliedBytes), 'real Windows rollback restores exact prior default-stream bytes');
     t.assert(afterRollback.metadata_sha256 === before.metadata_sha256 && (await asyncFs.readFile(streamPath, 'utf8')) === 'canary-value', 'real rollback preserves explicit DACL and canary alternate stream');
     const restoredStat = await asyncFs.lstat(path);

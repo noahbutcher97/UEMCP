@@ -878,6 +878,7 @@ const FILE_PIN_MAX_PATHS = 64;
 const FILE_PIN_MAX_ABSENT_COMPONENTS = 512;
 const FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
 const PIN_ACQUISITION_TIMEOUT_MS = 30_000;
+const MAX_HELPER_TIMEOUT_MS = 120_000;
 
 export class WindowsNativeError extends Error {
   constructor(message, code = 'WINDOWS_NATIVE_FAILED', details = {}) {
@@ -886,6 +887,13 @@ export class WindowsNativeError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+function validateHelperTimeout(timeoutMs) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_HELPER_TIMEOUT_MS) {
+    throw new WindowsNativeError('Windows helper timeout is invalid', 'INVALID_WINDOWS_HELPER_TIMEOUT');
+  }
+  return timeoutMs;
 }
 
 function powershellPath(systemRoot) {
@@ -1756,12 +1764,14 @@ export async function fingerprintWindowsFileMetadata(path, {
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   maxStreams = 64,
   maxStreamBytes = 16 * 1024 * 1024,
+  timeoutMs = 30_000,
   allowedRoots = [dirname(resolve(path))],
   fsImpl = defaultFs,
 } = {}) {
   if (!runner?.run) throw new WindowsNativeError('runner is required');
   if (!Number.isSafeInteger(maxStreams) || maxStreams < 0) throw new WindowsNativeError('maxStreams is invalid');
   if (!Number.isSafeInteger(maxStreamBytes) || maxStreamBytes < 0) throw new WindowsNativeError('maxStreamBytes is invalid');
+  validateHelperTimeout(timeoutMs);
   const fingerprint = await assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks: false });
   const result = await runner.run(powershellPath(systemRoot), powershellArgs(), {
     env: minimalEnvironment(systemRoot, {
@@ -1770,7 +1780,7 @@ export async function fingerprintWindowsFileMetadata(path, {
       UEMCP_MAX_STREAM_BYTES: String(maxStreamBytes),
     }),
     stdin: `${METADATA_SCRIPT}\n\n`,
-    timeoutMs: 30_000,
+    timeoutMs,
     outputLimitBytes: 8 * 1024,
   });
   const parsed = parseSingleJson(result, ['metadata_sha256', 'stream_count', 'stream_bytes']);
@@ -1795,9 +1805,11 @@ export async function replaceFilePreservingMetadata({
   destinationPath,
   runner,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 30_000,
   fsImpl = defaultFs,
 }) {
   if (!runner?.run) throw new WindowsNativeError('runner is required');
+  validateHelperTimeout(timeoutMs);
   const replacement = resolve(replacementPath);
   const destination = resolve(destinationPath);
   if (dirname(replacement).toLowerCase() !== dirname(destination).toLowerCase()
@@ -1817,7 +1829,7 @@ export async function replaceFilePreservingMetadata({
         UEMCP_BACKUP_PATH: backup,
       }),
       stdin: `${REPLACE_SCRIPT}\n\n`,
-      timeoutMs: 30_000,
+      timeoutMs,
       outputLimitBytes: 8 * 1024,
     });
     parsed = parseSingleJson(result, ['status']);

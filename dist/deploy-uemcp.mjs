@@ -12198,6 +12198,7 @@ var FILE_PIN_MAX_PATHS = 64;
 var FILE_PIN_MAX_ABSENT_COMPONENTS = 512;
 var FILE_PIN_MAX_INPUT_BYTES = 64 * 1024;
 var PIN_ACQUISITION_TIMEOUT_MS = 3e4;
+var MAX_HELPER_TIMEOUT_MS = 12e4;
 var WindowsNativeError = class extends Error {
   constructor(message, code = "WINDOWS_NATIVE_FAILED", details = {}) {
     super(message);
@@ -12206,6 +12207,12 @@ var WindowsNativeError = class extends Error {
     this.details = details;
   }
 };
+function validateHelperTimeout(timeoutMs) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_HELPER_TIMEOUT_MS) {
+    throw new WindowsNativeError("Windows helper timeout is invalid", "INVALID_WINDOWS_HELPER_TIMEOUT");
+  }
+  return timeoutMs;
+}
 function powershellPath(systemRoot) {
   if (typeof systemRoot !== "string" || systemRoot.trim() === "") {
     throw new WindowsNativeError("SystemRoot is required", "SYSTEM_ROOT_UNAVAILABLE");
@@ -12997,12 +13004,14 @@ async function fingerprintWindowsFileMetadata(path, {
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   maxStreams = 64,
   maxStreamBytes = 16 * 1024 * 1024,
+  timeoutMs = 3e4,
   allowedRoots = [dirname(resolve2(path))],
   fsImpl = defaultFs3
 } = {}) {
   if (!runner?.run) throw new WindowsNativeError("runner is required");
   if (!Number.isSafeInteger(maxStreams) || maxStreams < 0) throw new WindowsNativeError("maxStreams is invalid");
   if (!Number.isSafeInteger(maxStreamBytes) || maxStreamBytes < 0) throw new WindowsNativeError("maxStreamBytes is invalid");
+  validateHelperTimeout(timeoutMs);
   const fingerprint = await assertRegularSinglePath(path, { allowedRoots, fsImpl, allowMultipleLinks: false });
   const result2 = await runner.run(powershellPath(systemRoot), powershellArgs(), {
     env: minimalEnvironment(systemRoot, {
@@ -13013,7 +13022,7 @@ async function fingerprintWindowsFileMetadata(path, {
     stdin: `${METADATA_SCRIPT}
 
 `,
-    timeoutMs: 3e4,
+    timeoutMs,
     outputLimitBytes: 8 * 1024
   });
   const parsed = parseSingleJson(result2, ["metadata_sha256", "stream_count", "stream_bytes"]);
@@ -13031,9 +13040,11 @@ async function replaceFilePreservingMetadata({
   destinationPath,
   runner,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  timeoutMs = 3e4,
   fsImpl = defaultFs3
 }) {
   if (!runner?.run) throw new WindowsNativeError("runner is required");
+  validateHelperTimeout(timeoutMs);
   const replacement = resolve2(replacementPath);
   const destination = resolve2(destinationPath);
   if (dirname(replacement).toLowerCase() !== dirname(destination).toLowerCase() || parse(replacement).root.toLowerCase() !== parse(destination).root.toLowerCase()) {
@@ -13054,7 +13065,7 @@ async function replaceFilePreservingMetadata({
       stdin: `${REPLACE_SCRIPT}
 
 `,
-      timeoutMs: 3e4,
+      timeoutMs,
       outputLimitBytes: 8 * 1024
     });
     parsed = parseSingleJson(result2, ["status"]);
@@ -29647,6 +29658,7 @@ function createClientDomain({
   protocolSmoke = smokeDescriptor,
   captureFingerprint = captureClientPathFingerprint,
   captureRuntimeFingerprint = captureClientRuntimeFingerprint,
+  revalidateRuntime = revalidateClientLaunchRuntime,
   pinClientLaunch = withPinnedClientLaunch,
   descriptorLaunchPinner = withPinnedDescriptorLaunch,
   evidenceFilePinner = withPinnedWindowsFiles,
@@ -29656,7 +29668,7 @@ function createClientDomain({
   if (typeof transaction !== "function" && (!transaction || typeof transaction.snapshot !== "function" || typeof transaction.apply !== "function")) {
     fail16("client domain requires a transaction factory or transaction");
   }
-  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function" || typeof evidenceFilePinner !== "function") {
+  if (typeof discovery !== "function" || typeof protocolSmoke !== "function" || typeof captureFingerprint !== "function" || typeof captureRuntimeFingerprint !== "function" || typeof revalidateRuntime !== "function" || typeof pinClientLaunch !== "function" || typeof descriptorLaunchPinner !== "function" || typeof evidenceFilePinner !== "function") {
     fail16("client domain dependencies are invalid");
   }
   async function withPinnedInspectionEvidence(context, inspection, callback) {
@@ -29740,7 +29752,10 @@ function createClientDomain({
       vscodeProfile: requestedProfile,
       beforeActiveClientLaunch: async (evidence) => {
         try {
-          await revalidateClientLaunchRuntime(row.launch, { fsImpl: context.fsImpl ?? fsImpl });
+          await revalidateRuntime(row.launch, {
+            fsImpl: context.fsImpl ?? fsImpl,
+            runtimeTreePinner: context.runtimeTreePinner
+          });
         } catch (error2) {
           fail16("client runtime changed before active launch", "PLAN_STALE", clientRuntimeFailureDetails(row.client_id, error2));
         }

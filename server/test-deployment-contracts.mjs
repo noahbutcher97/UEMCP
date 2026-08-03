@@ -705,11 +705,29 @@ async function rejectsCode(fn, code) {
     t.assert(metadata.metadata_sha256 === 'a'.repeat(64) && metadata.stream_count === 1, 'metadata helper returns only aggregate evidence');
     const metadataCall = calls.find(call => call.options.env.UEMCP_METADATA_TARGET);
     t.assert(!metadataCall.options.stdin.includes(target) && !JSON.stringify(metadata).includes('tool with'), 'metadata helper does not expose paths or stream details');
+    t.assert(metadataCall.options.timeoutMs === 30_000, 'metadata helper retains the bounded production timeout by default');
+    await fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 60_000 });
+    t.assert(calls.at(-1).options.timeoutMs === 60_000, 'metadata helper accepts a bounded integration timeout override');
+    t.assert(await rejectsCode(
+      () => fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 0 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'metadata helper rejects a non-positive timeout override');
+    t.assert(await rejectsCode(
+      () => fingerprintWindowsFileMetadata(target, { runner: fakeRunner, systemRoot: 'C:\\Windows', allowedRoots: [root], timeoutMs: 120_001 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'metadata helper rejects an override above the integration ceiling');
 
     const replaced = await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows' });
     t.assert(replaced.status === 'replaced', 'replacement helper accepts a normalized success response');
     const replaceCall = calls.find(call => call.options.env.UEMCP_REPLACEMENT_PATH);
     t.assert(!replaceCall.options.stdin.includes(replacement) && !replaceCall.args.join(' ').includes(destination), 'replacement paths are not interpolated into source or arguments');
+    t.assert(replaceCall.options.timeoutMs === 30_000, 'replacement helper retains the bounded production timeout by default');
+    await replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows', timeoutMs: 60_000 });
+    t.assert(calls.at(-1).options.timeoutMs === 60_000, 'replacement helper accepts a bounded integration timeout override');
+    t.assert(await rejectsCode(
+      () => replaceFilePreservingMetadata({ replacementPath: replacement, destinationPath: destination, runner: fakeRunner, systemRoot: 'C:\\Windows', timeoutMs: 1.5 }),
+      'INVALID_WINDOWS_HELPER_TIMEOUT',
+    ), 'replacement helper rejects a non-integer timeout override');
     t.assert(calls.every(call => call.options.stdin.endsWith('\n\n')), 'multiline Windows PowerShell helpers use an executable blank-line terminator');
   } finally {
     cleanupPrimitiveRoot(root);
