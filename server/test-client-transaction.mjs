@@ -37,6 +37,7 @@ import {
 
 const t = new TestRunner('Client Transaction Tests');
 const PLAN_DIGEST = 'a'.repeat(64);
+const FINAL_PLAN_DIGEST = 'c'.repeat(64);
 const CONFIG_HASH = 'b'.repeat(64);
 const WRITTEN_AT = '2026-07-16T12:00:00.000Z';
 
@@ -558,10 +559,13 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     currentEntry: current,
     desiredEntry: desired,
     approvedOperationId: operation,
+    planDigest: FINAL_PLAN_DIGEST,
   });
   const serialized = JSON.stringify(receipt);
   t.assert(receipt.status === 'adopted' && receipt.operation_id === operation.operation_id && receipt.provider_config_written === false, 'adoption records one visible ledger-only operation');
+  t.assert(receipt.plan_digest === FINAL_PLAN_DIGEST && receipt.plan_digest !== operation.plan_digest, 'adoption receipt identifies the final approved plan rather than the preliminary operation digest');
   t.assert(ledger.writeCount() === 1 && JSON.stringify(current) === before, 'adoption does not mutate or write provider config values');
+  t.assert(Object.values(ledger.snapshot().records).every(record => record.plan_digest === FINAL_PLAN_DIGEST), 'adoption ownership evidence records the final approved plan digest');
   t.assert(receipt.environment.keys.includes('TOKEN') && !serialized.includes('alpha') && !serialized.includes('beta') && !serialized.includes('byte-for-byte'), 'adoption receipt exposes only environment names and hashes');
   const owned = await inspectOwnership({ ledger, currentEntry: current, desiredEntry: desired, location: target });
   t.assert(owned.state === 'owned_matching', 'successful adoption binds the current owned projection');
@@ -576,7 +580,8 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     { label: 'wrong operation type', operation: adoptionOperation(target, current, { type: 'WRITE_CONFIG' }), desired },
     { label: 'wrong ownership key', operation: adoptionOperation(target, current, { ownership_key: '0'.repeat(64) }), desired },
     { label: 'stale current entry hash', operation: adoptionOperation(target, current, { current_entry_sha256: '0'.repeat(64) }), desired },
-    { label: 'invalid plan digest', operation: adoptionOperation(target, current, { plan_digest: 'not-a-digest' }), desired },
+    { label: 'invalid operation plan digest', operation: adoptionOperation(target, current, { plan_digest: 'not-a-digest' }), desired },
+    { label: 'invalid final plan digest', operation: adoptionOperation(target, current), desired, planDigest: 'not-a-digest' },
     { label: 'unreviewed extra operation field', operation: adoptionOperation(target, current, { environment_values: { TOKEN: 'secret' } }), desired },
     { label: 'differing owned projection', operation: adoptionOperation(target, current), desired: { ...desired, command: 'C:\\Other\\node.exe' } },
   ];
@@ -588,6 +593,7 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
       currentEntry: current,
       desiredEntry: testCase.desired,
       approvedOperationId: testCase.operation,
+      planDigest: testCase.planDigest ?? FINAL_PLAN_DIGEST,
     }), 'ADOPTION_PRECONDITION_FAILED'), `${testCase.label} blocks adoption`);
     t.assert(ledger.writeCount() === 0, `${testCase.label} leaves the ledger untouched`);
   }

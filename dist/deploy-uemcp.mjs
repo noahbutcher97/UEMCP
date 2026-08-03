@@ -16204,7 +16204,8 @@ async function adoptExactEntry({
   location: location5,
   currentEntry,
   desiredEntry,
-  approvedOperationId
+  approvedOperationId,
+  planDigest
 }) {
   plainEntry(currentEntry, "current entry");
   plainEntry(desiredEntry, "desired entry");
@@ -16219,7 +16220,7 @@ async function adoptExactEntry({
     "current_entry_sha256",
     "current_config_sha256",
     "plan_digest"
-  ]) || typeof operation.operation_id !== "string" || operation.operation_id.trim() === "" || operation.type !== "ADOPT_EXACT_ENTRY" || operation.ownership_key !== ownershipKey(normalized) || operation.current_entry_sha256 !== sha256Canonical(currentEntry) || !SHA256_PATTERN.test(operation.current_config_sha256) || !SHA256_PATTERN.test(operation.plan_digest) || differences.length !== 0) {
+  ]) || typeof operation.operation_id !== "string" || operation.operation_id.trim() === "" || operation.type !== "ADOPT_EXACT_ENTRY" || operation.ownership_key !== ownershipKey(normalized) || operation.current_entry_sha256 !== sha256Canonical(currentEntry) || !SHA256_PATTERN.test(operation.current_config_sha256) || !SHA256_PATTERN.test(operation.plan_digest) || !SHA256_PATTERN.test(planDigest) || differences.length !== 0) {
     fail7("adoption approval or current-entry precondition failed", "ADOPTION_PRECONDITION_FAILED");
   }
   const recorded = await recordOwnedWrite({
@@ -16229,7 +16230,7 @@ async function adoptExactEntry({
     afterEntry: currentEntry,
     ownedPaths: paths,
     appliedConfigHash: operation.current_config_sha256,
-    planDigest: operation.plan_digest
+    planDigest
   });
   return {
     status: "adopted",
@@ -16237,7 +16238,7 @@ async function adoptExactEntry({
     operation_type: operation.type,
     ownership_key: recorded.ownership_key,
     current_entry_sha256: operation.current_entry_sha256,
-    plan_digest: operation.plan_digest,
+    plan_digest: planDigest,
     provider_config_written: false,
     environment: recorded.environment
   };
@@ -16304,6 +16305,7 @@ function resolveClaudeLocations(context = {}) {
     fail8("CLAUDE_CONFIG_DIR must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
   }
   const stateRoot = resolve4(isolatedHome || userProfile);
+  const stateWriteRoot = isolatedHome ? dirname3(stateRoot) : stateRoot;
   const configRoot = resolve4(isolatedHome || join4(userProfile, ".claude"));
   const statePath = join4(stateRoot, ".claude.json");
   const settingsPath = isolatedHome ? join4(stateRoot, "settings.json") : join4(userProfile, ".claude", "settings.json");
@@ -16315,7 +16317,7 @@ function resolveClaudeLocations(context = {}) {
   const pluginsRoot = join4(configRoot, "plugins");
   const pluginsCache = join4(pluginsRoot, "cache");
   return Object.freeze({
-    state: location(statePath, stateRoot, "user", true),
+    state: location(statePath, stateWriteRoot, "user", true),
     user_settings: location(settingsPath, stateRoot, "user_settings"),
     project_config: location(join4(projectRoot, ".mcp.json"), projectRoot, "project", true),
     project_settings: location(join4(projectRoot, ".claude", "settings.json"), projectRoot, "project_settings"),
@@ -17243,7 +17245,8 @@ function createClaudeAdapter({
           location: { clientId: "claude", configPath: operation.path, scope: "user", entryName: "uemcp" },
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
-          approvedOperationId: operation.adoption
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
         });
         continue;
       }
@@ -17261,7 +17264,7 @@ function createClaudeAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient("claude", afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest
+        planDigest: context.planDigest
       });
     }
     return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
@@ -17466,6 +17469,10 @@ function getTomlTable(document, dottedPath) {
   const value = tableValue(document, dottedPath);
   return value && !Array.isArray(value) && typeof value === "object" ? value : void 0;
 }
+function physicalLineEnd(text, offset) {
+  const match = /\r\n|\r|\n/.exec(text.slice(offset));
+  return match ? offset + match.index : text.length;
+}
 function patchTomlTable(document, dottedPath, ownedValues) {
   if (document?.kind !== "toml_document") fail9("TOML document is invalid");
   validatePath2(dottedPath);
@@ -17502,7 +17509,8 @@ function patchTomlTable(document, dottedPath, ownedValues) {
       }
     }
     if (missing6.length > 0) {
-      const offset = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+      const nodeEnd = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+      const offset = physicalLineEnd(document.text, nodeEnd);
       edits.push({ offset, length: 0, content: `${document.newline}${missing6.join(document.newline)}` });
     }
   }
@@ -17599,7 +17607,7 @@ function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS2.p
   const programData = resolve5(knownProgramData);
   const requirementsRoot = join5(programData, "OpenAI", "Codex");
   return Object.freeze({
-    user: location2(join5(codexHome, "config.toml"), codexHome, "user", true),
+    user: location2(join5(codexHome, "config.toml"), dirname4(codexHome), "user", true),
     project_layers: Object.freeze(directories.map((directory, index) => location2(
       join5(directory, ".codex", "config.toml"),
       root,
@@ -18314,7 +18322,8 @@ function createCodexAdapter({
           location: { clientId: "codex", configPath: operation.path, scope: "user", entryName: "uemcp" },
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
-          approvedOperationId: operation.adoption
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
         });
         continue;
       }
@@ -18355,7 +18364,7 @@ function createCodexAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient("codex", afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest
+        planDigest: context.planDigest
       });
     }
     return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
@@ -18477,6 +18486,7 @@ function resolveGeminiLocations(context = {}) {
   }
   const homeRoot = resolve6(configuredHome || userProfile);
   const globalDir = join6(homeRoot, ".gemini");
+  const userWriteRoot = configuredHome ? dirname5(homeRoot) : homeRoot;
   const extensionsRoot = join6(globalDir, "extensions");
   const knownProgramData = context.knownFolders?.programData ?? "C:\\ProgramData";
   if (!absolutePath4(knownProgramData)) fail11("Gemini system policy root is invalid", "INVALID_CLIENT_LOCATION");
@@ -18490,7 +18500,7 @@ function resolveGeminiLocations(context = {}) {
     home_root: resolve6(homeRoot),
     global_dir: resolve6(globalDir),
     custom_home: configuredHome !== void 0 && configuredHome !== "",
-    user: location3(join6(globalDir, "settings.json"), globalDir, "user", true),
+    user: location3(join6(globalDir, "settings.json"), userWriteRoot, "user", true),
     enablement: location3(join6(globalDir, "mcp-server-enablement.json"), globalDir, "enablement"),
     trusted_folders: location3(trustedFoldersPath, trustedFoldersOverride ? dirname5(trustedFoldersPath) : globalDir, "trusted_folders"),
     extensions_root: location3(extensionsRoot, globalDir, "extensions_root"),
@@ -19488,7 +19498,8 @@ function createGeminiAdapter({
           location: { clientId: "gemini", configPath: operation.path, scope: "user", entryName: "uemcp" },
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
-          approvedOperationId: operation.adoption
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
         });
         continue;
       }
@@ -19508,7 +19519,7 @@ function createGeminiAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient("gemini", afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest
+        planDigest: context.planDigest
       });
     }
     return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });
@@ -19615,13 +19626,14 @@ function resolveVsCodeLocations(context = {}) {
   }
   if (!configuredRoot && !absolutePath5(appData)) fail12("VS Code inspection requires an absolute APPDATA", "INVALID_CLIENT_LOCATION");
   const userDataRoot = resolve7(configuredRoot || join7(appData, "Code"));
+  const userWriteRoot = resolve7(configuredRoot ? dirname6(userDataRoot) : appData);
   const userRoot = join7(userDataRoot, "User");
   const profilesRoot = join7(userRoot, "profiles");
   return Object.freeze({
     user_data_root: userDataRoot,
     user_root: resolve7(userRoot),
     profiles_root: resolve7(profilesRoot),
-    default_user: location4(join7(userRoot, "mcp.json"), userRoot, "user:default", true),
+    default_user: location4(join7(userRoot, "mcp.json"), userWriteRoot, "user:default", true),
     profile_metadata: location4(join7(userRoot, "globalStorage", "storage.json"), userRoot, "profile_metadata"),
     workspace: location4(join7(context.workspaceRoot, ".vscode", "mcp.json"), context.workspaceRoot, "workspace")
   });
@@ -19819,7 +19831,7 @@ function parseProfiles(metadata, locations, limits) {
     }
     const inheritedDefault = flags?.mcp === true;
     const profileRoot = join7(locations.profiles_root, profileLocation);
-    const resource = inheritedDefault ? locations.default_user : location4(join7(profileRoot, "mcp.json"), locations.profiles_root, `user:profile:${profileLocation}`, true);
+    const resource = inheritedDefault ? locations.default_user : location4(join7(profileRoot, "mcp.json"), locations.default_user.allowed_root, `user:profile:${profileLocation}`, true);
     rows.push(Object.freeze({
       name: record2.name,
       location: profileLocation,
@@ -20202,7 +20214,8 @@ function createVsCodeAdapter({
           location: ownershipLocation,
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
-          approvedOperationId: operation.adoption
+          approvedOperationId: operation.adoption,
+          planDigest: context.planDigest
         });
         continue;
       }
@@ -20224,7 +20237,7 @@ function createVsCodeAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient("vscode", afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest
+        planDigest: context.planDigest
       });
     }
     return Object.freeze({ status: operations.length === 0 ? "NO_OP" : "APPLIED" });

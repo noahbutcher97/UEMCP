@@ -92,6 +92,7 @@ import { getTomlTable, parseTomlDocument, patchTomlTable } from './deployment/to
 const t = new TestRunner('Client Adapter Tests');
 const clientConfigSamples = join(import.meta.dirname, 'fixtures', 'client-config');
 const TEST_PLAN_DIGEST = 'a'.repeat(64);
+const APPROVED_PLAN_DIGEST = 'f'.repeat(64);
 
 // Adapter unit cases inject pin lifetimes; real Windows helpers have dedicated integration coverage.
 async function withDeterministicTestPin({ callback }) {
@@ -978,6 +979,7 @@ function vscodeContext(root, overrides = {}) {
     const locations = resolveVsCodeLocations(context);
     const userDataRoot = resolve(join(context.env.APPDATA, 'Code'));
     t.assert(locations.default_user.path === resolve(join(userDataRoot, 'User', 'mcp.json')), 'VS Code default MCP resource is rooted in APPDATA');
+    t.assert(locations.default_user.allowed_root === resolve(context.env.APPDATA), 'VS Code default writable config is anchored above an absent user-data tree');
     t.assert(locations.profile_metadata.path === resolve(join(userDataRoot, 'User', 'globalStorage', 'storage.json')), 'VS Code profile metadata is read from globalStorage');
     t.assert(locations.workspace.path === resolve(join(context.workspaceRoot, '.vscode', 'mcp.json')), 'VS Code workspace MCP resource remains workspace scoped');
     t.assert(JSON.stringify(physicalVsCodeEntry(context.descriptor)) === JSON.stringify({
@@ -986,7 +988,9 @@ function vscodeContext(root, overrides = {}) {
       args: context.descriptor.args,
     }), 'VS Code canonical projection owns only type, command, and args');
     const customRoot = resolve(join(root, 'isolated-vscode-data'));
-    t.assert(resolveVsCodeLocations(vscodeContext(root, { vscodeUserDataRoot: customRoot })).default_user.path === resolve(join(customRoot, 'User', 'mcp.json')), 'VS Code explicit isolated user-data root is honored');
+    const customLocations = resolveVsCodeLocations(vscodeContext(root, { vscodeUserDataRoot: customRoot }));
+    t.assert(customLocations.default_user.path === resolve(join(customRoot, 'User', 'mcp.json')), 'VS Code explicit isolated user-data root is honored');
+    t.assert(customLocations.default_user.allowed_root === resolve(dirname(customRoot)), 'VS Code custom writable config is anchored above an absent isolated root');
     const lowerAppData = resolve(join(root, 'lower-appdata'));
     t.assert(resolveVsCodeLocations(vscodeContext(root, { env: { APPDATA: undefined, appdata: lowerAppData } })).default_user.path === resolve(join(lowerAppData, 'Code', 'User', 'mcp.json')), 'VS Code APPDATA lookup is case-insensitive');
     t.assert(throwsCode(() => resolveVsCodeLocations(vscodeContext(root, {
@@ -1042,6 +1046,7 @@ function vscodeContext(root, overrides = {}) {
     const adapter = createVsCodeAdapter({ captureFingerprint: async path => simpleFingerprint(path) });
     let workInspection = await adapter.inspect(workContext, await adapter.detect(workContext));
     t.assert(workInspection?.selected_resource.path === resolve(join(locations.profiles_root, 'work-profile-id', 'mcp.json')), 'VS Code selected profile resolves its validated profile mcpResource');
+    t.assert(workInspection?.selected_resource.allowed_root === locations.default_user.allowed_root, 'VS Code selected profile inherits the creatable user-data root');
     t.assert(workInspection?.registration === 'CONFIGURED' && workInspection.profiles.length === 2, 'VS Code selected profile inspection retains bounded profile metadata evidence');
 
     const sharedContext = vscodeContext(root, { vscodeProfile: 'Shared' });
@@ -1281,9 +1286,10 @@ function vscodeContext(root, overrides = {}) {
     const snapshot = await adapter.snapshot(context, createPlan.operations);
     t.assert(snapshot.writable_paths.length === 1 && snapshot.writable_paths[0].path === locations.default_user.path, 'VS Code snapshot includes only the selected resource as writable');
     t.assert(snapshot.read_only_paths.some(row => row.path === locations.profile_metadata.path), 'VS Code snapshot binds profile metadata as read-only evidence');
-    await adapter.apply({ ...context, transaction: adapterTransaction(ledger) }, plan.operations);
+    await adapter.apply({ ...context, planDigest: APPROVED_PLAN_DIGEST, transaction: adapterTransaction(ledger) }, plan.operations);
     const written = JSON.parse(readFileSync(locations.default_user.path, 'utf8'));
     t.assert(JSON.stringify(written.servers.uemcp) === JSON.stringify(physicalVsCodeEntry(context.descriptor)), 'VS Code create writes the canonical selected-resource projection');
+    t.assert(Object.values((await ledger.read()).records).every(record => record.plan_digest === APPROVED_PLAN_DIGEST), 'VS Code ownership evidence records the final approved plan digest');
     const verified = await adapter.verify(context, createPlan.operations);
     t.assert(verified.registration === 'CONFIGURED' && verified.status === 'RESTART_REQUIRED', 'VS Code static verification proves configuration while requiring restart');
     t.assert(verified.enablement === 'UNKNOWN' && verified.activation === 'UNKNOWN' && verified.actions.includes('CLIENT_ENABLEMENT_REVIEW_REQUIRED'), 'VS Code static verification never infers enablement or activation');
@@ -2270,7 +2276,11 @@ if (process.platform === 'win32') {
   try {
     const context = claudeContext(root, { env: { CLAUDE_CONFIG_DIR: resolve(join(root, 'isolated-claude')) } });
     const locations = resolveClaudeLocations(context);
+    const defaultContext = claudeContext(root);
+    const defaultLocations = resolveClaudeLocations(defaultContext);
     t.assert(locations.state.path === resolve(join(root, 'isolated-claude', '.claude.json')), 'Claude isolated state file is beneath CLAUDE_CONFIG_DIR');
+    t.assert(locations.state.allowed_root === resolve(dirname(context.env.CLAUDE_CONFIG_DIR)), 'Claude writable state is anchored above an absent isolated config home');
+    t.assert(defaultLocations.state.allowed_root === resolve(defaultContext.env.USERPROFILE), 'Claude default writable state remains anchored to USERPROFILE');
     t.assert(locations.user_settings.path === resolve(join(root, 'isolated-claude', 'settings.json')), 'Claude isolated settings file is beneath CLAUDE_CONFIG_DIR');
     t.assert(locations.project_config.path === resolve(join(context.workspaceRoot, '.mcp.json')), 'Claude project config remains rooted in the active workspace');
     t.assert(locations.managed_config.path === resolve(join(context.env.ProgramFiles, 'ClaudeCode', 'managed-mcp.json')), 'Claude managed MCP path uses the fixed Program Files policy root');
@@ -2675,12 +2685,13 @@ if (process.platform === 'win32') {
     const plan = await adapter.plan(context, inspection, context.descriptor);
     t.assert(plan.status === 'UPDATE' && plan.operations.length === 1 && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'Claude owned stale descriptor plans a targeted update');
     const transaction = adapterTransaction(ledger);
-    await adapter.apply({ ...context, transaction }, plan.operations);
+    await adapter.apply({ ...context, planDigest: APPROVED_PLAN_DIGEST, transaction }, plan.operations);
     const after = JSON.parse(readFileSync(locations.state.path, 'utf8'));
     t.assert(after.mcpServers.uemcp.command === context.descriptor.command && JSON.stringify(after.mcpServers.uemcp.args) === JSON.stringify(context.descriptor.args), 'Claude update writes canonical command and args');
     t.assert(after.mcpServers.uemcp.type === 'stdio' && after.mcpServers.uemcp.cwd === oldEntry.cwd && after.mcpServers.uemcp.startup_timeout_sec === 45, 'Claude update preserves custom launch and timeout fields');
     t.assert(JSON.stringify(after.mcpServers.uemcp.env) === JSON.stringify(oldEntry.env) && after.mcpServers.other.url === 'https://example.invalid' && after.unrelated.keep, 'Claude update preserves environment, unrelated servers, and top-level state');
     t.assert(transaction.writes.map(row => row.path).sort().join('|') === ['<ownership-ledger>', locations.state.path].sort().join('|'), 'Claude apply writes only the planned config and ownership ledger');
+    t.assert(Object.values((await ledger.read()).records).every(record => record.plan_digest === APPROVED_PLAN_DIGEST), 'Claude ownership evidence records the final approved plan digest');
   } finally {
     cleanup(root);
   }
@@ -2998,7 +3009,11 @@ if (process.platform === 'win32') {
       knownFolders: { programData: trustedProgramData },
     });
     const locations = resolveCodexLocations(context);
+    const defaultContext = codexContext(root, { env: { CODEX_HOME: undefined } });
+    const defaultLocations = resolveCodexLocations(defaultContext);
     t.assert(locations.user.path === resolve(join(context.env.CODEX_HOME, 'config.toml')), 'Codex user config is rooted in CODEX_HOME');
+    t.assert(locations.user.allowed_root === resolve(dirname(context.env.CODEX_HOME)), 'Codex writable config is anchored above an absent custom home');
+    t.assert(defaultLocations.user.allowed_root === resolve(defaultContext.env.USERPROFILE), 'Codex default writable config remains anchored to USERPROFILE');
     t.assert(locations.project_layers.map(row => row.path).join('|') === [
       join(projectRoot, '.codex', 'config.toml'),
       join(projectRoot, 'Source', '.codex', 'config.toml'),
@@ -3404,7 +3419,7 @@ if (process.platform === 'win32') {
     const plan = await adapter.plan(context, inspection, context.descriptor);
     t.assert(plan.status === 'UPDATE' && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', 'owned stale Codex launch plans a targeted update');
     const transaction = adapterTransaction(ledger);
-    await adapter.apply({ ...context, transaction }, plan.operations);
+    await adapter.apply({ ...context, planDigest: APPROVED_PLAN_DIGEST, transaction }, plan.operations);
     const afterBytes = readFileSync(locations.user.path);
     const table = getTomlTable(parseTomlDocument(afterBytes), ['mcp_servers', 'uemcp']);
     const text = afterBytes.toString('utf8');
@@ -3413,6 +3428,7 @@ if (process.platform === 'win32') {
     t.assert(table.cwd === 'C:\\CustomWorkspace' && table.env.API_TOKEN === 'do-not-serialize' && table.default_tools_approval_mode === 'writes', 'Codex update preserves cwd, environment, and approval policy');
     t.assert(text.includes('# Preserve the command comment') && text.includes('[mcp_servers.other]') && text.includes('[mcp_servers.uemcp.tools.get_editor_state]'), 'Codex update preserves comments, unrelated servers, and per-tool policy');
     t.assert(!runner.calls.some(call => call.args.includes('add')), 'Codex existing-table update never invokes native add');
+    t.assert(Object.values((await ledger.read()).records).every(record => record.plan_digest === APPROVED_PLAN_DIGEST), 'Codex ownership evidence records the final approved plan digest');
     const verified = await adapter.verify(context, plan.operations);
     t.assert(verified.status === 'CLIENT_ENABLEMENT_REQUIRED' && verified.restart_required === true, 'Codex disabled structural update retains both enablement and restart requirements');
   } finally {
@@ -3518,7 +3534,7 @@ if (process.platform === 'win32') {
   const root = makeRoot();
   try {
     const context = codexContext(root);
-    mkdirSync(context.env.CODEX_HOME, { recursive: true });
+    t.assert(!existsSync(context.env.CODEX_HOME), 'Codex first-run fixture begins with an absent configured home');
     const configPath = resolveCodexLocations(context).user.path;
     const runner = codexNativeRunner(root, {
       list: () => existsSync(configPath)
@@ -3542,31 +3558,75 @@ if (process.platform === 'win32') {
       allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
     });
     const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
-    await transaction.snapshot({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context, ownershipFingerprint });
-    const result = await transaction.apply({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context });
-    const table = getTomlTable(parseTomlDocument(readFileSync(configPath)), ['mcp_servers', 'uemcp']);
-    t.assert(result.status === 'ACTION_REQUIRED' && result.clients[0].status === 'RESTART_REQUIRED', 'Codex native create commits structurally while preserving restart as required');
-    t.assert(table.command === context.descriptor.command && JSON.stringify(table.args) === JSON.stringify(context.descriptor.args), 'Codex native create writes the canonical launch identity');
-    t.assert(result.touched_files.map(row => row.path).sort().join('|') === [configPath, localState.paths().ownership].map(path => resolve(path)).sort().join('|'), 'Codex central transaction touches only provider config and ownership state');
-    const nativeAdds = runner.calls.filter(call => call.args.includes('add'));
-    t.assert(nativeAdds.length === 1, 'Codex central transaction invokes native add exactly once for an absent file');
-    t.assert(resolve(nativeAdds[0].options.env.CODEX_HOME) !== resolve(context.env.CODEX_HOME), 'Codex fresh native add receives only an isolated home');
-    t.assert(resolve(nativeAdds[0].options.cwd) === resolve(nativeAdds[0].options.env.CODEX_HOME), 'Codex fresh native add uses the isolated home as its working directory');
-    const persistedLedger = {
-      async read() {
-        try {
-          return await asyncFs.readFile(localState.paths().ownership, 'utf8');
-        } catch (error) {
-          if (error.code === 'ENOENT') return null;
-          throw error;
-        }
-      },
-      now: () => '2026-07-16T12:00:00.000Z',
-    };
-    const persistedContext = { ...context, ownershipLedger: persistedLedger };
-    const nextInspection = await adapter.inspect(persistedContext, await adapter.detect(persistedContext));
-    const nextPlan = await adapter.plan(persistedContext, nextInspection, persistedContext.descriptor);
-    t.assert(nextPlan.status === 'NO_OP' && nextPlan.operations.length === 0, 'Codex native create becomes an owned idempotent no-op');
+    let result = null;
+    const transactionError = await rejectedError(async () => {
+      await transaction.snapshot({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context, ownershipFingerprint });
+      result = await transaction.apply({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context });
+    });
+    t.assert(transactionError === null, 'Codex central transaction can create an absent configured home', transactionError?.code);
+    if (result) {
+      const table = getTomlTable(parseTomlDocument(readFileSync(configPath)), ['mcp_servers', 'uemcp']);
+      t.assert(result.status === 'ACTION_REQUIRED' && result.clients[0].status === 'RESTART_REQUIRED', 'Codex native create commits structurally while preserving restart as required');
+      t.assert(table.command === context.descriptor.command && JSON.stringify(table.args) === JSON.stringify(context.descriptor.args), 'Codex native create writes the canonical launch identity');
+      t.assert(result.touched_files.map(row => row.path).sort().join('|') === [configPath, localState.paths().ownership].map(path => resolve(path)).sort().join('|'), 'Codex central transaction touches only provider config and ownership state');
+      const nativeAdds = runner.calls.filter(call => call.args.includes('add'));
+      t.assert(nativeAdds.length === 1, 'Codex central transaction invokes native add exactly once for an absent file');
+      t.assert(resolve(nativeAdds[0].options.env.CODEX_HOME) !== resolve(context.env.CODEX_HOME), 'Codex fresh native add receives only an isolated home');
+      t.assert(resolve(nativeAdds[0].options.cwd) === resolve(nativeAdds[0].options.env.CODEX_HOME), 'Codex fresh native add uses the isolated home as its working directory');
+      const persistedLedger = {
+        async read() {
+          try {
+            return await asyncFs.readFile(localState.paths().ownership, 'utf8');
+          } catch (error) {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+          }
+        },
+        now: () => '2026-07-16T12:00:00.000Z',
+      };
+      const persistedContext = { ...context, ownershipLedger: persistedLedger };
+      const nextInspection = await adapter.inspect(persistedContext, await adapter.detect(persistedContext));
+      const nextPlan = await adapter.plan(persistedContext, nextInspection, persistedContext.descriptor);
+      t.assert(nextPlan.status === 'NO_OP' && nextPlan.operations.length === 0, 'Codex native create becomes an owned idempotent no-op');
+    }
+  } finally {
+    cleanup(root);
+  }
+}
+
+// The real Gemini adapter can create both an absent custom home and its nested .gemini directory.
+{
+  const root = makeRoot();
+  try {
+    const context = geminiContext(root);
+    t.assert(!existsSync(context.env.GEMINI_CLI_HOME), 'Gemini first-run fixture begins with an absent configured home');
+    const configPath = resolveGeminiLocations(context).user.path;
+    const windowsNative = transactionWindowsNative();
+    const capture = (path, options) => captureClientPathFingerprint(path, { ...options, fsImpl: asyncFs, windowsNative });
+    const adapter = createGeminiAdapter({ runner: geminiNativeRunner(), captureFingerprint: capture });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    const localState = createLocalState({
+      root: join(root, 'local-state'),
+      aclRestrictor: async () => {},
+      processInspector: async () => 'alive',
+    });
+    const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
+      allowedRoots: [localState.paths().state], fsImpl: asyncFs, windowsNative,
+    });
+    const transaction = createClientTransaction({ localState, fsImpl: asyncFs, windowsNative });
+    let result = null;
+    const transactionError = await rejectedError(async () => {
+      await transaction.snapshot({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context, ownershipFingerprint });
+      result = await transaction.apply({ planDigest: TEST_PLAN_DIGEST, adapters: [adapter], operations: plan.operations, context });
+    });
+    t.assert(transactionError === null, 'Gemini central transaction can create an absent configured home', transactionError?.code);
+    if (result) {
+      const written = JSON.parse(readFileSync(configPath, 'utf8'));
+      t.assert(['APPLIED', 'ACTION_REQUIRED'].includes(result.status), 'Gemini first-run create reaches a committed transaction state');
+      t.assert(JSON.stringify(written.mcpServers.uemcp) === JSON.stringify(physicalGeminiEntry(context.descriptor)), 'Gemini first-run create writes the canonical launch identity');
+      t.assert(result.touched_files.map(row => row.path).sort().join('|') === [configPath, localState.paths().ownership].map(path => resolve(path)).sort().join('|'), 'Gemini central transaction touches only provider config and ownership state');
+    }
   } finally {
     cleanup(root);
   }
@@ -3578,7 +3638,11 @@ if (process.platform === 'win32') {
   try {
     const context = geminiContext(root);
     const locations = resolveGeminiLocations(context);
+    const defaultContext = geminiContext(root, { env: { GEMINI_CLI_HOME: undefined } });
+    const defaultLocations = resolveGeminiLocations(defaultContext);
     t.assert(locations.user.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'settings.json')), 'Gemini custom home resolves beneath a nested .gemini directory');
+    t.assert(locations.user.allowed_root === resolve(dirname(context.env.GEMINI_CLI_HOME)), 'Gemini writable config is anchored above an absent custom home');
+    t.assert(defaultLocations.user.allowed_root === resolve(defaultContext.env.USERPROFILE), 'Gemini default writable config remains anchored to USERPROFILE');
     t.assert(locations.enablement.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'mcp-server-enablement.json')), 'Gemini persistent enablement shares the nested global config directory');
     t.assert(locations.extensions_root.path === resolve(join(context.env.GEMINI_CLI_HOME, '.gemini', 'extensions')), 'Gemini extensions share the nested global config directory');
     t.assert(locations.project.path === resolve(join(context.workspaceRoot, '.gemini', 'settings.json')), 'Gemini project settings remain workspace scoped');
@@ -3687,9 +3751,10 @@ if (process.platform === 'win32') {
     let plan = await adapter.plan(context, inspection, context.descriptor);
     t.assert(plan.status === 'ADOPT' && plan.operations[0].type === 'ADOPT_EXACT_ENTRY', 'Gemini exact unowned entry requires visible adoption');
     const transaction = adapterTransaction(ledger);
-    await adapter.apply({ ...context, transaction }, plan.operations);
+    await adapter.apply({ ...context, planDigest: APPROVED_PLAN_DIGEST, transaction }, plan.operations);
     t.assert(readFileSync(locations.user.path).equals(before), 'Gemini adoption preserves provider bytes exactly');
     t.assert(transaction.writes.length === 1 && transaction.writes[0].path === '<ownership-ledger>', 'Gemini adoption writes only ownership state');
+    t.assert(Object.values((await ledger.read()).records).every(record => record.plan_digest === APPROVED_PLAN_DIGEST), 'Gemini adoption evidence records the final approved plan digest');
     inspection = await adapter.inspect(context, await adapter.detect(context));
     plan = await adapter.plan(context, inspection, context.descriptor);
     t.assert(plan.status === 'NO_OP' && plan.operations.length === 0, 'owned exact Gemini entry becomes an idempotent no-op');

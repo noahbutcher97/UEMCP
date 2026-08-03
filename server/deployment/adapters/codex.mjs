@@ -129,7 +129,7 @@ export function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LI
   const programData = resolve(knownProgramData);
   const requirementsRoot = join(programData, 'OpenAI', 'Codex');
   return Object.freeze({
-    user: location(join(codexHome, 'config.toml'), codexHome, 'user', true),
+    user: location(join(codexHome, 'config.toml'), dirname(codexHome), 'user', true),
     project_layers: Object.freeze(directories.map((directory, index) => location(
       join(directory, '.codex', 'config.toml'),
       root,
@@ -929,6 +929,7 @@ export function createCodexAdapter({
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
           approvedOperationId: operation.adoption,
+          planDigest: context.planDigest,
         });
         continue;
       }
@@ -970,7 +971,7 @@ export function createCodexAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient('codex', afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest,
+        planDigest: context.planDigest,
       });
     }
     return Object.freeze({ status: operations.length === 0 ? 'NO_OP' : 'APPLIED' });

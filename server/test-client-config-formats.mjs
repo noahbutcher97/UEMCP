@@ -168,6 +168,14 @@ function count(source, needle) {
   const missingKeySource = Buffer.from('[mcp_servers.uemcp]\ncommand = "node.exe"\n\n[other]\nvalue = true\n');
   const inserted = patchTomlTable(parseTomlDocument(missingKeySource, { pathLabel: 'missing-key.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] });
   t.assert(text(inserted.after_bytes).indexOf('args = ["server.mjs"]') < text(inserted.after_bytes).indexOf('[other]'), 'TOML inserts a missing key before the next table');
+  const inlineCommentSource = Buffer.from('[mcp_servers.uemcp]\ncommand = "node.exe" # command note\n\n[other]\nvalue = true\n');
+  const inlineCommentInserted = patchTomlTable(parseTomlDocument(inlineCommentSource, { pathLabel: 'inline-comment.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] });
+  const inlineCommentText = text(inlineCommentInserted.after_bytes);
+  t.assert(inlineCommentText.includes('command = "node.exe" # command note\nargs = ["server.mjs"]'), 'TOML inserts a missing key after the preceding inline comment');
+  t.assert(!inlineCommentText.includes('args = ["server.mjs"] # command note'), 'TOML never reattaches an existing inline comment to a new key');
+  const eofCommentSource = Buffer.from('[mcp_servers.uemcp]\ncommand = "node.exe" # eof note');
+  const eofCommentInserted = patchTomlTable(parseTomlDocument(eofCommentSource, { pathLabel: 'eof-comment.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] });
+  t.assert(text(eofCommentInserted.after_bytes).endsWith('command = "node.exe" # eof note\nargs = ["server.mjs"]'), 'TOML preserves an inline comment when the table ends at EOF');
 
   const removed = removeTomlTable(parseTomlDocument(changed.after_bytes, { pathLabel: 'changed.toml' }), ['mcp_servers', 'uemcp']);
   t.assert(removed.changed && getTomlTable(parseTomlDocument(removed.after_bytes, { pathLabel: 'removed.toml' }), ['mcp_servers', 'uemcp']) === undefined, 'TOML removes the targeted table');
@@ -179,11 +187,12 @@ function count(source, needle) {
   t.assert(getTomlTable(quoted, ['mcp_servers', 'uemcp']).args.length === 1, 'TOML resolves quoted and dotted table keys');
   const tomlCrlfBom = Buffer.concat([
     Buffer.from([0xef, 0xbb, 0xbf]),
-    Buffer.from('[mcp_servers.uemcp]\r\ncommand = "node.exe"\r\n', 'utf8'),
+    Buffer.from('[mcp_servers.uemcp]\r\ncommand = "node.exe" # command note\r\n', 'utf8'),
   ]);
   const tomlCrlfChanged = patchTomlTable(parseTomlDocument(tomlCrlfBom, { pathLabel: 'crlf.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] });
   t.assert(tomlCrlfChanged.after_bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])), 'TOML edit preserves UTF-8 BOM bytes');
   t.assert(!/(?<!\r)\n/.test(text(tomlCrlfChanged.after_bytes.subarray(3))), 'TOML edit preserves dominant CRLF newlines');
+  t.assert(text(tomlCrlfChanged.after_bytes).includes('command = "node.exe" # command note\r\nargs = ["server.mjs"]'), 'TOML preserves inline comments with CRLF and a UTF-8 BOM');
   const boundedToml = parseTomlDocument(Buffer.from('model = "x"\n'), { pathLabel: 'bounded.toml', maxBytes: 64 });
   t.assert(rejectsCode(() => patchTomlTable(boundedToml, ['mcp_servers', 'uemcp'], { command: 'x'.repeat(80) }), 'INSPECTION_LIMIT_EXCEEDED'), 'TOML edit cannot grow beyond the configured byte limit');
   t.assert(rejectsCode(() => parseTomlDocument(Buffer.from('[a]\nx=1\n[a]\ny=2\n'), { pathLabel: 'duplicate-table.toml' }), 'MALFORMED_CONFIG'), 'TOML rejects duplicate tables');

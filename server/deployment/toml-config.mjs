@@ -190,6 +190,11 @@ export function getTomlTable(document, dottedPath) {
   return value && !Array.isArray(value) && typeof value === 'object' ? value : undefined;
 }
 
+function physicalLineEnd(text, offset) {
+  const match = /\r\n|\r|\n/.exec(text.slice(offset));
+  return match ? offset + match.index : text.length;
+}
+
 export function patchTomlTable(document, dottedPath, ownedValues) {
   if (document?.kind !== 'toml_document') fail('TOML document is invalid');
   validatePath(dottedPath);
@@ -227,7 +232,8 @@ export function patchTomlTable(document, dottedPath, ownedValues) {
       }
     }
     if (missing.length > 0) {
-      const offset = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+      const nodeEnd = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+      const offset = physicalLineEnd(document.text, nodeEnd);
       edits.push({ offset, length: 0, content: `${document.newline}${missing.join(document.newline)}` });
     }
   }

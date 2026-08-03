@@ -108,6 +108,7 @@ export function resolveClaudeLocations(context = {}) {
     fail('CLAUDE_CONFIG_DIR must be an absolute non-device path', 'INVALID_CLIENT_LOCATION');
   }
   const stateRoot = resolve(isolatedHome || userProfile);
+  const stateWriteRoot = isolatedHome ? dirname(stateRoot) : stateRoot;
   const configRoot = resolve(isolatedHome || join(userProfile, '.claude'));
   const statePath = join(stateRoot, '.claude.json');
   const settingsPath = isolatedHome
@@ -121,7 +122,7 @@ export function resolveClaudeLocations(context = {}) {
   const pluginsRoot = join(configRoot, 'plugins');
   const pluginsCache = join(pluginsRoot, 'cache');
   return Object.freeze({
-    state: location(statePath, stateRoot, 'user', true),
+    state: location(statePath, stateWriteRoot, 'user', true),
     user_settings: location(settingsPath, stateRoot, 'user_settings'),
     project_config: location(join(projectRoot, '.mcp.json'), projectRoot, 'project', true),
     project_settings: location(join(projectRoot, '.claude', 'settings.json'), projectRoot, 'project_settings'),
@@ -1137,6 +1138,7 @@ export function createClaudeAdapter({
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
           approvedOperationId: operation.adoption,
+          planDigest: context.planDigest,
         });
         continue;
       }
@@ -1154,7 +1156,7 @@ export function createClaudeAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient('claude', afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest,
+        planDigest: context.planDigest,
       });
     }
     return Object.freeze({ status: operations.length === 0 ? 'NO_OP' : 'APPLIED' });

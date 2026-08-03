@@ -354,6 +354,7 @@ export async function adoptExactEntry({
   currentEntry,
   desiredEntry,
   approvedOperationId,
+  planDigest,
 }) {
   plainEntry(currentEntry, 'current entry');
   plainEntry(desiredEntry, 'desired entry');
@@ -379,6 +380,7 @@ export async function adoptExactEntry({
     || operation.current_entry_sha256 !== sha256Canonical(currentEntry)
     || !SHA256_PATTERN.test(operation.current_config_sha256)
     || !SHA256_PATTERN.test(operation.plan_digest)
+    || !SHA256_PATTERN.test(planDigest)
     || differences.length !== 0) {
     fail('adoption approval or current-entry precondition failed', 'ADOPTION_PRECONDITION_FAILED');
   }
@@ -389,7 +391,7 @@ export async function adoptExactEntry({
     afterEntry: currentEntry,
     ownedPaths: paths,
     appliedConfigHash: operation.current_config_sha256,
-    planDigest: operation.plan_digest,
+    planDigest,
   });
   return {
     status: 'adopted',
@@ -397,7 +399,7 @@ export async function adoptExactEntry({
     operation_type: operation.type,
     ownership_key: recorded.ownership_key,
     current_entry_sha256: operation.current_entry_sha256,
-    plan_digest: operation.plan_digest,
+    plan_digest: planDigest,
     provider_config_written: false,
     environment: recorded.environment,
   };

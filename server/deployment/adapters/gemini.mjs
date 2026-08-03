@@ -122,6 +122,7 @@ export function resolveGeminiLocations(context = {}) {
   }
   const homeRoot = resolve(configuredHome || userProfile);
   const globalDir = join(homeRoot, '.gemini');
+  const userWriteRoot = configuredHome ? dirname(homeRoot) : homeRoot;
   const extensionsRoot = join(globalDir, 'extensions');
   const knownProgramData = context.knownFolders?.programData ?? 'C:\\ProgramData';
   if (!absolutePath(knownProgramData)) fail('Gemini system policy root is invalid', 'INVALID_CLIENT_LOCATION');
@@ -135,7 +136,7 @@ export function resolveGeminiLocations(context = {}) {
     home_root: resolve(homeRoot),
     global_dir: resolve(globalDir),
     custom_home: configuredHome !== undefined && configuredHome !== '',
-    user: location(join(globalDir, 'settings.json'), globalDir, 'user', true),
+    user: location(join(globalDir, 'settings.json'), userWriteRoot, 'user', true),
     enablement: location(join(globalDir, 'mcp-server-enablement.json'), globalDir, 'enablement'),
     trusted_folders: location(trustedFoldersPath, trustedFoldersOverride ? dirname(trustedFoldersPath) : globalDir, 'trusted_folders'),
     extensions_root: location(extensionsRoot, globalDir, 'extensions_root'),
@@ -1223,6 +1224,7 @@ export function createGeminiAdapter({
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
           approvedOperationId: operation.adoption,
+          planDigest: context.planDigest,
         });
         continue;
       }
@@ -1242,7 +1244,7 @@ export function createGeminiAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient('gemini', afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest,
+        planDigest: context.planDigest,
       });
     }
     return Object.freeze({ status: operations.length === 0 ? 'NO_OP' : 'APPLIED' });

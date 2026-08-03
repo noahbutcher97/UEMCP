@@ -116,13 +116,14 @@ export function resolveVsCodeLocations(context = {}) {
   }
   if (!configuredRoot && !absolutePath(appData)) fail('VS Code inspection requires an absolute APPDATA', 'INVALID_CLIENT_LOCATION');
   const userDataRoot = resolve(configuredRoot || join(appData, 'Code'));
+  const userWriteRoot = resolve(configuredRoot ? dirname(userDataRoot) : appData);
   const userRoot = join(userDataRoot, 'User');
   const profilesRoot = join(userRoot, 'profiles');
   return Object.freeze({
     user_data_root: userDataRoot,
     user_root: resolve(userRoot),
     profiles_root: resolve(profilesRoot),
-    default_user: location(join(userRoot, 'mcp.json'), userRoot, 'user:default', true),
+    default_user: location(join(userRoot, 'mcp.json'), userWriteRoot, 'user:default', true),
     profile_metadata: location(join(userRoot, 'globalStorage', 'storage.json'), userRoot, 'profile_metadata'),
     workspace: location(join(context.workspaceRoot, '.vscode', 'mcp.json'), context.workspaceRoot, 'workspace'),
   });
@@ -354,7 +355,7 @@ function parseProfiles(metadata, locations, limits) {
     const profileRoot = join(locations.profiles_root, profileLocation);
     const resource = inheritedDefault
       ? locations.default_user
-      : location(join(profileRoot, 'mcp.json'), locations.profiles_root, `user:profile:${profileLocation}`, true);
+      : location(join(profileRoot, 'mcp.json'), locations.default_user.allowed_root, `user:profile:${profileLocation}`, true);
     rows.push(Object.freeze({
       name: record.name,
       location: profileLocation,
@@ -755,6 +756,7 @@ export function createVsCodeAdapter({
           currentEntry: entry,
           desiredEntry: operation.desired_entry,
           approvedOperationId: operation.adoption,
+          planDigest: context.planDigest,
         });
         continue;
       }
@@ -776,7 +778,7 @@ export function createVsCodeAdapter({
         afterEntry,
         ownedPaths: ownedPathsForClient('vscode', afterEntry),
         appliedConfigHash: written.content_sha256,
-        planDigest: operation.plan_digest,
+        planDigest: context.planDigest,
       });
     }
     return Object.freeze({ status: operations.length === 0 ? 'NO_OP' : 'APPLIED' });
