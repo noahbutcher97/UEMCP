@@ -37,6 +37,14 @@ function rejectsCode(fn, code) {
   }
 }
 
+function attempt(fn) {
+  try {
+    return { result: fn(), error: null };
+  } catch (error) {
+    return { result: null, error };
+  }
+}
+
 function text(value) {
   return Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
 }
@@ -176,6 +184,79 @@ function count(source, needle) {
   const eofCommentSource = Buffer.from('[mcp_servers.uemcp]\ncommand = "node.exe" # eof note');
   const eofCommentInserted = patchTomlTable(parseTomlDocument(eofCommentSource, { pathLabel: 'eof-comment.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] });
   t.assert(text(eofCommentInserted.after_bytes).endsWith('command = "node.exe" # eof note\nargs = ["server.mjs"]'), 'TOML preserves an inline comment when the table ends at EOF');
+
+  const dottedSource = Buffer.from([
+    'mcp_servers.uemcp.command = "old.exe" # launch note',
+    'mcp_servers.uemcp.args = ["old.mjs"]',
+    'mcp_servers.uemcp.cwd = "C:\\\\Keep"',
+    '',
+  ].join('\n'));
+  const dottedAttempt = attempt(() => patchTomlTable(parseTomlDocument(dottedSource, { pathLabel: 'dotted-entry.toml' }), ['mcp_servers', 'uemcp'], {
+    command: 'node.exe',
+    args: ['server.mjs'],
+  }));
+  t.assert(dottedAttempt.error === null, 'TOML updates an existing dotted-key table without creating a duplicate definition', dottedAttempt.error?.code);
+  if (dottedAttempt.result) {
+    const dottedText = text(dottedAttempt.result.after_bytes);
+    const dottedTable = getTomlTable(parseTomlDocument(dottedAttempt.result.after_bytes), ['mcp_servers', 'uemcp']);
+    t.assert(dottedTable.command === 'node.exe' && JSON.stringify(dottedTable.args) === JSON.stringify(['server.mjs']), 'TOML dotted-key updates reparse to the requested owned values');
+    t.assert(dottedTable.cwd === 'C:\\Keep' && dottedText.includes('# launch note') && !dottedText.includes('[mcp_servers.uemcp]'), 'TOML dotted-key updates preserve comments, client-owned values, and representation');
+    const dottedNoOp = patchTomlTable(parseTomlDocument(dottedAttempt.result.after_bytes), ['mcp_servers', 'uemcp'], { command: 'node.exe', args: ['server.mjs'] });
+    t.assert(dottedNoOp.after_bytes === dottedAttempt.result.after_bytes, 'TOML dotted-key deep-equal patch returns the original buffer instance');
+  }
+
+  const parentDottedSource = Buffer.from('[mcp_servers]\nuemcp.command = "node.exe" # command note\nuemcp.cwd = "C:\\\\Keep"\n\n[other]\nvalue = true\n');
+  const parentDottedAttempt = attempt(() => patchTomlTable(parseTomlDocument(parentDottedSource, { pathLabel: 'parent-dotted-entry.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] }));
+  t.assert(parentDottedAttempt.error === null, 'TOML inserts a missing owned key into an existing parent-table dotted representation', parentDottedAttempt.error?.code);
+  if (parentDottedAttempt.result) {
+    const parentDottedText = text(parentDottedAttempt.result.after_bytes);
+    t.assert(parentDottedText.includes('uemcp.command = "node.exe" # command note') && parentDottedText.includes('uemcp.args = ["server.mjs"]') && !parentDottedText.includes('[mcp_servers.uemcp]'), 'TOML parent-table dotted insertion uses the existing relative key representation');
+    t.assert(parentDottedText.indexOf('uemcp.args = ["server.mjs"]') < parentDottedText.indexOf('[other]'), 'TOML parent-table dotted insertion remains inside its physical table');
+  }
+
+  const inlineSource = Buffer.from('mcp_servers.uemcp = { command = "old.exe", cwd = "C:\\\\Keep", enabled = false } # entry note\n');
+  const inlineAttempt = attempt(() => patchTomlTable(parseTomlDocument(inlineSource, { pathLabel: 'inline-entry.toml' }), ['mcp_servers', 'uemcp'], {
+    command: 'node.exe',
+    args: ['server.mjs'],
+  }));
+  t.assert(inlineAttempt.error === null, 'TOML updates and extends an existing inline table in place', inlineAttempt.error?.code);
+  if (inlineAttempt.result) {
+    const inlineText = text(inlineAttempt.result.after_bytes);
+    const inlineTable = getTomlTable(parseTomlDocument(inlineAttempt.result.after_bytes), ['mcp_servers', 'uemcp']);
+    t.assert(inlineTable.command === 'node.exe' && JSON.stringify(inlineTable.args) === JSON.stringify(['server.mjs']), 'TOML inline-table edits reparse to the requested owned values');
+    t.assert(inlineTable.cwd === 'C:\\Keep' && inlineTable.enabled === false && inlineText.includes('# entry note') && !inlineText.includes('[mcp_servers.uemcp]'), 'TOML inline-table edits preserve comments, client-owned values, and representation');
+    const inlineNoOp = patchTomlTable(parseTomlDocument(inlineAttempt.result.after_bytes), ['mcp_servers', 'uemcp'], { command: 'node.exe', args: ['server.mjs'] });
+    t.assert(inlineNoOp.after_bytes === inlineAttempt.result.after_bytes, 'TOML inline-table deep-equal patch returns the original buffer instance');
+  }
+
+  const nestedInlineSource = Buffer.from('mcp_servers = { uemcp = { command = "old.exe", args = ["old.mjs"], enabled = true }, keep = "yes" }\n');
+  const nestedInlineAttempt = attempt(() => patchTomlTable(parseTomlDocument(nestedInlineSource, { pathLabel: 'nested-inline-entry.toml' }), ['mcp_servers', 'uemcp'], {
+    command: 'node.exe',
+    args: ['server.mjs'],
+  }));
+  t.assert(nestedInlineAttempt.error === null, 'TOML locates an existing nested inline table by semantic path', nestedInlineAttempt.error?.code);
+  if (nestedInlineAttempt.result) {
+    const nestedDocument = parseTomlDocument(nestedInlineAttempt.result.after_bytes);
+    const nestedTable = getTomlTable(nestedDocument, ['mcp_servers', 'uemcp']);
+    t.assert(nestedTable.command === 'node.exe' && nestedTable.enabled === true && nestedDocument.parsed_value.mcp_servers.keep === 'yes', 'TOML nested inline edit preserves surrounding and client-owned values');
+  }
+
+  const inlineDottedSource = Buffer.from('mcp_servers = { uemcp.command = "node.exe", uemcp.enabled = false, keep = "yes" }\n');
+  const inlineDottedAttempt = attempt(() => patchTomlTable(parseTomlDocument(inlineDottedSource, { pathLabel: 'inline-dotted-entry.toml' }), ['mcp_servers', 'uemcp'], { args: ['server.mjs'] }));
+  t.assert(inlineDottedAttempt.error === null, 'TOML inserts a missing dotted target key inside its ancestor inline table', inlineDottedAttempt.error?.code);
+  if (inlineDottedAttempt.result) {
+    const inlineDottedDocument = parseTomlDocument(inlineDottedAttempt.result.after_bytes);
+    const inlineDottedTable = getTomlTable(inlineDottedDocument, ['mcp_servers', 'uemcp']);
+    t.assert(JSON.stringify(inlineDottedTable.args) === JSON.stringify(['server.mjs']) && inlineDottedTable.enabled === false && inlineDottedDocument.parsed_value.mcp_servers.keep === 'yes', 'TOML inline dotted insertion preserves surrounding and client-owned values');
+    t.assert(!text(inlineDottedAttempt.result.after_bytes).includes('[mcp_servers.uemcp]'), 'TOML inline dotted insertion preserves the ancestor inline representation');
+  }
+
+  const emptyInline = patchTomlTable(parseTomlDocument(Buffer.from('mcp_servers.uemcp = {}\n'), { pathLabel: 'empty-inline-entry.toml' }), ['mcp_servers', 'uemcp'], {
+    command: 'node.exe',
+    args: ['server.mjs'],
+  });
+  const emptyInlineTable = getTomlTable(parseTomlDocument(emptyInline.after_bytes), ['mcp_servers', 'uemcp']);
+  t.assert(emptyInlineTable.command === 'node.exe' && JSON.stringify(emptyInlineTable.args) === JSON.stringify(['server.mjs']), 'TOML empty inline table accepts missing owned fields in place');
 
   const removed = removeTomlTable(parseTomlDocument(changed.after_bytes, { pathLabel: 'changed.toml' }), ['mcp_servers', 'uemcp']);
   t.assert(removed.changed && getTomlTable(parseTomlDocument(removed.after_bytes, { pathLabel: 'removed.toml' }), ['mcp_servers', 'uemcp']) === undefined, 'TOML removes the targeted table');

@@ -17324,6 +17324,9 @@ function keySegments(key) {
 function samePath(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
+function startsWithPath(path, prefix) {
+  return path.length >= prefix.length && prefix.every((value, index) => path[index] === value);
+}
 function allTables(ast) {
   const rows = [];
   function visit2(node) {
@@ -17334,7 +17337,7 @@ function allTables(ast) {
   return rows;
 }
 function tableNode(document, path) {
-  return document.tables.find((node) => node.type === "TOMLTable" && samePath(keySegments(node.key), path));
+  return document.tables.find((node) => node.type === "TOMLTable" && samePath(node.resolvedKey ?? keySegments(node.key), path));
 }
 function tableValue(document, path) {
   let current = document.parsed_value;
@@ -17414,14 +17417,77 @@ function changedResult(document, afterText, edits) {
     edits: Object.freeze(edits.map((edit) => Object.freeze({ ...edit })))
   });
 }
-function directValues(node) {
-  const values = /* @__PURE__ */ new Map();
-  for (const child of node?.body ?? []) {
-    if (child.type !== "TOMLKeyValue") continue;
-    const segments = keySegments(child.key);
-    if (segments.length === 1) values.set(segments[0], child);
+function containerPath(node) {
+  if (node?.type === "TOMLTopLevelTable") return [];
+  if (node?.type === "TOMLTable") {
+    const path = node.resolvedKey ?? keySegments(node.key);
+    return path.every((segment) => typeof segment === "string") ? path : null;
   }
-  return values;
+  if (node?.type === "TOMLInlineTable" && node.parent?.type === "TOMLKeyValue") return keyValuePath(node.parent);
+  return null;
+}
+function keyValuePath(node) {
+  const parent = containerPath(node?.parent);
+  const segments = keySegments(node?.key);
+  return parent && segments.length > 0 ? [...parent, ...segments] : null;
+}
+function visitKeyValues(node, visitor) {
+  for (const child of node?.body ?? []) {
+    if (child.type === "TOMLTable") {
+      visitKeyValues(child, visitor);
+      continue;
+    }
+    if (child.type !== "TOMLKeyValue") continue;
+    const path = keyValuePath(child);
+    if (path) visitor(child, path);
+    visitTomlValue(child.value, visitor);
+  }
+}
+function visitTomlValue(node, visitor) {
+  if (node?.type === "TOMLInlineTable") visitKeyValues(node, visitor);
+  if (node?.type === "TOMLArray") {
+    for (const element of node.elements) visitTomlValue(element, visitor);
+  }
+}
+function tableRepresentation(document, path) {
+  const properties = /* @__PURE__ */ new Map();
+  const dotted = [];
+  const inlineAncestors = /* @__PURE__ */ new Map();
+  let inline = null;
+  visitKeyValues(document.ast.body[0], (node, absolutePath10) => {
+    if (samePath(absolutePath10, path) && node.value.type === "TOMLInlineTable") inline = node.value;
+    if (absolutePath10.length === path.length + 1 && startsWithPath(absolutePath10, path)) {
+      properties.set(absolutePath10.at(-1), node);
+    }
+    const parent = containerPath(node.parent);
+    if (absolutePath10.length > path.length && startsWithPath(absolutePath10, path) && parent && startsWithPath(path, parent)) {
+      if (node.parent.type === "TOMLInlineTable") {
+        inlineAncestors.set(`${node.parent.range[0]}:${node.parent.range[1]}`, { node: node.parent, parent });
+      } else {
+        dotted.push({ node, parent });
+      }
+    }
+  });
+  return { properties, dotted, inline, inlineAncestors: [...inlineAncestors.values()] };
+}
+function dottedInsertionEdit(document, path, candidates, missing6) {
+  const depth = Math.max(...candidates.map((candidate2) => candidate2.parent.length));
+  const candidate = candidates.filter((row) => row.parent.length === depth).sort((left, right) => right.node.range[1] - left.node.range[1])[0];
+  const relativePath = path.slice(candidate.parent.length);
+  if (relativePath.length === 0) fail9("TOML dotted table insertion path is invalid");
+  const lines = missing6.map(([key, , serialized]) => `${[...relativePath, key].map(bareOrQuoted).join(".")} = ${serialized}`);
+  return {
+    offset: physicalLineEnd(document.text, candidate.node.range[1]),
+    length: 0,
+    content: `${document.newline}${lines.join(document.newline)}`
+  };
+}
+function inlineInsertionEdit(node, missing6, prefix = []) {
+  const content = missing6.map(([key, , serialized]) => `${[...prefix, key].map(bareOrQuoted).join(".")} = ${serialized}`).join(", ");
+  if (node.body.length === 0) {
+    return { offset: node.range[1] - 1, length: 0, content };
+  }
+  return { offset: node.body.at(-1).range[1], length: 0, content: `, ${content}` };
 }
 function appendSeparator(text, eol) {
   if (text.length === 0) return "";
@@ -17479,8 +17545,9 @@ function patchTomlTable(document, dottedPath, ownedValues) {
   const requested = ownedEntries(ownedValues);
   if (requested.length === 0) return noChange2(document);
   const node = tableNode(document, dottedPath);
+  const currentTable = getTomlTable(document, dottedPath);
   const edits = [];
-  if (!node) {
+  if (!node && currentTable === void 0) {
     const lines = [
       `[${dottedPath.map(bareOrQuoted).join(".")}]`,
       ...requested.map(([key, , serialized]) => `${key} = ${serialized}`),
@@ -17492,12 +17559,12 @@ function patchTomlTable(document, dottedPath, ownedValues) {
       content: `${appendSeparator(document.text, document.newline)}${lines.join(document.newline)}`
     });
   } else {
-    const currentTable = getTomlTable(document, dottedPath) ?? {};
-    const nodes = directValues(node);
+    const representation = tableRepresentation(document, dottedPath);
+    const currentValues = currentTable ?? {};
     const missing6 = [];
     for (const [key, value, serialized] of requested) {
-      if (Object.hasOwn(currentTable, key) && isDeepStrictEqual2(currentTable[key], value)) continue;
-      const currentNode = nodes.get(key);
+      if (Object.hasOwn(currentValues, key) && isDeepStrictEqual2(currentValues[key], value)) continue;
+      const currentNode = representation.properties.get(key);
       if (currentNode) {
         edits.push({
           offset: currentNode.value.range[0],
@@ -17505,13 +17572,29 @@ function patchTomlTable(document, dottedPath, ownedValues) {
           content: serialized
         });
       } else {
-        missing6.push(`${key} = ${serialized}`);
+        missing6.push([key, value, serialized]);
       }
     }
     if (missing6.length > 0) {
-      const nodeEnd = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
-      const offset = physicalLineEnd(document.text, nodeEnd);
-      edits.push({ offset, length: 0, content: `${document.newline}${missing6.join(document.newline)}` });
+      if (node) {
+        const nodeEnd = node.body.length > 0 ? node.body.at(-1).range[1] : node.range[1];
+        const offset = physicalLineEnd(document.text, nodeEnd);
+        edits.push({
+          offset,
+          length: 0,
+          content: `${document.newline}${missing6.map(([key, , serialized]) => `${key} = ${serialized}`).join(document.newline)}`
+        });
+      } else if (representation.inline) {
+        edits.push(inlineInsertionEdit(representation.inline, missing6));
+      } else if (representation.inlineAncestors.length > 0) {
+        const depth = Math.max(...representation.inlineAncestors.map((candidate2) => candidate2.parent.length));
+        const candidate = representation.inlineAncestors.find((row) => row.parent.length === depth);
+        edits.push(inlineInsertionEdit(candidate.node, missing6, dottedPath.slice(candidate.parent.length)));
+      } else if (representation.dotted.length > 0) {
+        edits.push(dottedInsertionEdit(document, dottedPath, representation.dotted, missing6));
+      } else {
+        fail9("TOML table representation cannot be updated safely");
+      }
     }
   }
   if (edits.length === 0) return noChange2(document);

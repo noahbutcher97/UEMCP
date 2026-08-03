@@ -3436,6 +3436,53 @@ if (process.platform === 'win32') {
   }
 }
 
+// Owned Codex updates preserve valid dotted-key and inline-table representations.
+for (const representation of ['dotted', 'inline']) {
+  const root = makeRoot();
+  try {
+    const ledger = memoryOwnershipLedger();
+    const context = codexContext(root, { ownershipLedger: ledger, request: clientRequest({ replace_owned_fields: true }) });
+    const locations = resolveCodexLocations(context);
+    const oldEntry = {
+      command: resolve(write(join(root, 'old-runtime', 'node.exe'), 'node')),
+      args: [...context.descriptor.args],
+    };
+    const serializedArgs = oldEntry.args.map(value => JSON.stringify(value)).join(', ');
+    const source = representation === 'dotted'
+      ? `mcp_servers.uemcp.command = ${JSON.stringify(oldEntry.command)} # preserve\nmcp_servers.uemcp.args = [${serializedArgs}]\nmcp_servers.uemcp.enabled = false\n`
+      : `mcp_servers.uemcp = { command = ${JSON.stringify(oldEntry.command)}, args = [${serializedArgs}], enabled = false }\n`;
+    write(locations.user.path, source);
+    await recordOwnedWrite({
+      ledger,
+      location: { clientId: 'codex', configPath: locations.user.path, scope: 'user', entryName: 'uemcp' },
+      beforeEntry: null,
+      afterEntry: oldEntry,
+      ownedPaths: ownedPathsForClient('codex', oldEntry),
+      appliedConfigHash: sha256Bytes(readFileSync(locations.user.path)),
+      planDigest: TEST_PLAN_DIGEST,
+    });
+    const native = codexNativeJson(context.descriptor);
+    const runner = codexNativeRunner(root, {
+      list: { status: 'exited', exitCode: 0, stdout: `[${native}]`, stderr: '' },
+      get: { status: 'exited', exitCode: 0, stdout: native, stderr: '' },
+      rejectMutation: true,
+    });
+    const adapter = createCodexAdapter({ runner, captureFingerprint: async path => simpleFingerprint(path) });
+    const inspection = await adapter.inspect(context, await adapter.detect(context));
+    const plan = await adapter.plan(context, inspection, context.descriptor);
+    t.assert(plan.status === 'UPDATE' && plan.operations[0].type === 'UPDATE_OWNED_FIELDS', `Codex ${representation} stale owned entry plans a targeted update`);
+    await adapter.apply({ ...context, planDigest: APPROVED_PLAN_DIGEST, transaction: adapterTransaction(ledger) }, plan.operations);
+    const afterBytes = readFileSync(locations.user.path);
+    const table = getTomlTable(parseTomlDocument(afterBytes), ['mcp_servers', 'uemcp']);
+    const afterText = afterBytes.toString('utf8');
+    t.assert(table.command === context.descriptor.command && JSON.stringify(table.args) === JSON.stringify(context.descriptor.args), `Codex ${representation} update writes canonical owned fields`);
+    t.assert(table.enabled === false && !afterText.includes('[mcp_servers.uemcp]'), `Codex ${representation} update preserves client fields without appending a duplicate table`);
+    t.assert(!runner.calls.some(call => call.args.includes('add')), `Codex ${representation} update remains parser-backed`);
+  } finally {
+    cleanup(root);
+  }
+}
+
 // Hostile same-name Codex entries stay conflicts and version-bound native replacement remains disabled.
 {
   const root = makeRoot();
