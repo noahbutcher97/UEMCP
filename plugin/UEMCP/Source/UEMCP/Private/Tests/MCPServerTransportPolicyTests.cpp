@@ -152,7 +152,9 @@ bool JsonObjectsEqual(const TSharedPtr<FJsonObject>& Left, const TSharedPtr<FJso
 		return false;
 	}
 
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Left->Values)
+	// UE 5.8 retyped FJsonObject::Values keys from FString to UE::TSharedString<TCHAR>;
+	// `auto` keeps the key type native so Find() below resolves on 5.6 through 5.8.
+	for (const auto& Pair : Left->Values)
 	{
 		const TSharedPtr<FJsonValue>* RightValue = Right->Values.Find(Pair.Key);
 		if (RightValue == nullptr || !JsonValuesEqual(Pair.Value, *RightValue))
@@ -403,7 +405,7 @@ bool TryParseFixtureCase(
 		{
 			return Fail(EFixtureSchemaError::PolicyShape, FString::Printf(TEXT("%s: policy must contain at least one supported limit"), *Parsed.Id));
 		}
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Policy->Values)
+		for (const auto& Pair : Policy->Values)
 		{
 			if (Pair.Key != TEXT("max_header_bytes") && Pair.Key != TEXT("max_body_bytes"))
 			{

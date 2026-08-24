@@ -33572,7 +33572,7 @@ function uniqueTargetAlias(baseAlias, targets, uprojectPath) {
 function registerProjectTargetProfile({
   configPath,
   uprojectPath,
-  profiles = ["default", "smoke", "release-gate"],
+  profiles = ["default"],
   dryRun = false,
   writeStructuredFile = null,
   fsImpl = DEFAULT_FS

@@ -269,7 +269,7 @@ node --input-type=module -e "import { pathToFileURL } from 'node:url'; const mod
 if errorlevel 1 (
   echo [WARN] Failed to update !TARGETS_JSON!; continuing.
 ) else (
-  echo [SUCCESS] Registered target in !TARGETS_JSON! profiles default/smoke/release-gate.
+  echo [SUCCESS] Registered target in !TARGETS_JSON! profile "default". Curated smoke / release-gate profiles left untouched.
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:TARGETS_FILE; $target=$env:UPROJECT_FULL; $dir=Split-Path -Parent $p; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }; $existing=@(); if (Test-Path $p) { $existing=Get-Content $p }; if (-not ($existing | Where-Object { $_.Trim().ToLowerInvariant() -eq $target.ToLowerInvariant() })) { Add-Content -Path $p -Value $target; Write-Output ('ADDED: ' + $target) } else { Write-Output ('UNCHANGED: ' + $target) }"
 if errorlevel 1 (
@@ -426,9 +426,16 @@ if exist "!PLUGIN_DEST!" (
 )
 
 echo.
-echo Copying UEMCP plugin to !PLUGIN_DEST! ...
-xcopy /E /I /Y /Q "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
+REM Exclude build artifacts from the copy. A Binaries\ built against a
+REM different engine version lands a stale DLL in the target, and UBT may
+REM then treat the module as already built. Mirrors sync-plugin.bat.
+set "EXCLUDE_FILE=%TMP%\uemcp-setup-exclude.txt"
+> "!EXCLUDE_FILE!" echo \Binaries\
+>> "!EXCLUDE_FILE!" echo \Intermediate\
+echo Copying UEMCP plugin source to !PLUGIN_DEST! ... excluding Binaries\ and Intermediate\
+xcopy /E /I /Y /Q /EXCLUDE:!EXCLUDE_FILE! "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
 set "XCOPY_EXIT=!errorlevel!"
+del /q "!EXCLUDE_FILE!" >nul 2>&1
 if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] Plugin copy failed. xcopy exit code: !XCOPY_EXIT!
   set "EXIT_CODE=4" & goto :end

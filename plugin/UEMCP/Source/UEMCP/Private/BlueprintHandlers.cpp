@@ -935,9 +935,9 @@ namespace UEMCP
 			if (!Node || !ParamsObj.IsValid()) return;
 			const UEdGraphSchema_K2* K2Schema = Cast<const UEdGraphSchema_K2>(Graph ? Graph->GetSchema() : nullptr);
 
-			for (const TPair<FString, TSharedPtr<FJsonValue>>& Param : ParamsObj->Values)
+			for (const auto& Param : ParamsObj->Values)
 			{
-				const FString& PinName = Param.Key;
+				const FString PinName(*Param.Key);
 				const TSharedPtr<FJsonValue>& PinValue = Param.Value;
 				UEdGraphPin* Pin = FindPin(Node, PinName, EGPD_Input);
 				if (!Pin) continue;
@@ -2782,7 +2782,7 @@ namespace UEMCP
 			}
 
 			TSharedPtr<FJsonObject> FunctionParams = MakeShared<FJsonObject>();
-			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Params->Values)
+			for (const auto& Pair : Params->Values)
 			{
 				FunctionParams->SetField(Pair.Key, Pair.Value);
 			}

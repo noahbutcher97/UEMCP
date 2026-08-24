@@ -63,14 +63,14 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 ### Implemented
 - MCP server with stdio transport (`server/server.mjs`)
 - Offline toolset declares 25 tools in `tools.yaml`
-- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files). **Multi-version: UE 5.3 / 5.6 / 5.7** — version-gated `EUnrealEngineObjectUE5Version` reads (incl. 5.7's `IMPORT_TYPE_HIERARCHIES` summary field, D166); verified 0 errors across whole 5.7 (338) + 5.3 (1255) projects, header + Level-2.5 decode.
+- `.uasset`/`.umap` binary parser (`server/uasset-parser.mjs`): FPackageFileSummary → name table → FObjectImport (40-byte UE 5.0+) → FObjectExport (112-byte) → FPackageIndex resolver → FAssetRegistryData → **Level 1+2+2.5 property decode** with UE 5.6 `FPropertyTypeName`/`EPropertyTagFlags` extensions, 12 engine struct handlers, TArray/TSet/TMap containers, tagged-fallback for unknown structs (D50). Pure JS, no UE dependency. Production-grade (zero errors on 19K+ files). **Multi-version: UE 5.3 / 5.6 / 5.7 / 5.8** — version-gated `EUnrealEngineObjectUE5Version` summary reads (incl. 5.7's `IMPORT_TYPE_HIERARCHIES`, D166). 5.8 needs no new summary gate: its UE5 version enum is identical to 5.7's, still topping out at `IMPORT_TYPE_HIERARCHIES` (1018). Summary + name/import/export table walk verified clean across whole 5.3 / 5.6 / 5.8 project corpora. **Known gap**: `readExportTable` carries no version gates and assumes the newest `FObjectExport` layout, so packages at UE5 version <=1010 desync after the first export (0% property yield; reproduced on 5.3 / 5.6 / 5.8 corpora alike, so this is an old-format gap, not an engine-version regression).
 - ToolIndex, ToolsetManager, ConnectionManager (active-layer routing; `tcpCommandFn` mock seam for tests)
 - 3-channel instructions: SERVER_INSTRUCTIONS (init), TOOLSET_TIPS (per-activation), tool descriptions
 - Phase 2 TCP toolsets: actors (10), blueprints-write (27), widgets (7), plus M3 splits and M5 toolsets (animation, materials, input, geometry, editor-utility)
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **2734 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 51 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7206 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 72 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -379,7 +379,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **2734 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 51 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7206 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 72 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 

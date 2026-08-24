@@ -218,10 +218,16 @@ export function buildTargetAliases(candidates) {
   return { aliases, aliasCollisions };
 }
 
+// Onboarding seeds ONLY the "default" profile. "smoke" and "release-gate" are
+// curated gates whose value is being deliberately narrower than "default";
+// auto-appending every newly onboarded project erodes that curation silently
+// (a hand-picked 3-target smoke list quietly grew to include a full sample
+// project on a different engine version). Callers that genuinely want a target
+// in the gates pass profiles explicitly.
 export function registerProjectTargetProfile({
   configPath,
   uprojectPath,
-  profiles = ['default', 'smoke', 'release-gate'],
+  profiles = ['default'],
   dryRun = false,
   writeStructuredFile = null,
   fsImpl = DEFAULT_FS,
