@@ -57,10 +57,34 @@ export const UE5_PACKAGE_SAVED_HASH = 1016;
 export const UE5_OS_SUB_OBJECT_SHADOW_SERIALIZATION = 1017;
 export const UE5_IMPORT_TYPE_HIERARCHIES = 1018;
 
+// Additional EUnrealEngineObjectUE5Version values that gate FObjectExport fields.
+export const UE5_OPTIONAL_RESOURCES = 1003;
+export const UE5_REMOVE_OBJECT_EXPORT_PACKAGE_GUID = 1005;
+export const UE5_TRACK_OBJECT_EXPORT_IS_INHERITED = 1006;
+export const UE5_SCRIPT_SERIALIZATION_OFFSET = 1010;
+
+// EUnrealEngineObjectUEVersion (UE4-era) values that gate FObjectExport fields.
+// Ordinals computed from the implicit enum numbering rooted at
+// VER_UE4_OLDEST_LOADABLE_PACKAGE = 214.
+export const UE4_LOAD_FOR_EDITOR_GAME = 365;
+export const UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT = 485;
+export const UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS = 507;
+export const UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS = 508;
+export const UE4_64BIT_EXPORTMAP_SERIALSIZES = 511;
+
+// EPackageFlags. Cooked packages using unversioned property serialization omit
+// the script-serialization offsets even at/after SCRIPT_SERIALIZATION_OFFSET.
+export const PKG_UNVERSIONED_PROPERTIES = 0x00002000;
+
 // Minimum LegacyFileVersion we support. UE5.6 writes -9.
 // -8 is also valid (no SavedHash block), but we treat anything newer than -9
 // as an early-exit "too new to parse" case, matching engine behavior.
 export const SUPPORTED_LEGACY_FILE_VERSION_MIN = -9;
+
+// Header read windows. The first pass covers essentially every asset; the
+// ceiling exists for outliers whose summary alone exceeds the fast path.
+export const DEFAULT_HEADER_WINDOW_BYTES = 1_048_576;
+export const MAX_HEADER_WINDOW_BYTES = 64 * 1_048_576;
 
 // VER_UE4_OLDEST_LOADABLE_PACKAGE (engine refuses older).
 export const UE4_MIN_VERSION = 214;
@@ -179,15 +203,30 @@ class Cursor {
  * @returns {Promise<ParsedPackage>}
  */
 export async function parsePackage(filePath, opts = {}) {
-  const maxBytes = opts.maxHeaderBytes ?? 1_048_576;
+  // Most headers are well under 1 MiB, so read that much first and only widen
+  // on truncation. A few assets (large Control Rigs, 12k+ name tables) carry
+  // summaries that run past the fast-path window; a fixed larger default would
+  // tax every file in a bulk scan to accommodate those outliers.
+  const firstPass = opts.maxHeaderBytes ?? DEFAULT_HEADER_WINDOW_BYTES;
+  const ceiling = opts.maxHeaderBytes ?? MAX_HEADER_WINDOW_BYTES;
   const fh = await open(filePath, 'r');
   try {
     const stat = await fh.stat();
-    const toRead = Math.min(stat.size, maxBytes);
-    const buf = Buffer.alloc(toRead);
-    const { bytesRead } = await fh.read(buf, 0, toRead, 0);
-    const view = bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
-    return parseBuffer(view);
+    const readWindow = async (limit) => {
+      const toRead = Math.min(stat.size, limit);
+      const buf = Buffer.alloc(toRead);
+      const { bytesRead } = await fh.read(buf, 0, toRead, 0);
+      return bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
+    };
+    try {
+      return parseBuffer(await readWindow(firstPass));
+    } catch (err) {
+      // Only a truncated read is worth retrying; malformed data fails the same
+      // way at any window size.
+      const truncated = /truncated read/i.test(String(err?.message));
+      if (!truncated || ceiling <= firstPass || stat.size <= firstPass) throw err;
+      return parseBuffer(await readWindow(ceiling));
+    }
   } finally {
     await fh.close();
   }
@@ -558,17 +597,25 @@ export function resolvePackageIndex(idx, exports, imports, field = 'objectName')
 export function readExportTable(cur, summary, names) {
   const { exportOffset, exportCount } = summary;
   if (!exportCount) return [];
+  // FObjectExport is positionally serialized with version-gated fields, so the
+  // stride differs by package version. Mirrors UE's operator<<(FSlot, FObjectExport&)
+  // in CoreUObject/Private/UObject/ObjectResource.cpp field-for-field; any gate
+  // that drifts from that function desynchronizes every export after the first.
+  const ue4 = summary.fileVersionUE4 ?? 0;
+  const ue5 = summary.fileVersionUE5 ?? 0;
+  const unversionedProperties = ((summary.packageFlags ?? 0) & PKG_UNVERSIONED_PROPERTIES) !== 0;
   cur.seek(exportOffset);
   const exports = new Array(exportCount);
   for (let i = 0; i < exportCount; i++) {
     const classIndex = cur.readInt32();
     const superIndex = cur.readInt32();
-    const templateIndex = cur.readInt32();
+    const templateIndex = ue4 >= UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS ? cur.readInt32() : 0;
     const outerIndex = cur.readInt32();
     const objectNameIdx = cur.readInt32();
     const objectNameNumber = cur.readInt32();
     const objectFlags = cur.readUInt32();
-    // Six int64 fields below can exceed 2^53 on large VFX meshes. Use the
+
+    // The int64 fields below can exceed 2^53 on large VFX meshes. Use the
     // lenient reader + per-entry marker so one rogue export doesn't abort
     // the whole table parse.
     const overflowFields = [];
@@ -577,22 +624,52 @@ export function readExportTable(cur, summary, names) {
       if (v === null) { overflowFields.push(fieldName); return -1; }
       return v;
     };
-    const serialSize = readLenient('serialSize');
-    const serialOffset = readLenient('serialOffset');
+
+    let serialSize;
+    let serialOffset;
+    if (ue4 < UE4_64BIT_EXPORTMAP_SERIALSIZES) {
+      serialSize = cur.readInt32();
+      serialOffset = cur.readInt32();
+    } else {
+      serialSize = readLenient('serialSize');
+      serialOffset = readLenient('serialOffset');
+    }
+
     const bForcedExport = cur.readInt32();
     const bNotForClient = cur.readInt32();
     const bNotForServer = cur.readInt32();
+
+    // A 16-byte FGuid lived here until REMOVE_OBJECT_EXPORT_PACKAGE_GUID.
+    if (ue5 < UE5_REMOVE_OBJECT_EXPORT_PACKAGE_GUID) cur.skip(16);
+
+    const bIsInheritedInstance = ue5 >= UE5_TRACK_OBJECT_EXPORT_IS_INHERITED ? cur.readInt32() : 0;
     const packageFlags = cur.readUInt32();
-    const bNotAlwaysLoadedForEditorGame = cur.readInt32();
-    const bIsAsset = cur.readInt32();
-    const publicExportHash = readLenient('publicExportHash');
-    const firstExportDependency = cur.readInt32();
-    const serBeforeSerDeps = cur.readInt32();
-    const createBeforeSerDeps = cur.readInt32();
-    const serBeforeCreateDeps = cur.readInt32();
-    const createBeforeCreateDeps = cur.readInt32();
-    const scriptSerializationStartOffset = readLenient('scriptSerializationStartOffset');
-    const scriptSerializationEndOffset = readLenient('scriptSerializationEndOffset');
+    const bNotAlwaysLoadedForEditorGame = ue4 >= UE4_LOAD_FOR_EDITOR_GAME ? cur.readInt32() : 0;
+    const bIsAsset = ue4 >= UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT ? cur.readInt32() : 0;
+    // NOTE: UE serializes a BOOL here (bGeneratePublicHash), not the 64-bit hash
+    // the field name in earlier revisions of this parser implied.
+    const bGeneratePublicHash = ue5 >= UE5_OPTIONAL_RESOURCES ? cur.readInt32() : 0;
+
+    let firstExportDependency = -1;
+    let serBeforeSerDeps = 0;
+    let createBeforeSerDeps = 0;
+    let serBeforeCreateDeps = 0;
+    let createBeforeCreateDeps = 0;
+    if (ue4 >= UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS) {
+      firstExportDependency = cur.readInt32();
+      serBeforeSerDeps = cur.readInt32();
+      createBeforeSerDeps = cur.readInt32();
+      serBeforeCreateDeps = cur.readInt32();
+      createBeforeCreateDeps = cur.readInt32();
+    }
+
+    let scriptSerializationStartOffset = 0;
+    let scriptSerializationEndOffset = 0;
+    if (!unversionedProperties && ue5 >= UE5_SCRIPT_SERIALIZATION_OFFSET) {
+      scriptSerializationStartOffset = readLenient('scriptSerializationStartOffset');
+      scriptSerializationEndOffset = readLenient('scriptSerializationEndOffset');
+    }
+
     const entry = {
       classIndex, superIndex, templateIndex, outerIndex,
       objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
@@ -601,10 +678,11 @@ export function readExportTable(cur, summary, names) {
       bForcedExport: !!bForcedExport,
       bNotForClient: !!bNotForClient,
       bNotForServer: !!bNotForServer,
+      bIsInheritedInstance: !!bIsInheritedInstance,
       packageFlags,
       bNotAlwaysLoadedForEditorGame: !!bNotAlwaysLoadedForEditorGame,
       bIsAsset: !!bIsAsset,
-      publicExportHash,
+      bGeneratePublicHash: !!bGeneratePublicHash,
       firstExportDependency, serBeforeSerDeps, createBeforeSerDeps,
       serBeforeCreateDeps, createBeforeCreateDeps,
       scriptSerializationStartOffset, scriptSerializationEndOffset,
