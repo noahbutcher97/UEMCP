@@ -323,7 +323,8 @@ set "TARGET_MCP=!WORKSPACE_ROOT!\.mcp.json"
 if exist "!TARGET_MCP!" (
   echo .mcp.json already exists at !TARGET_MCP!
   set "CONFIRM="
-  set /p "CONFIRM=Overwrite? [y/N]: "
+  if defined SETUP_AUTO_YES set "CONFIRM=y"
+  if not defined SETUP_AUTO_YES set /p "CONFIRM=Overwrite? [y/N]: "
   if /i not "!CONFIRM!"=="y" (
     echo Aborted. Existing .mcp.json preserved.
     set "EXIT_CODE=0" & goto :end
@@ -411,7 +412,8 @@ if exist "!PLUGIN_DEST!" (
   echo.
   echo Plugin already installed at !PLUGIN_DEST!.
   set "CONFIRM="
-  set /p "CONFIRM=Overwrite? [y/N]: "
+  if defined SETUP_AUTO_YES set "CONFIRM=y"
+  if not defined SETUP_AUTO_YES set /p "CONFIRM=Overwrite? [y/N]: "
   if /i not "!CONFIRM!"=="y" (
     echo Plugin copy skipped. Existing plugin preserved.
     goto :plugin_done
@@ -532,7 +534,7 @@ goto :end
 goto :eof
 
 :write_deploy_marker
-node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!" >nul 2>&1
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!" setup-uemcp.bat >nul 2>&1
 if not "!errorlevel!"=="0" echo [WARN] Deploy marker not written; verify-deploy may report NEEDS-DEPLOY until the next sync-plugin run.
 goto :eof
 
