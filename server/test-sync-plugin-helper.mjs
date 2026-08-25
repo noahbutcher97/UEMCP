@@ -135,6 +135,14 @@ try {
   eq(written.upluginVersion, 2, 'written marker upluginVersion');
   eq(written.schemaVersion, MARKER_SCHEMA_VERSION, 'written marker schemaVersion default');
   eq(written.syncedBy, 'sync-plugin.bat', 'written marker syncedBy default');
+
+  // Onboarding and sync both write markers. The writer label must be
+  // overridable so a marker doesn't misattribute itself when diagnosing
+  // deploy state.
+  const writtenBySetup = writeDeployMarker(tmpRoot, { ...fields, syncedBy: 'setup-uemcp.bat' });
+  eq(writtenBySetup.syncedBy, 'setup-uemcp.bat', 'syncedBy is overridable by the caller');
+  eq(writtenBySetup.manifestVersion, '1.0.1', 'override preserves the other marker fields');
+  eq(readDeployMarker(tmpRoot).syncedBy, 'setup-uemcp.bat', 'overridden syncedBy round-trips through disk');
   assertTrue(typeof written.syncTime === 'string' && written.syncTime.length > 0, 'syncTime stamped');
 
   const readBack = readDeployMarker(tmpRoot);

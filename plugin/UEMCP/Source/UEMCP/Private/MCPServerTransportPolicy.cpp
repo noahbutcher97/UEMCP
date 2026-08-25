@@ -481,7 +481,7 @@ bool HasNonFiniteJsonNumber(const TSharedPtr<FJsonValue>& RootValue)
 			{
 				return true;
 			}
-			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->Values)
+			for (const auto& Pair : Object->Values)
 			{
 				Pending.Add(Pair.Value.Get());
 			}

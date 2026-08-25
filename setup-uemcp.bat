@@ -269,7 +269,7 @@ node --input-type=module -e "import { pathToFileURL } from 'node:url'; const mod
 if errorlevel 1 (
   echo [WARN] Failed to update !TARGETS_JSON!; continuing.
 ) else (
-  echo [SUCCESS] Registered target in !TARGETS_JSON! profiles default/smoke/release-gate.
+  echo [SUCCESS] Registered target in !TARGETS_JSON! profile "default". Curated smoke / release-gate profiles left untouched.
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:TARGETS_FILE; $target=$env:UPROJECT_FULL; $dir=Split-Path -Parent $p; if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }; $existing=@(); if (Test-Path $p) { $existing=Get-Content $p }; if (-not ($existing | Where-Object { $_.Trim().ToLowerInvariant() -eq $target.ToLowerInvariant() })) { Add-Content -Path $p -Value $target; Write-Output ('ADDED: ' + $target) } else { Write-Output ('UNCHANGED: ' + $target) }"
 if errorlevel 1 (
@@ -323,7 +323,8 @@ set "TARGET_MCP=!WORKSPACE_ROOT!\.mcp.json"
 if exist "!TARGET_MCP!" (
   echo .mcp.json already exists at !TARGET_MCP!
   set "CONFIRM="
-  set /p "CONFIRM=Overwrite? [y/N]: "
+  if defined SETUP_AUTO_YES set "CONFIRM=y"
+  if not defined SETUP_AUTO_YES set /p "CONFIRM=Overwrite? [y/N]: "
   if /i not "!CONFIRM!"=="y" (
     echo Aborted. Existing .mcp.json preserved.
     set "EXIT_CODE=0" & goto :end
@@ -364,7 +365,10 @@ if "!ENV_MODE!"=="1" (
   echo [WARN] Writing env-authoritative compatibility config ^(UEMCP_PROJECT_ATTACH_MODE=env^).
 )
 set "SETUP_ENV_MODE=!ENV_MODE!"
-node -e "const fs=require('fs');const t=fs.readFileSync(process.env.TEMPLATE_PATH,'utf8').split('<UEMCP_REPO_PATH>').join(process.env.UEMCP_PATH_FWD);const j=JSON.parse(t);const env=j.mcpServers.uemcp.env||(j.mcpServers.uemcp.env={});if(process.env.SETUP_ENV_MODE==='1'){env.UEMCP_PROJECT_ATTACH_MODE='env';env.UNREAL_PROJECT_ROOT=process.env.PROJECT_ROOT_FWD;env.UNREAL_PROJECT_NAME=process.env.PROJECT_NAME;}fs.writeFileSync(process.env.TARGET_PATH,JSON.stringify(j,null,2)+'\n');"
+REM Rendering + merge live in a helper: this needed to survive CMD quoting and
+REM JS escaping simultaneously, which is error-prone, and the merge behaviour
+REM deserves unit tests. The helper preserves any other mcpServers entries.
+node "!UEMCP_PATH!\server\write-mcp-config.mjs" "!TEMPLATE_PATH!" "!TARGET_PATH!" "!UEMCP_PATH_FWD!"
 if errorlevel 1 (
   echo [ERROR] Failed to generate .mcp.json.
   set "EXIT_CODE=3" & goto :end
@@ -411,7 +415,8 @@ if exist "!PLUGIN_DEST!" (
   echo.
   echo Plugin already installed at !PLUGIN_DEST!.
   set "CONFIRM="
-  set /p "CONFIRM=Overwrite? [y/N]: "
+  if defined SETUP_AUTO_YES set "CONFIRM=y"
+  if not defined SETUP_AUTO_YES set /p "CONFIRM=Overwrite? [y/N]: "
   if /i not "!CONFIRM!"=="y" (
     echo Plugin copy skipped. Existing plugin preserved.
     goto :plugin_done
@@ -426,14 +431,30 @@ if exist "!PLUGIN_DEST!" (
 )
 
 echo.
-echo Copying UEMCP plugin to !PLUGIN_DEST! ...
-xcopy /E /I /Y /Q "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
+REM Exclude build artifacts from the copy. A Binaries\ built against a
+REM different engine version lands a stale DLL in the target, and UBT may
+REM then treat the module as already built. Mirrors sync-plugin.bat.
+REM xcopy will not accept a quoted /EXCLUDE: path, so a space in %TEMP%
+REM would split the argument. Run from %TEMP% and pass a relative name.
+pushd "%TEMP%"
+> uemcp-setup-exclude.txt echo \Binaries\
+>> uemcp-setup-exclude.txt echo \Intermediate\
+echo Copying UEMCP plugin source to !PLUGIN_DEST! ... excluding Binaries\ and Intermediate\
+xcopy /E /I /Y /Q /EXCLUDE:uemcp-setup-exclude.txt "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
 set "XCOPY_EXIT=!errorlevel!"
+del /q uemcp-setup-exclude.txt >nul 2>&1
+popd
 if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] Plugin copy failed. xcopy exit code: !XCOPY_EXIT!
   set "EXIT_CODE=4" & goto :end
 )
 echo [SUCCESS] Plugin installed at !PLUGIN_DEST!.
+
+REM --- Write the W-L deploy marker, D138 ---
+REM sync-plugin.bat writes this after every sync; onboarding must too, or a
+REM freshly installed target reads as marker-less and verify-deploy reports a
+REM spurious NEEDS-DEPLOY. Non-fatal: the plugin is installed either way.
+call :write_deploy_marker
 set "PLUGIN_COPIED=1"
 
 :plugin_done
@@ -515,6 +536,13 @@ echo Offline tools work against project files
 echo on disk with no editor running.
 set "EXIT_CODE=0"
 goto :end
+
+goto :eof
+
+:write_deploy_marker
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!" setup-uemcp.bat >nul 2>&1
+if not "!errorlevel!"=="0" echo [WARN] Deploy marker not written; verify-deploy may report NEEDS-DEPLOY until the next sync-plugin run.
+goto :eof
 
 :end
 echo.

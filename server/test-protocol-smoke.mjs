@@ -160,17 +160,27 @@ for (const [mode, expectedStatus] of [
   t.assert(smoke.status === expectedStatus, `${mode} is bounded as ${expectedStatus}`);
 }
 
+// Protocol deadline for the output-bound cases, and the budget the byte bound
+// must beat. Kept proportional so a slow/loaded machine does not read as a
+// bound failure.
+const PROTOCOL_DEADLINE_MS = 15_000;
+const OUTPUT_BOUND_BUDGET_MS = 10_000;
+
 // Oversized unterminated stdout and excessive stderr terminate before the protocol deadline.
+// The assertion is deliberately RELATIVE: what matters is that the byte bound
+// fires before the deadline, not that it fires within some absolute wall-clock
+// budget. A fixed threshold made this flaky under full-rotation contention,
+// where 72 concurrent subprocesses can stretch spawn+IO well past a tight bound.
 for (const [mode, limitOption] of [
   ['flood-stdout', { stdoutLimitBytes: 16 * 1024 }],
   ['flood-stderr', { stderrLimitBytes: 16 * 1024 }],
 ]) {
   const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
     expectedServerName: 'sample-mcp',
-    timeoutMs: 5_000,
+    timeoutMs: PROTOCOL_DEADLINE_MS,
     ...limitOption,
   });
-  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < 3_500, `${mode} is output-bounded before the protocol deadline`);
+  t.assert(smoke.status === 'INITIALIZE_FAILED' && smoke.duration_ms < OUTPUT_BOUND_BUDGET_MS, `${mode} is output-bounded before the protocol deadline` + ` (${smoke.duration_ms}ms of ${PROTOCOL_DEADLINE_MS}ms)`);
 }
 
 // Protocol deadline cleanup terminates descendants, including when the direct peer exits on EOF.

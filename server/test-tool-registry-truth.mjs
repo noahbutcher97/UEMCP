@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import {
   collectCoveredWireCommands,
   collectPluginRegisteredCommands,
@@ -72,14 +72,14 @@ function printRegistryReport(classification) {
 }
 
 const runner = new TestRunner('Registry Truthfulness Gate');
-const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
+const toolsYaml = await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const classification = collectYamlTools(toolsData, {
   groups: LIVE_DEFINITION_GROUPS,
   managementTools: MANAGEMENT_TOOLS,
 });
 const registeredPluginCommands = await collectPluginRegisteredCommands({
-  privateDir: join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private'),
+  privateDir: join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private'),
 });
 const coveredWireCommands = collectCoveredWireCommands(toolsData, LIVE_DEFINITION_GROUPS);
 

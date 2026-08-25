@@ -177,10 +177,10 @@ export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, in
   if (!markerVerdict) return baseVerdict;
 
   if (markerVerdict.reason === 'no-prior-marker') {
-    // Plugin dir has content but no marker — pre-W-L deploy OR
-    // setup-uemcp.bat first-install (which doesn't write a marker).
-    // Either way, prompt the user to run sync-plugin.bat once to seed
-    // the marker so future version-bump cache-busting can fire.
+    // Plugin dir has content but no marker. Both setup-uemcp.bat and
+    // sync-plugin.bat write one now, so this means a pre-W-L deploy or a
+    // copy made by neither. Prompt for one sync-plugin.bat run to seed the
+    // marker so future version-bump cache-busting can fire.
     return {
       verdict: 'NEEDS-SYNC',
       reason: 'No deploy marker — run sync-plugin.bat once to seed',

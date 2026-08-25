@@ -407,6 +407,10 @@ export function createAnimGraphTopologyFixture({ includePinDefaults = false } = 
 // location, not cwd), used as the default project root for tests when
 // UNREAL_PROJECT_ROOT is unset. A real project always wins.
 const FIXTURE_PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'uemcp-fixture');
+// Repo root anchored to THIS module, not process.cwd(). Fixture paths built
+// as join(REPO_ROOT, ...) only resolved when a test was launched from server/;
+// running the same file from the repo root crashed with ENOENT.
+export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * Resolve the project root for tests: a non-empty UNREAL_PROJECT_ROOT, else the

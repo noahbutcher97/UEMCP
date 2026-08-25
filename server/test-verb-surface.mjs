@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeOfflineTool } from './offline-tools.mjs';
-import { findContentAsset } from './test-helpers.mjs';
+import { REPO_ROOT, findContentAsset } from './test-helpers.mjs';
 
 const PROJECT_ROOT = (process.env.UNREAL_PROJECT_ROOT || '').trim();
 if (!PROJECT_ROOT) {
@@ -75,7 +75,7 @@ const BOGUS = '/Game/Nonexistent/BP_Fake_MNew_Probe';
 const BP_DENSE_SKIP_REASON = 'BP_OSPlayerR not found under project Content/';
 const BP_SMALL_SKIP_REASON = 'TestCharacter not found under project Content/ (deleted from project, not moved — D188)';
 
-const FIX_DIR = join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
+const FIX_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
 
 async function loadOracle(name) {
   const raw = await readFile(join(FIX_DIR, `${name}.oracle.json`), 'utf-8');
@@ -583,7 +583,7 @@ if (HAS_BP_DENSE) {
 // ── yaml registration ────────────────────────────────────────────────
 console.log('\n═══ tools.yaml registration for M-new verbs ═══');
 {
-  const raw = await readFile(join('..', 'tools.yaml'), 'utf-8');
+  const raw = await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8');
   for (const verb of ['bp_trace_exec', 'bp_trace_data', 'bp_neighbors']) {
     assert(raw.includes(`${verb}:`),
       `tools.yaml: ${verb} declared`);

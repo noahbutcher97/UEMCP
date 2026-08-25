@@ -24,6 +24,16 @@ import {
   PACKAGE_FILE_TAG,
   UE5_PACKAGE_SAVED_HASH,
   UE5_IMPORT_TYPE_HIERARCHIES,
+  UE5_OPTIONAL_RESOURCES,
+  UE5_REMOVE_OBJECT_EXPORT_PACKAGE_GUID,
+  UE5_TRACK_OBJECT_EXPORT_IS_INHERITED,
+  UE5_SCRIPT_SERIALIZATION_OFFSET,
+  UE4_LOAD_FOR_EDITOR_GAME,
+  UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT,
+  UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS,
+  UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS,
+  UE4_64BIT_EXPORTMAP_SERIALSIZES,
+  PKG_UNVERSIONED_PROPERTIES,
 } from './uasset-parser.mjs';
 import {
   buildStructHandlers,
@@ -52,7 +62,7 @@ import {
   collectSubobjectExportIndexes,
   summarizeCollisionProperties,
 } from './offline-tools.mjs';
-import { findContentAsset, TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
 
@@ -422,9 +432,9 @@ async function testExportInt64Salvage() {
   runner.assert(Array.isArray(first.int64OverflowFields) && first.int64OverflowFields.length > 0,
                 'SM_auraHousya: marked export lists the overflowing field names');
   runner.assert(first.int64OverflowFields.every(f =>
-                  ['serialSize', 'serialOffset', 'publicExportHash',
+                  ['serialSize', 'serialOffset',
                    'scriptSerializationStartOffset', 'scriptSerializationEndOffset'].includes(f)),
-                'SM_auraHousya: overflow fields are from the six int64 export fields');
+                'SM_auraHousya: overflow fields are from the four int64 export fields');
 
   // Clean exports should NOT carry the marker (no bloat on good rows).
   const clean = exports.filter(e => !e.int64Overflow);
@@ -2073,7 +2083,7 @@ function testContainerSyntheticScalars() {
 // K2Node_FunctionEntry / K2Node_PromotableOperator) and is asserted as
 // a known finding, not a regression.
 async function testPinBodyParseCP2() {
-  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
   const FIXTURES = [
     ['BP_OSPlayerR_Child',  'Content/Actors/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
     ['BP_OSPlayerR_Child1', 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
@@ -2210,7 +2220,7 @@ function testPinDefaultLiteralSynthetic() {
 // serialized count can exceed Oracle's non-null-pin count. CP3 filters
 // bNullPtr entries via SerializePin reads.
 async function testPinBlockOffsetCP1() {
-  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
   const FIXTURES = [
     { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 210 },
     { name: 'BP_OSPlayerR_Child', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
@@ -2329,6 +2339,140 @@ async function testPinBlockOffsetCP1() {
     'CP1/predicate: undefined className handled');
 }
 
+
+// ── Synthetic FObjectExport version-gate fixtures ────────────────
+//
+// FObjectExport is positionally serialized with version-gated fields, so its
+// stride differs per package version. These fixtures encode a table at a given
+// version, decode it back, and assert every field plus the stride (a stride
+// error corrupts export[1] while leaving export[0] plausible -- the exact
+// failure mode that made packages at UE5 version <=1010 silently undecodable).
+//
+// Encoder mirrors operator<<(FStructuredArchive::FSlot, FObjectExport&) in
+// CoreUObject/Private/UObject/ObjectResource.cpp. Keep the two in step.
+function encodeSyntheticExportTable({ ue4, ue5, packageFlags = 0, rows }) {
+  const chunks = [];
+  const i32 = (v) => { const b = Buffer.alloc(4); b.writeInt32LE(v); chunks.push(b); };
+  const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v >>> 0); chunks.push(b); };
+  const i64 = (v) => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(v)); chunks.push(b); };
+  const unversioned = (packageFlags & PKG_UNVERSIONED_PROPERTIES) !== 0;
+
+  for (const r of rows) {
+    i32(r.classIndex); i32(r.superIndex);
+    if (ue4 >= UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS) i32(r.templateIndex);
+    i32(r.outerIndex);
+    i32(r.objectNameIdx); i32(r.objectNameNumber);
+    u32(r.objectFlags);
+    if (ue4 < UE4_64BIT_EXPORTMAP_SERIALSIZES) { i32(r.serialSize); i32(r.serialOffset); }
+    else { i64(r.serialSize); i64(r.serialOffset); }
+    i32(r.bForcedExport ? 1 : 0); i32(r.bNotForClient ? 1 : 0); i32(r.bNotForServer ? 1 : 0);
+    if (ue5 < UE5_REMOVE_OBJECT_EXPORT_PACKAGE_GUID) chunks.push(Buffer.alloc(16, 0xAB)); // FGuid
+    if (ue5 >= UE5_TRACK_OBJECT_EXPORT_IS_INHERITED) i32(r.bIsInheritedInstance ? 1 : 0);
+    u32(r.packageFlags);
+    if (ue4 >= UE4_LOAD_FOR_EDITOR_GAME) i32(r.bNotAlwaysLoadedForEditorGame ? 1 : 0);
+    if (ue4 >= UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT) i32(r.bIsAsset ? 1 : 0);
+    if (ue5 >= UE5_OPTIONAL_RESOURCES) i32(r.bGeneratePublicHash ? 1 : 0);
+    if (ue4 >= UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS) {
+      i32(r.firstExportDependency); i32(r.serBeforeSerDeps); i32(r.createBeforeSerDeps);
+      i32(r.serBeforeCreateDeps); i32(r.createBeforeCreateDeps);
+    }
+    if (!unversioned && ue5 >= UE5_SCRIPT_SERIALIZATION_OFFSET) {
+      i64(r.scriptSerializationStartOffset); i64(r.scriptSerializationEndOffset);
+    }
+  }
+  return Buffer.concat(chunks);
+}
+
+function makeExportRow(seed) {
+  return {
+    classIndex: -seed, superIndex: seed + 1, templateIndex: seed + 2, outerIndex: seed + 3,
+    objectNameIdx: seed % 2, objectNameNumber: seed,
+    objectFlags: 0x00000008, serialSize: 100 * seed, serialOffset: 5000 + 100 * seed,
+    bForcedExport: false, bNotForClient: seed % 2 === 0, bNotForServer: false,
+    bIsInheritedInstance: seed % 2 === 1, packageFlags: 0x10 + seed,
+    bNotAlwaysLoadedForEditorGame: false, bIsAsset: true, bGeneratePublicHash: seed % 2 === 0,
+    firstExportDependency: seed, serBeforeSerDeps: seed + 1, createBeforeSerDeps: seed + 2,
+    serBeforeCreateDeps: seed + 3, createBeforeCreateDeps: seed + 4,
+    scriptSerializationStartOffset: 7000 + seed, scriptSerializationEndOffset: 7500 + seed,
+  };
+}
+
+function testExportTableVersionGates() {
+  const names = ['ExportZero', 'ExportOne'];
+  // One case per gate boundary the encoder honours.
+  const cases = [
+    { label: 'UE5=1000 pre-hash/pre-inherited, PackageGuid present', ue4: 522, ue5: 1000 },
+    { label: 'UE5=1003 OPTIONAL_RESOURCES adds bGeneratePublicHash', ue4: 522, ue5: 1003 },
+    { label: 'UE5=1005 PackageGuid removed', ue4: 522, ue5: 1005 },
+    { label: 'UE5=1006 TRACK_OBJECT_EXPORT_IS_INHERITED', ue4: 522, ue5: 1006 },
+    { label: 'UE5=1010 SCRIPT_SERIALIZATION_OFFSET', ue4: 522, ue5: 1010 },
+    { label: 'UE5=1018 newest layout', ue4: 522, ue5: 1018 },
+    { label: 'UE5=1018 unversioned properties omit script offsets', ue4: 522, ue5: 1018, packageFlags: PKG_UNVERSIONED_PROPERTIES },
+    { label: 'UE4=510 pre-64bit serial sizes', ue4: 510, ue5: 1018 },
+    // The UE4 ordinals were DERIVED from implicit enum numbering rather than
+    // observed in a file, so each branch needs its own case: a wrong ordinal
+    // mis-strides every sufficiently old package with no other signal.
+    { label: 'UE4=300 pre-editor-game/cooked/preload/template', ue4: 300, ue5: 1018 },
+    { label: 'UE4=400 post-editor-game only', ue4: 400, ue5: 1018 },
+    { label: 'UE4=500 post-cooked-assets, pre-preload', ue4: 500, ue5: 1018 },
+    { label: 'UE4=507 preload deps boundary', ue4: 507, ue5: 1018 },
+  ];
+
+  for (const c of cases) {
+    const rows = [makeExportRow(1), makeExportRow(2)];
+    const buf = encodeSyntheticExportTable({ ue4: c.ue4, ue5: c.ue5, packageFlags: c.packageFlags ?? 0, rows });
+    const summary = {
+      exportOffset: 0, exportCount: rows.length,
+      fileVersionUE4: c.ue4, fileVersionUE5: c.ue5, packageFlags: c.packageFlags ?? 0,
+    };
+    let decoded;
+    try { decoded = readExportTable(new Cursor(buf), summary, names); }
+    catch (e) { runner.assert(false, `${c.label}: readExportTable decodes`, e.message); continue; }
+
+    runner.assert(decoded.length === 2, `${c.label}: both exports decoded`);
+    if (decoded.length !== 2) continue;
+
+    // Stride correctness: export[1] is only right if export[0] consumed exactly
+    // the bytes the encoder wrote for this version.
+    const [a, b] = decoded;
+    runner.assert(a.serialOffset === rows[0].serialOffset && b.serialOffset === rows[1].serialOffset,
+      `${c.label}: serial offsets survive the version stride`);
+    runner.assert(b.objectName === 'ExportZero' || b.objectName === 'ExportOne',
+      `${c.label}: second export resolves a real name (stride intact)`);
+    runner.assert(a.classIndex === rows[0].classIndex && b.classIndex === rows[1].classIndex,
+      `${c.label}: class indices round-trip`);
+
+    // Gate-specific expectations.
+    const inheritedExpected = c.ue5 >= 1006 ? rows[0].bIsInheritedInstance : false;
+    runner.assert(a.bIsInheritedInstance === inheritedExpected,
+      `${c.label}: bIsInheritedInstance gated at 1006`);
+    const hashExpected = c.ue5 >= 1003 ? rows[0].bGeneratePublicHash : false;
+    runner.assert(a.bGeneratePublicHash === hashExpected,
+      `${c.label}: bGeneratePublicHash gated at 1003`);
+    const scriptExpected = (c.ue5 >= 1010 && !((c.packageFlags ?? 0) & PKG_UNVERSIONED_PROPERTIES))
+      ? rows[0].scriptSerializationStartOffset : 0;
+    runner.assert(a.scriptSerializationStartOffset === scriptExpected,
+      `${c.label}: script offsets gated at 1010 + versioned properties`);
+  }
+
+  // Negative control: decoding a 1004-encoded table as 1018 must NOT silently
+  // succeed -- this is precisely the desync that shipped undetected.
+  const rows = [makeExportRow(1), makeExportRow(2)];
+  const oldBuf = encodeSyntheticExportTable({ ue4: 522, ue5: 1004, rows });
+  let desynced = false;
+  try {
+    const wrong = readExportTable(new Cursor(oldBuf),
+      { exportOffset: 0, exportCount: 2, fileVersionUE4: 522, fileVersionUE5: 1018, packageFlags: 0 }, names);
+    desynced = wrong[1].serialOffset !== rows[1].serialOffset;
+  } catch {
+    // The wider 1018 stride overruns a 1004-sized table: also a desync, caught
+    // loudly rather than silently returning wrong offsets.
+    desynced = true;
+  }
+  runner.assert(desynced,
+    'version mismatch desyncs export[1] (guards against a no-op gate regression)');
+}
+
 async function main() {
   await testFootstepFixture();
   await testLevelMap();
@@ -2358,6 +2502,7 @@ async function main() {
   testBadMagic();
   testTruncated();
   testVersionSummaryDelta();
+  testExportTableVersionGates();
   await testPinBlockOffsetCP1();
   await testPinBodyParseCP2();
   testPinDefaultLiteralSynthetic();

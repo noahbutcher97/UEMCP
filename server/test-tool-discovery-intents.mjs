@@ -5,14 +5,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import {
   buildToolIndex,
   topToolNames,
 } from './test-tool-surface-helpers.mjs';
 
 const t = new TestRunner('Tool Discovery Intent Tests');
-const toolsData = load(await readFile(join('..', 'tools.yaml'), 'utf-8'));
+const toolsData = load(await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
 const index = buildToolIndex(toolsData);
 
 function assertTopIncludes(query, expected, maxResults = 5) {

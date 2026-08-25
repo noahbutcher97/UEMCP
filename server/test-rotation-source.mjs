@@ -4,12 +4,13 @@
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
+import { join } from 'node:path';
 
 const runner = new TestRunner('Rotation Source Contract Tests');
 
-const rotationSource = await readFile('run-rotation.mjs', 'utf-8');
-const toolSurfaceHelperSource = await readFile('test-tool-surface-helpers.mjs', 'utf-8');
+const rotationSource = await readFile(join(REPO_ROOT, 'server', 'run-rotation.mjs'), 'utf-8');
+const toolSurfaceHelperSource = await readFile(join(REPO_ROOT, 'server', 'test-tool-surface-helpers.mjs'), 'utf-8');
 const excludedBlock = rotationSource.match(/const EXCLUDED = new Set\(\[([\s\S]*?)\]\);/)?.[1] || '';
 
 runner.assert(
@@ -33,8 +34,8 @@ const skipEnvironment = { ...process.env };
 delete skipEnvironment.UEMCP_INSTALLED_CLIENT_CONTRACT;
 delete skipEnvironment.UEMCP_INSTALLED_CLIENT_CONTRACT_WORKER;
 delete skipEnvironment.UEMCP_INSTALLED_CLIENT_ROOT;
-const installedSkip = spawnSync(process.execPath, ['test-installed-client-contracts.mjs'], {
-  cwd: process.cwd(),
+const installedSkip = spawnSync(process.execPath, [join(REPO_ROOT, 'server', 'test-installed-client-contracts.mjs')], {
+  cwd: join(REPO_ROOT, 'server'),
   env: skipEnvironment,
   encoding: 'utf8',
   timeout: 10_000,

@@ -36,6 +36,8 @@ node server/verify-deploy.mjs <forwarded-args>
 
 Forward `--target` / `--targets` / `--profile` if provided. Capture stdout.
 
+**Before anything else — is this target onboarded?** If the requested `.uproject` is absent from `.uemcp-targets.json` (and has no `Plugins/UEMCP/`), this is FIRST-TIME ONBOARDING, not a deploy cycle. `verify-deploy` cannot see an unregistered target and `sync-plugin.bat` will not add plugin deps. Run `setup-uemcp.bat <uproject>` instead — it is a separate required step, not a sub-step of sync-plugin (D110) — then re-enter this cycle. Note setup edits the host `.uproject` (adds RemoteControl / PythonScriptPlugin), which invalidates the whole build target and forces a full host-project rebuild, so budget accordingly.
+
 Parse the per-target verdict lines. Surface each target's status:
 - `SYNC` — no action needed
 - `NEEDS-SYNC` / `NEEDS-BUILD` / `NEEDS-DEPLOY` — continue to Step 2
@@ -72,16 +74,19 @@ After all targets processed:
 
 Determine which targets need a build. After a successful sync, every synced target needs a build.
 
-For UE_ROOT (path to the UE 5.6 install):
+For UE_ROOT (path to the UE install matching the target's `EngineAssociation`):
+- Read `EngineAssociation` from the target `.uproject` first — targets may sit on different engine versions; never assume one shared root.
 - Check `$env:UE_ROOT` (PowerShell) or `%UE_ROOT%` (CMD).
-- If unset: prompt user once: "What is the full path to your UE 5.6 install root (e.g., `D:/Epic/UE_5.6`)? Reply with the path; I'll use it for all targets this session."
+- If unset: prompt once per distinct engine version: "What is the full path to your UE <version> install root (e.g., `C:/Program Files/Epic Games/UE_<version>`)? Reply with the path."
 - Cache the value for the remainder of this slash-command invocation.
 
 For each target needing build, print the build command verbatim, copy-paste-ready:
 
 ```cmd
-"<UE_ROOT>\Engine\Build\BatchFiles\Build.bat" UEMCPEditor Win64 Development -Project="<full-uproject-path>" -WaitMutex -FromMsBuild
+"<UE_ROOT>\Engine\Build\BatchFiles\Build.bat" <ProjectEditorTarget> Win64 Development -Project="<full-uproject-path>" -WaitMutex -FromMsBuild
 ```
+
+`<ProjectEditorTarget>` is the HOST PROJECT's editor target, not a UEMCP one — UBT resolves it from `Source/*.Target.cs` (e.g. `Source/FooEditor.Target.cs` -> `FooEditor`). There is no `UEMCPEditor` target; UEMCP builds as a plugin module inside the host target.
 
 Quote paths with spaces. `-WaitMutex` is mandatory to prevent UBT-mutex clash when processing multiple targets serially.
 

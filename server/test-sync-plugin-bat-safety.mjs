@@ -16,7 +16,10 @@ const scriptText = readFileSync(join(repoRoot, 'sync-plugin.bat'), 'utf8');
 const writeProbeIdx = scriptText.indexOf('set "WRITE_PROBE=');
 const deleteSourceIdx = scriptText.indexOf('rmdir /s /q "!PLUGIN_DEST!\\Source"');
 const deleteUpluginIdx = scriptText.indexOf('del /q "!PLUGIN_DEST!\\UEMCP.uplugin"');
-const xcopyIdx = scriptText.indexOf('xcopy /E /I /Y /Q /EXCLUDE:!EXCLUDE_FILE!');
+// Match the stable command prefix, not the exclude-file path: the path moved
+// to a relative name so xcopy would tolerate a space in %TEMP%, and this
+// assertion is about ORDERING relative to the delete steps, not the argument.
+const xcopyIdx = scriptText.indexOf('xcopy /E /I /Y /Q /EXCLUDE:');
 
 t.assert(writeProbeIdx !== -1, 'script preflights target write access');
 t.assert(deleteSourceIdx !== -1, 'script still has explicit Source delete step');

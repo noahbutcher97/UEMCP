@@ -35,7 +35,7 @@ import { ConnectionManager } from './connection-manager.mjs';
 import { executeOfflineTool, matchTagGlob, computeCommentContainment, withAssetExistenceCheck } from './offline-tools.mjs';
 import { buildZodSchema } from './zod-builder.mjs';
 import { z } from 'zod';
-import { ErrorTcpResponder, resolveProjectRoot, findContentAsset } from './test-helpers.mjs';
+import { REPO_ROOT, ErrorTcpResponder, resolveProjectRoot, findContentAsset } from './test-helpers.mjs';
 import {
   GAS_ABILITY_BP, PLAYER_BP, ANIM_BLUEPRINT_BP, DEV_TEST_MAP, MARKETPLACE_MAP,
   HIT_IMPACT_CUE_BP, COMBAT_DODGE_B_MONTAGE, HEAVY_ATTACK_COMBO_MONTAGE,
@@ -110,7 +110,7 @@ function assert(condition, name, detail) {
 }
 
 // ── Load tools.yaml ──────────────────────────────────────
-const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
+const toolsYaml = await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 
 console.log('\n═══ Test 0a: Always-on tool registry wire contract ═══');

@@ -286,7 +286,7 @@ function cliCheck(pluginDestDir, repoRoot) {
   process.exit(0);
 }
 
-function cliWrite(pluginDestDir, repoRoot) {
+function cliWrite(pluginDestDir, repoRoot, syncedBy) {
   let incoming;
   try {
     incoming = computeIncomingState(repoRoot);
@@ -295,7 +295,7 @@ function cliWrite(pluginDestDir, repoRoot) {
     process.exit(1);
   }
   try {
-    const marker = writeDeployMarker(pluginDestDir, incoming);
+    const marker = writeDeployMarker(pluginDestDir, syncedBy ? { ...incoming, syncedBy } : incoming);
     console.log(`Wrote ${join(pluginDestDir, MARKER_FILENAME)}`);
     console.log(`  manifest=${marker.manifestVersion} uplugin=${marker.upluginVersion} versionName=${marker.upluginVersionName}`);
     console.log(`  sourceCommitSha=${marker.sourceCommitSha} headPluginCommitSha=${marker.headPluginCommitSha}`);
@@ -336,8 +336,9 @@ function main() {
     if (argv.length !== 3) usage();
     cliCheck(resolve(argv[1]), resolve(argv[2]));
   } else if (sub === 'write') {
-    if (argv.length !== 3) usage();
-    cliWrite(resolve(argv[1]), resolve(argv[2]));
+    // Optional 4th arg: the writer's label for the marker's syncedBy field.
+    if (argv.length !== 3 && argv.length !== 4) usage();
+    cliWrite(resolve(argv[1]), resolve(argv[2]), argv[3]);
   } else if (sub === 'lock-check') {
     if (argv.length !== 2) usage();
     cliLockCheck(resolve(argv[1]));

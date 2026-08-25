@@ -16,8 +16,9 @@
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-m3-blueprints-write.mjs
 
+import { join } from 'node:path';
 import { ConnectionManager } from './connection-manager.mjs';
-import { FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { REPO_ROOT, FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import {
   initBlueprintsWriteTools,
   executeBlueprintsWriteTool,
@@ -1370,7 +1371,7 @@ console.log('\n── Group O: D149 registry publication and compile description
 {
   const { readFileSync } = await import('node:fs');
   const yaml = (await import('js-yaml')).default;
-  const toolsData = yaml.load(readFileSync('../tools.yaml', 'utf-8'));
+  const toolsData = yaml.load(readFileSync(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
   const bpTools = toolsData.toolsets?.['blueprints-write']?.tools || {};
 
   t.assert(bpTools.add_variable_assignment !== undefined,
@@ -1422,7 +1423,7 @@ console.log('\n── Group O: D149 registry publication and compile description
   t.assert(!/does not report compile errors/i.test(bpTools.compile_blueprint?.description || ''),
     'D149: compile_blueprint registry description no longer says errors are unavailable');
 
-  const handlers = readFileSync('../plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp', 'utf-8');
+  const handlers = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'BlueprintHandlers.cpp'), 'utf-8');
   t.assert(/delete_blueprint_nodes/.test(handlers) && /HandleDeleteBlueprintNodes/.test(handlers),
     'D174: C++ registers delete_blueprint_nodes handler');
   t.assert(/disconnect_blueprint_pin/.test(handlers) && /HandleDisconnectBlueprintPin/.test(handlers),

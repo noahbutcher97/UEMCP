@@ -5,10 +5,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('Plugin GetEditorState Source Checks');
-const source = readFileSync(join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'EdgeCaseHandlers.cpp'), 'utf8');
+const source = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'EdgeCaseHandlers.cpp'), 'utf8');
 
 for (const include of [
   '#include "Interfaces/IPluginManager.h"',

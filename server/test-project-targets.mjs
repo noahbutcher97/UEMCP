@@ -219,13 +219,18 @@ function writeTargetsJson(repoRoot, data) {
     const parsed = parseTargetProfilesFile(readFileSync(configPath, 'utf8'));
     t.assert(parsed.targets.projecta.uproject === projectA, 'registered target stores uproject path');
     t.assert(parsed.profiles.default.includes('projecta'), 'registered target joins default profile');
-    t.assert(parsed.profiles.smoke.includes('projecta'), 'registered target joins smoke profile');
-    t.assert(parsed.profiles['release-gate'].includes('projecta'), 'registered target joins release-gate profile');
+    t.assert(parsed.profiles.smoke === undefined, 'onboarding leaves curated smoke profile untouched');
+    t.assert(parsed.profiles['release-gate'] === undefined, 'onboarding leaves curated release-gate profile untouched');
 
     const second = registerProjectTargetProfile({ configPath, uprojectPath: projectA });
     const reparsed = parseTargetProfilesFile(readFileSync(configPath, 'utf8'));
     t.assert(second.status === 'unchanged', `second profile registration is idempotent (got ${second.status})`);
     t.assert(reparsed.profiles.default.filter(alias => alias === 'projecta').length === 1, 'idempotent registration does not duplicate default alias');
+
+    // The narrowed default is a default, not a restriction: explicit profiles still apply.
+    registerProjectTargetProfile({ configPath, uprojectPath: projectA, profiles: ['smoke'] });
+    const withSmoke = parseTargetProfilesFile(readFileSync(configPath, 'utf8'));
+    t.assert(withSmoke.profiles.smoke.includes('projecta'), 'explicit profiles argument still joins the requested profile');
   } finally {
     cleanup(repoRoot);
   }

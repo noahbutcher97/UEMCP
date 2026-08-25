@@ -35,24 +35,46 @@ function reset() {
   assetCache.indexDirty = false;
 }
 
+// Discover a package prefix that actually holds BlueprintGeneratedClass assets
+// in THIS project. The fixture constant is one target project's path; elsewhere
+// it turned every downstream narrow-scan assertion into a failure instead of a
+// skip. Returns null when the project has no Blueprints at all.
+async function resolveBlueprintPrefix() {
+  const broad = await executeOfflineTool(
+    'query_asset_registry',
+    { path_prefix: '/Game/', class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 1 },
+    projectRoot
+  );
+  const first = broad?.results?.[0]?.packageName;
+  if (!first) return null;
+  const dir = first.slice(0, first.lastIndexOf('/'));
+  return dir || '/Game';
+}
+
 async function run() {
   console.log('\n═══ query_asset_registry tests ═══\n');
+
+  reset();
+  const RESOLVED_PREFIX = await resolveBlueprintPrefix();
+  const HAS_BP_PREFIX = RESOLVED_PREFIX !== null;
+  const NARROW_PREFIX = RESOLVED_PREFIX ?? ABILITIES_PREFIX;
+  if (!HAS_BP_PREFIX) console.log('  · skipped narrow-scan assertions (project has no BlueprintGeneratedClass assets)');
 
   // 1. Narrow scan: Abilities directory only
   reset();
   const t0 = Date.now();
   const abilities = await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: ABILITIES_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 50 },
+    { path_prefix: NARROW_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 50 },
     projectRoot
   );
   const elapsed = Date.now() - t0;
-  check('narrow scan returns results', abilities.results.length > 0, `got ${abilities.results.length}`);
-  check('narrow scan honors scanRoot',
-        abilities.scanRoot.includes(ABILITIES_PREFIX.replace('/Game/', '').split('/').pop()),
+  if (HAS_BP_PREFIX) check('narrow scan returns results', abilities.results.length > 0, `got ${abilities.results.length}`);
+  if (HAS_BP_PREFIX) check('narrow scan honors scanRoot',
+        abilities.scanRoot.includes(NARROW_PREFIX.replace('/Game/', '').split('/').pop()),
         abilities.scanRoot);
   check('narrow scan class filter exact', abilities.results.every(r => r.objectClassName === '/Script/Engine.BlueprintGeneratedClass'));
-  check('narrow scan has tags', abilities.results.some(r => Object.keys(r.tags).length > 0));
+  if (HAS_BP_PREFIX) check('narrow scan has tags', abilities.results.some(r => Object.keys(r.tags).length > 0));
   check('narrow scan packageName populated', abilities.results.every(r => r.packageName));
   check('narrow scan performance sane', elapsed < 10000, `${elapsed}ms`);
 
@@ -109,10 +131,10 @@ async function run() {
   reset();
   const tagged = await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: ABILITIES_PREFIX, tag_key: 'BlueprintType', limit: 20 },
+    { path_prefix: NARROW_PREFIX, tag_key: 'BlueprintType', limit: 20 },
     projectRoot
   );
-  check('tag_key presence filter', tagged.results.length > 0);
+  if (HAS_BP_PREFIX) check('tag_key presence filter', tagged.results.length > 0);
   check('tag_key presence has tag on each', tagged.results.every(r => 'BlueprintType' in r.tags));
 
   // 6. Tag value filter: exact match
@@ -122,7 +144,7 @@ async function run() {
   if (sampleValue) {
     const valueFiltered = await executeOfflineTool(
       'query_asset_registry',
-      { path_prefix: ABILITIES_PREFIX, tag_key: 'BlueprintType', tag_value: sampleValue, limit: 20 },
+      { path_prefix: NARROW_PREFIX, tag_key: 'BlueprintType', tag_value: sampleValue, limit: 20 },
       projectRoot
     );
     check('tag_value exact match filters', valueFiltered.results.every(r => r.tags.BlueprintType === sampleValue));
@@ -168,7 +190,7 @@ async function run() {
   reset();
   await executeOfflineTool(
     'query_asset_registry',
-    { path_prefix: ABILITIES_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 10 },
+    { path_prefix: NARROW_PREFIX, class_name: '/Script/Engine.BlueprintGeneratedClass', limit: 10 },
     projectRoot
   );
   const cacheSize = assetCache.entries.size;

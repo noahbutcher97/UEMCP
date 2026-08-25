@@ -2,8 +2,9 @@
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-blueprint-workflow-variables.mjs
 
+import { join } from 'node:path';
 import { ConnectionManager } from './connection-manager.mjs';
-import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { REPO_ROOT, FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import {
@@ -27,7 +28,7 @@ console.log('\n── Group 1: Tool definition and schema ──');
 
 {
   const defs = getBlueprintsWriteToolDefs();
-  const toolsYaml = load(readFileSync('../tools.yaml', 'utf-8'));
+  const toolsYaml = load(readFileSync(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
   const yamlDef = toolsYaml.toolsets?.['blueprints-write']?.tools?.add_variable_assignment;
   const defaultYamlDef = toolsYaml.toolsets?.['blueprints-write']?.tools?.set_variable_default;
 
