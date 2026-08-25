@@ -38,6 +38,12 @@ const MAP_PROBE = await findContentAsset(projectRoot, BEAUTIFUL_CORNER_MAP.path.
 const HAS_BP = BP_PROBE !== null;
 const HAS_MAP = MAP_PROBE !== null;
 
+// Invoke with the DISCOVERED path, not the fixture constant: probing by
+// filename while calling by a stale path defeats the guard when an asset
+// moves rather than disappears.
+const BP_PATH = BP_PROBE?.gamePath ?? GAS_ABILITY_BP.path;
+const MAP_PATH = MAP_PROBE?.gamePath ?? BEAUTIFUL_CORNER_MAP.path;
+
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
   if (cond) { console.log(`  ✓ ${name}`); pass++; }
@@ -57,11 +63,11 @@ async function run() {
     reset();
     const bp = await executeOfflineTool(
       'inspect_blueprint',
-      { asset_path: GAS_ABILITY_BP.path },
+      { asset_path: BP_PATH },
       projectRoot,
     );
 
-    check('inspect: path echoed',            bp.path === GAS_ABILITY_BP.path);
+    check('inspect: path echoed',            bp.path === BP_PATH);
     check('inspect: diskPath includes Content', bp.diskPath.includes('/Content/'), bp.diskPath);
     check('inspect: sizeBytes > 0',          bp.sizeBytes > 0);
     check('inspect: modified is ISO',        /^\d{4}-\d{2}-\d{2}T/.test(bp.modified || ''));
@@ -102,11 +108,11 @@ async function run() {
     reset();
     const lvl = await executeOfflineTool(
       'list_level_actors',
-      { asset_path: BEAUTIFUL_CORNER_MAP.path },
+      { asset_path: MAP_PATH },
       projectRoot,
     );
 
-    check('level: path echoed',       lvl.path === BEAUTIFUL_CORNER_MAP.path);
+    check('level: path echoed',       lvl.path === MAP_PATH);
     check('level: diskPath is .umap', lvl.diskPath.endsWith('.umap'), lvl.diskPath);
     check('level: sizeBytes > 0',     lvl.sizeBytes > 0);
     check('level: modified is ISO',   /^\d{4}-\d{2}-\d{2}T/.test(lvl.modified || ''));
@@ -125,7 +131,7 @@ async function run() {
     reset();
     const lvl2 = await executeOfflineTool(
       'list_level_actors',
-      { asset_path: `${BEAUTIFUL_CORNER_MAP.path}.umap` },
+      { asset_path: `${MAP_PATH}.umap` },
       projectRoot,
     );
     check('level: explicit .umap path accepted', lvl2.actors.length === lvl.actors.length);

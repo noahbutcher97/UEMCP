@@ -316,14 +316,17 @@ if defined NUKE_REASON (
 REM --- Build xcopy exclude file in %TEMP% ---
 REM xcopy /EXCLUDE: matches these substrings against the full source path, so
 REM wrapping each with backslashes anchors them to directory boundaries.
-set "EXCLUDE_FILE=%TEMP%\uemcp-sync-exclude.txt"
-> "!EXCLUDE_FILE!" echo \Binaries\
->> "!EXCLUDE_FILE!" echo \Intermediate\
+REM xcopy will not accept a quoted /EXCLUDE: path, so a space in %TEMP%
+REM would split the argument. Run from %TEMP% and pass a relative name.
+pushd "%TEMP%"
+> uemcp-sync-exclude.txt echo \Binaries\
+>> uemcp-sync-exclude.txt echo \Intermediate\
 
 echo Copying plugin source (excluding Binaries\, Intermediate\)...
-xcopy /E /I /Y /Q /EXCLUDE:!EXCLUDE_FILE! "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
+xcopy /E /I /Y /Q /EXCLUDE:uemcp-sync-exclude.txt "!PLUGIN_SRC!" "!PLUGIN_DEST!" >nul
 set "XCOPY_EXIT=!errorlevel!"
-del /q "!EXCLUDE_FILE!" >nul 2>&1
+del /q uemcp-sync-exclude.txt >nul 2>&1
+popd
 
 if not "!XCOPY_EXIT!"=="0" (
   echo [ERROR] xcopy failed with exit code !XCOPY_EXIT!.

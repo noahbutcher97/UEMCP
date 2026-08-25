@@ -71,10 +71,14 @@ export const UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT = 485;
 export const UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS = 507;
 export const UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS = 508;
 export const UE4_64BIT_EXPORTMAP_SERIALSIZES = 511;
+export const UE4_NON_OUTER_PACKAGE_IMPORT = 520;
 
 // EPackageFlags. Cooked packages using unversioned property serialization omit
 // the script-serialization offsets even at/after SCRIPT_SERIALIZATION_OFFSET.
 export const PKG_UNVERSIONED_PROPERTIES = 0x00002000;
+// Cooked packages strip editor-only data; UE omits FObjectImport.PackageName
+// for them even at/after NON_OUTER_PACKAGE_IMPORT.
+export const PKG_FILTER_EDITOR_ONLY = 0x80000000;
 
 // Minimum LegacyFileVersion we support. UE5.6 writes -9.
 // -8 is also valid (no SavedHash block), but we treat anything newer than -9
@@ -534,9 +538,39 @@ export function readNameTable(cur, summary) {
  * @param {{ importOffset: number, importCount: number }} summary
  * @param {string[]} [names]
  */
+/**
+ * Resolve the version pair the table readers should gate on.
+ *
+ * A package that reports 0/0/0 is UNVERSIONED, not ancient: UE substitutes the
+ * running engine's version rather than treating it as the oldest format. Taking
+ * the literal zeros would select the oldest branch of every gate and desync the
+ * tables. The newest layout this parser knows is the closest safe analogue.
+ *
+ * @param {{fileVersionUE4?: number, fileVersionUE5?: number, fileVersionLicenseeUE?: number}} summary
+ * @returns {{ue4: number, ue5: number}}
+ */
+export function resolveEffectiveVersions(summary) {
+  const ue4 = summary?.fileVersionUE4 ?? 0;
+  const ue5 = summary?.fileVersionUE5 ?? 0;
+  const licensee = summary?.fileVersionLicenseeUE ?? 0;
+  if (ue4 === 0 && ue5 === 0 && licensee === 0) {
+    return { ue4: UE4_NON_OUTER_PACKAGE_IMPORT, ue5: UE5_IMPORT_TYPE_HIERARCHIES };
+  }
+  return { ue4, ue5 };
+}
+
 export function readImportTable(cur, summary, names) {
   const { importOffset, importCount } = summary;
   if (!importCount) return [];
+  // FObjectImport is version-gated exactly like FObjectExport: PackageName
+  // arrives at NON_OUTER_PACKAGE_IMPORT and bImportOptional at
+  // OPTIONAL_RESOURCES. Reading a fixed stride over-reads 4 bytes per import
+  // below 1003 and 12 below ue4 520, which silently corrupts every className
+  // an export resolves through this table. Mirrors
+  // operator<<(FSlot, FObjectImport&) in ObjectResource.cpp.
+  const { ue4, ue5 } = resolveEffectiveVersions(summary);
+  const filterEditorOnly = ((summary.packageFlags ?? 0) & PKG_FILTER_EDITOR_ONLY) !== 0;
+  const hasPackageName = ue4 >= UE4_NON_OUTER_PACKAGE_IMPORT && !filterEditorOnly;
   cur.seek(importOffset);
   const imports = new Array(importCount);
   for (let i = 0; i < importCount; i++) {
@@ -544,14 +578,15 @@ export function readImportTable(cur, summary, names) {
     const classNameIdx = cur.readInt32(); cur.skip(4);
     const outerIndex = cur.readInt32();
     const objectNameIdx = cur.readInt32(); cur.skip(4);
-    const packageNameIdx = cur.readInt32(); cur.skip(4);
-    const bImportOptional = cur.readInt32();
+    let packageNameIdx = -1;
+    if (hasPackageName) { packageNameIdx = cur.readInt32(); cur.skip(4); }
+    const bImportOptional = ue5 >= UE5_OPTIONAL_RESOURCES ? cur.readInt32() : 0;
     imports[i] = {
       classPackage: names?.[classPackageIdx] ?? `[name ${classPackageIdx}]`,
       className: names?.[classNameIdx] ?? `[name ${classNameIdx}]`,
       outerIndex,
       objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
-      packageName: names?.[packageNameIdx] ?? null,
+      packageName: packageNameIdx >= 0 ? (names?.[packageNameIdx] ?? null) : null,
       bImportOptional: !!bImportOptional,
     };
   }
@@ -601,8 +636,7 @@ export function readExportTable(cur, summary, names) {
   // stride differs by package version. Mirrors UE's operator<<(FSlot, FObjectExport&)
   // in CoreUObject/Private/UObject/ObjectResource.cpp field-for-field; any gate
   // that drifts from that function desynchronizes every export after the first.
-  const ue4 = summary.fileVersionUE4 ?? 0;
-  const ue5 = summary.fileVersionUE5 ?? 0;
+  const { ue4, ue5 } = resolveEffectiveVersions(summary);
   const unversionedProperties = ((summary.packageFlags ?? 0) & PKG_UNVERSIONED_PROPERTIES) !== 0;
   cur.seek(exportOffset);
   const exports = new Array(exportCount);
@@ -968,9 +1002,10 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   const hasScriptRange = exportEntry.scriptSerializationStartOffset > 0
     && exportEntry.scriptSerializationEndOffset > exportEntry.scriptSerializationStartOffset;
   const start = exportEntry.serialOffset + (hasScriptRange ? exportEntry.scriptSerializationStartOffset : 0);
+  const serialEnd = exportEntry.serialOffset + exportEntry.serialSize;
   const end = hasScriptRange
-    ? exportEntry.serialOffset + exportEntry.scriptSerializationEndOffset
-    : exportEntry.serialOffset + exportEntry.serialSize;
+    ? Math.min(exportEntry.serialOffset + exportEntry.scriptSerializationEndOffset, serialEnd)
+    : serialEnd;
   if (end > buf.length || start + 1 > buf.length) {
     return {
       properties: {},

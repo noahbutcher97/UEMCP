@@ -62,7 +62,7 @@ import {
   collectSubobjectExportIndexes,
   summarizeCollisionProperties,
 } from './offline-tools.mjs';
-import { findContentAsset, TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
 
@@ -2083,7 +2083,7 @@ function testContainerSyntheticScalars() {
 // K2Node_FunctionEntry / K2Node_PromotableOperator) and is asserted as
 // a known finding, not a regression.
 async function testPinBodyParseCP2() {
-  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
   const FIXTURES = [
     ['BP_OSPlayerR_Child',  'Content/Actors/Character/BP_OSPlayerR_Child.uasset',  'BP_OSPlayerR_Child.oracle.json'],
     ['BP_OSPlayerR_Child1', 'Content/Actors/Character/BP_OSPlayerR_Child1.uasset', 'BP_OSPlayerR_Child1.oracle.json'],
@@ -2220,7 +2220,7 @@ function testPinDefaultLiteralSynthetic() {
 // serialized count can exceed Oracle's non-null-pin count. CP3 filters
 // bNullPtr entries via SerializePin reads.
 async function testPinBlockOffsetCP1() {
-  const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+  const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
   const FIXTURES = [
     { name: 'BP_OSPlayerR',       relPath: 'Content/Actors/Character/BP_OSPlayerR.uasset',       oracle: 'BP_OSPlayerR.oracle.json',       expectedGraphNodes: 210 },
     { name: 'BP_OSPlayerR_Child', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child.uasset', oracle: 'BP_OSPlayerR_Child.oracle.json', expectedGraphNodes: 6 },
@@ -2409,6 +2409,13 @@ function testExportTableVersionGates() {
     { label: 'UE5=1018 newest layout', ue4: 522, ue5: 1018 },
     { label: 'UE5=1018 unversioned properties omit script offsets', ue4: 522, ue5: 1018, packageFlags: PKG_UNVERSIONED_PROPERTIES },
     { label: 'UE4=510 pre-64bit serial sizes', ue4: 510, ue5: 1018 },
+    // The UE4 ordinals were DERIVED from implicit enum numbering rather than
+    // observed in a file, so each branch needs its own case: a wrong ordinal
+    // mis-strides every sufficiently old package with no other signal.
+    { label: 'UE4=300 pre-editor-game/cooked/preload/template', ue4: 300, ue5: 1018 },
+    { label: 'UE4=400 post-editor-game only', ue4: 400, ue5: 1018 },
+    { label: 'UE4=500 post-cooked-assets, pre-preload', ue4: 500, ue5: 1018 },
+    { label: 'UE4=507 preload deps boundary', ue4: 507, ue5: 1018 },
   ];
 
   for (const c of cases) {

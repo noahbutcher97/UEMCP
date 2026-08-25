@@ -134,7 +134,7 @@ async function run() {
     { path_prefix: NARROW_PREFIX, tag_key: 'BlueprintType', limit: 20 },
     projectRoot
   );
-  check('tag_key presence filter', tagged.results.length > 0);
+  if (HAS_BP_PREFIX) check('tag_key presence filter', tagged.results.length > 0);
   check('tag_key presence has tag on each', tagged.results.every(r => 'BlueprintType' in r.tags));
 
   // 6. Tag value filter: exact match

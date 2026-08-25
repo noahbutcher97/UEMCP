@@ -23,12 +23,12 @@ import {
   applyOracleFreshnessGate,
   evaluateTopologyOracleFreshness,
 } from './oracle-freshness.mjs';
-import { findContentAsset, TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
 
 const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
-const FIXTURES_DIR = 'D:/DevTools/UEMCP/plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures';
+const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
 
 // Oracle pairing (fixture name -> oracle.json) is independent of where the
 // live asset currently sits on disk — `oracle` is a plain filename lookup.
