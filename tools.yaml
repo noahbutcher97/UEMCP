@@ -21,6 +21,11 @@ management:
       params:
         force_reconnect: { type: boolean, required: false, default: false }
 
+    wait_for_editor:
+      description: "Wait, bounded, for the editor transport to become usable after launching the editor. Returns ready=false as a normal result when still initializing — call again to keep waiting. Short-circuits immediately when no editor is running or when the running editor belongs to a different project, since waiting cannot succeed in those cases."
+      params:
+        timeout_ms: { type: number, required: false, default: 30000, description: "Per-call ceiling in ms; clamped to 1000-55000 to stay under MCP client timeouts" }
+
     detect_project:
       description: Run editor project detection and report candidates without attaching the session.
       params: {}

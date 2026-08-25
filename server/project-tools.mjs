@@ -32,6 +32,10 @@ export const CONNECTION_INFO_INPUT_SHAPE = {
   force_reconnect: z.boolean().optional().default(false),
 };
 
+export const WAIT_FOR_EDITOR_INPUT_SHAPE = {
+  timeout_ms: z.number().optional(),
+};
+
 export const FIND_TOOLS_INPUT_SHAPE = {
   query: z.string(),
   max_results: z.number().int().optional().default(15),

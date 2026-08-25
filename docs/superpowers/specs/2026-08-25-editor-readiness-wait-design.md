@@ -1,12 +1,12 @@
 # Editor readiness wait — design
 
 **Date**: 2026-08-25
-**Status**: Designed, not implemented
+**Status**: Implemented and live-verified
 **Predecessor**: `2026-08-25-transport-reliability-decision-record.md` §8
 
 ## Problem
 
-After launching the editor there is no way to ask "is the transport live yet?" except to call a real tool and interpret the failure. The window is long — **128 s measured** from launch to `TCP server listening` on a large sample project, and tens of seconds on smaller ones. During it, every call returns `connect ECONNREFUSED`.
+After launching the editor there is no way to ask "is the transport live yet?" except to call a real tool and interpret the failure. The window is long and highly variable — **128 s measured** from launch to `TCP server listening` on a first cold launch of a large sample project, and **~22 s** for the same project once shader and derived-data caches were warm. That spread is itself why a fixed per-call retry budget cannot solve this. During it, every call returns `connect ECONNREFUSED`.
 
 The documented remedy is "retry on the next user prompt": a human polling by hand. Worse, a bare `ECONNREFUSED` is indistinguishable from a genuinely broken deployment, so it invites diagnosis of a non-problem — a trap D131 already warns about.
 
@@ -27,7 +27,6 @@ A management tool, `wait_for_editor`, registered alongside `connection_info` via
 | Param | Type | Default | Notes |
 |---|---|---|---|
 | `timeout_ms` | number | `30000` | Per-call ceiling. Clamped to `[1000, 55000]`. |
-| `layer` | string | `tcp-55558` | Reserved for the remote-control layer later; only the TCP layer has the long init today. |
 
 The ceiling stays under typical MCP client timeouts by design. See *Wait contract*.
 
@@ -66,7 +65,7 @@ The diagnostic value is here. A naive implementation waits the full budget to te
 | `no_editor_process` | `listEditorProcesses()` empty | **Yes** | Nothing to wait for. |
 | `wrong_project` | Running editor's `canonicalEditorProjectPath` ≠ attached project | **Yes** | Waiting can never succeed; workspace drift (D136 `[MCP]` class). |
 | `initializing` | Our process present, TCP probe refused | No | The real case. |
-| `transport_ready` | `ping` answers, `get_editor_state` does not | No | Listener bound, world still resolving. |
+| `transport_ready` | `ping` answers, `get_editor_state` does not | No | Listener answers ping, but the handler does not. |
 | `ready` | `get_editor_state` round-trips | — | Terminal success. |
 
 Two phases short-circuit. Both are cases where waiting is *provably* futile, and both are common mistakes worth naming precisely rather than timing out on.
@@ -75,9 +74,11 @@ Two phases short-circuit. Both are cases where waiting is *provably* futile, and
 
 ### Readiness signal
 
-`get_editor_state`, not `ping`. D131 designates it canonical because a successful round-trip confirms the listener *and* world context; `ping` proves only that the socket is bound. The `transport_ready` phase exists to make that gap visible instead of declaring victory while the map is still loading.
+`get_editor_state`, not `ping`. D131 designates it canonical: it confirms a real handler round-trip, not merely that a socket accepted a connection.
 
-Cost is one extra round-trip against an editor that has already answered — negligible beside a 128 s wait.
+**Correction from live observation.** An earlier draft justified this as "avoids declaring ready while the map is still loading". That is wrong: a cold editor answered `get_editor_state` with `world_path: null` before loading any map. Requiring a world would mean never reporting ready for asset-only work with no map open, which is a legitimate state. Readiness therefore means *the editor answers*, and a null world is reported rather than concealed. `transport_ready` covers the narrower real case — `ping` answers but `get_editor_state` does not.
+
+Cost is one extra round-trip against an editor that has already answered — negligible beside the wait it replaces.
 
 ## Constraints
 

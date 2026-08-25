@@ -104,6 +104,7 @@ const annotationCases = [
   ['attach_project', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
   ['detach_project', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
   ['refresh_project_context', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
+  ['wait_for_editor', TOOL_REQUIREMENT_KINDS.MANAGEMENT, { readOnlyHint: false, destructiveHint: false }],
 ];
 
 const annotationResults = annotationCases.map(([toolName, requirement, expected]) => {
@@ -133,6 +134,7 @@ const expectedManagementSessionStateTools = [
   'attach_project',
   'detach_project',
   'refresh_project_context',
+  'wait_for_editor',
 ];
 t.assert(MANAGEMENT_SESSION_STATE_TOOLS instanceof Set, 'management session-state policy remains a Set');
 t.assert(

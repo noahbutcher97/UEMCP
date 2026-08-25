@@ -31,6 +31,7 @@ const expectedManagementTools = Object.freeze([
   'list_project_targets',
   'list_toolsets',
   'refresh_project_context',
+  'wait_for_editor',
 ]);
 
 function makeRoot() {
@@ -227,7 +228,7 @@ for (const [mode, label] of [
   });
   t.assert(smoke.status === 'HEALTHY', 'real no-project UEMCP descriptor initializes and lists tools');
   t.assert(smoke.instruction_bytes > 0 && smoke.instruction_bytes <= 2_048, 'real server instructions remain within the deployment contract');
-  t.assert(smoke.tool_count === 10, `real no-project server exposes ten management tools (got ${smoke.tool_count})`);
+  t.assert(smoke.tool_count === 11, `real no-project server exposes eleven management tools (got ${smoke.tool_count})`);
   t.assert(JSON.stringify(smoke.initial_tool_names) === JSON.stringify(expectedManagementTools), 'real initial tool names match the provider-neutral management surface');
 }
 

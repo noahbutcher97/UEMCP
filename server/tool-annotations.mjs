@@ -49,6 +49,9 @@ const MANAGEMENT_SESSION_STATE_TOOL_NAMES = Object.freeze([
   'attach_project',
   'detach_project',
   'refresh_project_context',
+  // Probing updates layer health status, so this is not purely read-only —
+  // same treatment as connection_info(force_reconnect).
+  'wait_for_editor',
 ]);
 const managementSessionStateToolSet = new Set(MANAGEMENT_SESSION_STATE_TOOL_NAMES);
 

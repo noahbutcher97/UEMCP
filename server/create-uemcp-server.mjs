@@ -18,10 +18,12 @@ import { readProjectTargets } from './project-targets.mjs';
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
 import { MANAGEMENT_SESSION_STATE_TOOLS, getToolAnnotations } from './tool-annotations.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
+import { clampWaitTimeout, createEditorProbe, readinessHint, waitForEditorReady } from './editor-readiness.mjs';
 import { registerProjectCodenames } from './project-hygiene.mjs';
 import {
   ATTACH_PROJECT_INPUT_SHAPE,
   CONNECTION_INFO_INPUT_SHAPE,
+  WAIT_FOR_EDITOR_INPUT_SHAPE,
   FIND_TOOLS_INPUT_SHAPE,
   LIST_PROJECT_TARGETS_INPUT_SHAPE,
   MANAGEMENT_OUTPUT_SHAPE,
@@ -523,6 +525,36 @@ export async function createUemcpServer(options = {}) {
     return projectContext.refreshEditorProcesses(await inspectEditorProcesses());
   }
 
+  registerManagementTool(
+    'wait_for_editor',
+    {
+      description: 'Wait, bounded, for the editor transport to become usable. ready=false is a normal in-progress result — call again to keep waiting.',
+      inputSchema: WAIT_FOR_EDITOR_INPUT_SHAPE,
+    },
+    async ({ timeout_ms }) => {
+      const timeoutMs = clampWaitTimeout(timeout_ms);
+      // tcpFn directly, never connectionManager.send(): send() serializes
+      // through the per-layer queue, so waiting inside it would block every
+      // other call on this layer for the whole budget.
+      const probe = createEditorProbe({
+        tcpFn: connectionManager.getTcpTransport(),
+        port: connectionManager.config.tcpPortCustom,
+      });
+      const outcome = await waitForEditorReady({
+        listProcesses: () => listEditorProcesses(),
+        attachedUproject: projectContext.snapshot()?.identity?.uprojectPath || null,
+        probe,
+        timeoutMs,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      });
+      return managementResult({
+        ok: true,
+        effective_timeout_ms: timeoutMs,
+        ...outcome,
+        hint: readinessHint(outcome),
+      });
+    }
+  );
   registerManagementTool(
     'connection_info',
     {

@@ -817,6 +817,20 @@ export class ConnectionManager {
   }
 
   /**
+   * The effective TCP transport, honouring the mock seam.
+   *
+   * Exposed so a caller can probe WITHOUT going through send(), which
+   * serializes on the per-layer queue. A bounded readiness wait must not sit in
+   * that queue: it would block every other call on the layer for its whole
+   * budget. Mirrors the selection _probeLayer already makes internally.
+   *
+   * @returns {Function} (port, type, params, timeoutMs, metrics?) => Promise
+   */
+  getTcpTransport() {
+    return this._tcpCommandFn || tcpCommand;
+  }
+
+  /**
    * @returns {object} Status snapshot of all layers
    */
   getStatus() {

@@ -73,6 +73,7 @@ const MANAGEMENT_SESSION_STATE_NAMES = Object.freeze([
   'attach_project',
   'detach_project',
   'refresh_project_context',
+  'wait_for_editor',
 ]);
 const MANAGEMENT_INSPECTION_NAMES = Object.freeze([
   'list_toolsets',
@@ -659,8 +660,8 @@ try {
     `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
   );
   t.assert(
-    listedRows.length === 140,
-    'independent all-enabled tools/list inventory contains 140 registered tools',
+    listedRows.length === 141,
+    'independent all-enabled tools/list inventory contains 141 registered tools',
     `listed=${listedRows.length}`,
   );
 
