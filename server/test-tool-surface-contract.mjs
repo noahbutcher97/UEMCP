@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import { getActorsToolDefs } from './actors-tcp-tools.mjs';
 import { getBlueprintsWriteToolDefs } from './blueprints-write-tcp-tools.mjs';
 import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
@@ -56,7 +56,7 @@ const LIVE_DEFINITION_GROUPS = [
 const INTERNAL_WIRE_COMMANDS = new Map();
 
 const t = new TestRunner('Tool Surface Contract Gate');
-const toolsData = load(await readFile(join('..', 'tools.yaml'), 'utf-8'));
+const toolsData = load(await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
 const classification = collectYamlTools(toolsData, {
   groups: LIVE_DEFINITION_GROUPS,
   managementTools: MANAGEMENT_TOOLS,
@@ -119,7 +119,7 @@ t.assert(
 );
 
 const registeredCommands = await collectPluginRegisteredCommands({
-  privateDir: join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private'),
+  privateDir: join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private'),
 });
 const coveredCommands = collectCoveredWireCommands(toolsData, LIVE_DEFINITION_GROUPS);
 const uncoveredCommands = collectUncoveredPluginCommands(registeredCommands, coveredCommands, {

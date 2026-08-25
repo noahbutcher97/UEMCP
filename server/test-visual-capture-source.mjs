@@ -5,11 +5,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('Visual Capture Source Checks');
-const source = readFileSync(join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'VisualCaptureHandler.cpp'), 'utf8');
-const header = readFileSync(join('..', 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Public', 'VisualCaptureHandler.h'), 'utf8');
+const source = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'VisualCaptureHandler.cpp'), 'utf8');
+const header = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Public', 'VisualCaptureHandler.h'), 'utf8');
 
 function functionBody(name, nextName) {
   const start = source.indexOf(name);

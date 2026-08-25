@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import {
   collectRequirementMetadataMismatches,
   isMutationRequirementKind,
@@ -18,7 +18,7 @@ import {
 import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
 
 const t = new TestRunner('Tool Requirement Tests');
-const toolsData = load(await readFile(join('..', 'tools.yaml'), 'utf8'));
+const toolsData = load(await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf8'));
 
 function toolDef(toolsetName, toolName) {
   if (toolsetName === 'management') return toolsData.management.tools[toolName];

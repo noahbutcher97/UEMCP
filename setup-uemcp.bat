@@ -429,7 +429,7 @@ echo.
 REM Exclude build artifacts from the copy. A Binaries\ built against a
 REM different engine version lands a stale DLL in the target, and UBT may
 REM then treat the module as already built. Mirrors sync-plugin.bat.
-set "EXCLUDE_FILE=%TMP%\uemcp-setup-exclude.txt"
+set "EXCLUDE_FILE=%TEMP%\uemcp-setup-exclude.txt"
 > "!EXCLUDE_FILE!" echo \Binaries\
 >> "!EXCLUDE_FILE!" echo \Intermediate\
 echo Copying UEMCP plugin source to !PLUGIN_DEST! ... excluding Binaries\ and Intermediate\
@@ -441,6 +441,12 @@ if not "!XCOPY_EXIT!"=="0" (
   set "EXIT_CODE=4" & goto :end
 )
 echo [SUCCESS] Plugin installed at !PLUGIN_DEST!.
+
+REM --- Write the W-L deploy marker, D138 ---
+REM sync-plugin.bat writes this after every sync; onboarding must too, or a
+REM freshly installed target reads as marker-less and verify-deploy reports a
+REM spurious NEEDS-DEPLOY. Non-fatal: the plugin is installed either way.
+call :write_deploy_marker
 set "PLUGIN_COPIED=1"
 
 :plugin_done
@@ -522,6 +528,13 @@ echo Offline tools work against project files
 echo on disk with no editor running.
 set "EXIT_CODE=0"
 goto :end
+
+goto :eof
+
+:write_deploy_marker
+node "!UEMCP_PATH!\server\sync-plugin-helper.mjs" write "!PLUGIN_DEST!" "!UEMCP_PATH!" >nul 2>&1
+if not "!errorlevel!"=="0" echo [WARN] Deploy marker not written; verify-deploy may report NEEDS-DEPLOY until the next sync-plugin run.
+goto :eof
 
 :end
 echo.

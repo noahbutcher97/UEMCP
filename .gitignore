@@ -78,3 +78,8 @@ docs/research/
 
 # Backup bundles
 *.bundle
+
+# Deployment-bundle test scratch dirs. mkdtempSync appends a fresh random
+# suffix per run, so this must be a glob - a hardcoded suffix would leave every
+# other run untracked and exposed to `git add -A`.
+.deployment-bundle-scratch-*/

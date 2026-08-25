@@ -27,7 +27,7 @@ import {
   REQUIRED_CONTAINER_PROPERTY_TYPES,
 } from './property-read-contract.mjs';
 import { getRcToolDefs } from './rc-tools.mjs';
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import { getToolAnnotations } from './tool-annotations.mjs';
 import { getToolRequirement } from './tool-requirements.mjs';
 import { getWidgetsToolDefs } from './widgets-tcp-tools.mjs';
@@ -264,10 +264,10 @@ function captureError(fn) {
 }
 
 const t = new TestRunner('Tool Metadata Schema');
-const toolsYaml = await readFile(join('..', 'tools.yaml'), 'utf-8');
+const toolsYaml = await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8');
 const toolsData = load(toolsYaml);
 const tools = collectTools(toolsData);
-const toolSurfaceDoc = await readFile(join('..', 'docs', 'specs', 'tool-surface.md'), 'utf-8');
+const toolSurfaceDoc = await readFile(join(REPO_ROOT, 'docs', 'specs', 'tool-surface.md'), 'utf-8');
 
 console.log('\n── Provider-neutral guidance budgets ──');
 t.assert(SERVER_PREFIX_LIMIT_BYTES === 512, 'server prefix budget is 512 UTF-8 bytes');
@@ -467,7 +467,7 @@ t.assert(oversizedDescriptions.length === 0,
   'registered tool descriptions fit the UTF-8 wire budget', oversizedDescriptions.join('; '));
 
 console.log('\n── MCP registration metadata ──');
-const createServerSource = await readFile('./create-uemcp-server.mjs', 'utf-8');
+const createServerSource = await readFile(join(REPO_ROOT, 'server', 'create-uemcp-server.mjs'), 'utf-8');
 t.assert(
   !/\.tool\s*\(/.test(createServerSource),
   'production server uses no deprecated .tool() registrations',

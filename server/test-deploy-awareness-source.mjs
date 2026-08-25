@@ -5,17 +5,17 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { TestRunner } from './test-helpers.mjs';
+import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import { missingSourceNeedles } from './test-tool-surface-helpers.mjs';
 
 const t = new TestRunner('Deploy Awareness Source Guard');
 
-const serverSource = await readFile('create-uemcp-server.mjs', 'utf-8');
-const projectContextSource = await readFile('project-context.mjs', 'utf-8');
-const verifyDeploySource = await readFile('verify-deploy.mjs', 'utf-8');
-const verifyDeployBatSource = await readFile(join('..', 'verify-deploy.bat'), 'utf-8');
-const smokeLiveBatSource = await readFile(join('..', 'smoke-live.bat'), 'utf-8');
-const smokeLiveSource = await readFile('run-live-smoke.mjs', 'utf-8');
+const serverSource = await readFile(join(REPO_ROOT, 'server', 'create-uemcp-server.mjs'), 'utf-8');
+const projectContextSource = await readFile(join(REPO_ROOT, 'server', 'project-context.mjs'), 'utf-8');
+const verifyDeploySource = await readFile(join(REPO_ROOT, 'server', 'verify-deploy.mjs'), 'utf-8');
+const verifyDeployBatSource = await readFile(join(REPO_ROOT, 'verify-deploy.bat'), 'utf-8');
+const smokeLiveBatSource = await readFile(join(REPO_ROOT, 'smoke-live.bat'), 'utf-8');
+const smokeLiveSource = await readFile(join(REPO_ROOT, 'server', 'run-live-smoke.mjs'), 'utf-8');
 
 const serverNeedles = [
   'refreshDeployReadinessForConnectionInfo',

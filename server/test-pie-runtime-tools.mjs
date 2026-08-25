@@ -2,8 +2,9 @@
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-pie-runtime-tools.mjs
 
+import { join } from 'node:path';
 import { ConnectionManager } from './connection-manager.mjs';
-import { FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
+import { REPO_ROOT, FakeTcpResponder, TestRunner, createTestConfig } from './test-helpers.mjs';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import {
@@ -32,7 +33,7 @@ console.log('\n── W-BP-PIE Schema Surface ──');
 
 {
   const defs = getMenhanceToolDefs();
-  const toolsYaml = load(readFileSync('../tools.yaml', 'utf-8'));
+  const toolsYaml = load(readFileSync(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
   const inputPieTools = toolsYaml.toolsets?.['input-and-pie']?.tools || {};
 
   t.assert(inputPieTools.get_pie_session_state !== undefined,
