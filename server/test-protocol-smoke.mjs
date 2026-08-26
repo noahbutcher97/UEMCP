@@ -94,7 +94,16 @@ function processIsAlive(pid) {
   t.assert(value === 'pinned' && pinDepth === 0, 'descriptor launch pin returns callback results and releases afterward');
 }
 
-async function waitForProcessExit(pid, timeoutMs = 2_000) {
+// Budget for the OS to reap a terminated process tree.
+//
+// The assertion this serves is "the tree IS gone", not "it went within N ms": a
+// genuinely leaked process never exits, so a generous budget still fails loudly
+// while a tight one fails on a busy machine. Two seconds was too tight — the
+// rotation runs 74 test files as concurrent subprocesses, and this flaked
+// repeatedly there while passing 4/4 standalone on the same idle machine.
+const PROCESS_REAP_BUDGET_MS = 10_000;
+
+async function waitForProcessExit(pid, timeoutMs = PROCESS_REAP_BUDGET_MS) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!processIsAlive(pid)) return true;
