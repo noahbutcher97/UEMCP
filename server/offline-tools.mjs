@@ -17,6 +17,7 @@ import {
   readAssetRegistryData,
   readExportProperties,
   makePackageIndexResolver,
+  formatFName,
   resolveLinkedToEdges,
 } from './uasset-parser.mjs';
 import {
@@ -2491,12 +2492,18 @@ const ENTRY_POINT_CLASSES = new Set([
   'K2Node_FunctionEntry',
 ]);
 
-// Canonical node name uses FName.Number suffix ("_0", "_1", ...) so duplicate
+// Canonical node name uses the FName Number suffix ("_0", "_1", ...) so duplicate
 // base names (9 × EdGraphNode_Comment) disambiguate. Matches UE's display.
+//
+// Formats from the BASE via the shared parser helper rather than re-appending a
+// suffix: readExportTable already returns a canonical objectName, so appending
+// here again would yield EdGraphNode_Comment_0_0. One helper, one convention.
 function canonicalNodeName(exportEntry) {
   if (!exportEntry) return null;
-  const n = exportEntry.objectNameNumber;
-  return n > 0 ? `${exportEntry.objectName}_${n - 1}` : exportEntry.objectName;
+  return formatFName(
+    exportEntry.objectNameBase ?? exportEntry.objectName,
+    exportEntry.objectNameNumber,
+  );
 }
 
 /**
@@ -2845,7 +2852,7 @@ async function bpSubgraphInComment(projectRoot, params) {
   } else {
     for (let i = 0; i < exports.length; i++) {
       const e = exports[i];
-      if (e.objectName === rawId || canonicalNodeName(e) === rawId) {
+      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
         commentExportIndex = i + 1;
         break;
       }
@@ -2990,7 +2997,7 @@ async function bpShowNode(projectRoot, params) {
   } else {
     for (let i = 0; i < exports.length; i++) {
       const e = exports[i];
-      if (e.objectName === rawId || canonicalNodeName(e) === rawId) {
+      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
         nodeExportIndex = i + 1;
         break;
       }
