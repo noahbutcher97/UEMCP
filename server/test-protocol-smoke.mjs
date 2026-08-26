@@ -96,14 +96,13 @@ function processIsAlive(pid) {
 
 // Budget for the OS to reap a terminated process tree.
 //
-// The assertion this serves is "the tree IS gone", not "it went within N ms": a
-// genuinely leaked process never exits, so a generous budget still fails loudly
-// while a tight one fails on a busy machine. Two seconds was too tight — the
-// rotation runs 74 test files as concurrent subprocesses, and this flaked
-// repeatedly there while passing 4/4 standalone on the same idle machine.
-const PROCESS_REAP_BUDGET_MS = 10_000;
-
-async function waitForProcessExit(pid, timeoutMs = PROCESS_REAP_BUDGET_MS) {
+// Two seconds is deliberate and sufficient. Measured directly: a descendant is
+// reaped in 0-1 ms when teardown works, and is STILL ALIVE at 60 s when it does
+// not — the outcome is bimodal, with nothing in between. So a failure here is
+// never "slow", it is a descendant that was never killed. Raising this budget
+// only delays the report of a real leak; see
+// docs/superpowers/specs/2026-08-25-descendant-teardown-leak.md.
+async function waitForProcessExit(pid, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!processIsAlive(pid)) return true;
