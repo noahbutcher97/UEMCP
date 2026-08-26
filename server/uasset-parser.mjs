@@ -574,19 +574,30 @@ export function readImportTable(cur, summary, names) {
   cur.seek(importOffset);
   const imports = new Array(importCount);
   for (let i = 0; i < importCount; i++) {
-    const classPackageIdx = cur.readInt32(); cur.skip(4);
-    const classNameIdx = cur.readInt32(); cur.skip(4);
+    // Each of these is a full FName: index THEN Number. The Number was
+    // previously skipped, which is what collapsed numbered references.
+    const classPackageIdx = cur.readInt32(); const classPackageNum = cur.readInt32();
+    const classNameIdx = cur.readInt32(); const classNameNum = cur.readInt32();
     const outerIndex = cur.readInt32();
-    const objectNameIdx = cur.readInt32(); cur.skip(4);
+    const objectNameIdx = cur.readInt32(); const objectNameNumber = cur.readInt32();
     let packageNameIdx = -1;
-    if (hasPackageName) { packageNameIdx = cur.readInt32(); cur.skip(4); }
+    let packageNameNumber = 0;
+    if (hasPackageName) { packageNameIdx = cur.readInt32(); packageNameNumber = cur.readInt32(); }
     const bImportOptional = ue5 >= UE5_OPTIONAL_RESOURCES ? cur.readInt32() : 0;
+    const objectNameBase = names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`;
+    const packageNameBase = packageNameIdx >= 0 ? (names?.[packageNameIdx] ?? null) : null;
     imports[i] = {
-      classPackage: names?.[classPackageIdx] ?? `[name ${classPackageIdx}]`,
-      className: names?.[classNameIdx] ?? `[name ${classNameIdx}]`,
+      classPackage: formatFName(names?.[classPackageIdx] ?? `[name ${classPackageIdx}]`, classPackageNum),
+      className: formatFName(names?.[classNameIdx] ?? `[name ${classNameIdx}]`, classNameNum),
       outerIndex,
-      objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
-      packageName: packageNameIdx >= 0 ? (names?.[packageNameIdx] ?? null) : null,
+      objectName: formatFName(objectNameBase, objectNameNumber),
+      packageName: packageNameBase === null ? null : formatFName(packageNameBase, packageNameNumber),
+      // Raw halves kept additively: callers matching on the unsuffixed base
+      // keep working, and nothing has to re-derive the Number.
+      objectNameBase,
+      objectNameNumber,
+      packageNameBase,
+      packageNameNumber,
       bImportOptional: !!bImportOptional,
     };
   }
@@ -706,7 +717,8 @@ export function readExportTable(cur, summary, names) {
 
     const entry = {
       classIndex, superIndex, templateIndex, outerIndex,
-      objectName: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
+      objectName: formatFName(names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`, objectNameNumber),
+      objectNameBase: names?.[objectNameIdx] ?? `[name ${objectNameIdx}]`,
       objectNameNumber, objectFlags,
       serialSize, serialOffset,
       bForcedExport: !!bForcedExport,
@@ -814,12 +826,30 @@ export const PTAG_SKIPPED_SERIALIZE     = 0x20;
  * @param {string[]} names
  * @returns {string}  resolved name (with `_N-1` suffix when number > 0)
  */
+/**
+ * Render an FName the way Unreal does.
+ *
+ * An FName is (name-table index, Number). Number 0 means the bare base;
+ * Number N>0 renders as `Base_<N-1>`. Dropping the Number collapses
+ * `Thing_1` and `Thing_2` onto `Thing`, which makes valid numbered assets
+ * look like repeated references to an asset that does not exist.
+ *
+ * Single home for the convention so the import, export and tagged-property
+ * paths cannot drift apart.
+ *
+ * @param {string} base name-table entry
+ * @param {number} number raw serialized Number field
+ * @returns {string}
+ */
+export function formatFName(base, number) {
+  return Number(number) > 0 ? `${base}_${Number(number) - 1}` : base;
+}
+
 export function readFNameAtCursor(cur, names) {
   const idx = cur.readInt32();
   const num = cur.readInt32();
   if (idx < 0 || idx >= names.length) return `[bad-fname-idx=${idx}]`;
-  const base = names[idx];
-  return num > 0 ? `${base}_${num - 1}` : base;
+  return formatFName(names[idx], num);
 }
 
 /**

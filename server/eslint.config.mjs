@@ -20,6 +20,8 @@
 //   - run-live-smoke.mjs, live-smoke-*.mjs — opt-in live-editor smoke CLI scripts
 //   - oracle-freshness.mjs, rotation-oracle-freshness.mjs — only imported by
 //     run-rotation.mjs and test-*.mjs; never reached from the MCP server path
+//   - write-mcp-config.mjs            — .mcp.json render/merge CLI run by
+//     setup-uemcp.bat; imported only by its own test, never from the server path
 const CLI_ONLY_GLOBS = [
   'test-*.mjs',
   'run-rotation.mjs',
@@ -31,6 +33,7 @@ const CLI_ONLY_GLOBS = [
   'live-smoke-*.mjs',
   'oracle-freshness.mjs',
   'rotation-oracle-freshness.mjs',
+  'write-mcp-config.mjs',
 ];
 
 export default [

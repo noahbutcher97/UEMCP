@@ -33,6 +33,8 @@ import {
   UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS,
   UE4_TEMPLATE_INDEX_IN_COOKED_EXPORTS,
   UE4_64BIT_EXPORTMAP_SERIALSIZES,
+  UE4_NON_OUTER_PACKAGE_IMPORT,
+  PKG_FILTER_EDITOR_ONLY,
   PKG_UNVERSIONED_PROPERTIES,
 } from './uasset-parser.mjs';
 import {
@@ -1500,8 +1502,12 @@ async function testExpressionInputOnStylizedBasic() {
   // BaseColor is FColorMaterialInput with FLinearColor(0.5, 0.5, 0.5, 1)
   // connected to MaterialExpressionNamedRerouteUsage[24] (hand-trace).
   const bc = r.properties.BaseColor;
-  runner.assert(bc && bc.expression && bc.expression.objectName === 'MaterialExpressionNamedRerouteUsage',
-                'ExprInput: BaseColor.Expression resolves to MaterialExpressionNamedRerouteUsage export',
+  // This material holds SEVEN MaterialExpressionNamedRerouteUsage exports whose
+  // FName Numbers run 1..7, i.e. _0.._6. They previously all decoded to the same
+  // bare string, so this assertion was pinning the collapsed name and could not
+  // have told the seven apart. Index 24 is the _0 one.
+  runner.assert(bc && bc.expression && bc.expression.objectName === 'MaterialExpressionNamedRerouteUsage_0',
+                'ExprInput: BaseColor.Expression resolves to the _0 NamedRerouteUsage export',
                 `got=${JSON.stringify(bc?.expression)}`);
   runner.assert(bc && bc.constant && Math.abs(bc.constant.r - 0.5019608) < 1e-4
                 && Math.abs(bc.constant.a - 1) < 1e-6,
@@ -2437,7 +2443,9 @@ function testExportTableVersionGates() {
     const [a, b] = decoded;
     runner.assert(a.serialOffset === rows[0].serialOffset && b.serialOffset === rows[1].serialOffset,
       `${c.label}: serial offsets survive the version stride`);
-    runner.assert(b.objectName === 'ExportZero' || b.objectName === 'ExportOne',
+    // Assert on the BASE: names are now canonically suffixed from their FName
+    // Number, and this assertion is about stride integrity, not naming.
+    runner.assert(b.objectNameBase === 'ExportZero' || b.objectNameBase === 'ExportOne',
       `${c.label}: second export resolves a real name (stride intact)`);
     runner.assert(a.classIndex === rows[0].classIndex && b.classIndex === rows[1].classIndex,
       `${c.label}: class indices round-trip`);
@@ -2473,6 +2481,165 @@ function testExportTableVersionGates() {
     'version mismatch desyncs export[1] (guards against a no-op gate regression)');
 }
 
+
+// ── FName Number preservation on imports (numbered-reference decode) ──
+//
+// Unreal stores an FName as (nameIndex, Number) where Number 0 means the bare
+// base and Number N>0 renders as `Base_<N-1>`. readImportTable skipped every
+// Number field, so `DA_Punch_StanceA_FollowUp_1` and `..._2` both decoded to
+// the unsuffixed base — making valid numbered assets look like duplicate
+// references to a nonexistent asset. Live Unreal resolves all of them.
+//
+// Encoder mirrors operator<<(FSlot, FObjectImport&) in ObjectResource.cpp.
+function encodeSyntheticImportTable({ ue4 = 522, ue5 = 1018, packageFlags = 0, rows }) {
+  const chunks = [];
+  const i32 = (v) => { const b = Buffer.alloc(4); b.writeInt32LE(v); chunks.push(b); };
+  const fname = (idx, num) => { i32(idx); i32(num); };
+  const hasPackageName = ue4 >= UE4_NON_OUTER_PACKAGE_IMPORT
+    && ((packageFlags & PKG_FILTER_EDITOR_ONLY) === 0);
+  for (const r of rows) {
+    fname(r.classPackageIdx ?? 0, r.classPackageNum ?? 0);
+    fname(r.classNameIdx ?? 0, r.classNameNum ?? 0);
+    i32(r.outerIndex ?? 0);
+    fname(r.objectNameIdx, r.objectNameNum ?? 0);
+    if (hasPackageName) fname(r.packageNameIdx ?? 0, r.packageNameNum ?? 0);
+    if (ue5 >= UE5_OPTIONAL_RESOURCES) i32(r.bImportOptional ? 1 : 0);
+  }
+  return Buffer.concat(chunks);
+}
+
+function decodeSyntheticImports({ names, rows, ue4 = 522, ue5 = 1018, packageFlags = 0 }) {
+  const buf = encodeSyntheticImportTable({ ue4, ue5, packageFlags, rows });
+  const summary = {
+    importOffset: 0, importCount: rows.length,
+    fileVersionUE4: ue4, fileVersionUE5: ue5, packageFlags,
+  };
+  return readImportTable(new Cursor(buf), summary, names);
+}
+
+function testImportFNameNumbers() {
+  const names = ['Script', 'DataAsset', 'Example', '/Game/Things', 'Other'];
+
+  // (1)(2)(3) The Number-1 convention, at the three values that matter.
+  {
+    const imports = decodeSyntheticImports({
+      names,
+      rows: [
+        { objectNameIdx: 2, objectNameNum: 0 },
+        { objectNameIdx: 2, objectNameNum: 2 },
+        { objectNameIdx: 2, objectNameNum: 3 },
+      ],
+    });
+    runner.assert(imports[0].objectName === 'Example',
+      `import Number 0 stays bare (got ${imports[0].objectName})`);
+    runner.assert(imports[1].objectName === 'Example_1',
+      `import raw Number 2 renders _1 (got ${imports[1].objectName})`);
+    runner.assert(imports[2].objectName === 'Example_2',
+      `import raw Number 3 renders _2 (got ${imports[2].objectName})`);
+
+    // (4) Distinctness is the actual defect: these collapsed into one name.
+    const distinct = new Set(imports.map(i => i.objectName));
+    runner.assert(distinct.size === 3,
+      `imports sharing a base stay distinct (got ${distinct.size} of 3)`);
+
+    // Raw fields remain available so callers depending on the base do not break.
+    runner.assert(imports[1].objectNameBase === 'Example' && imports[1].objectNameNumber === 2,
+      'raw base and Number are preserved alongside the canonical name');
+  }
+
+  // (5)(6) The outer chain and packagePath must carry suffixes too: a numbered
+  // object under a numbered package previously lost both halves.
+  {
+    const imports = decodeSyntheticImports({
+      names,
+      rows: [
+        { objectNameIdx: 3, objectNameNum: 0, outerIndex: 0 },              // package
+        { objectNameIdx: 2, objectNameNum: 2, outerIndex: -1 },             // Example_1 under it
+        { objectNameIdx: 3, objectNameNum: 2, outerIndex: 0 },              // /Game/Things_1
+        { objectNameIdx: 2, objectNameNum: 3, outerIndex: -3 },             // Example_2 under that
+      ],
+    });
+    const resolve = makePackageIndexResolver([], imports);
+
+    const first = resolve(-2);
+    runner.assert(first.objectName === 'Example_1',
+      `resolved import objectName keeps its suffix (got ${first.objectName})`);
+    runner.assert(first.packagePath === '/Game/Things.Example_1',
+      `packagePath keeps the object suffix (got ${first.packagePath})`);
+
+    const second = resolve(-4);
+    runner.assert(second.packagePath === '/Game/Things_1.Example_2',
+      `outer-chain walk keeps suffixes on BOTH halves (got ${second.packagePath})`);
+    runner.assert(first.packagePath !== second.packagePath,
+      'numbered references resolve to distinct package paths');
+  }
+
+  // (7) Unnumbered imports and exports are untouched by the change.
+  {
+    const imports = decodeSyntheticImports({
+      names,
+      rows: [{ objectNameIdx: 2, objectNameNum: 0, classNameIdx: 1, classPackageIdx: 0, packageNameIdx: 3 }],
+    });
+    runner.assert(imports[0].objectName === 'Example'
+      && imports[0].className === 'DataAsset'
+      && imports[0].classPackage === 'Script'
+      && imports[0].packageName === '/Game/Things',
+      'unnumbered import fields are unchanged');
+
+    const rows = [makeExportRow(1)];
+    rows[0].objectNameIdx = 0;
+    rows[0].objectNameNumber = 0;
+    const buf = encodeSyntheticExportTable({ ue4: 522, ue5: 1018, rows });
+    const exp = readExportTable(new Cursor(buf),
+      { exportOffset: 0, exportCount: 1, fileVersionUE4: 522, fileVersionUE5: 1018, packageFlags: 0 },
+      ['ExportZero', 'ExportOne']);
+    runner.assert(exp[0].objectName === 'ExportZero',
+      `unnumbered export name unchanged (got ${exp[0].objectName})`);
+  }
+
+  // Exports share the helper, so a numbered export renders the same way rather
+  // than drifting from imports.
+  {
+    const rows = [makeExportRow(1)];
+    rows[0].objectNameIdx = 0;
+    rows[0].objectNameNumber = 3;
+    const buf = encodeSyntheticExportTable({ ue4: 522, ue5: 1018, rows });
+    const exp = readExportTable(new Cursor(buf),
+      { exportOffset: 0, exportCount: 1, fileVersionUE4: 522, fileVersionUE5: 1018, packageFlags: 0 },
+      ['ExportZero', 'ExportOne']);
+    runner.assert(exp[0].objectName === 'ExportZero_2',
+      `numbered export uses the same convention (got ${exp[0].objectName})`);
+    runner.assert(exp[0].objectNameBase === 'ExportZero' && exp[0].objectNameNumber === 3,
+      'export raw base and Number remain available');
+  }
+}
+
+// Tool-level witness for the numbered-reference fix. Gated on a project that
+// actually contains a numbered-reference asset: findContentAsset returns null
+// against the text fixture and any project without it, so this skips with a
+// label rather than failing (D188 discovery pattern).
+async function testNumberedReferencesThroughReadAssetProperties() {
+  const probe = await findContentAsset(ROOT, 'DA_AttackSet_Basic.uasset');
+  if (!probe) {
+    console.log('  · skipped numbered-reference tool check (DA_AttackSet_Basic not in this project)');
+    return;
+  }
+  const { executeOfflineTool } = await import('./offline-tools.mjs');
+  const res = await executeOfflineTool('read_asset_properties', { asset_path: probe.gamePath }, ROOT);
+  const text = JSON.stringify(res);
+  const refs = [...text.matchAll(/DA_Punch_Stance[AB]_FollowUp(?:_[0-9]+)?/g)].map(m => m[0]);
+  const uniq = [...new Set(refs)];
+  if (refs.length === 0) {
+    console.log('  · skipped numbered-reference tool check (asset no longer references those templates)');
+    return;
+  }
+  runner.assert(uniq.length === 4,
+    `read_asset_properties reports four distinct numbered references (got ${uniq.length}: ${uniq.join(', ')})`);
+  const unsuffixed = uniq.filter(u => !/_[0-9]+$/.test(u));
+  runner.assert(unsuffixed.length === 0,
+    `no reference collapses to its unsuffixed base (got ${unsuffixed.join(', ') || 'none'})`);
+}
+
 async function main() {
   await testFootstepFixture();
   await testLevelMap();
@@ -2503,6 +2670,8 @@ async function main() {
   testTruncated();
   testVersionSummaryDelta();
   testExportTableVersionGates();
+  testImportFNameNumbers();
+  await testNumberedReferencesThroughReadAssetProperties();
   await testPinBlockOffsetCP1();
   await testPinBodyParseCP2();
   testPinDefaultLiteralSynthetic();
