@@ -53,9 +53,59 @@ The affected path is deployment protocol smoke, which spawns candidate MCP serve
 
 Nothing in normal UEMCP tool use spawns detached grandchildren, so the blast radius is the deployment tooling rather than the editor transport.
 
+## Measured: the two obvious cheap fixes do not work
+
+Both were tried and rejected on evidence, so nobody repeats them.
+
+### Widening the wait budget — rejected
+
+Raised 2 s to 10 s. The failure recurred. Obvious in hindsight given the bimodal
+result: no budget helps a process that never exits, and a longer one only delays
+the report. Reverted.
+
+### Removing the aliveness guard — rejected
+
+`close()` skips `_terminateTree` when the direct child has already exited:
+
+```js
+if (child.exitCode === null && child.signalCode === null) {
+  await this._terminateTree(child);
+}
+```
+
+That looks exactly like the bug — the detached descendant outlives its parent, so
+skipping termination because the parent is gone is backwards. Removing the guard
+is defensible in principle.
+
+It changes nothing in practice:
+
+| Configuration | Leak rate |
+|---|---|
+| Guard present (shipped) | 4 / 12 = 33% |
+| Guard removed, n=12 | 1 / 12 = 8% |
+| Guard removed, n=24 | **8 / 24 = 33%**, split evenly 4 EOF / 4 hang |
+
+The 1-in-12 was small-sample luck. At n=24 the rate is identical to shipped. The
+change also costs a `taskkill.exe` spawn on every close, including the common
+case of a child that exited cleanly. No benefit, nonzero cost — **reverted**.
+
+**Sample twenty or more runs before believing any result here.** A third of runs
+already pass while leaking, so a short clean streak means nothing.
+
+### Why neither works
+
+The dominant race is not the guard. `taskkill /T` is itself a spawned process,
+tens of milliseconds from decision to enumeration. If the child exits inside that
+window, there is no parent left to enumerate children from, and the detached
+grandchild is unreachable — regardless of what the calling code checked first.
+
+That race cannot be won from userland. It can only be removed by making
+descendant termination something the OS guarantees rather than something the code
+races for, which is what option B does.
+
 ## Fix options
 
-**A — Kill the tree before closing stdin.** Reorder teardown so `taskkill /T` runs while the direct child is still alive and its children are still enumerable. Smallest change; narrows but does not eliminate the race, since the child may exit on its own at any moment.
+**A — Reorder or unguard the kill.** Measured above and rejected: it narrows nothing meaningful, because the race is `taskkill`'s own spawn latency rather than the ordering of the call.
 
 **B — Job object (recommended).** Assign the child to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The OS then guarantees every descendant dies with the job, regardless of detachment or exit ordering. This is the mechanism Windows provides for exactly this problem, and it removes the race rather than shrinking it. Cost: a native binding or a helper, since Node does not expose job objects directly.
 
