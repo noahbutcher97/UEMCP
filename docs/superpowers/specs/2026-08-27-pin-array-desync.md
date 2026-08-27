@@ -71,15 +71,66 @@ The distinguishing feature of the failing pin is a **non-empty `PinFriendlyName`
 carrying FText HistoryType 0 (Base)**. Every clean pin examined had the empty
 `history=-1` form.
 
-The drift is small. At the point of failure the parser reads
-`DefaultTextValue` at 147952 and gets a bogus FString length of 65280. The raw
-bytes place `0xff` at 147958, and a coherent reading — `flags=0` at 147954,
-`history=0xff=-1` at 147958, `hasInv=0`, empty text — puts the true field start at
-**147954**. That is a **2-byte** drift, not the 4 that a missing int32 would give.
+At the point of failure the parser reads `DefaultTextValue` at 147952 and gets a
+bogus FString length of 65280 (`0x0000FF00`) — a length int32 straddling a `0xff`
+byte. That 65280 recurs across hundreds of failures, so the misread has a
+consistent shape.
 
-Two bytes is the interesting part: nearly every field here is 4-byte aligned, so
-a 2-byte error points at a character-count-versus-byte-count confusion somewhere
-in the Base-history read, not at a missing or extra field.
+**Treat the exact drift size as unknown.** A first reading of these bytes
+suggested 2, and a later offset search suggested 1; the second was disproved (see
+below) and the first was never independently confirmed. Both were inferences from
+a single sample.
+
+## Second pass — what a falsification test added
+
+The Base-history hypothesis was tested by trying to **disprove** it: count pins
+with a Base-history `PinFriendlyName` that parse *cleanly*. It survived, but only
+in a refined form, and the refinement matters:
+
+| Group | history = -1 | history = 0 (Base) |
+|---|---|---|
+| Pins in clean nodes (n=78,481) | 62,039 (79%) | **16,442 (21%)** |
+| The pin that dies (n=1,528) | 0 | **1,528 (100%)** |
+
+So Base history is **necessary but not sufficient**: every failure is a
+Base-history pin, yet only ~8.5% of Base-history pins fail. Something inside that
+read varies. String encoding is not it — Namespace/Key/SourceString are ANSI in
+100% of both groups.
+
+**The mirror decoder fails identically to the parser** (1,628 of 1,628 failing
+nodes). That rules out a parser implementation quirk: this is a format gap, and
+re-reading our own code will not find it.
+
+### A real, separate gap found here
+
+60 failing nodes die on `unsupported history 1` — FText **NamedFormat** history.
+Neither the parser nor the mirror implements it; only -1 (None) and 0 (Base) are
+handled. That is a genuine hole worth its own fix, though it is not the dominant
+failure (the ~65280-byte truncation is).
+
+### A lead that was disconfirmed — do not re-run it
+
+Shifting the pin-array start by +1 byte appeared to make 1,601 of 1,628 failing
+nodes decode, which looked like a 1-byte under-consumption of the tagged-property
+stream. **It is a false positive.** `decodePin` returns early when `bNullPtr` is
+non-zero, consuming only 4 bytes, so a misaligned stream "decodes" as a long run
+of null pins and never throws. The success criterion — landing inside the export
+— was satisfied without a single real pin being read.
+
+Dumping the property boundary disconfirms it directly: failing and clean nodes
+look identical there (`sentinel=0`, sane `arrayCount`), and a +1 shift makes the
+count read as 0.
+
+**If you write another offset search, the success criterion must be that the
+decoded pins are non-null AND the cursor lands exactly on the export end** — not
+merely that nothing threw.
+
+### Where that leaves the search
+
+The pin-array start is correct, so the desync begins **inside a pin body**,
+after pin 0 parses correctly. Combined with the census, the target is the
+Base-history FText read specifically, in the ~8.5% of cases that differ from the
+other 91.5%.
 
 ## Next step
 
