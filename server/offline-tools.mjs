@@ -4,7 +4,7 @@
 // They parse .uproject, .ini, .uasset headers, .h/.cpp source, etc.
 // No TCP or HTTP connections needed.
 
-import { engineAssetDiskPath } from './engine-fixtures.mjs';
+import { getMountTable, resolveMountedAssetPath } from './content-mounts.mjs';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 import { join, extname, basename, relative, resolve as pathResolve } from 'node:path';
 
@@ -412,18 +412,31 @@ export function resolveAssetDiskPath(projectRoot, assetPath, { engineRoot, env =
     if (!diskPath.endsWith('.uasset') && !diskPath.endsWith('.umap')) {
       diskPath += '.uasset';
     }
-  } else if (assetPath.startsWith('/Engine/')) {
-    // /Engine/ is a real mount, not a project-relative path — resolving it
-    // against projectRoot would silently point at the project's drive root.
+  } else if (assetPath.startsWith('/')) {
+    // Any other leading-slash path is a MOUNT POINT, not a project-relative
+    // path: /Engine/, and one root per plugin (/Niagara/, /ChaosNiagara/).
+    // Resolving those against projectRoot would silently point at the project's
+    // drive root. The mount name hides where a plugin lives on disk — /Niagara/
+    // is at Engine/Plugins/FX/Niagara/Content — so the table is discovered,
+    // never computed.
     //
     // The engine must be named explicitly, never guessed. Several engine
     // versions are typically installed side by side and they ship DIFFERENT
-    // bytes at the same /Engine/ path, so picking "the newest installed" reads
-    // the wrong asset and reports success. Declining here surfaces as
-    // asset_not_found via the caller's existence check, which is recoverable;
-    // silently correct-looking wrong data is not.
+    // bytes at the same path, so picking "the newest installed" reads the wrong
+    // asset and reports success. Declining surfaces as asset_not_found via the
+    // caller's existence check, which is recoverable; silently correct-looking
+    // wrong data is not.
     const root = engineRoot === undefined ? (env.UE_ENGINE_ROOT || null) : engineRoot;
-    diskPath = root ? engineAssetDiskPath(root, assetPath) : null;
+    const mounted = resolveMountedAssetPath(getMountTable({ engineRoot: root, projectRoot }), assetPath);
+    if (mounted) {
+      diskPath = mounted;
+    } else if (assetPath.startsWith('/Engine/')) {
+      diskPath = null; // engine mount requested with no engine named
+    } else {
+      // Not a mount we know. Preserve the legacy relative interpretation rather
+      // than failing a path shape that used to work.
+      diskPath = resolve(projectRoot, assetPath);
+    }
   } else {
     diskPath = resolve(projectRoot, assetPath);
   }

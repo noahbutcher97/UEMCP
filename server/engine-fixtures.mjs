@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getMountTable, resolveMountedAssetPath } from './content-mounts.mjs';
 
 const ENGINE_MOUNT = '/Engine/';
 
@@ -25,23 +26,27 @@ function defaultExists(path) {
 }
 
 /**
- * Map an /Engine/ asset path to its file on disk.
+ * Map an engine-side asset path to its file on disk.
  *
  * Unlike a project asset — which findContentAsset() has to search for, because
  * project content moves — engine content sits at a fixed location for a given
- * install, so this is a pure path rule with nothing to discover.
+ * install. `/Engine/` is a plain rule, but plugin mounts are not: `/Niagara/`
+ * lives at `Engine/Plugins/FX/Niagara/Content` and the `FX/` segment cannot be
+ * derived from the mount name, so both go through the discovered mount table.
  *
  * @param {string} engineRoot — install root, the directory CONTAINING Engine/
- * @param {string} enginePath — e.g. '/Engine/EngineSky/BP_Sky_Sphere'
- * @returns {string|null} null when either argument is unusable or the path is
- *   not under the /Engine/ mount.
+ * @param {string} enginePath — e.g. '/Engine/EngineSky/BP_Sky_Sphere' or
+ *   '/Niagara/Modules/Spawn/InitializeParticle'
+ * @returns {string|null} null when either argument is unusable or the path names
+ *   a mount this install does not have.
  */
 export function engineAssetDiskPath(engineRoot, enginePath) {
   if (typeof engineRoot !== 'string' || !engineRoot) return null;
-  if (typeof enginePath !== 'string' || !enginePath.startsWith(ENGINE_MOUNT)) return null;
-  const rel = enginePath.slice(ENGINE_MOUNT.length);
-  if (!rel) return null;
-  return join(engineRoot, 'Engine', 'Content', `${rel}.uasset`);
+  if (typeof enginePath !== 'string' || !enginePath.startsWith('/')) return null;
+  // Goes through the mount table rather than assuming Engine/Content, so a
+  // fixture can live in a plugin — Niagara and ControlRig oracles do. An
+  // /Engine/ path still resolves exactly as before.
+  return resolveMountedAssetPath(getMountTable({ engineRoot }), enginePath);
 }
 
 /**

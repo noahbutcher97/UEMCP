@@ -70,7 +70,7 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7462 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 75 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7511 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -379,7 +379,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7462 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 75 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7511 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 
@@ -415,6 +415,17 @@ went from 3 to 32 project-less assertions and CP1 from 235 to 245.
 pin to the engine their oracle was dumped from (5.6) via
 `resolveEngineRoot({preferVersion})`; a mismatch is a labeled skip, never a
 failure. No engine installed → skip, same as no project.
+
+**Content mounts are discovered, not computed (D195).** UE addresses content by
+mount point — `/Game/`, `/Engine/`, and one root per plugin are siblings in a
+virtual namespace, and the mount name hides the disk layout: `/Niagara/` lives at
+`Engine/Plugins/FX/Niagara/Content`, and `FX/` is not derivable from `Niagara`.
+`server/content-mounts.mjs` walks `**/*.uplugin` to build the table (project
+plugins shadow engine ones, per UE precedence; a plugin with no `Content/` mounts
+nothing) and caches it — 146 ms cold on a real install for 402 mounts, then free.
+Both `resolveAssetDiskPath` and `engineAssetDiskPath` consult it, so plugin-mounted
+assets are readable offline and plugin-mounted oracles resolve. `/Game/` keeps its
+fast path; an unknown mount declines rather than guessing.
 
 **`/Engine/` reads must name the engine.** `resolveAssetDiskPath` resolves
 `/Engine/...` only from an explicit `engineRoot` argument or `UE_ENGINE_ROOT`, and
