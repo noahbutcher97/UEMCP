@@ -1247,6 +1247,32 @@ function dispatchPropertyValue(cur, tag, names, opts) {
 //   Engine/Source/Runtime/Engine/Private/EdGraph/EdGraphPin.cpp
 //     ::SerializePinArray, ::SerializePin, ::Serialize
 
+// FUE5MainStreamObjectVersion's GUID, byte-swapped per uint32 the way the
+// custom-version table stores it: 697DD581-E64F41AB-AA4A51EC-BEB7B628.
+const UE5_MAINSTREAM_VERSION_KEY = '81d57d69ab414fe6ec514aaa28b6b7be';
+
+// FUE5MainStreamObjectVersion::EdGraphPinSourceIndex — the version that added
+// int32 SourceIndex to FEdGraphPin. UE5MainStreamObjectVersions.inl:161.
+const EDGRAPH_PIN_SOURCE_INDEX_VERSION = 50;
+
+/**
+ * Which optional fields does this package's pin layout contain?
+ *
+ * `UEdGraphPin::Serialize` gates `SourceIndex` on a CUSTOM version, not on the
+ * package's UE5 version, so the answer varies per package inside one engine —
+ * a 5.8 install ships plenty of content saved long before the gate. UE reads a
+ * missing custom version as -1, so a package with no entry for the GUID
+ * predates the field and must NOT be given the skip.
+ *
+ * @param {{customVersions?: Array<{key: string, version: number}>}} summary
+ * @returns {{hasSourceIndex: boolean}}
+ */
+export function pinBlockLayoutForPackage(summary) {
+  const entry = (summary?.customVersions ?? []).find(v => v.key === UE5_MAINSTREAM_VERSION_KEY);
+  const version = Number.isFinite(entry?.version) ? entry.version : -1;
+  return { hasSourceIndex: version >= EDGRAPH_PIN_SOURCE_INDEX_VERSION };
+}
+
 // The anim state-machine node classes. A closed set rather than a prefix,
 // because "AnimState" is not a reliable marker on its own and this family is
 // small and stable. All derive from UAnimStateNodeBase : UEdGraphNode, except
@@ -1434,9 +1460,13 @@ function readPinBody(cur, names, exportEnd, opts = {}) {
   const pin_name = readFNameAtCursor(cur, names);
   // FText PinFriendlyName.
   skipFText(cur);
-  // int32 SourceIndex (always present in UE 5.6 due to EdGraphPinSourceIndex
-  // custom version gate at FUE5MainStreamObjectVersion >= EdGraphPinSourceIndex).
-  cur.skip(4);
+  // int32 SourceIndex — present only when the PACKAGE says so. See
+  // pinBlockLayoutForPackage: skipping it unconditionally eats 4 bytes of the
+  // next field on any package saved before the gate, and every later pin
+  // desyncs.
+  if (opts.hasSourceIndex !== false) {
+    cur.skip(4);
+  }
   // FString PinToolTip.
   skipFString(cur);
   // uint8 Direction.

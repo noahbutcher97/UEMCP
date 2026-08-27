@@ -20,6 +20,7 @@ import {
   readTaggedPropertyStream,
   makePackageIndexResolver,
   isGraphNodeExportClass,
+  pinBlockLayoutForPackage,
   parsePinBlock,
   PACKAGE_FILE_TAG,
   UE5_PACKAGE_SAVED_HASH,
@@ -2271,7 +2272,7 @@ async function testPinBlockOffsetCP1() {
     const imports = readImportTable(cur, s, names);
     const exports = readExportTable(cur, s, names);
     const resolver = makePackageIndexResolver(exports, imports);
-    const parseOpts = { resolve: resolver, structHandlers: buildStructHandlers() };
+    const parseOpts = { resolve: resolver, structHandlers: buildStructHandlers(), ...pinBlockLayoutForPackage(s) };
 
     const oracleByGuid = new Map();
     for (const [graphName, graph] of Object.entries(oracle.graphs)) {
@@ -2355,6 +2356,28 @@ async function testPinBlockOffsetCP1() {
     'CP1/predicate: U-prefixed class does NOT match (UE strips prefix at serialization — D63)');
   runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
     'CP1/predicate: non-graph-node classes rejected');
+
+  // FEdGraphPin's int32 SourceIndex is gated on
+  // FUE5MainStreamObjectVersion >= EdGraphPinSourceIndex (50), but the parser
+  // skipped 4 bytes unconditionally. Packages saved before that version do not
+  // carry the field, so the skip consumed 4 bytes of the NEXT field and every
+  // pin after it desynced. Measured across UE 5.8 engine plugins: below-gate
+  // packages were 0 clean / 885 malformed — 100%.
+  //
+  // A package with no entry for the GUID predates the version entirely (UE
+  // treats a missing custom version as -1), which is why absent must mean
+  // "no SourceIndex" rather than defaulting to present.
+  {
+    const has = v => pinBlockLayoutForPackage({ customVersions: [{ key: '81d57d69ab414fe6ec514aaa28b6b7be', version: v }] }).hasSourceIndex;
+    runner.assert(has(50) === true, 'pin layout: SourceIndex present exactly at the gate version (50)');
+    runner.assert(has(123) === true, 'pin layout: SourceIndex present above the gate');
+    runner.assert(has(49) === false, 'pin layout: SourceIndex absent one below the gate');
+    runner.assert(has(24) === false, 'pin layout: SourceIndex absent far below the gate');
+    runner.assert(pinBlockLayoutForPackage({ customVersions: [] }).hasSourceIndex === false,
+      'pin layout: a package with no MainStream custom version predates SourceIndex');
+    runner.assert(pinBlockLayoutForPackage({}).hasSourceIndex === false,
+      'pin layout: a summary with no customVersions array is treated as predating it');
+  }
 
   // AnimGraph families. UAnimGraphNode_Base derives from UK2Node and
   // UAnimStateNodeBase from UEdGraphNode, so both serialize the same Pins

@@ -18,6 +18,7 @@ import {
   readAssetRegistryData,
   readExportProperties,
   makePackageIndexResolver,
+  pinBlockLayoutForPackage,
   formatFName,
   resolveLinkedToEdges,
 } from './uasset-parser.mjs';
@@ -3144,9 +3145,12 @@ export function withAssetExistenceCheck(handler) {
  * already paid the parse cost (e.g., `bp_show_node` sharing its own ctx).
  */
 function extractBPEdgeTopologyFromCtx(ctx, assetPath) {
-  const { buf, names, imports, exports, resolve, structHandlers, containerHandlers } = ctx;
+  const { buf, names, imports, exports, summary, resolve, structHandlers, containerHandlers } = ctx;
+  // The pin layout varies PER PACKAGE, not per engine — SourceIndex is gated on
+  // a custom version, so one install holds packages on both sides of it.
   const topology = resolveLinkedToEdges(buf, exports, imports, names, {
     resolve, structHandlers, containerHandlers,
+    ...pinBlockLayoutForPackage(summary),
   });
   return {
     schema_version: topology.schema_version,
