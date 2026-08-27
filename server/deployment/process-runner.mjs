@@ -18,6 +18,17 @@ function elapsed(clock, started) {
   return Math.max(0, Number(clock()) - started);
 }
 
+// Bounds a HUNG taskkill, not a slow one. Deliberately far above any plausible
+// runtime, because timing out is strictly worse than waiting: on timeout we kill
+// taskkill mid-flight and fall back to signalling the direct child, which cannot
+// reach a detached descendant. Aborting the tree kill is what leaks.
+//
+// Measured on one machine: taskkill costs 0-1ms idle but 3.1-5.0s under heavy
+// build load -- straddling the previous 5s bound, which is how a load-dependent
+// leak hid as a flaky test. Do not retune this toward observed-typical runtime;
+// typical is not the case it exists for.
+export const DEFAULT_TREE_KILL_TIMEOUT_MS = 30_000;
+
 function killDirectChild(child, signal) {
   try {
     child.kill(signal);
@@ -31,13 +42,7 @@ export async function terminateProcessTree(child, {
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   signal = 'SIGKILL',
-  // Bounds a HUNG taskkill, not a normal one. Sized well above the slowest
-  // observed run because giving up early is worse than waiting: the fallback
-  // reaches only the direct child, so a premature timeout leaks any detached
-  // descendant permanently. On the machine that surfaced this, taskkill cost
-  // 3.1-5.0s doing nothing at all, straddling the previous 5s bound and
-  // leaking on a third of runs.
-  timeoutMs = 30_000,
+  timeoutMs = DEFAULT_TREE_KILL_TIMEOUT_MS,
 } = {}) {
   if (!Number.isSafeInteger(child?.pid) || child.pid <= 0) return;
   if (typeof spawnImpl !== 'function' || typeof signal !== 'string'

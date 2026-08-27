@@ -45,7 +45,7 @@ import { canonicalJson, sha256Bytes, sha256Canonical } from './deployment/canoni
 import { fingerprintDirectory, fingerprintPath } from './deployment/fingerprints.mjs';
 import { withPinnedClientLaunch } from './deployment/client-process.mjs';
 import { assertNoSecretCanaries, redactSecrets } from './deployment/redaction.mjs';
-import { createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
+import { DEFAULT_TREE_KILL_TIMEOUT_MS, createProcessRunner, terminateProcessTree } from './deployment/process-runner.mjs';
 import {
   WINDOWS_NATIVE_SCRIPTS,
   deleteWindowsTreeNoFollow,
@@ -635,6 +635,39 @@ async function rejectsCode(fn, code) {
     },
   });
   t.assert(invalidSpawned === false, 'invalid child identity never reaches taskkill');
+
+  // The teardown budget bounds a HUNG taskkill, not a slow one, and timing out
+  // is strictly worse than waiting: the fallback signals only the direct child
+  // and cannot reach a detached descendant. taskkill measured 0-1ms idle and
+  // 3.1-5.0s under heavy build load on one machine, so a bound anywhere near
+  // typical runtime produces a leak that appears only under load -- which is
+  // exactly when the smoke runs in CI. Pinned so it is not retuned toward
+  // typical.
+  t.assert(DEFAULT_TREE_KILL_TIMEOUT_MS >= 20_000,
+    `tree-kill budget stays far above observed taskkill runtime (got ${DEFAULT_TREE_KILL_TIMEOUT_MS}ms)`);
+
+  // A slow-but-successful taskkill must complete through the tree path. This is
+  // the actual defect: the old budget could expire mid-flight, and the fallback
+  // it chose was weaker than the call it abandoned.
+  {
+    const slowSignals = [];
+    const slowChild = { pid: 5150, kill: signal => slowSignals.push(signal) };
+    let killerAborted = false;
+    await terminateProcessTree(slowChild, {
+      platform: 'win32',
+      systemRoot: 'C:/Windows',
+      timeoutMs: 400,
+      spawnImpl() {
+        const killer = new EventEmitter();
+        killer.pid = 5151;
+        killer.kill = () => { killerAborted = true; };
+        setTimeout(() => killer.emit('close', 0, null), 40);
+        return killer;
+      },
+    });
+    t.assert(killerAborted === false, 'a taskkill that finishes inside the budget is never aborted');
+    t.assert(slowSignals.length === 0, 'a successful slow tree kill does not degrade to the direct-child fallback');
+  }
 
   const deadlineModules = [
     'bounded-stdio-transport.mjs',

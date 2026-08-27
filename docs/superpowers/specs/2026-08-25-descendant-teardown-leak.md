@@ -1,7 +1,10 @@
 # Descendant process leak on protocol-deadline teardown
 
 **Date**: 2026-08-25
-**Status**: FIXED — one constant. Earlier sections preserved as the record of four wrong diagnoses.
+**Status**: Fixed on win32 by one constant. The fix is justified by mechanism; the
+before/after run counts are **confounded by machine load** and do not on their own
+establish it — see *What the evidence does and does not show*. Earlier sections are
+preserved as the record of four wrong diagnoses.
 **Severity**: Real defect in shipped code, ~33% reproduction
 **Surfaced by**: `test-protocol-smoke.mjs` — the assertions repeatedly dismissed as flaky
 
@@ -29,24 +32,72 @@ about to succeed.
 
 **Fix**: `timeoutMs` default 5_000 to 30_000 in `terminateProcessTree`.
 
-**Verification**: 56 of 56 clean across two independent 28-run probes, against
-8 of 24 leaking before. `test-protocol-smoke` 29/0 standalone; three consecutive
-rotations at 7371/0, where the same three runs previously failed 1, 1 and 2.
+**Runs**: 56 of 56 clean across two independent 28-run probes, against 8 of 24
+leaking before. `test-protocol-smoke` 29/0 standalone; three consecutive rotations
+at 7371/0, where the same three runs previously failed 1, 1 and 2. **Read the next
+section before treating that as validation.**
 
-**Cost**: none. Teardown already paid taskkill's ~3.5 s; a larger bound does not
-slow the successful path, it stops premature abandonment. Nothing is spawned that
-was not already spawned.
+## What the evidence does and does not show
+
+The before/after comparison is **not clean**, and saying so is the point of this
+section.
+
+Re-measuring the next day, on an idle machine, `taskkill /PID 999999` costs
+**0-1 ms** — stable across 19 runs. The 3474 ms figure above was measured while
+engine builds were saturating the machine. Those builds finished between the
+"before" runs and the "after" runs.
+
+So 56/56 is equally consistent with two stories: the fix worked, or the machine
+got fast. The A/B does not discriminate, and no amount of re-running it now will,
+because the condition that produced the defect is gone.
+
+What still stands, independent of the run counts:
+
+- **taskkill really did cost 3.1-5.0 s under load**, straddling a 5000 ms bound.
+  That measurement is not retracted; it is load-dependent, which is different.
+- **The timeout path is strictly worse than waiting**, by code reading rather than
+  by timing: on expiry the code kills taskkill mid-flight and falls back to
+  signalling the direct child, which cannot reach a detached descendant.
+- **The change cannot regress anything.** A wider bound alters behaviour only in
+  the case where the old one expired, and that case was the leak.
+
+The honest summary: a bound near typical runtime is a real hazard whenever the
+machine is loaded, which is exactly when CI runs the smoke. That justifies the
+change on its own. It is not the same as having measured the fix in isolation.
+
+Pinned as `DEFAULT_TREE_KILL_TIMEOUT_MS` with a rotation assertion, so it is not
+retuned back toward observed-typical runtime by someone measuring on an idle box.
+
+## Why the outer close deadline is not a second instance of this
+
+`protocol-smoke.mjs` wraps `close()` in a 6 s deadline, which is also near
+taskkill's under-load runtime — the same shape, and worth checking. It is benign:
+`withDeadline` is a `Promise.race`, and a race does not cancel the loser. When it
+fires, the smoke stops waiting but taskkill keeps running and still reaps the tree.
+
+That asymmetry is the whole lesson in one line: **the inner timeout aborted the
+cleanup, the outer one only stopped watching it.** A timeout is dangerous in
+proportion to what it destroys on expiry, not in proportion to how tight it is.
+
+**Cost**: none. A larger bound does not slow the successful path — it changes
+behaviour only where the old one expired. Nothing extra is spawned.
 
 **Retired by this**: the job object and its native dependency, the orphan sweep,
 and the proposal to accept the leak as a documented limitation. All were reasoned
 from the assumption that the tree kill *ran and failed*. It was not running to
 completion.
 
-**Note the environment dependence.** A no-op `taskkill` at 3.5 s is abnormal;
-typical is tens of milliseconds. `cmd /c exit` at 82 ms rules out general spawn
-slowness, so something machine-specific — Defender is the usual suspect — inflates
-it here. A fixed budget tuned on a fast machine is exactly the kind of thing that
-fails silently on a slow one, which is the transferable lesson.
+**Note the environment dependence** — confirmed the hard way, by the same numbers
+refusing to reproduce a day later. `taskkill` costs 0-1 ms idle and 3.1-5.0 s under
+heavy build load on this machine, and `cmd /c exit` at 82 ms under that load rules
+out general spawn slowness. A budget tuned against an idle measurement fails
+silently on a loaded machine, and the failure looks like a flaky test rather than a
+defect. That is the transferable lesson, and it now cuts both ways: it is also why
+the clean "after" runs prove less than they appear to.
+
+**Scope: win32 only.** On other platforms `terminateProcessTree` goes straight to
+`killDirectChild`, which is the same fallback that leaks detached descendants here.
+Whether POSIX leaks equivalently is untested and out of scope for this fix.
 
 ## Everything below is superseded
 
@@ -190,11 +241,13 @@ tens of milliseconds from decision to enumeration. If the child exits inside tha
 window, there is no parent left to enumerate children from, and the detached
 grandchild is unreachable — regardless of what the calling code checked first.
 
-~~That race cannot be won from userland.~~ **Wrong — see Resolution.** There was
-no race to win. `taskkill /T` was reaching the tree correctly; the caller stopped
-waiting for it. The "window" theorized here is tens of milliseconds, which never
-matched a defect rate of one run in three — a discrepancy visible at the time and
-not pursued.
+~~That race cannot be won from userland.~~ **Not what was firing — see
+Resolution.** The race described here is real and its path still exists: taskkill
+exits non-zero against an already-gone PID and routes to the same weak fallback,
+with no timeout involved. What is wrong is the *attribution*. The window is tens of
+milliseconds, which never matched a defect rate of one run in three — a discrepancy
+visible at the time and not pursued. Treat this as a genuine minor path, not as the
+cause, and not as closed.
 
 ## Fix options
 
