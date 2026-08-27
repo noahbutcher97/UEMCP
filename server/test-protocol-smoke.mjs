@@ -153,20 +153,42 @@ async function waitForProcessExit(pid, timeoutMs = 2_000) {
 }
 
 // Initialize and list failures remain bounded and separately classified.
-for (const [mode, expectedStatus] of [
-  ['hang-initialize', 'INITIALIZE_FAILED'],
-  ['fail-initialize', 'INITIALIZE_FAILED'],
-  ['invalid-initialize', 'INITIALIZE_FAILED'],
-  ['exit-early', 'INITIALIZE_FAILED'],
-  ['hang-tools', 'TOOLS_LIST_FAILED'],
-  ['fail-tools', 'TOOLS_LIST_FAILED'],
-  ['invalid-tools', 'TOOLS_LIST_FAILED'],
+//
+// timeoutMs is ONE budget covering every phase, so it has to clear spawn +
+// initialize before the phase under test is even reached. Measured on this
+// machine: spawn+initialize normally lands 100-140ms but occasionally spikes
+// past 200ms — at a 200ms budget, 1 run in 5 came back INITIALIZE_FAILED.
+//
+// That only breaks the *-tools rows. The *-initialize rows expect
+// INITIALIZE_FAILED anyway, so a slow spawn gives them the right answer for the
+// wrong reason and they never notice. A tight budget is therefore load-bearing
+// for the initialize rows and actively harmful to the tools rows, which is why
+// they no longer share one: 250ms proves initialize failures are bounded
+// promptly, while the tools rows get enough headroom that setup cannot preempt
+// the classification they exist to assert. Widening is right here because the
+// outcome is a SPREAD (a budget too tight), not bimodal (a defect) — see D192.
+const INITIALIZE_PHASE_BUDGET_MS = 250;
+const TOOLS_PHASE_BUDGET_MS = 2_000;
+
+for (const [mode, expectedStatus, budgetMs] of [
+  ['hang-initialize', 'INITIALIZE_FAILED', INITIALIZE_PHASE_BUDGET_MS],
+  ['fail-initialize', 'INITIALIZE_FAILED', INITIALIZE_PHASE_BUDGET_MS],
+  ['invalid-initialize', 'INITIALIZE_FAILED', INITIALIZE_PHASE_BUDGET_MS],
+  ['exit-early', 'INITIALIZE_FAILED', INITIALIZE_PHASE_BUDGET_MS],
+  ['hang-tools', 'TOOLS_LIST_FAILED', TOOLS_PHASE_BUDGET_MS],
+  ['fail-tools', 'TOOLS_LIST_FAILED', TOOLS_PHASE_BUDGET_MS],
+  ['invalid-tools', 'TOOLS_LIST_FAILED', TOOLS_PHASE_BUDGET_MS],
 ]) {
   const smoke = await smokeDescriptor(descriptor(sampleServer, mode), {
     expectedServerName: 'sample-mcp',
-    timeoutMs: 250,
+    timeoutMs: budgetMs,
   });
-  t.assert(smoke.status === expectedStatus, `${mode} is bounded as ${expectedStatus}`);
+  // Report the actual status. The bare assertion gave nothing to diagnose from
+  // when this failed inside a rotation, and it could not be reproduced in 60
+  // standalone runs — a failure that says only "expected X" costs a whole
+  // investigation to learn what it got.
+  t.assert(smoke.status === expectedStatus, `${mode} is bounded as ${expectedStatus}`,
+    `got ${smoke.status} after ${smoke.duration_ms}ms on a ${budgetMs}ms budget (initialize=${JSON.stringify(smoke.initialize)}) — INITIALIZE_FAILED on a *-tools row means spawn+initialize blew the budget before tools/list was reached`);
 }
 
 // Protocol deadline for the output-bound cases, and the budget the byte bound
