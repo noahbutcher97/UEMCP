@@ -4,6 +4,7 @@
 // They parse .uproject, .ini, .uasset headers, .h/.cpp source, etc.
 // No TCP or HTTP connections needed.
 
+import { engineAssetDiskPath } from './engine-fixtures.mjs';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 import { join, extname, basename, relative, resolve as pathResolve } from 'node:path';
 
@@ -404,13 +405,25 @@ async function listConfigValues(projectRoot, configFile, section, key) {
  * @param {string} assetPath
  * @returns {string}
  */
-function resolveAssetDiskPath(projectRoot, assetPath) {
+export function resolveAssetDiskPath(projectRoot, assetPath, { engineRoot, env = process.env } = {}) {
   let diskPath = assetPath;
   if (assetPath.startsWith('/Game/')) {
     diskPath = join(projectRoot, 'Content', assetPath.replace('/Game/', ''));
     if (!diskPath.endsWith('.uasset') && !diskPath.endsWith('.umap')) {
       diskPath += '.uasset';
     }
+  } else if (assetPath.startsWith('/Engine/')) {
+    // /Engine/ is a real mount, not a project-relative path — resolving it
+    // against projectRoot would silently point at the project's drive root.
+    //
+    // The engine must be named explicitly, never guessed. Several engine
+    // versions are typically installed side by side and they ship DIFFERENT
+    // bytes at the same /Engine/ path, so picking "the newest installed" reads
+    // the wrong asset and reports success. Declining here surfaces as
+    // asset_not_found via the caller's existence check, which is recoverable;
+    // silently correct-looking wrong data is not.
+    const root = engineRoot === undefined ? (env.UE_ENGINE_ROOT || null) : engineRoot;
+    diskPath = root ? engineAssetDiskPath(root, assetPath) : null;
   } else {
     diskPath = resolve(projectRoot, assetPath);
   }

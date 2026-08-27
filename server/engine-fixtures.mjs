@@ -54,11 +54,21 @@ export function engineAssetDiskPath(engineRoot, enginePath) {
  */
 export function resolveEngineRoot({
   env = process.env,
+  preferVersion,
   candidates = DEFAULT_ENGINE_CANDIDATES,
   existsImpl = defaultExists,
 } = {}) {
   const explicit = env?.UE_ENGINE_ROOT;
   if (explicit && existsImpl(explicit)) return explicit;
+
+  // A caller pinned to a version wants that engine or nothing. Falling back to
+  // a different one would hand back an asset that looks right and is not: the
+  // same /Engine/ path holds different bytes in each engine version.
+  if (preferVersion) {
+    const match = candidates.find(c => c.endsWith(`UE_${preferVersion}`));
+    return match && existsImpl(match) ? match : null;
+  }
+
   for (const candidate of candidates) {
     if (existsImpl(candidate)) return candidate;
   }

@@ -70,7 +70,7 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7263 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 72 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7433 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 75 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -379,7 +379,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7263 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 72 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7433 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 75 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 
@@ -400,6 +400,35 @@ For supplementary rotation (fixture-backed tests), prefix with `set UNREAL_PROJE
 ### Fixture-project default — `resolveProjectRoot()`
 
 `server/test-helpers.mjs resolveProjectRoot()` returns `UNREAL_PROJECT_ROOT` when set, else the committed text fixture `server/fixtures/uemcp-fixture/` (generic, NDA-safe: `.uproject` + `Config/*.ini` + `Source/*.Target.cs`). `test-phase1` and `test-mcp-wire` adopt it, so their project-gated **offline** assertions (project_info, gameplay-tags, list_plugins, list_data_sources, get_build_config, list_config_values) run everywhere — locally and on a project-less CI runner — against the fixture. `test-phase1` is therefore no longer "needs no env": it exercises offline tools against the fixture by default, so aggregate counts vary with project presence (fixture vs real). Binary-asset assertions gate on a real asset existing (`HAS_REAL_ASSETS` in test-phase1) and skip against the fixture; a real `UNREAL_PROJECT_ROOT` runs them. The other supplementary files keep reading the env directly and skip when unset. Binary-asset CI coverage is deferred to Phase 2 (`docs/specs/2026-05-23-generic-fixture-project-design.md`); the `rotation` GitHub workflow inherits this default.
+
+### Engine-sourced fixtures — `UE_ENGINE_ROOT` (T-1c)
+
+The pin-block differential's fixtures used to live only in a private project, so
+they drifted whenever it changed — three events on `BP_OSPlayerR`, and
+`TestCharacter` deleted outright. Two fixtures now come from `Engine/Content`
+instead (`BP_Sky_Sphere`, `StandardMacros`), which cannot drift for a given
+engine version. They run **with no project attached**, so `test-s-b-base-differential`
+went from 3 to 32 project-less assertions and CP1 from 235 to 245.
+
+`server/engine-fixtures.mjs` resolves them, deliberately separate from
+`findContentAsset` so a project asset can never shadow an engine one. Fixtures
+pin to the engine their oracle was dumped from (5.6) via
+`resolveEngineRoot({preferVersion})`; a mismatch is a labeled skip, never a
+failure. No engine installed → skip, same as no project.
+
+**`/Engine/` reads must name the engine.** `resolveAssetDiskPath` resolves
+`/Engine/...` only from an explicit `engineRoot` argument or `UE_ENGINE_ROOT`, and
+returns null otherwise. It does **not** fall back to "newest installed": several
+engine versions ship *different bytes at the same `/Engine/` path*, so guessing
+returns confident wrong data, while declining surfaces a recoverable
+`asset_not_found`. `preferVersion` likewise never falls back to another version.
+
+The project fixtures are now explicitly **dev-time complexity witnesses, not the
+ship gate** — kept because a survey of all 5201 assets in UE 5.6's
+`Engine/Content` found **zero** Blueprints with a delegate binding, which the
+project ones have. Refresh them opportunistically, not on a schedule. Note engine
+fixtures still need an engine install, so they skip on a bare CI runner too — the
+win is immutability, not universal coverage.
 
 ### Test Files — Primary Rotation
 

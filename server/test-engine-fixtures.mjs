@@ -8,6 +8,7 @@
 // Design: docs/superpowers/specs/2026-08-25-oracle-decoupling-plan.md
 
 import { engineAssetDiskPath, engineVersionMatches, readEngineBuildVersion, resolveEngineRoot } from './engine-fixtures.mjs';
+import { resolveAssetDiskPath } from './offline-tools.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('engine fixtures');
@@ -89,6 +90,59 @@ const t = new TestRunner('engine fixtures');
 
   const corrupt = readEngineBuildVersion('C:/UE', { readFileImpl: () => 'not json {' });
   t.assert(corrupt === null, `an unparseable Build.version yields null, not a throw (got ${corrupt})`);
+}
+
+// The offline reader resolved /Game/ and treated everything else as a path
+// relative to the project, so /Engine/ assets were unreadable — resolve() would
+// point them at the project's drive root. Engine content is a real mount and
+// addressing it is a legitimate read.
+{
+  const disk = resolveAssetDiskPath('D:/Proj', '/Engine/EngineSky/BP_Sky_Sphere', { engineRoot: 'C:/UE' });
+  t.assert(disk?.split(/[\\/]/).join('/') === 'C:/UE/Engine/Content/EngineSky/BP_Sky_Sphere.uasset',
+    `/Engine/ resolves against the engine install, not the project (got ${disk})`);
+
+  const game = resolveAssetDiskPath('D:/Proj', '/Game/Actors/BP_Thing', { engineRoot: 'C:/UE' });
+  t.assert(game?.split(/[\\/]/).join('/') === 'D:/Proj/Content/Actors/BP_Thing.uasset',
+    `/Game/ still resolves against the project (got ${game})`);
+
+  t.assert(resolveAssetDiskPath('D:/Proj', '/Engine/EngineSky/BP_Sky_Sphere', { engineRoot: null }) === null,
+    'with no engine installed, an /Engine/ path resolves to null rather than a bogus project path');
+}
+
+// Guessing "newest installed engine" silently read UE_5.8's copy of an asset
+// while the caller meant 5.6 — same path, different bytes, no error anywhere.
+// A read that cannot identify WHICH engine must decline rather than guess.
+{
+  const guessed = resolveAssetDiskPath('D:/Proj', '/Engine/EngineSky/BP_Sky_Sphere', { env: {} });
+  t.assert(guessed === null,
+    `an /Engine/ read with no engine named declines instead of picking one (got ${guessed})`);
+
+  const fromEnv = resolveAssetDiskPath('D:/Proj', '/Engine/EngineSky/BP_Sky_Sphere',
+    { env: { UE_ENGINE_ROOT: 'C:/UE_5.6' } });
+  t.assert(fromEnv?.split(/[\\/]/).join('/') === 'C:/UE_5.6/Engine/Content/EngineSky/BP_Sky_Sphere.uasset',
+    `UE_ENGINE_ROOT names the engine for /Engine/ reads (got ${fromEnv})`);
+}
+
+// A fixture must pin to the engine its oracle came from, so version preference
+// has to beat install order — this is the bug above, from the other side.
+{
+  const root = resolveEngineRoot({
+    env: {},
+    preferVersion: '5.6',
+    candidates: ['C:/Epic/UE_5.8', 'C:/Epic/UE_5.6'],
+    existsImpl: () => true,
+  });
+  t.assert(root === 'C:/Epic/UE_5.6',
+    `preferVersion outranks candidate order (got ${root})`);
+
+  const absent = resolveEngineRoot({
+    env: {},
+    preferVersion: '5.3',
+    candidates: ['C:/Epic/UE_5.8'],
+    existsImpl: p => p.endsWith('5.8'),
+  });
+  t.assert(absent === null,
+    `a preferred version that is not installed does not fall back to another (got ${absent})`);
 }
 
 process.exit(t.summary());

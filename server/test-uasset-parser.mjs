@@ -64,6 +64,7 @@ import {
   collectSubobjectExportIndexes,
   summarizeCollisionProperties,
 } from './offline-tools.mjs';
+import { engineAssetDiskPath, engineVersionMatches, readEngineBuildVersion, resolveEngineRoot } from './engine-fixtures.mjs';
 import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
@@ -2215,6 +2216,21 @@ function testPinDefaultLiteralSynthetic() {
 // K2Node_FunctionEntry retains bNullPtr slots for back-compat, so the
 // serialized count can exceed Oracle's non-null-pin count. CP3 filters
 // bNullPtr entries via SerializePin reads.
+// T-1c: engine-sourced CP1 fixtures. Pinned to the engine version the oracles
+// were dumped from — a different install ships different bytes at the same
+// /Engine/ path, so an unpinned resolve disagrees with the oracle in a way that
+// looks like a parser regression.
+const CP1_ENGINE_VERSION = '5.6';
+function engineFixturesForCP1() {
+  const engineRoot = resolveEngineRoot({ preferVersion: CP1_ENGINE_VERSION });
+  if (!engineRoot) return [];
+  const build = readEngineBuildVersion(engineRoot);
+  return [
+    { name: 'BP_Sky_Sphere',  oracle: 'BP_Sky_Sphere.oracle.json',  expectedGraphNodes: 122, enginePath: '/Engine/EngineSky/BP_Sky_Sphere' },
+    { name: 'StandardMacros', oracle: 'StandardMacros.oracle.json', expectedGraphNodes: 227, enginePath: '/Engine/EditorBlueprintResources/StandardMacros' },
+  ].map(def => ({ ...def, build, diskPath: engineAssetDiskPath(engineRoot, def.enginePath) }));
+}
+
 async function testPinBlockOffsetCP1() {
   const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'Commandlets', 'fixtures');
   const FIXTURES = [
@@ -2224,13 +2240,16 @@ async function testPinBlockOffsetCP1() {
     { name: 'BP_OSPlayerR_Child2', relPath: 'Content/Actors/Character/BP_OSPlayerR_Child2.uasset', oracle: 'BP_OSPlayerR_Child2.oracle.json', expectedGraphNodes: 6 },
     { name: 'TestCharacter',      relPath: 'Content/Blueprints/Character/TestCharacter.uasset',      oracle: 'TestCharacter.oracle.json',      expectedGraphNodes: 11 },
     { name: 'BP_OSControlPoint',  relPath: 'Content/Actors/Level/BP_OSControlPoint.uasset',      oracle: 'BP_OSControlPoint.oracle.json',  expectedGraphNodes: 223 },
+    // T-1c engine fixtures — resolved from a UE install rather than the
+    // project, so they run with no project attached and cannot drift.
+    ...engineFixturesForCP1(),
   ];
 
   for (const fx of FIXTURES) {
     // Discovery-resolved at startup (D188 Task 6) — PROBE_BY_NAME falls back
     // to `fx.relPath` internally (via resolveProbe) when discovery can't
     // find the asset, so the skip below still fires exactly as before.
-    const assetPath = PROBE_BY_NAME[fx.name] ?? join(ROOT, fx.relPath);
+    const assetPath = fx.diskPath ?? PROBE_BY_NAME[fx.name] ?? join(ROOT, fx.relPath);
     const oraclePath = join(FIXTURES_DIR, fx.oracle);
     if (!(await exists(assetPath)) || !(await exists(oraclePath))) {
       console.log(`  · skipped CP1/${fx.name} (missing asset or oracle)`);
@@ -2238,6 +2257,11 @@ async function testPinBlockOffsetCP1() {
     }
     const buf = await readFile(assetPath);
     const oracle = JSON.parse((await readFile(oraclePath)).toString('utf8'));
+
+    if (fx.enginePath && !engineVersionMatches(fx.build, oracle.engine_version)) {
+      console.log(`  · skipped CP1/${fx.name} (engine is not the build the oracle was dumped from)`);
+      continue;
+    }
 
     const cur = new Cursor(buf);
     const s = parseSummary(cur);
@@ -2287,7 +2311,7 @@ async function testPinBlockOffsetCP1() {
       }
     }
 
-    const semanticAssetPath = assetPathFromContentRel(fx.relPath);
+    const semanticAssetPath = fx.enginePath ?? assetPathFromContentRel(fx.relPath);
     const freshness = evaluateTopologyOracleFreshness(`CP1/${fx.name}`, {
       schema_version: 'sb-base-v1',
       asset_path: semanticAssetPath,

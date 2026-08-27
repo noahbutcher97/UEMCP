@@ -23,6 +23,12 @@ import {
   applyOracleFreshnessGate,
   evaluateTopologyOracleFreshness,
 } from './oracle-freshness.mjs';
+import {
+  engineAssetDiskPath,
+  engineVersionMatches,
+  readEngineBuildVersion,
+  resolveEngineRoot,
+} from './engine-fixtures.mjs';
 import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('S-B-base differential (Oracle-A-v2)');
@@ -40,6 +46,15 @@ const FIXTURES_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Priv
 // genuinely deleted from the project — TestCharacter) means
 // runFixtureDifferential/testStatsShape skip that one fixture with a
 // labeled reason; the oracle JSON itself is never touched/deleted.
+// TIER: dev-time complexity witnesses, NOT the ship gate (T-1c).
+//
+// These live in a private project that keeps changing under them, so they drift
+// and their exact assertions gate themselves off (D187). That is intended — the
+// engine fixtures below are the gate. These stay because engine content cannot
+// cover everything: a survey of all 5201 assets in UE 5.6's Engine/Content found
+// zero Blueprints with a delegate binding, and these have them. Refresh them
+// opportunistically when someone is already running the commandlet, not on a
+// schedule.
 const FIXTURE_DEFS = [
   { name: 'BP_OSPlayerR',        oracle: 'BP_OSPlayerR.oracle.json',        expectedEdges: 608 },
   { name: 'BP_OSPlayerR_Child',  oracle: 'BP_OSPlayerR_Child.oracle.json',  expectedEdges: 4 },
@@ -51,6 +66,21 @@ const FIXTURE_DEFS = [
   { name: 'BP_OSControlPoint',   oracle: 'BP_OSControlPoint.oracle.json',   expectedEdges: 398 },
 ];
 
+// T-1c: fixtures sourced from /Engine/ instead of the project. Engine content
+// is immutable for a given engine version, so these cannot drift the way the
+// project fixtures above have (three times on BP_OSPlayerR, plus TestCharacter
+// deleted outright) — they can only be absent, which is a labeled skip.
+//
+// Pinned to the engine the oracles were dumped from. Several engine versions
+// ship different bytes at the same /Engine/ path, so "some engine" is not good
+// enough: the wrong one parses cleanly and disagrees with the oracle for
+// reasons that look like parser regressions.
+const ENGINE_FIXTURE_VERSION = '5.6';
+const ENGINE_FIXTURE_DEFS = [
+  { name: 'BP_Sky_Sphere',  oracle: 'BP_Sky_Sphere.oracle.json',  expectedEdges: 290, enginePath: '/Engine/EngineSky/BP_Sky_Sphere' },
+  { name: 'StandardMacros', oracle: 'StandardMacros.oracle.json', expectedEdges: 654, enginePath: '/Engine/EditorBlueprintResources/StandardMacros' },
+];
+
 async function resolveFixtures(defs) {
   const out = [];
   for (const def of defs) {
@@ -60,7 +90,32 @@ async function resolveFixtures(defs) {
   return out;
 }
 
-const FIXTURES = await resolveFixtures(FIXTURE_DEFS);
+/**
+ * Resolve engine fixtures against an installed engine.
+ *
+ * The extractor reaches the engine mount through UE_ENGINE_ROOT — the same
+ * documented path a user takes — because resolveAssetDiskPath deliberately
+ * refuses to guess which engine an /Engine/ path means. Setting it here is
+ * inert for the /Game/ fixtures, which never consult it.
+ */
+function resolveEngineFixtures(defs) {
+  const engineRoot = resolveEngineRoot({ preferVersion: ENGINE_FIXTURE_VERSION });
+  if (!engineRoot) {
+    console.log(`  ⊘ SKIP engine fixtures: no UE ${ENGINE_FIXTURE_VERSION} install found (set UE_ENGINE_ROOT)`);
+    return [];
+  }
+  process.env.UE_ENGINE_ROOT = engineRoot;
+  const build = readEngineBuildVersion(engineRoot);
+  return defs.map(def => ({
+    ...def,
+    engineRoot,
+    build,
+    assetPath: def.enginePath,
+    diskPath: engineAssetDiskPath(engineRoot, def.enginePath),
+  }));
+}
+
+const FIXTURES = [...await resolveFixtures(FIXTURE_DEFS), ...resolveEngineFixtures(ENGINE_FIXTURE_DEFS)];
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 
@@ -164,6 +219,21 @@ async function runFixtureDifferential(fx) {
   }
 
   const oracle = JSON.parse((await readFile(oraclePath)).toString('utf8'));
+
+  // An engine fixture is only comparable against the build its oracle came
+  // from. A different install parses cleanly and disagrees, which would read as
+  // a parser regression rather than the version mismatch it is.
+  if (fx.enginePath) {
+    if (!(await exists(fx.diskPath))) {
+      console.log(`  ⊘ SKIP ${fx.name}: not present in the resolved engine (${fx.diskPath})`);
+      return;
+    }
+    if (!engineVersionMatches(fx.build, oracle.engine_version)) {
+      const got = fx.build ? `${fx.build.MajorVersion}.${fx.build.MinorVersion}.${fx.build.PatchVersion}-${fx.build.Changelist}` : 'unreadable';
+      console.log(`  ⊘ SKIP ${fx.name}: engine is ${got}, oracle was dumped from ${oracle.engine_version}`);
+      return;
+    }
+  }
   const parsed = await extractBPEdgeTopologySafe(ROOT, { asset_path: fx.assetPath });
 
   runner.assert(parsed.available !== false,
@@ -223,9 +293,13 @@ async function testEnoentEnvelope() {
 
 // ── Stats-shape guard ────────────────────────────────────────────
 async function testStatsShape() {
-  const sample = FIXTURES[1]; // BP_OSPlayerR_Child — small, fast
-  if (!sample.diskPath) {
-    console.log(`  ⊘ SKIP stats-shape test: ${sample.name} not found under project Content/`);
+  // Prefer a small project fixture, but fall back to any resolvable one so the
+  // shape guard still runs with no project attached — it checks the envelope's
+  // shape, which is not project-specific.
+  const sample = FIXTURES.find(f => f.name === 'BP_OSPlayerR_Child' && f.diskPath)
+    ?? FIXTURES.find(f => f.diskPath);
+  if (!sample) {
+    console.log('  ⊘ SKIP stats-shape test: no fixture resolvable (no project and no engine)');
     return;
   }
   const r = await extractBPEdgeTopologySafe(ROOT, { asset_path: sample.assetPath });

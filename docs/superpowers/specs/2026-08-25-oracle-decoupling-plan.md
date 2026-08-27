@@ -1,10 +1,71 @@
 # Decoupling the commandlet oracles from a live project
 
 **Date**: 2026-08-25
-**Status**: Scheduled, not implemented
+**Status**: Implemented. Option D, with two premises corrected by survey — see *What the survey found*.
 **Relates to**: backlog T-1 (fixture philosophy), T-1c (Oracle-A v3), D187 (freshness gate), D188 (discovery migration)
 
-## Why this is scheduled separately
+## What the survey found
+
+Before picking a fixture, all 5201 assets under UE 5.6's `Engine/Content` were
+measured with our own parser. Two of this document's premises did not survive.
+
+**Engine Blueprints are more complex than the production fixture, not less.**
+T-1 worried that engine samples would be too simple and that real-world
+complexity — deep collapsed graphs, delegate graphs, macro expansion — would be
+lost. For 5.6 that is false:
+
+| Asset | Graph nodes | Roots | Collapsed |
+|---|---|---|---|
+| `RenderToTexture_LevelBP` | 1679 | 55 | 102 |
+| `FS_BombField_Prototype` | 1740 | 18 | 10 |
+| `StandardMacros` | 227 | 48 | 58 |
+| `BP_OSPlayerR` (production) | 313 | — | 0 |
+
+The largest are too big to commit — oracles run about 1 KB per node, so
+`RenderToTexture_LevelBP` would be a 1.7 MB fixture. That is the real constraint
+on picking, not complexity.
+
+**No engine Blueprint has a delegate binding.** Zero, across all 5201 assets.
+This document pre-authorised recording exactly this ("if none has enough shape,
+record that finding"), and it settles step 4: the production fixture stays as a
+complexity witness on evidence rather than as a hedge.
+
+**Portability is narrower than §D.1 claimed.** Engine fixtures need an engine
+install. A bare CI runner has none, so they skip there exactly as project
+fixtures do. The win is not "runs everywhere" — it is trading coupling to a
+*mutating private project* for coupling to a *versioned immutable install*.
+Drift goes to zero for a given engine version; absence stays possible. §D.1's
+"ship gate" wording overpromised and is corrected here.
+
+## What shipped
+
+`BP_Sky_Sphere` (122 nodes, 4 graphs, 290 edges — ordinary Actor shape) and
+`StandardMacros` (227 nodes, 24 graphs, 654 edges — dense tunnel/macro shape),
+both dumped from 5.6.1 with the existing commandlet. Both reach 100% hybrid edge
+coverage against the parser, with zero malformed nodes and zero dangling edges.
+
+Resolution lives in `server/engine-fixtures.mjs` (TDD, 20 assertions) and is
+kept separate from `findContentAsset` so a project asset can never shadow an
+engine one.
+
+Coverage restored, running with **no project attached**:
+
+| Suite | Before | After |
+|---|---|---|
+| `test-s-b-base-differential` | 3 | 32 |
+| `test-uasset-parser` CP1 | 235 | 245 |
+
+**One hazard found and closed while building this.** Resolving `/Engine/`
+by "newest installed engine" silently read UE 5.8's copy of an asset when 5.6
+was meant — the same path holds different bytes in each version, it parses
+cleanly, and it disagrees with the oracle in a way that reads as a parser
+regression. `resolveAssetDiskPath` now declines an `/Engine/` read unless the
+engine is named (`UE_ENGINE_ROOT` or an explicit argument), and
+`resolveEngineRoot({preferVersion})` never falls back to another version.
+Guessing produced confident wrong data; declining produces a recoverable
+`asset_not_found`.
+
+## Why this was scheduled separately
 
 The T-1b pass just landed removed content coupling from the `BPGA_Block` L1 and L2 gates by separating parser-behaviour assertions from content inventory. **That technique does not work for the two remaining coupled tests**, and applying it anyway would quietly destroy them.
 
@@ -23,7 +84,14 @@ Coverage currently switched off:
 | `test-uasset-parser.mjs` | `CP1/BP_OSPlayerR` | pin-block ↔ oracle GUID match, per-node pin-count containment |
 | `test-s-b-base-differential.mjs` | `BP_OSPlayerR` | full edge-topology differential (ID-match on every edge) |
 
-The other four fixtures in the differential (`BP_OSPlayerR_Child`, `_Child1`, `_Child2`, `TestCharacter`) still pass — only the parent Blueprint drifted.
+**Corrected 2026-08-27**: this table said the other four fixtures "still pass".
+`TestCharacter` no longer exists in the project at all — deleted, not moved — and
+both suites now skip it with a label. `BP_OSPlayerR` has also drifted further
+since this was written (309 → 313 nodes, 608 → 846 edges). Only
+`BP_OSPlayerR_Child`, `_Child1` and `_Child2` still run.
+
+Both are exactly the recurrence this document predicted, and both are now
+covered by the engine fixtures rather than by refreshing these.
 
 ## The trap to avoid
 
