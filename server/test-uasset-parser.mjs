@@ -2228,6 +2228,8 @@ function engineFixturesForCP1() {
   return [
     { name: 'BP_Sky_Sphere',  oracle: 'BP_Sky_Sphere.oracle.json',  expectedGraphNodes: 122, enginePath: '/Engine/EngineSky/BP_Sky_Sphere' },
     { name: 'StandardMacros', oracle: 'StandardMacros.oracle.json', expectedGraphNodes: 227, enginePath: '/Engine/EditorBlueprintResources/StandardMacros' },
+    // Anim Blueprint — pins AnimGraphNode_* into the pin-block coverage too.
+    { name: 'TutorialTPP_AnimBlueprint', oracle: 'TutorialTPP_AnimBlueprint.oracle.json', expectedGraphNodes: 13, enginePath: '/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP_AnimBlueprint' },
   ].map(def => ({ ...def, build, diskPath: engineAssetDiskPath(engineRoot, def.enginePath) }));
 }
 
@@ -2353,6 +2355,28 @@ async function testPinBlockOffsetCP1() {
     'CP1/predicate: U-prefixed class does NOT match (UE strips prefix at serialization — D63)');
   runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
     'CP1/predicate: non-graph-node classes rejected');
+
+  // AnimGraph families. UAnimGraphNode_Base derives from UK2Node and
+  // UAnimStateNodeBase from UEdGraphNode, so both serialize the same Pins
+  // array — the reader already handles them, only the name test excluded them.
+  // Verified by parsing engine Anim Blueprints: every class below parses with
+  // malformed=false, a valid NodeGuid and real links.
+  for (const cls of ['AnimGraphNode_Root', 'AnimGraphNode_StateMachine', 'AnimGraphNode_StateResult', 'AnimGraphNode_BlendSpacePlayer']) {
+    runner.assert(isGraphNodeExportClass(cls) === true, `CP1/predicate: ${cls} matches`);
+  }
+  for (const cls of ['AnimStateNode', 'AnimStateEntryNode', 'AnimStateTransitionNode', 'AnimStateConduitNode', 'AnimStateAliasNode']) {
+    runner.assert(isGraphNodeExportClass(cls) === true, `CP1/predicate: ${cls} matches`);
+  }
+
+  // The trap: AnimGraphNodeBinding_Base shares the "AnimGraphNode" prefix and
+  // is NOT a graph node — it parses as malformed with a null GUID. Anchoring on
+  // the underscore is what keeps it out; a looser prefix would inflate the
+  // malformed-node count with objects that were never nodes.
+  runner.assert(isGraphNodeExportClass('AnimGraphNodeBinding_Base') === false,
+    'CP1/predicate: AnimGraphNodeBinding_Base rejected (prefix-shares but is not a node)');
+  for (const cls of ['AnimBlueprint', 'AnimationGraph', 'AnimBlueprintGeneratedClass', 'AnimationStateMachineGraph', 'AnimBlueprintExtension_Base']) {
+    runner.assert(isGraphNodeExportClass(cls) === false, `CP1/predicate: ${cls} rejected (container//extension, not a node)`);
+  }
   runner.assert(isGraphNodeExportClass(null) === false,
     'CP1/predicate: null className handled');
   runner.assert(isGraphNodeExportClass(undefined) === false,

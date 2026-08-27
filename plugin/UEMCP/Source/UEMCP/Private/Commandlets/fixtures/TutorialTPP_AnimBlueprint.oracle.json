@@ -1,0 +1,483 @@
+{
+	"schema_version": "oracle-a-v2",
+	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
+	"asset_path": "/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP_AnimBlueprint",
+	"graphs":
+	{
+		"EventGraph":
+		{
+			"nodes":
+			{
+				"1947F0AB40C837256E6EA1B1FAD8AA4A":
+				{
+					"class_name": "K2Node_Event",
+					"pins":
+					{
+						"3AB8E33E4CB8ED7052F4D28F7A346BBA":
+						{
+							"name": "OutputDelegate",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"0FC4A77F492F6FC80E42FEA35F5C275F":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E625B7A345914E7EA6F2B5AE578391AC",
+									"pin_id": "9BD0B5C84A6DE80A0133EAAEFC6D8B59"
+								}
+							]
+						},
+						"D5E3DE98408191F1B20516872DE0FA78":
+						{
+							"name": "DeltaTimeX",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"051C442A4F269F7E9C1F2980DB7A5E00":
+				{
+					"class_name": "K2Node_VariableSet",
+					"pins":
+					{
+						"27E60A7445253A9CB68B7691DD2C547A":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "57F77BBE448722A2EBDCFB9D84CA3DF7",
+									"pin_id": "F6DA2D39449C77DF65F56FABBD7D9AE8"
+								}
+							]
+						},
+						"85DE56BF4251F8777421FAA08D4567EE":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"2C6EF763414BEF434D2E7DB9C62B2C18":
+						{
+							"name": "Speed",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "A77C68EF4EE5D5B122A0C5A73C931845",
+									"pin_id": "28EE30B54767A87B30350CA46B6969C5"
+								}
+							]
+						},
+						"5B0DF38C4514912E499DBC9DA176E6E6":
+						{
+							"name": "Output_Get",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"456406F5465E929EFE33008608B4A07B":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				},
+				"B83CE7BE4364AE2A5C65999FDDB47550":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"22E6CC84479FC92289EC1198081246AB":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"CEB9BD8345B31BDBC075C3AF6D03A8B1":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "E625B7A345914E7EA6F2B5AE578391AC",
+									"pin_id": "F120740B4312EEF7F43D91B5ACCCE8E8"
+								},
+								{
+									"node_guid": "57F77BBE448722A2EBDCFB9D84CA3DF7",
+									"pin_id": "24E18F594DD24FCBAFA880A833CF060E"
+								}
+							]
+						}
+					}
+				},
+				"E625B7A345914E7EA6F2B5AE578391AC":
+				{
+					"class_name": "K2Node_MacroInstance",
+					"pins":
+					{
+						"9BD0B5C84A6DE80A0133EAAEFC6D8B59":
+						{
+							"name": "exec",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "1947F0AB40C837256E6EA1B1FAD8AA4A",
+									"pin_id": "0FC4A77F492F6FC80E42FEA35F5C275F"
+								}
+							]
+						},
+						"F120740B4312EEF7F43D91B5ACCCE8E8":
+						{
+							"name": "InputObject",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B83CE7BE4364AE2A5C65999FDDB47550",
+									"pin_id": "CEB9BD8345B31BDBC075C3AF6D03A8B1"
+								}
+							]
+						},
+						"A5449273466BFD90454216AF99F004F9":
+						{
+							"name": "Is Valid",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "57F77BBE448722A2EBDCFB9D84CA3DF7",
+									"pin_id": "0A771AE54EF7A7DAE3FF62BD563BD2B2"
+								}
+							]
+						},
+						"97717C7A49FA2FC6296E02B5B40022CC":
+						{
+							"name": "Is Not Valid",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"57F77BBE448722A2EBDCFB9D84CA3DF7":
+				{
+					"class_name": "K2Node_DynamicCast",
+					"pins":
+					{
+						"0A771AE54EF7A7DAE3FF62BD563BD2B2":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "E625B7A345914E7EA6F2B5AE578391AC",
+									"pin_id": "A5449273466BFD90454216AF99F004F9"
+								}
+							]
+						},
+						"F6DA2D39449C77DF65F56FABBD7D9AE8":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "051C442A4F269F7E9C1F2980DB7A5E00",
+									"pin_id": "27E60A7445253A9CB68B7691DD2C547A"
+								}
+							]
+						},
+						"122305B74128DB7907470196E9F1CB39":
+						{
+							"name": "CastFailed",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"24E18F594DD24FCBAFA880A833CF060E":
+						{
+							"name": "Object",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "B83CE7BE4364AE2A5C65999FDDB47550",
+									"pin_id": "CEB9BD8345B31BDBC075C3AF6D03A8B1"
+								}
+							]
+						},
+						"D8DAEEF848B90F5819338B92922EC278":
+						{
+							"name": "AsTutorial Character",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "447E2BB1441B828CE940F5BF2757F446",
+									"pin_id": "BCD4C2B84F319EE0ACC266A9FFFA084B"
+								}
+							]
+						},
+						"F0979A104EDDE9044C4F628213DAF63F":
+						{
+							"name": "bSuccess",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						}
+					}
+				},
+				"447E2BB1441B828CE940F5BF2757F446":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"516887334E3A59D355B351ABD2C397AE":
+						{
+							"name": "CharacterMovement",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "555299284DB7FC71F9DE00BE7CB30A72",
+									"pin_id": "B551BD1F476A3AA36427BDA80116E154"
+								},
+								{
+									"node_guid": "D07171284928D44498EF5A841630078A",
+									"pin_id": "C399272441054E07F801D5AAC8577475"
+								}
+							]
+						},
+						"BCD4C2B84F319EE0ACC266A9FFFA084B":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "57F77BBE448722A2EBDCFB9D84CA3DF7",
+									"pin_id": "D8DAEEF848B90F5819338B92922EC278"
+								}
+							]
+						}
+					}
+				},
+				"555299284DB7FC71F9DE00BE7CB30A72":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"E46108FA412010399C6CC0B2853F82BA":
+						{
+							"name": "MaxWalkSpeed",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A77C68EF4EE5D5B122A0C5A73C931845",
+									"pin_id": "CE77213A44F8CEDD8F2A819C02E44BDD"
+								}
+							]
+						},
+						"B551BD1F476A3AA36427BDA80116E154":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "447E2BB1441B828CE940F5BF2757F446",
+									"pin_id": "516887334E3A59D355B351ABD2C397AE"
+								}
+							]
+						}
+					}
+				},
+				"D07171284928D44498EF5A841630078A":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"489E9CC14FD0C470106A379516CBA780":
+						{
+							"name": "Velocity",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "C35E5ED047AA01DBBB109D80D8E4D039",
+									"pin_id": "F796410649B8E78286FAF4A563D7F5A4"
+								}
+							]
+						},
+						"C399272441054E07F801D5AAC8577475":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "447E2BB1441B828CE940F5BF2757F446",
+									"pin_id": "516887334E3A59D355B351ABD2C397AE"
+								}
+							]
+						}
+					}
+				},
+				"C35E5ED047AA01DBBB109D80D8E4D039":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"BB1244934647B801BC3C72B2F6C0F71B":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"F796410649B8E78286FAF4A563D7F5A4":
+						{
+							"name": "A",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "D07171284928D44498EF5A841630078A",
+									"pin_id": "489E9CC14FD0C470106A379516CBA780"
+								}
+							]
+						},
+						"72CF699E456B45BDD1461BB722EB4174":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "A77C68EF4EE5D5B122A0C5A73C931845",
+									"pin_id": "FD9CFAFE4716117A80A51D9C43548A6C"
+								}
+							]
+						}
+					}
+				},
+				"A77C68EF4EE5D5B122A0C5A73C931845":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"F32A52FB467D1F7DB644F29B5AD56225":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"FD9CFAFE4716117A80A51D9C43548A6C":
+						{
+							"name": "A",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "C35E5ED047AA01DBBB109D80D8E4D039",
+									"pin_id": "72CF699E456B45BDD1461BB722EB4174"
+								}
+							]
+						},
+						"CE77213A44F8CEDD8F2A819C02E44BDD":
+						{
+							"name": "B",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "555299284DB7FC71F9DE00BE7CB30A72",
+									"pin_id": "E46108FA412010399C6CC0B2853F82BA"
+								}
+							]
+						},
+						"28EE30B54767A87B30350CA46B6969C5":
+						{
+							"name": "ReturnValue",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "051C442A4F269F7E9C1F2980DB7A5E00",
+									"pin_id": "2C6EF763414BEF434D2E7DB9C62B2C18"
+								}
+							]
+						}
+					}
+				}
+			}
+		},
+		"AnimGraph":
+		{
+			"nodes":
+			{
+				"50BC87324779C711911FDE81DFFA6626":
+				{
+					"class_name": "AnimGraphNode_Root",
+					"pins":
+					{
+						"365C31924FB9F5EFC96BA2A8664AF3E3":
+						{
+							"name": "Result",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "531D819348A03583B6BF0593DC4B9AA0",
+									"pin_id": "35EC473D4BFE137B842FA78E79EE262E"
+								}
+							]
+						}
+					}
+				},
+				"531D819348A03583B6BF0593DC4B9AA0":
+				{
+					"class_name": "AnimGraphNode_BlendSpacePlayer",
+					"pins":
+					{
+						"6EB10E3D458B994009CE86BDDCB1A573":
+						{
+							"name": "X",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "F401F30145E7132C2ADA8194937BBA5B",
+									"pin_id": "754E91C94CA33ED02147C58DAA4EC561"
+								}
+							]
+						},
+						"FE7FFF3E4DC19722DCDFE0A4416D3E97":
+						{
+							"name": "Y",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"35EC473D4BFE137B842FA78E79EE262E":
+						{
+							"name": "Pose",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "50BC87324779C711911FDE81DFFA6626",
+									"pin_id": "365C31924FB9F5EFC96BA2A8664AF3E3"
+								}
+							]
+						}
+					}
+				},
+				"F401F30145E7132C2ADA8194937BBA5B":
+				{
+					"class_name": "K2Node_VariableGet",
+					"pins":
+					{
+						"754E91C94CA33ED02147C58DAA4EC561":
+						{
+							"name": "Speed",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "531D819348A03583B6BF0593DC4B9AA0",
+									"pin_id": "6EB10E3D458B994009CE86BDDCB1A573"
+								}
+							]
+						},
+						"9FD528084CD076D89471A19389D39AE5":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		}
+	}
+}

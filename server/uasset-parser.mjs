@@ -1247,6 +1247,19 @@ function dispatchPropertyValue(cur, tag, names, opts) {
 //   Engine/Source/Runtime/Engine/Private/EdGraph/EdGraphPin.cpp
 //     ::SerializePinArray, ::SerializePin, ::Serialize
 
+// The anim state-machine node classes. A closed set rather than a prefix,
+// because "AnimState" is not a reliable marker on its own and this family is
+// small and stable. All derive from UAnimStateNodeBase : UEdGraphNode, except
+// UAnimStateEntryNode which derives from UEdGraphNode directly — either way
+// they serialize the same pin-block trailer.
+const ANIM_STATE_NODE_CLASSES = new Set([
+  'AnimStateNode',
+  'AnimStateEntryNode',
+  'AnimStateTransitionNode',
+  'AnimStateConduitNode',
+  'AnimStateAliasNode',
+]);
+
 /**
  * Class-name predicate for UEdGraphNode exports. Matches all UEdGraphNode
  * subclasses whose bytes carry the pin-block trailer. Uses a broad prefix
@@ -1254,12 +1267,27 @@ function dispatchPropertyValue(cur, tag, names, opts) {
  * (K2Node_CallParentFunction, K2Node_AddComponent, K2Node_PromotableOperator
  * etc.) get first-class coverage. Note: UE strips U/A prefixes at
  * serialization (D63), so byte-level class_name is "K2Node_*", never "UK2Node_*".
+ *
+ * The real question is "does this class derive from UEdGraphNode", which the
+ * byte stream cannot answer before UE 5.7's import type hierarchies (D166), so
+ * the name is a proxy. Every family below was confirmed by parsing real assets
+ * and checking the result is a clean pin block, not by reading names alone.
+ *
+ * AnimGraph note: UAnimGraphNode_Base derives from UK2Node, so AnimGraph nodes
+ * were always readable — the "K2Node_" *name* prefix was the only thing hiding
+ * them, and it hid the entire family. The underscore in "AnimGraphNode_" is
+ * load-bearing: UAnimGraphNodeBinding_Base shares the bare prefix, is not a
+ * node at all, and parses as malformed with a null GUID.
+ *
  * @param {string|null|undefined} className
  * @returns {boolean}
  */
 export function isGraphNodeExportClass(className) {
   if (!className) return false;
-  return className.startsWith('K2Node_') || className === 'EdGraphNode_Comment';
+  return className.startsWith('K2Node_')
+    || className.startsWith('AnimGraphNode_')
+    || className === 'EdGraphNode_Comment'
+    || ANIM_STATE_NODE_CLASSES.has(className);
 }
 
 /**

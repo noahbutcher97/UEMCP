@@ -79,6 +79,12 @@ const ENGINE_FIXTURE_VERSION = '5.6';
 const ENGINE_FIXTURE_DEFS = [
   { name: 'BP_Sky_Sphere',  oracle: 'BP_Sky_Sphere.oracle.json',  expectedEdges: 290, enginePath: '/Engine/EngineSky/BP_Sky_Sphere' },
   { name: 'StandardMacros', oracle: 'StandardMacros.oracle.json', expectedEdges: 654, enginePath: '/Engine/EditorBlueprintResources/StandardMacros' },
+  // AnimGraph coverage. Before AnimGraphNode_* was admitted to the graph-node
+  // predicate, this asset parsed to 11 nodes / 24 edges / 1 dangling instead of
+  // 13 / 28 / 0 — the AnimGraph still appeared, just silently missing its two
+  // anim nodes. A count-exact differential is what catches that class of loss;
+  // an "is there an AnimGraph" check would have passed throughout.
+  { name: 'TutorialTPP_AnimBlueprint', oracle: 'TutorialTPP_AnimBlueprint.oracle.json', expectedEdges: 28, enginePath: '/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP_AnimBlueprint' },
 ];
 
 async function resolveFixtures(defs) {
