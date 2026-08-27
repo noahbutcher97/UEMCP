@@ -11188,7 +11188,13 @@ async function terminateProcessTree(child, {
   platform = process.platform,
   systemRoot = process.env.SystemRoot || process.env.WINDIR,
   signal = "SIGKILL",
-  timeoutMs = 5e3
+  // Bounds a HUNG taskkill, not a normal one. Sized well above the slowest
+  // observed run because giving up early is worse than waiting: the fallback
+  // reaches only the direct child, so a premature timeout leaks any detached
+  // descendant permanently. On the machine that surfaced this, taskkill cost
+  // 3.1-5.0s doing nothing at all, straddling the previous 5s bound and
+  // leaking on a third of runs.
+  timeoutMs = 3e4
 } = {}) {
   if (!Number.isSafeInteger(child?.pid) || child.pid <= 0) return;
   if (typeof spawnImpl !== "function" || typeof signal !== "string" || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {

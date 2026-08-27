@@ -1,9 +1,59 @@
 # Descendant process leak on protocol-deadline teardown
 
 **Date**: 2026-08-25
-**Status**: Diagnosed, not fixed
+**Status**: FIXED — one constant. Earlier sections preserved as the record of four wrong diagnoses.
 **Severity**: Real defect in shipped code, ~33% reproduction
 **Surfaced by**: `test-protocol-smoke.mjs` — the assertions repeatedly dismissed as flaky
+
+## Resolution
+
+**`taskkill` was being abandoned mid-flight, not defeated.**
+
+Separating spawn cost from work cost found it. On this machine:
+
+| Command | Median |
+|---|---|
+| `cmd /c exit` — pure spawn | **82 ms** |
+| `taskkill /PID 999999` — a PID that does not exist | **3474 ms** |
+| `tasklist` | 4422 ms |
+
+`taskkill` costs about three and a half seconds with nothing to do. Its budget in
+`terminateProcessTree` was **5000 ms**, and it measured **3125-4975 ms** across
+runs — straddling its own timeout. On timeout the code kills the taskkill process
+and falls back to `killDirectChild`, which reaches the direct child and nothing
+below it. The detached descendant then survives, and its parent is gone, which is
+why every leaked process looked orphaned.
+
+Orphaning was the *consequence*. The cause was giving up on a tree kill that was
+about to succeed.
+
+**Fix**: `timeoutMs` default 5_000 to 30_000 in `terminateProcessTree`.
+
+**Verification**: 56 of 56 clean across two independent 28-run probes, against
+8 of 24 leaking before. `test-protocol-smoke` 29/0 standalone; three consecutive
+rotations at 7371/0, where the same three runs previously failed 1, 1 and 2.
+
+**Cost**: none. Teardown already paid taskkill's ~3.5 s; a larger bound does not
+slow the successful path, it stops premature abandonment. Nothing is spawned that
+was not already spawned.
+
+**Retired by this**: the job object and its native dependency, the orphan sweep,
+and the proposal to accept the leak as a documented limitation. All were reasoned
+from the assumption that the tree kill *ran and failed*. It was not running to
+completion.
+
+**Note the environment dependence.** A no-op `taskkill` at 3.5 s is abnormal;
+typical is tens of milliseconds. `cmd /c exit` at 82 ms rules out general spawn
+slowness, so something machine-specific — Defender is the usual suspect — inflates
+it here. A fixed budget tuned on a fast machine is exactly the kind of thing that
+fails silently on a slow one, which is the transferable lesson.
+
+## Everything below is superseded
+
+Kept deliberately. It is an accurate record of four diagnoses that fit every
+observation and were still wrong, and of two fixes measured and rejected. Read it
+for the reasoning, not for the conclusions — the mechanism it describes is not
+what was happening.
 
 ## Summary
 
@@ -127,9 +177,11 @@ No tuning rescues it: a longer budget makes teardown slower, a shorter one makes
 the sweep useless. The approach needs an enumeration primitive that costs
 milliseconds, and none is available externally.
 
-**Reverted.** This is the measurement that turns the job object from *preferred*
-into *necessary*: it needs no enumeration and no spawn, because the OS already
-knows the job's members.
+**Reverted.** ~~This is the measurement that turns the job object from
+*preferred* into *necessary*.~~ **Wrong conclusion — see Resolution.** The sweep
+timed out for the same reason the tree kill did: a ~5 s budget against a ~5 s
+operation. Every process-enumeration cost measured here is real; what does not
+follow is that a job object was needed. Widening the existing budget was enough.
 
 ### Why neither works
 
@@ -138,20 +190,29 @@ tens of milliseconds from decision to enumeration. If the child exits inside tha
 window, there is no parent left to enumerate children from, and the detached
 grandchild is unreachable — regardless of what the calling code checked first.
 
-That race cannot be won from userland. It can only be removed by making
-descendant termination something the OS guarantees rather than something the code
-races for, which is what option B does.
+~~That race cannot be won from userland.~~ **Wrong — see Resolution.** There was
+no race to win. `taskkill /T` was reaching the tree correctly; the caller stopped
+waiting for it. The "window" theorized here is tens of milliseconds, which never
+matched a defect rate of one run in three — a discrepancy visible at the time and
+not pursued.
 
 ## Fix options
 
 **A — Reorder or unguard the kill.** Measured above and rejected: it narrows nothing meaningful, because the race is `taskkill`'s own spawn latency rather than the ordering of the call.
 
-**B — Job object (necessary, not merely preferred — see the sweep measurement above).** Assign the child to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The OS then guarantees every descendant dies with the job, regardless of detachment or exit ordering. This is the mechanism Windows provides for exactly this problem, and it removes the race rather than shrinking it. Cost: a native binding or a helper, since Node does not expose job objects directly.
+**B — Job object. NOT NEEDED — see Resolution.** Assign the child to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The OS then guarantees every descendant dies with the job, regardless of detachment or exit ordering. This is the mechanism Windows provides for exactly this problem, and it removes the race rather than shrinking it. Cost: a native binding or a helper, since Node does not expose job objects directly.
 
 **C — Record and kill descendants explicitly.** Have the transport track spawned PIDs and kill them individually. Works, but only for descendants we know about — it cannot cover a server that spawns its own helpers, which is precisely the case the test models.
 
-## Recommended next step
+## Recommended next step — DONE, differently
 
-Reproduce with the timing probe (the technique in this document: run the scenario, then poll the descendant PID until exit or a hard cap), confirm the bimodal split still holds, then implement **B**. Verify by running the probe twenty times and requiring zero survivors — a pass rate is not sufficient evidence here, since a third of runs already pass while leaking.
+Resolved by widening the teardown budget (see Resolution). The instruction below
+was followed for its first half — reproduce with a timing probe — and that is what
+found the real cause. Its second half, implement B, was not needed.
+
+The verification bar it sets still stands and was met: 20+ probe runs requiring
+zero survivors, not a pass rate.
+
+~~Reproduce with the timing probe~~ (the technique in this document: run the scenario, then poll the descendant PID until exit or a hard cap), confirm the bimodal split still holds, then implement **B**. Verify by running the probe twenty times and requiring zero survivors — a pass rate is not sufficient evidence here, since a third of runs already pass while leaking.
 
 Do **not** relax the test's 2 s assertion as part of the fix. That assertion is the only thing that surfaced this.
