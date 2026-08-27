@@ -27,6 +27,8 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_CallParentFunction.h"
+#include "K2Node_DynamicCast.h"
 #include "K2Node_Event.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_FunctionEntry.h"
@@ -1971,7 +1973,13 @@ namespace UEMCP
 			}
 			else
 			{
-				EventNode->EventReference.SetExternalMember(*EventName, AActor::StaticClass());
+				// The event is not on the generated class (uncompiled Blueprint, or a
+				// name that does not exist). Attribute it to the Blueprint's own parent
+				// rather than AActor: hardcoding AActor silently produces a wrong
+				// reference for every non-Actor Blueprint — UserWidget, GameplayAbility,
+				// AnimInstance, or any custom base.
+				UClass* OwningClass = Blueprint->ParentClass ? Blueprint->ParentClass : AActor::StaticClass();
+				EventNode->EventReference.SetExternalMember(*EventName, OwningClass);
 			}
 			EventNode->bOverrideFunction = true;
 			EventNode->NodePosX = NodePos.X;
@@ -1983,6 +1991,290 @@ namespace UEMCP
 
 			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 			BuildSuccessResponse(OutResponse, NodeResultToJson(EventNode, EventGraph));
+		}
+
+		// ── 9b. Parent-chain helpers (cast / parent-call / override) ─────────────
+
+		/**
+		 * Resolve a class identifier the way a caller is likely to write it.
+		 *
+		 * UEMCP::ResolveClass handles paths and a U-prefix guess, but UObject
+		 * class names carry NO U/A prefix ("Character", not "ACharacter"), so a
+		 * caller typing the C++ spelling would fail. Strip a leading A/U before
+		 * falling back to the Engine script path.
+		 */
+		UClass* ResolveBlueprintTargetClassByName(const FString& Identifier)
+		{
+			if (Identifier.IsEmpty()) return nullptr;
+
+			TArray<FString> Candidates;
+			Candidates.Add(Identifier);
+			if (Identifier.Len() > 1 && (Identifier[0] == TEXT('A') || Identifier[0] == TEXT('U'))
+				&& FChar::IsUpper(Identifier[1]))
+			{
+				Candidates.Add(Identifier.Mid(1));
+			}
+			if (!Identifier.Contains(TEXT("/")))
+			{
+				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *Identifier));
+			}
+			for (const FString& Candidate : Candidates)
+			{
+				if (UClass* Resolved = UEMCP::ResolveClass(Candidate))
+				{
+					return Resolved;
+				}
+			}
+			return nullptr;
+		}
+
+		/**
+		 * Find a function on the Blueprint's PARENT chain, skipping anything the
+		 * Blueprint declares itself.
+		 *
+		 * Starting the walk at ParentClass is the whole point: resolving against
+		 * GeneratedClass would happily return the Blueprint's own function and
+		 * produce a parent-call node that calls itself.
+		 */
+		UFunction* FindParentFunction(UBlueprint* Blueprint, const FString& FunctionName)
+		{
+			if (!Blueprint) return nullptr;
+			UClass* SearchClass = Blueprint->ParentClass;
+			const FName MemberName(*FunctionName);
+			while (SearchClass)
+			{
+				if (UFunction* Found = SearchClass->FindFunctionByName(MemberName))
+				{
+					return Found;
+				}
+				for (TFieldIterator<UFunction> It(SearchClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+				{
+					if (It->GetName().Equals(FunctionName, ESearchCase::IgnoreCase))
+					{
+						return *It;
+					}
+				}
+				SearchClass = SearchClass->GetSuperClass();
+			}
+			return nullptr;
+		}
+
+		// ── 9c. add_blueprint_cast_node ──────────────────────────────────────────
+		void HandleAddBlueprintCastNode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString TargetClassName;
+			if (!Params->TryGetStringField(TEXT("target_class"), TargetClassName) || TargetClassName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'target_class' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UClass* TargetClass = ResolveBlueprintTargetClassByName(TargetClassName);
+			if (!TargetClass)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Cast target class not found: %s. Blueprint classes need the _C suffix (e.g. /Game/Blueprints/BP_Foo.BP_Foo_C)."), *TargetClassName),
+					TEXT("CLASS_NOT_FOUND"));
+				return;
+			}
+
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			if (!Graph) return;
+
+			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
+			bool bPure = false;
+			Params->TryGetBoolField(TEXT("pure"), bPure);
+
+			UK2Node_DynamicCast* CastNode = NewObject<UK2Node_DynamicCast>(Graph);
+			if (!CastNode)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create cast node"), TEXT("CREATE_FAILED"));
+				return;
+			}
+			CastNode->TargetType = TargetClass;
+			CastNode->SetPurity(bPure);
+			CastNode->NodePosX = NodePos.X;
+			CastNode->NodePosY = NodePos.Y;
+			Graph->AddNode(CastNode);
+			CastNode->CreateNewGuid();
+			CastNode->PostPlacedNewNode();
+			CastNode->AllocateDefaultPins();
+
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+			TSharedPtr<FJsonObject> Result = NodeResultToJson(CastNode, Graph);
+			Result->SetStringField(TEXT("target_class"), TargetClass->GetPathName());
+			Result->SetBoolField(TEXT("pure"), bPure);
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// ── 9d. add_blueprint_parent_function_call ───────────────────────────────
+		void HandleAddBlueprintParentFunctionCall(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString FunctionName;
+			if (!Params->TryGetStringField(TEXT("function_name"), FunctionName) || FunctionName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'function_name' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UFunction* ParentFunction = FindParentFunction(Blueprint, FunctionName);
+			if (!ParentFunction)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("No parent function '%s' on the parent chain of %s (parent: %s)"),
+						*FunctionName, *Blueprint->GetName(),
+						Blueprint->ParentClass ? *Blueprint->ParentClass->GetName() : TEXT("none")),
+					TEXT("PARENT_FUNCTION_NOT_FOUND"));
+				return;
+			}
+
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			if (!Graph) return;
+
+			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
+
+			UK2Node_CallParentFunction* CallNode = NewObject<UK2Node_CallParentFunction>(Graph);
+			if (!CallNode)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create parent-call node"), TEXT("CREATE_FAILED"));
+				return;
+			}
+			CallNode->SetFromFunction(ParentFunction);
+			CallNode->NodePosX = NodePos.X;
+			CallNode->NodePosY = NodePos.Y;
+			Graph->AddNode(CallNode);
+			CallNode->CreateNewGuid();
+			CallNode->PostPlacedNewNode();
+			CallNode->AllocateDefaultPins();
+
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+			TSharedPtr<FJsonObject> Result = NodeResultToJson(CallNode, Graph);
+			Result->SetStringField(TEXT("parent_class"),
+				ParentFunction->GetOwnerClass() ? ParentFunction->GetOwnerClass()->GetPathName() : TEXT(""));
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// ── 9e. override_blueprint_parent_member ─────────────────────────────────
+		void HandleOverrideBlueprintParentMember(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
+			if (!Blueprint) return;
+
+			FString MemberName;
+			if (!Params->TryGetStringField(TEXT("member_name"), MemberName) || MemberName.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Missing 'member_name' parameter"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			UFunction* ParentFunction = FindParentFunction(Blueprint, MemberName);
+			if (!ParentFunction)
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("No inherited member '%s' on the parent chain of %s (parent: %s)"),
+						*MemberName, *Blueprint->GetName(),
+						Blueprint->ParentClass ? *Blueprint->ParentClass->GetName() : TEXT("none")),
+					TEXT("PARENT_MEMBER_NOT_FOUND"));
+				return;
+			}
+
+			UClass* OwnerClass = ParentFunction->GetOwnerClass();
+
+			// Events (BlueprintImplementableEvent / BlueprintNativeEvent) override as
+			// an event node; everything else overrides as a function graph. This is a
+			// flag-based read of what the editor's Override list offers.
+			if (ParentFunction->HasAnyFunctionFlags(FUNC_BlueprintEvent))
+			{
+				UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+				if (!EventGraph)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Blueprint has no event graph"), TEXT("NO_GRAPH"));
+					return;
+				}
+				if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, MemberName))
+				{
+					TSharedPtr<FJsonObject> Result = NodeResultToJson(Existing, EventGraph);
+					Result->SetStringField(TEXT("member_kind"), TEXT("event"));
+					Result->SetBoolField(TEXT("already_present"), true);
+					BuildSuccessResponse(OutResponse, Result);
+					return;
+				}
+
+				const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
+				UK2Node_Event* EventNode = NewObject<UK2Node_Event>(EventGraph);
+				if (!EventNode)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Failed to create event node"), TEXT("CREATE_FAILED"));
+					return;
+				}
+				// Bind to the function we actually found on the parent chain, so the
+				// override points at its real declaring class.
+				EventNode->EventReference.SetFromField<UFunction>(ParentFunction, /*bIsConsideredSelfContext=*/false);
+				EventNode->bOverrideFunction = true;
+				EventNode->NodePosX = NodePos.X;
+				EventNode->NodePosY = NodePos.Y;
+				EventGraph->AddNode(EventNode);
+				EventNode->CreateNewGuid();
+				EventNode->PostPlacedNewNode();
+				EventNode->AllocateDefaultPins();
+
+				FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+				TSharedPtr<FJsonObject> Result = NodeResultToJson(EventNode, EventGraph);
+				Result->SetStringField(TEXT("member_kind"), TEXT("event"));
+				Result->SetStringField(TEXT("parent_class"), OwnerClass ? OwnerClass->GetPathName() : TEXT(""));
+				Result->SetBoolField(TEXT("already_present"), false);
+				BuildSuccessResponse(OutResponse, Result);
+				return;
+			}
+
+			// Function override — refuse the ones the editor would not offer, rather
+			// than creating a graph that can never compile.
+			if (ParentFunction->HasAnyFunctionFlags(FUNC_Static | FUNC_Final | FUNC_Private))
+			{
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Member '%s' is static, final or private and cannot be overridden"), *MemberName),
+					TEXT("NOT_OVERRIDABLE"));
+				return;
+			}
+
+			if (UEdGraph* ExistingGraph = FindFunctionGraphByName(Blueprint, MemberName))
+			{
+				TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+				Result->SetStringField(TEXT("graph_name"), ExistingGraph->GetName());
+				Result->SetStringField(TEXT("member_kind"), TEXT("function"));
+				Result->SetBoolField(TEXT("already_present"), true);
+				BuildSuccessResponse(OutResponse, Result);
+				return;
+			}
+
+			UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+				Blueprint, FName(*MemberName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+			if (!NewGraph)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Failed to create override function graph"), TEXT("CREATE_FAILED"));
+				return;
+			}
+			// Signature comes from the parent's UFunction, which is what makes the
+			// graph an override rather than a new same-named function.
+			// AddFunctionGraph already marks the Blueprint structurally modified, which
+			// is the stronger notification — no MarkBlueprintAsModified needed here.
+			FBlueprintEditorUtils::AddFunctionGraph<UFunction>(Blueprint, NewGraph, /*bIsUserCreated=*/false, ParentFunction);
+
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("graph_name"), NewGraph->GetName());
+			Result->SetStringField(TEXT("member_kind"), TEXT("function"));
+			Result->SetStringField(TEXT("parent_class"), OwnerClass ? OwnerClass->GetPathName() : TEXT(""));
+			Result->SetBoolField(TEXT("already_present"), false);
+			BuildSuccessResponse(OutResponse, Result);
 		}
 
 		// ── 10. add_blueprint_function_node ───────────────────────────────────────
@@ -3396,6 +3688,9 @@ namespace UEMCP
 		Registry.Register(TEXT("add_blueprint_variable_assignment"),             &HandleAddBlueprintVariableAssignment);
 		Registry.Register(TEXT("add_blueprint_timer"),                           &HandleAddBlueprintTimer);
 		Registry.Register(TEXT("add_blueprint_control_node"),                    &HandleAddBlueprintControlNode);
+		Registry.Register(TEXT("add_blueprint_cast_node"),                       &HandleAddBlueprintCastNode);
+		Registry.Register(TEXT("add_blueprint_parent_function_call"),            &HandleAddBlueprintParentFunctionCall);
+		Registry.Register(TEXT("override_blueprint_parent_member"),              &HandleOverrideBlueprintParentMember);
 		Registry.Register(TEXT("add_blueprint_math_node"),                       &HandleAddBlueprintMathNode);
 		Registry.Register(TEXT("add_blueprint_self_reference"),                  &HandleAddBlueprintSelfReference);
 		Registry.Register(TEXT("add_blueprint_get_self_component_reference"),    &HandleAddBlueprintGetSelfComponentReference);

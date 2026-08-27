@@ -52,6 +52,9 @@ const fakeToolsYaml = {
         add_variable_assignment: { wire_type: 'add_blueprint_variable_assignment' },
         add_timer:               { wire_type: 'add_blueprint_timer' },
         add_control_node:        { wire_type: 'add_blueprint_control_node' },
+        add_cast_node:           { wire_type: 'add_blueprint_cast_node' },
+        add_parent_function_call:{ wire_type: 'add_blueprint_parent_function_call' },
+        override_parent_member:  { wire_type: 'override_blueprint_parent_member' },
         add_math_node:           { wire_type: 'add_blueprint_math_node' },
         add_self_reference:      { wire_type: 'add_blueprint_self_reference' },
         add_component_reference: { wire_type: 'add_blueprint_get_self_component_reference' },
@@ -103,6 +106,7 @@ const expectedTools = [
   'add_event_node', 'add_function_node', 'add_variable',
   'add_function_graph', 'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment', 'add_control_node',
   'add_timer', 'add_math_node',
+  'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   'add_self_reference', 'add_component_reference',
   'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
 ];
@@ -245,6 +249,9 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     },
   });
   fake.on('add_blueprint_control_node',                    { status: 'success', result: { node_id: 'GUID-BRANCH', graph_name: 'MoveStep', pins: [] } });
+  fake.on('add_blueprint_cast_node',                       { status: 'success', result: { node_id: 'GUID-CAST', graph_name: 'MoveStep', node_class: 'K2Node_DynamicCast', pins: [] } });
+  fake.on('add_blueprint_parent_function_call',            { status: 'success', result: { node_id: 'GUID-PARENT', graph_name: 'EventGraph', node_class: 'K2Node_CallParentFunction', pins: [] } });
+  fake.on('override_blueprint_parent_member',              { status: 'success', result: { node_id: 'GUID-OVERRIDE', graph_name: 'EventGraph', member_kind: 'event', pins: [] } });
   fake.on('add_blueprint_math_node',                       { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference',    { status: 'success', result: { node_id: 'GUID-CR' } });
@@ -284,6 +291,9 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['disconnect_pin',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'disconnect_blueprint_pin'],
     ['delete_nodes',            { blueprint_name: 'BP_X', node_ids: ['A'] },                                           'delete_blueprint_nodes'],
     ['find_nodes',              { blueprint_name: 'BP_X', node_type: 'Event', event_name: 'ReceiveBeginPlay' },         'find_blueprint_nodes'],
+    ['add_cast_node',           { blueprint_name: 'BP_X', target_class: 'Character', graph_name: 'MoveStep' },          'add_blueprint_cast_node'],
+    ['add_parent_function_call',{ blueprint_name: 'BP_X', function_name: 'ReceiveBeginPlay' },                         'add_blueprint_parent_function_call'],
+    ['override_parent_member',  { blueprint_name: 'BP_X', member_name: 'ReceiveBeginPlay' },                           'override_blueprint_parent_member'],
   ];
 
   for (const [tool, args, wireType] of checks) {

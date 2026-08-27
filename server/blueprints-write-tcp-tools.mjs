@@ -291,6 +291,39 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  add_cast_node: {
+    description: 'Add a Cast node (UK2Node_DynamicCast) to a target Blueprint graph. target_class accepts a bare name (Character), a U/A-prefixed name, or a full object path (/Script/Engine.Character, /Game/Blueprints/BP_Foo.BP_Foo_C). Set pure=true for a cast with no exec pins. Returns pin metadata including the As<Class> output pin.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      target_class: z.string().describe('Class to cast to — bare name, prefixed name, or full object path. Blueprint classes need the _C suffix.'),
+      pure: z.boolean().optional().describe('Pure cast (no exec pins, no Cast Failed). Default false.'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+    },
+    isReadOp: false,
+  },
+
+  add_parent_function_call: {
+    description: 'Add a "Call to Parent Function" node (UK2Node_CallParentFunction) — the Super:: call used inside an override. The function must exist on a parent class; calling it on a function the Blueprint declares itself is rejected rather than silently retargeted.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      function_name: z.string().describe('Parent function to call, e.g. ReceiveBeginPlay'),
+      graph_name: GraphNameOptional,
+      node_position: Vec2Optional,
+    },
+    isReadOp: false,
+  },
+
+  override_parent_member: {
+    description: 'Override a member inherited from a parent class. Events (BlueprintImplementableEvent/BlueprintNativeEvent) become an event node in the event graph; overridable functions get a new function graph matching the parent signature. Resolves against the parent chain — never guesses an owning class. Idempotent: returns the existing override if one is already present.',
+    schema: {
+      blueprint_name: z.string().describe('Blueprint asset name'),
+      member_name: z.string().describe('Inherited event or function name to override'),
+      node_position: Vec2Optional,
+    },
+    isReadOp: false,
+  },
+
   add_math_node: {
     description: 'Add a graph-targeted KismetMathLibrary node via stable operation names. Supports numeric add/subtract/multiply/comparisons and vector make/break/add/subtract/multiply/scale/distance. Returns pin metadata.',
     schema: {

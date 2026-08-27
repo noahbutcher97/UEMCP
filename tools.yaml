@@ -669,6 +669,30 @@ toolsets:
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
           params:         { type: object, required: false, description: "Default values for input pins" }
+      add_cast_node:
+        wire_type: add_blueprint_cast_node
+        description: Add a Cast node (UK2Node_DynamicCast) to a target Blueprint graph. target_class accepts a bare name (Character), a U/A-prefixed name, or a full object path (/Script/Engine.Character, /Game/Blueprints/BP_Foo.BP_Foo_C). Set pure=true for a cast with no exec pins. Returns pin metadata including the As<Class> output pin.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          target_class:   { type: string, required: true, description: "Class to cast to — bare name, prefixed name, or full object path. Blueprint classes need the _C suffix." }
+          pure:           { type: boolean, required: false, description: "Pure cast (no exec pins, no Cast Failed). Default false." }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      add_parent_function_call:
+        wire_type: add_blueprint_parent_function_call
+        description: Add a Call-to-Parent-Function node (UK2Node_CallParentFunction) — the Super call used inside an override. The function must exist on a parent class; calling it on a function the Blueprint declares itself is rejected rather than silently retargeted.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          function_name:  { type: string, required: true, description: "Parent function to call, e.g. ReceiveBeginPlay" }
+          graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      override_parent_member:
+        wire_type: override_blueprint_parent_member
+        description: Override a member inherited from a parent class. Events (BlueprintImplementableEvent/BlueprintNativeEvent) become an event node in the event graph; overridable functions get a new function graph matching the parent signature. Resolves against the parent chain — never guesses an owning class. Idempotent - returns the existing override if one is already present.
+        params:
+          blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
+          member_name:    { type: string, required: true, description: "Inherited event or function name to override" }
+          node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       add_self_reference:
         wire_type: add_blueprint_self_reference
         description: Add Self reference node (UK2Node_Self) to a target graph. Returns pin metadata.

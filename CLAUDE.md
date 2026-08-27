@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 149 YAML-declared tools (10 management + 139 toolset-scoped across 16 toolsets); 10 of the toolset-scoped entries are `status: planned` (hidden, not yet registered), leaving 139 active/callable tools
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 154 YAML-declared tools (11 management + 143 toolset-scoped across 16 toolsets); 10 of the toolset-scoped entries are `status: planned` (hidden, not yet registered), leaving 144 active/callable tools
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -25,7 +25,7 @@ Claude ↔ MCP Server (stdio) ↔ active runtime layers:
 
 ## Dynamic Toolset System
 
-149 declared / 139 active tools (see Project Overview above for the full breakdown) across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
+154 declared / 144 active tools (see Project Overview above for the full breakdown) across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control

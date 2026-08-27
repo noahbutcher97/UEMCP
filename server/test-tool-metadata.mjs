@@ -660,8 +660,8 @@ try {
     `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
   );
   t.assert(
-    listedRows.length === 141,
-    'independent all-enabled tools/list inventory contains 141 registered tools',
+    listedRows.length === 144,
+    'independent all-enabled tools/list inventory contains 144 registered tools',
     `listed=${listedRows.length}`,
   );
 
