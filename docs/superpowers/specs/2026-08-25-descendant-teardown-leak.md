@@ -92,6 +92,45 @@ case of a child that exited cleanly. No benefit, nonzero cost — **reverted**.
 **Sample twenty or more runs before believing any result here.** A third of runs
 already pass while leaking, so a short clean streak means nothing.
 
+### Orphan sweep by parent PID — tried, measured, rejected
+
+The most promising no-native option, and the one that made the job object look
+avoidable. Windows keeps `ParentProcessId` on a surviving child's record after
+the parent dies, so the orphan stays discoverable by the dead parent's PID.
+Verified directly: parent gone, grandchild alive, query by the dead PID returned
+it. `taskkill /T` fails only because the PID is gone, not because the link is.
+
+Implemented as a post-`taskkill` sweep — enumerate children of the child PID and
+stop them — plus removing the aliveness guard, since the sweep is unreachable
+without it. **Neither half works alone**, which is why each measured as a no-op
+in isolation:
+
+| Configuration | Leak rate |
+|---|---|
+| Shipped | 8 / 24 = 33% |
+| Guard removed only | 8 / 24 = 33% |
+| Sweep only, guard still in place | 10 / 28 = 36% |
+| **Guard removed + sweep** | **2 / 28 = 7%** |
+
+A real improvement — `hang` mode went 14/14 clean. It is still rejected, on cost:
+
+**Process enumeration costs about five seconds on this machine.** Not PowerShell
+startup — `tasklist` measured 5185 ms and `wmic` is removed entirely (ENOENT) on
+current Windows. The PowerShell CIM sweep measured 4.5-5.5 s across six runs.
+
+That is fatal twice over. The sweep's own budget is 5 s, so it times out about
+half the time and gives up — that is the residual 7%. And when it does succeed it
+adds five seconds to every teardown, including the common case where nothing
+leaked, which also breaks the test's 2 s assertion even when the fix worked.
+
+No tuning rescues it: a longer budget makes teardown slower, a shorter one makes
+the sweep useless. The approach needs an enumeration primitive that costs
+milliseconds, and none is available externally.
+
+**Reverted.** This is the measurement that turns the job object from *preferred*
+into *necessary*: it needs no enumeration and no spawn, because the OS already
+knows the job's members.
+
 ### Why neither works
 
 The dominant race is not the guard. `taskkill /T` is itself a spawned process,
@@ -107,7 +146,7 @@ races for, which is what option B does.
 
 **A — Reorder or unguard the kill.** Measured above and rejected: it narrows nothing meaningful, because the race is `taskkill`'s own spawn latency rather than the ordering of the call.
 
-**B — Job object (recommended).** Assign the child to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The OS then guarantees every descendant dies with the job, regardless of detachment or exit ordering. This is the mechanism Windows provides for exactly this problem, and it removes the race rather than shrinking it. Cost: a native binding or a helper, since Node does not expose job objects directly.
+**B — Job object (necessary, not merely preferred — see the sweep measurement above).** Assign the child to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The OS then guarantees every descendant dies with the job, regardless of detachment or exit ordering. This is the mechanism Windows provides for exactly this problem, and it removes the race rather than shrinking it. Cost: a native binding or a helper, since Node does not expose job objects directly.
 
 **C — Record and kill descendants explicitly.** Have the transport track spawned PIDs and kill them individually. Works, but only for descendants we know about — it cannot cover a server that spawns its own helpers, which is precisely the case the test models.
 
