@@ -21,6 +21,7 @@ import {
   makePackageIndexResolver,
   isGraphNodeExportClass,
   pinBlockLayoutForPackage,
+  readFText,
   parsePinBlock,
   PACKAGE_FILE_TAG,
   UE5_PACKAGE_SAVED_HASH,
@@ -69,6 +70,13 @@ import { engineAssetDiskPath, engineVersionMatches, readEngineBuildVersion, reso
 import { REPO_ROOT, findContentAsset, TestRunner } from './test-helpers.mjs';
 
 const runner = new TestRunner('uasset-parser format tests');
+
+// Byte-builders for synthetic FText fixtures (see the NamedFormat test).
+function int32LE(v) { const b = Buffer.alloc(4); b.writeInt32LE(v | 0); return b; }
+function int64LE(v) { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(v)); return b; }
+function ansiString(str) {
+  return Buffer.concat([int32LE(str.length + 1), Buffer.from(str + '\0', 'latin1')]);
+}
 
 const ROOT = process.env.UNREAL_PROJECT_ROOT || '';
 
@@ -2356,6 +2364,49 @@ async function testPinBlockOffsetCP1() {
     'CP1/predicate: U-prefixed class does NOT match (UE strips prefix at serialization — D63)');
   runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
     'CP1/predicate: non-graph-node classes rejected');
+
+  // FText NamedFormat history (type 1). The reader implemented only None (-1)
+  // and Base (0) and threw on everything else, which aborted the whole pin
+  // array: 360 of 360 mid-array failures in one 5.6 project die exactly here,
+  // and 60 more in UE 5.8's engine plugins.
+  //
+  // Layout per FTextHistory_NamedFormat::Serialize — FTextHistory_Generated
+  // writes nothing, then a NESTED FText, then TSortedMap<FString,
+  // FFormatArgumentValue>. Each argument is int8 type + payload:
+  // Int/UInt/Gender int64, Float 4, Double 8, Text a nested FText.
+  {
+    const buf = Buffer.concat([
+      // outer FText: flags, history=1
+      int32LE(0), Buffer.from([1]),
+      // nested FormatText: flags, history=-1 (None), bHasCultureInvariantString=0
+      int32LE(0), Buffer.from([0xff]), int32LE(0),
+      // Arguments: 2 entries
+      int32LE(2),
+      ansiString('Count'), Buffer.from([0]), int64LE(7n),          // Int
+      ansiString('Who'), Buffer.from([4]),                          // Text ->
+      int32LE(0), Buffer.from([0xff]), int32LE(0),                  //   nested None FText
+      // trailing sentinel so we can prove exact consumption
+      int32LE(0x5A5A5A5A),
+    ]);
+    const cur = new Cursor(buf);
+    readFText(cur);
+    runner.assert(cur.tell() === buf.length - 4,
+      'FText NamedFormat consumes exactly its own bytes',
+      `stopped at ${cur.tell()}, expected ${buf.length - 4}`);
+    runner.assert(cur.readUInt32() === 0x5A5A5A5A,
+      'FText NamedFormat leaves the cursor on the next field');
+  }
+
+  // An unknown history type must still throw rather than guess a length —
+  // silently mis-consuming would desync every following pin.
+  {
+    const buf = Buffer.concat([int32LE(0), Buffer.from([99]), int32LE(0)]);
+    let threw = null;
+    try { readFText(new Cursor(buf)); } catch (e) { threw = e; }
+    runner.assert(threw !== null, 'an unimplemented FText history still throws');
+    runner.assert(/99/.test(String(threw?.message)),
+      `the throw names the history type (got: ${threw?.message})`);
+  }
 
   // FEdGraphPin's int32 SourceIndex is gated on
   // FUE5MainStreamObjectVersion >= EdGraphPinSourceIndex (50), but the parser

@@ -1555,7 +1555,37 @@ function skipFString(cur) {
  * @param {Cursor} cur
  * @returns {string}
  */
-function readFText(cur) {
+/**
+ * Consume one FFormatArgumentValue.
+ *
+ * `EFormatArgumentType` is serialized BY INDEX (the engine header says so
+ * explicitly), so these ordinals are the wire contract:
+ *   0 Int (int64) · 1 UInt (uint64) · 2 Float (4) · 3 Double (8)
+ *   4 Text (a nested FText) · 5 Gender (stored as UInt)
+ *
+ * Per `operator<<(FStructuredArchive::FSlot, FFormatArgumentValue&)`.
+ */
+function skipFormatArgumentValue(cur) {
+  const type = cur.readInt8();
+  switch (type) {
+    case 0: case 1: case 5: cur.skip(8); return; // Int / UInt / Gender
+    case 2: cur.skip(4); return;                 // Float
+    case 3: cur.skip(8); return;                 // Double
+    case 4: readFText(cur); return;              // Text — recursive
+    default:
+      throw new Error(`unsupported FFormatArgumentValue type=${type} at offset ${cur.tell() - 1}`);
+  }
+}
+
+/**
+ * Read an FText, returning its source string where one exists.
+ *
+ * Only the history types actually observed on disk are implemented. An
+ * unimplemented one THROWS rather than guessing a length: FText is
+ * variable-width, so mis-consuming it desyncs every following pin and turns a
+ * loud failure into a silently truncated graph.
+ */
+export function readFText(cur) {
   cur.skip(4); // Flags
   const historyType = cur.readInt8();
   if (historyType === -1) {
@@ -1568,6 +1598,26 @@ function readFText(cur) {
     cur.readFString();
     cur.readFString();
     return cur.readFString();
+  }
+  if (historyType === 1) {
+    // NamedFormat. FTextHistory_Generated::Serialize writes nothing, then a
+    // NESTED FText (the format string) and TSortedMap<FString,
+    // FFormatArgumentValue> — an int32 count followed by key/value pairs.
+    // Per FTextHistory_NamedFormat::Serialize.
+    //
+    // Unimplemented until now, and it was the single largest cause of
+    // mid-array pin desync: every failing node in one 5.6 project (360 of 360)
+    // aborted here, plus 60 in UE 5.8's engine plugins.
+    readFText(cur);
+    const argCount = cur.readInt32();
+    if (argCount < 0 || argCount > 100_000) {
+      throw new Error(`implausible FText NamedFormat argument count=${argCount} at offset ${cur.tell() - 4}`);
+    }
+    for (let i = 0; i < argCount; i++) {
+      cur.readFString();          // argument name
+      skipFormatArgumentValue(cur);
+    }
+    return '';
   }
   throw new Error(`unsupported FText HistoryType=${historyType} at offset ${cur.tell() - 1}`);
 }
