@@ -1,7 +1,7 @@
 # Mid-array pin desync in the offline parser
 
 **Date**: 2026-08-27
-**Status**: Localised, NOT fixed. Stopped at a pre-declared budget rather than producing another theory.
+**Status**: Mid-array desync FIXED for 5.6 (zero failures). Two causes remain, both now named with a source-confirmed boundary.
 **Scale**: 20,598 of 51,563 graph-node exports malformed in UE 5.8's engine plugins alone (40%)
 **Related**: D194 (the same silent-truncation failure mode), D195, `docs/reports/graph-node-coverage-audit.md`
 
@@ -131,6 +131,81 @@ The pin-array start is correct, so the desync begins **inside a pin body**,
 after pin 0 parses correctly. Combined with the census, the target is the
 Base-history FText read specifically, in the ~8.5% of cases that differ from the
 other 91.5%.
+
+## Resolved: FText NamedFormat (the 5.6 cause)
+
+Found by asking which corpus had the *simplest* version of the failure rather
+than staring harder at the hardest one. In the 5.6 project every failing node —
+**360 of 360** — aborted on `unsupported FText HistoryType=1`. NamedFormat, which
+the reader never implemented. FText is variable-width, so the throw killed the
+node's remaining pins and produced a silently short graph.
+
+Implemented per `FTextHistory_NamedFormat::Serialize`: `FTextHistory_Generated`
+writes nothing, then a nested FText, then `TSortedMap<FString,
+FFormatArgumentValue>`; each argument is `int8` type plus payload, and the engine
+header states the type is serialized **by index**, so those ordinals are the wire
+contract (Int/UInt/Gender int64, Float 4, Double 8, Text a nested FText).
+
+| Corpus | before | after |
+|---|---|---|
+| 5.6 project | 134 | **0** |
+| 5.6 engine plugins | 117 | **0** |
+| 5.8 engine plugins | 20,598 | 20,530 |
+
+The before/after **reconciles exactly** rather than merely improving, which is
+what distinguishes a fix from a measurement shift: 7075 clean + 134 mid-array +
+22 at-pin-0 = the 7231 clean now; likewise 33,989 + 117 + 33 = 34,139.
+
+## The remaining causes, and the boundary that separates them
+
+The "40% of 5.8" figure conflated two populations. Split properly:
+
+| Package format | clean | header-rejected | mid-array | % clean |
+|---|---|---|---|---|
+| **below ue5 1012** | 1,201 | 26,231 | 2,297 | **4.0%** |
+| **1012 and above** | 32,227 | 485 | 2,103 | **92.6%** |
+
+**`PROPERTY_TAG_COMPLETE_TYPE_NAME` is UE5 version 1012.** Counting the enum in
+`ObjectVersion.h` from the parser's own anchors (`SCRIPT_SERIALIZATION_OFFSET`
+1010, `METADATA_SERIALIZATION_OFFSET` 1014) puts it exactly there, and the
+failure boundary matches to the version.
+
+### Cause A — legacy FPropertyTag (the large one)
+
+`readPropertyTag` implements only the **1012+** layout: FName name, then
+`FPropertyTypeName`, size, `EPropertyTagFlags`. Packages below 1012 use the
+classic layout — FName Name, FName Type, int32 Size, int32 ArrayIndex, then
+type-specific payload (StructName + optional guid, bool value, enum name, array
+inner type, map key/value types), then a trailing has-guid byte. The parser
+desyncs immediately, which surfaces as `unexpected_preamble` or a rejected
+header rather than as a parse error.
+
+This is the audit's original "version-gated tagged-property decode" finding, now
+pinned to an exact version and an exact struct. It accounts for **26,231
+header-rejected exports** across 5.8's plugin tree and the 5.8 project, including
+**8,810 in the 5.8 project alone** (imported content saved by older engines).
+
+Well-defined but not small: the legacy tag has several UE4-era version gates of
+its own (`VER_UE4_STRUCT_GUID_IN_PROPERTY_TAG`,
+`VER_UE4_PROPERTY_GUID_IN_PROPERTY_TAG`, `VER_UE4_PROPERTY_TAG_SET_MAP_SUPPORT`).
+
+### Cause B — mid-array desync above 1012 (the small one)
+
+2,103 exports, still the `65280`-byte truncation shape. Unexplained. A handful
+are further unimplemented FText histories (`HistoryType=4`, AsNumber — 3 cases in
+the 5.8 project), which are cheap to add by the same pattern as NamedFormat.
+
+### What is NOT affected
+
+The 5.6 project is now **completely clean** — zero failures of any kind, no
+legacy content at all. Both remaining causes are specific to content saved by
+older engines, which the 5.8 project has a lot of and the 5.6 project has none of.
+
+### A commandlet was never needed
+
+Every cause here was named by an error message or a version boundary. Ground
+truth via `DumpBPGraph` would confirm which pins are lost but would not have
+found any of this faster.
 
 ## Next step
 
