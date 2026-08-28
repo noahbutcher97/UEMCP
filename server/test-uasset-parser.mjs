@@ -2366,6 +2366,23 @@ async function testPinBlockOffsetCP1() {
   runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
     'CP1/predicate: non-graph-node classes rejected');
 
+  // FEdGraphPinType's trailing bSerializeAsSinglePrecisionFloat is gated on
+  // FUE5ReleaseStreamObjectVersion >= SerializeFloatPinDefaultValuesAsSinglePrecision (36).
+  // The reader assumed a fixed 69-byte pin type, which overshoots by 4 on any
+  // package below that — desyncing from pin 0.
+  //
+  // Measured on the 5.8 project: every export at release >= 36 parsed clean
+  // (1,093 of 1,093), while below it 180 of 236 failed.
+  {
+    const key = '425e9bd8464dbd24a8ac1284791764df';
+    const at = v => pinBlockLayoutForPackage({ customVersions: [{ key, version: v }] }).hasSinglePrecisionFloatPinDefaults;
+    runner.assert(at(36) === true, 'pin type: single-precision float field present exactly at version 36');
+    runner.assert(at(47) === true, 'pin type: present above the gate');
+    runner.assert(at(35) === false, 'pin type: absent one below the gate');
+    runner.assert(pinBlockLayoutForPackage({ customVersions: [] }).hasSinglePrecisionFloatPinDefaults === false,
+      'pin type: a package with no UE5-release custom version predates the field');
+  }
+
   // Legacy FPropertyTag (packages below ue5 1012, PROPERTY_TAG_COMPLETE_TYPE_NAME).
   //
   // `operator<<(FSlot, FPropertyTag&)` dispatches to LoadPropertyTagNoFullType
