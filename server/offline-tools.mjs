@@ -19,6 +19,7 @@ import {
   readExportProperties,
   makePackageIndexResolver,
   pinBlockLayoutForPackage,
+  propertyTagLayoutForPackage,
   formatFName,
   resolveLinkedToEdges,
 } from './uasset-parser.mjs';
@@ -1302,8 +1303,11 @@ async function parseAssetForPropertyRead(projectRoot, assetPath) {
   const imports = readImportTable(cur, summary, names);
   const exports = readExportTable(cur, summary, names);
   const handlers = buildPropertyReadHandlers();
+  // The tagged-property layout varies PER PACKAGE, not per engine — a 5.8
+  // project can be almost entirely pre-1012 content.
+  const tagLayout = propertyTagLayoutForPackage(summary);
   return {
-    diskPath, stats, buf, summary, names, imports, exports,
+    diskPath, stats, buf, summary, names, imports, exports, ...tagLayout,
     resolve: makePackageIndexResolver(exports, imports),
     ...handlers,
   };

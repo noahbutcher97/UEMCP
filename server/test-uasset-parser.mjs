@@ -21,6 +21,7 @@ import {
   makePackageIndexResolver,
   isGraphNodeExportClass,
   pinBlockLayoutForPackage,
+  readPropertyTag,
   readFText,
   parsePinBlock,
   PACKAGE_FILE_TAG,
@@ -2364,6 +2365,57 @@ async function testPinBlockOffsetCP1() {
     'CP1/predicate: U-prefixed class does NOT match (UE strips prefix at serialization — D63)');
   runner.assert(isGraphNodeExportClass('BlueprintGeneratedClass') === false,
     'CP1/predicate: non-graph-node classes rejected');
+
+  // Legacy FPropertyTag (packages below ue5 1012, PROPERTY_TAG_COMPLETE_TYPE_NAME).
+  //
+  // `operator<<(FSlot, FPropertyTag&)` dispatches to LoadPropertyTagNoFullType
+  // below that version, and the layouts share nothing after the name: legacy is
+  // FName Type + int32 Size + int32 ArrayIndex + a type-specific payload +
+  // a has-guid byte, where modern is FPropertyTypeName + Size + flags byte.
+  //
+  // Measured across UE 5.8's plugin tree and the 5.8 project: below-1012
+  // packages were 4.0% clean against 92.6% at or above it, and 3,376 of 3,383
+  // legacy graph-node exports bailed before reading a single property.
+  {
+    const names = ['None', 'NodePosX', 'IntProperty', 'NodeGuid', 'StructProperty', 'Guid', 'bHidden', 'BoolProperty'];
+    const fn = (i, n = 0) => Buffer.concat([int32LE(i), int32LE(n)]);
+    const opts = { legacyPropertyTags: true, ue4Version: 522 };
+
+    // Int: name, type, size, arrayIndex, then has-guid=0.
+    {
+      const cur = new Cursor(Buffer.concat([fn(1), fn(2), int32LE(4), int32LE(0), Buffer.from([0])]));
+      const tag = readPropertyTag(cur, names, opts);
+      runner.assert(tag.name === 'NodePosX' && tag.type === 'IntProperty' && tag.size === 4,
+        'legacy tag: plain property decodes name/type/size',
+        `got ${JSON.stringify({ n: tag.name, t: tag.type, s: tag.size })}`);
+      runner.assert(cur.tell() === 25, `legacy tag: plain property consumes 25 bytes (8+8+4+4+1) (got ${cur.tell()})`);
+    }
+
+    // Struct carries StructName + a 16-byte StructGuid at ue4 >= 441.
+    {
+      const cur = new Cursor(Buffer.concat([fn(3), fn(4), int32LE(16), int32LE(0), fn(5), Buffer.alloc(16), Buffer.from([0])]));
+      const tag = readPropertyTag(cur, names, opts);
+      runner.assert(tag.type === 'StructProperty' && tag.size === 16,
+        'legacy tag: struct property decodes');
+      runner.assert(cur.tell() === 49, `legacy tag: struct consumes 25 + StructName(8) + StructGuid(16) = 49 (got ${cur.tell()})`);
+    }
+
+    // Bool carries a 1-byte value inside the TAG, not in the payload.
+    {
+      const cur = new Cursor(Buffer.concat([fn(6), fn(7), int32LE(0), int32LE(0), Buffer.from([1]), Buffer.from([0])]));
+      const tag = readPropertyTag(cur, names, opts);
+      runner.assert(tag.type === 'BoolProperty' && tag.size === 0,
+        'legacy tag: bool property decodes with a zero-size payload');
+      runner.assert(cur.tell() === 26, `legacy tag: bool consumes 25 + its in-tag value(1) = 26 (got ${cur.tell()})`);
+    }
+
+    // A None name still terminates the stream.
+    {
+      const cur = new Cursor(fn(0));
+      runner.assert(readPropertyTag(cur, names, opts).terminator === true,
+        'legacy tag: None terminates the stream');
+    }
+  }
 
   // FText NamedFormat history (type 1). The reader implemented only None (-1)
   // and Base (0) and threw on everything else, which aborted the whole pin

@@ -66,6 +66,11 @@ export const UE5_SCRIPT_SERIALIZATION_OFFSET = 1010;
 // EUnrealEngineObjectUEVersion (UE4-era) values that gate FObjectExport fields.
 // Ordinals computed from the implicit enum numbering rooted at
 // VER_UE4_OLDEST_LOADABLE_PACKAGE = 214.
+export const UE5_PROPERTY_TAG_COMPLETE_TYPE_NAME = 1012;
+export const UE4_ARRAY_PROPERTY_INNER_TAGS = 282;
+export const UE4_STRUCT_GUID_IN_PROPERTY_TAG = 441;
+export const UE4_PROPERTY_GUID_IN_PROPERTY_TAG = 503;
+export const UE4_PROPERTY_TAG_SET_MAP_SUPPORT = 508;
 export const UE4_LOAD_FOR_EDITOR_GAME = 365;
 export const UE4_COOKED_ASSETS_IN_EDITOR_SUPPORT = 485;
 export const UE4_PRELOAD_DEPENDENCIES_IN_COOKED_EXPORTS = 507;
@@ -885,7 +890,70 @@ function readPropertyTypeName(cur, names) {
  *   unsupportedExtensions: boolean
  * }}
  */
-export function readPropertyTag(cur, names) {
+/**
+ * Legacy FPropertyTag, for packages below `PROPERTY_TAG_COMPLETE_TYPE_NAME`.
+ *
+ * `operator<<(FSlot, FPropertyTag&)` dispatches to `LoadPropertyTagNoFullType`
+ * below that version, and the two layouts share nothing after the name: legacy
+ * writes an FName Type, int32 Size, int32 ArrayIndex, a type-specific payload,
+ * then a has-guid byte. Reading it with the modern layout desyncs on the first
+ * property, which is why such packages produced no properties at all.
+ *
+ * The type-specific block only applies when the Type FName has no number
+ * suffix — the engine guards it on `Tag.Type.GetNumber() == NAME_NO_NUMBER_INTERNAL`.
+ */
+function readLegacyPropertyTag(cur, names, ue4Version) {
+  const nameIdx = cur.readInt32();
+  const nameNum = cur.readInt32();
+  const name = formatFName(names[nameIdx], nameNum);
+  if (names[nameIdx] === 'None' && nameNum === 0) return { terminator: true };
+
+  const typeIdx = cur.readInt32();
+  const typeNum = cur.readInt32();
+  const type = names[typeIdx];
+  const size = cur.readInt32();
+  const arrayIndex = cur.readInt32();
+
+  if (typeNum === 0) {
+    if (type === 'StructProperty') {
+      cur.skip(8);                                                    // StructName
+      if (ue4Version >= UE4_STRUCT_GUID_IN_PROPERTY_TAG) cur.skip(16); // StructGuid
+    } else if (type === 'BoolProperty') {
+      cur.skip(1);                                                    // BoolVal lives in the TAG
+    } else if (type === 'ByteProperty' || type === 'EnumProperty') {
+      cur.skip(8);                                                    // EnumName
+    } else if (type === 'ArrayProperty') {
+      if (ue4Version >= UE4_ARRAY_PROPERTY_INNER_TAGS) cur.skip(8);   // InnerType
+    } else if (type === 'OptionalProperty') {
+      cur.skip(8);                                                    // InnerType
+    } else if (ue4Version >= UE4_PROPERTY_TAG_SET_MAP_SUPPORT) {
+      if (type === 'SetProperty') cur.skip(8);                        // InnerType
+      else if (type === 'MapProperty') cur.skip(16);                  // InnerType + ValueType
+    }
+  }
+
+  let propertyGuid = null;
+  if (ue4Version >= UE4_PROPERTY_GUID_IN_PROPERTY_TAG) {
+    if (cur.readUInt8() !== 0) propertyGuid = cur.readGuid();
+  }
+
+  return {
+    terminator: false,
+    name,
+    type: type ?? null,
+    typeParams: [],
+    size,
+    flags: 0,
+    arrayIndex,
+    propertyGuid,
+    unsupportedExtensions: false,
+  };
+}
+
+export function readPropertyTag(cur, names, opts = {}) {
+  if (opts.legacyPropertyTags) {
+    return readLegacyPropertyTag(cur, names, opts.ue4Version ?? 0);
+  }
   const name = readFNameAtCursor(cur, names);
   if (name === 'None') return { terminator: true };
   const typeName = readPropertyTypeName(cur, names);
@@ -1047,7 +1115,11 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
     };
   }
   cur.seek(start);
-  const preamble = cur.readUInt8();
+  // Legacy packages (below PROPERTY_TAG_COMPLETE_TYPE_NAME) have NO leading
+  // byte — the stream opens directly on a property FName. Consuming one there
+  // desyncs immediately, which is why every such export was rejected below as
+  // having an unexpected preamble.
+  const preamble = opts.hasStreamPreamble === false ? 0x00 : cur.readUInt8();
   // We only tolerate preamble=0x00 empirically. Non-zero → likely a different
   // export format (UClass subclass preamble, etc.) — bail out with a marker.
   if (preamble !== 0x00) {
@@ -1082,7 +1154,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
   while (cur.tell() < endOffset) {
     let tag;
     try {
-      tag = readPropertyTag(cur, names);
+      tag = readPropertyTag(cur, names, opts);
     } catch (err) {
       unsupported.push({ name: '__stream__', reason: PARSER_REASONS.tagHeaderReadFailed, size_bytes: endOffset - cur.tell() });
       break;
@@ -1267,6 +1339,28 @@ const EDGRAPH_PIN_SOURCE_INDEX_VERSION = 50;
  * @param {{customVersions?: Array<{key: string, version: number}>}} summary
  * @returns {{hasSourceIndex: boolean}}
  */
+/**
+ * How does this package lay out its tagged-property stream?
+ *
+ * Below `PROPERTY_TAG_COMPLETE_TYPE_NAME` the tag uses the legacy layout AND
+ * the stream has no leading byte. The 1-byte "preamble" the reader consumes on
+ * modern packages does not exist there — legacy exports begin directly with a
+ * property FName, which is why every one of them was rejected as having an
+ * unexpected preamble.
+ *
+ * @param {{fileVersionUE4?: number, fileVersionUE5?: number}} summary
+ * @returns {{legacyPropertyTags: boolean, ue4Version: number, hasStreamPreamble: boolean}}
+ */
+export function propertyTagLayoutForPackage(summary) {
+  const ue5 = Number(summary?.fileVersionUE5) || 0;
+  const legacy = ue5 < UE5_PROPERTY_TAG_COMPLETE_TYPE_NAME;
+  return {
+    legacyPropertyTags: legacy,
+    ue4Version: Number(summary?.fileVersionUE4) || 0,
+    hasStreamPreamble: !legacy,
+  };
+}
+
 export function pinBlockLayoutForPackage(summary) {
   const entry = (summary?.customVersions ?? []).find(v => v.key === UE5_MAINSTREAM_VERSION_KEY);
   const version = Number.isFinite(entry?.version) ? entry.version : -1;
