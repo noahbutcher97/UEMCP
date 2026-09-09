@@ -11,8 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-09-health-audit-remediation-design.md` §4 WS3. Deviation recorded: four modules instead of three, because the call graph has a shared leaf.
 
 ## Global Constraints
-n- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
-
+- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
 - Pure moves. A moved declaration keeps its name, signature, body, and the comment block immediately above it. Only `export` keywords and import lines change.
 - No behavior change except the one sort in Task 3.
 - `offline-tools.mjs` must keep exporting exactly these 14 names: `buildPropertyReadHandlers`, `resetOfflineAssetCache`, `shouldRescan`, `matchTagGlob`, `resolveAssetDiskPath`, `parseAssetHeader`, `collectSubobjectExportIndexes`, `summarizeCollisionProperties`, `buildSubobjectResponseRow`, `computeCommentContainment`, `withAssetExistenceCheck`, `executeOfflineTool`, `assetCache`, `extractBPEdgeTopologySafe`.

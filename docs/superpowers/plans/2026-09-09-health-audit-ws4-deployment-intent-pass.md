@@ -11,8 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-09-health-audit-remediation-design.md` §4 WS4. Deviation recorded: a fourth module, `transaction-common.mjs`, holds the private helpers every cluster shares; the spec's three cluster modules are unchanged.
 
 ## Global Constraints
-n- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
-
+- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
 - Behavior-preserving. Moved function bodies are pasted verbatim. Only the enclosing factory, its parameter destructuring, imports, and `export` keywords change.
 - Public surface of `client-transaction.mjs` is unchanged: `ClientTransactionError`, `captureClientPathFingerprint`, `createClientTransaction` with the same options and the same frozen `{ snapshot, apply, rollback }` return. Adapters and `deploy-uemcp.mjs` import `captureClientPathFingerprint` from it and must keep working untouched.
 - No change to the machine-interface contract (`docs/specs/deployment-machine-interface.md`).

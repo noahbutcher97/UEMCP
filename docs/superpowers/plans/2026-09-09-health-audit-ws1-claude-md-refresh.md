@@ -11,8 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-09-health-audit-remediation-design.md` §4 WS1.
 
 ## Global Constraints
-n- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
-
+- Scratch files: set `SCRATCH="$(mktemp -d)"` once per shell before the first task; every `$SCRATCH/...` path below refers to it. Never write scratch output into the repo.
 - Codename hygiene: never write a private project name into `CLAUDE.md`; use `Project A` / `Project B` / `path/to/YourProject`.
 - No AI attribution in the commit message.
 - One commit for the whole workstream.
