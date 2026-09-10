@@ -70,7 +70,7 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7511 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7532 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -100,22 +100,47 @@ UEMCP/
 ├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
 ├── smoke-live.bat              ← opt-in live-editor smoke runner wrapper
 ├── .uemcp-targets.json.example ← template per-machine target profiles
+├── dist/
+│   ├── deploy-uemcp.mjs        ← committed esbuild bundle of server/deploy-uemcp.mjs; the machine-interface entry (docs/specs/deployment-machine-interface.md)
+│   └── deploy-uemcp.manifest.json ← bundle manifest checked by test-deployment-bundle.mjs
 ├── server/
-│   ├── server.mjs              ← MCP server entry, management tools
+│   ├── server.mjs              ← 19-line stdio shim; all wiring lives in create-uemcp-server.mjs
+│   ├── create-uemcp-server.mjs ← real server entry: tool registration, management tools, project attachment
 │   ├── offline-tools.mjs       ← offline tool handlers
 │   ├── uasset-parser.mjs       ← .uasset/.umap binary parser (Level 1+2+2.5, D50)
+│   ├── uasset-structs.mjs      ← engine struct decoders used by the parser
+│   ├── tcp-transport.mjs       ← Content-Length framed TCP client: encode, decode, deadlines (see TCP Wire Protocol)
+│   ├── connection-manager.mjs  ← active routing, mock seam, ResultCache, MetricsAggregator
 │   ├── actors-tcp-tools.mjs    ← actors toolset TCP handlers
 │   ├── blueprints-write-tcp-tools.mjs ← blueprints-write toolset TCP handlers
 │   ├── widgets-tcp-tools.mjs   ← widgets toolset TCP handlers
+│   ├── menhance-tcp-tools.mjs  ← M-enhance hybrid toolset TCP handlers
+│   ├── m5-*-tools.mjs          ← M5 toolsets (animation, materials, input-pie, geometry, editor-utility)
+│   ├── rc-tools.mjs            ← Remote Control HTTP primitives + delegates
 │   ├── tool-index.mjs          ← search + scoring + alias expansion
 │   ├── toolset-manager.mjs     ← enable/disable, SDK handle integration
-│   ├── connection-manager.mjs  ← active routing, mock seam, ResultCache, MetricsAggregator
+│   ├── project-*.mjs           ← project attachment: context, identity, targets, hygiene, tools, errors (D177)
+│   ├── deployment/             ← deployment CLI subsystem: plan/apply/verify/doctor over per-client adapters
+│   │   ├── adapters/           ← claude.mjs, codex.mjs, gemini.mjs, vscode.mjs — one client config format each
+│   │   ├── client-transaction.mjs ← staged, fingerprinted, rollback-capable config writes
+│   │   ├── local-state.mjs     ← apply leases and local install state
+│   │   ├── windows-native.mjs  ← Windows file pinning and ancestry checks (embeds PowerShell)
+│   │   └── orchestrator.mjs, plan-document.mjs, contracts.mjs, prerequisites.mjs, … (33 modules)
+│   ├── deploy-uemcp.mjs        ← source entry for the deployment CLI (bundled into dist/)
+│   ├── build-deployment-cli.mjs ← builds dist/deploy-uemcp.mjs (`npm run build:deployment`)
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
 │   ├── sync-plugin-helper.mjs  ← W-L deploy-marker + per-workspace lock (D138)
+│   ├── live-smoke-harness.mjs  ← reusable live-editor smoke harness (D177); run-live-smoke.mjs is its runner
+│   ├── live-smoke-*.mjs        ← individual live-editor smoke scripts (editor required, not in rotation)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
 │   ├── test-*.mjs              ← rotation test files (see Testing section for table)
 │   └── test-helpers.mjs        ← FakeTcpResponder, ErrorTcpResponder, TestRunner
 ├── plugin/UEMCP/               ← C++ UE5 plugin
+│   └── Source/UEMCP/Private/
+│       ├── *Handlers.cpp       ← one file per toolset family (Blueprint, Animation, Actor, Widget, …)
+│       ├── MCPServerTransportPolicy.cpp ← framed request intake: header/body limits, deadlines, UTF-8 checks
+│       ├── MCPServerRunnable.cpp ← TCP:55558 accept loop
+│       └── Tests/              ← UE automation tests: UEMCPTests.cpp, MCPServerTransportPolicyTests.cpp
 ├── docs/
 │   ├── specs/                  ← architecture, protocols, design
 │   ├── plans/                  ← implementation phases, test strategy
@@ -279,6 +304,8 @@ For propagating plugin changes without full onboarding: `sync-plugin.bat <uproje
 
 **Plugin versioning convention**: when `manifest.json version` bumps, also bump `UEMCP.uplugin Version` (integer; UE-internal rebuild signal) AND `VersionName` (string; aligned with manifest) in lockstep. W-L marker compares both → either triggers auto-bust.
 
+**Deployment bundle convention**: `dist/deploy-uemcp.mjs` is a committed esbuild bundle of `server/deploy-uemcp.mjs` and everything under `server/deployment/`; external consumers run it without `npm install` (`docs/specs/deployment-machine-interface.md`). Any change under `server/deployment/` or to `server/deploy-uemcp.mjs` must regenerate it with `npm run build:deployment` (from `server/`) **in the same commit**; `test-deployment-bundle.mjs` fails the rotation when the bundle is stale. Keeping the bundle in git is a deliberate decision, not drift.
+
 Manual setup: copy `.mcp.json.example` to your Claude workspace root, substitute `<UEMCP_REPO_PATH>`, copy `.uemcp-targets.json.example` to local `.uemcp-targets.json` if repeated deploy/smoke profiles are needed, or run `migrate-targets.bat` to convert an existing `.uemcp-targets.txt`; run `npm install` in `server/`, restart Claude Code. Normal MCP startup attaches from unambiguous workspace roots or by `attach_project`; env-authoritative attachment requires explicit `UEMCP_PROJECT_ATTACH_MODE=env`.
 
 ### Q3 dev-workflow scripts — verify-deploy + setup-watcher (D136)
@@ -379,7 +406,9 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7511 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7532 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+
+**Native plugin tests**: 16 UE automation tests live in `plugin/UEMCP/Source/UEMCP/Private/Tests/` (`UEMCPTests.cpp`, `MCPServerTransportPolicyTests.cpp`; pretty-name filter `UEMCP.`; flags `EditorContext | EngineFilter`, compiled only when `WITH_DEV_AUTOMATION_TESTS`). They cover transport intake, the command registry, the response builder and the parsers, not the `*Handlers.cpp` bodies. **Not yet scripted**: run them from the editor's Session Frontend until `run-native-tests.bat` lands (WS2 of `docs/superpowers/specs/2026-09-09-health-audit-remediation-design.md`).
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 
