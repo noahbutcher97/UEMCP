@@ -1564,6 +1564,8 @@ if (HAS_REAL_ASSETS) {
       }
     }
     assert(true, 'EN-2: every result row has path + match_count>0');
+    assert(r.results.every((row, i, rows) => i === 0 || rows[i - 1].match_count >= row.match_count),
+      'EN-2: bulk results are ordered by match_count descending');
     // Default include_nodes=false → no nodes[] per row
     assert(r.results.every(row => !('nodes' in row)),
       'EN-2: include_nodes=false default — rows have no nodes[]');
