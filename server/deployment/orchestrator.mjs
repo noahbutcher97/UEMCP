@@ -219,6 +219,14 @@ function terminalDomainException(domain, error) {
   });
 }
 
+// Factory boundary. Everything below closes over `repoRoot`, `stateRoot`,
+// `localState`, `orderedDomains` (validated once at construction), and the
+// source/descriptor/known-folders providers. Invariants: construction fails
+// fast if a required provider is missing or a `clients` domain is registered
+// without `knownFoldersProvider`; `apply` holds the local-state apply lease
+// for its whole run, re-verifies source/descriptor haven't drifted since
+// planning, and runs domains strictly in order, halting after `prerequisites`
+// unless healthy. Providers, `fsImpl`, and `processRunner` are test seams.
 export function createDeploymentOrchestrator({
   repoRoot,
   workspaceRoot = process.cwd(),

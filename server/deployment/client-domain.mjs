@@ -814,6 +814,14 @@ function ownershipLedger(fsImpl, localState, now) {
   });
 }
 
+// Factory boundary. Everything below closes over `mappedAdapters` (built from
+// `adapters`), the `transaction` factory/instance, and the discovery/
+// fingerprint/pinning collaborators (each defaulted, each validated as a
+// function at construction). Invariants: `apply` requires an approved saved
+// plan whose operation set canonically hashes to match this domain's slice of
+// it, delegates real writes to `transaction` under active-launch precondition
+// guards, and treats a structurally invalid transaction result as UNKNOWN
+// rather than assuming success. Every injected collaborator is a test seam.
 export function createClientDomain({
   adapters,
   transaction,

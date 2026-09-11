@@ -103,6 +103,14 @@ function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
   return terminateProcessTree(child, { spawnImpl });
 }
 
+// Factory boundary. Everything below closes over `spawnImpl`, `clock`, the
+// resolved `terminate` (tree-kill) function, and the default timeout/output
+// limit. Invariants: construction requires `spawnImpl`/`clock` to be
+// functions; every `run()` call validates its path/args/timeout/output-limit/
+// cwd/env before spawning; exceeding `outputLimitBytes` on either stream kills
+// the whole descendant process tree rather than truncating silently, and a
+// hung tree-kill still settles the call after a 5s fallback. `spawnImpl` and
+// `killTree` are test seams.
 export function createProcessRunner({
   spawnImpl = defaultSpawn,
   clock = Date.now,

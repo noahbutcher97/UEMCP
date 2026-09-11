@@ -431,6 +431,14 @@ export async function applyDependencyOperation(operation, {
 export const DEPENDENCY_INSTALL_MODE = INSTALL_MODE;
 export const DEPENDENCY_VALIDATION_COMMAND = VALIDATION_COMMAND;
 
+// Factory boundary. Everything below closes over `serverRoot`, `runner`,
+// `localState`, `fsImpl`, `nodeExecutable`, and `clock`. No mutable state:
+// `plan`/`verify` both delegate to the same `inspect()`, so they can never
+// disagree on prerequisite status. Invariants: `apply` accepts at most one
+// reviewed operation, and only writes the dependency stamp after re-observing
+// the installed Node/npm/lock fingerprints match what was proposed — never on
+// a bare install-command exit code. All constructor params are test seams
+// (there is no default `runner`/`localState`; they must be supplied).
 export function createPrerequisiteDomain({
   serverRoot,
   runner,

@@ -707,6 +707,14 @@ function resultStatus(native, operationStatus) {
   return operationStatus ?? 'READY';
 }
 
+// Factory boundary. Everything below closes over `fsImpl`, `runner`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface (detect/inspect/plan/snapshot/apply/verify/
+// protocolLaunch/rollback). Invariants: `apply` re-checks the plan-time config
+// and entry hashes before writing, refuses any operation not addressed to this
+// client, approved, and selected, and orders project migrations before exact
+// adoptions before owned-field edits; `verify` re-reads disk and requires a
+// structural match before trusting native state. Injected deps are test seams.
 export function createClaudeAdapter({
   fsImpl = defaultFs,
   runner = createProcessRunner(),

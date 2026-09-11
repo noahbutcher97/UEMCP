@@ -137,6 +137,14 @@ function configSyncView(asyncPath, fsImpl) {
   };
 }
 
+// Factory boundary. Everything below closes over `repoRoot`, the resolved
+// `configPath`/`generatedRoot` (fixed at construction from `targetsPath` or
+// inferred `sourceKind`), and `fsImpl`/`asyncFs`/`windowsNative`/`processRunner`.
+// Invariants: `apply` accepts exactly one REGISTER_PROJECT_TARGET operation and
+// re-checks the registry's composite fingerprint against the plan-time value
+// before inspecting, immediately before the atomic replace, and after; a write
+// error that left the fingerprint changed is reported as a committed
+// SYNC_FAILED rather than silently retried.
 export function createTargetDomain({
   repoRoot,
   stateRoot = null,

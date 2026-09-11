@@ -852,6 +852,14 @@ function applyOwnedFields(document, desired, replaceWhole) {
   })));
 }
 
+// Factory boundary. Everything below closes over `fsImpl`, `runner`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface (detect/inspect/plan/snapshot/apply/verify/
+// protocolLaunch/rollback). Invariants: `apply` re-checks the plan-time config
+// and entry hashes before writing, refuses any operation not addressed to this
+// client, approved, and selected, and requires the post-edit entry to match
+// the canonical projection before recording the owned write; `verify` re-reads
+// disk before trusting native connection state. Injected deps are test seams.
 export function createGeminiAdapter({
   fsImpl = defaultFs,
   runner = createProcessRunner(),

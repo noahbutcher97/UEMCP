@@ -120,6 +120,14 @@ function encodedPowerShell(script) {
   return Buffer.from(script, 'utf16le').toString('base64');
 }
 
+// Factory boundary. Everything below closes over `root`, `platform`,
+// `systemRoot`, `spawnImpl`, and `waitMs`, and returns the lease-acquiring
+// function itself (not an object) — an in-process promise queue off-Windows,
+// a mutex-guarded PowerShell subprocess on win32. Invariants: construction
+// fails fast on a non-absolute `root`/`systemRoot` or an invalid `spawnImpl`/
+// `waitMs`; the callback runs only after a "READY" handshake, and its result
+// is discarded in favor of LEASE_COORDINATOR_UNAVAILABLE unless the
+// subprocess also exits cleanly afterward. `spawnImpl` is a test seam.
 export function createApplyLeaseCoordinator({
   root,
   platform = process.platform,
@@ -463,6 +471,14 @@ async function defaultAclRestrictor(path) {
   }
 }
 
+// Factory boundary. Everything below closes over the frozen `pathSet` (fixed
+// under `absoluteRoot`), the `coordinateLease` mutex, and two mutable sets —
+// `restrictedDirectories` (ACL memoization) and `activeLeaseTokens` (valid
+// lease-capability tokens). Invariants: every path read or written is first
+// asserted to resolve inside `absoluteRoot` with no symlink/hard-link escape;
+// only one apply lease is ever valid on disk, and release/validate accept
+// only the exact owner token this instance minted. `fsImpl`, `aclRestrictor`,
+// `processInspector`, `leaseCoordinator`, `treeRemover` are test seams.
 export function createLocalState({
   root,
   fsImpl = defaultFs,
