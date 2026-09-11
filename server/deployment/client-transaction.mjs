@@ -1,9 +1,8 @@
 // client-transaction.mjs — staged, fingerprinted, rollback-capable writes
 // shared by every client adapter. Composes the pins, stage and snapshot
-// clusters over one shared state and adds the phase-transition invariants
-// (apply/rollback/rollbackInternal) that span all three.
-// Depends on: transaction-pins.mjs, transaction-stage.mjs,
-// transaction-snapshot.mjs, transaction-common.mjs, process-runner.mjs.
+// clusters over one shared state.
+// Depends on: transaction-{pins,stage,snapshot}.mjs, transaction-common.mjs,
+// client-contract.mjs, process-runner.mjs.
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';
 
@@ -26,15 +25,13 @@ import { createTransactionStage } from './transaction-stage.mjs';
 
 export { ClientTransactionError, captureClientPathFingerprint } from './transaction-common.mjs';
 
-// Factory boundary. Closes over one mutable `state` (phase, lease, plan and
-// operation digests, per-path records, changed order, created directories,
-// deferred deletes, current client) and the three cluster factories built
-// over it (pins, stage, snapshot), plus the frozen `transactionCapability`
-// object handed to every adapter. Invariants enforced here: `phase` only
-// advances forward — new -> preflight -> snapshotted -> applying -> complete,
-// diverting to failed (from preflight) or rolling_back -> complete (from
-// snapshotted/applying) — never backward; a failed apply always rolls back
-// before the lease is released. Injected dependencies exist for tests only.
+// Factory boundary. Closes over one mutable `state` and the three cluster
+// factories built over it (pins, stage, snapshot), plus the frozen
+// `transactionCapability` object handed to every adapter. Invariants
+// enforced here: apply requires `snapshotted`, moves to `applying` then
+// `complete`; rollback requires `snapshotted` or `applying`, moves through
+// `rolling_back` to `complete`; a failed apply always rolls back before the
+// lease is released. Injected dependencies exist for tests only.
 export function createClientTransaction({
   localState,
   fsImpl = defaultFs,
