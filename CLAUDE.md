@@ -102,11 +102,16 @@ UEMCP/
 ├── .uemcp-targets.json.example ← template per-machine target profiles
 ├── dist/
 │   ├── deploy-uemcp.mjs        ← committed esbuild bundle of server/deploy-uemcp.mjs; the machine-interface entry (docs/specs/deployment-machine-interface.md)
-│   └── deploy-uemcp.manifest.json ← bundle manifest checked by test-deployment-bundle.mjs
+│   ├── deploy-uemcp.manifest.json ← bundle manifest checked by test-deployment-bundle.mjs
+│   └── THIRD_PARTY_NOTICES.txt ← licence notices for bundled packages; emitted by npm run build:deployment
 ├── server/
-│   ├── server.mjs              ← 19-line stdio shim; all wiring lives in create-uemcp-server.mjs
+│   ├── server.mjs              ← thin stdio shim; all wiring lives in create-uemcp-server.mjs
 │   ├── create-uemcp-server.mjs ← real server entry: tool registration, management tools, project attachment
-│   ├── offline-tools.mjs       ← offline tool handlers
+│   ├── offline-tools.mjs       ← offline dispatch façade: executeOfflineTool + re-exports (D-log: WS3 split)
+│   ├── offline-core.mjs        ← shared leaf: paths, asset cache, header/property parse, existence guard
+│   ├── offline-project-tools.mjs ← project, config, plugins, data sources, gameplay tags
+│   ├── offline-asset-tools.mjs ← registry query, asset info, exports, properties, level actors
+│   ├── offline-blueprint-tools.mjs ← bp_* graph verbs, node search, edge topology
 │   ├── uasset-parser.mjs       ← .uasset/.umap binary parser (Level 1+2+2.5, D50)
 │   ├── uasset-structs.mjs      ← engine struct decoders used by the parser
 │   ├── tcp-transport.mjs       ← Content-Length framed TCP client: encode, decode, deadlines (see TCP Wire Protocol)
@@ -123,9 +128,10 @@ UEMCP/
 │   ├── deployment/             ← deployment CLI subsystem: plan/apply/verify/doctor over per-client adapters
 │   │   ├── adapters/           ← claude.mjs, codex.mjs, gemini.mjs, vscode.mjs — one client config format each
 │   │   ├── client-transaction.mjs ← staged, fingerprinted, rollback-capable config writes
+│   │   ├── transaction-common.mjs, transaction-pins.mjs, transaction-stage.mjs, transaction-snapshot.mjs ← the transaction's shared helpers and three cluster factories (WS4)
 │   │   ├── local-state.mjs     ← apply leases and local install state
 │   │   ├── windows-native.mjs  ← Windows file pinning and ancestry checks (embeds PowerShell)
-│   │   └── orchestrator.mjs, plan-document.mjs, contracts.mjs, prerequisites.mjs, … (33 modules)
+│   │   └── orchestrator.mjs, plan-document.mjs, contracts.mjs, prerequisites.mjs, … (37 modules)
 │   ├── deploy-uemcp.mjs        ← source entry for the deployment CLI (bundled into dist/)
 │   ├── build-deployment-cli.mjs ← builds dist/deploy-uemcp.mjs (`npm run build:deployment`)
 │   ├── verify-deploy.mjs       ← Q3 verify-deploy + watch helper (D136 + D138)
@@ -340,7 +346,7 @@ Plugin layer scans for `os` / `subprocess` / `eval(` / `exec(` / `open(` / `__im
 
 ### Adding a tool to an existing toolset
 1. Add entry in `tools.yaml` under the toolset
-2. If offline: implement in `offline-tools.mjs`, add case to `executeOfflineTool` switch
+2. If offline: implement in the matching family module (`offline-project-tools.mjs`, `offline-asset-tools.mjs`, or `offline-blueprint-tools.mjs`; shared helpers go in `offline-core.mjs`), export it, and add the case to the `executeOfflineTool` switch in the `offline-tools.mjs` façade
 3. If TCP/HTTP: implement in the appropriate handler file
 4. Register in `server.mjs` via `server.tool()`, capture handle, `handle.disable()`, register with ToolsetManager
 
