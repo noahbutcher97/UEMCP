@@ -1,3 +1,9 @@
+// ownership-ledger.mjs — records which config entries UEMCP owns, so foreign entries are never overwritten.
+// Why: UEMCP must never clobber an entry a user hand-wrote or another tool
+// manages; before any write, this compares the "owned" JSON-pointer fields
+// against a durable ledger record and classifies the result — unowned,
+// owned-matching, user-modified, or stale.
+// Depends on: canonical-json (hashing), client-contract (CLIENT_IDS).
 import { win32 } from 'node:path';
 
 import { CLIENT_IDS } from './client-contract.mjs';

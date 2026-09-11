@@ -1,3 +1,9 @@
+// bundle-freshness.mjs — verifies the tracked dist/ bundle matches its
+// manifest and every first-party source file it claims to be built from.
+// Why: dist/deploy-uemcp.mjs is what actually ships to clients; this is the
+// guard that a rebuild wasn't skipped, by re-hashing the bundle, the package
+// lock, each source input, and the third-party notices against the manifest.
+// Depends on: canonical-json (hashing), fingerprints (fingerprintPath).
 import * as defaultFs from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 

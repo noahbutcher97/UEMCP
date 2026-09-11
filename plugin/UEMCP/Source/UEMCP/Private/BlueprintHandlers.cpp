@@ -1978,7 +1978,7 @@ namespace UEMCP
 				// rather than AActor: hardcoding AActor silently produces a wrong
 				// reference for every non-Actor Blueprint — UserWidget, GameplayAbility,
 				// AnimInstance, or any custom base.
-				UClass* OwningClass = Blueprint->ParentClass ? Blueprint->ParentClass : AActor::StaticClass();
+				UClass* OwningClass = Blueprint->ParentClass ? Blueprint->ParentClass.Get() : AActor::StaticClass();
 				EventNode->EventReference.SetExternalMember(*EventName, OwningClass);
 			}
 			EventNode->bOverrideFunction = true;

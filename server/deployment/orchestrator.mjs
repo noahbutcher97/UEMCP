@@ -1,3 +1,9 @@
+// orchestrator.mjs — top-level plan, apply, verify, doctor, and repair across
+// deployment domains.
+// Why: sequences the prerequisites/target/clients domains in order, turns an
+// approved plan into a journaled apply with rollback on domain failure, and
+// reduces every domain's stage results into one machine-readable outcome.
+// Depends on: contracts, plan-document, descriptor, protocol-smoke, receipts, canonical-json.
 import { dirname, isAbsolute, resolve } from 'node:path';
 
 import {
@@ -213,6 +219,14 @@ function terminalDomainException(domain, error) {
   });
 }
 
+// Factory boundary. Everything below closes over `repoRoot`, `stateRoot`,
+// `localState`, `orderedDomains` (validated once at construction), and the
+// source/descriptor/known-folders providers. Invariants: construction fails
+// fast if a required provider is missing or a `clients` domain is registered
+// without `knownFoldersProvider`; `apply` holds the local-state apply lease
+// for its whole run, re-verifies source/descriptor haven't drifted since
+// planning, and runs domains strictly in order, halting after `prerequisites`
+// unless healthy. Providers, `fsImpl`, and `processRunner` are test seams.
 export function createDeploymentOrchestrator({
   repoRoot,
   workspaceRoot = process.cwd(),

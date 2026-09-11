@@ -1,3 +1,9 @@
+// client-contract.mjs — the client launch contract: identities, environment
+// overlays, version classification, and validators.
+// Why: write access is gated behind proving a client's identity (Authenticode
+// signer, or fingerprinted npm package) and version against an explicit
+// per-client release gate — the one "launch" tuple shape every adapter trusts.
+// Depends on: client-ids (canonical ID list), canonical-json (env hashing).
 import { win32 } from 'node:path';
 
 import { sha256Canonical } from './canonical-json.mjs';

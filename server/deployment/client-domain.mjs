@@ -1,3 +1,9 @@
+// client-domain.mjs — the "clients" pipeline domain: plans, applies, and
+// verifies per-client config through adapters inside one transaction.
+// Why: the orchestrator's client entry point — discovers clients, runs each
+// adapter's detect/inspect/plan, and stages the operations into one
+// client-transaction, mapping adapter states onto the shared vocabulary.
+// Depends on: client-discovery, client-process, client-transaction, client-contract, protocol-smoke, windows-native.
 import * as defaultFs from 'node:fs/promises';
 import { posix, resolve, win32 } from 'node:path';
 
@@ -808,6 +814,14 @@ function ownershipLedger(fsImpl, localState, now) {
   });
 }
 
+// Factory boundary. Everything below closes over `mappedAdapters` (built from
+// `adapters`), the `transaction` factory/instance, and the discovery/
+// fingerprint/pinning collaborators (each defaulted, each validated as a
+// function at construction). Invariants: `apply` requires an approved saved
+// plan whose operation set canonically hashes to match this domain's slice of
+// it, delegates real writes to `transaction` under active-launch precondition
+// guards, and treats a structurally invalid transaction result as UNKNOWN
+// rather than assuming success. Every injected collaborator is a test seam.
 export function createClientDomain({
   adapters,
   transaction,

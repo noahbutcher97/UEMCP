@@ -1,3 +1,9 @@
+// adapters/gemini.mjs — the Gemini CLI client adapter, over settings and extensions.
+// Why: Gemini's effective uemcp registration can come from merged settings
+// layers (system defaults/user/project/system override) or an installed
+// extension, each with its own enablement and trust rules; this adapter is
+// the only place that reconciles that layered precedence into one result.
+// Depends on: jsonc-config, client-contract, ownership-ledger, client-transaction, client-decisions.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,
@@ -846,6 +852,14 @@ function applyOwnedFields(document, desired, replaceWhole) {
   })));
 }
 
+// Factory boundary. Everything below closes over `fsImpl`, `runner`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface (detect/inspect/plan/snapshot/apply/verify/
+// protocolLaunch/rollback). Invariants: `apply` re-checks the plan-time config and
+// entry hashes before writing, refuses any operation not addressed to this client,
+// write_supported, and selected, and requires the post-edit entry to match the
+// canonical projection before recording the owned write; `verify` re-reads disk
+// before trusting native connection state. Injected deps are test seams.
 export function createGeminiAdapter({
   fsImpl = defaultFs,
   runner = createProcessRunner(),

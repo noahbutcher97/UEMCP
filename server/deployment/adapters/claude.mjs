@@ -1,3 +1,9 @@
+// adapters/claude.mjs — the Claude Desktop / Claude Code client adapter.
+// Why: each client stores its MCP server list in its own file and format; this
+// adapter is the only place that knows Claude's paths, JSON shape and native
+// mutation behavior, so the orchestrator can treat all clients alike.
+// Depends on: client-transaction (writes), client-contract (identities),
+// jsonc-config (patching), process-runner (launch checks).
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,
@@ -701,6 +707,14 @@ function resultStatus(native, operationStatus) {
   return operationStatus ?? 'READY';
 }
 
+// Factory boundary. Everything below closes over `fsImpl`, `runner`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface (detect/inspect/plan/snapshot/apply/verify/
+// protocolLaunch/rollback). Invariants: `apply` re-checks the plan-time config
+// and entry hashes before writing, refuses any operation not addressed to this
+// client, write_supported, and selected, and orders project migrations before
+// exact adoptions before owned-field edits; `verify` re-reads disk and requires
+// a structural match before trusting native state. Injected deps are test seams.
 export function createClaudeAdapter({
   fsImpl = defaultFs,
   runner = createProcessRunner(),

@@ -1,3 +1,9 @@
+// adapters/vscode.mjs — the VS Code client adapter, over JSONC mcp.json files.
+// Why: VS Code resolves servers per active profile (default, or a named
+// profile under profiles/<id>/mcp.json) plus an optional workspace override;
+// this adapter is the only place that knows that resolution order and
+// preserves comments/formatting when patching servers.uemcp.
+// Depends on: jsonc-config, ownership-ledger, client-contract, client-transaction.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,
@@ -468,6 +474,14 @@ function applyOwnedFields(document, desired, replaceWhole) {
   })));
 }
 
+// Factory boundary. Everything below closes over `fsImpl`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface. Unlike the other clients, VS Code has no
+// native CLI process to query, so `verify` trusts a structural disk match alone
+// and always reports RESTART_REQUIRED. Invariants: `apply` re-checks plan-time
+// config/entry hashes, refuses operations that aren't write_supported or
+// selected, and requires the post-edit entry to match the canonical projection
+// before the ledger write. `fsImpl`/`captureFingerprint` are test seams.
 export function createVsCodeAdapter({
   fsImpl = defaultFs,
   captureFingerprint = captureClientPathFingerprint,

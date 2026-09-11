@@ -32,7 +32,10 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
 
-### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending
+### EN-6b — Dead code in the offline modules
+- **Scope**: `BULK_TTL_MS` (offline-core.mjs), `listDirRecursive` (offline-project-tools.mjs), `parseAssetTables` (offline-asset-tools.mjs) have no callers; WS3 moved them unchanged by design. Delete in the next offline pass.
+
+### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending — **DONE 2026-09 (WS3)**
 - **Source**: EN-2 manual testing 2026-04-20 §6 observation (results commit `7758c85`)
 - **Current behavior**: `results[]` sorted by path alphabetically. For "which BPs call X most" top-N workflows, callers sort client-side.
 - **Scope**: ~1 line change in `offline-tools.mjs` bulk handler — sort `results.sort((a,b) => b.match_count - a.match_count)` before applying pagination

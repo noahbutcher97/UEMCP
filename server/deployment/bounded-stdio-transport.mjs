@@ -1,3 +1,9 @@
+// bounded-stdio-transport.mjs — an MCP stdio client transport with output
+// caps and a bounded shutdown, used to smoke-test a launched uemcp server.
+// Why: the stock MCP SDK transport has no output limit or close deadline; a
+// hung or noisy child server here would stall a deploy indefinitely instead
+// of failing the smoke test cleanly.
+// Depends on: the MCP SDK's JSONRPCMessageSchema, process-runner (terminateProcessTree).
 import { spawn as defaultSpawn } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 

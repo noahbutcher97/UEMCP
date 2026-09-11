@@ -1,3 +1,9 @@
+// config-bytes.mjs — byte limits and decoding rules shared by every config format.
+// Why: every client config format (JSONC, TOML) needs the same first pass —
+// reject non-UTF-8, strip a BOM, reject an embedded NUL, enforce a byte
+// ceiling — before format-specific parsing runs, so jsonc-config and
+// toml-config apply identical decode rules instead of each rolling their own.
+// Depends on: nothing — pure byte-level checks.
 const DEFAULT_CONFIG_BYTE_LIMIT = 16 * 1024 * 1024;
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 

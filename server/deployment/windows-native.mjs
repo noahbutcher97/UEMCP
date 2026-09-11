@@ -1,3 +1,9 @@
+// windows-native.mjs — Windows-specific pinned file operations and metadata, via embedded PowerShell/Win32 scripts.
+// Why: safe config writes need Windows primitives Node doesn't expose
+// directly — Authenticode checks, ADS-aware metadata, atomic ReplaceFile,
+// known-folder resolution — plus a way to hold a file or directory tree
+// "pinned" around a callback so a TOCTOU window can't slip in a different file.
+// Depends on: fingerprints (fingerprintPath) for path/identity checks.
 import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';

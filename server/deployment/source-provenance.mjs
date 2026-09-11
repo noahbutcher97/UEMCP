@@ -1,3 +1,9 @@
+// source-provenance.mjs — identifies the UEMCP source checkout for provenance.
+// Why: a deployment result has to say where its own code came from — an
+// attributable Git checkout (verified via an Authenticode-signed git.exe) or
+// a pinned, hash-verified GitHub archive — so a receipt can't claim health
+// for code nobody can trace back to a commit.
+// Depends on: canonical-json, fingerprints, process-runner, windows-native (inspectAuthenticode).
 import * as defaultFs from 'node:fs/promises';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 

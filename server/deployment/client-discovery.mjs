@@ -1,3 +1,9 @@
+// client-discovery.mjs — discovers installed clients and selects which ones
+// an operation targets.
+// Why: separates "what's installed" (probe every known client, tolerating a
+// per-client failure) from "what should this operation touch" (an
+// include/exclude selection defaulting to every release-gated client).
+// Depends on: client-contract (CLIENT_IDS, failure codes), client-process (resolveClientLaunch).
 import { CLIENT_DISCOVERY_FAILURE_CODES, CLIENT_IDS } from './client-contract.mjs';
 import { resolveClientLaunch } from './client-process.mjs';
 

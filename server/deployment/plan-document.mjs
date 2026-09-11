@@ -1,3 +1,9 @@
+// plan-document.mjs — plan document construction, digest, and validation for the approve-then-apply flow.
+// Why: apply refuses to run unless the exact digest a caller approved comes
+// back; this is where a plan is assembled and hashed, and where every
+// cross-field consistency rule is enforced so a tampered or stale plan
+// cannot slip through.
+// Depends on: contracts, client-contract, canonical-json, redaction.
 import { isAbsolute, posix, win32 } from 'node:path';
 
 import { canonicalJson, sha256Canonical } from './canonical-json.mjs';

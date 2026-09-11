@@ -1,3 +1,9 @@
+// client-process.mjs — runtime fingerprinting and pinned launching of client
+// processes (claude, codex, gemini, vscode).
+// Why: before UEMCP trusts a client enough to shell out to it, it must prove
+// the binary really is that client — an Authenticode signer, or a fingerprint
+// of an npm CLI's whole dependency tree — and re-check that right before launch.
+// Depends on: client-contract, fingerprints, windows-native (authenticode, pinned guards).
 import * as defaultFs from 'node:fs/promises';
 import {
   basename,

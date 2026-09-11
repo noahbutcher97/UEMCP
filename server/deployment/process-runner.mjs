@@ -1,3 +1,9 @@
+// process-runner.mjs — a bounded child-process runner with timeouts and process-tree kill.
+// Why: nearly every deployment probe (client CLIs, git, npm, PowerShell
+// helpers) runs as a child process that could hang or spam output; this caps
+// output bytes, enforces a timeout, and — on Windows — kills the whole
+// descendant tree via taskkill rather than just the direct child.
+// Depends on: nothing beyond node:child_process — a leaf module others build on.
 import { spawn as defaultSpawn } from 'node:child_process';
 import { isAbsolute, posix, win32 } from 'node:path';
 
@@ -97,6 +103,14 @@ function defaultKillTree(child, { spawnImpl = defaultSpawn } = {}) {
   return terminateProcessTree(child, { spawnImpl });
 }
 
+// Factory boundary. Everything below closes over `spawnImpl`, `clock`, the
+// resolved `terminate` (tree-kill) function, and the default timeout/output
+// limit. Invariants: construction requires `spawnImpl`/`clock` to be
+// functions; every `run()` call validates its path/args/timeout/output-limit/
+// cwd/env before spawning; exceeding `outputLimitBytes` on either stream kills
+// the whole descendant process tree rather than truncating silently, and a
+// hung tree-kill still settles the call after a 5s fallback. `spawnImpl` and
+// `killTree` are test seams.
 export function createProcessRunner({
   spawnImpl = defaultSpawn,
   clock = Date.now,

@@ -1,3 +1,9 @@
+// adapters/codex.mjs — the Codex CLI client adapter, over its config.toml.
+// Why: Codex keeps mcp_servers.uemcp in a hand-edited TOML file with layered
+// per-project trust and a system requirements policy gate; this is the only
+// place that knows that shape and Codex's release-gated native CLI behavior
+// (`codex mcp add/list/get --json`).
+// Depends on: toml-config (parse/patch), client-contract, ownership-ledger, client-decisions.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,
@@ -633,6 +639,14 @@ function ownershipLedgerStatus(ownership) {
   return Object.freeze({ status: 'VALID', reason: null });
 }
 
+// Factory boundary. Everything below closes over `fsImpl`, `runner`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) — all
+// test seams, though `runner`/`captureFingerprint` have no default and must be
+// supplied. Invariants: construction fails fast if either is missing; `apply`
+// re-checks plan-time config/entry hashes, rejects operations that aren't
+// write_supported or selected, and gates a native `mcp add` write to the exact
+// characterized Codex release plus an isolated staged home, verifying the
+// result against the canonical projection before the ledger updates.
 export function createCodexAdapter({
   fsImpl = defaultFs,
   runner,
