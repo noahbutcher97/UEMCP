@@ -328,5 +328,5 @@ export function createTransactionStage({ state, fsImpl, windowsNative, localStat
     now: () => new Date(Number(clock())).toISOString(),
   });
 
-  return Object.freeze({ writeFile, runStagedWrite, cleanupAbandonedStages, ownershipLedger });
+  return Object.freeze({ writeFile, runStagedWrite, cleanupAbandonedStages, ownershipLedger, ownershipPath });
 }

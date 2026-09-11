@@ -10489,9 +10489,8 @@ function approvedOwnedReplacement(context, ownership) {
 }
 
 // server/deployment/client-transaction.mjs
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes4 } from "node:crypto";
 import * as defaultFs5 from "node:fs/promises";
-import { dirname as dirname5, join as join5, resolve as resolve5 } from "node:path";
 
 // server/deployment/client-contract.mjs
 import { win32 as win322 } from "node:path";
@@ -13642,343 +13641,10 @@ function createTransactionPins({ state, fsImpl, windowsNative, processRunner, sy
   });
 }
 
-// server/deployment/transaction-stage.mjs
+// server/deployment/transaction-snapshot.mjs
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { dirname as dirname4, isAbsolute as isAbsolute6, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
-function createTransactionStage({ state, fsImpl, windowsNative, localState, clock, pins, processRunner, systemRoot }) {
-  const {
-    capture,
-    createMissingParents,
-    currentOperation,
-    markChanged,
-    replaceExisting,
-    withPinnedDirectory,
-    withPinnedRecord
-  } = pins;
-  async function writeFile(path, bytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: stagedWrite = false } = {}) {
-    if (state.phase !== "applying") fail5("transaction writes are available only during apply", "TRANSACTION_NOT_APPLYING");
-    if (!Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) fail5("transaction write requires bytes", "INVALID_TRANSACTION_BYTES");
-    const content = Buffer.from(bytes);
-    if (content.length > MAX_CONFIG_BYTES) fail5("transaction config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
-    const key = pathKey2(path);
-    const record2 = state.records.get(key);
-    if (!record2 || pathKey2(record2.path) !== key) fail5("adapter attempted an unplanned write", "UNAPPROVED_OPERATION_SET");
-    if (currentOperation(path)?.external_write === true && stagedWrite !== true) {
-      fail5("reviewed external write must use the native-write capability", "EXTERNAL_WRITE_REQUIRED");
-    }
-    const before = await capture(record2.path, [record2.allowedRoot], true);
-    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before replacement", "TRANSACTION_PRECONDITION_CHANGED");
-    await createMissingParents(record2);
-    const afterParents = await capture(record2.path, [record2.allowedRoot], true);
-    if (!fingerprintsEqual(afterParents, before)) fail5("writable path changed during parent creation", "TRANSACTION_PRECONDITION_CHANGED");
-    return withPinnedRecord(record2, before, async ({ current, assertPinned }) => {
-      const scratch = join4(dirname4(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-write`);
-      let handle = null;
-      try {
-        assertPinned();
-        handle = await fsImpl.open(scratch, "wx", record2.snapshot.metadata.mode ?? 384);
-        await handle.writeFile(content);
-        await handle.sync();
-        await handle.close();
-        handle = null;
-        assertPinned();
-        try {
-          if (current.exists) {
-            await replaceExisting(scratch, record2.path);
-          } else {
-            const stillAbsent = await capture(record2.path, [record2.allowedRoot], true);
-            if (!fingerprintsEqual(stillAbsent, current)) fail5("missing target changed before create", "TRANSACTION_PRECONDITION_CHANGED");
-            assertPinned();
-            await fsImpl.rename(scratch, record2.path);
-          }
-          assertPinned();
-        } catch (error2) {
-          const observed = await capture(record2.path, [record2.allowedRoot], true).catch(() => null);
-          if (observed && !fingerprintsEqual(observed, current)) markChanged(record2, observed);
-          throw error2;
-        }
-        const diskBytes = await fsImpl.readFile(record2.path);
-        const applied = await capture(record2.path, [record2.allowedRoot], true);
-        assertPinned();
-        markChanged(record2, applied);
-        if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
-          fail5("client config changed during transaction replacement", "TRANSACTION_POSTWRITE_CHANGED");
-        }
-        if (current.exists && applied.metadata_sha256 !== current.metadata_sha256) {
-          fail5("existing-file security metadata changed during replacement", "METADATA_PRESERVATION_FAILED");
-        }
-        if (typeof parseResult === "function") await parseResult(diskBytes);
-        return {
-          path: record2.path,
-          content_sha256: applied.content_sha256,
-          metadata_sha256: applied.metadata_sha256
-        };
-      } finally {
-        if (handle) await handle.close().catch(() => {
-        });
-        try {
-          assertPinned();
-          await fsImpl.rm(scratch, { force: true });
-          assertPinned();
-        } catch {
-        }
-      }
-    });
-  }
-  function safeStageRelativePath(value) {
-    if (typeof value !== "string" || value.trim() === "" || isAbsolute6(value)) return false;
-    const parts = value.replace(/\\/g, "/").split("/");
-    return parts.every((part) => part !== "" && part !== "." && part !== "..");
-  }
-  function nativeStagePaths() {
-    const stateRoot = resolve4(localState.paths().state);
-    const stageParent = resolve4(join4(stateRoot, "native-staging"));
-    if (pathKey2(dirname4(stageParent)) !== pathKey2(stateRoot)) {
-      fail5("native stage parent is outside local state", "UNSAFE_WRITABLE_PATH");
-    }
-    return { stateRoot, stageParent };
-  }
-  async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
-    if (pathKey2(dirname4(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
-    let unsafe = false;
-    let contaminated = false;
-    try {
-      const stat = await fsImpl.lstat(path);
-      unsafe = stat.isSymbolicLink() || !stat.isDirectory();
-      if (!unsafe && expectedChildName !== null) {
-        const names = await fsImpl.readdir(path);
-        contaminated = names.length !== 1 || names[0] !== expectedChildName;
-      }
-      await windowsNative.deleteTreeNoFollow({
-        targetPath: path,
-        allowedRoot: stateRoot,
-        runner: processRunner,
-        systemRoot,
-        fsImpl
-      });
-      const remains = await fsImpl.lstat(path).then(() => true, (error2) => {
-        if (isMissing2(error2)) return false;
-        throw error2;
-      });
-      if (remains) fail5("native stage cleanup could not be verified", "STAGED_CLEANUP_FAILED");
-      return { removed: true, unsafe, contaminated };
-    } catch (error2) {
-      if (error2?.code === "STAGED_CLEANUP_FAILED") throw error2;
-      fail5("native stage cleanup failed", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
-    }
-  }
-  async function detachAndRemoveStageParent(stageParent, stateRoot, options = {}) {
-    if (pathKey2(dirname4(stageParent)) !== pathKey2(stateRoot)) {
-      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
-    }
-    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
-    const quarantine = resolve4(join4(stateRoot, `.native-staging-${randomBytes2(12).toString("hex")}.stale`));
-    if (pathKey2(dirname4(quarantine)) !== pathKey2(stateRoot)) {
-      fail5("native stage quarantine path is unsafe", "STAGED_CLEANUP_FAILED");
-    }
-    return withPinnedDirectory(stateRoot, async (guard) => {
-      try {
-        guard?.assertPinned?.();
-        await fsImpl.rename(stageParent, quarantine);
-        guard?.assertPinned?.();
-      } catch (error2) {
-        if (isMissing2(error2)) return { removed: false, unsafe: false, contaminated: false };
-        fail5("native stage could not be detached for cleanup", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
-      }
-      return removeDetachedStage(quarantine, stateRoot, options);
-    });
-  }
-  async function cleanupAbandonedStages() {
-    const { stateRoot, stageParent } = nativeStagePaths();
-    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
-    let unsafe = false;
-    for (const name of await fsImpl.readdir(stateRoot)) {
-      if (!STAGE_QUARANTINE_PATTERN.test(name)) continue;
-      const cleanup2 = await removeDetachedStage(resolve4(join4(stateRoot, name)), stateRoot);
-      unsafe ||= cleanup2.unsafe;
-    }
-    let stat;
-    try {
-      stat = await fsImpl.lstat(stageParent);
-    } catch (error2) {
-      if (isMissing2(error2)) {
-        if (unsafe) fail5("abandoned native stage is unsafe", "UNSAFE_WRITABLE_PATH");
-        return;
-      }
-      throw error2;
-    }
-    unsafe ||= stat.isSymbolicLink() || !stat.isDirectory();
-    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot);
-    if (unsafe || cleanup.unsafe) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
-  }
-  async function inspectStage(stageRoot, relativePath) {
-    const expectedParts = relativePath.replace(/\\/g, "/").split("/");
-    const expected = /* @__PURE__ */ new Set();
-    for (let index = 0; index < expectedParts.length; index += 1) {
-      expected.add(expectedParts.slice(0, index + 1).join("/"));
-    }
-    const observed = [];
-    async function visit2(directory, prefix = "") {
-      const names = await fsImpl.readdir(directory);
-      for (const name of names.sort()) {
-        const relativeName = prefix ? `${prefix}/${name}` : name;
-        observed.push(relativeName);
-        if (observed.length > MAX_STAGE_ENTRIES) fail5("native stage exceeds its entry limit", "UNEXPECTED_STAGED_OUTPUT");
-        const path = join4(directory, name);
-        const stat = await fsImpl.lstat(path);
-        if (stat.isSymbolicLink()) fail5("native stage contains a linked entry", "UNEXPECTED_STAGED_OUTPUT");
-        if (stat.isDirectory()) await visit2(path, relativeName);
-        else if (!stat.isFile() || Number(stat.nlink) !== 1) fail5("native stage contains an unsafe entry", "UNEXPECTED_STAGED_OUTPUT");
-      }
-    }
-    await visit2(stageRoot);
-    if (observed.length !== expected.size || observed.some((entry) => !expected.has(entry))) {
-      fail5("native stage contains unexpected output", "UNEXPECTED_STAGED_OUTPUT");
-    }
-  }
-  async function removeStage(stageRoot, stageParent, stateRoot) {
-    if (pathKey2(dirname4(stageRoot)) !== pathKey2(stageParent)) {
-      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
-    }
-    const expectedChildName = relative4(stageParent, stageRoot);
-    if (!expectedChildName || expectedChildName.includes(sep4)) fail5("native stage child name is unsafe", "STAGED_CLEANUP_FAILED");
-    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot, { expectedChildName });
-    if (!cleanup.removed || cleanup.unsafe) fail5("native stage cleanup identity changed", "STAGED_CLEANUP_FAILED");
-    if (cleanup.contaminated) fail5("native stage contains undeclared sibling output", "UNEXPECTED_STAGED_OUTPUT");
-  }
-  async function runStagedWrite(path, mutate, {
-    seed_bytes: seedBytes = Buffer.alloc(0),
-    stage_relative_path: relativePath,
-    parse: parseResult
-  } = {}) {
-    if (state.phase !== "applying") fail5("staged writes are available only during apply", "TRANSACTION_NOT_APPLYING");
-    if (typeof mutate !== "function" || !safeStageRelativePath(relativePath)) fail5("staged write contract is invalid", "INVALID_EXTERNAL_WRITE");
-    if (!Buffer.isBuffer(seedBytes) && !(seedBytes instanceof Uint8Array)) fail5("staged write seed requires bytes", "INVALID_TRANSACTION_BYTES");
-    const seed = Buffer.from(seedBytes);
-    if (seed.length > MAX_CONFIG_BYTES) fail5("staged write seed exceeds its byte limit", "CONFIG_BYTE_LIMIT");
-    const key = pathKey2(path);
-    const record2 = state.records.get(key);
-    const operation = currentOperation(path);
-    if (!record2 || !operation || operation.external_write !== true || pathKey2(record2.path) !== key) {
-      fail5("adapter attempted an unapproved external write", "UNAPPROVED_EXTERNAL_WRITE");
-    }
-    if (record2.clients.some((clientId) => clientId !== state.currentClient)) {
-      fail5("shared client config cannot use an external writer", "SHARED_WRITE_CONFLICT");
-    }
-    if (record2.externalWriteUsed === true) fail5("staged write capability is one-shot", "EXTERNAL_WRITE_ALREADY_USED");
-    const before = await capture(record2.path, [record2.allowedRoot], true);
-    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before staging", "TRANSACTION_PRECONDITION_CHANGED");
-    const currentBytes = before.exists ? await fsImpl.readFile(record2.path) : Buffer.alloc(0);
-    if (!currentBytes.equals(seed)) fail5("staged seed differs from reviewed provider config", "INVALID_STAGED_SEED");
-    record2.externalWriteUsed = true;
-    const { stateRoot, stageParent } = nativeStagePaths();
-    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
-    await fsImpl.mkdir(stageParent, { mode: 448 }).catch((error2) => {
-      if (error2?.code !== "EEXIST") throw error2;
-    });
-    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
-    const parentStat = await fsImpl.lstat(stageParent);
-    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
-    const stageRoot = await fsImpl.mkdtemp(join4(stageParent, `${state.transactionId}-`));
-    await fsImpl.chmod(stageRoot, 448);
-    const stageStat = await fsImpl.lstat(stageRoot);
-    if (pathKey2(dirname4(stageRoot)) !== pathKey2(stageParent) || !stageStat.isDirectory() || stageStat.isSymbolicLink()) {
-      fail5("native stage root is unsafe", "UNSAFE_WRITABLE_PATH");
-    }
-    const stagedPath = resolve4(stageRoot, relativePath);
-    if (!contained(stageRoot, stagedPath)) fail5("native stage target escapes its root", "INVALID_EXTERNAL_WRITE");
-    await fsImpl.mkdir(dirname4(stagedPath), { recursive: true, mode: 448 });
-    let handle = null;
-    let stagedBytes = null;
-    let pendingError = null;
-    try {
-      handle = await fsImpl.open(stagedPath, "wx", 384);
-      await handle.writeFile(seed);
-      await handle.sync();
-      await handle.close();
-      handle = null;
-      await mutate(stagedPath, Object.freeze({ root: stageRoot, relative_path: relativePath }));
-      await inspectStage(stageRoot, relativePath.replace(/\\/g, "/"));
-      const stagedFingerprint = await capture(stagedPath, [stageRoot], true);
-      if (!stagedFingerprint.exists || stagedFingerprint.kind !== "file" || stagedFingerprint.link_kind !== "none") {
-        fail5("native stage did not produce a safe config file", "UNEXPECTED_STAGED_OUTPUT");
-      }
-      stagedBytes = await fsImpl.readFile(stagedPath);
-      if (stagedBytes.length > MAX_CONFIG_BYTES) fail5("staged config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
-      if (stagedBytes.equals(seed)) fail5("native stage did not change the reviewed config", "EXTERNAL_WRITE_NO_CHANGE");
-      if (typeof parseResult === "function") await parseResult(stagedBytes);
-    } catch (error2) {
-      pendingError = error2;
-    } finally {
-      if (handle) await handle.close().catch(() => {
-      });
-    }
-    try {
-      await removeStage(stageRoot, stageParent, stateRoot);
-    } catch (error2) {
-      throw error2;
-    }
-    if (pendingError) throw pendingError;
-    return writeFile(record2.path, stagedBytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: true });
-  }
-  const ownershipPath = resolve4(localState.paths().ownership);
-  const ownershipLedger2 = Object.freeze({
-    async read() {
-      try {
-        return JSON.parse(await fsImpl.readFile(ownershipPath, "utf8"));
-      } catch (error2) {
-        if (isMissing2(error2)) return null;
-        throw error2;
-      }
-    },
-    async write(value) {
-      return writeFile(ownershipPath, Buffer.from(`${canonicalJson(value)}
-`, "utf8"), {
-        parse: (bytes) => JSON.parse(bytes.toString("utf8"))
-      });
-    },
-    now: () => new Date(Number(clock())).toISOString()
-  });
-  return Object.freeze({ writeFile, runStagedWrite, cleanupAbandonedStages, ownershipLedger: ownershipLedger2 });
-}
-
-// server/deployment/client-transaction.mjs
-function createClientTransaction({
-  localState,
-  fsImpl = defaultFs5,
-  clock = Date.now,
-  windowsNative = DEFAULT_WINDOWS_NATIVE,
-  processRunner = createProcessRunner(),
-  systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  externalLease = null
-} = {}) {
-  if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
-    fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
-  }
-  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
-    fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
-  }
-  if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
-    fail5("external apply lease capability is invalid", "INVALID_APPLY_LEASE");
-  }
-  const state = {
-    phase: "new",
-    lease: null,
-    ownsLease: false,
-    planDigest: null,
-    operationDigest: null,
-    adapters: /* @__PURE__ */ new Map(),
-    operations: [],
-    records: /* @__PURE__ */ new Map(),
-    readOnly: [],
-    changedOrder: [],
-    createdDirectories: [],
-    clientResults: [],
-    deferredDeletes: /* @__PURE__ */ new Map(),
-    currentClient: null,
-    transactionId: randomBytes3(12).toString("hex")
-  };
-  const pins = createTransactionPins({ state, fsImpl, windowsNative, processRunner, systemRoot });
+import { dirname as dirname4, join as join4, resolve as resolve4 } from "node:path";
+function createTransactionSnapshot({ state, fsImpl, windowsNative, localState, pins, stage, systemRoot, externalLease }) {
   const {
     capture,
     releaseLease,
@@ -13988,9 +13654,7 @@ function createClientTransaction({
     replaceExisting,
     markChanged
   } = pins;
-  const stage = createTransactionStage({ state, fsImpl, windowsNative, localState, clock, pins, processRunner, systemRoot });
-  const { writeFile, runStagedWrite, cleanupAbandonedStages, ownershipLedger: ownershipLedger2 } = stage;
-  const ownershipPath = resolve5(localState.paths().ownership);
+  const { cleanupAbandonedStages, ownershipPath } = stage;
   async function deleteSnapshot(record2) {
     if (!record2.snapshot) return;
     await localState.deleteSnapshot(record2.snapshot);
@@ -14010,7 +13674,6 @@ function createClientTransaction({
     state.deferredDeletes.set(key, { key, client_id: state.currentClient });
     return { path: record2.path, status: "DEFERRED" };
   }
-  const transactionCapability = Object.freeze({ writeFile, runStagedWrite, deleteFileAfterVerify, ownershipLedger: ownershipLedger2 });
   async function snapshot({ planDigest, adapters, operations, context = {}, ownershipFingerprint } = {}) {
     if (state.phase !== "new") fail5("transaction snapshot can run only once", "TRANSACTION_STATE_INVALID");
     validatePlanDigest(planDigest);
@@ -14105,8 +13768,8 @@ function createClientTransaction({
         const parentPlan = await inspectParentPlan(row.path, row.allowed_root, fsImpl);
         state.records.set(key, {
           key,
-          path: resolve5(row.path),
-          allowedRoot: resolve5(row.allowed_root),
+          path: resolve4(row.path),
+          allowedRoot: resolve4(row.allowed_root),
           originalFingerprint: row.current,
           currentFingerprint: row.current,
           appliedFingerprint: null,
@@ -14137,7 +13800,7 @@ function createClientTransaction({
       return {
         transaction_id: state.transactionId,
         writable_paths: [...state.records.values()].map((record2) => record2.path),
-        read_only_paths: readOnlyRows5.map((row) => resolve5(row.path))
+        read_only_paths: readOnlyRows5.map((row) => resolve4(row.path))
       };
     } catch (error2) {
       for (const record2 of state.records.values()) await deleteSnapshot(record2).catch(() => {
@@ -14178,7 +13841,7 @@ function createClientTransaction({
     const addEvidencePath = (path, exists2) => {
       const key = pathKey2(path);
       const target = exists2 ? presentByPath : absentByPath;
-      target.set(key, resolve5(path));
+      target.set(key, resolve4(path));
     };
     for (const record2 of state.records.values()) {
       const expected = record2.changed ? record2.appliedFingerprint : record2.currentFingerprint;
@@ -14235,7 +13898,7 @@ function createClientTransaction({
       if (seen.has(key)) continue;
       seen.add(key);
       try {
-        await withPinnedDirectory(dirname5(created.path), async (guard) => {
+        await withPinnedDirectory(dirname4(created.path), async (guard) => {
           guard?.assertPinned?.();
           const current = await directoryIdentity(created.path, fsImpl);
           if (!identityEqual(current, created.identity)) {
@@ -14260,7 +13923,7 @@ function createClientTransaction({
   }
   async function restoreRecord(record2) {
     try {
-      return await withPinnedDirectory(dirname5(record2.path), async (guard) => {
+      return await withPinnedDirectory(dirname4(record2.path), async (guard) => {
         guard?.assertPinned?.();
         await revalidateRecordParents(record2);
         let current;
@@ -14284,10 +13947,10 @@ function createClientTransaction({
           if (absent.exists) return { status: "failed", path: record2.path, code: "ROLLBACK_VERIFY_FAILED" };
           return { status: "restored", path: record2.path };
         }
-        const payloadPath = join5(record2.snapshot.directory, "payload.bin");
+        const payloadPath = join4(record2.snapshot.directory, "payload.bin");
         const payload = await fsImpl.readFile(payloadPath);
         if (sha256Bytes(payload) !== metadata.original_sha256) return { status: "failed", path: record2.path, code: "INVALID_SNAPSHOT" };
-        const scratch = join5(dirname5(record2.path), `.${randomBytes3(16).toString("hex")}.uemcp-rollback`);
+        const scratch = join4(dirname4(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-rollback`);
         let handle = null;
         try {
           guard?.assertPinned?.();
@@ -14334,6 +13997,372 @@ function createClientTransaction({
       throw error2;
     }
   }
+  return Object.freeze({
+    deleteSnapshot,
+    deleteFileAfterVerify,
+    snapshot,
+    recheckBeforeApply,
+    recheckAfterVerify,
+    withPinnedTransactionEvidence,
+    commitDeferredDeletes,
+    cleanupCreatedDirectories,
+    restoreRecord
+  });
+}
+
+// server/deployment/transaction-stage.mjs
+import { randomBytes as randomBytes3 } from "node:crypto";
+import { dirname as dirname5, isAbsolute as isAbsolute6, join as join5, relative as relative4, resolve as resolve5, sep as sep4 } from "node:path";
+function createTransactionStage({ state, fsImpl, windowsNative, localState, clock, pins, processRunner, systemRoot }) {
+  const {
+    capture,
+    createMissingParents,
+    currentOperation,
+    markChanged,
+    replaceExisting,
+    withPinnedDirectory,
+    withPinnedRecord
+  } = pins;
+  async function writeFile(path, bytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: stagedWrite = false } = {}) {
+    if (state.phase !== "applying") fail5("transaction writes are available only during apply", "TRANSACTION_NOT_APPLYING");
+    if (!Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) fail5("transaction write requires bytes", "INVALID_TRANSACTION_BYTES");
+    const content = Buffer.from(bytes);
+    if (content.length > MAX_CONFIG_BYTES) fail5("transaction config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+    const key = pathKey2(path);
+    const record2 = state.records.get(key);
+    if (!record2 || pathKey2(record2.path) !== key) fail5("adapter attempted an unplanned write", "UNAPPROVED_OPERATION_SET");
+    if (currentOperation(path)?.external_write === true && stagedWrite !== true) {
+      fail5("reviewed external write must use the native-write capability", "EXTERNAL_WRITE_REQUIRED");
+    }
+    const before = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before replacement", "TRANSACTION_PRECONDITION_CHANGED");
+    await createMissingParents(record2);
+    const afterParents = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(afterParents, before)) fail5("writable path changed during parent creation", "TRANSACTION_PRECONDITION_CHANGED");
+    return withPinnedRecord(record2, before, async ({ current, assertPinned }) => {
+      const scratch = join5(dirname5(record2.path), `.${randomBytes3(16).toString("hex")}.uemcp-write`);
+      let handle = null;
+      try {
+        assertPinned();
+        handle = await fsImpl.open(scratch, "wx", record2.snapshot.metadata.mode ?? 384);
+        await handle.writeFile(content);
+        await handle.sync();
+        await handle.close();
+        handle = null;
+        assertPinned();
+        try {
+          if (current.exists) {
+            await replaceExisting(scratch, record2.path);
+          } else {
+            const stillAbsent = await capture(record2.path, [record2.allowedRoot], true);
+            if (!fingerprintsEqual(stillAbsent, current)) fail5("missing target changed before create", "TRANSACTION_PRECONDITION_CHANGED");
+            assertPinned();
+            await fsImpl.rename(scratch, record2.path);
+          }
+          assertPinned();
+        } catch (error2) {
+          const observed = await capture(record2.path, [record2.allowedRoot], true).catch(() => null);
+          if (observed && !fingerprintsEqual(observed, current)) markChanged(record2, observed);
+          throw error2;
+        }
+        const diskBytes = await fsImpl.readFile(record2.path);
+        const applied = await capture(record2.path, [record2.allowedRoot], true);
+        assertPinned();
+        markChanged(record2, applied);
+        if (!diskBytes.equals(content) || applied.content_sha256 !== sha256Bytes(content)) {
+          fail5("client config changed during transaction replacement", "TRANSACTION_POSTWRITE_CHANGED");
+        }
+        if (current.exists && applied.metadata_sha256 !== current.metadata_sha256) {
+          fail5("existing-file security metadata changed during replacement", "METADATA_PRESERVATION_FAILED");
+        }
+        if (typeof parseResult === "function") await parseResult(diskBytes);
+        return {
+          path: record2.path,
+          content_sha256: applied.content_sha256,
+          metadata_sha256: applied.metadata_sha256
+        };
+      } finally {
+        if (handle) await handle.close().catch(() => {
+        });
+        try {
+          assertPinned();
+          await fsImpl.rm(scratch, { force: true });
+          assertPinned();
+        } catch {
+        }
+      }
+    });
+  }
+  function safeStageRelativePath(value) {
+    if (typeof value !== "string" || value.trim() === "" || isAbsolute6(value)) return false;
+    const parts = value.replace(/\\/g, "/").split("/");
+    return parts.every((part) => part !== "" && part !== "." && part !== "..");
+  }
+  function nativeStagePaths() {
+    const stateRoot = resolve5(localState.paths().state);
+    const stageParent = resolve5(join5(stateRoot, "native-staging"));
+    if (pathKey2(dirname5(stageParent)) !== pathKey2(stateRoot)) {
+      fail5("native stage parent is outside local state", "UNSAFE_WRITABLE_PATH");
+    }
+    return { stateRoot, stageParent };
+  }
+  async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
+    if (pathKey2(dirname5(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
+    let unsafe = false;
+    let contaminated = false;
+    try {
+      const stat = await fsImpl.lstat(path);
+      unsafe = stat.isSymbolicLink() || !stat.isDirectory();
+      if (!unsafe && expectedChildName !== null) {
+        const names = await fsImpl.readdir(path);
+        contaminated = names.length !== 1 || names[0] !== expectedChildName;
+      }
+      await windowsNative.deleteTreeNoFollow({
+        targetPath: path,
+        allowedRoot: stateRoot,
+        runner: processRunner,
+        systemRoot,
+        fsImpl
+      });
+      const remains = await fsImpl.lstat(path).then(() => true, (error2) => {
+        if (isMissing2(error2)) return false;
+        throw error2;
+      });
+      if (remains) fail5("native stage cleanup could not be verified", "STAGED_CLEANUP_FAILED");
+      return { removed: true, unsafe, contaminated };
+    } catch (error2) {
+      if (error2?.code === "STAGED_CLEANUP_FAILED") throw error2;
+      fail5("native stage cleanup failed", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
+    }
+  }
+  async function detachAndRemoveStageParent(stageParent, stateRoot, options = {}) {
+    if (pathKey2(dirname5(stageParent)) !== pathKey2(stateRoot)) {
+      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
+    const quarantine = resolve5(join5(stateRoot, `.native-staging-${randomBytes3(12).toString("hex")}.stale`));
+    if (pathKey2(dirname5(quarantine)) !== pathKey2(stateRoot)) {
+      fail5("native stage quarantine path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    return withPinnedDirectory(stateRoot, async (guard) => {
+      try {
+        guard?.assertPinned?.();
+        await fsImpl.rename(stageParent, quarantine);
+        guard?.assertPinned?.();
+      } catch (error2) {
+        if (isMissing2(error2)) return { removed: false, unsafe: false, contaminated: false };
+        fail5("native stage could not be detached for cleanup", "STAGED_CLEANUP_FAILED", { cause_code: error2?.code ?? "UNKNOWN" });
+      }
+      return removeDetachedStage(quarantine, stateRoot, options);
+    });
+  }
+  async function cleanupAbandonedStages() {
+    const { stateRoot, stageParent } = nativeStagePaths();
+    await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
+    let unsafe = false;
+    for (const name of await fsImpl.readdir(stateRoot)) {
+      if (!STAGE_QUARANTINE_PATTERN.test(name)) continue;
+      const cleanup2 = await removeDetachedStage(resolve5(join5(stateRoot, name)), stateRoot);
+      unsafe ||= cleanup2.unsafe;
+    }
+    let stat;
+    try {
+      stat = await fsImpl.lstat(stageParent);
+    } catch (error2) {
+      if (isMissing2(error2)) {
+        if (unsafe) fail5("abandoned native stage is unsafe", "UNSAFE_WRITABLE_PATH");
+        return;
+      }
+      throw error2;
+    }
+    unsafe ||= stat.isSymbolicLink() || !stat.isDirectory();
+    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot);
+    if (unsafe || cleanup.unsafe) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
+  }
+  async function inspectStage(stageRoot, relativePath) {
+    const expectedParts = relativePath.replace(/\\/g, "/").split("/");
+    const expected = /* @__PURE__ */ new Set();
+    for (let index = 0; index < expectedParts.length; index += 1) {
+      expected.add(expectedParts.slice(0, index + 1).join("/"));
+    }
+    const observed = [];
+    async function visit2(directory, prefix = "") {
+      const names = await fsImpl.readdir(directory);
+      for (const name of names.sort()) {
+        const relativeName = prefix ? `${prefix}/${name}` : name;
+        observed.push(relativeName);
+        if (observed.length > MAX_STAGE_ENTRIES) fail5("native stage exceeds its entry limit", "UNEXPECTED_STAGED_OUTPUT");
+        const path = join5(directory, name);
+        const stat = await fsImpl.lstat(path);
+        if (stat.isSymbolicLink()) fail5("native stage contains a linked entry", "UNEXPECTED_STAGED_OUTPUT");
+        if (stat.isDirectory()) await visit2(path, relativeName);
+        else if (!stat.isFile() || Number(stat.nlink) !== 1) fail5("native stage contains an unsafe entry", "UNEXPECTED_STAGED_OUTPUT");
+      }
+    }
+    await visit2(stageRoot);
+    if (observed.length !== expected.size || observed.some((entry) => !expected.has(entry))) {
+      fail5("native stage contains unexpected output", "UNEXPECTED_STAGED_OUTPUT");
+    }
+  }
+  async function removeStage(stageRoot, stageParent, stateRoot) {
+    if (pathKey2(dirname5(stageRoot)) !== pathKey2(stageParent)) {
+      fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
+    }
+    const expectedChildName = relative4(stageParent, stageRoot);
+    if (!expectedChildName || expectedChildName.includes(sep4)) fail5("native stage child name is unsafe", "STAGED_CLEANUP_FAILED");
+    const cleanup = await detachAndRemoveStageParent(stageParent, stateRoot, { expectedChildName });
+    if (!cleanup.removed || cleanup.unsafe) fail5("native stage cleanup identity changed", "STAGED_CLEANUP_FAILED");
+    if (cleanup.contaminated) fail5("native stage contains undeclared sibling output", "UNEXPECTED_STAGED_OUTPUT");
+  }
+  async function runStagedWrite(path, mutate, {
+    seed_bytes: seedBytes = Buffer.alloc(0),
+    stage_relative_path: relativePath,
+    parse: parseResult
+  } = {}) {
+    if (state.phase !== "applying") fail5("staged writes are available only during apply", "TRANSACTION_NOT_APPLYING");
+    if (typeof mutate !== "function" || !safeStageRelativePath(relativePath)) fail5("staged write contract is invalid", "INVALID_EXTERNAL_WRITE");
+    if (!Buffer.isBuffer(seedBytes) && !(seedBytes instanceof Uint8Array)) fail5("staged write seed requires bytes", "INVALID_TRANSACTION_BYTES");
+    const seed = Buffer.from(seedBytes);
+    if (seed.length > MAX_CONFIG_BYTES) fail5("staged write seed exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+    const key = pathKey2(path);
+    const record2 = state.records.get(key);
+    const operation = currentOperation(path);
+    if (!record2 || !operation || operation.external_write !== true || pathKey2(record2.path) !== key) {
+      fail5("adapter attempted an unapproved external write", "UNAPPROVED_EXTERNAL_WRITE");
+    }
+    if (record2.clients.some((clientId) => clientId !== state.currentClient)) {
+      fail5("shared client config cannot use an external writer", "SHARED_WRITE_CONFLICT");
+    }
+    if (record2.externalWriteUsed === true) fail5("staged write capability is one-shot", "EXTERNAL_WRITE_ALREADY_USED");
+    const before = await capture(record2.path, [record2.allowedRoot], true);
+    if (!fingerprintsEqual(before, record2.currentFingerprint)) fail5("writable path changed before staging", "TRANSACTION_PRECONDITION_CHANGED");
+    const currentBytes = before.exists ? await fsImpl.readFile(record2.path) : Buffer.alloc(0);
+    if (!currentBytes.equals(seed)) fail5("staged seed differs from reviewed provider config", "INVALID_STAGED_SEED");
+    record2.externalWriteUsed = true;
+    const { stateRoot, stageParent } = nativeStagePaths();
+    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
+    await fsImpl.mkdir(stageParent, { mode: 448 }).catch((error2) => {
+      if (error2?.code !== "EEXIST") throw error2;
+    });
+    await assertWritableAncestry(stageParent, stateRoot, fsImpl);
+    const parentStat = await fsImpl.lstat(stageParent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) fail5("native stage parent is unsafe", "UNSAFE_WRITABLE_PATH");
+    const stageRoot = await fsImpl.mkdtemp(join5(stageParent, `${state.transactionId}-`));
+    await fsImpl.chmod(stageRoot, 448);
+    const stageStat = await fsImpl.lstat(stageRoot);
+    if (pathKey2(dirname5(stageRoot)) !== pathKey2(stageParent) || !stageStat.isDirectory() || stageStat.isSymbolicLink()) {
+      fail5("native stage root is unsafe", "UNSAFE_WRITABLE_PATH");
+    }
+    const stagedPath = resolve5(stageRoot, relativePath);
+    if (!contained(stageRoot, stagedPath)) fail5("native stage target escapes its root", "INVALID_EXTERNAL_WRITE");
+    await fsImpl.mkdir(dirname5(stagedPath), { recursive: true, mode: 448 });
+    let handle = null;
+    let stagedBytes = null;
+    let pendingError = null;
+    try {
+      handle = await fsImpl.open(stagedPath, "wx", 384);
+      await handle.writeFile(seed);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await mutate(stagedPath, Object.freeze({ root: stageRoot, relative_path: relativePath }));
+      await inspectStage(stageRoot, relativePath.replace(/\\/g, "/"));
+      const stagedFingerprint = await capture(stagedPath, [stageRoot], true);
+      if (!stagedFingerprint.exists || stagedFingerprint.kind !== "file" || stagedFingerprint.link_kind !== "none") {
+        fail5("native stage did not produce a safe config file", "UNEXPECTED_STAGED_OUTPUT");
+      }
+      stagedBytes = await fsImpl.readFile(stagedPath);
+      if (stagedBytes.length > MAX_CONFIG_BYTES) fail5("staged config exceeds its byte limit", "CONFIG_BYTE_LIMIT");
+      if (stagedBytes.equals(seed)) fail5("native stage did not change the reviewed config", "EXTERNAL_WRITE_NO_CHANGE");
+      if (typeof parseResult === "function") await parseResult(stagedBytes);
+    } catch (error2) {
+      pendingError = error2;
+    } finally {
+      if (handle) await handle.close().catch(() => {
+      });
+    }
+    try {
+      await removeStage(stageRoot, stageParent, stateRoot);
+    } catch (error2) {
+      throw error2;
+    }
+    if (pendingError) throw pendingError;
+    return writeFile(record2.path, stagedBytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: true });
+  }
+  const ownershipPath = resolve5(localState.paths().ownership);
+  const ownershipLedger2 = Object.freeze({
+    async read() {
+      try {
+        return JSON.parse(await fsImpl.readFile(ownershipPath, "utf8"));
+      } catch (error2) {
+        if (isMissing2(error2)) return null;
+        throw error2;
+      }
+    },
+    async write(value) {
+      return writeFile(ownershipPath, Buffer.from(`${canonicalJson(value)}
+`, "utf8"), {
+        parse: (bytes) => JSON.parse(bytes.toString("utf8"))
+      });
+    },
+    now: () => new Date(Number(clock())).toISOString()
+  });
+  return Object.freeze({ writeFile, runStagedWrite, cleanupAbandonedStages, ownershipLedger: ownershipLedger2, ownershipPath });
+}
+
+// server/deployment/client-transaction.mjs
+function createClientTransaction({
+  localState,
+  fsImpl = defaultFs5,
+  clock = Date.now,
+  windowsNative = DEFAULT_WINDOWS_NATIVE,
+  processRunner = createProcessRunner(),
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  externalLease = null
+} = {}) {
+  if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
+    fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
+  }
+  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
+    fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
+  }
+  if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
+    fail5("external apply lease capability is invalid", "INVALID_APPLY_LEASE");
+  }
+  const state = {
+    phase: "new",
+    lease: null,
+    ownsLease: false,
+    planDigest: null,
+    operationDigest: null,
+    adapters: /* @__PURE__ */ new Map(),
+    operations: [],
+    records: /* @__PURE__ */ new Map(),
+    readOnly: [],
+    changedOrder: [],
+    createdDirectories: [],
+    clientResults: [],
+    deferredDeletes: /* @__PURE__ */ new Map(),
+    currentClient: null,
+    transactionId: randomBytes4(12).toString("hex")
+  };
+  const pins = createTransactionPins({ state, fsImpl, windowsNative, processRunner, systemRoot });
+  const { releaseLease } = pins;
+  const stage = createTransactionStage({ state, fsImpl, windowsNative, localState, clock, pins, processRunner, systemRoot });
+  const { writeFile, runStagedWrite, ownershipLedger: ownershipLedger2 } = stage;
+  const snap = createTransactionSnapshot({ state, fsImpl, windowsNative, localState, pins, stage, systemRoot, externalLease });
+  const {
+    deleteSnapshot,
+    deleteFileAfterVerify,
+    snapshot,
+    recheckBeforeApply,
+    recheckAfterVerify,
+    withPinnedTransactionEvidence,
+    commitDeferredDeletes,
+    cleanupCreatedDirectories,
+    restoreRecord
+  } = snap;
+  const transactionCapability = Object.freeze({ writeFile, runStagedWrite, deleteFileAfterVerify, ownershipLedger: ownershipLedger2 });
   async function rollbackInternal({ reason = "apply_failed", adapters = state.adapters } = {}) {
     state.phase = "rolling_back";
     let hookFailed = false;
@@ -30520,7 +30549,7 @@ function descriptorsEqual(actual, expected) {
 
 // server/deployment/local-state.mjs
 import { spawn as defaultSpawn4 } from "node:child_process";
-import { randomBytes as randomBytes4 } from "node:crypto";
+import { randomBytes as randomBytes5 } from "node:crypto";
 import * as defaultFs14 from "node:fs/promises";
 import { basename as basename2, dirname as dirname12, isAbsolute as isAbsolute15, join as join12, parse as parse6, relative as relative10, resolve as resolve14, sep as sep10 } from "node:path";
 var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
@@ -30594,7 +30623,7 @@ function safeSegment(value, label) {
   return value;
 }
 function scratchName(path) {
-  return join12(dirname12(path), `.${randomBytes4(16).toString("hex")}.tmp`);
+  return join12(dirname12(path), `.${randomBytes5(16).toString("hex")}.tmp`);
 }
 function leasePathKey(path) {
   const absolute = resolve14(path);
@@ -31044,9 +31073,9 @@ function createLocalState({
     await writeBytesAtomic(path, Buffer.from(`${canonicalJson(value)}
 `, "utf8"));
   }
-  async function createSnapshot(targetPath, { transactionId = randomBytes4(12).toString("hex"), retainOnConflict = false } = {}) {
+  async function createSnapshot(targetPath, { transactionId = randomBytes5(12).toString("hex"), retainOnConflict = false } = {}) {
     const id = safeSegment(transactionId, "transactionId");
-    const directory = join12(pathSet.snapshots, id, randomBytes4(8).toString("hex"));
+    const directory = join12(pathSet.snapshots, id, randomBytes5(8).toString("hex"));
     if (!contained7(pathSet.snapshots, directory)) throw new LocalStateError("snapshot transaction escapes the snapshot root");
     await ensureDirectory(directory);
     const absoluteTarget = await assertNoLinkedTargetPath(targetPath, { fsImpl, code: "UNSAFE_SNAPSHOT_TARGET" });
@@ -31425,7 +31454,7 @@ function createLocalState({
       if (expiresAt !== null && Number(clock()) >= Date.parse(expiresAt)) {
         throw new LocalStateError("plan expired while waiting for the apply lease", "PLAN_EXPIRED");
       }
-      const ownerToken = randomBytes4(24).toString("hex");
+      const ownerToken = randomBytes5(24).toString("hex");
       const record2 = {
         owner_token: ownerToken,
         pid,
@@ -33444,13 +33473,13 @@ async function inspectSourceProvenance({
 }
 
 // server/deployment/target-domain.mjs
-import { randomBytes as randomBytes6 } from "node:crypto";
+import { randomBytes as randomBytes7 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
 import { dirname as dirname18, extname as extname4, isAbsolute as isAbsolute21, join as join18, parse as parse7, posix as posix10, relative as relative12, resolve as resolve21, sep as sep12, win32 as win3216 } from "node:path";
 
 // server/project-targets.mjs
-import { createHash as createHash2, randomBytes as randomBytes5 } from "node:crypto";
+import { createHash as createHash2, randomBytes as randomBytes6 } from "node:crypto";
 import {
   closeSync,
   existsSync as existsSync3,
@@ -33577,7 +33606,7 @@ function writeStructuredFileAtomic(configPath, serialized, fsImpl) {
     fsImpl.writeFileSync(configPath, serialized, "utf8");
     return;
   }
-  const scratchPath = join17(dir, `.${randomBytes5(16).toString("hex")}.scratch`);
+  const scratchPath = join17(dir, `.${randomBytes6(16).toString("hex")}.scratch`);
   let handle = null;
   try {
     handle = fsImpl.openSync(scratchPath, "wx", 384);
@@ -33916,7 +33945,7 @@ function createTargetDomain({
         throw new TargetDomainError("proposed target registry bytes do not match the plan", "PLAN_STALE");
       }
       await asyncFs.mkdir(dirname18(operation.config_path), { recursive: true });
-      const scratchPath = join18(dirname18(operation.config_path), `.${randomBytes6(16).toString("hex")}.scratch`);
+      const scratchPath = join18(dirname18(operation.config_path), `.${randomBytes7(16).toString("hex")}.scratch`);
       let handle;
       let committed = false;
       try {
