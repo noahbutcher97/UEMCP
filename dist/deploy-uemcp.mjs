@@ -9822,7 +9822,7 @@ var require_dist = __commonJS({
 import * as fsPromises from "node:fs/promises";
 import { existsSync as existsSync4 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename as basename6, dirname as dirname17, extname as extname5, isAbsolute as isAbsolute22, join as join18, resolve as resolve21 } from "node:path";
+import { basename as basename6, dirname as dirname18, extname as extname5, isAbsolute as isAbsolute22, join as join18, resolve as resolve21 } from "node:path";
 import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
 
 // server/deployment/contracts.mjs
@@ -10270,7 +10270,7 @@ function exitCodeForOutcome(outcome) {
 // server/deployment/adapters/claude.mjs
 import * as defaultFs6 from "node:fs/promises";
 import {
-  dirname as dirname4,
+  dirname as dirname5,
   isAbsolute as isAbsolute7,
   join as join5,
   relative as relative5,
@@ -10491,7 +10491,7 @@ function approvedOwnedReplacement(context, ownership) {
 // server/deployment/client-transaction.mjs
 import { randomBytes as randomBytes2 } from "node:crypto";
 import * as defaultFs5 from "node:fs/promises";
-import { dirname as dirname3, isAbsolute as isAbsolute6, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute6, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
 
 // server/deployment/client-contract.mjs
 import { win32 as win322 } from "node:path";
@@ -13510,42 +13510,9 @@ function transactionResultBase(state) {
   };
 }
 
-// server/deployment/client-transaction.mjs
-function createClientTransaction({
-  localState,
-  fsImpl = defaultFs5,
-  clock = Date.now,
-  windowsNative = DEFAULT_WINDOWS_NATIVE,
-  processRunner = createProcessRunner(),
-  systemRoot = process.env.SystemRoot || process.env.WINDIR,
-  externalLease = null
-} = {}) {
-  if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
-    fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
-  }
-  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
-    fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
-  }
-  if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
-    fail5("external apply lease capability is invalid", "INVALID_APPLY_LEASE");
-  }
-  const state = {
-    phase: "new",
-    lease: null,
-    ownsLease: false,
-    planDigest: null,
-    operationDigest: null,
-    adapters: /* @__PURE__ */ new Map(),
-    operations: [],
-    records: /* @__PURE__ */ new Map(),
-    readOnly: [],
-    changedOrder: [],
-    createdDirectories: [],
-    clientResults: [],
-    deferredDeletes: /* @__PURE__ */ new Map(),
-    currentClient: null,
-    transactionId: randomBytes2(12).toString("hex")
-  };
+// server/deployment/transaction-pins.mjs
+import { dirname as dirname3 } from "node:path";
+function createTransactionPins({ state, fsImpl, windowsNative, processRunner, systemRoot }) {
   const capture = (path, roots, writable = true) => captureClientPathFingerprint(path, {
     allowedRoots: roots,
     fsImpl,
@@ -13561,11 +13528,6 @@ function createClientTransaction({
     state.lease = null;
     state.ownsLease = false;
     if (ownsLease) await lease.release();
-  }
-  async function deleteSnapshot(record2) {
-    if (!record2.snapshot) return;
-    await localState.deleteSnapshot(record2.snapshot);
-    record2.snapshot = null;
   }
   async function withPinnedDirectory(directory, callback) {
     const directories = await inspectExistingDirectoryAncestry(directory, fsImpl);
@@ -13667,6 +13629,72 @@ function createClientTransaction({
     const key = pathKey2(path);
     return state.operations.find((operation) => operation.client_id === state.currentClient && pathKey2(operation.path) === key);
   }
+  return Object.freeze({
+    capture,
+    releaseLease,
+    withPinnedDirectory,
+    revalidateRecordParents,
+    withPinnedRecord,
+    createMissingParents,
+    replaceExisting,
+    markChanged,
+    currentOperation
+  });
+}
+
+// server/deployment/client-transaction.mjs
+function createClientTransaction({
+  localState,
+  fsImpl = defaultFs5,
+  clock = Date.now,
+  windowsNative = DEFAULT_WINDOWS_NATIVE,
+  processRunner = createProcessRunner(),
+  systemRoot = process.env.SystemRoot || process.env.WINDIR,
+  externalLease = null
+} = {}) {
+  if (!localState?.paths || typeof localState.acquireApplyLease !== "function" || typeof localState.createSnapshot !== "function" || typeof localState.deleteSnapshot !== "function") {
+    fail5("transaction requires the core local-state contract", "INVALID_LOCAL_STATE");
+  }
+  if (!windowsNative?.fingerprintWindowsFileMetadata || !windowsNative?.deleteTreeNoFollow || !windowsNative?.replaceFilePreservingMetadata || !windowsNative?.withPinnedAncestry || !windowsNative?.withPinnedFiles) {
+    fail5("transaction requires the Windows metadata contract", "INVALID_WINDOWS_NATIVE");
+  }
+  if (externalLease !== null && (typeof externalLease !== "object" || !/^[0-9a-f]{48}$/.test(externalLease.ownerToken ?? "") || typeof externalLease.release !== "function" || typeof localState.validateApplyLease !== "function")) {
+    fail5("external apply lease capability is invalid", "INVALID_APPLY_LEASE");
+  }
+  const state = {
+    phase: "new",
+    lease: null,
+    ownsLease: false,
+    planDigest: null,
+    operationDigest: null,
+    adapters: /* @__PURE__ */ new Map(),
+    operations: [],
+    records: /* @__PURE__ */ new Map(),
+    readOnly: [],
+    changedOrder: [],
+    createdDirectories: [],
+    clientResults: [],
+    deferredDeletes: /* @__PURE__ */ new Map(),
+    currentClient: null,
+    transactionId: randomBytes2(12).toString("hex")
+  };
+  const pins = createTransactionPins({ state, fsImpl, windowsNative, processRunner, systemRoot });
+  const {
+    capture,
+    releaseLease,
+    withPinnedDirectory,
+    revalidateRecordParents,
+    withPinnedRecord,
+    createMissingParents,
+    replaceExisting,
+    markChanged,
+    currentOperation
+  } = pins;
+  async function deleteSnapshot(record2) {
+    if (!record2.snapshot) return;
+    await localState.deleteSnapshot(record2.snapshot);
+    record2.snapshot = null;
+  }
   async function writeFile(path, bytes, { parse: parseResult, [STAGED_WRITE_TOKEN]: stagedWrite = false } = {}) {
     if (state.phase !== "applying") fail5("transaction writes are available only during apply", "TRANSACTION_NOT_APPLYING");
     if (!Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) fail5("transaction write requires bytes", "INVALID_TRANSACTION_BYTES");
@@ -13684,7 +13712,7 @@ function createClientTransaction({
     const afterParents = await capture(record2.path, [record2.allowedRoot], true);
     if (!fingerprintsEqual(afterParents, before)) fail5("writable path changed during parent creation", "TRANSACTION_PRECONDITION_CHANGED");
     return withPinnedRecord(record2, before, async ({ current, assertPinned }) => {
-      const scratch = join4(dirname3(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-write`);
+      const scratch = join4(dirname4(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-write`);
       let handle = null;
       try {
         assertPinned();
@@ -13745,13 +13773,13 @@ function createClientTransaction({
   function nativeStagePaths() {
     const stateRoot = resolve4(localState.paths().state);
     const stageParent = resolve4(join4(stateRoot, "native-staging"));
-    if (pathKey2(dirname3(stageParent)) !== pathKey2(stateRoot)) {
+    if (pathKey2(dirname4(stageParent)) !== pathKey2(stateRoot)) {
       fail5("native stage parent is outside local state", "UNSAFE_WRITABLE_PATH");
     }
     return { stateRoot, stageParent };
   }
   async function removeDetachedStage(path, stateRoot, { expectedChildName = null } = {}) {
-    if (pathKey2(dirname3(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
+    if (pathKey2(dirname4(path)) !== pathKey2(stateRoot)) fail5("detached native stage path is unsafe", "STAGED_CLEANUP_FAILED");
     let unsafe = false;
     let contaminated = false;
     try {
@@ -13780,12 +13808,12 @@ function createClientTransaction({
     }
   }
   async function detachAndRemoveStageParent(stageParent, stateRoot, options = {}) {
-    if (pathKey2(dirname3(stageParent)) !== pathKey2(stateRoot)) {
+    if (pathKey2(dirname4(stageParent)) !== pathKey2(stateRoot)) {
       fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
     }
     await assertWritableAncestry(stateRoot, stateRoot, fsImpl);
     const quarantine = resolve4(join4(stateRoot, `.native-staging-${randomBytes2(12).toString("hex")}.stale`));
-    if (pathKey2(dirname3(quarantine)) !== pathKey2(stateRoot)) {
+    if (pathKey2(dirname4(quarantine)) !== pathKey2(stateRoot)) {
       fail5("native stage quarantine path is unsafe", "STAGED_CLEANUP_FAILED");
     }
     return withPinnedDirectory(stateRoot, async (guard) => {
@@ -13849,7 +13877,7 @@ function createClientTransaction({
     }
   }
   async function removeStage(stageRoot, stageParent, stateRoot) {
-    if (pathKey2(dirname3(stageRoot)) !== pathKey2(stageParent)) {
+    if (pathKey2(dirname4(stageRoot)) !== pathKey2(stageParent)) {
       fail5("native stage cleanup path is unsafe", "STAGED_CLEANUP_FAILED");
     }
     const expectedChildName = relative4(stageParent, stageRoot);
@@ -13894,12 +13922,12 @@ function createClientTransaction({
     const stageRoot = await fsImpl.mkdtemp(join4(stageParent, `${state.transactionId}-`));
     await fsImpl.chmod(stageRoot, 448);
     const stageStat = await fsImpl.lstat(stageRoot);
-    if (pathKey2(dirname3(stageRoot)) !== pathKey2(stageParent) || !stageStat.isDirectory() || stageStat.isSymbolicLink()) {
+    if (pathKey2(dirname4(stageRoot)) !== pathKey2(stageParent) || !stageStat.isDirectory() || stageStat.isSymbolicLink()) {
       fail5("native stage root is unsafe", "UNSAFE_WRITABLE_PATH");
     }
     const stagedPath = resolve4(stageRoot, relativePath);
     if (!contained(stageRoot, stagedPath)) fail5("native stage target escapes its root", "INVALID_EXTERNAL_WRITE");
-    await fsImpl.mkdir(dirname3(stagedPath), { recursive: true, mode: 448 });
+    await fsImpl.mkdir(dirname4(stagedPath), { recursive: true, mode: 448 });
     let handle = null;
     let stagedBytes = null;
     let pendingError = null;
@@ -14190,7 +14218,7 @@ function createClientTransaction({
       if (seen.has(key)) continue;
       seen.add(key);
       try {
-        await withPinnedDirectory(dirname3(created.path), async (guard) => {
+        await withPinnedDirectory(dirname4(created.path), async (guard) => {
           guard?.assertPinned?.();
           const current = await directoryIdentity(created.path, fsImpl);
           if (!identityEqual(current, created.identity)) {
@@ -14215,7 +14243,7 @@ function createClientTransaction({
   }
   async function restoreRecord(record2) {
     try {
-      return await withPinnedDirectory(dirname3(record2.path), async (guard) => {
+      return await withPinnedDirectory(dirname4(record2.path), async (guard) => {
         guard?.assertPinned?.();
         await revalidateRecordParents(record2);
         let current;
@@ -14242,7 +14270,7 @@ function createClientTransaction({
         const payloadPath = join4(record2.snapshot.directory, "payload.bin");
         const payload = await fsImpl.readFile(payloadPath);
         if (sha256Bytes(payload) !== metadata.original_sha256) return { status: "failed", path: record2.path, code: "INVALID_SNAPSHOT" };
-        const scratch = join4(dirname3(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-rollback`);
+        const scratch = join4(dirname4(record2.path), `.${randomBytes2(16).toString("hex")}.uemcp-rollback`);
         let handle = null;
         try {
           guard?.assertPinned?.();
@@ -16401,7 +16429,7 @@ function resolveClaudeLocations(context = {}) {
     fail8("CLAUDE_CONFIG_DIR must be an absolute non-device path", "INVALID_CLIENT_LOCATION");
   }
   const stateRoot = resolve5(isolatedHome || userProfile);
-  const stateWriteRoot = isolatedHome ? dirname4(stateRoot) : stateRoot;
+  const stateWriteRoot = isolatedHome ? dirname5(stateRoot) : stateRoot;
   const configRoot = resolve5(isolatedHome || join5(userProfile, ".claude"));
   const statePath = join5(stateRoot, ".claude.json");
   const settingsPath = isolatedHome ? join5(stateRoot, "settings.json") : join5(userProfile, ".claude", "settings.json");
@@ -16844,13 +16872,13 @@ async function captureLaunchEvidence(captureFingerprint, context, detection) {
     const key = pathIdentity2(path);
     if (seen.has(key)) continue;
     seen.add(key);
-    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname4(path)], writable: false });
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname5(path)], writable: false });
     if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
       fail8("Claude launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
     }
     rows.push(Object.freeze({
       path: resolve5(path),
-      allowed_root: resolve5(dirname4(path)),
+      allowed_root: resolve5(dirname5(path)),
       scope,
       writable: false,
       exists: true,
@@ -17393,7 +17421,7 @@ function createClaudeAdapter({
 // server/deployment/adapters/codex.mjs
 import * as defaultFs7 from "node:fs/promises";
 import {
-  dirname as dirname5,
+  dirname as dirname6,
   isAbsolute as isAbsolute8,
   join as join6,
   relative as relative6,
@@ -17786,7 +17814,7 @@ function resolveCodexLocations(context = {}, { projectLayers = DEFAULT_LIMITS2.p
   const programData = resolve6(knownProgramData);
   const requirementsRoot = join6(programData, "OpenAI", "Codex");
   return Object.freeze({
-    user: location2(join6(codexHome, "config.toml"), dirname5(codexHome), "user", true),
+    user: location2(join6(codexHome, "config.toml"), dirname6(codexHome), "user", true),
     project_layers: Object.freeze(directories.map((directory, index) => location2(
       join6(directory, ".codex", "config.toml"),
       root,
@@ -18155,13 +18183,13 @@ async function captureLaunchEvidence2(captureFingerprint, context, detection) {
     const key = pathIdentity3(path);
     if (seen.has(key)) continue;
     seen.add(key);
-    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname5(path)], writable: false });
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname6(path)], writable: false });
     if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
       fail10("Codex launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
     }
     rows.push(Object.freeze({
       path: resolve6(path),
-      allowed_root: resolve6(dirname5(path)),
+      allowed_root: resolve6(dirname6(path)),
       scope,
       writable: false,
       exists: true,
@@ -18582,7 +18610,7 @@ function createCodexAdapter({
 // server/deployment/adapters/gemini.mjs
 import * as defaultFs8 from "node:fs/promises";
 import {
-  dirname as dirname6,
+  dirname as dirname7,
   isAbsolute as isAbsolute9,
   join as join7,
   relative as relative7,
@@ -18665,7 +18693,7 @@ function resolveGeminiLocations(context = {}) {
   }
   const homeRoot = resolve7(configuredHome || userProfile);
   const globalDir = join7(homeRoot, ".gemini");
-  const userWriteRoot = configuredHome ? dirname6(homeRoot) : homeRoot;
+  const userWriteRoot = configuredHome ? dirname7(homeRoot) : homeRoot;
   const extensionsRoot = join7(globalDir, "extensions");
   const knownProgramData = context.knownFolders?.programData;
   if (!absolutePath4(knownProgramData)) fail11("Gemini system policy root is invalid", "INVALID_CLIENT_LOCATION");
@@ -18681,7 +18709,7 @@ function resolveGeminiLocations(context = {}) {
     custom_home: configuredHome !== void 0 && configuredHome !== "",
     user: location3(join7(globalDir, "settings.json"), userWriteRoot, "user", true),
     enablement: location3(join7(globalDir, "mcp-server-enablement.json"), globalDir, "enablement"),
-    trusted_folders: location3(trustedFoldersPath, trustedFoldersOverride ? dirname6(trustedFoldersPath) : globalDir, "trusted_folders"),
+    trusted_folders: location3(trustedFoldersPath, trustedFoldersOverride ? dirname7(trustedFoldersPath) : globalDir, "trusted_folders"),
     extensions_root: location3(extensionsRoot, globalDir, "extensions_root"),
     extensions_enablement: location3(join7(extensionsRoot, "extension-enablement.json"), extensionsRoot, "extensions_enablement"),
     project: location3(join7(workspaceRoot, ".gemini", "settings.json"), workspaceRoot, "project"),
@@ -18910,7 +18938,7 @@ function workspaceTrust(context, baseSettings, trustedFolders) {
   const workspace = pathIdentity4(context.workspaceRoot);
   let selected2 = null;
   for (const [rulePath, level] of Object.entries(trustedFolders)) {
-    const effectivePath = level === "TRUST_PARENT" ? dirname6(rulePath) : rulePath;
+    const effectivePath = level === "TRUST_PARENT" ? dirname7(rulePath) : rulePath;
     if (!contained4(effectivePath, workspace)) continue;
     if (selected2 === null || rulePath.length > selected2.path.length) selected2 = { path: rulePath, level };
   }
@@ -19225,13 +19253,13 @@ async function captureLaunchEvidence3(captureFingerprint, context, detection) {
     const key = pathIdentity4(path);
     if (seen.has(key)) continue;
     seen.add(key);
-    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname6(path)], writable: false });
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname7(path)], writable: false });
     if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
       fail11("Gemini launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
     }
     rows.push(Object.freeze({
       path: resolve7(path),
-      allowed_root: resolve7(dirname6(path)),
+      allowed_root: resolve7(dirname7(path)),
       scope,
       writable: false,
       exists: true,
@@ -19728,7 +19756,7 @@ function createGeminiAdapter({
 // server/deployment/adapters/vscode.mjs
 import * as defaultFs9 from "node:fs/promises";
 import {
-  dirname as dirname7,
+  dirname as dirname8,
   isAbsolute as isAbsolute10,
   join as join8,
   resolve as resolve8,
@@ -19805,7 +19833,7 @@ function resolveVsCodeLocations(context = {}) {
   }
   if (!configuredRoot && !absolutePath5(appData)) fail12("VS Code inspection requires an absolute APPDATA", "INVALID_CLIENT_LOCATION");
   const userDataRoot = resolve8(configuredRoot || join8(appData, "Code"));
-  const userWriteRoot = resolve8(configuredRoot ? dirname7(userDataRoot) : appData);
+  const userWriteRoot = resolve8(configuredRoot ? dirname8(userDataRoot) : appData);
   const userRoot = join8(userDataRoot, "User");
   const profilesRoot = join8(userRoot, "profiles");
   return Object.freeze({
@@ -20056,13 +20084,13 @@ async function captureLaunchEvidence4(captureFingerprint, context, detection) {
     const key = pathIdentity5(path);
     if (seen.has(key)) continue;
     seen.add(key);
-    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname7(path)], writable: false });
+    const fingerprint = await captureFingerprint(path, { allowedRoots: [dirname8(path)], writable: false });
     if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") {
       fail12("VS Code launch evidence is no longer a regular file", "CLIENT_LAUNCH_EVIDENCE_INVALID");
     }
     rows.push(Object.freeze({
       path: resolve8(path),
-      allowed_root: resolve8(dirname7(path)),
+      allowed_root: resolve8(dirname8(path)),
       scope,
       writable: false,
       exists: true,
@@ -20458,7 +20486,7 @@ function createVsCodeAdapter({
 
 // server/deployment/bundle-freshness.mjs
 import * as defaultFs10 from "node:fs/promises";
-import { dirname as dirname8, isAbsolute as isAbsolute11, join as join9, relative as relative8, resolve as resolve9, sep as sep8 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute11, join as join9, relative as relative8, resolve as resolve9, sep as sep8 } from "node:path";
 var SHA256 = /^[0-9a-f]{64}$/;
 var MANIFEST_KEYS = /* @__PURE__ */ new Set([
   "schema_version",
@@ -20579,7 +20607,7 @@ async function verifyDeploymentBundleFreshness({
     const source = await exactFile(sourcePath, { repoRoot: canonicalRepo, fsImpl, label: `source input ${row.path}` });
     if (source.sha256 !== row.sha256) fail13("first-party bundle input changed", { path: row.path });
   }
-  const notices = await exactFile(join9(dirname8(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
+  const notices = await exactFile(join9(dirname9(canonicalManifest), "THIRD_PARTY_NOTICES.txt"), {
     repoRoot: canonicalRepo,
     fsImpl,
     label: "third-party notices",
@@ -20604,7 +20632,7 @@ import { posix as posix5, resolve as resolve11, win32 as win3211 } from "node:pa
 import * as defaultFs11 from "node:fs/promises";
 import {
   basename,
-  dirname as dirname9,
+  dirname as dirname10,
   extname,
   isAbsolute as isAbsolute12,
   join as join10,
@@ -20768,7 +20796,7 @@ async function packageDocument(path, fsImpl) {
   }
 }
 async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot, fsImpl) {
-  const boundary = dirname9(resolutionRoot);
+  const boundary = dirname10(resolutionRoot);
   const parts = packageParts(dependencyName);
   let current = packageRoot;
   while (true) {
@@ -20784,7 +20812,7 @@ async function resolveDependencyRoot(packageRoot, dependencyName, resolutionRoot
       }
     }
     if (pathKey3(current) === pathKey3(boundary)) break;
-    const parent = dirname9(current);
+    const parent = dirname10(current);
     if (parent === current || !contained6(boundary, parent)) break;
     current = parent;
   }
@@ -20963,7 +20991,7 @@ async function withPinnedClientLaunch(launch, {
       const changedFields = /* @__PURE__ */ new Set();
       for (let index = 0; index < evidence.paths.length; index += 1) {
         const path = evidence.paths[index];
-        const observed = await fingerprintPath(path, { allowedRoots: [dirname9(path)], fsImpl });
+        const observed = await fingerprintPath(path, { allowedRoots: [dirname10(path)], fsImpl });
         if (sha256Canonical(observed) !== sha256Canonical(evidence.fingerprints[index])) {
           changedFields.add(index === 0 ? "command" : "args_prefix");
         }
@@ -21237,7 +21265,7 @@ async function discoverVersionedVsCodeCli(installRoot, fsImpl) {
     let canonicalRoot;
     try {
       canonicalRoot = await canonicalDirectory(versionRoot, { fsImpl, allowedRoots: [installRoot] });
-      if (pathKey3(dirname9(canonicalRoot)) !== pathKey3(installRoot)) continue;
+      if (pathKey3(dirname10(canonicalRoot)) !== pathKey3(installRoot)) continue;
       const cli = await canonicalFile(join10(canonicalRoot, "resources", "app", "out", "cli.js"), {
         fsImpl,
         allowedRoots: [canonicalRoot],
@@ -21255,7 +21283,7 @@ async function resolveNodeExecutable(candidates, fsImpl) {
   const nodePath = candidates?.nodeExecutable ?? process.execPath;
   return canonicalFile(resolve10(nodePath), {
     fsImpl,
-    allowedRoots: [dirname9(resolve10(nodePath))],
+    allowedRoots: [dirname10(resolve10(nodePath))],
     basenameRequired: process.platform === "win32" ? "node.exe" : basename(process.execPath)
   });
 }
@@ -21268,7 +21296,7 @@ async function resolveNpmCandidate(clientId, candidate, {
   const config2 = CLIENTS[clientId];
   if (!config2.package_id) fail14("client does not support npm package resolution");
   const prefixes = npmPrefixes(env, candidates);
-  const matchingPrefix = prefixes.find((prefix) => pathKey3(dirname9(resolve10(candidate))) === pathKey3(prefix));
+  const matchingPrefix = prefixes.find((prefix) => pathKey3(dirname10(resolve10(candidate))) === pathKey3(prefix));
   if (!matchingPrefix) fail14("npm shim is outside an allowlisted prefix");
   const expectedNames = [config2.bin_name, `${config2.bin_name}.cmd`, `${config2.bin_name}.ps1`];
   if (!expectedNames.includes(basename(candidate).toLowerCase())) fail14("npm shim basename is invalid");
@@ -21330,7 +21358,7 @@ async function validAuthenticode(path, clientId, { env, runner, fsImpl, authenti
     runner,
     systemRoot: readWindowsEnvironmentValue(env, "SYSTEMROOT") || readWindowsEnvironmentValue(env, "WINDIR"),
     expectedSignerNames: [expected],
-    allowedRoots: [dirname9(path)],
+    allowedRoots: [dirname10(path)],
     fsImpl
   });
   return result2?.status === "valid" && result2.signer_name === expected ? result2 : null;
@@ -21341,9 +21369,9 @@ async function resolveNativeCandidate(clientId, candidate, context) {
   let cliCandidate = null;
   let discoveryClue = null;
   if (clientId === "vscode" && basename(commandCandidate).toLowerCase() === "code.cmd") {
-    const installRoot2 = dirname9(dirname9(commandCandidate));
-    const expectedCommand = allowedPaths.find((path) => pathKey3(dirname9(path)) === pathKey3(installRoot2));
-    if (!expectedCommand || pathKey3(dirname9(commandCandidate)) !== pathKey3(join10(installRoot2, "bin"))) {
+    const installRoot2 = dirname10(dirname10(commandCandidate));
+    const expectedCommand = allowedPaths.find((path) => pathKey3(dirname10(path)) === pathKey3(installRoot2));
+    if (!expectedCommand || pathKey3(dirname10(commandCandidate)) !== pathKey3(join10(installRoot2, "bin"))) {
       fail14("VS Code wrapper is outside its standard install root");
     }
     discoveryClue = await canonicalFile(commandCandidate, {
@@ -21352,8 +21380,8 @@ async function resolveNativeCandidate(clientId, candidate, context) {
       basenameRequired: "code.cmd"
     });
     const wrapperContent = await readUtf8(discoveryClue.path, context.fsImpl, MAX_VSCODE_WRAPPER_BYTES, "VS Code wrapper");
-    const canonicalInstallRoot = dirname9(dirname9(discoveryClue.path));
-    const wrapperTuple = parseVsCodeWrapper(wrapperContent, dirname9(discoveryClue.path), canonicalInstallRoot);
+    const canonicalInstallRoot = dirname10(dirname10(discoveryClue.path));
+    const wrapperTuple = parseVsCodeWrapper(wrapperContent, dirname10(discoveryClue.path), canonicalInstallRoot);
     commandCandidate = expectedCommand;
     cliCandidate = wrapperTuple.cli;
   }
@@ -21361,7 +21389,7 @@ async function resolveNativeCandidate(clientId, candidate, context) {
   if (!expected) fail14("native client path is outside its allowlist");
   const command = await canonicalFile(commandCandidate, {
     fsImpl: context.fsImpl,
-    allowedRoots: [dirname9(expected)],
+    allowedRoots: [dirname10(expected)],
     basenameRequired: clientId === "vscode" ? "Code.exe" : "claude.exe"
   });
   const signature = await validAuthenticode(command.path, clientId, context);
@@ -21381,7 +21409,7 @@ async function resolveNativeCandidate(clientId, candidate, context) {
       }
     };
   }
-  const installRoot = dirname9(command.path);
+  const installRoot = dirname10(command.path);
   const selectedCli = cliCandidate ?? await discoverVersionedVsCodeCli(installRoot, context.fsImpl);
   const cli = await canonicalFile(selectedCli, {
     fsImpl: context.fsImpl,
@@ -30477,7 +30505,7 @@ function descriptorsEqual(actual, expected) {
 import { spawn as defaultSpawn4 } from "node:child_process";
 import { randomBytes as randomBytes3 } from "node:crypto";
 import * as defaultFs14 from "node:fs/promises";
-import { basename as basename2, dirname as dirname10, isAbsolute as isAbsolute15, join as join11, parse as parse6, relative as relative10, resolve as resolve13, sep as sep10 } from "node:path";
+import { basename as basename2, dirname as dirname11, isAbsolute as isAbsolute15, join as join11, parse as parse6, relative as relative10, resolve as resolve13, sep as sep10 } from "node:path";
 var SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
 var SHA2562 = /^[0-9a-f]{64}$/;
 var LEASE_OWNER_TOKEN = /^[0-9a-f]{48}$/;
@@ -30549,7 +30577,7 @@ function safeSegment(value, label) {
   return value;
 }
 function scratchName(path) {
-  return join11(dirname10(path), `.${randomBytes3(16).toString("hex")}.tmp`);
+  return join11(dirname11(path), `.${randomBytes3(16).toString("hex")}.tmp`);
 }
 function leasePathKey(path) {
   const absolute = resolve13(path);
@@ -30967,7 +30995,7 @@ function createLocalState({
   }
   async function writeBytesAtomic(path, bytes) {
     const absolute = assertLocalPath(path);
-    await ensureDirectory(dirname10(absolute));
+    await ensureDirectory(dirname11(absolute));
     await assertNoLinkedLocalPath(absolute);
     const scratch = scratchName(absolute);
     let handle;
@@ -31454,7 +31482,7 @@ function createLocalState({
 }
 
 // server/deployment/orchestrator.mjs
-import { dirname as dirname11, isAbsolute as isAbsolute17, resolve as resolve15 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute17, resolve as resolve15 } from "node:path";
 
 // server/deployment/plan-document.mjs
 import { isAbsolute as isAbsolute16, posix as posix7, win32 as win3213 } from "node:path";
@@ -32483,7 +32511,7 @@ function createDeploymentOrchestrator({
     const domain = orderedDomains.find((candidate) => typeof candidate.fingerprintPrecondition === "function" && candidate.canFingerprintPrecondition?.(precondition) !== false);
     if (domain) return domain.fingerprintPrecondition(precondition, context);
     return fingerprintPath(precondition.canonical_path, {
-      allowedRoots: [dirname11(precondition.canonical_path)],
+      allowedRoots: [dirname12(precondition.canonical_path)],
       fsImpl
     });
   }
@@ -32647,7 +32675,7 @@ function createDeploymentOrchestrator({
 
 // server/deployment/prerequisites.mjs
 import * as defaultFs16 from "node:fs/promises";
-import { dirname as dirname12, isAbsolute as isAbsolute18, join as join13, posix as posix8, resolve as resolve16, win32 as win3214 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute18, join as join13, posix as posix8, resolve as resolve16, win32 as win3214 } from "node:path";
 var INSTALL_MODE = "production-no-scripts";
 var VALIDATION_COMMAND = "npm ls --omit=dev --all --json";
 var PrerequisiteError = class extends Error {
@@ -32692,7 +32720,7 @@ function sameFingerprint(left, right) {
 async function inspectNodeRuntime({
   executable = process.execPath,
   runner,
-  allowedRoots = [dirname12(resolve16(executable))],
+  allowedRoots = [dirname13(resolve16(executable))],
   fsImpl = defaultFs16
 } = {}) {
   if (!runner?.run) fail18("runtime inspection requires a bounded process runner", "INVALID_PREREQUISITE_INPUT");
@@ -32780,7 +32808,7 @@ function productionClosure(lock) {
   return rows;
 }
 async function resolveNpmCli(nodeRuntime, { runner, fsImpl }) {
-  const npmRoot = join13(dirname12(nodeRuntime.executable), "node_modules", "npm");
+  const npmRoot = join13(dirname13(nodeRuntime.executable), "node_modules", "npm");
   const packagePath = join13(npmRoot, "package.json");
   const packageFingerprint = await fingerprintPath(packagePath, { allowedRoots: [npmRoot], fsImpl });
   if (!packageFingerprint.exists || packageFingerprint.kind !== "file" || packageFingerprint.link_kind !== "none") {
@@ -32926,7 +32954,7 @@ function planPrerequisiteOperations({ node, dependencies }) {
     domain: "prerequisites",
     domain_order: 10,
     kind: "INSTALL_DEPENDENCIES",
-    server_root: dirname12(dependencies.lock_path),
+    server_root: dirname13(dependencies.lock_path),
     node_executable: node.executable,
     node_version: node.version.raw,
     node_fingerprint: prerequisiteFingerprintIdentity(node.fingerprint),
@@ -32958,7 +32986,7 @@ async function applyDependencyOperation(operation, {
   const currentNode = await inspectNodeRuntime({
     executable: operation.node_executable,
     runner,
-    allowedRoots: [dirname12(operation.node_executable)],
+    allowedRoots: [dirname13(operation.node_executable)],
     fsImpl
   });
   if (currentNode.status !== "READY" || currentNode.version.raw !== operation.node_version || !sameFingerprint(currentNode.fingerprint, operation.node_fingerprint)) {
@@ -32966,7 +32994,7 @@ async function applyDependencyOperation(operation, {
   }
   const beforeLock = await readLock(serverRoot, fsImpl);
   if (beforeLock.sha256 !== operation.lock_sha256) fail18("package lock changed after planning", "LOCK_DRIFT");
-  const npmFingerprint = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname12(dirname12(operation.npm_cli))], fsImpl });
+  const npmFingerprint = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname13(dirname13(operation.npm_cli))], fsImpl });
   if (!sameFingerprint(npmFingerprint, operation.npm_fingerprint)) fail18("npm CLI changed after planning", "LOCK_DRIFT");
   const install = await runner.run(operation.node_executable, [
     operation.npm_cli,
@@ -33003,11 +33031,11 @@ async function applyDependencyOperation(operation, {
     const afterNode = await inspectNodeRuntime({
       executable: operation.node_executable,
       runner,
-      allowedRoots: [dirname12(operation.node_executable)],
+      allowedRoots: [dirname13(operation.node_executable)],
       fsImpl
     });
     const afterLock = await readLock(serverRoot, fsImpl);
-    const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname12(dirname12(operation.npm_cli))], fsImpl });
+    const afterNpm = await fingerprintPath(operation.npm_cli, { allowedRoots: [dirname13(dirname13(operation.npm_cli))], fsImpl });
     if (afterNode.status !== "READY" || afterNode.version.raw !== operation.node_version || !sameFingerprint(afterNode.fingerprint, operation.node_fingerprint) || afterLock.sha256 !== operation.lock_sha256 || !sameFingerprint(afterNpm, operation.npm_fingerprint)) {
       return { status: "INSTALL_FAILED", changed: true };
     }
@@ -33037,7 +33065,7 @@ function createPrerequisiteDomain({
     const node = await inspectNodeRuntime({
       executable: nodeExecutable,
       runner,
-      allowedRoots: [dirname12(nodeExecutable)],
+      allowedRoots: [dirname13(nodeExecutable)],
       fsImpl
     });
     const dependencies = node.status === "READY" ? await inspectDependencies({ serverRoot, nodeRuntime: node, runner, localState, fsImpl }) : null;
@@ -33081,25 +33109,25 @@ function createPrerequisiteDomain({
     },
     async fingerprintPrecondition(precondition) {
       if (precondition.label === "node-runtime") {
-        const node = await inspectNodeRuntime({ executable: precondition.canonical_path, runner, allowedRoots: [dirname12(precondition.canonical_path)], fsImpl });
+        const node = await inspectNodeRuntime({ executable: precondition.canonical_path, runner, allowedRoots: [dirname13(precondition.canonical_path)], fsImpl });
         return { fingerprint: prerequisiteFingerprintIdentity(node.fingerprint), version: node.version?.raw ?? null };
       }
       if (precondition.label === "npm-cli") {
-        const observed = await fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname12(dirname12(precondition.canonical_path))], fsImpl });
+        const observed = await fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname13(dirname13(precondition.canonical_path))], fsImpl });
         const version2 = await runner.run(nodeExecutable, [precondition.canonical_path, "--version"], { env: {}, timeoutMs: 1e4, outputLimitBytes: 8 * 1024 });
         return {
           fingerprint: prerequisiteFingerprintIdentity(observed),
           version: version2.status === "exited" && version2.exitCode === 0 ? version2.stdout.trim() : null
         };
       }
-      return fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname12(precondition.canonical_path)], fsImpl });
+      return fingerprintPath(precondition.canonical_path, { allowedRoots: [dirname13(precondition.canonical_path)], fsImpl });
     }
   });
 }
 
 // server/deployment/source-provenance.mjs
 import * as defaultFs17 from "node:fs/promises";
-import { dirname as dirname13, isAbsolute as isAbsolute19, join as join14, posix as posix9, relative as relative11, resolve as resolve17, sep as sep11, win32 as win3215 } from "node:path";
+import { dirname as dirname14, isAbsolute as isAbsolute19, join as join14, posix as posix9, relative as relative11, resolve as resolve17, sep as sep11, win32 as win3215 } from "node:path";
 var PROVENANCE_FILE = ".uemcp-source-provenance.json";
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var SHA2565 = /^[0-9a-f]{64}$/;
@@ -33173,12 +33201,12 @@ async function selectGitExecutable({ gitExecutable, fsImpl, runner, authenticode
   const candidates = gitExecutable ? [resolve17(gitExecutable)] : gitCandidatePaths(environment);
   for (const candidate of candidates) {
     try {
-      const fingerprint = await fingerprintPath(candidate, { allowedRoots: [dirname13(candidate)], fsImpl });
+      const fingerprint = await fingerprintPath(candidate, { allowedRoots: [dirname14(candidate)], fsImpl });
       if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none") continue;
       const signature = await authenticodeInspector(candidate, {
         runner,
         systemRoot: environment.SystemRoot || environment.WINDIR,
-        allowedRoots: [dirname13(candidate)],
+        allowedRoots: [dirname14(candidate)],
         fsImpl
       });
       if (signature.status !== "valid") continue;
@@ -33402,7 +33430,7 @@ async function inspectSourceProvenance({
 import { randomBytes as randomBytes5 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
-import { dirname as dirname16, extname as extname4, isAbsolute as isAbsolute21, join as join17, parse as parse7, posix as posix10, relative as relative12, resolve as resolve20, sep as sep12, win32 as win3216 } from "node:path";
+import { dirname as dirname17, extname as extname4, isAbsolute as isAbsolute21, join as join17, parse as parse7, posix as posix10, relative as relative12, resolve as resolve20, sep as sep12, win32 as win3216 } from "node:path";
 
 // server/project-targets.mjs
 import { createHash as createHash2, randomBytes as randomBytes4 } from "node:crypto";
@@ -33419,7 +33447,7 @@ import {
   statSync as statSync2,
   writeFileSync
 } from "node:fs";
-import { basename as basename5, dirname as dirname15, extname as extname3, isAbsolute as isAbsolute20, join as join16, resolve as resolve19 } from "node:path";
+import { basename as basename5, dirname as dirname16, extname as extname3, isAbsolute as isAbsolute20, join as join16, resolve as resolve19 } from "node:path";
 
 // server/project-errors.mjs
 var PROJECT_ERROR_CODES = Object.freeze({
@@ -33452,7 +33480,7 @@ import {
   statSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename as basename4, dirname as dirname14, extname as extname2, join as join15, resolve as resolve18 } from "node:path";
+import { basename as basename4, dirname as dirname15, extname as extname2, join as join15, resolve as resolve18 } from "node:path";
 function displayPath(pathValue) {
   return String(pathValue || "").replace(/\\/g, "/").replace(/\/+$/, "");
 }
@@ -33525,7 +33553,7 @@ function resolveDefaultTargetsPath({
   throw new ProjectTargetPathError(`Unknown source kind: ${kind}`);
 }
 function writeStructuredFileAtomic(configPath, serialized, fsImpl) {
-  const dir = dirname15(configPath);
+  const dir = dirname16(configPath);
   if (dir) fsImpl.mkdirSync(dir, { recursive: true });
   const supportsAtomicWrite = ["openSync", "fsyncSync", "closeSync", "renameSync", "rmSync"].every((name) => typeof fsImpl[name] === "function");
   if (!supportsAtomicWrite) {
@@ -33667,7 +33695,7 @@ async function validateProjectPath(projectPath, asyncFs) {
     throw new TargetDomainError("requested project must be an absolute non-device .uproject path");
   }
   await assertNoLinkedAncestors(projectPath, asyncFs);
-  const fingerprint = await fingerprintPath(projectPath, { allowedRoots: [dirname16(projectPath)], fsImpl: asyncFs });
+  const fingerprint = await fingerprintPath(projectPath, { allowedRoots: [dirname17(projectPath)], fsImpl: asyncFs });
   if (!fingerprint.exists || fingerprint.kind !== "file" || fingerprint.link_kind !== "none" || fingerprint.link_count !== 1) {
     throw new TargetDomainError("requested project must be a regular single-link file");
   }
@@ -33685,7 +33713,7 @@ async function validateConfigPath(configPath, { generatedRoot, asyncFs }) {
   return absolute;
 }
 async function compositeFingerprint(path, { asyncFs, windowsNative, processRunner, systemRoot }) {
-  const base = await fingerprintPath(path, { allowedRoots: [dirname16(path)], fsImpl: asyncFs });
+  const base = await fingerprintPath(path, { allowedRoots: [dirname17(path)], fsImpl: asyncFs });
   if (base.exists && (base.kind !== "file" || base.link_kind !== "none" || base.link_count !== 1)) {
     throw new TargetDomainError("target registry must be a regular single-link file");
   }
@@ -33694,7 +33722,7 @@ async function compositeFingerprint(path, { asyncFs, windowsNative, processRunne
     metadata = await windowsNative.fingerprintWindowsFileMetadata(path, {
       runner: processRunner,
       systemRoot,
-      allowedRoots: [dirname16(path)],
+      allowedRoots: [dirname17(path)],
       fsImpl: asyncFs
     });
   } else if (base.exists) {
@@ -33870,8 +33898,8 @@ function createTargetDomain({
       if (sha256Bytes(bytes) !== operation.proposed_sha256) {
         throw new TargetDomainError("proposed target registry bytes do not match the plan", "PLAN_STALE");
       }
-      await asyncFs.mkdir(dirname16(operation.config_path), { recursive: true });
-      const scratchPath = join17(dirname16(operation.config_path), `.${randomBytes5(16).toString("hex")}.scratch`);
+      await asyncFs.mkdir(dirname17(operation.config_path), { recursive: true });
+      const scratchPath = join17(dirname17(operation.config_path), `.${randomBytes5(16).toString("hex")}.scratch`);
       let handle;
       let committed = false;
       try {
@@ -33928,7 +33956,7 @@ function createTargetDomain({
         await asyncFs.rm(scratchPath, { force: true }).catch(() => {
         });
       }
-      const after = await fingerprintPath(operation.config_path, { allowedRoots: [dirname16(operation.config_path)], fsImpl: asyncFs });
+      const after = await fingerprintPath(operation.config_path, { allowedRoots: [dirname17(operation.config_path)], fsImpl: asyncFs });
       if (after.sha256 !== operation.proposed_sha256) return committedSyncFailure();
       return createStageResult({ name: "target", status: "REGISTERED", changed: true, progress: "committed" });
     },
@@ -34107,19 +34135,19 @@ function parseArgs(argv) {
   return parsed;
 }
 function locateRepository() {
-  const moduleDirectory = dirname17(fileURLToPath2(import.meta.url));
+  const moduleDirectory = dirname18(fileURLToPath2(import.meta.url));
   let candidate = moduleDirectory;
   for (let depth = 0; depth < 8; depth += 1) {
     const serverRoot = join18(candidate, "server");
     if (existsSync4(join18(serverRoot, "server.mjs")) && existsSync4(join18(serverRoot, "package-lock.json"))) {
       return { repoRoot: candidate, serverRoot };
     }
-    const parent = dirname17(candidate);
+    const parent = dirname18(candidate);
     if (parent === candidate) break;
     candidate = parent;
   }
   if (basename6(moduleDirectory).toLowerCase() === "server" && existsSync4(join18(moduleDirectory, "server.mjs"))) {
-    return { repoRoot: dirname17(moduleDirectory), serverRoot: moduleDirectory };
+    return { repoRoot: dirname18(moduleDirectory), serverRoot: moduleDirectory };
   }
   throw new UsageError("deployment entry is not inside a UEMCP repository");
 }
@@ -34184,7 +34212,7 @@ function createDefaultOrchestrator({ targetsFile = null, workspaceRoot = process
     descriptorProvider: () => createCanonicalDescriptor({
       nodeExecutable: process.execPath,
       serverEntry: join18(serverRoot, "server.mjs"),
-      allowedRoots: [dirname17(process.execPath), serverRoot],
+      allowedRoots: [dirname18(process.execPath), serverRoot],
       fsImpl: fsPromises
     })
   });
@@ -34222,7 +34250,7 @@ function writeHumanValue(stream, value) {
 }
 async function publishPlanCreateOnly(targetPath, value) {
   const resolvedTarget = resolve21(targetPath);
-  const scratchPath = join18(dirname17(resolvedTarget), `.${basename6(resolvedTarget)}.${randomUUID()}.tmp`);
+  const scratchPath = join18(dirname18(resolvedTarget), `.${basename6(resolvedTarget)}.${randomUUID()}.tmp`);
   let scratchCreated = false;
   try {
     const handle = await fsPromises.open(scratchPath, "wx", 384);
