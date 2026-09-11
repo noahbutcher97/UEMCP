@@ -1,3 +1,9 @@
+// client-transaction.mjs — staged, fingerprinted, rollback-capable writes
+// shared by every client adapter.
+// Why: every adapter needs to write client config the same safe way —
+// snapshot, verify, write atomically, and roll every touched file back
+// together if a later write in the same apply fails.
+// Depends on: the local-state lease/snapshot contract (injected), windows-native, fingerprints.
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import * as defaultFs from 'node:fs/promises';

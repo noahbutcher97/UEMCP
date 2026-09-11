@@ -1,3 +1,9 @@
+// jsonc-config.mjs — JSONC parse and patch that preserves comments and formatting.
+// Why: Claude, Gemini, and VS Code configs are hand-edited JSONC files; a
+// naive JSON.parse/stringify round-trip would silently delete comments and
+// re-indent everything, so this wraps jsonc-parser to make targeted, minimal
+// edits that leave the rest of the file byte-identical.
+// Depends on: config-bytes (decode/BOM handling), the jsonc-parser package.
 import { isDeepStrictEqual } from 'node:util';
 
 import {

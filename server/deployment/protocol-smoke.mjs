@@ -1,3 +1,10 @@
+// protocol-smoke.mjs — launches the canonical descriptor and runs a real MCP
+// handshake as the protocol smoke test.
+// Why: a client config entry can be structurally correct and still point at
+// a server that fails to start; this spawns the descriptor, drives an actual
+// initialize + tools/list over stdio, and reports HEALTHY/INITIALIZE_FAILED/
+// TOOLS_LIST_FAILED separately from "configured".
+// Depends on: the MCP SDK client, bounded-stdio-transport, contracts, windows-native (pinned launch).
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { isAbsolute, posix, win32 } from 'node:path';
 

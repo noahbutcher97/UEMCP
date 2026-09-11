@@ -1,3 +1,10 @@
+// local-state.mjs — the local install-state root: apply leases, snapshots,
+// journals, and applied-plan-digest records.
+// Why: deployment writes must survive a crash mid-apply and never let two
+// deploys interleave; this is the one on-disk root (ACL-restricted, atomic
+// writes) with a cross-process apply lease, before/after snapshots for
+// rollback, and a journal distinguishing "interrupted" from "never started".
+// Depends on: canonical-json, process-runner, windows-native (deleteWindowsTreeNoFollow).
 import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as defaultFs from 'node:fs/promises';

@@ -1,3 +1,9 @@
+// adapters/codex.mjs — the Codex CLI client adapter, over its config.toml.
+// Why: Codex keeps mcp_servers.uemcp in a hand-edited TOML file with layered
+// per-project trust and a system requirements policy gate; this is the only
+// place that knows that shape and Codex's release-gated native CLI behavior
+// (`codex mcp add/list/get --json`).
+// Depends on: toml-config (parse/patch), client-contract, ownership-ledger, client-decisions.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,

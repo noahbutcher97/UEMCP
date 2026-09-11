@@ -1,3 +1,9 @@
+// bounded-config-file.mjs — size-bounded, race-checked reads of client config files.
+// Why: adapters read config files they don't control; without this, a huge or
+// corrupt file could exhaust memory, and a naive stat-then-read leaves a
+// window for the file to change underneath the read. This enforces per-file
+// and aggregate byte limits and re-fingerprints immediately after reading.
+// Depends on: canonical-json (sha256Bytes, for the post-read consistency check).
 import * as defaultFs from 'node:fs/promises';
 
 import { sha256Bytes } from './canonical-json.mjs';

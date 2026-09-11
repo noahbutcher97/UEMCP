@@ -1,3 +1,10 @@
+// descriptor.mjs — builds and compares the canonical MCP server descriptor
+// (command, args, env) written into every client's config.
+// Why: every adapter writes the same {name, transport, command, args} tuple
+// pointing at this Node executable and server entry; this is the one place
+// that builds it from fingerprinted, non-linked files and compares two
+// descriptors for path-normalized equality so a "no-op" plan is trustworthy.
+// Depends on: fingerprints (fingerprintPath).
 import * as defaultFs from 'node:fs/promises';
 import { isAbsolute, posix, resolve, win32 } from 'node:path';
 

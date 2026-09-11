@@ -1,3 +1,9 @@
+// canonical-json.mjs — deterministic JSON serialization and SHA-256 digests.
+// Why: plan digests, ownership records, and fingerprints all need a stable
+// byte representation of a JS value to hash or compare; plain JSON.stringify
+// is not deterministic across key order, so this is the one canonicalization
+// every other hash in the deployment subsystem builds on.
+// Depends on: node:crypto only — this sits at the bottom of the dependency graph.
 import { createHash } from 'node:crypto';
 
 export class CanonicalJsonError extends Error {

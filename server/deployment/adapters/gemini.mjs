@@ -1,3 +1,9 @@
+// adapters/gemini.mjs — the Gemini CLI client adapter, over settings and extensions.
+// Why: Gemini's effective uemcp registration can come from merged settings
+// layers (system defaults/user/project/system override) or an installed
+// extension, each with its own enablement and trust rules; this adapter is
+// the only place that reconciles that layered precedence into one result.
+// Depends on: jsonc-config, client-contract, ownership-ledger, client-transaction, client-decisions.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,

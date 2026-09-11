@@ -1,3 +1,9 @@
+// adapters/vscode.mjs — the VS Code client adapter, over JSONC mcp.json files.
+// Why: VS Code resolves servers per active profile (default, or a named
+// profile under profiles/<id>/mcp.json) plus an optional workspace override;
+// this adapter is the only place that knows that resolution order and
+// preserves comments/formatting when patching servers.uemcp.
+// Depends on: jsonc-config, ownership-ledger, client-contract, client-transaction.
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,

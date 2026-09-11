@@ -1,3 +1,10 @@
+// redaction.mjs — secret redaction and canary checks for anything that
+// reaches logs or results.
+// Why: deployment evidence (config entries, environment variables) can carry
+// secrets a client stores alongside the uemcp entry; this walks an arbitrary
+// JSON value redacting secret-shaped keys, and fails loudly if a known
+// secret value — or any secret-shaped key at all — survives into output.
+// Depends on: nothing — pure value-walking.
 export const DEFAULT_SECRET_KEYS = Object.freeze([
   'token',
   'secret',

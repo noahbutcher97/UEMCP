@@ -1,3 +1,9 @@
+// contracts.mjs — deployment schema constants, outcomes, exit codes, and the
+// strict validators for the plan/result document shapes.
+// Why: the CLI, the orchestrator, and every domain need one shared vocabulary
+// for stage statuses, action codes, and the result/plan shape, or their
+// outputs would drift apart; this is that source of truth and its validators.
+// Depends on: client-ids (the closed client set validated in requests/clients).
 import { isAbsolute, posix, win32 } from 'node:path';
 
 import { CLIENT_IDS } from './client-ids.mjs';

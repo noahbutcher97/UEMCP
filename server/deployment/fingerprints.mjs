@@ -1,3 +1,10 @@
+// fingerprints.mjs — file and directory fingerprints that detect concurrent
+// modification.
+// Why: the deployment subsystem repeatedly needs to prove "this exact file,
+// unchanged, still exists" between planning and writing; this resolves
+// symlinks safely within an allow-list of roots and hashes a file's bytes
+// only after confirming its identity hasn't shifted mid-read.
+// Depends on: canonical-json (sha256Bytes, sha256Canonical).
 import * as defaultFs from 'node:fs/promises';
 import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 

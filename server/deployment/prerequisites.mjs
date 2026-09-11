@@ -1,3 +1,9 @@
+// prerequisites.mjs — Node runtime and dependency checks, and their install operations.
+// Why: a deploy cannot proceed without a supported Node runtime and a
+// validated, script-free production dependency closure; this inspects both,
+// blocks packages with install scripts as a policy decision, and performs
+// the actual `npm ci` when the lock has drifted from the recorded stamp.
+// Depends on: contracts (createStageResult), canonical-json, fingerprints.
 import * as defaultFs from 'node:fs/promises';
 import { dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
 

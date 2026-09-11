@@ -1,3 +1,9 @@
+// receipts.mjs — receipts of applied operations, written and later re-verified.
+// Why: every completed apply needs a durable, tamper-evident audit record
+// independent of the live client configs, which can change afterward; this
+// builds that receipt from a machine result — redacting secrets, hashing its
+// own canonical body — and can re-verify a receipt file's self-hash later.
+// Depends on: canonical-json (self-hash), redaction (secret scrubbing).
 import * as defaultFs from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 

@@ -1,3 +1,9 @@
+// target-domain.mjs — the "target" pipeline domain: registers project
+// targets in the local .uemcp-targets.json registry.
+// Why: this is the one write that records which .uproject a deploy is for,
+// using the same fingerprint-then-atomic-replace pattern as the client
+// domain so a concurrent edit to that registry is detected, not clobbered.
+// Depends on: contracts, fingerprints, windows-native (replaceFilePreservingMetadata), project-targets.mjs.
 import { randomBytes } from 'node:crypto';
 import * as syncFs from 'node:fs';
 import * as defaultAsyncFs from 'node:fs/promises';

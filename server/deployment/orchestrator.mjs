@@ -1,3 +1,9 @@
+// orchestrator.mjs — top-level plan, apply, verify, doctor, and repair across
+// deployment domains.
+// Why: sequences the prerequisites/target/clients domains in order, turns an
+// approved plan into a journaled apply with rollback on domain failure, and
+// reduces every domain's stage results into one machine-readable outcome.
+// Depends on: contracts, plan-document, descriptor, protocol-smoke, receipts, canonical-json.
 import { dirname, isAbsolute, resolve } from 'node:path';
 
 import {

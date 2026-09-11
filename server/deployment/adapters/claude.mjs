@@ -1,3 +1,9 @@
+// adapters/claude.mjs — the Claude Desktop / Claude Code client adapter.
+// Why: each client stores its MCP server list in its own file and format; this
+// adapter is the only place that knows Claude's paths, JSON shape and native
+// mutation behavior, so the orchestrator can treat all clients alike.
+// Depends on: client-transaction (writes), client-contract (identities),
+// jsonc-config (patching), process-runner (launch checks).
 import * as defaultFs from 'node:fs/promises';
 import {
   dirname,

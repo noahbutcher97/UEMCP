@@ -1,3 +1,9 @@
+// toml-config.mjs — TOML parse and patch for the Codex config.toml.
+// Why: Codex's config is hand-edited and can express the same logical table
+// as a bracketed section, a dotted key path, or an inline table; this parses
+// it losslessly and patches only the owned keys in place, matching whichever
+// representation is already there instead of rewriting the file.
+// Depends on: config-bytes (decode/BOM), the toml-eslint-parser package.
 import { isDeepStrictEqual } from 'node:util';
 
 import { getStaticTOMLValue, parseTOML } from 'toml-eslint-parser';

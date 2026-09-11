@@ -1,3 +1,9 @@
+// client-domain.mjs — the "clients" pipeline domain: plans, applies, and
+// verifies per-client config through adapters inside one transaction.
+// Why: the orchestrator's client entry point — discovers clients, runs each
+// adapter's detect/inspect/plan, and stages the operations into one
+// client-transaction, mapping adapter states onto the shared vocabulary.
+// Depends on: client-discovery, client-process, client-transaction, client-contract, protocol-smoke, windows-native.
 import * as defaultFs from 'node:fs/promises';
 import { posix, resolve, win32 } from 'node:path';
 
