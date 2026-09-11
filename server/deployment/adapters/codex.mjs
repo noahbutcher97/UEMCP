@@ -640,13 +640,13 @@ function ownershipLedgerStatus(ownership) {
 }
 
 // Factory boundary. Everything below closes over `fsImpl`, `runner`,
-// `captureFingerprint`, and `limits` (normalized from `limitOverrides`), and
-// returns a frozen adapter surface. Invariants: construction fails fast if
-// `runner`/`captureFingerprint` are missing, since neither has a safe default;
-// `apply` re-checks plan-time config/entry hashes and rejects unapproved or
-// unselected operations; a native `mcp add` write is gated to the exact
-// characterized Codex release and an isolated staged home, and every write is
-// re-verified against the canonical projection before the ledger is updated.
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) — all
+// test seams, though `runner`/`captureFingerprint` have no default and must
+// be supplied. Invariants: construction fails fast if either is missing;
+// `apply` re-checks plan-time config/entry hashes, rejects unapproved or
+// unselected operations, and gates a native `mcp add` write to the exact
+// characterized Codex release plus an isolated staged home, verifying the
+// result against the canonical projection before the ledger updates.
 export function createCodexAdapter({
   fsImpl = defaultFs,
   runner,

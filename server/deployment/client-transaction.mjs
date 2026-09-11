@@ -397,10 +397,12 @@ function transactionResultBase(state) {
 
 // Factory boundary. Everything below closes over one mutable `state` (phase,
 // lease, plan and operation digests, per-path records, changed order, created
-// directories, deferred deletes, current client). Invariants: `phase` moves
-// new -> snapshotted -> applied|rolled_back and never backwards; every record
-// written is fingerprinted before and after; a failed apply always rolls back
-// before the lease is released. Injected dependencies exist for tests only.
+// directories, deferred deletes, current client). Invariants: `phase` only
+// advances forward — new -> preflight -> snapshotted -> applying -> complete,
+// diverting to failed (from preflight) or rolling_back -> complete (from
+// snapshotted/applying) — never backward; every record written is
+// fingerprinted before and after; a failed apply always rolls back before the
+// lease is released. Injected dependencies exist for tests only.
 export function createClientTransaction({
   localState,
   fsImpl = defaultFs,
