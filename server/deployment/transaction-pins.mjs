@@ -18,6 +18,14 @@ import {
   statIdentity,
 } from './transaction-common.mjs';
 
+// Factory boundary. Closes over the shared `state` object plus the injected
+// `fsImpl`, `windowsNative`, `processRunner`, `systemRoot` test seams.
+// Invariants enforced here: `markChanged` attributes a change to
+// `state.currentClient` and appends to `state.changedOrder` at most once per
+// record; pinned-record/-directory helpers re-assert the pin around every
+// fingerprint check; `createMissingParents` fails with
+// `TRANSACTION_PRECONDITION_CHANGED` if a planned-missing parent already
+// exists or was created outside this transaction.
 export function createTransactionPins({ state, fsImpl, windowsNative, processRunner, systemRoot }) {
   const capture = (path, roots, writable = true) => captureClientPathFingerprint(path, {
     allowedRoots: roots,

@@ -89,6 +89,7 @@ async function listDirRecursive(dir, baseDir, maxDepth = 3, currentDepth = 0) {
   return entries;
 }
 
+// ── Tool implementations ────────────────────────────────────
 /**
  * project_info — Read .uproject, list plugins, engine version, build config
  */

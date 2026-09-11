@@ -20,6 +20,14 @@ import {
   pathKey,
 } from './transaction-common.mjs';
 
+// Factory boundary. Closes over `state`, the pins cluster, the required
+// `localState` collaborator, and the injected `fsImpl`, `windowsNative`,
+// `clock`, `processRunner`, `systemRoot` test seams. Invariants enforced
+// here: `writeFile`/`runStagedWrite` run only while `state.phase ===
+// 'applying'` and only against a path already in `state.records`;
+// `runStagedWrite` is one-shot per record (`record.externalWriteUsed`) and
+// stages under `localState.paths().state`/`native-staging`, refusing output
+// that escapes that root or doesn't match the declared relative path.
 export function createTransactionStage({ state, fsImpl, windowsNative, localState, clock, pins, processRunner, systemRoot }) {
   const {
     capture,

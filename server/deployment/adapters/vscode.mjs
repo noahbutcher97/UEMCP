@@ -474,14 +474,14 @@ function applyOwnedFields(document, desired, replaceWhole) {
   })));
 }
 
-// Factory boundary. Everything below closes over `fsImpl`, `captureFingerprint`,
-// and `limits` (normalized from `limitOverrides`) and returns a frozen adapter
-// surface. Unlike the other clients, VS Code has no native CLI process to
-// query, so `verify` trusts a structural disk match alone and always reports
-// RESTART_REQUIRED. Invariants: `apply` re-checks plan-time config/entry
-// hashes, refuses unapproved or unselected operations, and requires the
-// post-edit entry to match the canonical projection before the ledger write.
-// `fsImpl`/`captureFingerprint` are test seams.
+// Factory boundary. Everything below closes over `fsImpl`,
+// `captureFingerprint`, and `limits` (normalized from `limitOverrides`) and
+// returns a frozen adapter surface. Unlike the other clients, VS Code has no
+// native CLI process to query, so `verify` trusts a structural disk match alone
+// and always reports RESTART_REQUIRED. Invariants: `apply` re-checks plan-time
+// config/entry hashes, refuses operations that aren't write_supported or
+// selected, and requires the post-edit entry to match the canonical projection
+// before the ledger write. `fsImpl`/`captureFingerprint` are test seams.
 export function createVsCodeAdapter({
   fsImpl = defaultFs,
   captureFingerprint = captureClientPathFingerprint,

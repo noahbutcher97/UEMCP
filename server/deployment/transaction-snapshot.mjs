@@ -29,6 +29,14 @@ import {
   validateSharedRows,
 } from './transaction-common.mjs';
 
+// Factory boundary. Closes over `state`, the pins/stage clusters, the
+// required `localState` collaborator, and the injected `fsImpl`,
+// `windowsNative`, `systemRoot` test seams, plus an optional caller-supplied
+// `externalLease` (validated via `localState.validateApplyLease` instead of
+// acquired here). Owns this half of the phase graph: new -> preflight ->
+// snapshotted | failed — `snapshot()` runs only once from `new`, and a
+// preflight failure deletes every taken snapshot and releases the lease
+// before leaving `failed`.
 export function createTransactionSnapshot({ state, fsImpl, windowsNative, localState, pins, stage, systemRoot, externalLease }) {
   const {
     capture,
