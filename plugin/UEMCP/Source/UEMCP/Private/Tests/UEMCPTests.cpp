@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 //
 // Automation tests for M1 P0 helpers (P0-1, P0-2, P0-3, P0-4, P0-10).
 // P0-9 (null-params dispatcher check) is tested in MCPCommandRegistry tests.

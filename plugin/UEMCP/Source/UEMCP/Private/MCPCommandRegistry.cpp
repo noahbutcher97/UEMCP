@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "MCPThreadMarshal.h"

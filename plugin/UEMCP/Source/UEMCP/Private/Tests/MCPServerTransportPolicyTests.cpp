@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 
 #if WITH_DEV_AUTOMATION_TESTS
 

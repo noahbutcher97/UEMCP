@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #include "MCPResponseBuilder.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"

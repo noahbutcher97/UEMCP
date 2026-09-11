@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #include "UEMCPModule.h"
 #include "MCPCommandRegistry.h"
 #include "MCPServerRunnable.h"

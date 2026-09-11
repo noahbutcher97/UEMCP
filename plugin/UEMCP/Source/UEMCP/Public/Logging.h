@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #pragma once
 
 // LogUEMCP is declared in UEMCPModule.h. This header exists to provide

@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #include "SidecarMenuHook.h"
 #include "SidecarWriter.h"
 

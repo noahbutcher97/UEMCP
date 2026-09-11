@@ -1,4 +1,4 @@
-// Copyright Optimum Athena. All Rights Reserved.
+// Copyright Noah Butcher. All Rights Reserved.
 #include "DumpBPGraphCommandlet.h"
 #include "EdgeOnlyBPSerializer.h"
 #include "Logging.h"
