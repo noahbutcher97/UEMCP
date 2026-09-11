@@ -1,5 +1,4 @@
-// local-state.mjs — the local install-state root: apply leases, snapshots,
-// journals, and applied-plan-digest records.
+// local-state.mjs — the local install-state root: apply leases, snapshots, journals, and applied-plan-digest records.
 // Why: deployment writes must survive a crash mid-apply and never let two
 // deploys interleave; this is the one on-disk root (ACL-restricted, atomic
 // writes) with a cross-process apply lease, before/after snapshots for

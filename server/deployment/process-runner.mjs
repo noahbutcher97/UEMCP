@@ -1,5 +1,4 @@
-// process-runner.mjs — a bounded child-process runner with timeouts and
-// process-tree kill.
+// process-runner.mjs — a bounded child-process runner with timeouts and process-tree kill.
 // Why: nearly every deployment probe (client CLIs, git, npm, PowerShell
 // helpers) runs as a child process that could hang or spam output; this caps
 // output bytes, enforces a timeout, and — on Windows — kills the whole

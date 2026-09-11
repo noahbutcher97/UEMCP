@@ -1,5 +1,4 @@
-// fingerprints.mjs — file and directory fingerprints that detect concurrent
-// modification.
+// fingerprints.mjs — file and directory fingerprints that detect concurrent modification.
 // Why: the deployment subsystem repeatedly needs to prove "this exact file,
 // unchanged, still exists" between planning and writing; this resolves
 // symlinks safely within an allow-list of roots and hashes a file's bytes

@@ -1,5 +1,4 @@
-// plan-document.mjs — plan document construction, digest, and validation for
-// the approve-then-apply flow.
+// plan-document.mjs — plan document construction, digest, and validation for the approve-then-apply flow.
 // Why: apply refuses to run unless the exact digest a caller approved comes
 // back; this is where a plan is assembled and hashed, and where every
 // cross-field consistency rule is enforced so a tampered or stale plan
