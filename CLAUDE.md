@@ -99,6 +99,7 @@ UEMCP/
 ├── verify-deploy.bat           ← Q3-A pre-dispatch verification (D136)
 ├── setup-watcher.bat           ← Q3-C auto-deploy file-watcher (D136)
 ├── smoke-live.bat              ← opt-in live-editor smoke runner wrapper
+├── run-native-tests.bat        ← headless UE automation tests for the plugin (WS2); node server/run-native-tests.mjs underneath
 ├── .uemcp-targets.json.example ← template per-machine target profiles
 ├── dist/
 │   ├── deploy-uemcp.mjs        ← committed esbuild bundle of server/deploy-uemcp.mjs; the machine-interface entry (docs/specs/deployment-machine-interface.md)
@@ -139,6 +140,8 @@ UEMCP/
 │   ├── live-smoke-harness.mjs  ← reusable live-editor smoke harness (D177); run-live-smoke.mjs is its runner
 │   ├── live-smoke-*.mjs        ← individual live-editor smoke scripts (editor required, not in rotation)
 │   ├── run-rotation.mjs        ← canonical rotation runner; FAIL-LOUD on import errors
+│   ├── run-native-tests.mjs    ← runner CLI: target/engine resolution, headless UnrealEditor-Cmd, report parse
+│   ├── native-test-report.mjs  ← pure parser for UE automation index.json reports
 │   ├── test-*.mjs              ← rotation test files (see Testing section for table)
 │   └── test-helpers.mjs        ← FakeTcpResponder, ErrorTcpResponder, TestRunner
 ├── plugin/UEMCP/               ← C++ UE5 plugin
@@ -414,7 +417,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7532 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
-**Native plugin tests**: 16 UE automation tests live in `plugin/UEMCP/Source/UEMCP/Private/Tests/` (`UEMCPTests.cpp`, `MCPServerTransportPolicyTests.cpp`; pretty-name filter `UEMCP.`; flags `EditorContext | EngineFilter`, compiled only when `WITH_DEV_AUTOMATION_TESTS`). They cover transport intake, the command registry, the response builder and the parsers, not the `*Handlers.cpp` bodies. **Not yet scripted**: run them from the editor's Session Frontend until `run-native-tests.bat` lands (WS2 of `docs/superpowers/specs/2026-09-09-health-audit-remediation-design.md`).
+**Native plugin tests**: 16 UE automation tests live in `plugin/UEMCP/Source/UEMCP/Private/Tests/` (`UEMCPTests.cpp`, `MCPServerTransportPolicyTests.cpp`; pretty-name filter `UEMCP.`; flags `EditorContext | EngineFilter`, compiled only when `WITH_DEV_AUTOMATION_TESTS`). They cover transport intake, the command registry, the response builder and the parsers, not the `*Handlers.cpp` bodies. Run them with `run-native-tests.bat [--profile <name>] [--target <alias>]` (headless `UnrealEditor-Cmd`, about 30 s on a mid-size project; exit 0 only when every test passes, 1 on failures or not-run, 2 preflight or config, 3 timeout, 4 no report; `--dry-run` prints the command). The pre-push hook refuses to publish plugin source while any built target in the gate profile (`smoke` when present, else default; `UEMCP_PUSH_GATE_PROFILE` overrides) reports NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY; never-built targets are ignored; bypass with `--no-verify` or `UEMCP_SKIP_COMPILE_GATE=1`.
 
 ### Rotation Runner — FAIL-LOUD on Import Errors
 

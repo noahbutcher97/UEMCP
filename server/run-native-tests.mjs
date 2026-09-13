@@ -38,6 +38,13 @@ export function parseRunnerArgs(argv) {
   return out;
 }
 
+// UnrealEditor's -ReportExportPath writer emits index.json with a UTF-8 BOM
+// (verified against a live report: bytes EF BB BF before the opening brace);
+// JSON.parse does not strip it, so read it off before parsing.
+export function stripBom(text) {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 export function resolveEngineRootForProject({ engineAssociation, env = process.env, existsImpl }) {
   if (env.UE_ENGINE_ROOT && existsImpl(env.UE_ENGINE_ROOT)) return env.UE_ENGINE_ROOT;
   const version = /^\d+\.\d+$/.test(engineAssociation ?? '') ? engineAssociation : null;
@@ -112,19 +119,16 @@ export async function main(argv, { runner = createProcessRunner({ defaultOutputL
 
   const indexPath = join(reportDir, 'index.json');
   if (!existsSync(indexPath)) { console.error(`[ERROR] no report at ${indexPath}; last stderr:\n${(result.stderr ?? '').slice(-2000)}`); return 4; }
-  // UnrealEditor's -ReportExportPath writer emits index.json with a UTF-8 BOM
-  // (verified against a live report: bytes EF BB BF before the opening brace);
-  // JSON.parse does not strip it, so read it off before parsing. Not covered
-  // by the committed fixture (index.sample.json has no BOM) or the rotation —
-  // only this live run has exercised this line.
-  let reportText = readFileSync(indexPath, 'utf8');
-  if (reportText.charCodeAt(0) === 0xfeff) reportText = reportText.slice(1);
+  // The committed fixture (index.sample.json) has no BOM; stripBom's own
+  // rotation coverage lives in test-native-runner.mjs.
+  const reportText = stripBom(readFileSync(indexPath, 'utf8'));
   let parsed;
   try { parsed = parseAutomationReport(JSON.parse(reportText)); }
   catch (e) { if (e instanceof NativeReportError) { console.error(`[ERROR] ${e.code}: ${e.message}`); return 4; } throw e; }
   for (const line of summarizeReport(parsed)) console.log(line);
-  if (!args.reportDir && parsed.failed === 0) rmSync(reportDir, { recursive: true, force: true });
-  return reportExitCode(parsed);
+  const exitCode = reportExitCode(parsed);
+  if (!args.reportDir && exitCode === 0) rmSync(reportDir, { recursive: true, force: true });
+  return exitCode;
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

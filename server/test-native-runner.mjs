@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TestRunner } from './test-helpers.mjs';
 import { parseAutomationReport, summarizeReport, reportExitCode } from './native-test-report.mjs';
-import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs } from './run-native-tests.mjs';
+import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs, stripBom } from './run-native-tests.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = name => JSON.parse(readFileSync(join(here, 'fixtures', 'native-tests', name), 'utf8'));
@@ -43,5 +43,7 @@ t.assert(resolveEngineRootForProject({ engineAssociation: '5.6', env: {}, exists
 
 const args = parseRunnerArgs(['--profile', 'smoke', '--target', 'alpha', '--timeout-ms', '60000', '--dry-run']);
 t.assert(args.profile === 'smoke' && args.target === 'alpha' && args.timeoutMs === 60000 && args.dryRun === true, 'runner args parse');
+
+t.assert(JSON.parse(stripBom('﻿{"a":1}')).a === 1 && stripBom('{"b":2}') === '{"b":2}', 'stripBom removes a leading BOM and leaves plain text alone');
 
 process.exit(t.summary() === 0 ? 0 : 1);
