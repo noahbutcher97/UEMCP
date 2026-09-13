@@ -25,7 +25,11 @@ class UObject;
  * UBlueprint, or a response envelope — including the TryApplyLiteralAssignment-
  * Default wrapper around FormatLiteralForPinCategory.
  *
- * Covered by Private/Tests/UEMCPBlueprintHelperTests.cpp (UEMCP.BlueprintHelpers.*).
+ * PinDirectionToString, PinTypeToJson, SetSupportedVariableDefault, and
+ * FormatLiteralForPinCategory are unit-tested directly in
+ * Private/Tests/UEMCPBlueprintHelperTests.cpp (UEMCP.BlueprintHelpers.*). PinToJson
+ * is exercised through the handler-level tests in UEMCPBlueprintHandlerTests.cpp,
+ * which assert the pin JSON the handlers return.
  */
 namespace UEMCP
 {
