@@ -572,4 +572,193 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// =====================================================================================
+// disconnect_blueprint_pin — dry run, targeted break, and the four cheapest
+// rejections. The linked state is authored by add_blueprint_timer on this test's
+// own fixture: automation tests run in arbitrary order, so nothing here relies on
+// the timer test having run.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersDisconnectPinTest,
+	"UEMCP.BlueprintHandlers.DisconnectPin",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- arrange: BeginPlay.then -> Timer.execute, via the timer handler ----
+	TSharedPtr<FJsonObject> TimerParams = MakeShared<FJsonObject>();
+	TimerParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPDisconnectFixtureTimer"));
+	TimerParams->SetNumberField(TEXT("interval"), 1.0);
+	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerParams->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> TimerResponse = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	FString Code;
+	if (!IsSuccess(TimerResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_timer returned '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
+	const FString BeginPlayId = StringFieldOr(TimerResult, TEXT("begin_play_node_id"));
+	const FString TimerNodeId = StringFieldOr(TimerResult, TEXT("timer_node_id"));
+	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
+	{
+		AddError(TEXT("arrange step produced no begin-play or timer node id"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	UK2Node_Event* BeginPlayNode = Cast<UK2Node_Event>(FindNodeByGuid(EventGraph, BeginPlayId));
+	UK2Node_CallFunction* TimerNode = Cast<UK2Node_CallFunction>(FindNodeByGuid(EventGraph, TimerNodeId));
+	UEdGraphPin* ThenPin = FindFixturePin(BeginPlayNode, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecutePin = FindFixturePin(TimerNode, {TEXT("execute")}, EGPD_Input);
+	if (!ThenPin || !ExecutePin || !ThenPin->LinkedTo.Contains(ExecutePin))
+	{
+		AddError(TEXT("arrange step did not link begin play then to the timer execute pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// A helper so the three call shapes below differ only in the fields that matter.
+	auto MakeDisconnectParams = [&Fixture, &BeginPlayId](bool bDryRun, const FString& TargetNodeId, const FString& TargetPin)
+	{
+		TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+		Params->SetStringField(TEXT("node_id"), BeginPlayId);
+		Params->SetStringField(TEXT("pin"), TEXT("then"));
+		Params->SetStringField(TEXT("direction"), TEXT("output"));
+		Params->SetBoolField(TEXT("dry_run"), bDryRun);
+		Params->SetBoolField(TEXT("compile"), false);
+		if (!TargetNodeId.IsEmpty())
+		{
+			Params->SetStringField(TEXT("target_node_id"), TargetNodeId);
+			Params->SetStringField(TEXT("target_pin"), TargetPin);
+		}
+		return Params;
+	};
+
+	// ---- dry run: reports the match, changes nothing ----
+	const TSharedPtr<FJsonObject> DryResponse =
+		Dispatch(TEXT("disconnect_blueprint_pin"), MakeDisconnectParams(true, TimerNodeId, TEXT("execute")));
+	if (!IsSuccess(DryResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("dry-run disconnect failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
+	TestTrue(TEXT("dry_run echoed"), DryResult->GetBoolField(TEXT("dry_run")));
+	TestEqual(TEXT("dry run matched one link"), (int32)DryResult->GetNumberField(TEXT("links_matched")), 1);
+	TestEqual(TEXT("dry run broke nothing"), (int32)DryResult->GetNumberField(TEXT("links_broken")), 0);
+	TestTrue(TEXT("dry run would_modify"), DryResult->GetBoolField(TEXT("would_modify")));
+	TestFalse(TEXT("dry run requires_compile false"), DryResult->GetBoolField(TEXT("requires_compile")));
+	TestTrue(TEXT("dry run left the link in place"), ThenPin->LinkedTo.Contains(ExecutePin));
+
+	// ---- real, targeted break ----
+	const TSharedPtr<FJsonObject> BreakResponse =
+		Dispatch(TEXT("disconnect_blueprint_pin"), MakeDisconnectParams(false, TimerNodeId, TEXT("execute")));
+	if (!IsSuccess(BreakResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("disconnect failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> BreakResult = ResultOf(BreakResponse);
+	TestEqual(TEXT("graph_name"), StringFieldOr(BreakResult, TEXT("graph_name")), FString(TEXT("EventGraph")));
+	TestEqual(TEXT("node_id echoed"), StringFieldOr(BreakResult, TEXT("node_id")), BeginPlayId);
+	TestEqual(TEXT("pin echoed"), StringFieldOr(BreakResult, TEXT("pin")), FString(TEXT("then")));
+	TestEqual(TEXT("resolved direction"), StringFieldOr(BreakResult, TEXT("direction")), FString(TEXT("output")));
+	TestFalse(TEXT("dry_run false"), BreakResult->GetBoolField(TEXT("dry_run")));
+	TestEqual(TEXT("one link matched"), (int32)BreakResult->GetNumberField(TEXT("links_matched")), 1);
+	TestEqual(TEXT("one link broken"), (int32)BreakResult->GetNumberField(TEXT("links_broken")), 1);
+	TestTrue(TEXT("requires_compile after a real break"), BreakResult->GetBoolField(TEXT("requires_compile")));
+	TestFalse(TEXT("compiled false"), BreakResult->GetBoolField(TEXT("compiled")));
+	TestEqual(TEXT("target_node_id echoed"), StringFieldOr(BreakResult, TEXT("target_node_id")), TimerNodeId);
+	TestEqual(TEXT("target_pin echoed"), StringFieldOr(BreakResult, TEXT("target_pin")), FString(TEXT("execute")));
+
+	const TSharedPtr<FJsonObject>* TargetPinInfo = nullptr;
+	if (BreakResult->TryGetObjectField(TEXT("target_pin_info"), TargetPinInfo) && TargetPinInfo)
+	{
+		TestEqual(TEXT("target_pin_info name"), StringFieldOr((*TargetPinInfo), TEXT("name")), FString(TEXT("execute")));
+		TestEqual(TEXT("target_pin_info direction"), StringFieldOr((*TargetPinInfo), TEXT("direction")), FString(TEXT("input")));
+	}
+	else
+	{
+		AddError(TEXT("targeted disconnect carried no target_pin_info"));
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* BrokenLinks = nullptr;
+	TestTrue(TEXT("broken_links present"), BreakResult->TryGetArrayField(TEXT("broken_links"), BrokenLinks));
+	TestEqual(TEXT("one broken link reported"), BrokenLinks ? BrokenLinks->Num() : -1, 1);
+	if (BrokenLinks && BrokenLinks->Num() == 1)
+	{
+		const TSharedPtr<FJsonObject>* Link = nullptr;
+		if ((*BrokenLinks)[0]->TryGetObject(Link) && Link)
+		{
+			TestEqual(TEXT("broken link names the pin"), StringFieldOr((*Link), TEXT("pin")), FString(TEXT("then")));
+			TestEqual(TEXT("broken link names the linked pin"), StringFieldOr((*Link), TEXT("linked_pin")), FString(TEXT("execute")));
+			TestEqual(TEXT("broken link source node"), StringFieldOr((*Link), TEXT("source_node_id")), BeginPlayId);
+			TestEqual(TEXT("broken link target node"), StringFieldOr((*Link), TEXT("target_node_id")), TimerNodeId);
+		}
+	}
+
+	// ---- graph state: the link is actually gone, the nodes are not ----
+	TestFalse(TEXT("link removed from the graph"), ThenPin->LinkedTo.Contains(ExecutePin));
+	TestEqual(TEXT("then pin has no links left"), ThenPin->LinkedTo.Num(), 0);
+	TestEqual(TEXT("execute pin has no links left"), ExecutePin->LinkedTo.Num(), 0);
+	TestNotNull(TEXT("begin play node still present"), FindNodeByGuid(EventGraph, BeginPlayId));
+	TestNotNull(TEXT("timer node still present"), FindNodeByGuid(EventGraph, TimerNodeId));
+
+	// ---- error: the same targeted disconnect a second time ----
+	TestEqual(TEXT("second targeted disconnect code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), MakeDisconnectParams(false, TimerNodeId, TEXT("execute")))),
+		FString(TEXT("LINK_NOT_FOUND")));
+
+	// ---- error: bad direction ----
+	TSharedPtr<FJsonObject> BadDirection = MakeDisconnectParams(true, FString(), FString());
+	BadDirection->SetStringField(TEXT("direction"), TEXT("sideways"));
+	TestEqual(TEXT("bad direction code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), BadDirection)),
+		FString(TEXT("INVALID_DIRECTION")));
+
+	// ---- error: unknown node ----
+	TSharedPtr<FJsonObject> BadNode = MakeDisconnectParams(true, FString(), FString());
+	BadNode->SetStringField(TEXT("node_id"), FGuid::NewGuid().ToString());
+	TestEqual(TEXT("unknown node code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), BadNode)),
+		FString(TEXT("NODE_NOT_FOUND")));
+
+	// ---- error: unknown pin ----
+	TSharedPtr<FJsonObject> BadPin = MakeDisconnectParams(true, FString(), FString());
+	BadPin->SetStringField(TEXT("pin"), TEXT("no_such_pin"));
+	TestEqual(TEXT("unknown pin code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), BadPin)),
+		FString(TEXT("PIN_NOT_FOUND")));
+
+	// ---- error: target_node_id without target_pin ----
+	TSharedPtr<FJsonObject> HalfTarget = MakeDisconnectParams(true, FString(), FString());
+	HalfTarget->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	TestEqual(TEXT("half-specified target code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), HalfTarget)),
+		FString(TEXT("MISSING_PARAMS")));
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
