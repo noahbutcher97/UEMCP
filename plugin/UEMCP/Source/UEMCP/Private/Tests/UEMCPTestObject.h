@@ -6,7 +6,8 @@
 #include "UEMCPTestObject.generated.h"
 
 /**
- * Tiny UObject with scalar UPROPERTY fields exercised by PropertyHandlerRegistry automation tests.
+ * Tiny UObject with scalar and struct UPROPERTY fields exercised by the
+ * PropertyHandlerRegistry and Blueprint-helper automation tests.
  * Not used in production — only compiled into the test translation unit.
  */
 UCLASS()
@@ -29,4 +30,13 @@ public:
 
 	UPROPERTY()
 	FName NameValue;
+
+	UPROPERTY()
+	double DoubleValue = 0.0;
+
+	UPROPERTY()
+	FVector VectorValue = FVector::ZeroVector;
+
+	UPROPERTY()
+	FRotator RotatorValue = FRotator::ZeroRotator;
 };

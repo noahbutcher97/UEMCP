@@ -1,6 +1,7 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
 
+#include "BlueprintHandlerHelpers.h"
 #include "BlueprintLookupHelper.h"
 #include "CompileDiagnosticHandler.h"
 #include "HandlerCommon.h"
@@ -242,46 +243,6 @@ namespace UEMCP
 			return Graph;
 		}
 
-		FString PinDirectionToString(EEdGraphPinDirection Direction)
-		{
-			return Direction == EGPD_Input ? TEXT("input") : TEXT("output");
-		}
-
-		TSharedPtr<FJsonObject> PinTypeToJson(const FEdGraphPinType& PinType)
-		{
-			TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-			Obj->SetStringField(TEXT("category"), PinType.PinCategory.ToString());
-			Obj->SetStringField(TEXT("subcategory"), PinType.PinSubCategory.ToString());
-			Obj->SetStringField(TEXT("container"), UEdGraphSchema_K2::TypeToText(PinType).ToString());
-			if (PinType.PinSubCategoryObject.IsValid())
-			{
-				Obj->SetStringField(TEXT("subcategory_object"), PinType.PinSubCategoryObject->GetName());
-			}
-			return Obj;
-		}
-
-		TSharedPtr<FJsonObject> PinToJson(const UEdGraphPin* Pin)
-		{
-			TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-			if (!Pin) return Obj;
-			Obj->SetStringField(TEXT("pin_id"), Pin->PinId.ToString());
-			Obj->SetStringField(TEXT("name"), Pin->PinName.ToString());
-			Obj->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
-			Obj->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
-			Obj->SetStringField(TEXT("subcategory"), Pin->PinType.PinSubCategory.ToString());
-			if (Pin->PinType.PinSubCategoryObject.IsValid())
-			{
-				Obj->SetStringField(TEXT("subcategory_object"), Pin->PinType.PinSubCategoryObject->GetName());
-			}
-			Obj->SetStringField(TEXT("default"), Pin->DefaultValue);
-			if (Pin->DefaultObject)
-			{
-				Obj->SetStringField(TEXT("default_object"), Pin->DefaultObject->GetPathName());
-			}
-			Obj->SetNumberField(TEXT("link_count"), Pin->LinkedTo.Num());
-			return Obj;
-		}
-
 		TArray<TSharedPtr<FJsonValue>> PinsToJson(const UEdGraphNode* Node)
 		{
 			TArray<TSharedPtr<FJsonValue>> Pins;
@@ -486,139 +447,6 @@ namespace UEMCP
 			return Blueprint->GeneratedClass && Blueprint->GeneratedClass->FindPropertyByName(Name) != nullptr;
 		}
 
-		bool SetSupportedVariableDefault(UObject* CDO, FProperty* Property,
-			const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
-		{
-			if (!CDO)
-			{
-				OutErrorMessage = TEXT("Invalid default object");
-				return false;
-			}
-			if (!Property)
-			{
-				OutErrorMessage = TEXT("Variable property is null");
-				return false;
-			}
-			if (!Value.IsValid())
-			{
-				OutErrorMessage = TEXT("Missing default value");
-				return false;
-			}
-
-			if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
-			{
-				bool BoolValue = false;
-				if (!Value->TryGetBool(BoolValue))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a boolean default"), *Property->GetName());
-					return false;
-				}
-				BoolProp->SetPropertyValue_InContainer(CDO, BoolValue);
-				return true;
-			}
-
-			if (FIntProperty* IntProp = CastField<FIntProperty>(Property))
-			{
-				double NumberValue = 0.0;
-				if (!Value->TryGetNumber(NumberValue))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
-					return false;
-				}
-				const double RoundedValue = FMath::RoundToDouble(NumberValue);
-				if (NumberValue != RoundedValue
-					|| RoundedValue < static_cast<double>(TNumericLimits<int32>::Min())
-					|| RoundedValue > static_cast<double>(TNumericLimits<int32>::Max()))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects an integral int32 default"), *Property->GetName());
-					return false;
-				}
-				IntProp->SetPropertyValue_InContainer(CDO, static_cast<int32>(RoundedValue));
-				return true;
-			}
-
-			if (FFloatProperty* FloatProp = CastField<FFloatProperty>(Property))
-			{
-				double NumberValue = 0.0;
-				if (!Value->TryGetNumber(NumberValue))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
-					return false;
-				}
-				FloatProp->SetPropertyValue_InContainer(CDO, static_cast<float>(NumberValue));
-				return true;
-			}
-
-			if (FDoubleProperty* DoubleProp = CastField<FDoubleProperty>(Property))
-			{
-				double NumberValue = 0.0;
-				if (!Value->TryGetNumber(NumberValue))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a numeric default"), *Property->GetName());
-					return false;
-				}
-				DoubleProp->SetPropertyValue_InContainer(CDO, NumberValue);
-				return true;
-			}
-
-			if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
-			{
-				FString StringValue;
-				if (!Value->TryGetString(StringValue))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects a string default"), *Property->GetName());
-					return false;
-				}
-				StrProp->SetPropertyValue_InContainer(CDO, StringValue);
-				return true;
-			}
-
-			if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
-			{
-				if (StructProp->Struct != TBaseStructure<FVector>::Get())
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' has unsupported struct default type '%s'"),
-						*Property->GetName(),
-						StructProp->Struct ? *StructProp->Struct->GetName() : TEXT("<null>"));
-					return false;
-				}
-
-				if (Value->Type != EJson::Array)
-				{
-					OutErrorMessage = FString::Printf(TEXT("Variable '%s' expects Vector default as [x,y,z]"), *Property->GetName());
-					return false;
-				}
-
-				const TArray<TSharedPtr<FJsonValue>>& Arr = Value->AsArray();
-				if (Arr.Num() != 3)
-				{
-					OutErrorMessage = FString::Printf(TEXT("Vector default for variable '%s' requires 3 values, got %d"),
-						*Property->GetName(), Arr.Num());
-					return false;
-				}
-
-				double X = 0.0;
-				double Y = 0.0;
-				double Z = 0.0;
-				if (!Arr[0].IsValid() || !Arr[0]->TryGetNumber(X)
-					|| !Arr[1].IsValid() || !Arr[1]->TryGetNumber(Y)
-					|| !Arr[2].IsValid() || !Arr[2]->TryGetNumber(Z))
-				{
-					OutErrorMessage = FString::Printf(TEXT("Vector default for variable '%s' must contain only numbers"),
-						*Property->GetName());
-					return false;
-				}
-
-				FVector Vec(X, Y, Z);
-				StructProp->CopySingleValue(StructProp->ContainerPtrToValuePtr<void>(CDO), &Vec);
-				return true;
-			}
-
-			OutErrorMessage = FString::Printf(TEXT("Variable '%s' has unsupported default property type '%s'"),
-				*Property->GetName(), *Property->GetClass()->GetName());
-			return false;
-		}
-
 		void RemoveCreatedAssignmentNodes(UBlueprint* Blueprint, UEdGraphNode* First, UEdGraphNode* Second)
 		{
 			if (Blueprint && Second)
@@ -677,76 +505,40 @@ namespace UEMCP
 			return true;
 		}
 
+		/**
+		 * Envelope-owning wrapper around UEMCP::FormatLiteralForPinCategory: the
+		 * mapping is in BlueprintHandlerHelpers.cpp (unit-tested); this keeps the
+		 * parts that need the pin — the error detail block and the DefaultValue
+		 * write. The !Pin guard stays here because the pure function needs a pin
+		 * type; the !Value guard lives in the pure function and emits the same
+		 * message and code, so the combined behavior is unchanged.
+		 */
 		bool TryApplyLiteralAssignmentDefault(UEdGraphPin* Pin, const TSharedPtr<FJsonValue>& Value,
 			TSharedPtr<FJsonObject>& OutResponse)
 		{
-			if (!Pin || !Value.IsValid())
+			if (!Pin)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Literal assignment requires a target value pin and value"), TEXT("MISSING_PARAMS"));
 				return false;
 			}
 
-			const FName Category = Pin->PinType.PinCategory;
-			if (Category == UEdGraphSchema_K2::PC_Int)
+			FString DefaultValue, Error, ErrorCode;
+			if (!FormatLiteralForPinCategory(Pin->PinType, Value, DefaultValue, Error, ErrorCode))
 			{
-				if (Value->Type != EJson::Number)
+				if (ErrorCode == TEXT("UNSUPPORTED_LITERAL_TYPE"))
 				{
-					BuildErrorResponse(OutResponse, TEXT("Integer variable assignment requires a numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
+					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
+					Detail->SetObjectField(TEXT("target_pin"), PinToJson(Pin));
+					Detail->SetObjectField(TEXT("target_pin_type"), PinTypeToJson(Pin->PinType));
+					BuildErrorResponse(OutResponse, Error, ErrorCode, Detail);
 					return false;
 				}
-				Pin->DefaultValue = FString::FromInt(FMath::RoundToInt(Value->AsNumber()));
-				return true;
-			}
-			if (Category == UEdGraphSchema_K2::PC_Float || Category == UEdGraphSchema_K2::PC_Real)
-			{
-				if (Value->Type != EJson::Number)
-				{
-					BuildErrorResponse(OutResponse, TEXT("Float variable assignment requires a numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
-					return false;
-				}
-				Pin->DefaultValue = FString::SanitizeFloat(Value->AsNumber());
-				return true;
-			}
-			if (Category == UEdGraphSchema_K2::PC_Boolean)
-			{
-				if (Value->Type != EJson::Boolean)
-				{
-					BuildErrorResponse(OutResponse, TEXT("Boolean variable assignment requires a boolean literal"), TEXT("LITERAL_TYPE_MISMATCH"));
-					return false;
-				}
-				Pin->DefaultValue = Value->AsBool() ? TEXT("true") : TEXT("false");
-				return true;
-			}
-			if (Category == UEdGraphSchema_K2::PC_String)
-			{
-				if (Value->Type != EJson::String)
-				{
-					BuildErrorResponse(OutResponse, TEXT("String variable assignment requires a string literal"), TEXT("LITERAL_TYPE_MISMATCH"));
-					return false;
-				}
-				Pin->DefaultValue = Value->AsString();
-				return true;
-			}
-			if (Category == UEdGraphSchema_K2::PC_Struct && Pin->PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
-			{
-				const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-				if (Value->Type != EJson::Array || !Value->TryGetArray(Arr) || !Arr || Arr->Num() != 3)
-				{
-					BuildErrorResponse(OutResponse, TEXT("Vector variable assignment requires [x, y, z] numeric literal"), TEXT("LITERAL_TYPE_MISMATCH"));
-					return false;
-				}
-				Pin->DefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"),
-					(*Arr)[0]->AsNumber(),
-					(*Arr)[1]->AsNumber(),
-					(*Arr)[2]->AsNumber());
-				return true;
+				BuildErrorResponse(OutResponse, Error, ErrorCode);
+				return false;
 			}
 
-			TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
-			Detail->SetObjectField(TEXT("target_pin"), PinToJson(Pin));
-			Detail->SetObjectField(TEXT("target_pin_type"), PinTypeToJson(Pin->PinType));
-			BuildErrorResponse(OutResponse, TEXT("Unsupported literal assignment pin type"), TEXT("UNSUPPORTED_LITERAL_TYPE"), Detail);
-			return false;
+			Pin->DefaultValue = DefaultValue;
+			return true;
 		}
 
 		bool ResolveMathFunctionName(const FString& Operation, const FString& ValueType, FString& OutFunctionName)
