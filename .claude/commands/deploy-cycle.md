@@ -74,16 +74,16 @@ After all targets processed:
 
 Determine which targets need a build. After a successful sync, every synced target needs a build.
 
-For UE_ROOT (path to the UE install matching the target's `EngineAssociation`):
+For UE_ENGINE_ROOT (path to the UE install matching the target's `EngineAssociation`):
 - Read `EngineAssociation` from the target `.uproject` first — targets may sit on different engine versions; never assume one shared root.
-- Check `$env:UE_ROOT` (PowerShell) or `%UE_ROOT%` (CMD).
+- Check `$env:UE_ENGINE_ROOT` (PowerShell) or `%UE_ENGINE_ROOT%` (CMD).
 - If unset: prompt once per distinct engine version: "What is the full path to your UE <version> install root (e.g., `C:/Program Files/Epic Games/UE_<version>`)? Reply with the path."
 - Cache the value for the remainder of this slash-command invocation.
 
 For each target needing build, print the build command verbatim, copy-paste-ready:
 
 ```cmd
-"<UE_ROOT>\Engine\Build\BatchFiles\Build.bat" <ProjectEditorTarget> Win64 Development -Project="<full-uproject-path>" -WaitMutex -FromMsBuild
+"<UE_ENGINE_ROOT>\Engine\Build\BatchFiles\Build.bat" <ProjectEditorTarget> Win64 Development -Project="<full-uproject-path>" -WaitMutex -FromMsBuild
 ```
 
 `<ProjectEditorTarget>` is the HOST PROJECT's editor target, not a UEMCP one — UBT resolves it from `Source/*.Target.cs` (e.g. `Source/FooEditor.Target.cs` -> `FooEditor`). There is no `UEMCPEditor` target; UEMCP builds as a plugin module inside the host target.
