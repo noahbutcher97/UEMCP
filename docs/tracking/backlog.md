@@ -71,6 +71,20 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 
 ---
 
+### EN-24 — Asset-editor capture: `capture_asset_editor` + `list_asset_editor_tabs` (supersedes planned `capture_active_editor_tab`)
+- **Source**: cross-session request, 2026-09-13, from a session building an asset-editor plugin in a private UE 5.8 host project (the request names no engine bug; it names a UEMCP gap). Reference implementation exists in that host project's test module, not in this repo.
+- **Gap**: `get_viewport_screenshot` reads `GEditor->GetActiveViewport()` (`VisualCaptureHandler.cpp:182`), which the engine resolves to the first active level-editor viewport, so no asset editor (an `FAssetEditorToolkit` with its own `SEditorViewport`, Details tab, timeline) can be captured. `capture_active_editor_tab` is `status: planned` in `tools.yaml` behind an `FWidgetRenderer` path that never shipped; this entry replaces that plan with a proven Slate path and explicit addressing.
+- **Design sketch (engine API, verified by the requester in 5.8)**: resolve the toolkit with `UAssetEditorSubsystem::FindEditorForAsset(Asset, false)`; use its `TabManager` (`TryInvokeTab` / `FindExistingLiveTab` by tab id); capture the toolkit's `SEditorViewport` or a tab's content widget with `FSlateApplication::Get().TakeScreenshot(Widget, OutColorData, OutSize)`; encode through `FImageUtils`. For long property grids: `IDetailsView::SetRootExpansionStates(true, true)` and `STableViewBase::SetScrollOffset` on the `SDetailTree` descendant (`GetScrollWidget()` returns the details view itself, not the tree).
+- **Proposed tools**: `capture_asset_editor { asset_path, tab_id?, out_png?, inline? }` returning path and/or base64 plus pixel size, erroring when no editor is open for the asset; `list_asset_editor_tabs { asset_path }` returning tab ids and display names from the toolkit's tab manager; optional `details_panel_expand_all { asset_path, tab_id }` and `details_panel_scroll { asset_path, tab_id, row_offset }` for paging a Details panel in review captures.
+- **Cost / shape**: plugin C++ (extend `VisualCaptureHandler.cpp` or a new `AssetEditorCaptureHandler.cpp`, shared helpers in `Public/` per the anon-namespace rule), `tools.yaml` entries in the visual-capture toolset, server-side handler wiring, rotation assertions for params and error shapes, and a live-editor smoke. Needs an editor and `Build.bat`, so it belongs in a plugin session; bundle with WS5 of the 2026-09-09 remediation design or the next visual-capture pass (EN-7 lineage).
+- **Trigger**: next plugin session that touches `VisualCaptureHandler.cpp`, or the first agent workflow that needs a non-level-editor capture.
+
+### EN-25 — PIE-window capture and editor-identity on TCP 55558
+- **Source**: same 2026-09-13 cross-session request, two smaller observations.
+- **PIE in its own window**: when PIE launches in a separate window (an asset editor had focus), `get_viewport_screenshot` still returns the level-editor view. A `capture_pie_viewport` reading `GEngine->GameViewport->Viewport` would cover it. Small handler; bundle with EN-24.
+- **Wrong editor on 55558**: port 55558 was once answered by a different editor instance on the same machine. `connection_info` with `force_reconnect` caught it through the identity check, but the confusion is avoidable: either a per-project port (profile-configured, surfaced by `connection_info`) or a project check inside `wait_for_editor` that refuses a listener whose identity does not match the attached project. Related: WS2's finding that a headless automation run also tries to bind 55558 (`docs/handoffs/native-test-runner-and-compile-gate.md`, step 0.4), so a per-project or per-instance port would serve both cases.
+- **Trigger**: with EN-24, or when WS2's port-collision characterization lands and the runner needs a port strategy anyway.
+
 ## Fixture planting
 
 Test-coverage gaps requiring artificial fixtures in Project A / Project B.
