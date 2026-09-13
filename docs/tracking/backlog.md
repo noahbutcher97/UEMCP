@@ -32,7 +32,7 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
 
-### EN-6b — Dead code in the offline modules
+### EN-6b — Dead code in the offline modules — **DONE 2026-09**
 - **Scope**: `BULK_TTL_MS` (offline-core.mjs), `listDirRecursive` (offline-project-tools.mjs), `parseAssetTables` (offline-asset-tools.mjs) have no callers; WS3 moved them unchanged by design. Delete in the next offline pass.
 
 ### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending — **DONE 2026-09 (WS3)**

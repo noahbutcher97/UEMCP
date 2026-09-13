@@ -3,15 +3,10 @@
 // subobject budgets, and level-actor extraction. Blueprint graph verbs live in
 // offline-blueprint-tools.mjs.
 
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import {
-  Cursor,
-  parseSummary,
-  readNameTable,
-  readImportTable,
-  readExportTable,
   resolvePackageIndex,
   readExportProperties,
 } from './uasset-parser.mjs';
@@ -278,23 +273,6 @@ export async function queryAssetRegistry(projectRoot, params = {}) {
  * @param {string} projectRoot
  * @returns {Promise<object>}
  */
-
-// ── Export-table-aware pointed queries (re-parse, not cached) ────────
-//
-// parseAssetHeader caches summary+names+AR but not the export/import
-// tables (D36 decision — they're big and only needed by pointed lookups).
-// Both tools below re-read the file and parse the tables fresh. The AR
-// portion is served from the cache via parseAssetHeader.
-
-async function parseAssetTables(diskPath) {
-  const buf = await readFile(diskPath);
-  const cur = new Cursor(buf);
-  const summary = parseSummary(cur);
-  const names = readNameTable(cur, summary);
-  const imports = readImportTable(cur, summary, names);
-  const exports = readExportTable(cur, summary, names);
-  return { summary, names, imports, exports };
-}
 
 /**
  * Classes that identify an asset as a Blueprint subclass whose CDO name

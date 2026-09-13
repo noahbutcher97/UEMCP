@@ -3,7 +3,7 @@
 // gameplay-tag hierarchy. No .uasset parsing here.
 
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { join, extname, basename, relative } from 'node:path';
+import { join, basename, relative } from 'node:path';
 
 import { resolveSafePath } from './offline-core.mjs';
 
@@ -59,34 +59,6 @@ async function parseIniFile(filePath) {
   }
 
   return sections;
-}
-
-/**
- * Recursively list directory contents.
- * @param {string} dir
- * @param {string} baseDir — for computing relative paths
- * @param {number} maxDepth
- * @param {number} currentDepth
- * @returns {Promise<{path: string, type: 'file'|'dir', ext?: string}[]>}
- */
-async function listDirRecursive(dir, baseDir, maxDepth = 3, currentDepth = 0) {
-  if (currentDepth >= maxDepth) return [];
-  const entries = [];
-  try {
-    const items = await readdir(dir, { withFileTypes: true });
-    for (const item of items) {
-      const fullPath = join(dir, item.name);
-      const relPath = relative(baseDir, fullPath).replace(/\\/g, '/');
-      if (item.isDirectory()) {
-        entries.push({ path: relPath, type: 'dir' });
-        const children = await listDirRecursive(fullPath, baseDir, maxDepth, currentDepth + 1);
-        entries.push(...children);
-      } else {
-        entries.push({ path: relPath, type: 'file', ext: extname(item.name) });
-      }
-    }
-  } catch { /* directory not accessible */ }
-  return entries;
 }
 
 // ── Tool implementations ────────────────────────────────────

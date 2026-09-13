@@ -41,7 +41,6 @@ export function buildPropertyReadHandlers() {
 // search_assets, get_asset_references) serve from this cache.
 //
 // Invalidation strategy (per D33, revised 2026-04-13):
-//   - TTL backstop: bulk queries trust cache if younger than BULK_TTL_MS
 //   - mtime diff: on TTL expiry, readdir + stat, re-parse only files where
 //     fs mtime > cached mtime
 //   - Write-suspicion flag: TCP write-ops (Phase 3) set indexDirty = true,
@@ -52,8 +51,6 @@ export function buildPropertyReadHandlers() {
 // Why not fs.watch: Windows recursive watch is unreliable; UE atomic-renames
 // during save generate event storms. Stat-based diffing is O(changed-dirs),
 // runs in <1s even on 10k-asset projects.
-
-const BULK_TTL_MS = 60_000;
 
 /** @typedef {{ path: string, mtimeMs: number, sizeBytes: number, data: object }} AssetCacheEntry */
 
