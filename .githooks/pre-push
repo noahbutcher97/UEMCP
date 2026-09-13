@@ -92,6 +92,44 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   [[ -z "$content" ]] && continue
 
+  # Plugin compile gate (WS2): refuse to publish plugin source that a local
+  # target has built before but not since. Uses verify-deploy's per-target
+  # verdicts. Ignored: MISSING targets (not installed here) and NEEDS-DEPLOY
+  # with "DLL missing" (never built here) — a target that has never been built
+  # is not evidence of a stale build. Blocks on NEEDS-SYNC, NEEDS-BUILD, and
+  # NEEDS-DEPLOY with a DLL present. Bypass: git push --no-verify or
+  # UEMCP_SKIP_COMPILE_GATE=1.
+  if [[ -z "${UEMCP_SKIP_COMPILE_GATE:-}" ]]; then
+    if [[ "$remote_sha" == "$zero" ]]; then
+      touched="$(git log --name-only --pretty=format: "${scan_args[@]}" 2>/dev/null)"
+    else
+      touched="$(git log --name-only --pretty=format: "${remote_sha}..${local_sha}" 2>/dev/null)"
+    fi
+    if printf '%s\n' "$touched" | grep -qE '^plugin/UEMCP/(Source/|UEMCP\.uplugin$)'; then
+      if [[ -f .uemcp-targets.json || -f .uemcp-targets.txt ]]; then
+        gate_profile="${UEMCP_PUSH_GATE_PROFILE:-}"
+        if [[ -z "$gate_profile" ]] && grep -q '"smoke"' .uemcp-targets.json 2>/dev/null; then gate_profile="smoke"; fi
+        gate_out="$(node server/verify-deploy.mjs --quiet --no-color ${gate_profile:+--profile "$gate_profile"} < /dev/null 2>&1 || true)"
+        stale="$(printf '%s\n' "$gate_out" | grep -E '^\s*Verdict: (NEEDS-SYNC|NEEDS-BUILD|NEEDS-DEPLOY)' | grep -v 'DLL missing' || true)"
+        if [[ -n "$stale" ]]; then
+          {
+            echo ""
+            echo "✗ Push blocked: plugin source changed but a target has not been rebuilt ($range_label)"
+            echo ""
+            printf '%s\n' "$gate_out" | grep -E '^\s*\[[0-9]+\] |^\s*Verdict: '
+            echo ""
+            echo "  Run sync-plugin.bat / Build.bat for the target, or bypass with 'git push --no-verify'"
+            echo "  (or UEMCP_SKIP_COMPILE_GATE=1). Gate profile: ${gate_profile:-default}."
+            echo ""
+          } >&2
+          exit 1
+        fi
+      else
+        echo "  (compile gate skipped: no .uemcp-targets.json on this machine)" >&2
+      fi
+    fi
+  fi
+
   hits=""
   if [[ -s "$literals" ]]; then
     m="$(printf '%s\n' "$content" | grep -F -i -n -f "$literals" 2>/dev/null | head -10 || true)"
