@@ -1,0 +1,28 @@
+{
+  "devices": [
+    {
+      "deviceName": "MACHINE",
+      "instance": "49F5E23A4EC2BDEFFF17DAB129E6B48B",
+      "instanceName": "MACHINE-1",
+      "platform": "WindowsEditor",
+      "oSVersion": "Windows 11",
+      "model": "Default",
+      "gPU": "GPU",
+      "cPUModel": "CPU",
+      "rAMInGB": 0,
+      "renderMode": "SM6",
+      "rHI": "",
+      "appInstanceLog": ""
+    }
+  ],
+  "reportCreatedOn": "2026.09.13-17.22.44",
+  "succeeded": 0,
+  "succeededWithWarnings": 0,
+  "failed": 0,
+  "notRun": 0,
+  "inProcess": 0,
+  "totalDuration": 0,
+  "comparisonExported": false,
+  "comparisonExportDirectory": "",
+  "tests": []
+}

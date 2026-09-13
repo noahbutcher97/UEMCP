@@ -1,0 +1,69 @@
+{
+  "devices": [
+    {
+      "deviceName": "MACHINE",
+      "instance": "49F5E23A4EC2BDEFFF17DAB129E6B48B",
+      "instanceName": "MACHINE-1",
+      "platform": "WindowsEditor",
+      "oSVersion": "Windows 11",
+      "model": "Default",
+      "gPU": "GPU",
+      "cPUModel": "CPU",
+      "rAMInGB": 0,
+      "renderMode": "SM6",
+      "rHI": "",
+      "appInstanceLog": ""
+    }
+  ],
+  "reportCreatedOn": "2026.09.13-17.22.44",
+  "succeeded": 1,
+  "succeededWithWarnings": 0,
+  "failed": 1,
+  "notRun": 0,
+  "inProcess": 0,
+  "totalDuration": 0.033,
+  "comparisonExported": false,
+  "comparisonExportDirectory": "",
+  "tests": [
+    {
+      "testDisplayName": "Guards",
+      "fullTestPath": "UEMCP.ActorLookupHelper.Guards",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016654498875141144,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Dispatch",
+      "fullTestPath": "UEMCP.MCPCommandRegistry.Dispatch",
+      "state": "Fail",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016492400318384171,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [
+        {
+          "event": {
+            "type": "Error",
+            "message": "Expected dispatch result to be success, got error",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.43"
+        }
+      ],
+      "warnings": 0,
+      "errors": 1,
+      "artifacts": []
+    }
+  ]
+}

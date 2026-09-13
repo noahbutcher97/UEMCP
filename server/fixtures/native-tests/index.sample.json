@@ -1,0 +1,300 @@
+{
+  "devices": [
+    {
+      "deviceName": "MACHINE",
+      "instance": "49F5E23A4EC2BDEFFF17DAB129E6B48B",
+      "instanceName": "MACHINE-1",
+      "platform": "WindowsEditor",
+      "oSVersion": "Windows 11",
+      "model": "Default",
+      "gPU": "GPU",
+      "cPUModel": "CPU",
+      "rAMInGB": 0,
+      "renderMode": "SM6",
+      "rHI": "",
+      "appInstanceLog": ""
+    }
+  ],
+  "reportCreatedOn": "2026.09.13-17.22.44",
+  "succeeded": 16,
+  "succeededWithWarnings": 0,
+  "failed": 0,
+  "notRun": 0,
+  "inProcess": 0,
+  "totalDuration": 0.54730713367462158,
+  "comparisonExported": false,
+  "comparisonExportDirectory": "",
+  "tests": [
+    {
+      "testDisplayName": "Guards",
+      "fullTestPath": "UEMCP.ActorLookupHelper.Guards",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016654498875141144,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "CustomRegister",
+      "fullTestPath": "UEMCP.MCPCommandRegistry.CustomRegister",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016492400318384171,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Dispatch",
+      "fullTestPath": "UEMCP.MCPCommandRegistry.Dispatch",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.0166454017162323,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "BuildError",
+      "fullTestPath": "UEMCP.MCPResponseBuilder.BuildError",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016456801444292068,
+      "dateTime": "2026.09.13-17.22.43",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "BuildSuccess",
+      "fullTestPath": "UEMCP.MCPResponseBuilder.BuildSuccess",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016663998365402222,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Invalid",
+      "fullTestPath": "UEMCP.PropertyHandlerRegistry.Invalid",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016435097903013229,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Scalars",
+      "fullTestPath": "UEMCP.PropertyHandlerRegistry.Scalars",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016347199678421021,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Invalid",
+      "fullTestPath": "UEMCP.TransformParser.Invalid",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016606800258159637,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "Valid",
+      "fullTestPath": "UEMCP.TransformParser.Valid",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.015498798340559006,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "DecoderBoundaries",
+      "fullTestPath": "UEMCP.Transport.DecoderBoundaries",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.30037671327590942,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [
+        {
+          "event": {
+            "type": "Info",
+            "message": "deep_json_depth=5000 deep_json_bytes=20010",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.44"
+        }
+      ],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "FixtureSchema",
+      "fullTestPath": "UEMCP.Transport.FixtureSchema",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016475100070238113,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [
+        {
+          "event": {
+            "type": "Info",
+            "message": "fixture_schema_negative_cases=29 fixture_schema_positive_cases=4 root_numeric_negative_cases=3",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.44"
+        }
+      ],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "ReadOneRequestStopping",
+      "fullTestPath": "UEMCP.Transport.ReadOneRequestStopping",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016430199146270752,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "ReceiveClassifier",
+      "fullTestPath": "UEMCP.Transport.ReceiveClassifier",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016478396952152252,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "ReceiveDeadlines",
+      "fullTestPath": "UEMCP.Transport.ReceiveDeadlines",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.01658259704709053,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "RequestReadResultMapping",
+      "fullTestPath": "UEMCP.Transport.RequestReadResultMapping",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.01663539931178093,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "SharedFixtures",
+      "fullTestPath": "UEMCP.Transport.SharedFixtures",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.016527701169252396,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [
+        {
+          "event": {
+            "type": "Info",
+            "message": "fixture_path=path/to/YourProject/Plugins/UEMCP/Resources/Tests/tcp-transport-cases.json",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.44"
+        },
+        {
+          "event": {
+            "type": "Info",
+            "message": "fixture_request_cases=50 whole=50 explicit=50 generated_splits=145 parity_total=245 legacy_byte_at_a_time=25 total_decoder_executions=270",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.44"
+        }
+      ],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    }
+  ]
+}
