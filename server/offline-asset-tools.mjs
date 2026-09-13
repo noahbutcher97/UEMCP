@@ -264,16 +264,6 @@ export async function queryAssetRegistry(projectRoot, params = {}) {
   };
 }
 
-// ── Export handler map ──────────────────────────────────────
-
-/**
- * Execute an offline tool by name.
- * @param {string} toolName
- * @param {object} params
- * @param {string} projectRoot
- * @returns {Promise<object>}
- */
-
 /**
  * Classes that identify an asset as a Blueprint subclass whose CDO name
  * follows the `Default__<AssetName>_C` convention. Includes GAS as a

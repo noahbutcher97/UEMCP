@@ -5,6 +5,7 @@
 // verdict. Pure functions, no fs/network. Intentionally light — the bat
 // wrappers + Node entry point are exercised via live-fire (§6 of handoff).
 
+import { readFileSync } from 'node:fs';
 import {
   parseTargetsFile,
   classifyDeployState,
@@ -92,6 +93,47 @@ eq(
   classifyDeployState({ pluginDirExists: true, deployedSrcMtime: repoSrc - 4, deployedSrcFileCount: 5, dllExists: true, dllMtime: repoSrc - 4, repoSrcMtime: repoSrc }).verdict,
   'SYNC',
   'within mtime slop tolerance',
+);
+
+// ─── Pinned strings that .githooks/pre-push greps out of this file's output ─
+// The hook matches `^\s*Verdict: (NEEDS-SYNC|NEEDS-BUILD|NEEDS-DEPLOY)` lines
+// and excludes any containing "DLL missing" or "not built" (the two
+// never-built reasons — see classifyDeployState above, ~lines 113-119).
+// Nothing else pins those literal substrings; a reword here would silently
+// break the hook's exclusion or its match.
+const includesStr = (str, substr, label) => {
+  if (typeof str === 'string' && str.includes(substr)) { passed++; }
+  else { failed++; console.error(`FAIL [${label}]: expected to contain "${substr}", got ${JSON.stringify(str)}`); }
+};
+const includesNeither = (str, subA, subB, label) => {
+  if (typeof str === 'string' && !str.includes(subA) && !str.includes(subB)) { passed++; }
+  else { failed++; console.error(`FAIL [${label}]: expected to contain neither "${subA}" nor "${subB}", got ${JSON.stringify(str)}`); }
+};
+
+includesStr(
+  classifyDeployState({ pluginDirExists: true, deployedSrcMtime: older, deployedSrcFileCount: 5, dllExists: false, dllMtime: 0, repoSrcMtime: repoSrc }).reason,
+  'DLL missing',
+  'never-built-and-stale reason names the pre-push exclusion string "DLL missing"',
+);
+includesStr(
+  classifyDeployState({ pluginDirExists: true, deployedSrcMtime: newer, deployedSrcFileCount: 5, dllExists: false, dllMtime: 0, repoSrcMtime: repoSrc }).reason,
+  'not built',
+  'synced-but-never-built reason names the pre-push exclusion string "not built"',
+);
+includesNeither(
+  classifyDeployState({ pluginDirExists: true, deployedSrcMtime: older, deployedSrcFileCount: 5, dllExists: true, dllMtime: newer, repoSrcMtime: repoSrc }).reason,
+  'DLL missing', 'not built',
+  'NEEDS-SYNC reason names neither pre-push exclusion string',
+);
+includesNeither(
+  classifyDeployState({ pluginDirExists: true, deployedSrcMtime: older, deployedSrcFileCount: 5, dllExists: true, dllMtime: older, repoSrcMtime: repoSrc }).reason,
+  'DLL missing', 'not built',
+  'built-but-stale NEEDS-DEPLOY reason names neither pre-push exclusion string',
+);
+includesStr(
+  readFileSync(new URL('./verify-deploy.mjs', import.meta.url), 'utf8'),
+  "bold('Verdict:')",
+  'verify-deploy.mjs source contains the literal print prefix the hook greps',
 );
 
 // ─── formatAge ──────────────────────────────────────────────────────

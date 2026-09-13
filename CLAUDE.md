@@ -70,7 +70,7 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7532 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7580 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 79 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -184,6 +184,7 @@ This is a public repo; target projects are private under NDA. **Don't commit pro
 - **`pre-push`** — scans outgoing commit range (file diff + commit messages)
 
 Both block on match; bypass in emergencies with `--no-verify` (rare).
+`pre-push` also runs the plugin compile gate (see Testing, "Native plugin tests") when the outgoing range touches `plugin/UEMCP/Source/` or the `.uplugin`; bypass with `UEMCP_SKIP_COMPILE_GATE=1` or the same `--no-verify`.
 
 One-time setup on fresh clone: `git config core.hooksPath .githooks`, then populate `.git/info/forbidden-tokens` (one codename per line; `regex:<pattern>` for regex matches).
 
@@ -415,7 +416,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7532 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 76 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7580 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 79 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 **Native plugin tests**: 16 UE automation tests live in `plugin/UEMCP/Source/UEMCP/Private/Tests/` (`UEMCPTests.cpp`, `MCPServerTransportPolicyTests.cpp`; pretty-name filter `UEMCP.`; flags `EditorContext | EngineFilter`, compiled only when `WITH_DEV_AUTOMATION_TESTS`). They cover transport intake, the command registry, the response builder and the parsers, not the `*Handlers.cpp` bodies. Run them with `run-native-tests.bat [--profile <name>] [--target <alias>]` (headless `UnrealEditor-Cmd`, about 30 s on a mid-size project; exit 0 only when every test passes, 1 on failures or not-run, 2 preflight or config, 3 timeout, 4 no report; `--dry-run` prints the command). The pre-push hook refuses to publish plugin source while any built target in the gate profile (`smoke` when present, else default; `UEMCP_PUSH_GATE_PROFILE` overrides) reports NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY; never-built targets are ignored; bypass with `--no-verify` or `UEMCP_SKIP_COMPILE_GATE=1`.
 
@@ -499,7 +500,7 @@ Individually notable files, plus grouped rows for related suites (kept compact �
 | `test-project-context.mjs`, `test-project-guard.mjs`, `test-project-hygiene.mjs`, `test-project-identity.mjs`, `test-project-server-wire.mjs`, `test-project-targets.mjs`, `test-project-tools.mjs`, `test-editor-processes.mjs` | D177 project-attachment suite — one file per split attachment module (`project-context.mjs` etc.) |
 | `test-live-smoke-harness.mjs`, `test-run-live-smoke.mjs` | D177 reusable live-smoke harness + runner; assertions exercise the harness/runner logic itself (editor optional, unlike live-gated `test-m1-ping.mjs`) |
 | `test-oracle-freshness.mjs`, `test-rotation-oracle-freshness.mjs` | D187 oracle-freshness gate — stale-fixture classifier plus rotation-output surfacing of non-strict freshness counts |
-| `test-blueprint-workflow-variables.mjs`, `test-class-resolution-audit.mjs`, `test-connection-reset.mjs`, `test-mcp-fake-transport.mjs`, `test-migrate-targets.mjs`, `test-new-2-mitigation.mjs`, `test-pie-runtime-tools.mjs`, `test-plugin-get-editor-state-source.mjs`, `test-setup-uemcp-target-profile.mjs`, `test-slash-command-anchors.mjs`, `test-sync-plugin-bat-safety.mjs`, `test-tool-metadata.mjs`, `test-tool-registry-truth.mjs`, `test-tool-requirements.mjs`, `test-verify-deploy-profiles.mjs`, `test-visual-capture-source.mjs` | 16 focused single-topic suites, one area each (see filename) |
+| `test-blueprint-workflow-variables.mjs`, `test-class-resolution-audit.mjs`, `test-connection-reset.mjs`, `test-mcp-fake-transport.mjs`, `test-migrate-targets.mjs`, `test-module-graph.mjs`, `test-native-runner.mjs`, `test-new-2-mitigation.mjs`, `test-pie-runtime-tools.mjs`, `test-plugin-get-editor-state-source.mjs`, `test-pre-push-gate.mjs`, `test-setup-uemcp-target-profile.mjs`, `test-slash-command-anchors.mjs`, `test-sync-plugin-bat-safety.mjs`, `test-tool-metadata.mjs`, `test-tool-registry-truth.mjs`, `test-tool-requirements.mjs`, `test-verify-deploy-profiles.mjs`, `test-visual-capture-source.mjs` | 19 focused single-topic suites, one area each (see filename) |
 | `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig, resolveProjectRoot |
 | `test-fixtures.mjs` | Shared fixture constants — not a runner. Live-project asset-path constants (BP names, montages, maps) for supplementary-rotation tests; see file header for drift/fix guidance |
 

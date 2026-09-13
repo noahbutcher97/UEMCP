@@ -17,12 +17,16 @@ const SERVER_DIR = join(REPO_ROOT, 'server');
 const DEPLOYMENT_DIR = join(SERVER_DIR, 'deployment');
 const STATIC_RE = /from\s+['"](\.\/[^'"]+\.mjs)['"]/g;
 const DYNAMIC_RE = /import\(['"](\.\/[^'"]+\.mjs)['"]\)/g;
+// Bare side-effect imports (`import './x.mjs';`) have no `from` clause, so
+// STATIC_RE misses them — a back-edge written this way would pass rule 5
+// unseen.
+const SIDE_EFFECT_RE = /^\s*import\s+['"](\.\/[^'"]+\.mjs)['"]/gm;
 
 /** Local ('./…mjs') import basenames referenced in a file's source. */
 function localImports(absPath) {
   const src = readFileSync(absPath, 'utf8');
   const names = new Set();
-  for (const re of [STATIC_RE, DYNAMIC_RE]) {
+  for (const re of [STATIC_RE, DYNAMIC_RE, SIDE_EFFECT_RE]) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(src)) !== null) names.add(m[1].replace(/^\.\//, ''));

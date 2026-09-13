@@ -2,7 +2,8 @@
 # Pre-push: scan outgoing commits (file diff + commit messages) for NDA
 # codenames listed in .git/info/forbidden-tokens (per-checkout, untracked).
 #
-# This is the only enforcement layer. Free to commit anything locally;
+# This is the only enforcement layer for codenames; the same hook also runs
+# the plugin compile gate (WS2 block below). Free to commit anything locally;
 # the gate is at push time when content actually goes public.
 #
 # Bypass: git push --no-verify
@@ -72,6 +73,12 @@ fi
 zero="0000000000000000000000000000000000000000"
 remote_name="${1:-}"
 
+# gate_checked persists across loop iterations only because this `while read`
+# consumes the hook's stdin directly (git feeds one ref-update line per
+# iteration) rather than through a subshell-spawning pipe; a pipe would put
+# the loop body in a subshell and reset the flag every iteration.
+gate_checked=0
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue   # branch deletion
 
@@ -94,12 +101,22 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   # Plugin compile gate (WS2): refuse to publish plugin source that a local
   # target has built before but not since. Uses verify-deploy's per-target
-  # verdicts. Ignored: MISSING targets (not installed here) and NEEDS-DEPLOY
-  # with "DLL missing" (never built here) — a target that has never been built
-  # is not evidence of a stale build. Blocks on NEEDS-SYNC, NEEDS-BUILD, and
-  # NEEDS-DEPLOY with a DLL present. Bypass: git push --no-verify or
-  # UEMCP_SKIP_COMPILE_GATE=1.
-  if [[ -z "${UEMCP_SKIP_COMPILE_GATE:-}" ]]; then
+  # verdicts. Ignored: MISSING targets (not installed here) and the two
+  # never-built reasons — NEEDS-DEPLOY "DLL missing" and NEEDS-BUILD
+  # "not built" — neither is evidence of a stale build, only that this
+  # target has never been built here. Blocks on NEEDS-SYNC, and on
+  # NEEDS-BUILD or NEEDS-DEPLOY when a DLL exists. Bypass: git push
+  # --no-verify or UEMCP_SKIP_COMPILE_GATE=1.
+  #
+  # Runs before the codename scan below (fail-closed): a push blocked here
+  # never reaches the scan, so a retry after fixing the build reports
+  # codenames on that retry, not this one — nothing leaks either way.
+  #
+  # Evaluated at most once per push, not once per ref: verify-deploy's CIM
+  # process scan is expensive, and the verdict doesn't depend on which ref
+  # triggered it. gate_checked is set only once verify-deploy actually runs,
+  # so a ref that touches no plugin source never consumes the one evaluation.
+  if [[ -z "${UEMCP_SKIP_COMPILE_GATE:-}" && "$gate_checked" == "0" ]]; then
     if [[ "$remote_sha" == "$zero" ]]; then
       touched="$(git log --name-only --pretty=format: "${scan_args[@]}" 2>/dev/null)"
     else
@@ -107,11 +124,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     if printf '%s\n' "$touched" | grep -qE '^plugin/UEMCP/(Source/|UEMCP\.uplugin$)'; then
       if [[ -f .uemcp-targets.json || -f .uemcp-targets.txt ]]; then
+        gate_checked=1
         gate_profile="${UEMCP_PUSH_GATE_PROFILE:-}"
         if [[ -z "$gate_profile" ]] && grep -q '"smoke"' .uemcp-targets.json 2>/dev/null; then gate_profile="smoke"; fi
-        gate_out="$(node server/verify-deploy.mjs --quiet --no-color ${gate_profile:+--profile "$gate_profile"} < /dev/null 2>&1 || true)"
-        stale="$(printf '%s\n' "$gate_out" | grep -E '^\s*Verdict: (NEEDS-SYNC|NEEDS-BUILD|NEEDS-DEPLOY)' | grep -v 'DLL missing' || true)"
-        if [[ -n "$stale" ]]; then
+        gate_rc=0
+        gate_out="$(node server/verify-deploy.mjs --quiet --no-color ${gate_profile:+--profile "$gate_profile"} < /dev/null 2>&1)" || gate_rc=$?
+        stale="$(printf '%s\n' "$gate_out" | grep -E '^\s*Verdict: (NEEDS-SYNC|NEEDS-BUILD|NEEDS-DEPLOY)' | grep -v -e 'DLL missing' -e 'not built' || true)"
+        if [[ "$gate_rc" -ne 0 ]] && ! printf '%s\n' "$gate_out" | grep -q '^\s*Verdict:'; then
+          # verify-deploy could not produce verdicts at all (e.g. a bad
+          # --profile) — this is a config problem on this machine, not
+          # evidence of a stale build. Warn, never block.
+          echo "  (compile gate could not evaluate: verify-deploy exited $gate_rc; profile: ${gate_profile:-default})" >&2
+        elif [[ -n "$stale" ]]; then
           {
             echo ""
             echo "✗ Push blocked: plugin source changed but a target has not been rebuilt ($range_label)"

@@ -6,7 +6,7 @@
 // bounded process runner, and parses the exported report.
 // Exit: 0 pass · 1 failures/not-run · 2 preflight/config · 3 timeout · 4 no tests
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,36 @@ export function parseRunnerArgs(argv) {
 // JSON.parse does not strip it, so read it off before parsing.
 export function stripBom(text) {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+// 2s slack for coarse filesystem timestamp resolution (some filesystems round
+// mtime to whole seconds), so a report written just before `startedAt` isn't
+// misclassified as stale.
+const REPORT_STALE_SLACK_MS = 2000;
+
+/**
+ * Read and parse the automation report at `reportPath`, refusing a report
+ * left over from an earlier run instead of silently scoring this run against
+ * it. Throws NativeReportError with code REPORT_MISSING (file absent),
+ * REPORT_STALE (mtime predates `startedAt` — the editor died before writing
+ * a fresh one), or REPORT_UNREADABLE (not valid JSON); otherwise returns
+ * parseAutomationReport's result (which still throws REPORT_SCHEMA_UNKNOWN
+ * on an unrecognized shape).
+ */
+export function loadReport(reportPath, startedAt) {
+  if (!existsSync(reportPath)) {
+    throw new NativeReportError(`no report at ${reportPath}`, 'REPORT_MISSING');
+  }
+  if (statSync(reportPath).mtimeMs < startedAt - REPORT_STALE_SLACK_MS) {
+    throw new NativeReportError(`report at ${reportPath} predates this run — left over from an earlier invocation`, 'REPORT_STALE');
+  }
+  let json;
+  try {
+    json = JSON.parse(stripBom(readFileSync(reportPath, 'utf8')));
+  } catch (e) {
+    throw new NativeReportError(`could not parse ${reportPath}: ${e.message}`, 'REPORT_UNREADABLE');
+  }
+  return parseAutomationReport(json);
 }
 
 export function resolveEngineRootForProject({ engineAssociation, env = process.env, existsImpl }) {
@@ -96,10 +126,6 @@ export async function main(argv, { runner = createProcessRunner({ defaultOutputL
   if (!engineRoot) { console.error(`[ERROR] no engine root: set UE_ENGINE_ROOT or pass --engine-root (EngineAssociation=${uproject.EngineAssociation})`); return 2; }
   const dll = join(dirname(uprojectPath), 'Plugins', 'UEMCP', 'Binaries', 'Win64', 'UnrealEditor-UEMCP.dll');
   if (!existsSync(dll)) { console.error(`[ERROR] plugin DLL not built: ${dll} (run Build.bat; verify-deploy.bat reports NEEDS-BUILD)`); return 2; }
-  const editors = listEditorProcesses();
-  if (editors.length > 0) {
-    console.warn(`[WARN] ${editors.length} UnrealEditor process(es) running; the headless instance will share port 55558 with them.`);
-  }
   const reportDir = args.reportDir ? resolve(args.reportDir) : mkdtempSync(join(tmpdir(), 'uemcp-native-'));
   const command = buildEditorCommand({ engineRoot, uprojectPath, filter: args.filter, reportDir });
   console.log(`Target : ${uprojectPath}${target.targetAlias ? ` (${target.targetAlias})` : ''}`);
@@ -108,6 +134,8 @@ export async function main(argv, { runner = createProcessRunner({ defaultOutputL
   console.log(`Report : ${reportDir}`);
   if (args.dryRun) { console.log(`Command: "${command.file}" ${command.args.map(a => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`); return 0; }
 
+  const editors = listEditorProcesses();
+  if (editors.length > 0) console.warn(`[WARN] ${editors.length} UnrealEditor process(es) running; the headless instance will share port 55558 with them.`);
   const started = Date.now();
   // process-runner: run(executable, args, { cwd, env, timeoutMs, outputLimitBytes, stdin })
   // resolves { status: 'exited' | 'timed_out' | 'spawn_failed' | ..., exitCode, signal, stdout, stderr }.
@@ -118,13 +146,14 @@ export async function main(argv, { runner = createProcessRunner({ defaultOutputL
   if (result.status === 'spawn_failed') { console.error(`[ERROR] could not start ${command.file}: ${result.stderr}`); return 2; }
 
   const indexPath = join(reportDir, 'index.json');
-  if (!existsSync(indexPath)) { console.error(`[ERROR] no report at ${indexPath}; last stderr:\n${(result.stderr ?? '').slice(-2000)}`); return 4; }
-  // The committed fixture (index.sample.json) has no BOM; stripBom's own
-  // rotation coverage lives in test-native-runner.mjs.
-  const reportText = stripBom(readFileSync(indexPath, 'utf8'));
   let parsed;
-  try { parsed = parseAutomationReport(JSON.parse(reportText)); }
-  catch (e) { if (e instanceof NativeReportError) { console.error(`[ERROR] ${e.code}: ${e.message}`); return 4; } throw e; }
+  try { parsed = loadReport(indexPath, started); }
+  catch (e) {
+    if (!(e instanceof NativeReportError)) throw e;
+    const stderrDetail = e.code === 'REPORT_MISSING' ? `\nlast stderr:\n${(result.stderr ?? '').slice(-2000)}` : '';
+    console.error(`[ERROR] ${e.code}: ${e.message}${stderrDetail}`);
+    return 4;
+  }
   for (const line of summarizeReport(parsed)) console.log(line);
   const exitCode = reportExitCode(parsed);
   if (!args.reportDir && exitCode === 0) rmSync(reportDir, { recursive: true, force: true });
