@@ -22,6 +22,9 @@
 //     run-rotation.mjs and test-*.mjs; never reached from the MCP server path
 //   - write-mcp-config.mjs            — .mcp.json render/merge CLI run by
 //     setup-uemcp.bat; imported only by its own test, never from the server path
+//   - run-native-tests.mjs            — headless plugin automation runner CLI
+//     (run-native-tests.bat); imported only by its own test, never from the
+//     server path
 const CLI_ONLY_GLOBS = [
   'test-*.mjs',
   'run-rotation.mjs',
@@ -34,6 +37,7 @@ const CLI_ONLY_GLOBS = [
   'oracle-freshness.mjs',
   'rotation-oracle-freshness.mjs',
   'write-mcp-config.mjs',
+  'run-native-tests.mjs',
 ];
 
 export default [
