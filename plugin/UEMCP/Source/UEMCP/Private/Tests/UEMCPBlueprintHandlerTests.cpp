@@ -293,8 +293,11 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
 
 	// ---- success: literal assignment of 5 to Score ----
+	// Capitalized on purpose: the handler lowercases AssignmentKind before acting
+	// on it (BlueprintHandlers.cpp:~2570), and the "assignment_kind lowercased"
+	// assertion below only proves that if the input isn't already lowercase.
 	TSharedPtr<FJsonObject> Assignment = MakeShared<FJsonObject>();
-	Assignment->SetStringField(TEXT("kind"), TEXT("literal"));
+	Assignment->SetStringField(TEXT("kind"), TEXT("Literal"));
 	Assignment->SetNumberField(TEXT("value"), 5.0);
 
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
@@ -356,6 +359,20 @@ bool FUEMCPBlueprintHandlersAddVariableAssignmentTest::RunTest(const FString& Pa
 	TestEqual(TEXT("pin default written in the graph"), ScorePin->DefaultValue, FString(TEXT("5")));
 	TestEqual(TEXT("pin left unlinked"), ScorePin->LinkedTo.Num(), 0);
 	TestEqual(TEXT("pin category"), ScorePin->PinType.PinCategory, UEdGraphSchema_K2::PC_Int);
+
+	// target_value pin JSON cross-checked against the actual graph pin. link_count
+	// is read via HasField + GetNumberField (not a bare GetNumberField) because a
+	// missing field would otherwise log a LogJson Error the automation framework
+	// scores as a failure, the same trap StringFieldOr exists to avoid for strings.
+	TestEqual(TEXT("target pin_id matches the graph pin"), StringFieldOr(TargetPinJson, TEXT("pin_id")), ScorePin->PinId.ToString());
+	if (TargetPinJson->HasField(TEXT("link_count")))
+	{
+		TestEqual(TEXT("target pin link_count"), (int32)TargetPinJson->GetNumberField(TEXT("link_count")), 0);
+	}
+	else
+	{
+		AddError(TEXT("target_value pin JSON carried no link_count"));
+	}
 
 	// ---- error: unknown target variable ----
 	TSharedPtr<FJsonObject> MissingVarParams = MakeShared<FJsonObject>();
@@ -528,6 +545,10 @@ bool FUEMCPBlueprintHandlersAddTimerTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("timer Object pin has one link"), ObjectPin->LinkedTo.Num(), 1);
 		TestFalse(TEXT("self role node_id is empty"), StringFieldOr(FindRole(Result, TEXT("nodes"), TEXT("self")), TEXT("node_id")).IsEmpty());
+	}
+	else
+	{
+		AddError(TEXT("timer call has no Object pin"));
 	}
 
 	// The callback function graph exists on the Blueprint, not just in the response.
@@ -718,11 +739,25 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	}
 
 	// ---- graph state: the link is actually gone, the nodes are not ----
-	TestFalse(TEXT("link removed from the graph"), ThenPin->LinkedTo.Contains(ExecutePin));
-	TestEqual(TEXT("then pin has no links left"), ThenPin->LinkedTo.Num(), 0);
-	TestEqual(TEXT("execute pin has no links left"), ExecutePin->LinkedTo.Num(), 0);
-	TestNotNull(TEXT("begin play node still present"), FindNodeByGuid(EventGraph, BeginPlayId));
-	TestNotNull(TEXT("timer node still present"), FindNodeByGuid(EventGraph, TimerNodeId));
+	// Re-resolved through FindNodeByGuid + FindFixturePin rather than reusing the
+	// ThenPin/ExecutePin pointers captured before the dry-run and real-break
+	// dispatches (Recommendation 2): today those pointers stay valid, but
+	// re-resolving keeps the assertion honest if a future change reconstructs nodes.
+	UEdGraphNode* BeginPlayNodeAfterBreak = FindNodeByGuid(EventGraph, BeginPlayId);
+	UEdGraphNode* TimerNodeAfterBreak = FindNodeByGuid(EventGraph, TimerNodeId);
+	TestNotNull(TEXT("begin play node still present"), BeginPlayNodeAfterBreak);
+	TestNotNull(TEXT("timer node still present"), TimerNodeAfterBreak);
+	UEdGraphPin* ThenPinAfterBreak = FindFixturePin(BeginPlayNodeAfterBreak, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecutePinAfterBreak = FindFixturePin(TimerNodeAfterBreak, {TEXT("execute")}, EGPD_Input);
+	if (!ThenPinAfterBreak || !ExecutePinAfterBreak)
+	{
+		AddError(TEXT("could not re-resolve then/execute pins after the targeted break"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestFalse(TEXT("link removed from the graph"), ThenPinAfterBreak->LinkedTo.Contains(ExecutePinAfterBreak));
+	TestEqual(TEXT("then pin has no links left"), ThenPinAfterBreak->LinkedTo.Num(), 0);
+	TestEqual(TEXT("execute pin has no links left"), ExecutePinAfterBreak->LinkedTo.Num(), 0);
 
 	// ---- error: the same targeted disconnect a second time ----
 	TestEqual(TEXT("second targeted disconnect code"),
@@ -756,6 +791,81 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	TestEqual(TEXT("half-specified target code"),
 		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), HalfTarget)),
 		FString(TEXT("MISSING_PARAMS")));
+
+	// ---- arrange: a second link on BeginPlay.then, via a second timer ----
+	// The targeted break above already emptied BeginPlay.then, so this second
+	// add_blueprint_timer call reuses the existing ReceiveBeginPlay node
+	// (FindOrCreateReceiveBeginPlay finds it by name before creating one) and
+	// adds exactly one new link for the untargeted break below to act on.
+	TSharedPtr<FJsonObject> TimerTwoParams = MakeShared<FJsonObject>();
+	TimerTwoParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerTwoParams->SetStringField(TEXT("callback_function"), TEXT("OnTickTwo"));
+	TimerTwoParams->SetNumberField(TEXT("interval"), 2.0);
+	TimerTwoParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerTwoParams->SetBoolField(TEXT("create_callback_graph"), true);
+	TimerTwoParams->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> TimerTwoResponse = Dispatch(TEXT("add_blueprint_timer"), TimerTwoParams);
+	if (!IsSuccess(TimerTwoResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("second arrange step failed: add_blueprint_timer returned '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> TimerTwoResult = ResultOf(TimerTwoResponse);
+	const FString TimerTwoNodeId = StringFieldOr(TimerTwoResult, TEXT("timer_node_id"));
+	if (TimerTwoNodeId.IsEmpty() || StringFieldOr(TimerTwoResult, TEXT("begin_play_node_id")) != BeginPlayId)
+	{
+		AddError(TEXT("second arrange step did not reuse BeginPlay or produced no timer node id"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	UEdGraphNode* TimerTwoNode = FindNodeByGuid(EventGraph, TimerTwoNodeId);
+	UEdGraphPin* ThenPinBeforeUntargeted = FindFixturePin(BeginPlayNodeAfterBreak, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecuteTwoPin = FindFixturePin(TimerTwoNode, {TEXT("execute")}, EGPD_Input);
+	if (!ThenPinBeforeUntargeted || !ExecuteTwoPin || !ThenPinBeforeUntargeted->LinkedTo.Contains(ExecuteTwoPin))
+	{
+		AddError(TEXT("second arrange step did not link begin play then to the new timer execute pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- act: untargeted break — no target_node_id/target_pin, so the handler
+	// takes the Pin->BreakAllPinLinks(true) branch rather than BreakLinkTo
+	// (BlueprintHandlers.cpp:~3226-3230) ----
+	TSharedPtr<FJsonObject> UntargetedParams = MakeShared<FJsonObject>();
+	UntargetedParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	UntargetedParams->SetStringField(TEXT("node_id"), BeginPlayId);
+	UntargetedParams->SetStringField(TEXT("pin"), TEXT("then"));
+	UntargetedParams->SetStringField(TEXT("direction"), TEXT("output"));
+	UntargetedParams->SetBoolField(TEXT("dry_run"), false);
+	UntargetedParams->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> UntargetedResponse = Dispatch(TEXT("disconnect_blueprint_pin"), UntargetedParams);
+	if (!IsSuccess(UntargetedResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("untargeted disconnect failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> UntargetedResult = ResultOf(UntargetedResponse);
+	TestEqual(TEXT("untargeted break matched one link"), (int32)UntargetedResult->GetNumberField(TEXT("links_matched")), 1);
+	TestEqual(TEXT("untargeted break broke one link"), (int32)UntargetedResult->GetNumberField(TEXT("links_broken")), 1);
+
+	// ---- graph state after the untargeted break, re-resolved per Recommendation 2 ----
+	UEdGraphNode* BeginPlayNodeAfterUntargeted = FindNodeByGuid(EventGraph, BeginPlayId);
+	UEdGraphNode* TimerTwoNodeAfterUntargeted = FindNodeByGuid(EventGraph, TimerTwoNodeId);
+	UEdGraphPin* ThenPinAfterUntargeted = FindFixturePin(BeginPlayNodeAfterUntargeted, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecuteTwoPinAfterUntargeted = FindFixturePin(TimerTwoNodeAfterUntargeted, {TEXT("execute")}, EGPD_Input);
+	if (!ThenPinAfterUntargeted || !ExecuteTwoPinAfterUntargeted)
+	{
+		AddError(TEXT("could not re-resolve then/execute pins after the untargeted break"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestEqual(TEXT("then pin has no links after untargeted break"), ThenPinAfterUntargeted->LinkedTo.Num(), 0);
+	TestEqual(TEXT("new timer execute pin has no links after untargeted break"), ExecuteTwoPinAfterUntargeted->LinkedTo.Num(), 0);
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;

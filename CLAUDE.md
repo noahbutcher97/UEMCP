@@ -149,7 +149,7 @@ UEMCP/
 │       ├── *Handlers.cpp       ← one file per toolset family (Blueprint, Animation, Actor, Widget, …)
 │       ├── MCPServerTransportPolicy.cpp ← framed request intake: header/body limits, deadlines, UTF-8 checks
 │       ├── MCPServerRunnable.cpp ← TCP:55558 accept loop
-│       └── Tests/              ← UE automation tests: UEMCPTests.cpp, MCPServerTransportPolicyTests.cpp
+│       └── Tests/              ← UE automation tests: UEMCPTests.cpp, MCPServerTransportPolicyTests.cpp, UEMCPBlueprintHelperTests.cpp, UEMCPBlueprintHandlerTests.cpp
 ├── docs/
 │   ├── specs/                  ← architecture, protocols, design
 │   ├── plans/                  ← implementation phases, test strategy
