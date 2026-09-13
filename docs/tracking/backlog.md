@@ -86,6 +86,12 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Root cause (2026-09-13, WS2 step 0.4)**: `UEMCPModule.cpp:42` calls `RawSocket->SetReuseAddr(true)` before `Listen()`, so a second editor (or a headless automation run) binds 55558 alongside the first instead of failing; which instance answers a connection is then up to the OS. Removing the reuse flag makes the second instance fail loudly; a per-project port avoids the collision entirely. Decide with EN-24.
 - **Trigger**: with EN-24, or when WS2's port-collision characterization lands and the runner needs a port strategy anyway.
 
+### EN-26 — Machine-readable verify-deploy output for the pre-push compile gate
+- **Source**: whole-branch review of the WS2 branch (2026-09-13).
+- **Gap**: `.githooks/pre-push` decides whether to block a plugin push by grepping `verify-deploy.mjs`'s human-readable output — the `Verdict:` prefix and the reason substrings `DLL missing` / `not built`. Those strings are now pinned by `test-verify-deploy.mjs` and the hook's shape by `test-pre-push-gate.mjs`, so a reformat fails a suite rather than silently disarming the gate, but the contract is still prose.
+- **Proposal**: a `--json` flag on `verify-deploy.mjs` emitting `{ targets: [{ uprojectPath, verdict, reason, dllExists, editors[] }], exitCode }`; the hook consumes `verdict` and `dllExists` directly and the two substring pins retire. Small: the verdict objects already exist in `classifyDeployState`; the flag is a printer switch plus one hook edit.
+- **Trigger**: the next change to `verify-deploy.mjs`'s printer, or the first time the gate needs a rule the reason strings cannot express.
+
 ## Fixture planting
 
 Test-coverage gaps requiring artificial fixtures in Project A / Project B.
