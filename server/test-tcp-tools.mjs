@@ -1178,6 +1178,270 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
 }
 
 // ═══════════════════════════════════════════════════════════════
+// EN-24/EN-25: asset-editor, details-panel and PIE capture tools.
+//
+// The wire contract fixed here is what the plugin handlers must satisfy:
+// param names on the request, field names on the result, and the error codes.
+// Every tool skips the cache, so each sub-case can re-register a responder
+// for the same command and get the new answer.
+// ═══════════════════════════════════════════════════════════════
+{
+  // The M-enhance bindings are block-scoped in the get_viewport_screenshot
+  // block above, so this block does its own setup: the real tools.yaml, so
+  // wire_type translation is the shipped one rather than the fake structure
+  // the blueprints-write tests use.
+  const { readFileSync } = await import('node:fs');
+  const yaml = (await import('js-yaml')).default;
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const toolsData = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
+  const { initMenhanceTools, executeMenhanceTool, getMenhanceToolDefs } =
+    await import('./menhance-tcp-tools.mjs');
+  initMenhanceTools(toolsData);
+
+  const captureTools = [
+    'list_asset_editor_tabs',
+    'capture_asset_editor',
+    'details_panel_expand_all',
+    'details_panel_scroll',
+    'capture_pie_viewport',
+  ];
+  const defs = getMenhanceToolDefs();
+  for (const name of captureTools) {
+    t.assert(defs[name] !== undefined, `${name} is registered in M-enhance defs`);
+    t.assert(defs[name]?.isReadOp === false,
+      `${name} bypasses cache because editor UI state is volatile`);
+  }
+
+  const fake = new FakeTcpResponder();
+  fake.on('ping', { status: 'success' });
+  fake.on('list_asset_editor_tabs', {
+    status: 'success',
+    result: {
+      asset_path: '/Game/Probe/BP_Probe.BP_Probe',
+      editor_class: 'BlueprintEditor',
+      tabs: [
+        { tab_id: 'Details', display_name: 'Details', is_active: true, has_viewport: false },
+        { tab_id: 'GraphEditor', display_name: 'Event Graph', is_active: false, has_viewport: false },
+      ],
+    },
+  });
+  fake.on('capture_asset_editor', (port, type, params) => ({
+    status: 'success',
+    result: {
+      asset_path: params.asset_path,
+      tab_id: params.tab_id || 'Details',
+      width: 1280,
+      height: 720,
+      byte_length: 4096,
+      mime: 'image/png',
+      png_path: 'Saved/UEMCP/Captures/BP_Probe_Details_20260913-120000-001.png',
+      ...(params.inline === true ? { png_base64: 'iVBORw0KGgo=' } : {}),
+    },
+  }));
+  fake.on('details_panel_expand_all', {
+    status: 'success',
+    result: { expanded: true, rows_before: 12, rows_after: 48 },
+  });
+  fake.on('details_panel_scroll', (port, type, params) => ({
+    status: 'success',
+    result: { row_offset: params.row_offset, requested_row_offset: params.row_offset, max_row_offset: 47 },
+  }));
+  fake.on('capture_pie_viewport', {
+    status: 'success',
+    result: {
+      width: 1920,
+      height: 1080,
+      byte_length: 8192,
+      mime: 'image/png',
+      png_path: 'Saved/UEMCP/Captures/PIE_20260913-120001-002.png',
+    },
+  });
+
+  const { config } = createTestConfig('D:/FakeProject', fake);
+  const cm = new ConnectionManager(config);
+
+  // ---- list_asset_editor_tabs ----
+  const tabs = await executeMenhanceTool('list_asset_editor_tabs',
+    { asset_path: '/Game/Probe/BP_Probe' }, cm);
+  t.assert(tabs.result.tabs.length === 2, 'list_asset_editor_tabs returns the tab array');
+  t.assert(tabs.result.tabs[0].tab_id === 'Details',
+    'list_asset_editor_tabs surfaces tab_id for addressing');
+  t.assert(tabs.result.editor_class === 'BlueprintEditor',
+    'list_asset_editor_tabs names the toolkit class');
+  const tabsCall = fake.lastCall('list_asset_editor_tabs');
+  t.assert(tabsCall.port === 55558, 'list_asset_editor_tabs routed to tcp-55558');
+  t.assert(tabsCall.params.asset_path === '/Game/Probe/BP_Probe',
+    'list_asset_editor_tabs forwards asset_path unchanged');
+
+  // ---- capture_asset_editor: default (file only) ----
+  const capture = await executeMenhanceTool('capture_asset_editor',
+    { asset_path: '/Game/Probe/BP_Probe', tab_id: 'Details' }, cm);
+  t.assert(typeof capture.result.png_path === 'string' && capture.result.png_path.endsWith('.png'),
+    'capture_asset_editor always reports a written PNG path');
+  t.assert(capture.result.png_base64 === undefined,
+    'capture_asset_editor omits base64 unless inline was requested');
+  t.assert(capture.result.width === 1280 && capture.result.height === 720,
+    'capture_asset_editor reports captured pixel dimensions');
+  t.assert(typeof capture.result.byte_length === 'number',
+    'capture_asset_editor reports byte_length as a number');
+  t.assert(capture.result.mime === 'image/png',
+    'capture_asset_editor reports mime as image/png');
+  const defaultCall = fake.lastCall('capture_asset_editor');
+  t.assert(defaultCall.port === 55558, 'capture_asset_editor routed to tcp-55558');
+  t.assert(defaultCall.params.tab_id === 'Details', 'capture_asset_editor forwards tab_id');
+  t.assert(!('inline' in defaultCall.params),
+    'omitted inline stays off the wire so the plugin owns the default');
+  t.assert(!('out_png' in defaultCall.params),
+    'omitted out_png stays off the wire so the plugin picks the default path');
+
+  // ---- capture_asset_editor: inline ----
+  const inlineCapture = await executeMenhanceTool('capture_asset_editor',
+    { asset_path: '/Game/Probe/BP_Probe', inline: true }, cm);
+  t.assert(typeof inlineCapture.result.png_base64 === 'string',
+    'capture_asset_editor returns base64 when inline is requested');
+  t.assert(fake.lastCall('capture_asset_editor').params.inline === true,
+    'inline flag forwarded to the wire');
+  t.assert(inlineCapture.result.tab_id === 'Details',
+    'capture_asset_editor reports the tab it actually captured');
+
+  // ---- capture_asset_editor: inline above the 8 MiB cap ----
+  // The plugin drops the payload and says so; the path is the fallback, which
+  // is why the file is always written rather than written on request.
+  fake.on('capture_asset_editor', {
+    status: 'success',
+    result: {
+      asset_path: '/Game/Probe/BP_Probe',
+      tab_id: 'Viewport',
+      width: 3840,
+      height: 2160,
+      byte_length: 9_000_000,
+      mime: 'image/png',
+      png_path: 'Saved/UEMCP/Captures/BP_Probe_Viewport_20260913-120002-003.png',
+      inline_omitted: 'too_large',
+    },
+  });
+  const oversized = await executeMenhanceTool('capture_asset_editor',
+    { asset_path: '/Game/Probe/BP_Probe', inline: true }, cm);
+  t.assert(oversized.result.inline_omitted === 'too_large',
+    'oversized inline capture reports inline_omitted');
+  t.assert(oversized.result.png_base64 === undefined,
+    'oversized inline capture carries no base64');
+  t.assert(typeof oversized.result.png_path === 'string',
+    'oversized inline capture still reports the written path');
+
+  // ---- details panel ----
+  const expanded = await executeMenhanceTool('details_panel_expand_all',
+    { asset_path: '/Game/Probe/BP_Probe', tab_id: 'Details' }, cm);
+  t.assert(expanded.result.expanded === true, 'details_panel_expand_all reports expanded');
+  t.assert(expanded.result.rows_after > expanded.result.rows_before,
+    'details_panel_expand_all reports the row count it changed');
+  const scrolled = await executeMenhanceTool('details_panel_scroll',
+    { asset_path: '/Game/Probe/BP_Probe', tab_id: 'Details', row_offset: 24 }, cm);
+  t.assert(scrolled.result.row_offset === 24, 'details_panel_scroll reports the row reached');
+  t.assert(scrolled.result.max_row_offset === 47,
+    'details_panel_scroll reports the paging ceiling');
+  t.assert(scrolled.result.requested_row_offset === 24,
+    'details_panel_scroll reports the row_offset that was requested');
+  t.assert(fake.lastCall('details_panel_scroll').params.row_offset === 24,
+    'row_offset forwarded to the wire');
+
+  // ---- PIE viewport ----
+  const pie = await executeMenhanceTool('capture_pie_viewport', {}, cm);
+  t.assert(pie.result.width === 1920 && pie.result.height === 1080,
+    'capture_pie_viewport reports the PIE viewport dimensions');
+  t.assert(typeof pie.result.png_path === 'string',
+    'capture_pie_viewport always reports a written PNG path');
+  t.assert(typeof pie.result.byte_length === 'number',
+    'capture_pie_viewport reports byte_length as a number');
+  t.assert(pie.result.mime === 'image/png',
+    'capture_pie_viewport reports mime as image/png');
+  t.assert(fake.lastCall('capture_pie_viewport').port === 55558,
+    'capture_pie_viewport routed to tcp-55558');
+
+  // ---- Zod rejects malformed calls before any wire dispatch ----
+  await t.assertRejects(
+    () => executeMenhanceTool('capture_asset_editor', {}, cm),
+    /asset_path/,
+    'capture_asset_editor rejects missing asset_path'
+  );
+  await t.assertRejects(
+    () => executeMenhanceTool('list_asset_editor_tabs', {}, cm),
+    /asset_path/,
+    'list_asset_editor_tabs rejects missing asset_path'
+  );
+  await t.assertRejects(
+    () => executeMenhanceTool('details_panel_expand_all', { asset_path: '/Game/X' }, cm),
+    /tab_id/,
+    'details_panel_expand_all rejects missing tab_id'
+  );
+  await t.assertRejects(
+    () => executeMenhanceTool('details_panel_scroll', { asset_path: '/Game/X', tab_id: 'Details' }, cm),
+    /row_offset/,
+    'details_panel_scroll rejects missing row_offset'
+  );
+  await t.assertRejects(
+    () => executeMenhanceTool('details_panel_scroll',
+      { asset_path: '/Game/X', tab_id: 'Details', row_offset: -1 }, cm),
+    /row_offset/,
+    'details_panel_scroll rejects a negative row_offset'
+  );
+
+  // ---- typed plugin error codes survive the transport ----
+  // ConnectionManager.makeLayerWireError copies the envelope's `code` onto the
+  // thrown Error, so a caller can branch on the code rather than on prose.
+  async function capturedCode(toolName, args, manager) {
+    try {
+      await executeMenhanceTool(toolName, args, manager);
+      return null;
+    } catch (err) {
+      return err.code || null;
+    }
+  }
+
+  const errFake = new FakeTcpResponder();
+  errFake.on('ping', { status: 'success' });
+  errFake.on('capture_asset_editor',
+    { status: 'error', error: 'No asset editor is open for /Game/X', code: 'EDITOR_NOT_OPEN' });
+  errFake.on('list_asset_editor_tabs',
+    { status: 'error', error: 'Could not load asset at /Game/X', code: 'ASSET_NOT_FOUND' });
+  errFake.on('details_panel_expand_all',
+    { status: 'error', error: "Tab 'Viewport' contains no SDetailsView", code: 'NOT_A_DETAILS_PANEL' });
+  errFake.on('details_panel_scroll',
+    { status: 'error', error: "No live tab 'Nope'", code: 'TAB_NOT_FOUND' });
+  errFake.on('capture_pie_viewport',
+    { status: 'error', error: 'No PIE session is running', code: 'PIE_NOT_RUNNING' });
+  const { config: errConfig } = createTestConfig('D:/FakeProject', errFake);
+  const errCm = new ConnectionManager(errConfig);
+
+  t.assert(await capturedCode('capture_asset_editor', { asset_path: '/Game/X' }, errCm) === 'EDITOR_NOT_OPEN',
+    'capture_asset_editor surfaces EDITOR_NOT_OPEN');
+  t.assert(await capturedCode('list_asset_editor_tabs', { asset_path: '/Game/X' }, errCm) === 'ASSET_NOT_FOUND',
+    'list_asset_editor_tabs surfaces ASSET_NOT_FOUND');
+  t.assert(await capturedCode('details_panel_expand_all', { asset_path: '/Game/X', tab_id: 'Viewport' }, errCm) === 'NOT_A_DETAILS_PANEL',
+    'details_panel_expand_all surfaces NOT_A_DETAILS_PANEL');
+  t.assert(await capturedCode('details_panel_scroll', { asset_path: '/Game/X', tab_id: 'Nope', row_offset: 0 }, errCm) === 'TAB_NOT_FOUND',
+    'details_panel_scroll surfaces TAB_NOT_FOUND');
+  t.assert(await capturedCode('capture_pie_viewport', {}, errCm) === 'PIE_NOT_RUNNING',
+    'capture_pie_viewport surfaces PIE_NOT_RUNNING');
+
+  errFake.on('capture_asset_editor',
+    { status: 'error', error: 'No Slate renderer is available', code: 'CAPTURE_UNSUPPORTED' });
+  t.assert(await capturedCode('capture_asset_editor', { asset_path: '/Game/X' }, errCm) === 'CAPTURE_UNSUPPORTED',
+    'capture_asset_editor surfaces CAPTURE_UNSUPPORTED when there is no renderer');
+
+  errFake.on('capture_asset_editor',
+    { status: 'error', error: 'TakeScreenshot returned no pixels', code: 'CAPTURE_FAILED' });
+  t.assert(await capturedCode('capture_asset_editor', { asset_path: '/Game/X' }, errCm) === 'CAPTURE_FAILED',
+    'capture_asset_editor surfaces CAPTURE_FAILED');
+  errFake.on('capture_pie_viewport',
+    { status: 'error', error: 'Could not write PNG to disk', code: 'FILE_WRITE_FAILED' });
+  t.assert(await capturedCode('capture_pie_viewport', {}, errCm) === 'FILE_WRITE_FAILED',
+    'capture_pie_viewport surfaces FILE_WRITE_FAILED');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════
 

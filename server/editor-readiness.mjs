@@ -4,6 +4,7 @@
 
 import { canonicalEditorProjectPath } from './editor-processes.mjs';
 import { normalizeComparisonPath } from './project-identity.mjs';
+import { PROJECT_ERROR_CODES } from './project-errors.mjs';
 
 /**
  * Classify readiness from process state alone.
@@ -27,8 +28,9 @@ export function classifyProcessPhase({ processes, attachedUproject }) {
 
 // Phases where waiting can never succeed. Returning immediately is the point:
 // spending the budget to report "you never launched it" is the obvious
-// failure of a naive implementation.
-const FUTILE_PHASES = new Set(['no_editor_process', 'wrong_project']);
+// failure of a naive implementation. identity_mismatch is futile for the same
+// reason — a listener that belongs to another project will not become ours.
+const FUTILE_PHASES = new Set(['no_editor_process', 'wrong_project', 'identity_mismatch']);
 
 // Backoff is policy, not preference: exposing it as a knob invites hammering
 // an editor that is already working as fast as it can.
@@ -102,6 +104,22 @@ export async function waitForEditorReady({
     }
     phase = result?.phase || 'initializing';
     lastError = result?.error ?? null;
+    // A futile phase reported by the probe (as opposed to by the process
+    // scan) ends the wait now. Polling a listener that belongs to another
+    // project cannot converge, and burning the budget on it buries the one
+    // fact the caller needs.
+    if (FUTILE_PHASES.has(phase)) {
+      return {
+        ready: false,
+        phase,
+        elapsed_ms: now() - started,
+        attempts,
+        editor: null,
+        last_error: lastError,
+        code: result?.code ?? null,
+        mismatch: result?.mismatch ?? null,
+      };
+    }
     if (now() - started >= timeoutMs) break;
     await sleep(delay);
     delay = Math.min(delay * 2, MAX_BACKOFF_MS);
@@ -123,10 +141,10 @@ export async function waitForEditorReady({
  * Readiness is get_editor_state, not ping: a successful round-trip confirms the
  * listener AND world context, where ping proves only that the socket is bound.
  *
- * @param {{tcpFn: Function, port: number, timeoutMs?: number}} deps
+ * @param {{tcpFn: Function, port: number, attachedUproject?: string|null, timeoutMs?: number}} deps
  * @returns {() => Promise<{ok: boolean, phase?: string, editor?: object, error?: object}>}
  */
-export function createEditorProbe({ tcpFn, port, timeoutMs = 3000 }) {
+export function createEditorProbe({ tcpFn, port, attachedUproject = null, timeoutMs = 3000 }) {
   // Fail loudly at construction. A missing transport otherwise throws inside
   // the probe, gets absorbed by the not-ready path, and reports "initializing"
   // indefinitely — a wiring bug wearing the costume of a slow editor.
@@ -136,16 +154,32 @@ export function createEditorProbe({ tcpFn, port, timeoutMs = 3000 }) {
   if (!Number.isFinite(Number(port))) {
     throw new Error(`createEditorProbe requires a numeric port (got ${port})`);
   }
+  // attachedUproject is deliberately NOT validated. wait_for_editor runs before
+  // anything is attached, and an unattached session has no identity to compare
+  // against, so a missing path means "do not check" rather than "misconfigured".
+  const attachedTarget = attachedUproject ? normalizeComparisonPath(attachedUproject) : null;
   return async function probeEditor() {
     try {
       const state = await tcpFn(port, 'get_editor_state', {}, timeoutMs);
       const result = state?.result ?? null;
       if (result) {
-        return {
-          ok: true,
-          phase: 'ready',
-          editor: { project_name: result.project_name ?? null, world_path: result.world_path ?? null },
-        };
+        const editor = { project_name: result.project_name ?? null, world_path: result.world_path ?? null };
+        const editorUproject = result.uproject_path || result.uprojectPath || null;
+        // The plugin binds with SetReuseAddr, so a second editor can share the
+        // port and the OS picks who replies. An answer is not proof it is ours.
+        // A listener that reports no path is unknown, not wrong — the same
+        // distinction ProjectContext.refreshEditorHandshake draws.
+        if (attachedTarget && editorUproject && normalizeComparisonPath(editorUproject) !== attachedTarget) {
+          return {
+            ok: false,
+            phase: 'identity_mismatch',
+            code: PROJECT_ERROR_CODES.EDITOR_PROJECT_MISMATCH,
+            editor,
+            mismatch: { attached_uproject: attachedUproject, editor_uproject: editorUproject },
+            error: null,
+          };
+        }
+        return { ok: true, phase: 'ready', editor };
       }
       return { ok: false, phase: 'transport_ready', error: null };
     } catch (stateError) {
@@ -186,6 +220,8 @@ export function readinessHint({ ready, phase }) {
       return 'No Unreal editor is running. Launch the project, then call wait_for_editor.';
     case 'wrong_project':
       return 'An editor is running, but for a different project than the attached one. Waiting cannot succeed — launch this project, or attach the one already open.';
+    case 'identity_mismatch':
+      return 'A listener answered on the UEMCP port, but it reports a different project than the attached one. Waiting cannot succeed — close that editor, or attach the project it already has open.';
     case 'transport_ready':
       return 'Listener is up but the world is still loading. Call wait_for_editor again to continue waiting.';
     default:

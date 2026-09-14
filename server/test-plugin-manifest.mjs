@@ -24,8 +24,8 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const UPLUGIN = join(REPO_ROOT, 'plugin', 'UEMCP', 'UEMCP.uplugin');
 const MANIFEST = join(REPO_ROOT, 'manifest.json');
 const BUILD_CS = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'UEMCP.Build.cs');
-const EXPECTED_VERSION_NAME = '1.0.17';
-const EXPECTED_PLUGIN_VERSION = 18;
+const EXPECTED_VERSION_NAME = '1.0.18';
+const EXPECTED_PLUGIN_VERSION = 19;
 
 const runner = new TestRunner('plugin manifest + build-file static validation');
 
@@ -81,7 +81,7 @@ function validateVersionLockstep(t, uplugin) {
     manifest.version === EXPECTED_VERSION_NAME
       && uplugin.VersionName === EXPECTED_VERSION_NAME
       && uplugin.Version === EXPECTED_PLUGIN_VERSION,
-    'Task 8 versions are exactly manifest/uplugin 1.0.17 and uplugin integer 18',
+    'lockstep versions are exactly manifest/uplugin 1.0.18 and uplugin integer 19',
     `manifest=${manifest.version} uplugin.VersionName=${uplugin.VersionName} uplugin.Version=${uplugin.Version}`
   );
 }

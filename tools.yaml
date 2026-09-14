@@ -17,7 +17,7 @@ management:
   description: Always-loaded discovery and management tools
   tools:
     connection_info:
-      description: Show project attachment, targetAttachment metadata for alias/profile attaches, deploy freshness, editor/transport readiness, active layers, and enabled toolsets.
+      description: Show project attachment, targetAttachment metadata for alias/profile attaches, deploy freshness, editor/transport readiness, active layers, and enabled toolsets. Reports identityMismatch with both paths when the editor belongs to a different project; false also covers "not checked yet", so read readiness.editorIdentity to tell them apart.
       params:
         force_reconnect: { type: boolean, required: false, default: false }
 
@@ -1611,12 +1611,83 @@ toolsets:
           height:        { type: number, required: false, default: 256 }
           return_base64: { type: boolean, required: false, default: true }
           output_path:   { type: string, required: false }
-      capture_active_editor_tab:
-        status: planned
-        discoverable: false
-        note: Planned editor-widget capture; excluded until FWidgetRenderer path ships.
-        description: Active editor panel (BP graph, material editor, etc.) via FWidgetRenderer. Asset must be open.
-        params: {}
+      list_asset_editor_tabs:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: List the live tabs of an already-open asset editor, with the tab ids capture_asset_editor addresses. Lists the tabs the editor advertises in its Window menu; never opens an editor or a tab.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
+      capture_asset_editor:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Capture an open asset editor, or one of its tabs, as a PNG on disk. Addressed by asset path; call list_asset_editor_tabs first for tab ids. Does not open an editor.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
+          tab_id:     { type: string, required: false, description: "Tab id from list_asset_editor_tabs; default is the editor's active tab" }
+          out_png:    { type: string, required: false, description: "Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/<asset>_<tab>_<timestamp>.png" }
+          inline:     { type: boolean, required: false, default: false, description: "Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64" }
+      details_panel_expand_all:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Expand every row of an open editor's Details tab so a following capture_asset_editor shows the whole property grid. Advanced rows appear after the next editor tick.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
+          tab_id:     { type: string, required: true, description: "Tab id of a Details tab, from list_asset_editor_tabs" }
+      details_panel_scroll:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Scroll an open editor's Details tab to a row offset for paged review captures. Row offsets are stable across DPI and panel size; the response reports the row actually reached.
+        params:
+          asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
+          tab_id:     { type: string, required: true, description: "Tab id of a Details tab, from list_asset_editor_tabs" }
+          row_offset: { type: number, required: true, description: "0-based row to scroll to; clamped to max_row_offset" }
+      capture_pie_viewport:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: true
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Capture the running PIE game viewport as a PNG on disk, including when PIE runs in its own window (where get_viewport_screenshot still returns the level editor).
+        params:
+          out_png: { type: string, required: false, description: "Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/PIE_<timestamp>.png" }
+          inline:  { type: boolean, required: false, default: false, description: "Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64" }
       get_asset_visual_summary:
         status: planned
         discoverable: false

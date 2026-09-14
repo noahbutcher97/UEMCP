@@ -947,4 +947,131 @@ await runCase('connection_info force_reconnect reports stale deploy freshness', 
   }
 });
 
+await runCase('connection_info reports an identity mismatch on the listener', async () => {
+  const root = makeTempRoot();
+  const projectRoot = makeTempRoot();
+  const foreignRoot = makeTempRoot();
+  try {
+    const project = writeProject(join(projectRoot, 'AttachedProject'), 'AttachedProject');
+    const foreign = writeProject(join(foreignRoot, 'ForeignProject'), 'ForeignProject');
+    const { app, transport } = await createWireApp({
+      cwd: root,
+      processInspector: () => [
+        { pid: 4444, cmdLine: `UnrealEditor.exe "${project.uprojectPath}"`, commandLineAvailable: true, uprojectPath: project.uprojectPath },
+      ],
+      // The listener answers for a DIFFERENT project than the attached one —
+      // the SetReuseAddr case where two editors share port 55558 and the OS
+      // decides which one replies.
+      tcpCommandFn: async () => ({
+        status: 'success',
+        result: { uproject_path: foreign.uprojectPath, project_name: 'ForeignProject' },
+      }),
+      httpCommandFn: async () => ({ status: 'success', result: {} }),
+    });
+    await initialize(transport, {});
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+
+    const info = parseTextResult(await callTool(transport, 'connection_info', { force_reconnect: true }));
+    t.assert(info.identityMismatch === true,
+      `connection_info flags the mismatch (got ${info.identityMismatch})`);
+    t.assert(info.readiness.editorIdentity === 'mismatch',
+      `readiness reports mismatch (got ${info.readiness.editorIdentity})`);
+    t.assert(String(info.identityMismatchPaths?.attached).includes('AttachedProject'),
+      `reports the attached project path (got ${info.identityMismatchPaths?.attached})`);
+    t.assert(String(info.identityMismatchPaths?.editor).includes('ForeignProject'),
+      `reports the path the listener claimed (got ${info.identityMismatchPaths?.editor})`);
+
+    await app.server.close();
+  } finally {
+    cleanup(root);
+    cleanup(projectRoot);
+    cleanup(foreignRoot);
+  }
+});
+
+await runCase('wait_for_editor refuses a reachable listener with a foreign project (identity_mismatch)', async () => {
+  const root = makeTempRoot();
+  const projectRoot = makeTempRoot();
+  const foreignRoot = makeTempRoot();
+  try {
+    const project = writeProject(join(projectRoot, 'AttachedProject'), 'AttachedProject');
+    const foreign = writeProject(join(foreignRoot, 'ForeignProject'), 'ForeignProject');
+    const { app, transport } = await createWireApp({
+      cwd: root,
+      // One editor process for the attached project, so the process phase is
+      // not futile and wait_for_editor's probe actually runs.
+      processInspector: () => [
+        { pid: 5555, cmdLine: `UnrealEditor.exe "${project.uprojectPath}"`, commandLineAvailable: true, uprojectPath: project.uprojectPath },
+      ],
+      // The listener is reachable but answers for a DIFFERENT project — the
+      // SetReuseAddr case where two editors share port 55558 and the OS
+      // decides which one replies.
+      tcpCommandFn: async (port, type) => {
+        if (type === 'get_editor_state') {
+          return {
+            status: 'success',
+            result: { uproject_path: foreign.uprojectPath, project_name: 'ForeignProject' },
+          };
+        }
+        return { status: 'success', result: {} };
+      },
+      httpCommandFn: async () => ({ status: 'success', result: {} }),
+    });
+    await initialize(transport, {});
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+
+    const response = await callTool(transport, 'wait_for_editor', { timeout_ms: 1000 });
+    const payload = response.result.structuredContent;
+    t.assert(payload.ready === false, `wait_for_editor refuses readiness (got ${payload.ready})`);
+    t.assert(payload.phase === 'identity_mismatch', `phase is identity_mismatch (got ${payload.phase})`);
+    t.assert(String(payload.mismatch?.attached_uproject).includes('AttachedProject'),
+      `response names the attached path (got ${payload.mismatch?.attached_uproject})`);
+    t.assert(String(payload.mismatch?.editor_uproject).includes('ForeignProject'),
+      `response names the listener's path (got ${payload.mismatch?.editor_uproject})`);
+
+    await app.server.close();
+  } finally {
+    cleanup(root);
+    cleanup(projectRoot);
+    cleanup(foreignRoot);
+  }
+});
+
+await runCase('connection_info identity mismatch path picks the first candidate that has a path', async () => {
+  const root = makeTempRoot();
+  const projectRoot = makeTempRoot();
+  const foreignRoot = makeTempRoot();
+  try {
+    const project = writeProject(join(projectRoot, 'AttachedProject'), 'AttachedProject');
+    const foreign = writeProject(join(foreignRoot, 'ForeignProject'), 'ForeignProject');
+    const { app, transport } = await createWireApp({
+      cwd: root,
+      // The first candidate has no command line (uprojectPath: null); the
+      // second is the one that actually mismatches. editorCandidates?.[0]
+      // would silently report null instead of the foreign path.
+      processInspector: () => [
+        { pid: 1111, cmdLine: '', commandLineAvailable: false, uprojectPath: null },
+        { pid: 2222, cmdLine: `UnrealEditor.exe "${foreign.uprojectPath}"`, commandLineAvailable: true, uprojectPath: foreign.uprojectPath },
+      ],
+      // No project identity in the handshake reply, so refreshEditorHandshake
+      // returns EDITOR_IDENTITY_UNKNOWN and connection_info falls through to
+      // the process-scan path that builds editorCandidates from above.
+      tcpCommandFn: async () => ({ status: 'success', result: {} }),
+      httpCommandFn: async () => ({ status: 'success', result: {} }),
+    });
+    await initialize(transport, {});
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+
+    const info = parseTextResult(await callTool(transport, 'connection_info', { force_reconnect: true }));
+    t.assert(String(info.identityMismatchPaths?.editor).includes('ForeignProject'),
+      `reports the candidate that has a path, not the null-path one first (got ${info.identityMismatchPaths?.editor})`);
+
+    await app.server.close();
+  } finally {
+    cleanup(root);
+    cleanup(projectRoot);
+    cleanup(foreignRoot);
+  }
+});
+
 process.exit(t.summary());

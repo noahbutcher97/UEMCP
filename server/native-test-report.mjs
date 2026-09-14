@@ -21,7 +21,10 @@ export function parseAutomationReport(json) {
     const errors = (entry.entries ?? [])
       .filter(e => e?.event?.type === 'Error')
       .map(e => e.event.message);
-    return { name: entry.testDisplayName ?? path, path, state, errors };
+    const skips = (entry.entries ?? [])
+      .map(e => e?.event?.message)
+      .filter(m => typeof m === 'string' && m.startsWith('skipped:'));
+    return { name: entry.testDisplayName ?? path, path, state, errors, skips };
   });
   const passed = tests.filter(x => x.state === 'Success').length;
   const failed = tests.filter(x => x.state === 'Fail').length;
@@ -31,11 +34,16 @@ export function parseAutomationReport(json) {
 
 export function summarizeReport(parsed) {
   const lines = [];
+  let skipCount = 0;
   for (const test of parsed.tests) {
-    lines.push(`${test.state === 'Success' ? 'PASS' : 'FAIL'} ${test.path}`);
+    const skips = test.skips ?? [];
+    skipCount += skips.length;
+    const skipSuffix = skips.map(message => ` (skip: ${message})`).join('');
+    lines.push(`${test.state === 'Success' ? 'PASS' : 'FAIL'} ${test.path}${skipSuffix}`);
     for (const message of test.errors) lines.push(`    ${message}`);
   }
   lines.push(`Native tests: ${parsed.passed} passed, ${parsed.failed} failed, ${parsed.notRun} not run`);
+  if (skipCount > 0) lines.push(`Labelled skips: ${skipCount}`);
   return lines;
 }
 

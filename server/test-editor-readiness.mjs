@@ -221,4 +221,101 @@ const t = new TestRunner('editor readiness');
   t.assert(res.editor.world_path === null, 'the absent world is reported, not concealed');
 }
 
+// ── EN-25: the listener is not necessarily OUR editor ────────────
+// The plugin binds with SetReuseAddr(true), so a second editor shares port
+// 55558 and the OS decides which one answers. A probe that treats "something
+// replied" as readiness is how an agent ends up mutating the wrong project.
+{
+  const probe = createEditorProbe({
+    tcpFn: async () => ({
+      status: 'success',
+      result: { project_name: 'Other', uproject_path: 'D:/Other/Other.uproject', world_path: '/Game/Maps/M' },
+    }),
+    port: 55558,
+    attachedUproject: 'D:/Proj/Proj.uproject',
+  });
+  const res = await probe();
+  t.assert(res.ok === false, 'a listener answering for another project is not ready');
+  t.assert(res.phase === 'identity_mismatch', `names the phase (got ${res.phase})`);
+  t.assert(res.code === 'EDITOR_PROJECT_MISMATCH',
+    `reuses the existing mismatch code rather than minting a new one (got ${res.code})`);
+  t.assert(res.mismatch?.attached_uproject === 'D:/Proj/Proj.uproject' &&
+    res.mismatch?.editor_uproject === 'D:/Other/Other.uproject',
+    'carries both paths so the caller can see which editor answered');
+}
+
+// Path comparison goes through normalizeComparisonPath, the same rule
+// ProjectContext uses, so separators and case cannot manufacture a mismatch.
+{
+  const probe = createEditorProbe({
+    tcpFn: async () => ({ status: 'success', result: { project_name: 'Proj', uproject_path: 'D:\\Proj\\Proj.uproject' } }),
+    port: 55558,
+    attachedUproject: 'D:/Proj/Proj.uproject',
+  });
+  const res = await probe();
+  t.assert(res.ok === true, `the same project written with other separators is still ours (got phase ${res.phase})`);
+}
+
+// wait_for_editor runs before anything is attached, so a missing attached path
+// disables the check instead of failing construction — unlike tcpFn and port,
+// whose absence is a wiring bug.
+{
+  const probe = createEditorProbe({
+    tcpFn: async () => ({ status: 'success', result: { project_name: 'Any', uproject_path: 'D:/Any/Any.uproject' } }),
+    port: 55558,
+  });
+  const res = await probe();
+  t.assert(res.ok === true, 'with no project attached there is no identity to contradict');
+}
+
+// Unknown identity is not wrong identity: an editor whose get_editor_state
+// omits uproject_path is treated the way ProjectContext treats it, as
+// EDITOR_IDENTITY_UNKNOWN rather than as a mismatch.
+{
+  const probe = createEditorProbe({
+    tcpFn: async () => ({ status: 'success', result: { project_name: 'Proj' } }),
+    port: 55558,
+    attachedUproject: 'D:/Proj/Proj.uproject',
+  });
+  const res = await probe();
+  t.assert(res.ok === true, 'an editor that reports no uproject_path is unknown, not wrong');
+}
+
+// A mismatch cannot resolve itself, so the wait must end on the first probe
+// rather than spending the caller's budget discovering the same fact 15 times.
+{
+  const processes = [{ pid: 7, cmdLine: 'x', commandLineAvailable: true, uprojectPath: 'D:/Proj/Proj.uproject' }];
+  let probes = 0;
+  let slept = 0;
+  const res = await waitForEditorReady({
+    listProcesses: () => processes,
+    attachedUproject: 'D:/Proj/Proj.uproject',
+    probe: async () => {
+      probes++;
+      return {
+        ok: false,
+        phase: 'identity_mismatch',
+        code: 'EDITOR_PROJECT_MISMATCH',
+        mismatch: { attached_uproject: 'D:/Proj/Proj.uproject', editor_uproject: 'D:/Other/Other.uproject' },
+      };
+    },
+    timeoutMs: 30000,
+    sleep: async (ms) => { slept += ms; },
+  });
+  t.assert(res.ready === false, 'identity mismatch is not ready');
+  t.assert(res.attempts === 1, `stops after the first probe (got ${res.attempts})`);
+  t.assert(slept === 0, `spends no budget on a wait that cannot converge (slept ${slept})`);
+  t.assert(res.mismatch?.editor_uproject === 'D:/Other/Other.uproject',
+    'surfaces the foreign path through the wait, not just through the probe');
+}
+
+// The hint is what stops a caller re-polling a futile phase forever.
+{
+  const hint = readinessHint({ ready: false, phase: 'identity_mismatch' });
+  t.assert(/different project|another project/i.test(hint),
+    `identity_mismatch names the wrong editor (got: ${hint})`);
+  t.assert(!/call .*again/i.test(hint),
+    'identity_mismatch does NOT invite re-polling a futile wait');
+}
+
 process.exit(t.summary());

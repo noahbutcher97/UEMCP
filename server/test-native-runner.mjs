@@ -28,6 +28,24 @@ t.assert(summarizeReport(bad).some(l => l.startsWith('FAIL UEMCP.')), 'summary m
 const empty = parseAutomationReport(fixture('index.empty.json'));
 t.assert(empty.total === 0 && reportExitCode(empty) === 4, 'zero tests exits 4, never 0');
 
+// Labelled skips (addendum C): a PASS that also recorded a `skipped:` info
+// entry must surface in both the parse and the printed summary, without
+// disturbing the exit code or an all-pass fixture's unrelated output.
+const skips = parseAutomationReport(fixture('index.skips.json'));
+const skippedTest = skips.tests.find(x => x.path === 'UEMCP.AssetEditorCapture.CaptureAssetEditor');
+t.assert(
+  Array.isArray(skippedTest?.skips) && skippedTest.skips.length === 1
+    && skippedTest.skips[0].startsWith('skipped:'),
+  'parseAutomationReport exposes a labelled skip on the test that recorded one',
+);
+const skipsSummary = summarizeReport(skips);
+t.assert(
+  skipsSummary.some(l => l === `PASS ${skippedTest.path} (skip: ${skippedTest.skips[0]})`),
+  'the PASS line for a labelled-skip test carries the skip message',
+);
+t.assert(skipsSummary.includes('Labelled skips: 1'), 'the closing line counts the one labelled skip');
+t.assert(!summarizeReport(ok).some(l => l.startsWith('Labelled skips:')), 'an all-pass fixture with no skips prints no Labelled skips line');
+
 let threw = null;
 try { parseAutomationReport({ nope: true }); } catch (e) { threw = e; }
 t.assert(threw && threw.code === 'REPORT_SCHEMA_UNKNOWN', 'unknown schema throws REPORT_SCHEMA_UNKNOWN');
