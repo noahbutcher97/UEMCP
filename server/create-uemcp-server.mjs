@@ -534,6 +534,11 @@ export async function createUemcpServer(options = {}) {
     async ({ timeout_ms }) => {
       const timeoutMs = clampWaitTimeout(timeout_ms);
       const attachedUproject = projectContext.snapshot()?.identity?.uprojectPath || null;
+      // Snapshot once: waitForEditorReady only classifies the process phase
+      // at the start of the wait, not per retry. inspectEditorProcesses()
+      // (not the bare listEditorProcesses import) honours the processInspector
+      // test seam, matching connection_info and detect_project below.
+      const editorProcesses = await inspectEditorProcesses();
       // tcpFn directly, never connectionManager.send(): send() serializes
       // through the per-layer queue, so waiting inside it would block every
       // other call on this layer for the whole budget.
@@ -544,7 +549,7 @@ export async function createUemcpServer(options = {}) {
         attachedUproject,
       });
       const outcome = await waitForEditorReady({
-        listProcesses: () => listEditorProcesses(),
+        listProcesses: () => editorProcesses,
         attachedUproject,
         probe,
         timeoutMs,
@@ -568,10 +573,12 @@ export async function createUemcpServer(options = {}) {
       const editor = await refreshEditorReadinessForConnectionInfo(force_reconnect);
       const deploy = await refreshDeployReadinessForConnectionInfo(force_reconnect);
       const projectSnapshot = projectContext.snapshot();
-      // EN-25: the mismatch was already detected — refreshEditorHandshake sets
-      // editorIdentityState when get_editor_state reports a foreign project.
-      // It was only reachable by reading a nested readiness dimension; these
-      // two fields put it where a caller will actually look.
+      // EN-25: the mismatch was already detected — both refreshEditorHandshake
+      // (get_editor_state reports a foreign project) and the process scan in
+      // project-context.mjs's refreshEditorProcesses (every visible editor in
+      // editorCandidates is a foreign project) set editorIdentityState. It was
+      // only reachable by reading a nested readiness dimension; these two
+      // fields put it where a caller will actually look.
       const identityMismatch = projectSnapshot.editorIdentityState === 'mismatch';
       return managementResult({
         ok: true,
@@ -583,7 +590,10 @@ export async function createUemcpServer(options = {}) {
         ...(identityMismatch ? {
           identityMismatchPaths: {
             attached: projectSnapshot.identity?.uprojectPath || null,
-            editor: projectSnapshot.editorCandidates?.[0]?.uprojectPath || null,
+            // The process scan can report a candidate with no command line
+            // (uprojectPath: null) ahead of the one that actually mismatches;
+            // report the first candidate that has a path, not just [0].
+            editor: projectSnapshot.editorCandidates?.find((c) => c.uprojectPath)?.uprojectPath ?? null,
           },
         } : {}),
         readiness: {

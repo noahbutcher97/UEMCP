@@ -107,6 +107,12 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Proposal**: a single shared `ResolveCaptureOutputPath` that rejects paths outside `FPaths::ProjectDir()` would close it for all three, with one native test each.
 - **Trigger**: the next change to any capture handler.
 
+### EN-29 — Capture tools: close the headless-unreachable coverage
+- **(a)**: `UEMCPAssetEditorCaptureTests.cpp`'s `CaptureUnsupportedHeadless` cannot assert its subject because `OpenFixtureEditor` declines whenever there is no renderer — assert `CAPTURE_UNSUPPORTED` at the helper level with `CaptureWidgetToPng(SNullWidget::NullWidget, …)`, keeping the handler-level path as a labelled skip.
+- **(b)**: `png_base64` and `inline_omitted` have never been emitted by the plugin in any run — pass `inline: true` on one smoke capture and decode it to `byte_length` bytes, and unit-test the over-cap branch with a fabricated buffer.
+- **(c)**: `details_panel_scroll` reports `row_offset` as landed even when no property row exists at the clamped offset (`CountRows` counts category rows, `GetPropertyRowNumbers` only property rows) — add `scrolled: bool` to the response and an over-range scroll to the smoke; plus the `.PNG` casing divergence from `get_viewport_screenshot`.
+- **Trigger**: the next change to any capture handler, or the next GUI smoke session.
+
 ## Fixture planting
 
 Test-coverage gaps requiring artificial fixtures in Project A / Project B.

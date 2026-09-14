@@ -138,8 +138,9 @@ t.assert(captureHandlers.includes('GetPropertyRowNumbers()') &&
   'details paging scrolls by row, not by pixel offset');
 
 const pieBody = captureHandlers.slice(captureHandlers.indexOf('void HandleCapturePieViewport'));
-t.assert(pieBody.indexOf('GEditor->PlayWorld') < pieBody.indexOf('FApp::CanEverRender()') &&
-  buildCs.includes('"PropertyEditor"'),
-  'PIE state is checked before the renderer gate, and PropertyEditor is a module dependency');
+t.assert(pieBody.indexOf('GEditor->PlayWorld') < pieBody.indexOf('FApp::CanEverRender()'),
+  'PIE state is checked before the renderer gate');
+t.assert(buildCs.includes('"PropertyEditor"'),
+  'PropertyEditor is a module dependency');
 
 process.exit(t.summary());
