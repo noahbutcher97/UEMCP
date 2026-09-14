@@ -1486,4 +1486,203 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	return true;
 }
 
+// =====================================================================================
+// compile:true on all three handlers, in one fixture so each leg builds on the last.
+//
+// The three are deliberately asymmetric and this test pins that asymmetry:
+//   - add_blueprint_variable_assignment calls CompileBlueprint directly and reports
+//     only two booleans — no diagnostic block, no compiled_ok, and no COMPILE_FAILED
+//     branch anywhere in the handler. Asserting the ABSENCE is what would catch a
+//     later "make them consistent" change.
+//   - add_blueprint_timer and disconnect_blueprint_pin both go through
+//     BuildBlueprintCompileDiagnosticResult and carry the full block.
+//   - disconnect_blueprint_pin compiles only when it actually broke something, so a
+//     dry run with compile:true must not compile at all.
+//
+// The assignment handler's CompileBlueprint call passes no options, so unlike the
+// other two it does not set SkipGarbageCollection and it can reconstruct node pins.
+// Nothing below reuses a node or pin pointer taken before a dispatch.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersCompilePathsTest,
+	"UEMCP.BlueprintHandlers.CompilePaths",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
+
+	// ---- 1. add_blueprint_variable_assignment with compile:true ----
+	TSharedPtr<FJsonObject> Assignment = MakeShared<FJsonObject>();
+	Assignment->SetStringField(TEXT("kind"), TEXT("literal"));
+	Assignment->SetNumberField(TEXT("value"), 5.0);
+	TSharedPtr<FJsonObject> AssignParams = MakeShared<FJsonObject>();
+	AssignParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	AssignParams->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	AssignParams->SetObjectField(TEXT("assignment"), Assignment);
+	AssignParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> AssignResponse = Dispatch(TEXT("add_blueprint_variable_assignment"), AssignParams);
+	FString Code;
+	if (!IsSuccess(AssignResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("assignment with compile:true failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> AssignResult = ResultOf(AssignResponse);
+	TestTrue(TEXT("assignment reports compiled"), AssignResult->GetBoolField(TEXT("compiled")));
+	TestFalse(TEXT("assignment clears requires_compile"), AssignResult->GetBoolField(TEXT("requires_compile")));
+	TestFalse(TEXT("assignment carries no compile block"), AssignResult->HasField(TEXT("compile")));
+	TestFalse(TEXT("assignment carries no compiled_ok"), AssignResult->HasField(TEXT("compiled_ok")));
+
+	// Re-resolved from the reported GUID rather than reused, because this handler's
+	// compile does not skip garbage collection and may reconstruct pins.
+	const FString SetNodeId = StringFieldOr(FindRole(AssignResult, TEXT("nodes"), TEXT("set")), TEXT("node_id"));
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	UEdGraphNode* SetNode = FindNodeByGuid(EventGraph, SetNodeId);
+	UEdGraphPin* ScorePin = FindFixturePin(SetNode, {TEXT("Score")}, EGPD_Input);
+	if (!SetNode || !ScorePin)
+	{
+		AddError(TEXT("the set node or its Score pin did not survive the compile"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestEqual(TEXT("the literal survived the compile"), ScorePin->DefaultValue, FString(TEXT("5")));
+
+	// ---- 2. add_blueprint_timer with compile:true ----
+	TSharedPtr<FJsonObject> TimerParams = MakeShared<FJsonObject>();
+	TimerParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPCompilePathsTimer"));
+	TimerParams->SetNumberField(TEXT("interval"), 1.0);
+	TimerParams->SetBoolField(TEXT("create_callback_graph"), true);
+	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> TimerResponse = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	if (!IsSuccess(TimerResponse, Code))
+	{
+		AddError(FString::Printf(
+			TEXT("timer with compile:true returned '%s'; on COMPILE_FAILED read detail.compile.errors — a fixture Actor Blueprint carrying one variable-set node and one timer chain is expected to compile clean"),
+			*Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
+	TestTrue(TEXT("timer reports compiled"), TimerResult->GetBoolField(TEXT("compiled")));
+	TestFalse(TEXT("timer clears requires_compile on a clean compile"), TimerResult->GetBoolField(TEXT("requires_compile")));
+	TestTrue(TEXT("timer reports compiled_ok"), TimerResult->GetBoolField(TEXT("compiled_ok")));
+
+	const TSharedPtr<FJsonObject>* TimerCompile = nullptr;
+	if (TimerResult->TryGetObjectField(TEXT("compile"), TimerCompile) && TimerCompile)
+	{
+		TestTrue(TEXT("timer compile block succeeded"), (*TimerCompile)->GetBoolField(TEXT("succeeded")));
+		TestEqual(TEXT("timer compile block reports no errors"), (int32)NumberFieldOr(*TimerCompile, TEXT("num_errors")), 0);
+		TestEqual(TEXT("timer compile block names the Blueprint"),
+			StringFieldOr(*TimerCompile, TEXT("name")), Fixture.Blueprint->GetName());
+		TestEqual(TEXT("timer compile block reports a generated class"),
+			StringFieldOr(*TimerCompile, TEXT("generated_class_status")), FString(TEXT("valid")));
+	}
+	else
+	{
+		AddError(TEXT("timer with compile:true carried no compile block"));
+	}
+
+	const FString BeginPlayId = StringFieldOr(TimerResult, TEXT("begin_play_node_id"));
+	const FString TimerNodeId = StringFieldOr(TimerResult, TEXT("timer_node_id"));
+	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
+	{
+		AddError(TEXT("the timer response named no begin play or timer node"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- 3. a disconnect dry run with compile:true must not compile ----
+	TSharedPtr<FJsonObject> DryParams = MakeShared<FJsonObject>();
+	DryParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	DryParams->SetStringField(TEXT("node_id"), BeginPlayId);
+	DryParams->SetStringField(TEXT("pin"), TEXT("then"));
+	DryParams->SetStringField(TEXT("direction"), TEXT("output"));
+	DryParams->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	DryParams->SetStringField(TEXT("target_pin"), TEXT("execute"));
+	DryParams->SetBoolField(TEXT("dry_run"), true);
+	DryParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> DryResponse = Dispatch(TEXT("disconnect_blueprint_pin"), DryParams);
+	if (!IsSuccess(DryResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("dry-run disconnect with compile:true failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
+	// Also the guard for leg 4: if this were 0 the real break below would break
+	// nothing, the handler would never compile, and its assertions would be vacuous.
+	TestEqual(TEXT("the dry run found the link the real break needs"), (int32)DryResult->GetNumberField(TEXT("links_matched")), 1);
+	TestFalse(TEXT("a dry run never reports compiled"), DryResult->GetBoolField(TEXT("compiled")));
+	TestFalse(TEXT("a dry run carries no compile block"), DryResult->HasField(TEXT("compile")));
+	TestFalse(TEXT("a dry run carries no compiled_ok"), DryResult->HasField(TEXT("compiled_ok")));
+
+	// ---- 4. the real disconnect with compile:true ----
+	TSharedPtr<FJsonObject> BreakParams = MakeShared<FJsonObject>();
+	BreakParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	BreakParams->SetStringField(TEXT("node_id"), BeginPlayId);
+	BreakParams->SetStringField(TEXT("pin"), TEXT("then"));
+	BreakParams->SetStringField(TEXT("direction"), TEXT("output"));
+	BreakParams->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	BreakParams->SetStringField(TEXT("target_pin"), TEXT("execute"));
+	BreakParams->SetBoolField(TEXT("dry_run"), false);
+	BreakParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> BreakResponse = Dispatch(TEXT("disconnect_blueprint_pin"), BreakParams);
+	if (!IsSuccess(BreakResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("disconnect with compile:true failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> BreakResult = ResultOf(BreakResponse);
+	TestEqual(TEXT("the real break broke one link"), (int32)BreakResult->GetNumberField(TEXT("links_broken")), 1);
+	TestTrue(TEXT("disconnect reports compiled"), BreakResult->GetBoolField(TEXT("compiled")));
+	TestFalse(TEXT("disconnect clears requires_compile on a clean compile"), BreakResult->GetBoolField(TEXT("requires_compile")));
+	TestTrue(TEXT("disconnect reports compiled_ok"), BreakResult->GetBoolField(TEXT("compiled_ok")));
+
+	const TSharedPtr<FJsonObject>* BreakCompile = nullptr;
+	if (BreakResult->TryGetObjectField(TEXT("compile"), BreakCompile) && BreakCompile)
+	{
+		TestTrue(TEXT("disconnect compile block succeeded"), (*BreakCompile)->GetBoolField(TEXT("succeeded")));
+		TestEqual(TEXT("disconnect compile block reports no errors"), (int32)NumberFieldOr(*BreakCompile, TEXT("num_errors")), 0);
+	}
+	else
+	{
+		AddError(TEXT("the real disconnect with compile:true carried no compile block"));
+	}
+
+	// ---- the graph after the compiling break, re-resolved from the reported ids ----
+	UEdGraphNode* BeginPlayAfter = FindNodeByGuid(EventGraph, BeginPlayId);
+	UEdGraphNode* TimerAfter = FindNodeByGuid(EventGraph, TimerNodeId);
+	UEdGraphPin* ThenAfter = FindFixturePin(BeginPlayAfter, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecuteAfter = FindFixturePin(TimerAfter, {TEXT("execute")}, EGPD_Input);
+	if (!ThenAfter || !ExecuteAfter)
+	{
+		AddError(TEXT("could not re-resolve then/execute pins after the compiling break"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestFalse(TEXT("the link is gone after a compiling break"), ThenAfter->LinkedTo.Contains(ExecuteAfter));
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
