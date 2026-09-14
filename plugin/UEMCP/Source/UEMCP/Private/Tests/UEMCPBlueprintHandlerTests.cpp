@@ -36,6 +36,8 @@
 #include "K2Node_Event.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/Package.h"
@@ -57,10 +59,14 @@ namespace UEMCP::Blueprint::Tests
 	};
 
 	/**
-	 * Actor-parented Blueprint in a fresh in-memory package. The object name
-	 * equals the package leaf — see the file header for why that is load-bearing.
+	 * Blueprint of the given parent class and type, in a fresh in-memory package.
+	 * The object name equals the package leaf — see the file header for why that is
+	 * load-bearing. The type matters to more than the parent class: only
+	 * BPTYPE_Normal and BPTYPE_LevelScript get an EventGraph
+	 * (FBlueprintEditorUtils::DoesSupportEventGraphs), which is how a fixture with
+	 * no event graph is built.
 	 */
-	FFixtureBlueprint CreateFixtureBlueprint()
+	FFixtureBlueprint CreateFixtureBlueprintOfType(UClass* ParentClass, EBlueprintType BlueprintType)
 	{
 		FFixtureBlueprint Fixture;
 		const FString Leaf = FString::Printf(TEXT("BP_UEMCPFixture_%s"),
@@ -72,10 +78,10 @@ namespace UEMCP::Blueprint::Tests
 			return Fixture;
 		}
 		Fixture.Blueprint = FKismetEditorUtilities::CreateBlueprint(
-			AActor::StaticClass(),
+			ParentClass,
 			Fixture.Package,
 			FName(*Leaf),
-			BPTYPE_Normal,
+			BlueprintType,
 			UBlueprint::StaticClass(),
 			UBlueprintGeneratedClass::StaticClass());
 		if (Fixture.Blueprint)
@@ -83,6 +89,12 @@ namespace UEMCP::Blueprint::Tests
 			FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
 		}
 		return Fixture;
+	}
+
+	/** Actor-parented Blueprint with an EventGraph — what every test but one wants. */
+	FFixtureBlueprint CreateFixtureBlueprint()
+	{
+		return CreateFixtureBlueprintOfType(AActor::StaticClass(), BPTYPE_Normal);
 	}
 
 	/** Member variable of the given pin category; mirrors add_blueprint_variable. */
@@ -1680,6 +1692,252 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestFalse(TEXT("the link is gone after a compiling break"), ThenAfter->LinkedTo.Contains(ExecuteAfter));
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// add_blueprint_timer's two remaining reachable failures.
+//
+// NO_GRAPH needs a Blueprint with no event graph. FBlueprintEditorUtils::
+// DoesSupportEventGraphs admits only BPTYPE_Normal and BPTYPE_LevelScript, so
+// CreateBlueprint gives a BPTYPE_FunctionLibrary none, and FindEventGraph only
+// searches — it never creates one — so the handler's FindOrCreateEventGraph returns
+// null.
+//
+// COMPILE_FAILED needs a Blueprint that cannot compile. The first arrangement tried
+// here was a planted UK2Node_Event override with an unresolvable EventReference —
+// UK2Node_Event::ValidateNodeDuringCompilation is supposed to log an Error for that.
+// It was falsified empirically on this UE 5.6 build: with the node confirmed correct
+// at the C++ level (bOverrideFunction=true, ResolveMember returning null against both
+// AActor and the Blueprint's own generated class), the handler's own compile still
+// reported compiled_ok=true, num_errors=0, with no compiler log output at all in the
+// test's window — so whatever FBlueprintCompilationManager::CompileSynchronously does
+// with a root-set Event node in this configuration, it does not validate it the way a
+// direct FKismetCompilerContext::Compile() call would.
+//
+// The arrangement used instead plants a UK2Node_CallFunction whose FunctionReference
+// names a function that exists on no class at all. UK2Node_CallFunction::
+// ValidateNodeDuringCompilation (K2Node_CallFunction.cpp) reports "Could not find a
+// function named ..." as an Error purely from GetTargetFunction() being null — no
+// override-resolution machinery involved — which is deterministic regardless of
+// whatever ordering difference explains the first arrangement's silent success. It
+// is wired into the exec chain off the fixture's own default ghost ReceiveBeginPlay
+// node — FKismetEditorUtilities::CreateBlueprint auto-populates a fresh Actor
+// Blueprint's event graph with one, confirmed empirically when a hand-seeded second
+// ReceiveBeginPlay was never the node add_blueprint_timer's own
+// FindOrCreateReceiveBeginPlay found (FindExistingEventNode's linear search hits the
+// pre-existing ghost node first) — so add_blueprint_timer's own
+// FindOrCreateReceiveBeginPlay reuses that same ghost node (bBeginPlayCreated stays
+// false) rather than creating its own, which is what lets the planted node hang off
+// a node the handler will not roll back.
+//
+// The two other failure branches in this handler are unreachable from the wire
+// surface and are deliberately not tested: TIMER_FUNCTION_NOT_FOUND needs
+// UKismetSystemLibrary::K2_SetTimer to be absent from a loaded Engine module, and
+// CREATE_FAILED needs NewObject to return null.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersTimerFailuresTest,
+	"UEMCP.BlueprintHandlers.TimerFailures",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	// ---- NO_GRAPH ----
+	FFixtureBlueprint Library = CreateFixtureBlueprintOfType(
+		UBlueprintFunctionLibrary::StaticClass(), BPTYPE_FunctionLibrary);
+	if (!Library.Blueprint)
+	{
+		AddError(TEXT("function-library fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Library);
+		return false;
+	}
+	TestEqual(TEXT("a function library has no ubergraph"), Library.Blueprint->UbergraphPages.Num(), 0);
+
+	TSharedPtr<FJsonObject> LibraryParams = MakeShared<FJsonObject>();
+	LibraryParams->SetStringField(TEXT("blueprint_name"), Library.PackagePath);
+	LibraryParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPLibraryTimer"));
+	LibraryParams->SetNumberField(TEXT("interval"), 1.0);
+	LibraryParams->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("no event graph code"),
+		ErrorCodeOf(Dispatch(TEXT("add_blueprint_timer"), LibraryParams)),
+		FString(TEXT("NO_GRAPH")));
+	DestroyFixtureBlueprint(Library);
+
+	// ---- COMPILE_FAILED and the rollback it triggers ----
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	if (!EventGraph)
+	{
+		AddError(TEXT("fixture Blueprint has no event graph"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// CreateBlueprint auto-populates a fresh Actor Blueprint's event graph with
+	// default "ghost" event nodes (ReceiveBeginPlay, ReceiveActorBeginOverlap,
+	// ReceiveTick) — confirmed empirically (a hand-seeded second ReceiveBeginPlay
+	// node placed here was never the one add_blueprint_timer's own
+	// FindOrCreateReceiveBeginPlay found, because FindExistingEventNode's linear
+	// search over EventGraph->Nodes hits this pre-existing one first). Using it
+	// directly is what makes bBeginPlayCreated false on the dispatch below, which is
+	// what keeps it out of RollbackTimerAuthoring's removal list.
+	UK2Node_Event* ExistingBeginPlay = nullptr;
+	for (UEdGraphNode* Node : EventGraph->Nodes)
+	{
+		if (UK2Node_Event* Ev = Cast<UK2Node_Event>(Node); Ev && Ev->EventReference.GetMemberName() == FName(TEXT("ReceiveBeginPlay")))
+		{
+			ExistingBeginPlay = Ev;
+			break;
+		}
+	}
+	if (!ExistingBeginPlay)
+	{
+		AddError(TEXT("fixture Blueprint's event graph has no default ReceiveBeginPlay node"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const FString ExistingBeginPlayId = ExistingBeginPlay->NodeGuid.ToString();
+
+	// Plant a call-function node whose FunctionReference names a function that exists
+	// on no class. UK2Node_CallFunction::ValidateNodeDuringCompilation reports
+	// "Could not find a function named ..." as an Error purely from
+	// GetTargetFunction() being null.
+	UK2Node_CallFunction* BrokenCallNode = NewObject<UK2Node_CallFunction>(EventGraph);
+	if (!BrokenCallNode)
+	{
+		AddError(TEXT("failed to create the planted call-function node"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	BrokenCallNode->FunctionReference.SetExternalMember(
+		FName(TEXT("UEMCPFunctionThatDoesNotExist")), UKismetSystemLibrary::StaticClass());
+	EventGraph->AddNode(BrokenCallNode);
+	BrokenCallNode->CreateNewGuid();
+	BrokenCallNode->PostPlacedNewNode();
+	BrokenCallNode->AllocateDefaultPins();
+
+	// AllocateDefaultPins only creates pins via CreatePinsForFunctionCall when the
+	// function resolves (K2Node_CallFunction.cpp), so an unresolvable
+	// FunctionReference yields a pinless node here. Create the exec pin by hand so the
+	// node can be wired into the BeginPlay chain rather than left floating.
+	UEdGraphPin* BrokenExecPin = BrokenCallNode->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
+	UEdGraphPin* ExistingThenPin = FindFixturePin(ExistingBeginPlay, {TEXT("then")}, EGPD_Output);
+	if (!BrokenExecPin || !ExistingThenPin)
+	{
+		AddError(TEXT("could not wire the planted node into the existing BeginPlay exec chain"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	ExistingThenPin->MakeLinkTo(BrokenExecPin);
+	const FString BrokenNodeId = BrokenCallNode->NodeGuid.ToString();
+
+	const FString CallbackName = TEXT("OnUEMCPRollbackTimer");
+	TSharedPtr<FJsonObject> TimerParams = MakeShared<FJsonObject>();
+	TimerParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerParams->SetStringField(TEXT("callback_function"), CallbackName);
+	TimerParams->SetNumberField(TEXT("interval"), 1.0);
+	TimerParams->SetBoolField(TEXT("create_callback_graph"), true);
+	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> TimerResponse = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	TestEqual(TEXT("compile failure code"), ErrorCodeOf(TimerResponse), FString(TEXT("COMPILE_FAILED")));
+
+	// The handler passes its whole result object as the error DETAIL, not as result —
+	// the same slot UNSUPPORTED_ASSIGNMENT_KIND uses. ResultOf would return an empty
+	// object here and every assertion below would pass vacuously.
+	const TSharedPtr<FJsonObject>* Detail = nullptr;
+	if (!TimerResponse.IsValid() || !TimerResponse->TryGetObjectField(TEXT("detail"), Detail) || !Detail)
+	{
+		AddError(TEXT("COMPILE_FAILED carried no detail object"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestTrue(TEXT("detail reports compiled"), (*Detail)->GetBoolField(TEXT("compiled")));
+	TestTrue(TEXT("detail keeps requires_compile set after a failed compile"), (*Detail)->GetBoolField(TEXT("requires_compile")));
+	TestFalse(TEXT("detail reports compiled_ok false"), (*Detail)->GetBoolField(TEXT("compiled_ok")));
+	TestEqual(TEXT("detail names the callback graph"), StringFieldOr(*Detail, TEXT("callback_graph_name")), CallbackName);
+	TestTrue(TEXT("detail reports the callback graph was created"), (*Detail)->GetBoolField(TEXT("function_graph_created")));
+	// The existing ghost BeginPlay is reused, not created, by this dispatch.
+	TestEqual(TEXT("detail names the existing begin play node"), StringFieldOr(*Detail, TEXT("begin_play_node_id")), ExistingBeginPlayId);
+
+	const TSharedPtr<FJsonObject>* CompileBlock = nullptr;
+	if ((*Detail)->TryGetObjectField(TEXT("compile"), CompileBlock) && CompileBlock)
+	{
+		TestFalse(TEXT("the compile block did not succeed"), (*CompileBlock)->GetBoolField(TEXT("succeeded")));
+		TestTrue(TEXT("the compile block reports at least one error"), NumberFieldOr(*CompileBlock, TEXT("num_errors")) >= 1.0);
+
+		// Matched loosely on purpose: the engine text is "Could not find a function
+		// named \"{0}\" in '{1}'.\nMake sure '{2}' has been compiled for @@" and
+		// FCompilerResultsLog substitutes the @@ token at report time.
+		const TArray<TSharedPtr<FJsonValue>>* Errors = nullptr;
+		bool bSawMissingFunction = false;
+		if ((*CompileBlock)->TryGetArrayField(TEXT("errors"), Errors) && Errors)
+		{
+			for (const TSharedPtr<FJsonValue>& Entry : *Errors)
+			{
+				const TSharedPtr<FJsonObject>* Obj = nullptr;
+				bSawMissingFunction |= (Entry.IsValid() && Entry->TryGetObject(Obj) && Obj
+					&& StringFieldOr(*Obj, TEXT("message")).Contains(TEXT("Could not find a function named")));
+			}
+		}
+		TestTrue(TEXT("the planted call node is the reported error"), bSawMissingFunction);
+	}
+	else
+	{
+		AddError(TEXT("the COMPILE_FAILED detail carried no compile block"));
+	}
+
+	// ---- RollbackTimerAuthoring: the handler's own nodes are gone; the pre-existing
+	// begin-play node and the planted broken call node — neither authored by the
+	// handler — are untouched ----
+	const FString TimerNodeId = StringFieldOr(*Detail, TEXT("timer_node_id"));
+	const FString SelfNodeId = StringFieldOr(*Detail, TEXT("self_node_id"));
+	// Asserted non-empty first: FindNodeByGuid returns null for an empty id, so
+	// without this the TestNull calls below could pass on missing fields.
+	TestFalse(TEXT("detail names the timer node"), TimerNodeId.IsEmpty());
+	TestFalse(TEXT("detail names the self node"), SelfNodeId.IsEmpty());
+
+	TestNull(TEXT("the timer node was rolled back"), FindNodeByGuid(EventGraph, TimerNodeId));
+	TestNull(TEXT("the self node was rolled back"), FindNodeByGuid(EventGraph, SelfNodeId));
+	TestNotNull(TEXT("the pre-existing begin play node was not rolled back (not handler-created)"),
+		FindNodeByGuid(EventGraph, ExistingBeginPlayId));
+	TestNotNull(TEXT("the planted broken call node was not rolled back (not handler-authored)"),
+		FindNodeByGuid(EventGraph, BrokenNodeId));
+
+	bool bCallbackGraphPresent = false;
+	for (UEdGraph* Graph : Fixture.Blueprint->FunctionGraphs)
+	{
+		bCallbackGraphPresent |= (Graph && Graph->GetName() == CallbackName);
+	}
+	TestFalse(TEXT("the callback function graph was rolled back"), bCallbackGraphPresent);
+
+	// The exec link from BeginPlay.then into the planted node survives the handler's
+	// own node/link removal — confirms rollback did not collaterally break exec
+	// fan-out it did not create.
+	UEdGraphPin* ExistingThenPinAfter = FindFixturePin(ExistingBeginPlay, {TEXT("then")}, EGPD_Output);
+	if (ExistingThenPinAfter)
+	{
+		TestTrue(TEXT("the exec link into the planted node survives rollback"),
+			ExistingThenPinAfter->LinkedTo.Contains(BrokenExecPin));
+	}
+	else
+	{
+		AddError(TEXT("could not re-resolve the BeginPlay then pin after rollback"));
+	}
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;
