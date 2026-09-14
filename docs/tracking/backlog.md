@@ -99,6 +99,7 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Proposal**: before returning a stale verdict, confirm it by content — hash the deployed `Source/` tree and the repo's `Source/` tree (or compare against `git ls-tree` blob ids for HEAD) and report `SYNC (content-identical; timestamps differ)` when they match. The gate then blocks only on real staleness. Pairs with EN-26 (a `--json` mode), since a content verdict field is exactly what the hook should consume.
 - **Trigger**: the next change to `verify-deploy.mjs`'s classifier, or the next time the gate blocks a push whose deployed trees match HEAD.
 - **Redundant re-sync (2026-09-14)**: the marker keeps `syncTime` when a sync deploys content whose hash equals the prior marker's, so a re-sync after a checkout no longer forces a rebuild; `lastSyncAt` records the most recent copy.
+- **Rule order (2026-09-14)**: a known content mismatch is NEEDS-SYNC or NEEDS-DEPLOY outright; the timestamp rules apply only when the hashes are unknown.
 
 ## Fixture planting
 

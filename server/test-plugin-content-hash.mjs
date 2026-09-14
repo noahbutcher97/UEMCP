@@ -28,7 +28,11 @@ function createFakeFs(files, { unreadable = [], readdirFails = [], entryOrder = 
   return {
     readdirSync(dir) {
       const d = norm(dir);
-      if (readdirFailSet.has(d)) throw new Error(`EACCES: ${d}`);
+      if (readdirFailSet.has(d)) {
+        const err = new Error(`EACCES: ${d}`);
+        err.code = 'EACCES';
+        throw err;
+      }
       const names = new Map();
       for (const p of map.keys()) {
         if (!p.startsWith(`${d}/`)) continue;
@@ -37,7 +41,11 @@ function createFakeFs(files, { unreadable = [], readdirFails = [], entryOrder = 
         if (slash === -1) names.set(rest, false);
         else names.set(rest.slice(0, slash), true);
       }
-      if (names.size === 0) throw new Error(`ENOENT: ${d}`);
+      if (names.size === 0) {
+        const err = new Error(`ENOENT: ${d}`);
+        err.code = 'ENOENT';
+        throw err;
+      }
       const out = [...names].map(([name, isDir]) => ({
         name,
         isDirectory: () => isDir,
@@ -208,6 +216,14 @@ t.assert(
 t.assert(
   hashPluginTree(ROOT, createFakeFs(BASE_FILES)) !== null,
   'a tree without Resources/ still yields a digest',
+);
+
+// 23: EACCES (or any non-ENOENT/ENOTDIR error) on the optional root fails
+// closed like a required root — an inaccessible Resources/ must not silently
+// read as "absent" and produce a confident-but-wrong match.
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(BASE_FILES, { readdirFails: [`${ROOT}/Resources`] })) === null,
+  'an unreadable Resources/ (EACCES) fails closed to null, not treated as absent',
 );
 
 process.exit(t.summary());

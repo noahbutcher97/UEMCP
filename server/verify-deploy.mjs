@@ -150,6 +150,29 @@ export function classifyDeployState(input) {
   return { ...classifyVerdict(input, contentIdentical), contentIdentical };
 }
 
+/**
+ * The mtime-only classification (pre-content-hash behaviour). This is the
+ * fallback when content identity is unknown (`contentIdentical === null`,
+ * no hash available), and it is also probed by the definitive-mismatch rule
+ * below — a known mismatch keeps this reading only when it already lands on
+ * NEEDS-SYNC or NEEDS-DEPLOY, since SYNC and NEEDS-BUILD are never correct
+ * once content is known to differ.
+ */
+function classifyByMtime({ deployedSrcMtime, dllMtime, repoSrcMtime }) {
+  const sourceStale = deployedSrcMtime + MTIME_SLOP_SEC < repoSrcMtime;
+  const dllStale = dllMtime + MTIME_SLOP_SEC < repoSrcMtime;
+  if (sourceStale && dllStale) {
+    return { verdict: 'NEEDS-DEPLOY', reason: 'DLL predates HEAD source — full sync + Build needed' };
+  }
+  if (sourceStale) {
+    return { verdict: 'NEEDS-SYNC', reason: 'Deployed source older than repo source' };
+  }
+  if (dllMtime + MTIME_SLOP_SEC < deployedSrcMtime) {
+    return { verdict: 'NEEDS-BUILD', reason: 'Deployed source synced but DLL older than source — Build needed' };
+  }
+  return { verdict: 'SYNC', reason: 'DLL ≥ deployed source ≥ repo source' };
+}
+
 function classifyVerdict(input, contentIdentical) {
   const { pluginDirExists, deployedSrcMtime, deployedSrcFileCount, dllExists, dllMtime, repoSrcMtime } = input;
   if (!pluginDirExists) return { verdict: 'MISSING', reason: 'No Plugins\\UEMCP at target' };
@@ -170,19 +193,26 @@ function classifyVerdict(input, contentIdentical) {
     }
     return { verdict: 'SYNC', reason: 'content-identical to repo; DLL built after the last sync' };
   }
-  // Content differs or is unknown — the timestamp rules are still right.
-  const sourceStale = deployedSrcMtime + MTIME_SLOP_SEC < repoSrcMtime;
-  const dllStale = dllMtime + MTIME_SLOP_SEC < repoSrcMtime;
-  if (sourceStale && dllStale) {
-    return { verdict: 'NEEDS-DEPLOY', reason: 'DLL predates HEAD source — full sync + Build needed' };
+  if (contentIdentical === false) {
+    // A known mismatch is definitive (2026-09-14 rule-order amendment, design
+    // §3.3): the digest covers Resources/ and UEMCP.uplugin as well as
+    // Source/, so a mismatch can be real even when every mtime the timestamp
+    // rules look at reads fresh — and a build cannot fix content that differs
+    // from the repo, so SYNC and NEEDS-BUILD are both off the table here.
+    // dllExists is guaranteed true at this point (the !dllExists branch above
+    // already returned), so this reads only the DLL-vs-repo relationship.
+    if (dllMtime + MTIME_SLOP_SEC < repoSrcMtime) {
+      return { verdict: 'NEEDS-DEPLOY', reason: 'deployed content differs from repo and the DLL predates the repo source' };
+    }
+    const mtimeVerdict = classifyByMtime(input);
+    if (mtimeVerdict.verdict === 'NEEDS-SYNC' || mtimeVerdict.verdict === 'NEEDS-DEPLOY') {
+      return mtimeVerdict;
+    }
+    return { verdict: 'NEEDS-SYNC', reason: 'deployed content differs from repo (hash mismatch); timestamps alone looked current' };
   }
-  if (sourceStale) {
-    return { verdict: 'NEEDS-SYNC', reason: 'Deployed source older than repo source' };
-  }
-  if (dllMtime + MTIME_SLOP_SEC < deployedSrcMtime) {
-    return { verdict: 'NEEDS-BUILD', reason: 'Deployed source synced but DLL older than source — Build needed' };
-  }
-  return { verdict: 'SYNC', reason: 'DLL ≥ deployed source ≥ repo source' };
+  // Content unknown (no hash could be computed) — the mtime rules are the
+  // only signal available.
+  return classifyByMtime(input);
 }
 
 /** Format seconds delta as "Xh Ym" / "Xd Yh" / "Xm Ys". Negative input returns "(-)". */

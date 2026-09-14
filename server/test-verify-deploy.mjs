@@ -372,13 +372,21 @@ eq(
   'content identical + no DLL + fresh deployed mtime → never-built rules unchanged',
 );
 
-// Differing or absent hashes leave the mtime rules exactly as they were.
+// A known content mismatch is now definitive (2026-09-14 rule-order
+// amendment): the mtime rules only ever look at Source/ mtimes, so a
+// Resources/-only mismatch could otherwise still read SYNC, and a build
+// cannot fix content that differs from the repo, so NEEDS-BUILD is equally
+// wrong. Absent hashes (contentIdentical === null) are the only case still
+// left to the mtime rules.
 const differ = classifyDeployState(built({ deployedSourceHash: HASH_B, deployedSrcMtime: newer, dllMtime: newer }));
-eq(differ.verdict, 'SYNC', 'hashes differ → mtime rules decide (all fresh → SYNC)');
+eq(differ.verdict, 'NEEDS-SYNC', 'hashes differ, source fresh, DLL fresh → definitive mismatch overrides the mtime SYNC reading');
 eq(differ.contentIdentical, false, 'hashes differ → contentIdentical false');
+includesStr(differ.reason, 'timestamps alone looked current', 'the definitive-mismatch NEEDS-SYNC reason names the hash mismatch');
+const differSourceFreshDllStale = classifyDeployState(built({ deployedSourceHash: HASH_B, deployedSrcMtime: newer, dllMtime: older }));
+eq(differSourceFreshDllStale.verdict, 'NEEDS-DEPLOY', 'hashes differ, source fresh, DLL predates repo source → NEEDS-DEPLOY regardless of source freshness');
 const differStale = classifyDeployState(built({ deployedSourceHash: HASH_B, deployedSrcMtime: older, dllMtime: older }));
 eq(differStale.verdict, 'NEEDS-DEPLOY', 'hashes differ + both stale → NEEDS-DEPLOY');
-includesStr(differStale.reason, 'DLL predates HEAD source', 'the mtime NEEDS-DEPLOY reason is unchanged');
+includesStr(differStale.reason, 'and the DLL predates the repo source', 'the definitive-mismatch NEEDS-DEPLOY reason (no longer the old mtime wording)');
 const noHash = classifyDeployState(built({ repoSourceHash: null, deployedSourceHash: null, deployedSrcMtime: newer, dllMtime: newer }));
 eq(noHash.contentIdentical, null, 'no hashes → contentIdentical null');
 eq(noHash.verdict, 'SYNC', 'no hashes → mtime rules decide, unchanged');

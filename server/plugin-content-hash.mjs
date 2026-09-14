@@ -84,18 +84,24 @@ export function collectPluginContentFiles(pluginRoot, fsImpl = DEFAULT_FS) {
   for (const dir of REQUIRED_ROOT_DIRS) walk(join(pluginRoot, dir), `${dir}/`);
   if (!ok) return null;
 
-  // Optional roots: a failure reading the root itself (typically ENOENT, a
-  // target deployed before this directory existed) contributes no files
-  // rather than nulling the whole digest. A failure reading something
-  // *inside* an optional root that does exist is a real error and still
-  // fails closed via the shared `ok` flag, same as a required root.
+  // Optional roots: only ENOENT/ENOTDIR on the root itself (a target deployed
+  // before this directory existed, or a path component that isn't a
+  // directory) means "absent, contributes nothing rather than nulling the
+  // whole digest". Any other error reading the root — EACCES, for
+  // instance — is a real failure, not an absence, and must fail closed to
+  // null like a required root; treating it as "absent" would let an
+  // inaccessible Resources/ silently drop out of the digest and produce a
+  // confident wrong match. A failure reading something *inside* an optional
+  // root that does exist is likewise a real error, caught via the shared
+  // `ok` flag below.
   for (const dir of OPTIONAL_ROOT_DIRS) {
     const absDir = join(pluginRoot, dir);
     let entries;
     try {
       entries = fsImpl.readdirSync(absDir, { withFileTypes: true });
-    } catch {
-      continue;
+    } catch (err) {
+      if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) continue;
+      return null;
     }
     collectEntries(entries, absDir, `${dir}/`);
     if (!ok) return null;
