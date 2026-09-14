@@ -92,6 +92,13 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Proposal**: a `--json` flag on `verify-deploy.mjs` emitting `{ targets: [{ uprojectPath, verdict, reason, dllExists, editors[] }], exitCode }`; the hook consumes `verdict` and `dllExists` directly and the two substring pins retire. Small: the verdict objects already exist in `classifyDeployState`; the flag is a printer switch plus one hook edit.
 - **Trigger**: the next change to `verify-deploy.mjs`'s printer, or the first time the gate needs a rule the reason strings cannot express.
 
+### EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge
+- **Source**: first merge under the gate (WS5a, 2026-09-13).
+- **Symptom**: `git merge` (a fast-forward) rewrote the plugin source files in the working tree, so their mtimes became newer than DLLs built from identical content minutes earlier; `verify-deploy` then reported every built target as `NEEDS-DEPLOY — DLL predates HEAD source` and the gate refused the push. The deployed trees were byte-identical to HEAD (recursive diff), so the only way through was to sync and rebuild each target again. The same happens after `git checkout` of any commit that touches plugin source, and after `git stash pop`.
+- **Root cause**: `classifyDeployState` reasons from mtimes alone; nothing compares content. D138-FIX2 already removed one mtime over-estimate (`Math.max` with the commit time); this is the remaining class.
+- **Proposal**: before returning a stale verdict, confirm it by content — hash the deployed `Source/` tree and the repo's `Source/` tree (or compare against `git ls-tree` blob ids for HEAD) and report `SYNC (content-identical; timestamps differ)` when they match. The gate then blocks only on real staleness. Pairs with EN-26 (a `--json` mode), since a content verdict field is exactly what the hook should consume.
+- **Trigger**: the next change to `verify-deploy.mjs`'s classifier, or the next time the gate blocks a push whose deployed trees match HEAD.
+
 ## Fixture planting
 
 Test-coverage gaps requiring artificial fixtures in Project A / Project B.
