@@ -32,16 +32,6 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Trigger (D48-defined)**: workflow demand for math-operator introspection in BPs
 
 
-### EN-6b — Dead code in the offline modules — **DONE 2026-09**
-- **Scope**: `BULK_TTL_MS` (offline-core.mjs), `listDirRecursive` (offline-project-tools.mjs), `parseAssetTables` (offline-asset-tools.mjs) have no callers; WS3 moved them unchanged by design. Delete in the next offline pass.
-
-### EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending — **DONE 2026-09 (WS3)**
-- **Source**: EN-2 manual testing 2026-04-20 §6 observation (results commit `7758c85`)
-- **Current behavior**: `results[]` sorted by path alphabetically. For "which BPs call X most" top-N workflows, callers sort client-side.
-- **Scope**: ~1 line change in `offline-tools.mjs` bulk handler — sort `results.sort((a,b) => b.match_count - a.match_count)` before applying pagination
-- **Cost**: ~5-10 min enhancement worker; bundle with any future `offline-tools.mjs` pass
-- **Trigger**: next enhancement round, or fold into M-cmd/M-alt worker if they touch bulk tool
-
 ### EN-5 — Reflection-based lint: yaml params ↔ handler param reads
 - **Source**: Audit A (post-Agent-10.5 codebase health) §3 insight 2026-04-19
 - **Scope**: automated lint that, for each offline tool's handler case in `executeOfflineTool`, verifies every `params.<X>` read has a matching declaration in the tool's yaml `params:` block. Generalizes D44's structural invariant from a one-time-refactor into a maintained guarantee. Would have caught F-2 + F-3 (Pre-Phase-3 Fixes Worker items) automatically.
@@ -49,58 +39,20 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost**: 1-2 agent sessions. Most of the cost is AST walking + handling edge cases (destructuring, alias chains).
 - **Trigger**: after the next time a yaml↔handler param drift is caught by manual testing or audit. If F-2/F-3 class issues recur, promote.
 
-### EN-7 — Next live tool-surface gap: inline viewport screenshot
-- **Source**: D180 registry backlog pass (2026-06-17). `test-tool-registry-truth` reported 10 management tools, 24 offline tools, 103 implemented live tools, 11 planned/excluded exemptions, and 0 missing active live tools.
-- **Recommendation**: make `visual-capture.get_viewport_screenshot` the next implementation branch. It is a true live gap: existing `take_screenshot` writes to disk, while no inline viewport image payload exists.
-- **Why before writers**: lower destructive surface than GAS/data-asset writes, adjacent to the shipped `get_asset_preview_render` response contract, and straightforward to verify with fake TCP routing, registry truthfulness, compile/deploy, and opt-in live smoke.
-- **Keep hidden/remapped**: `get_asset_thumbnail` remains replaced by `get_asset_preview_render`; `get_asset_visual_summary` remains a composite helper; `get_audio_asset_info` remains superseded by `read_asset_properties` until a distinct live-only need appears.
-- **Defer after this**: `capture_active_editor_tab` if `FWidgetRenderer` is stable, then data-asset writers with explicit dirty/save/undo policy, then GAS authoring/codegen.
-
 ### EN-8 — External field report (Project A VFX audit): 7 offline-tool friction items
-- **Source**: real read-only VFX audit of Project A by an LLM agent, 2026-06-18. Full report + repro + suggested patches + acceptance criteria live in the 2026-06-18 field-report package. Split into individual EN-/bug items when prioritized.
-- **Direct follow-on queue**: `docs/superpowers/plans/2026-06-18-live-usage-follow-on-queue.md` sequences the field-report issues as D183-D190 so these do not remain vague backlog items.
-- **Items** (severity in report):
-  - **P1 (High)** `query_asset_registry`: unknown `path` param silently dropped (real param is `path_prefix`) -> whole-project scan despite `additionalProperties:false`; default `limit:200` x full metadata overflows context. Fix: reject/alias unknown params; lower default limit or add a projection mode; echo `scannedRoot`/`truncated`. (Touches the same yaml↔handler invariant as **EN-5**.)
-  - **P2 (High)** `read_asset_properties`: nested component/subobject exports returned as opaque `{kind:"export"}` refs; can't reach a GAS GE's GameplayCue/component contents in one call (blocked a load-bearing finding). Fix: `include_subobjects`/`recurse_exports`; GAS GEComponent + `FGameplayEffectCue` layout handlers; `present_but_undecoded` marker to distinguish empty vs undecodable.
-  - **P3 (High)** surface gap: no project-wide reverse-reference / call-site search; "who calls X" forced raw byte-grep over `.uasset` (native text-grep silently skips binaries). Fix: Reference-Viewer-equivalent reverse-dep tool and/or project-wide `find_blueprint_nodes` over a `path_prefix`.
-  - **P4 (Med)** `read_asset_properties` is CDO-only -> misses SCS NiagaraComponent subobjects + in-graph `SpawnSystem` nodes (real spawn sites missed). Fix: union "runtime spawn/reference summary" tool, or document the 3-tool recipe.
-  - **P5 (Med)** `find_blueprint_nodes` excludes `MakeStruct`/`BreakStruct` (+ no exec trace) -> can't see what data feeds a call. **Adjacent to EN-4** (which graduates math/comparison nodes); MakeStruct/BreakStruct are struct-construction, a distinct candidate set for data-flow audits.
-  - **P6 (Low)** param-name inconsistency (`asset_path` vs `path_prefix`; camelCase `assetPath` rejected). Fix: aliases or standardize. Overlaps **EN-5** lint scope.
-  - **P7 (Low, docs)** no per-tool `requiresEditor`/`offlineFidelity` hint -> offline decode gaps (P2/P4) discovered mid-task. Fix: add the field to `tools.yaml` and surface in descriptions.
-- **Trigger**: next `offline-tools.mjs` / yaml grooming pass (P1, P6 are cheap and bundle with EN-5); P2/P3 are the high-value capability gaps -- prioritize when asset-analysis workflows recur.
+- **Source**: real read-only VFX audit of Project A by an LLM agent, 2026-06-18. Full report + repro + suggested patches + acceptance criteria live in the 2026-06-18 field-report package.
+- **Follow-on queue**: executed as D183–D186; the D187–D190 numbers in `docs/superpowers/plans/2026-06-18-live-usage-follow-on-queue.md` were taken by unrelated work — see those D-log rows (`docs/tracking/risks-and-decisions.md`) and the plan's status block for the full correspondence table.
+- **Items** (severity in report; status verified 2026-09-14):
+  - **P1 (High, OPEN)** `query_asset_registry`: unknown `path` param silently dropped (real param is `path_prefix`) -> whole-project scan; default `limit:200` x full metadata overflows context. Not shipped: no unknown-param rejection or `path`→`path_prefix` alias exists (`server/zod-builder.mjs`, `server/create-uemcp-server.mjs`), `attach_project` still only accepts `project_root`/snake_case (`tools.yaml`, `server/project-tools.mjs` `projectRoot` there is an output field, not an input alias), and `limit` default is still 200 (`tools.yaml`). D183's plan scope covered this hardening but the shipped D183 row only restored montage/sequence reads.
+  - **P2 (High, PARTLY)** `read_asset_properties`: nested component/subobject exports returned as opaque `{kind:"export"}` refs; can't reach a GAS GE's GameplayCue/component contents in one call. Shipped: D186's opt-in `include_subobjects` traversal — nested export rows, per-subobject decode status, `present_but_undecoded` marker. Not shipped: the GAS-specific `FGameplayEffectCue`/GEComponent layout decode this item asked for (no `GameplayEffectCue` reference anywhere in `server/` or the plugin).
+  - **P3 (High, OPEN)** surface gap: no project-wide reverse-reference / call-site search; "who calls X" forced raw byte-grep over `.uasset`. Not shipped: `get_asset_references` is still not `initially_visible` in `tools.yaml` (unlike `get_datatable_contents` next to it), and no reverse-reference offline path or project-wide `find_blueprint_nodes`-over-`path_prefix` tool exists. The actual D187 row shipped the live-oracle freshness gate instead — a different topic that happened to land under the same number.
+  - **P4 (Med, PARTLY)** `read_asset_properties` is CDO-only -> misses SCS NiagaraComponent subobjects + in-graph `SpawnSystem` nodes. Shipped: D186's `include_subobjects` reaches Blueprint generated-class component templates. Not shipped: a union "runtime spawn/reference summary" tool or documented 3-tool recipe for `SpawnSystem*` graph nodes.
+  - **P5 (Med, PARTLY)** `find_blueprint_nodes` excludes `MakeStruct`/`BreakStruct` (+ no exec trace). Shipped: D184's pin-default literal readback on `bp_show_node`. Not shipped: `find_blueprint_nodes` still explicitly documents `BreakStruct`/`MakeStruct` as "counted in nodes_out_of_skeletal ... but not returned" (`tools.yaml`) — the graduation never landed.
+  - **P6 (Low, OPEN)** param-name inconsistency (`asset_path` vs `path_prefix`; camelCase `assetPath` rejected). No aliases found in `tools.yaml` or the server for either.
+  - **P7 (Low, docs, OPEN)** no per-tool `requiresEditor`/`offlineFidelity` hint. `tools.yaml` has zero `offline_fidelity` occurrences; `requires_editor` exists but predates this report by six weeks (added 2026-05-09 per D146), so it isn't evidence this queue shipped the ask.
+- **Trigger**: P1, P3, P6, P7 are fully open — next `offline-tools.mjs` / yaml grooming pass for P1/P6/P7; P3 is still the high-value capability gap, prioritize when asset-analysis workflows recur. P2/P4/P5's remaining scope (GAS cue decode, spawn-summary tool, MakeStruct/BreakStruct graduation) share the same trigger.
 
 ---
-
-### EN-24 — Asset-editor capture: `capture_asset_editor` + `list_asset_editor_tabs` (supersedes planned `capture_active_editor_tab`) — **DONE 2026-09**
-- **Source**: cross-session request, 2026-09-13, from a session building an asset-editor plugin in a private UE 5.8 host project (the request names no engine bug; it names a UEMCP gap). Reference implementation exists in that host project's test module, not in this repo.
-- **Gap**: `get_viewport_screenshot` reads `GEditor->GetActiveViewport()` (`VisualCaptureHandler.cpp:182`), which the engine resolves to the first active level-editor viewport, so no asset editor (an `FAssetEditorToolkit` with its own `SEditorViewport`, Details tab, timeline) can be captured. `capture_active_editor_tab` is `status: planned` in `tools.yaml` behind an `FWidgetRenderer` path that never shipped; this entry replaces that plan with a proven Slate path and explicit addressing.
-- **Design sketch (engine API, verified by the requester in 5.8)**: resolve the toolkit with `UAssetEditorSubsystem::FindEditorForAsset(Asset, false)`; use its `TabManager` (`TryInvokeTab` / `FindExistingLiveTab` by tab id); capture the toolkit's `SEditorViewport` or a tab's content widget with `FSlateApplication::Get().TakeScreenshot(Widget, OutColorData, OutSize)`; encode through `FImageUtils`. For long property grids: `IDetailsView::SetRootExpansionStates(true, true)` and `STableViewBase::SetScrollOffset` on the `SDetailTree` descendant (`GetScrollWidget()` returns the details view itself, not the tree).
-- **Proposed tools**: `capture_asset_editor { asset_path, tab_id?, out_png?, inline? }` returning path and/or base64 plus pixel size, erroring when no editor is open for the asset; `list_asset_editor_tabs { asset_path }` returning tab ids and display names from the toolkit's tab manager; optional `details_panel_expand_all { asset_path, tab_id }` and `details_panel_scroll { asset_path, tab_id, row_offset }` for paging a Details panel in review captures.
-- **Cost / shape**: plugin C++ (extend `VisualCaptureHandler.cpp` or a new `AssetEditorCaptureHandler.cpp`, shared helpers in `Public/` per the anon-namespace rule), `tools.yaml` entries in the visual-capture toolset, server-side handler wiring, rotation assertions for params and error shapes, and a live-editor smoke. Needs an editor and `Build.bat`, so it belongs in a plugin session; bundle with WS5 of the 2026-09-09 remediation design or the next visual-capture pass (EN-7 lineage).
-- **Trigger**: next plugin session that touches `VisualCaptureHandler.cpp`, or the first agent workflow that needs a non-level-editor capture.
-
-### EN-25 — PIE-window capture and editor-identity on TCP 55558 — **DONE 2026-09**
-- **Source**: same 2026-09-13 cross-session request, two smaller observations.
-- **PIE in its own window**: when PIE launches in a separate window (an asset editor had focus), `get_viewport_screenshot` still returns the level-editor view. A `capture_pie_viewport` reading `GEngine->GameViewport->Viewport` would cover it. Small handler; bundle with EN-24.
-- **Wrong editor on 55558**: port 55558 was once answered by a different editor instance on the same machine. `connection_info` with `force_reconnect` caught it through the identity check, but the confusion is avoidable: either a per-project port (profile-configured, surfaced by `connection_info`) or a project check inside `wait_for_editor` that refuses a listener whose identity does not match the attached project. Related: WS2's finding that a headless automation run also tries to bind 55558 (`docs/handoffs/native-test-runner-and-compile-gate.md`, step 0.4), so a per-project or per-instance port would serve both cases.
-- **Root cause (2026-09-13, WS2 step 0.4)**: `UEMCPModule.cpp:42` calls `RawSocket->SetReuseAddr(true)` before `Listen()`, so a second editor (or a headless automation run) binds 55558 alongside the first instead of failing; which instance answers a connection is then up to the OS. Removing the reuse flag makes the second instance fail loudly; a per-project port avoids the collision entirely. Decide with EN-24.
-- **Trigger**: with EN-24, or when WS2's port-collision characterization lands and the runner needs a port strategy anyway.
-- **Closed 2026-09-13**: `capture_pie_viewport` shipped, and `wait_for_editor` now refuses a listener whose reported project is not the attached one (`EDITOR_PROJECT_MISMATCH`), with `connection_info` reporting `identityMismatch`. The per-project port and the `SetReuseAddr` removal stay open — the identity check removes the dangerous outcome (acting on the wrong editor) without a config surface in `.uemcp-targets.json`, `.mcp.json` and the plugin's `Listen()`. Revisit when the headless automation runner needs a port strategy anyway (WS2 step 0.4). Plan: `docs/superpowers/plans/2026-09-13-editor-capture-and-identity.md`.
-
-### EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — **DONE 2026-09**
-- **Source**: whole-branch review of the WS2 branch (2026-09-13).
-- **Gap**: `.githooks/pre-push` decides whether to block a plugin push by grepping `verify-deploy.mjs`'s human-readable output — the `Verdict:` prefix and the reason substrings `DLL missing` / `not built`. Those strings are now pinned by `test-verify-deploy.mjs` and the hook's shape by `test-pre-push-gate.mjs`, so a reformat fails a suite rather than silently disarming the gate, but the contract is still prose.
-- **Proposal**: a `--json` flag on `verify-deploy.mjs` emitting `{ targets: [{ uprojectPath, verdict, reason, dllExists, editors[] }], exitCode }`; the hook consumes `verdict` and `dllExists` directly and the two substring pins retire. Small: the verdict objects already exist in `classifyDeployState`; the flag is a printer switch plus one hook edit.
-- **Trigger**: the next change to `verify-deploy.mjs`'s printer, or the first time the gate needs a rule the reason strings cannot express.
-
-### EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge — **DONE 2026-09**
-- **Source**: first merge under the gate (WS5a, 2026-09-13).
-- **Symptom**: `git merge` (a fast-forward) rewrote the plugin source files in the working tree, so their mtimes became newer than DLLs built from identical content minutes earlier; `verify-deploy` then reported every built target as `NEEDS-DEPLOY — DLL predates HEAD source` and the gate refused the push. The deployed trees were byte-identical to HEAD (recursive diff), so the only way through was to sync and rebuild each target again. The same happens after `git checkout` of any commit that touches plugin source, and after `git stash pop`.
-- **Root cause**: `classifyDeployState` reasons from mtimes alone; nothing compares content. D138-FIX2 already removed one mtime over-estimate (`Math.max` with the commit time); this is the remaining class.
-- **Proposal**: before returning a stale verdict, confirm it by content — hash the deployed `Source/` tree and the repo's `Source/` tree (or compare against `git ls-tree` blob ids for HEAD) and report `SYNC (content-identical; timestamps differ)` when they match. The gate then blocks only on real staleness. Pairs with EN-26 (a `--json` mode), since a content verdict field is exactly what the hook should consume.
-- **Trigger**: the next change to `verify-deploy.mjs`'s classifier, or the next time the gate blocks a push whose deployed trees match HEAD.
-- **Redundant re-sync (2026-09-14)**: the marker keeps `syncTime` when a sync deploys content whose hash equals the prior marker's, so a re-sync after a checkout no longer forces a rebuild; `lastSyncAt` records the most recent copy.
-- **Rule order (2026-09-14)**: a known content mismatch is NEEDS-SYNC or NEEDS-DEPLOY outright; the timestamp rules apply only when the hashes are unknown.
 
 ### EN-28 — Confine capture output paths to the project directory
 - **Gap**: `capture_asset_editor` and `capture_pie_viewport` write a relative `out_png` under `Saved/` and an absolute one where it points, exactly like the older `get_viewport_screenshot` (`VisualCaptureHandler.cpp` ~119-123, ~240-251) — all three tools accept any absolute path and `..` escapes today.
@@ -112,6 +64,26 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **(b)**: `png_base64` and `inline_omitted` have never been emitted by the plugin in any run — pass `inline: true` on one smoke capture and decode it to `byte_length` bytes, and unit-test the over-cap branch with a fabricated buffer.
 - **(c)**: `details_panel_scroll` reports `row_offset` as landed even when no property row exists at the clamped offset (`CountRows` counts category rows, `GetPropertyRowNumbers` only property rows) — add `scrolled: bool` to the response and an over-range scroll to the smoke; plus the `.PNG` casing divergence from `get_viewport_screenshot`.
 - **Trigger**: the next change to any capture handler, or the next GUI smoke session.
+
+### EN-30 — Data-asset writers and GAS authoring
+- **Source**: deferred remainder of EN-7's "defer after this" list. `capture_active_editor_tab` (the first item on that list) shipped as EN-24's `capture_asset_editor` + `list_asset_editor_tabs` (D199), and the older planned `capture_active_editor_tab` entry was deleted from `tools.yaml` (D199).
+- **Scope**: data-asset writers with an explicit dirty/save/undo policy, then GAS authoring/codegen — unchanged from EN-7's original ordering (lower destructive surface first).
+- **Trigger**: next enhancement round that prioritizes write-surface expansion, or the first workflow that specifically needs data-asset mutation or GAS authoring/codegen.
+
+### EN-31 — Per-project TCP port and the `SetReuseAddr` flag
+- **Source**: residual from EN-25, left open when EN-25 closed (D199).
+- **Gap**: port 55558 was once answered by a different editor instance on the same machine. EN-25's identity check (`wait_for_editor` refusing a listener whose reported project mismatches the attached one, `EDITOR_PROJECT_MISMATCH`) removes the dangerous outcome of acting on the wrong editor, but there is still no config surface — no per-project port in `.uemcp-targets.json`, `.mcp.json`, or the plugin's `Listen()` — so a second editor (or a headless automation run) still binds the same port and collides.
+- **Root cause**: `UEMCPModule.cpp:42` calls `RawSocket->SetReuseAddr(true)` before `Listen()`, so the second bind succeeds instead of failing, and which instance answers a given connection is left up to the OS. Removing the reuse flag would make the second instance fail loudly instead; a per-project port would avoid the collision entirely.
+- **Trigger**: when the headless automation runner (WS2, `docs/handoffs/native-test-runner-and-compile-gate.md` step 0.4) needs a port strategy anyway, since it also binds 55558.
+
+### Shipped (see the D-log)
+- EN-6b — Dead code in the offline modules — shipped 2026-09 (commit `ce2d8ab`)
+- EN-6 — `find_blueprint_nodes_bulk` results[] sort by `match_count` descending — shipped 2026-09 (commit `ef2e964`)
+- EN-7 — Next live tool-surface gap: inline viewport screenshot — shipped 2026-06 (D181; `get_viewport_screenshot` is `status: shipped` in `tools.yaml`)
+- EN-24 — Asset-editor capture: `capture_asset_editor` + `list_asset_editor_tabs` — shipped 2026-09 (D199)
+- EN-25 — PIE-window capture and editor-identity on TCP 55558 — shipped 2026-09 (D199; per-project port residual tracked as EN-31)
+- EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — shipped 2026-09 (commit `e07837f`)
+- EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge — shipped 2026-09 (commit `e07837f`; refined by `d42805b`/`1166888`)
 
 ## Fixture planting
 
@@ -160,133 +132,29 @@ Research questions explicitly deferred with named reopening conditions. Watch-fo
 
 These items ARE dispatched (handoffs exist) so they're NOT tracked here. Per the maintenance rule above, completed handoffs are removed once they ship — this section only lists in-flight or actively-pending dispatches.
 
-In-flight as of 2026-04-25 (SMOKE-FIX shipped; M3 + M4 dispatchable; M5 waits on Bug 4 follow-up):
+In flight as of 2026-09-14: nothing dispatched.
 
-- (none currently in flight)
+The April 2026 dispatches this section tracked have all shipped: M3 (D93 actors, D96 widgets, D97 blueprints-write, D98 milestone complete), M4 (D95 — redirected with no separate implementation once the worker found all 12 scoped reads already shipped via M-enhance/D77), M5 (D101 scope-verifier through D108 milestone complete), D81-SANITIZATION-AUDIT (D89), D81-SANITIZATION-FIXES (D92), CLEANUP-MICRO (D90), SMOKE-FIX (D87), AUDIT-FIX-1/2/3 (D83/D84/D85), and M-enhance (D74-D77).
 
-**Wave 4 dispatch readiness updated post-D87**:
-- **M3 + M4 dispatchable NOW** — neither depends on visual-capture; deployment cycle (sync-plugin.bat + Build.bat + relaunch) needed for Bugs 1 / 3-thread / 4-crash to close end-to-end (those are deployment gaps, not code defects per D87).
-- **M5 WAIT** — includes visual-capture toolset; depends on Bug 4 follow-up (thumbnail empty post-marshal) landing first.
+The 2026-09-09 health-audit remediation design's five workstreams shipped 2026-09-10 through 2026-09-13, mostly via plain commits with no dedicated D-log row: WS1 CLAUDE.md file-layout refresh (commit `9560190`), WS2 native test runner + compile gate (commit `d3928bf`; see EN-26/EN-27 above for the gate follow-ons), WS3 `offline-tools.mjs` split (commits `1162ee4`, `ef2e964`, `7ffc31c`, `ce2d8ab`), WS4 `server/deployment/` intent pass and transaction decomposition (commits `bd5598c`, `67985a9`), and WS5 (D198 WS5a native handler coverage; D197 WS5b closed by measurement with no transport refactor). The separate `editor-capture-and-identity` branch (not part of the health-audit remediation) merged at `1abf12a`, shipping D199 (EN-24/EN-25 above).
 
-**D81 sanitization-regression audit + fix queue** (dispatchable now; parallel-safe with deployment-cycle work):
-- **D81-SANITIZATION-AUDIT** — handoff `docs/handoffs/d81-sanitization-regression-audit.md` (session-local per gitignore). 0.5-1 session. Read-only audit producing findings doc at `docs/audits/d81-sanitization-regressions-2026-04-25.md`. Triggered by user-flagged test-uemcp-gate.bat regression (commit `66bf214` was a targeted-tactical fix; this audit scans for the rest).
-- **D81-SANITIZATION-FIXES** — handoff `docs/handoffs/d81-sanitization-fixes-worker.md` (session-local). 0.5-1.5 sessions. Hard-gated on audit landing. Implements per-finding fixes + verifies all repo-root `.bat` scripts comply with CLAUDE.md §.bat convention. Must not re-introduce codenames (D82 gate blocks).
-
-**CLEANUP-MICRO worker dispatchable** — handoff `docs/handoffs/cleanup-micro-worker.md` (session-local). 1-1.5 hr. Bundles three small fixes (file-disjoint, single CL):
-- **Bug 4 thumbnail PNG-compression** (per D88 corrected root cause): one-line fix + comment/error-message cleanup in `VisualCaptureHandler.cpp`. UE pipeline gotcha: `RenderThumbnail()` populates raw BGRA but NOT PNG; `AccessCompressedImageData()` has no lazy-encode fallback. Fix is `Thumbnail.CompressImageData();` after render.
-- **MCPThreadMarshal use-after-free** (per D87 latent defect): capture-by-value/shared-ptr in `RunOnGameThread<T>` lambda chain. Steady-state doesn't trigger but timeout path (30s GT_TIMEOUT) unwinds worker thread while AsyncTask still pending → freed-stack deref. M3 will exercise timeout path more.
-- **rc_passthrough body Zod-validation** (per D86): structured-object body param arrives stringified via MCP wire. Recommended fix: schema accepts both shapes via `z.union([z.record(z.any()), z.string()])` + handler normalizes.
-
-Closing CLEANUP-MICRO unblocks M5 dispatch (visual-capture toolset) and removes the latent C++ hazard before M3 writes-rebuild compounds it.
-
-**HIGH-PRIORITY SMOKE-FIX dispatchable** — handoff `docs/handoffs/smoke-fix-thread-and-identifier-bugs.md`. **Blocks Wave 4 dispatch.** 5 plugin bugs from human-integration-smoke 2026-04-25 (D86):
-- **Bug 1 BLOCKER**: `bp_compile_and_report` editor crash (IsInAsyncLoadingThread assert)
-- **Bug 2 MEDIUM**: `rc_list_objects` HTTP 404 (UE 5.6 removed `/remote/object/list`)
-- **Bug 3 LOW-MED**: `get_blueprint_*` log spam + partial results on cold BPs (same thread-class as Bug 1 + missing `_C` suffix)
-- **Bug 4 BLOCKER**: `get_asset_preview_render` editor crash (IsInGameThread assert)
-- **Bug 5 MEDIUM**: `bp_trace_exec` node_not_found from `bp_list_entry_points` output
-
-**3 of 5 are RECURRENCES** of audit findings believed shipped (D83 AUDIT-FIX-1 thread marshaling — Bugs 1+3+4; D85 AUDIT-FIX-3 NodeGuid bridge — Bug 5). SMOKE-FIX worker's first task: root-cause why marshaling/bridge didn't catch these handlers' code paths. 1-2 sessions expected.
-
-**Two §Reporting-back items deferred** (FA-ε §Open 3 cross-transport transaction + M-enhance §Biggest-unknowns 4 PIE teardown race) — pending follow-up smoke pass after SMOKE-FIX lands.
-
-**Audit-triage follow-on history**:
-- ~~**AUDIT-FIX-1**~~ — SHIPPED 2026-04-24 per D83. **PARTIALLY EFFECTIVE per D86 smoke** — Bugs 1+3+4 prove marshaling didn't cover all handler code paths.
-- ~~**AUDIT-FIX-2**~~ — SHIPPED 2026-04-24 per D84. Bug 2 is a separate UE-5.6-API drift, not an AUDIT-FIX-2 regression.
-- ~~**AUDIT-FIX-3**~~ — SHIPPED 2026-04-24 per D85. **PARTIALLY EFFECTIVE per D86 smoke** — Bug 5 proves bridge didn't catch the live `bp_list_entry_points → bp_trace_exec` composition path.
-
-**F-14 PIE teardown race upgraded from open-item → first-class follow-on**: per D81 hint, AUDIT-FIX-1's game-thread marshaling fixes the REQUEST side but `UEditorEngine::RequestEndPlayMap` is engine-internal async — post-request teardown lag remains a real race. Flag for future PIE-adjacent tool work. Not blocking Wave 4 but queue if PIE workflows become important.
-
-**New institutional-memory hazard captured in D81**: Edit tool drops multi-line edits silently on CRLF-encoded files in plugin/UEMCP/ tree. Every future C++ plugin worker must `git diff` after each Edit OR use Write for full rewrites. Will surface in next audit pass if any plugin worker hits it again.
-
-File-collision analysis: zero overlap across the three. All three dispatchable in parallel.
-
-**Remaining user-action item**: integration smoke test resume at Step 2 (editor launch) per `docs/testing/human-integration-smoke-2026-04-24.md`. Plugin compile now clean post-D78.
-
-**Remaining audit findings** (22 not in the top-3 batch): queued for post-fix audit-fix second wave. Categories: D44 yaml-RC drift (F-9), SidecarWriter atomic-write (F-3), heuristic-filter refinement, response-size cap on reflection_walk, PARTIAL-RC commit/collapse decision, cross-transport transaction semantics untested, PIE teardown race root-cause, UE 5.7 drift candidates. None blocking Wave 4.
-
-**Phase 3 milestone**: **Wave 3 (M-enhance) ship-complete** per D77 — 4 sessions, 9 commits, 36 agent-facing MCP tools + 16 plugin C++ handlers + HTTP:30010 RC transport + save-hook + Content Browser menu + batch commandlet. Test baseline 1037 → 1203 passing. Waves 1 + 2 + 3 all shipped; Phase 3 ~60-70% complete by session count (M3 + M4 + M5 remain, ~15-25 sessions estimated).
-
-**User-action: integration smoke test** (orthogonal to next dispatch; all paths ready per D77):
-1. Close editor → `sync-plugin.bat "path\to\YourProject\YourProject.uproject"` → `Build.bat YourProjectEditor Win64 Development -project=...`
-2. Open editor → save a BP → verify `<Project>/Saved/UEMCP/<pkg>.sidecar.json` materializes with `narrow-sidecar-v1` schema
-3. Right-click BP in Content Browser → see "Regenerate UEMCP Sidecar" item → click shows confirmation dialog
-4. `UnrealEditor-Cmd.exe <uproject> -run=DumpBPSidecar -PathRoot=/Game/Blueprints -Recursive -unattended -nop4` → batch-emits sidecars
-5. MCP `get_asset_preview_render` against `/Game/Meshes/SM_Cube` → returns inline base64 PNG thumbnail
-6. Naturally verifies FA-ε §Open 3 (cross-transport transaction semantics) + M-enhance handoff §Biggest-unknowns 4 (PIE teardown race)
-
-**Pre-drafted, NOT yet dispatched**:
-- **M-enhance** — full handoff at `docs/handoffs/m-enhance-hybrid-transport.md` (commit `d315f4b`). HYBRID transport scope per D66 (RC HTTP + plugin TCP split rule). 3-5 sessions, 6 prescriptive checkpoints. Phase 4 absorbed into this worker (8 rc_* primitives ship inside). Content-wise independent of S-B-base; dispatches after Verb-surface completes (`server/offline-tools.mjs` collision). Test baseline: 1034 per D71.
-- **S-B-overrides** (not drafted) — 1.5-2 session worker per D58. UE 5.6↔5.7 delta buffer (hints from D70 §7: watch `FEdGraphPinType.Serialize`'s trailing bool `bSerializeAsSinglePrecisionFloat`; verify FText HistoryType enum additions). Touches `server/uasset-parser.mjs`. Lower priority until the secondary target materializes on 5.7.
-
-Recently shipped (most recent first):
-
-- **SMOKE-FIX** (commit `151ae4d`, 2026-04-25) — D87. 4/5 smoke-surfaced bugs CLOSED end-to-end. Critical finding: 3 "recurrences" in D86 weren't recurrences — they were deployment gaps (project-local plugin tree + MCP server process never picked up D83/D85 code). AUDIT-FIX-1 + AUDIT-FIX-3 were always correct. Real code fixes shipped: ReflectionWalker `_C` suffix normalization (Bug 3 path-half), rc_list_objects via `/remote/search/assets` (Bug 2), exhaustive 8-entry-point Bug 5 regression. Test rotation 1338 → 1381 passing across 12 files. New follow-up: thumbnail-empty post-marshal (Bug 4 second-order finding). New latent defect flagged: MCPThreadMarshal use-after-free on GT_TIMEOUT path.
-- **AUDIT-FIX-3 NodeGuid input bridge** (commit `7edd55d`, 2026-04-24) — D85. 3 handlers normalized via lookup-by-success pattern (bp_trace_exec, bp_trace_data, bp_neighbors). bp_show_node + bp_subgraph_in_comment correctly disambiguated as not-applicable (export_index / objectName, not NodeGuid). F-21 fallback removed in bpShowNode (D70 invariant: cross-graph NodeGuid scan can return wrong-graph node; degrades to FA-β not_available envelope). Behavior change: handler responses now echo canonical form, not raw input. Test rotation 1338 passing / 0 failing.
-- **AUDIT-FIX-2 RC semantic delegate expansion + toCdoPath fix** (commit `c512df2`, 2026-04-24) — D84. F-4 get_curve_asset (Float/Vector/LinearColor curve dispatch via describe-probe), F-5 get_mesh_info (5 UFUNCTIONs batched), F-6 list_material_parameters (scalar/vector/texture info-only), F-7 toCdoPath heuristic (only append `:Default__<>` when path ends in `_C`). test-rc-wire.mjs 72 → 110 (+38). Yaml descriptions narrowed to match implementation per D44 invariant.
-- **AUDIT-FIX-1 plugin thread-safety marshaling** (commit `4cc6275`+`67f8efb`, 2026-04-24) — D83 (was D81 before deconflict). — D81. All 18 plugin C++ handlers game-thread-marshaled via new MCPThreadMarshal helper. `RunOnGameThread` + 30s timeout + GT_TIMEOUT envelope + per-call wall-clock instrumentation. Test baseline unchanged (C++-only). Three worker hints captured: F-14 PIE teardown race still UNRESOLVED (engine-internal async beyond request-side marshaling); Edit tool silently drops multi-line edits on CRLF files in plugin/UEMCP/ tree (verify via git diff); Async/Future.h canonical UE 5.6 path (not Templates/Future.h).
-- **T-1b fixture-philosophy migration** (commit `3c7d4a9`, 2026-04-24) — D80. 4 test files migrated via shared `server/test-fixtures.mjs` module; ~80% drift-surface reduction (10 → 2 centralised named constants). test-phase1.mjs 316 → 318 (+2 bootstrap-probe assertions). `offline-tools.resolveAssetDiskPath` `/Engine/` path support flagged as T-1c prereq. No CL-1-style follow-ons.
-- **Phase 3 post-M-enhance audit** (commit `a9f5f0d`, 2026-04-24) — D79. 29 findings (7 high / 11 medium / 11 low). Top 3 high: F-1 plugin thread-safety marshaling, F-2+F-21 NodeGuid input bridge, F-4+F-5+F-6+F-7 RC semantic-delegate placeholder bodies. Follow-on queue: 3 parallel-safe fix workers dispatchable now.
-- **Integration-smoke compile fixes** (commit `15b97f9`, 2026-04-24) — D78. 3 UE 5.6 API drifts patched in CP3 + S4-3 plugin C++: `UUserDefinedStruct` moved Engine→CoreUObject/StructUtils; `FObjectThumbnail` in Misc/ not UObject/; `AccessCompressedImageData` not `GetCompressedImageData`. Plugin compile clean post-fix.
-- **M-enhance ship-complete across 4 sessions** (commits `12b1a13` → `7e91e1d` → `ca479f7` → `1e811b7` → `0964cd9` → `576d69b` → `dc41193` → `a503372` → `69496a9`, 2026-04-22 / 2026-04-23) — D74 / D75 / D76 / D77. **36 agent-facing MCP tools** (11 FULL-RC + 10 FULL-TCP + 13 PARTIAL-RC + 1 sidecar + 1 visual-capture), **16 plugin C++ command handlers** on TCP:55558, HTTP:30010 RC transport (Phase 4 fully absorbed per D66), OnObjectPreSave save-hook, Content Browser "Regenerate UEMCP Sidecar" context menu, `DumpBPSidecarCommandlet` batch emitter, `narrow-sidecar-v1` schema, 8 TOOLSET_TIPS entries. Test baseline 1037 → **1203 passing / 0 failing** across 10 files (+166). Pragmatic visual-capture shortcut via ThumbnailTools (full FPreviewScene deferred — noted in tool description). UE 5.6 API findings preserved: OnObjectPreSave vs deprecated OnObjectSaved; FContentBrowserMenuExtender_SelectedAssets handle via Extenders.Last().GetHandle(); FUObjectToken in Misc/UObjectToken.h (not TokenizedMessage.h).
-- **T-1a L2.5 synthetic fixture migration** (commit `525d7843`, 2026-04-22) — D73. Vikram proto live-fixture dependency removed from `test-uasset-parser.mjs` L2.5; replaced via Approach A (extended existing synthetic helpers). 7→7 assertion count (zero shift). Test rotation 1037 passing / 0 failing. First validated fixture-philosophy migration; T-1b+ feasibility note captured in T-1 entry below.
-- **M-new Verb-surface** (commits `aa131cd` core + `8acd0b9` test-phase1 placeholder refresh, 2026-04-22) — D72. 5 verbs ship offline-primary: bp_trace_exec, bp_trace_data, bp_neighbors edge mode, plus M-new extensions to bp_show_node (pins populated) and bp_list_entry_points (has_no_exec_in precision). Test baseline 1034 → **1052 passing / 0 failing**. +83 assertions in new test-verb-surface.mjs suite; net +3 in test-phase1.mjs (−4 M-spatial placeholders + 7 M-new confirmations). Oracle-cross-check on 3 fixtures (BP_OSPlayerR, BP_OSControlPoint, TestCharacter). Two format gotchas discovered + handled: PinCategory not captured in pin-block (name-convention classifier with documented Default false-positive risk); NodeGuid format mismatch M-spatial LE-lowercase vs topology BE-uppercase-per-uint32 (bridged via `toOracleHexGuid` helper at verb handler edge). Scope-deviation flagged + landed-correctly (touched test-phase1.mjs post-CL-1 for placeholder refresh; zero collision risk; separate commit for reversibility). BP-subclass variance gap flagged for S-B-overrides: UWidgetBlueprint/UAnimBP not in corpus yet.
-- **CL-1 test-drift refresh** (commit `1f0dd69`, 2026-04-22) — D71. Pre-existing drift failures on `test-phase1.mjs` (3) + `test-uasset-parser.mjs` (4) cleared: threshold drop 500→300 on P2 (size_budget_exceeded marker) cascaded 3 asserts; fixture swap to sibling `BP_OSPlayerR_VikramProto` for L2.5 TArray<ObjectProperty> decode (BP_OSPlayerR lost DefaultAbilities/DefaultEffects in gameplay refactor — content-side observation, not UEMCP regression). Test count 1027→1034 passing, 0 failing across 9 files. CL-2 CLAUDE.md bookkeeping also folded inline this session.
-- **M-new S-B-base offline edge-topology parser** (commits `cdf951b`+`e35f431`+`3c355fe`+`9250121`, 2026-04-22) — D70. Critical path for D52 edge-topology offline near-parity **complete**. 962/962 edges match (100%) via pure ID-match on all 6 Oracle-A-v2 fixtures. Shipped in 3 sessions (under 4-6 estimate). `extractBPEdgeTopologySafe()` exported from `offline-tools.mjs` for Verb-surface consumption. Test baseline **914 → ~1034** (+120: 36 CP1 + 16 CP2 + 68 differential). Corrects D67/D68 root-cause framing — the Session 1 "blocker" was worker's own test-harness map-collision bug using lossy NodeGuid-only keys; corrected to (graph_name, node_guid, pin_id) triple keying. Name-fallback architecturally present (Oracle-A-v2 emit) but unused at runtime — safety net for future format drifts. **Critical invariants for downstream consumers**: NodeGuids non-unique across sibling UEdGraphs; self-loops preserved; bNullPtr/bOrphanedPin pins pre-filtered; 4-byte int32 sentinel=0 between UPROPERTY terminator and pin trailer (undocumented).
-- **M-new Oracle-A-v2 pin-name amendment** (commit `b8ea754`, 2026-04-22) — D69. 9 files, 1603+/14− (fixture-regen dominated). Plugin compile clean after transient PCH-VM retry. All 6 fixtures regenerated with `name` field populated per pin; `pin_id` preserved as primary key; schema bumped `oracle-a-v1` → `oracle-a-v2`. Pin names for BP_OSPlayerR ApplyVFX_Niagara FunctionEntry empirically validated D68 theory: 13 names emitted match current function signature (`then, AuraSystem, Lifetime, SpawnRate, SpawnRate2, SpawnCount, ManualScale, Emissive, Opacity, MaterialInterface1-4`); parser's 23 disk pins include 10 stale-signature entries. D57 gate [PASS] preserved.
-- **FA-ε M-enhance transport research** (commit `56ff6f6`, 2026-04-21) — 404-line decision document at `docs/research/fa-epsilon-tcp-vs-rc-2026-04-21.md`. Verdict: HYBRID (RC HTTP for flat reflection + metadata allowlist subset; TCP for compile diagnostics / UEdGraph walks / compiled-state / editor-static). **Phase 4 as a scheduled milestone absorbed into M-enhance**; D23 Layer 4 semantic allocation persists. Aggregate Phase 3 delta: −2 to −4 sessions. Full context in D66.
-- **UEMCPModule log-demotion** (commit `60bb94a`, 2026-04-21) — D61 follow-on closed. Warning → Log demote at `UEMCPModule.cpp` StartupModule. Clean rebuild via D61 nuke recipe (12.19s, 16 actions); DLL mtime post source mtime confirmed no UBT cache staleness; D57 gate re-run [PASS]. Baseline unchanged. D65 for full report.
-- **sync-plugin.bat** (commit `117b7d9`, 2026-04-21) — D61 follow-on closed. 0.59s wall-clock smoke test against the primary target; byte-identical sync; Binaries/Intermediate preserved. Three CMD-parser gotchas patched during implementation (same class as setup-uemcp.bat debug arc; documented in D64). Future plugin workers use `sync-plugin.bat "<uproject>" -y`. D64 for full report.
-- **EN-8 + EN-9 bundle** (commit `1bc3e8b`, 2026-04-21) — workflow gaps from M-spatial manual testing closed. `bp_list_graphs` emits `comment_ids: []` per-graph row; all 5 M-spatial verbs return FA-β `{available: false, reason: "asset_not_found"}` on ENOENT. `withAssetExistenceCheck` helper exported for Verb-surface reuse. **Test baseline 899 → 914** (+15 assertions including full-contract helper coverage). Comment class-name confirmed as `EdGraphNode_Comment` (no U prefix — UE strips at serialization). D63 for full report.
-- **M-new Oracle-A** (commits `b8e64a5` + `b1fb2e7`, 2026-04-21) — 6-BP fixture corpus seeded (BP_OSPlayerR 204/596 edges densest; TestCharacter 11/24 smallest; BP_OSPlayerR_Child triple for inheritance). 280 LOC commandlet + serializer; 20.66s clean build; 9s cold BP_OSPlayerR invocation; D57 gate regression-tested PASS. **Critical API correction captured in D62**: `UEdGraphPin::LinkedTo` is `TArray<UEdGraphPin*>` runtime / `TArray<FEdGraphPinReference>` bytes — propagated to S-B-base handoff.
-- **M1 3A TCP scaffolding** (commits `2b86369` / `8030930` / `be282c0` / `510c5bb` / `d7a2192` / `1d3f6cf`) — plugin/UEMCP/ scaffold with D57 commandlet gate + 6 P0 helpers (P0-1/2/3/4/9/10) + MCPServerRunnable on TCP:55558 + MCPCommandRegistry + ping handler + 8 automation tests + server-side integration test. Unblocks M-new Oracle-A. Response envelope is single-shape `{status, result}` / `{status, error, code}` — deliberate P0-1 break from UnrealMCP (55557)'s two-format legacy. **Pending user verification**: plugin visibility in the target project (mklink /D or AdditionalPluginDirectories), UBT compile, commandlet-gate log line. Test baseline unchanged at 899.
-- **M-spatial manual testing** (commit `8ad69bd`) — 18/18 PASS through live MCP wire. FA-β manifest + FA-δ plugin-absent first-class both held. Exact numeric match with unit tests (10 graphs, 53→7 events, 11 contained nodes, 17 entry points, 1424×544 rect) → second independent verification of D50 tagged-fallback UPROPERTY coverage. Workflow gap surfaced: comment-ids not enumerable → EN-8 queued.
-- **M-spatial** (commits `08be682` / `4105fa0` / `4938248`) — 5 BP traversal verbs + FA-β/FA-δ test invariants. Zero parser code needed — D50 tagged-fallback already decoded every required UPROPERTY (verified empirically on BP_OSPlayerR). Test baseline 825 → 899 (+74). Notable finding: `EnabledState` absent on nearly all fixture nodes because UE omits class-default values; spatial extraction treats missing positions as 0.
-
-Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-mcp-first-2026-04-20.md` §Q5):
-
-**Wave 1** — SHIPPED in full per D59 + D61 + D62. Oracle-A fixtures form the differential-test contract for S-B-base.
-- ~~M1 scaffolding~~ — SHIPPED (plugin-compile + D57 gate verified end-to-end per D61, commit `a5b8917`)
-- ~~M-spatial + wire validation~~ — SHIPPED
-- ~~M-new Oracle-A~~ — SHIPPED (D62, commits `b8e64a5` + `b1fb2e7`). 6-BP fixture corpus at `plugin/UEMCP/Source/UEMCP/Private/Commandlets/fixtures/`.
-
-**Wave 2 — S-B core** (post-Oracle-A):
-
-- **M-new S-B-base** (4-6 sessions) — reverse-engineer `UEdGraphNode::Serialize()` pin-block trailer + `FEdGraphPin` LinkedTo walker. Uses Oracle-A output for differential validation. Critical-path for D52 edge-topology offline near-parity.
-- **M-new S-B-overrides** (1.5-2 sessions, parallelizes with Verb-surface) — CallFunction backcompat + Switch-variant pin-regeneration + UE 5.6↔5.7 delta buffer.
-- **M-new Verb-surface** (1-1.5 sessions) — 5 S-B-dependent verbs (`bp_trace_exec`, `bp_trace_data`, `bp_neighbors` edge mode, `bp_show_node` pin completion, `bp_list_entry_points` precision) in `offline-tools.mjs` + yaml entries + tests.
-
-**Wave 3 — enhancement + writes** (post-M1 + post-M-new):
-
-- **M-enhance** (3-5 sessions) — HYBRID transport per D66/FA-ε verdict: RC HTTP (30010) for flat UPROPERTY/UFUNCTION reads + metadata allowlist subset; TCP (55558) for compile diagnostics / UEdGraph walks / compiled-state / editor-static. Includes narrow sidecar (plugin-only fields), save-hook, 3F-4 production commandlet, editor-menu prime. **Absorbs what was Phase 4** (RC HTTP client infrastructure folds into M-enhance). Parallelizes with M3/M4/M5. Dispatches after S-B-base completes (server/* file-collision constraint; content-wise independent of S-B-base).
-- **M3** — oracle retirement (6-10 sessions, 3 sub-workers) — rebuilds 32 transitional tools on 55558 with P0-1 through P0-11 upgrades; absorbs TS-1 + TS-2.
-- **M4** — reduced reads (3-5 sessions) — 12 tools from blueprint-read/asset-registry/data-assets. **Under D58**: 3 of the previously-M4 tools (`get_blueprint_graphs`, `get_animbp_graph`, `get_widget_blueprint` EventGraph subset) move to offline-primary via M-new/M-spatial; they stay in M-enhance as enrichment only. M4's reduced-reads list drops to 12 from scope-refresh §Q5.3's 15.
-- **M5** — remaining Phase 3 toolsets (6-10 sessions, 3-4 sub-workers) — animation + materials + geometry + input-and-pie + editor-utility + visual-capture. Unchanged from scope-refresh §Q5.3.
-
-**Aggregate**: 26.5-43 sessions post-D66 (original 28.5-47 reduced by 2-4 from Phase 4 absorption into M-enhance); wall-clock ~13-21 with parallelism.
-
-**Open orchestrator calls** (per D58 follow-on items):
-
-- ~~**FA-ε**~~ — RESOLVED by D66 HYBRID verdict 2026-04-21 (commit `56ff6f6`).
-- **Scaffold commit timing**: fold into M1 vs separate 0.25-session dispatch — decide when M1 amendment lands.
+Two items from that section were never dispatched and are not recorded as shipped anywhere, so they are kept here rather than dropped: **S-B-overrides** (the UE 5.6↔5.7/5.8 parser-delta follow-on flagged in D70 §7/D91) was never dispatched as a named worker, but its two flagged deltas shipped piecemeal outside that name — the header-layer delta via D166 (5.7 support) and D189 (5.8 export-table gating across 5.3/5.6/5.8), and the K2Node pin-type float-field delta via commit `6195715` (2026-08-28, `FEdGraphPinType`'s trailing `bSerializeAsSinglePrecisionFloat`). The other D91-flagged item, `FText` `HistoryType` additions beyond `None`/`Base`, is still unaddressed — the parser still throws `unsupported FText HistoryType` for anything else (`server/uasset-parser.mjs:1735`). **F-14 (PIE teardown race)** — `UEditorEngine::RequestEndPlayMap` is engine-internal async, so post-request teardown lag past the game-thread-marshaled request path is a real, unresolved race; no D-log row after the April 2026 cluster (D81/D83/D86) revisits it. The other 22 non-top-3 findings from the D79 audit were not individually re-verified in this pass; several of their categories (UE 5.7 drift, PIE teardown) are covered by the two notes above, but the bucket as a whole was not re-audited.
 
 ### EN-23 — Baseline measurement instrumentation
 
 - **Source**: 2026-05-03 conversation post-D127. User flagged: "we don't have any measurements for latency or other benchmarks related to our work because we haven't been collecting any."
 - **Problem**: orchestrator decisions invoking "no measured bottleneck" arguments are absence-of-evidence, not evidence-of-absence. We've been making transport, caching, and architectural decisions without baseline data.
-- **What to instrument** (initial set):
-  - Per-tool wire latency: TCP request-send → response-received (split: connect, send, server-process, response-read)
-  - Editor-side handler duration: dispatch-received → response-built (compares to wire latency to surface "wire" vs "handler" splits)
-  - Cache layer: hit rate by tool, by-key collision rate, eviction rate, TTL-vs-actual-stale-time gap
-  - Connection lifecycle: connect-per-command frequency, ECONNREFUSED rate (NEW-9 telemetry), retry-success rate
-  - MCP server process: memory footprint over session, cumulative tool-call count, tool-toolset-rotation cost
-- **Where to surface**:
-  - Per-call: optional `?debug=1` param returns a `_metrics` block alongside response (no schema change for non-debug callers)
-  - Aggregate: stderr-emit summary every N calls (gated by env flag like `UEMCP_METRICS_EMIT_EVERY_N=100`); writes to optional log file if `UEMCP_METRICS_LOG=path`
-  - On exit: emit final aggregate stats to stderr; if metrics-log file configured, also flushed there
-- **Cost**: small worker. ~150-300 lines of instrumentation in connection-manager.mjs + a metrics aggregator module + minimal C++-side timing in dispatch table. Mostly JS; minor C++ for handler-duration capture
-- **Trigger to dispatch**: (a) before any future "should we change transport / cache strategy / etc." decision, OR (b) when a perf complaint surfaces from agent workflows, OR (c) bundled with the next worker that touches connection-manager.mjs (e.g., post-RC-retirement, when connection-manager is being reworked anyway)
-- **Why deferred**: not blocking RC retirement workstream; can ship after delegate migrations + primitives reimplementation when connection-manager is being touched anyway. But should NOT be skipped indefinitely — the measurement gap is a real diagnostic blindness
+- **What to instrument** (initial set; status verified 2026-09-14 against `server/connection-manager.mjs`'s `MetricsAggregator`, D140):
+  - **SHIPPED** — Per-tool wire latency: TCP request-send → response-received, split into `connect_ms`/`send_ms`/`first_byte_ms`/`response_ms`/`total_ms` — `connection-manager.mjs:362-364`
+  - **OPEN** — Editor-side handler duration: dispatch-received → response-built. No C++-side timing exists; the aggregator only sees the wire round-trip.
+  - **PARTLY** — Cache layer: aggregate hit/miss counters exist (`connection-manager.mjs:382-383,417-418`); hit rate **by tool**, by-key collision rate, eviction rate, and TTL-vs-actual-stale-time gap do not.
+  - **OPEN** — Connection lifecycle: connect-per-command frequency, ECONNREFUSED rate, retry-success rate are not tracked as distinct metrics.
+  - **OPEN** — MCP server process: no memory-footprint or tool-toolset-rotation-cost tracking; `total_n`/per-type `n` (`connection-manager.mjs:434-446`, `by_type`) covers cumulative tool-call count only.
+- **Where to surface** (status verified 2026-09-14):
+  - **OPEN** — Per-call optional `?debug=1` param returning an inline `_metrics` block: not implemented.
+  - **SHIPPED** — Aggregate stderr-emit summary every N calls gated by `UEMCP_METRICS_EMIT_EVERY_N`, and JSONL log file gated by `UEMCP_METRICS_LOG` — `connection-manager.mjs:360,404-427`. `getMetrics()` accessor at `connection-manager.mjs:1113`.
+  - **OPEN** — On-exit final flush: no `process.on('exit')` handler found in `connection-manager.mjs`; the aggregate only flushes on the N-call cadence.
+- **Trigger to dispatch**: (a) before any future "should we change transport / cache strategy / etc." decision, OR (b) when a perf complaint surfaces from agent workflows, OR (c) bundled with the next worker that touches connection-manager.mjs
 - **Reference**: `feedback_ai_worker_time_estimates.md` notes that orchestrator estimates have been miscalibrated partly because we lack measurement data to ground them
 
 ### EN-22 — Transport architecture revisit (TCP→WebSocket supplement evaluation)
@@ -304,19 +172,11 @@ Queued for dispatch per D58 re-sequenced plan (`docs/research/phase3-resequence-
 - **Triggers for revisit**: (a) cache invalidation worker W6 hits unexpected complexity that push events would dissolve; (b) W1 NEW-9 fix is messier than expected and event-driven readiness would be cleaner; (c) Noah wants real-time push-based agent coordination patterns we can't currently support; (d) UE version upgrade introduces a transport-layer bug that motivates the rewrite anyway
 - **Pre-rejected alternatives**: gRPC (competes with `tools.yaml` per D44; UE support limited; solves problems we don't have); named pipes (Windows-only; no measured TCP-latency bottleneck; no forcing function); in-process plugin module (collapses back to "what wire goes between Node MCP-server and editor"; not a real third option)
 - **Reference**: 2026-05-03 conversation thread on transport architecture (search `EN-22` in `risks-and-decisions.md` if/when triggered for full design context)
+- **2026-09-14**: no trigger has fired. EN-25's identity check (D199, `EDITOR_PROJECT_MISMATCH` in `wait_for_editor`) removed the wrong-editor hazard without push events — it is a refusal rule on the request/response path, not a subscription.
 
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
 
 ## Bugs / defects
-
-### BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema — fixed 2026-05-28
-- **Source**: field report (2026-05-25, flagged near-term). The MCP client (Codex) sees both tools via discovery (`find_tools`) but cannot call them — they aren't exposed as callable in the `tools/list` schema.
-- **Confirmed present in the registry** (so the gap is *exposure*, not implementation): both declared in `tools.yaml` (`get_datatable_contents` ≈L919, `get_montage_full` ≈L979), with server handlers (`menhance-tcp-tools.mjs`, `m5-animation-tools.mjs`), plugin C++ handlers (`DataSourceHandlers.cpp`, montage reflection-walk), and rotation coverage (`test-tcp-tools.mjs`).
-- **Likely root cause** (one of): (a) a `server.mjs` registration gap — declared in yaml + has a handler, but never `server.tool()`-registered, so there's no SDK handle and it's invisible to `tools/list`; or (b) a toolset-visibility issue where their toolset isn't enabled and `find_tools` auto-enable (top-3 cap) isn't promoting it. Either way it manifests as a **D44-invariant tension** — `find_tools` surfaces tools that `tools/list` doesn't expose as callable.
-- **Investigate**: confirm whether `server.mjs` registers both via `server.tool()` + captures handles + registers with `ToolsetManager`; identify which toolset owns them and whether it enables; cross-check the D44 invariant assertion in `test-mcp-wire.mjs`.
-- **Scope**: likely small (registration/visibility wiring); ~0.5 session to diagnose + fix + add a regression assertion that every `tools.yaml`-declared tool is reachable via `tools/list` (closes the class structurally).
-- **Trigger**: near-term — actively hit from the Codex MCP client.
-- **Status 2026-05-28**: fixed in JS/server metadata. Root cause was Codex deferred tool metadata not refreshing reliably for tools made visible only after dynamic enable, even though a direct MCP client sees them after `find_tools`. `get_datatable_contents` and `get_montage_full` are now `initially_visible` when `tcp-55558` is available, without enabling their whole parent toolsets or exposing animation writes by default. Regression coverage lives in `server/test-phase1.mjs` Test 5c.
 
 ### BUG-2 — Four pre-existing quirks surfaced by the WS5a handler tests (not fixed there: all four change wire behaviour)
 - `HandleDisconnectBlueprintPin` builds `target_pin_info` at `BlueprintHandlers.cpp:~3203`, before the targeted break at `~3220-3230`, so its `link_count` is the pre-break value on a real disconnect, while `pin_info` at `~3258` is built after the break; the two blocks in one response disagree. The native test asserts only `name` and `direction` on `target_pin_info` on purpose. Fix by building both blocks after the break.
@@ -324,3 +184,6 @@ When any dispatched handoff completes and residual items surface, consolidate th
 - `HandleAddBlueprintVariableAssignment` sets `requires_compile = !bCompile` and `compiled = bCompile` (`BlueprintHandlers.cpp:~2578-2579`) without consulting whether the compile it just ran succeeded, and it has no `COMPILE_FAILED` branch at all — unlike `add_blueprint_timer` and `disconnect_blueprint_pin`, which both derive `requires_compile` from `compiled_ok` and fail the call when the compile does. A caller passing `compile: true` to the assignment handler is told the Blueprint compiled whether or not it did. The handler exposes no compile diagnostics at all, so its compile leg in `UEMCP.BlueprintHandlers.CompilePaths` can only assert the echoed `compiled`/`requires_compile` flags, not a diagnostic result. `UEMCP.BlueprintHandlers.CompilePaths` asserts the current shape, including the absence of the `compile` block, so a fix has to update that test deliberately.
 - `FindOrCreateReceiveBeginPlay` (`BlueprintHandlers.cpp:~901-906`) returns any existing `ReceiveBeginPlay` verbatim, and `FindExistingEventNode` (`~794-809`) matches on member name with no enabled-state filter, so on a fresh Actor Blueprint the node it reuses is the auto-placed ghost that the engine creates with `ENodeEnabledState::Disabled` ("this node is disabled and will not be called"); the plugin never touches node enabled state, while the editor's own event spawner removes the ghost and spawns an enabled replacement. `add_blueprint_timer` with `insert_on_begin_play: true` therefore reports a BeginPlay chain hanging off a disabled node; the same reuse sits at `~1740` (`add_blueprint_event_node`) and `~1994` (`override_parent_member`). The native tests now pin this as shipped behaviour (`CompilePaths`, `TimerFailures`); whether the compiler prunes the disabled chain was not measured (validation does reach downstream nodes: `TimerFailures` plants its broken call below that ghost and still gets the compile error). Fix by un-ghosting a reused node (`SetEnabledState(ENodeEnabledState::Enabled)`) or by replacing it the way the editor does.
 - **Trigger**: the next change to `BlueprintHandlers.cpp` pin, literal, compile-flag, or event-node handling, with a native test for each; the disabled-ghost bullet first needs one measurement of whether the compiler prunes the chain.
+
+### Fixed
+- BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema — fixed 2026-05-28 (D173)

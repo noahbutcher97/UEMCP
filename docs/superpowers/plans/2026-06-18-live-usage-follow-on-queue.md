@@ -1,5 +1,18 @@
 # Live Usage Follow-On Queue Implementation Plan
 
+> **Status (2026-09-14):** Executed and shipped as D-log rows D183-D190 (`docs/tracking/risks-and-decisions.md`) between 2026-06-18 and 2026-08-24. The checkboxes below were not maintained during execution and are left as written (unticked) — consult the D-log rows for what actually landed, not this checklist. This plan assigned the D183-D190 numbers before the rows existed, so only some of them ended up naming the work this plan describes. Correspondence, checked against the D-log row text and the current codebase (`tools.yaml`, `server/`):
+>
+> | Plan heading (assigned scope) | Actual row at that number | Match |
+> |---|---|---|
+> | D183: Restore Montage/Sequence Reads And Harden Tool Inputs | Live-usage follow-on queue + animation-reads restoration shipped 2026-06-18 | Partial — the montage/sequence-restoration half shipped; the unknown-param-rejection/alias-hardening half did not (see backlog EN-8 P1/P6) |
+> | D184: Blueprint Graph Literal Readback | Blueprint pin defaults surfaced 2026-06-18 | Partial — pin-default literals and AnimGraph `bp_list_graphs` rows shipped; the `MakeStruct`/`BreakStruct` skeletal-set graduation did not (see backlog EN-8 P5) |
+> | D185: Export Listing And Requested-Default Property Semantics | Export listing + requested-property markers shipped 2026-06-18 | Match |
+> | D186: Nested Subobjects, GE Components, And Component Collision Readback | Bounded subobject collision readback shipped 2026-06-22, hardened 2026-07-06 | Partial — `include_subobjects` traversal and collision summaries shipped; GameplayEffect/`FGameplayEffectCue` decode and the spawn/reference-summary tool did not (see backlog EN-8 P2/P4) |
+> | D187: Reverse References And Asset-Registry Discoverability | Live-oracle freshness gate shipped 2026-06-24 | No match — different topic; reverse-reference discoverability never shipped under any number (see backlog EN-8 P3) |
+> | D188: Animation, Chooser, And AnimGraph Deep Readback | Full-project audit + remediation branch 2026-07-06 | No match — different topic; chooser readback and AnimGraph SlotName/blend-weight decode never shipped |
+> | D189: Tool Metadata, Schema Lint, And Ergonomic Alias Parity | UE 5.8 support + FObjectExport version gating shipped 2026-08-24 | No match — different topic; `tools.yaml` has zero `offline_fidelity` occurrences as of 2026-09-14 (see backlog EN-8 P7) |
+> | D190: Full Live Smoke And Report Closure | Deliberate-deferral sweep: onboarding marker, cwd-dependent tests, export property bounds shipped 2026-08-24 | No match — different topic; no closure report exists at `docs/reports/live-usage-follow-on-closure-2026-06-18.md` |
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert the 2026-06-18 live-project field reports into an ordered branch queue where every reported limitation has a direct follow-on owner and verification gate.
