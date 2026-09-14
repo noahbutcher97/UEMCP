@@ -55,6 +55,7 @@ public class UEMCP : ModuleRules
 			"UMGEditor",     // UWidgetBlueprint + WidgetTree (editor-only)
 			"AssetRegistry", // IAssetRegistry::GetReferencers / GetDependencies
 			"LevelEditor",   // GCurrentLevelEditingViewportClient for editor-state viewport info
+			"PropertyEditor", // IDetailsView for the details_panel_* handlers (EN-24). Engine module, not a plugin — no UEMCP.uplugin Plugins[] entry (D110).
 			// S4 additions:
 			"ContentBrowser", // S4-4 Sidecar menu extension (FContentBrowserMenuExtender_SelectedAssets)
 			// M5-input+geometry additions:

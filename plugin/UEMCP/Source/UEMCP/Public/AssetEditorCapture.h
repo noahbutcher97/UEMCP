@@ -7,6 +7,7 @@
 #include "Widgets/Docking/SDockTab.h"
 
 class IAssetEditorInstance;
+class IDetailsView;
 
 /**
  * EN-24/EN-25: capture an open asset editor, page its Details panel, and
@@ -135,6 +136,32 @@ namespace UEMCP
 		const FString& DefaultStem,
 		bool bInline,
 		const TSharedPtr<FJsonObject>& Result,
+		FString& OutErrorMessage);
+
+	/**
+	 * The IDetailsView inside a tab, or null.
+	 *
+	 * Matched by EXACT widget type name. FPropertyEditorModule::CreateDetailView
+	 * builds the widget with SNew(SDetailsView, Args) and SNew stamps the
+	 * stringized type onto SWidget::TypeOfWidget, so "SDetailsView" identifies
+	 * precisely the class that derives from SDetailsViewBase : IDetailsView and
+	 * the downcast is sound. A substring match would also hit SActorDetails,
+	 * SStructureDetailsView and SSingleProperty, none of which is an
+	 * IDetailsView — the cast would then be undefined. A miss returns null,
+	 * which the caller reports as NOT_A_DETAILS_PANEL.
+	 */
+	IDetailsView* FindDetailsViewInTab(const TSharedPtr<SDockTab>& Tab);
+
+	/**
+	 * asset_path + tab_id -> IDetailsView, with the error code the handler
+	 * should emit: ASSET_NOT_FOUND, EDITOR_NOT_OPEN, TAB_NOT_FOUND or
+	 * NOT_A_DETAILS_PANEL.
+	 */
+	bool ResolveDetailsView(
+		const FString& AssetPath,
+		const FString& TabId,
+		IDetailsView*& OutView,
+		FString& OutErrorCode,
 		FString& OutErrorMessage);
 
 	void RegisterAssetEditorCaptureHandlers(FMCPCommandRegistry& Registry);

@@ -10,7 +10,7 @@
 // as the renderer returns CAPTURE_UNSUPPORTED. That is asserted rather than
 // worked around; the live smoke is the only proof of pixels.
 //
-// Two tests need an open asset editor. UAssetEditorSubsystem::OpenEditorForAsset
+// Three tests need an open asset editor. UAssetEditorSubsystem::OpenEditorForAsset
 // may refuse under -nullrhi -unattended; those tests record AddInfo and return
 // true rather than failing, and the four unconditional ones carry the coverage
 // that must not depend on it.
@@ -362,6 +362,163 @@ bool FUEMCPAssetEditorCaptureUnsupportedTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("capture_asset_editor refuses without a renderer"),
 		CodeOf(Dispatch(TEXT("capture_asset_editor"), AssetParams(Fixture.PackagePath))),
 		FString(TEXT("CAPTURE_UNSUPPORTED")));
+
+	DestroyFixtureAsset(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// Unconditional: PIE is not running in a headless automation pass, so the
+// refusal is the assertion. GEditor->PlayWorld is checked before the renderer
+// gate, which is why this reports PIE_NOT_RUNNING rather than
+// CAPTURE_UNSUPPORTED under -nullrhi.
+// =====================================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPAssetEditorCapturePieNotRunningTest,
+	"UEMCP.AssetEditorCapture.PieNotRunning",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPAssetEditorCapturePieNotRunningTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::AssetEditorCapture::Tests;
+
+	if (GEditor && GEditor->PlayWorld)
+	{
+		AddInfo(TEXT("skipped: a PIE session is active, so PIE_NOT_RUNNING is not the expected outcome"));
+		return true;
+	}
+	TSharedPtr<FJsonObject> Empty = MakeShared<FJsonObject>();
+	TestEqual(TEXT("capture_pie_viewport with no PIE session"),
+		CodeOf(Dispatch(TEXT("capture_pie_viewport"), Empty)), FString(TEXT("PIE_NOT_RUNNING")));
+	// Null params is a legal wire shape for a parameter-less command; the
+	// handler must reach the same refusal rather than dereferencing them.
+	TestEqual(TEXT("capture_pie_viewport tolerates null params"),
+		CodeOf(Dispatch(TEXT("capture_pie_viewport"), nullptr)), FString(TEXT("PIE_NOT_RUNNING")));
+	return true;
+}
+
+// =====================================================================================
+// Unconditional: the details handlers' parameter and resolution errors, none of
+// which needs an open editor.
+// =====================================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPAssetEditorCaptureDetailsParamsTest,
+	"UEMCP.AssetEditorCapture.DetailsPanelParams",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPAssetEditorCaptureDetailsParamsTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::AssetEditorCapture::Tests;
+
+	TSharedPtr<FJsonObject> Empty = MakeShared<FJsonObject>();
+	TestEqual(TEXT("details_panel_expand_all with no params"),
+		CodeOf(Dispatch(TEXT("details_panel_expand_all"), Empty)), FString(TEXT("MISSING_PARAMS")));
+	TestEqual(TEXT("details_panel_scroll with no params"),
+		CodeOf(Dispatch(TEXT("details_panel_scroll"), Empty)), FString(TEXT("MISSING_PARAMS")));
+
+	TSharedPtr<FJsonObject> NoTab = AssetParams(TEXT("/Game/__UEMCPTests/BP_DoesNotExist"));
+	TestEqual(TEXT("details_panel_expand_all with no tab_id"),
+		CodeOf(Dispatch(TEXT("details_panel_expand_all"), NoTab)), FString(TEXT("MISSING_PARAMS")));
+
+	TSharedPtr<FJsonObject> NegativeOffset = AssetParams(TEXT("/Game/__UEMCPTests/BP_DoesNotExist"));
+	NegativeOffset->SetStringField(TEXT("tab_id"), TEXT("Details"));
+	NegativeOffset->SetNumberField(TEXT("row_offset"), -1);
+	TestEqual(TEXT("details_panel_scroll with a negative row_offset"),
+		CodeOf(Dispatch(TEXT("details_panel_scroll"), NegativeOffset)), FString(TEXT("MISSING_PARAMS")));
+
+	TSharedPtr<FJsonObject> MissingAsset = AssetParams(TEXT("/Game/__UEMCPTests/BP_DoesNotExist"));
+	MissingAsset->SetStringField(TEXT("tab_id"), TEXT("Details"));
+	TestEqual(TEXT("details_panel_expand_all on an unloadable path"),
+		CodeOf(Dispatch(TEXT("details_panel_expand_all"), MissingAsset)), FString(TEXT("ASSET_NOT_FOUND")));
+
+	FFixtureAsset Fixture = CreateFixtureAsset();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("could not create the fixture Blueprint"));
+		return false;
+	}
+	TSharedPtr<FJsonObject> ClosedEditor = AssetParams(Fixture.PackagePath);
+	ClosedEditor->SetStringField(TEXT("tab_id"), TEXT("Details"));
+	TestEqual(TEXT("details_panel_expand_all with no editor open"),
+		CodeOf(Dispatch(TEXT("details_panel_expand_all"), ClosedEditor)), FString(TEXT("EDITOR_NOT_OPEN")));
+
+	DestroyFixtureAsset(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// Editor-dependent: an unknown tab id, and a live tab that holds no details view.
+// Both TAB_NOT_FOUND and NOT_A_DETAILS_PANEL on these two tools only run here
+// when OpenFixtureEditor succeeds; on this engine build that is unreliable
+// headless, so both assertions are effectively live-smoke-only in practice —
+// they are still asserted by value whenever the fixture editor does open.
+// =====================================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPAssetEditorCaptureDetailsTabTest,
+	"UEMCP.AssetEditorCapture.DetailsPanelTab",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPAssetEditorCaptureDetailsTabTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::AssetEditorCapture::Tests;
+
+	FFixtureAsset Fixture = CreateFixtureAsset();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("could not create the fixture Blueprint"));
+		return false;
+	}
+	if (!OpenFixtureEditor(Fixture))
+	{
+		AddInfo(TEXT("skipped: UAssetEditorSubsystem declined to open an asset editor in this configuration"));
+		DestroyFixtureAsset(Fixture);
+		return true;
+	}
+
+	TSharedPtr<FJsonObject> BadTab = AssetParams(Fixture.PackagePath);
+	BadTab->SetStringField(TEXT("tab_id"), TEXT("NoSuchTabId"));
+	TestEqual(TEXT("details_panel_expand_all with an unknown tab_id"),
+		CodeOf(Dispatch(TEXT("details_panel_expand_all"), BadTab)), FString(TEXT("TAB_NOT_FOUND")));
+
+	// A tab that exists but holds no SDetailsView must say so rather than
+	// reporting success on nothing. Which tabs a Blueprint editor exposes is
+	// not guaranteed, so a tab without a details view is searched for and its
+	// absence is a skip, not a failure.
+	const TSharedPtr<FJsonObject> Listed = ResultOf(
+		Dispatch(TEXT("list_asset_editor_tabs"), AssetParams(Fixture.PackagePath)));
+	const TArray<TSharedPtr<FJsonValue>>* Tabs = nullptr;
+	FString NonDetailsTabId;
+	if (Listed->TryGetArrayField(TEXT("tabs"), Tabs) && Tabs)
+	{
+		for (const TSharedPtr<FJsonValue>& Entry : *Tabs)
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!Entry.IsValid() || !Entry->TryGetObject(Obj) || !Obj)
+			{
+				continue;
+			}
+			const FString CandidateId = StringFieldOr(*Obj, TEXT("tab_id"));
+			TSharedPtr<FJsonObject> Probe = AssetParams(Fixture.PackagePath);
+			Probe->SetStringField(TEXT("tab_id"), CandidateId);
+			if (CodeOf(Dispatch(TEXT("details_panel_expand_all"), Probe)) == TEXT("NOT_A_DETAILS_PANEL"))
+			{
+				NonDetailsTabId = CandidateId;
+				break;
+			}
+		}
+	}
+	if (NonDetailsTabId.IsEmpty())
+	{
+		AddInfo(TEXT("skipped: this editor exposes no live tab without a details view"));
+	}
+	else
+	{
+		TSharedPtr<FJsonObject> Scroll = AssetParams(Fixture.PackagePath);
+		Scroll->SetStringField(TEXT("tab_id"), NonDetailsTabId);
+		Scroll->SetNumberField(TEXT("row_offset"), 0);
+		TestEqual(TEXT("details_panel_scroll on a tab with no details view"),
+			CodeOf(Dispatch(TEXT("details_panel_scroll"), Scroll)), FString(TEXT("NOT_A_DETAILS_PANEL")));
+	}
 
 	DestroyFixtureAsset(Fixture);
 	return true;

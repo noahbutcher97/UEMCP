@@ -4,6 +4,7 @@
 #include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/FileManager.h"
+#include "IDetailsView.h"
 #include "ImageUtils.h"
 #include "Layout/Children.h"
 #include "Misc/App.h"
@@ -259,6 +260,51 @@ namespace UEMCP
 				Result->SetStringField(TEXT("png_base64"),
 					FBase64::Encode(Png.GetData(), static_cast<uint32>(Png.Num())));
 			}
+		}
+		return true;
+	}
+
+	IDetailsView* FindDetailsViewInTab(const TSharedPtr<SDockTab>& Tab)
+	{
+		if (!Tab.IsValid())
+		{
+			return nullptr;
+		}
+		const TSharedPtr<SWidget> Found = FindDescendantByType(Tab->GetContent(), TEXT("SDetailsView"));
+		return Found.IsValid() ? static_cast<IDetailsView*>(Found.Get()) : nullptr;
+	}
+
+	bool ResolveDetailsView(
+		const FString& AssetPath,
+		const FString& TabId,
+		IDetailsView*& OutView,
+		FString& OutErrorCode,
+		FString& OutErrorMessage)
+	{
+		OutView = nullptr;
+		const FAssetEditorTarget Target = ResolveAssetEditorTarget(AssetPath);
+		if (!Target.ErrorCode.IsEmpty())
+		{
+			OutErrorCode = Target.ErrorCode;
+			OutErrorMessage = Target.ErrorMessage;
+			return false;
+		}
+		const TSharedPtr<SDockTab> Tab = Target.TabManager.IsValid()
+			? Target.TabManager->FindExistingLiveTab(FTabId(FName(*TabId)))
+			: nullptr;
+		if (!Tab.IsValid())
+		{
+			OutErrorCode = TEXT("TAB_NOT_FOUND");
+			OutErrorMessage = FString::Printf(
+				TEXT("No live tab '%s' in the editor for '%s'"), *TabId, *AssetPath);
+			return false;
+		}
+		OutView = FindDetailsViewInTab(Tab);
+		if (!OutView)
+		{
+			OutErrorCode = TEXT("NOT_A_DETAILS_PANEL");
+			OutErrorMessage = FString::Printf(TEXT("Tab '%s' contains no SDetailsView"), *TabId);
+			return false;
 		}
 		return true;
 	}

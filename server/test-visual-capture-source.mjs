@@ -109,4 +109,37 @@ t.assert(captureHeader.includes('InlineBase64MaxBytes = 8 * 1024 * 1024') &&
   captureHelpers.includes('inline_omitted'),
   'the 8 MiB inline cap is declared and enforced');
 
+// ── EN-24/EN-25: details paging and PIE capture source ────────
+const buildCs = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'UEMCP.Build.cs'), 'utf8');
+
+t.assert(captureHandlers.includes('Registry.Register(TEXT("details_panel_expand_all")'),
+  'asset-editor capture registers details_panel_expand_all');
+t.assert(captureHandlers.includes('Registry.Register(TEXT("details_panel_scroll")'),
+  'asset-editor capture registers details_panel_scroll');
+t.assert(captureHandlers.includes('Registry.Register(TEXT("capture_pie_viewport")'),
+  'asset-editor capture registers capture_pie_viewport');
+
+// Exact type-name match only: SActorDetails, SStructureDetailsView and
+// SSingleProperty all read as details-ish and none is an IDetailsView, so a
+// substring match would make the downcast undefined.
+t.assert(captureHelpers.includes('FindDescendantByType(Tab->GetContent(), TEXT("SDetailsView"))'),
+  'the details view is found by exact widget type name');
+
+// SetRootExpansionStates is private on 5.6 (Editor/PropertyEditor/Private).
+t.assert(captureHandlers.includes('ShowAllAdvancedProperties()') &&
+  captureHandlers.includes('ScrollPropertyIntoView(Path, /*bExpandProperty*/ true)'),
+  'expand-all goes through the public IDetailsView interface');
+// Matched as a call through the view pointer, not as a bare name: the handler's
+// comment explains why the private API is avoided and names it to do so.
+t.assert(!captureHandlers.includes('View->SetRootExpansionStates'),
+  'no call into the private SDetailsViewBase expansion API');
+t.assert(captureHandlers.includes('GetPropertyRowNumbers()') &&
+  !captureHandlers.includes('SetScrollOffset'),
+  'details paging scrolls by row, not by pixel offset');
+
+const pieBody = captureHandlers.slice(captureHandlers.indexOf('void HandleCapturePieViewport'));
+t.assert(pieBody.indexOf('GEditor->PlayWorld') < pieBody.indexOf('FApp::CanEverRender()') &&
+  buildCs.includes('"PropertyEditor"'),
+  'PIE state is checked before the renderer gate, and PropertyEditor is a module dependency');
+
 process.exit(t.summary());
