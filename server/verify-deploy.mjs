@@ -122,7 +122,18 @@ function compareSourceHashes(repoSourceHash, deployedSourceHash) {
  * When the deployed content was last put in place, in epoch seconds. The
  * marker's own time is only usable when the marker describes the content that
  * is actually on disk; a marker recording a different hash was written for a
- * different tree, so fall back to the deployed files' mtime.
+ * different tree and says nothing about when *this* content landed, so the
+ * deployed files' own mtime is the only reference left.
+ *
+ * That fallback is not "strictly conservative" — in the common ordering
+ * (marker time at or after the deployed mtime) it is the more permissive
+ * choice: an earlier reference point lets a DLL built between the two
+ * timestamps read SYNC where trusting the marker would have called it stale.
+ * It is acceptable here only because this function is reached from
+ * `classifyVerdict`'s `contentIdentical === true` branch — content identity
+ * between the deployed tree and the repo has already been established by
+ * hash, so this fallback is resolving a timing detail, never whether the
+ * deployed bytes match.
  */
 function lastSyncRefSec({ markerSyncedAtMs: syncedMs, markerSourceHash, deployedSourceHash, deployedSrcMtime }) {
   const markerDescribesDisk = !markerSourceHash || markerSourceHash === deployedSourceHash;
@@ -838,9 +849,14 @@ function runJsonMode(flags) {
   // run (computeIncomingState runs once, not per target), so it is reported
   // once per target, named — mirrors the single [WARN] text mode prints, but
   // attributed so a JSON consumer knows which rows it affects.
-  const warnings = gathered.markerWarning
+  const markerWarnings = gathered.markerWarning
     ? gathered.results.map((r) => `${r.alias || r.uprojectPath}: ${gathered.markerWarning}`)
     : [];
+  // Target-selection warnings (e.g. legacy .uemcp-targets.txt in use) are the
+  // other thing text mode prints (printTargetSelectionWarnings) that --json
+  // dropped; a JSON consumer deserves the same visibility.
+  const selectionWarnings = (gathered.targetSelection.warnings || []).map((w) => w.message);
+  const warnings = [...selectionWarnings, ...markerWarnings];
   const report = buildJsonReport(gathered.results, {
     profile: gathered.targetSelection.profile?.name || null,
     exitCode,

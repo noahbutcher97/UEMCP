@@ -15,10 +15,11 @@
 //
 //   2. **Per-workspace editor-lock detection** (replaces sync-plugin.bat's
 //      coarse "any UnrealEditor.exe → abort" check from D136 follow-on (b)).
-//      Reuses verify-deploy.mjs's listEditorProcesses + extractUprojectFromCommandLine
-//      so a sync against workspace B is not blocked by an editor running
-//      against workspace A. Mirrors the same full-path normalization that
-//      makes [EDITOR-LOCKED] work in verify-deploy.bat.
+//      Reuses verify-deploy.mjs's listEditorProcesses(), whose scan already
+//      resolves each process's .uproject path, so a sync against workspace B
+//      is not blocked by an editor running against workspace A. Mirrors the
+//      same full-path normalization that makes [EDITOR-LOCKED] work in
+//      verify-deploy.bat.
 //
 // Pure functions are exported for testing (test-sync-plugin-helper.mjs).
 //
@@ -96,6 +97,9 @@ export function readDeployMarker(pluginDestDir) {
  * The moment this marker's sync happened, in epoch milliseconds, or null when
  * the marker records none. `syncedAt` is read first so a future writer can
  * adopt that name; `syncTime` is what every marker on disk carries today.
+ * `syncTime` means "when the deployed content last changed" (see
+ * `nextMarkerFields`), not "when sync-plugin.bat last ran" — `lastSyncAt`
+ * records that instead.
  */
 export function markerSyncedAtMs(marker) {
   if (!marker) return null;
@@ -103,6 +107,29 @@ export function markerSyncedAtMs(marker) {
   if (typeof raw !== 'string') return null;
   const ms = Date.parse(raw);
   return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The marker fields a new sync should write, given the marker already on
+ * disk (or null for a first sync) and the incoming repo state.
+ *
+ * `syncTime` only advances when the incoming content differs from what the
+ * prior marker recorded. A redundant re-sync — a checkout or stash-pop that
+ * touches no plugin bytes, or simply running sync-plugin.bat twice — must not
+ * advance it: `classifyVerdict`'s content rule reads `syncTime` as "when this
+ * content was deployed", and a fresh timestamp on unchanged content makes an
+ * already-current DLL look like it predates the sync, forcing a needless
+ * rebuild. `lastSyncAt` always advances to `nowIso`, so a human (or a future
+ * consumer) can still see when the most recent copy actually happened.
+ */
+export function nextMarkerFields(prior, incoming, nowIso = new Date().toISOString()) {
+  const priorHash = typeof prior?.sourceHash === 'string' ? prior.sourceHash : null;
+  const sameContent = priorHash !== null && priorHash === incoming.sourceHash;
+  return {
+    ...incoming,
+    syncTime: sameContent ? prior.syncTime : nowIso,
+    lastSyncAt: nowIso,
+  };
 }
 
 /**
@@ -114,6 +141,9 @@ export function markerSyncedAtMs(marker) {
  * upluginVersion, upluginVersionName, sourceCommitSha, headPluginCommitSha,
  * syncedBy. Caller passes them in `fields`; this helper layers in defaults
  * (schemaVersion + syncTime if absent) so the marker shape stays canonical.
+ * `syncTime` is when the deployed content last changed; `lastSyncAt` (when
+ * the caller supplies it, via `nextMarkerFields`) is the most recent sync,
+ * whether or not it changed anything.
  */
 export function writeDeployMarker(pluginDestDir, fields) {
   if (!existsSync(pluginDestDir)) {
@@ -233,11 +263,11 @@ function safeGitShortSha(repoRoot, pathArgs) {
  * Win64/UnrealEditor-UEMCP.dll, the DLL is locked → abort sync. If yes BUT no
  * DLL, sync source is still safe (there's no DLL to lock) — warn and proceed.
  *
- * Uses verify-deploy.mjs's listEditorProcesses (PowerShell Get-CimInstance
- * Win32_Process) + extractUprojectFromCommandLine + normalizePath. Full-path
- * comparison (not stem) so two checkouts sharing the same .uproject filename
- * in different parent dirs are tracked independently — matches D136's
- * [EDITOR-LOCKED] discrimination logic.
+ * Uses verify-deploy.mjs's listEditorProcesses() (PowerShell Get-CimInstance
+ * Win32_Process; the scan itself resolves each process's .uproject path) plus
+ * normalizePath. Full-path comparison (not stem) so two checkouts sharing the
+ * same .uproject filename in different parent dirs are tracked independently
+ * — matches D136's [EDITOR-LOCKED] discrimination logic.
  *
  * Returns { state, pid, uprojectPath, dllPath } where state is one of
  * 'clear', 'locked', 'warn'. CLI shim maps these to exit 0/1/2.
@@ -313,7 +343,9 @@ function cliWrite(pluginDestDir, repoRoot, syncedBy) {
     process.exit(1);
   }
   try {
-    const marker = writeDeployMarker(pluginDestDir, syncedBy ? { ...incoming, syncedBy } : incoming);
+    const prior = readDeployMarker(pluginDestDir);
+    const fields = nextMarkerFields(prior, incoming);
+    const marker = writeDeployMarker(pluginDestDir, syncedBy ? { ...fields, syncedBy } : fields);
     console.log(`Wrote ${join(pluginDestDir, MARKER_FILENAME)}`);
     console.log(`  manifest=${marker.manifestVersion} uplugin=${marker.upluginVersion} versionName=${marker.upluginVersionName}`);
     console.log(`  sourceCommitSha=${marker.sourceCommitSha} headPluginCommitSha=${marker.headPluginCommitSha}`);

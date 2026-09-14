@@ -20,6 +20,8 @@ import {
   exitCodeForResults,
 } from './verify-deploy.mjs';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -342,6 +344,21 @@ eq(
   'marker hash does not match the disk → the marker time is ignored',
 );
 
+// The common ordering: marker time is at or after the deployed mtime, so the
+// fallback to the deployed mtime is the MORE permissive reference, not a
+// conservative one. Hashes equal (content identical), marker hash mismatches
+// (so its time is ignored), marker time (newer) is after the deployed mtime
+// (older), and the DLL sits between the two — the deployed-mtime fallback
+// reads it as built after the sync, so this is SYNC.
+eq(
+  classifyDeployState(built({
+    markerSourceHash: HASH_B, markerSyncedAtMs: secToMs(newer),
+    deployedSrcMtime: older, dllMtime: repoSrc,
+  })).verdict,
+  'SYNC',
+  'common ordering: marker time after deployed mtime, DLL between the two, marker hash mismatch → SYNC',
+);
+
 // Never-built targets keep the pre-content rules (design §3.3): content
 // identity cannot make a missing DLL fresh.
 eq(
@@ -496,6 +513,43 @@ includesStr(badFlagRun.stdout, '"error"', 'an unknown flag under --json still pr
 const textRun = spawnSync(process.execPath, [VERIFY_DEPLOY, '--no-color', '--targets', MISSING_TARGETS], { encoding: 'utf8' });
 eq(textRun.status, 2, 'text mode with an absent targets file still exits 2');
 includesStr(textRun.stderr, '[ERROR]', 'text mode still reports the failure to a human');
+
+// ─── Fourth probe: --json stdout purity on the real target-selection path ──
+// The three probes above point at a targets path that can never exist, so
+// they never reach gatherAllTargets's real target-selection + per-target
+// metrics code — they only prove the early config-error exit is clean. This
+// probe runs a real (legacy .txt) targets file naming one real (empty)
+// .uproject file, so the process walks the same code the pre-push gate's
+// invocation does: target selection succeeds, one target is gathered, and it
+// reads MISSING because the scratch dir has no Plugins\UEMCP. This is the
+// only guard on stdout purity along the path the gate actually takes.
+const probeScratchDir = mkdtempSync(join(tmpdir(), 'uemcp-verify-deploy-probe-'));
+try {
+  const probeUproject = join(probeScratchDir, 'Fake.uproject');
+  writeFileSync(probeUproject, '', 'utf8');
+  const probeTargetsFile = join(probeScratchDir, 'targets.txt');
+  writeFileSync(probeTargetsFile, `${probeUproject}\n`, 'utf8');
+
+  const probeRun = spawnSync(process.execPath, [VERIFY_DEPLOY, '--json', '--targets', probeTargetsFile], { encoding: 'utf8' });
+  let probeDoc = null;
+  try { probeDoc = JSON.parse(probeRun.stdout); } catch { probeDoc = null; }
+  assertOk(probeDoc !== null, 'real-path probe: --json stdout parses as JSON');
+  eq(
+    [probeDoc?.targets?.length, probeDoc?.targets?.[0]?.verdict],
+    [1, 'MISSING'],
+    'real-path probe: exactly one target, verdict MISSING',
+  );
+  assertOk(Array.isArray(probeDoc?.warnings), 'real-path probe: warnings is an array');
+  // Same fixture also proves the JSON warnings[] carries target-selection
+  // warnings (Minor 6), not just marker-comparison ones: a legacy .txt
+  // targets file always produces the LEGACY_TARGETS_TXT warning.
+  assertOk(
+    (probeDoc?.warnings || []).some((w) => typeof w === 'string' && w.includes('.uemcp-targets.txt')),
+    'real-path probe: JSON warnings carries the legacy-targets-txt target-selection warning',
+  );
+} finally {
+  rmSync(probeScratchDir, { recursive: true, force: true });
+}
 
 // run-rotation.mjs primary format — each on its own line so it can be parsed
 // from stdout per the regex at run-rotation.mjs:93-95.

@@ -12,6 +12,7 @@ import {
   compareDeployMarker,
   computeIncomingState,
   markerSyncedAtMs,
+  nextMarkerFields,
   MARKER_FILENAME,
   MARKER_SCHEMA_VERSION,
 } from './sync-plugin-helper.mjs';
@@ -144,6 +145,35 @@ eq(
   markerSyncedAtMs({ syncTime: '2026-05-05T20:34:11.000Z', syncedAt: '2026-09-13T10:00:00.000Z' }),
   Date.parse('2026-09-13T10:00:00.000Z'),
   'syncedAt wins over syncTime when both are present'
+);
+
+// ─── nextMarkerFields — a redundant re-sync must not force a rebuild ─
+// (Important 1) sync-plugin.bat rewrites the marker on every sync, even a
+// no-op one. If syncTime always advanced, classifyVerdict would see a DLL
+// that "predates the last sync" and demand a rebuild nobody needs.
+const NOW_ISO = '2026-09-14T12:00:00.000Z';
+const priorSameHash = { syncTime: '2026-09-01T00:00:00.000Z', sourceHash: 'a'.repeat(64) };
+const incomingSameHash = { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'a'.repeat(64) };
+eq(
+  nextMarkerFields(priorSameHash, incomingSameHash, NOW_ISO),
+  { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'a'.repeat(64), syncTime: '2026-09-01T00:00:00.000Z', lastSyncAt: NOW_ISO },
+  'same sourceHash → syncTime carried forward, lastSyncAt is now',
+);
+
+const priorDifferentHash = { syncTime: '2026-09-01T00:00:00.000Z', sourceHash: 'a'.repeat(64) };
+const incomingDifferentHash = { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'b'.repeat(64) };
+eq(
+  nextMarkerFields(priorDifferentHash, incomingDifferentHash, NOW_ISO),
+  { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'b'.repeat(64), syncTime: NOW_ISO, lastSyncAt: NOW_ISO },
+  'different sourceHash → both syncTime and lastSyncAt are now',
+);
+
+const priorNoHash = { syncTime: '2026-09-01T00:00:00.000Z' };
+const incomingNoHashPrior = { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'c'.repeat(64) };
+eq(
+  nextMarkerFields(priorNoHash, incomingNoHashPrior, NOW_ISO),
+  { manifestVersion: '1.0.1', upluginVersion: 2, sourceHash: 'c'.repeat(64), syncTime: NOW_ISO, lastSyncAt: NOW_ISO },
+  'a prior marker without sourceHash → both syncTime and lastSyncAt are now',
 );
 
 // ─── readDeployMarker / writeDeployMarker — fs round-trip ────────────

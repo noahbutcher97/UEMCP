@@ -83,8 +83,12 @@ gate_checked=0
 # on stdin and exits 0 (nothing blocking), 1 (blocking targets, one per line on
 # stdout) or 2 (document unusable — the caller warns instead of blocking).
 # Kept on one single-quoted line so it carries no shell-special characters and
-# so server/test-pre-push-gate.mjs can extract and execute it.
-gate_parser='let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}if(!j||j.error||!Array.isArray(j.targets)){process.exit(2)}const blocking=["NEEDS-SYNC","NEEDS-BUILD","NEEDS-DEPLOY"];const bad=j.targets.filter(t=>t.dllExists===true&&blocking.indexOf(t.verdict)!==-1);for(const t of bad){console.log("      "+(t.alias||t.uprojectPath)+": "+t.verdict+" - "+t.reason)}process.exit(bad.length?1:0)})'
+# so server/test-pre-push-gate.mjs can extract and execute it. The whole body
+# is wrapped in try/catch so a malformed document or an unexpected row shape
+# (e.g. a null entry in targets[]) always routes to the could-not-evaluate
+# exit (2), never falls through as an uncaught exception that could be
+# mistaken for a block.
+gate_parser='let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{try{let j;try{j=JSON.parse(s)}catch{process.exit(2)}if(!j||j.error||!Array.isArray(j.targets)){process.exit(2)}const blocking=["NEEDS-SYNC","NEEDS-BUILD","NEEDS-DEPLOY"];const bad=j.targets.filter(t=>t.dllExists===true&&blocking.indexOf(t.verdict)!==-1);for(const t of bad){console.log("      "+(t.alias||t.uprojectPath)+": "+t.verdict+" - "+t.reason)}process.exit(bad.length?1:0)}catch{process.exit(2)}})'
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue   # branch deletion

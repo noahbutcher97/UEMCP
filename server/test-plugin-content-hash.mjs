@@ -177,4 +177,37 @@ t.assert(
   'a lone CR not followed by LF hashes differently — normalisation is exactly CRLF',
 );
 
+// 20: the reviewer's collision pair. Without a length delimiter, a single
+// file whose content is "Source/b\0x" hashes identically to two real files
+// — an empty Source/a and a Source/b containing "x" — because the
+// path-then-NUL-then-bytes stream is byte-for-byte the same either way. The
+// length prefix inserted ahead of each file's bytes closes that.
+const collisionSingleFile = {
+  [`${ROOT}/UEMCP.uplugin`]: '{}',
+  [`${ROOT}/Source/a`]: 'Source/b\0x',
+};
+const collisionTwoFiles = {
+  [`${ROOT}/UEMCP.uplugin`]: '{}',
+  [`${ROOT}/Source/a`]: '',
+  [`${ROOT}/Source/b`]: 'x',
+};
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(collisionSingleFile)) !== hashPluginTree(ROOT, createFakeFs(collisionTwoFiles)),
+  'a NUL inside a file\'s content cannot collide with the same bytes split across two files',
+);
+
+// 21-22: Resources/ joins the digest as an optional root — present, its
+// bytes are content like any other; absent, it contributes nothing rather
+// than nulling the digest (a target deployed before it existed still compares).
+const resourcesV1 = withFiles({ [`${ROOT}/Resources/x.json`]: '{"icon":"a"}' });
+const resourcesV2 = withFiles({ [`${ROOT}/Resources/x.json`]: '{"icon":"b"}' });
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(resourcesV1)) !== hashPluginTree(ROOT, createFakeFs(resourcesV2)),
+  'a tree with Resources/x.json hashes differently when that file changes',
+);
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(BASE_FILES)) !== null,
+  'a tree without Resources/ still yields a digest',
+);
+
 process.exit(t.summary());

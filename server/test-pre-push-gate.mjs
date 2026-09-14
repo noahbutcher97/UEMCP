@@ -90,4 +90,13 @@ t.assert(
 );
 t.assert(runParser('not json at all').status === 2, 'reader exits 2 for unparseable input');
 
+// A malformed row (null instead of an object) must never surface as an
+// uncaught exception that could look like a block — it routes to the
+// could-not-evaluate exit like any other unusable document (Minor 5).
+const nullRow = JSON.stringify({
+  version: 1, profile: 'smoke', exitCode: 1,
+  targets: [null],
+});
+t.assert(runParser(nullRow).status === 2, 'reader exits 2 rather than crashing on a null row');
+
 process.exit(t.summary());

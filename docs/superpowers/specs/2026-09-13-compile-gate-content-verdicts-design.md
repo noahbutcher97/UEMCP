@@ -28,6 +28,8 @@ Add a pure helper `hashPluginTree(rootDir, fsImpl)` in a new module `server/plug
 
 `sync-plugin-helper.mjs` already writes `.uemcp-deploy-marker.json` (W-L, D138) with the plugin version. Extend the marker with `sourceHash` (from §3.1, computed over the repo tree at sync time) and `syncedAt` (ISO time). Markers without these fields stay valid; the classifier treats them as "unknown content".
 
+**Amendment (2026-09-14):** `sync-plugin.bat` rewrites the marker on every sync, including a redundant one whose copied content is byte-identical to what was already deployed, so `syncTime` used to advance regardless. `classifyVerdict`'s content rule reads `syncTime` as "when this content was deployed"; an advancing timestamp on unchanged content made an already-current DLL look like it predated the sync, demanding a rebuild nobody needed. The write path (`nextMarkerFields` in `sync-plugin-helper.mjs`) now reads the prior marker before writing: when the prior marker's `sourceHash` is a string equal to the incoming `sourceHash`, `syncTime` carries forward unchanged; otherwise it is set to now. A new field `lastSyncAt` (ISO now) always advances, so the most recent copy is still recorded for humans even when `syncTime` did not move. `markerSyncedAtMs` is unaffected — it still prefers `syncedAt`, then `syncTime`.
+
 ### 3.3 Classifier inputs and rules
 
 `classifyDeployState` gains three optional inputs, all computed by the caller: `repoSourceHash`, `deployedSourceHash`, `markerSourceHash`, plus `markerSyncedAtMs`. Rules, applied before the existing mtime rules:

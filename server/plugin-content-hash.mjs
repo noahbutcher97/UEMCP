@@ -7,6 +7,15 @@
 // single timestamp: the digest covers the source tree and the descriptor, in
 // sorted path order, and nothing else.
 //
+// The digest covers `Source/**` and `UEMCP.uplugin` (both required — a
+// missing one makes the digest null) plus, when present, `Resources/**`
+// (icons and other packaged assets, hashed as opaque bytes like anything
+// else). `Resources/` is optional: a target deployed before that directory
+// existed still compares by content, so its absence contributes nothing
+// rather than nulling the digest. Both roots are everything `sync-plugin.bat`
+// copies except `Binaries/` and `Intermediate/`, which this module also
+// excludes as build output, never source.
+//
 // fsImpl is injectable so the unit tests can run against an in-memory tree.
 // Deliberately absent from that contract: any stat call.
 //
@@ -26,8 +35,10 @@ const EXCLUDED_DIRS = new Set(['Binaries', 'Intermediate']);
 /** Files the deploy tooling writes into the tree; they describe a sync, not the source. */
 const EXCLUDED_FILE_PREFIX = '.uemcp-';
 
-/** The two root entries that define plugin content. */
-const ROOT_DIRS = ['Source'];
+/** Required root: missing means the digest is unknown (null). */
+const REQUIRED_ROOT_DIRS = ['Source'];
+/** Optional root: missing means it simply contributes no files. */
+const OPTIONAL_ROOT_DIRS = ['Resources'];
 const ROOT_FILES = ['UEMCP.uplugin'];
 
 /** Byte-order comparison; localeCompare would make the digest locale-dependent. */
@@ -46,14 +57,7 @@ export function collectPluginContentFiles(pluginRoot, fsImpl = DEFAULT_FS) {
   const files = [];
   let ok = true;
 
-  const walk = (absDir, relPrefix) => {
-    let entries;
-    try {
-      entries = fsImpl.readdirSync(absDir, { withFileTypes: true });
-    } catch {
-      ok = false;
-      return;
-    }
+  const collectEntries = (entries, absDir, relPrefix) => {
     for (const entry of entries) {
       if (!ok) return;
       if (entry.isDirectory()) {
@@ -66,15 +70,49 @@ export function collectPluginContentFiles(pluginRoot, fsImpl = DEFAULT_FS) {
     }
   };
 
-  for (const dir of ROOT_DIRS) walk(join(pluginRoot, dir), `${dir}/`);
+  const walk = (absDir, relPrefix) => {
+    let entries;
+    try {
+      entries = fsImpl.readdirSync(absDir, { withFileTypes: true });
+    } catch {
+      ok = false;
+      return;
+    }
+    collectEntries(entries, absDir, relPrefix);
+  };
+
+  for (const dir of REQUIRED_ROOT_DIRS) walk(join(pluginRoot, dir), `${dir}/`);
   if (!ok) return null;
+
+  // Optional roots: a failure reading the root itself (typically ENOENT, a
+  // target deployed before this directory existed) contributes no files
+  // rather than nulling the whole digest. A failure reading something
+  // *inside* an optional root that does exist is a real error and still
+  // fails closed via the shared `ok` flag, same as a required root.
+  for (const dir of OPTIONAL_ROOT_DIRS) {
+    const absDir = join(pluginRoot, dir);
+    let entries;
+    try {
+      entries = fsImpl.readdirSync(absDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    collectEntries(entries, absDir, `${dir}/`);
+    if (!ok) return null;
+  }
+
   for (const file of ROOT_FILES) files.push(file);
   return files.sort(byPath);
 }
 
 /**
- * SHA-256 over `relativePath + NUL + CRLF-normalised fileBytes` for every
- * content file, in sorted path order. Equal digests mean content-identical
+ * SHA-256 over `relativePath + NUL + byteLength + NUL + CRLF-normalised
+ * fileBytes` for every content file, in sorted path order. The length is
+ * delimited ahead of the bytes so a NUL inside a file name or a file's own
+ * content can never make one file's stream indistinguishable from a path
+ * boundary between two others (e.g. a single file containing
+ * `"Source/b\0x"` would otherwise hash identically to separate `Source/a`
+ * (empty) and `Source/b` ("x") files). Equal digests mean content-identical
  * trees modulo line endings. Returns null when any file could not be read —
  * an editor holding a file open must not be able to turn a stale deployment
  * into a confident match.
@@ -93,7 +131,7 @@ export function hashPluginTree(pluginRoot, fsImpl = DEFAULT_FS) {
     // latin1 round-trips every byte 0-255 1:1 (unlike utf8), so this replaces
     // only literal CRLF pairs and cannot re-encode or alter any other byte.
     const normalized = Buffer.from(bytes.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
-    hash.update(`${rel}\0`, 'utf8');
+    hash.update(`${rel}\0${normalized.length}\0`, 'utf8');
     hash.update(normalized);
   }
   return hash.digest('hex');
