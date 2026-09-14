@@ -31,6 +31,15 @@ t.assert(!!verifyDeployLine, 'hook contains a line invoking verify-deploy.mjs');
 t.assert(!!verifyDeployLine && verifyDeployLine.includes('--json'), 'verify-deploy invocation passes --json');
 t.assert(!!verifyDeployLine && verifyDeployLine.includes('< /dev/null'), 'verify-deploy invocation redirects stdin from /dev/null');
 
+// The trigger must cover everything the content digest covers: Source/, the
+// shared native fixtures under Resources/, and the descriptor. A range that
+// changes only a fixture would otherwise publish without the gate looking.
+const triggerLine = lines.find((line) => line.includes('grep -qE') && line.includes('plugin/UEMCP/'));
+t.assert(
+  !!triggerLine && ['Source/', 'Resources/', 'UEMCP\\.uplugin'].every((part) => triggerLine.includes(part)),
+  'gate trigger names Source/, Resources/, and the .uplugin',
+);
+
 // The prose contract is retired: a reword of verify-deploy's printer must no
 // longer be able to change what the gate decides.
 t.assert(!hookText.includes('Verdict: (NEEDS-SYNC'), 'hook no longer greps the human Verdict prefix');

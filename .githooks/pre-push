@@ -132,7 +132,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     else
       touched="$(git log --name-only --pretty=format: "${remote_sha}..${local_sha}" 2>/dev/null)"
     fi
-    if printf '%s\n' "$touched" | grep -qE '^plugin/UEMCP/(Source/|UEMCP\.uplugin$)'; then
+    if printf '%s\n' "$touched" | grep -qE '^plugin/UEMCP/(Source/|Resources/|UEMCP\.uplugin$)'; then
       if [[ -f .uemcp-targets.json || -f .uemcp-targets.txt ]]; then
         gate_checked=1
         gate_profile="${UEMCP_PUSH_GATE_PROFILE:-}"
