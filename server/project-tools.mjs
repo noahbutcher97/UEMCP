@@ -82,4 +82,8 @@ export const MANAGEMENT_OUTPUT_SHAPE = {
   results: z.any().optional(),
   autoEnabled: z.array(z.string()).optional(),
   targetAttachment: z.any().optional(),
+  // EN-25: connection_info's answer to "is the listener on 55558 actually the
+  // project I am attached to?"
+  identityMismatch: z.boolean().optional(),
+  identityMismatchPaths: z.any().optional(),
 };

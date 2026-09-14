@@ -1284,6 +1284,10 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     'capture_asset_editor omits base64 unless inline was requested');
   t.assert(capture.result.width === 1280 && capture.result.height === 720,
     'capture_asset_editor reports captured pixel dimensions');
+  t.assert(typeof capture.result.byte_length === 'number',
+    'capture_asset_editor reports byte_length as a number');
+  t.assert(capture.result.mime === 'image/png',
+    'capture_asset_editor reports mime as image/png');
   const defaultCall = fake.lastCall('capture_asset_editor');
   t.assert(defaultCall.port === 55558, 'capture_asset_editor routed to tcp-55558');
   t.assert(defaultCall.params.tab_id === 'Details', 'capture_asset_editor forwards tab_id');
@@ -1338,6 +1342,8 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
   t.assert(scrolled.result.row_offset === 24, 'details_panel_scroll reports the row reached');
   t.assert(scrolled.result.max_row_offset === 47,
     'details_panel_scroll reports the paging ceiling');
+  t.assert(scrolled.result.requested_row_offset === 24,
+    'details_panel_scroll reports the row_offset that was requested');
   t.assert(fake.lastCall('details_panel_scroll').params.row_offset === 24,
     'row_offset forwarded to the wire');
 
@@ -1347,6 +1353,10 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     'capture_pie_viewport reports the PIE viewport dimensions');
   t.assert(typeof pie.result.png_path === 'string',
     'capture_pie_viewport always reports a written PNG path');
+  t.assert(typeof pie.result.byte_length === 'number',
+    'capture_pie_viewport reports byte_length as a number');
+  t.assert(pie.result.mime === 'image/png',
+    'capture_pie_viewport reports mime as image/png');
   t.assert(fake.lastCall('capture_pie_viewport').port === 55558,
     'capture_pie_viewport routed to tcp-55558');
 
@@ -1420,6 +1430,15 @@ console.log('\n── Group 25: P0-10 Vector Shape Validation ──');
     { status: 'error', error: 'No Slate renderer is available', code: 'CAPTURE_UNSUPPORTED' });
   t.assert(await capturedCode('capture_asset_editor', { asset_path: '/Game/X' }, errCm) === 'CAPTURE_UNSUPPORTED',
     'capture_asset_editor surfaces CAPTURE_UNSUPPORTED when there is no renderer');
+
+  errFake.on('capture_asset_editor',
+    { status: 'error', error: 'TakeScreenshot returned no pixels', code: 'CAPTURE_FAILED' });
+  t.assert(await capturedCode('capture_asset_editor', { asset_path: '/Game/X' }, errCm) === 'CAPTURE_FAILED',
+    'capture_asset_editor surfaces CAPTURE_FAILED');
+  errFake.on('capture_pie_viewport',
+    { status: 'error', error: 'Could not write PNG to disk', code: 'FILE_WRITE_FAILED' });
+  t.assert(await capturedCode('capture_pie_viewport', {}, errCm) === 'FILE_WRITE_FAILED',
+    'capture_pie_viewport surfaces FILE_WRITE_FAILED');
 }
 
 // ═══════════════════════════════════════════════════════════════

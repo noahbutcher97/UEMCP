@@ -947,4 +947,46 @@ await runCase('connection_info force_reconnect reports stale deploy freshness', 
   }
 });
 
+await runCase('connection_info reports an identity mismatch on the listener', async () => {
+  const root = makeTempRoot();
+  const projectRoot = makeTempRoot();
+  const foreignRoot = makeTempRoot();
+  try {
+    const project = writeProject(join(projectRoot, 'AttachedProject'), 'AttachedProject');
+    const foreign = writeProject(join(foreignRoot, 'ForeignProject'), 'ForeignProject');
+    const { app, transport } = await createWireApp({
+      cwd: root,
+      processInspector: () => [
+        { pid: 4444, cmdLine: `UnrealEditor.exe "${project.uprojectPath}"`, commandLineAvailable: true, uprojectPath: project.uprojectPath },
+      ],
+      // The listener answers for a DIFFERENT project than the attached one —
+      // the SetReuseAddr case where two editors share port 55558 and the OS
+      // decides which one replies.
+      tcpCommandFn: async () => ({
+        status: 'success',
+        result: { uproject_path: foreign.uprojectPath, project_name: 'ForeignProject' },
+      }),
+      httpCommandFn: async () => ({ status: 'success', result: {} }),
+    });
+    await initialize(transport, {});
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+
+    const info = parseTextResult(await callTool(transport, 'connection_info', { force_reconnect: true }));
+    t.assert(info.identityMismatch === true,
+      `connection_info flags the mismatch (got ${info.identityMismatch})`);
+    t.assert(info.readiness.editorIdentity === 'mismatch',
+      `readiness reports mismatch (got ${info.readiness.editorIdentity})`);
+    t.assert(String(info.identityMismatchPaths?.attached).includes('AttachedProject'),
+      `reports the attached project path (got ${info.identityMismatchPaths?.attached})`);
+    t.assert(String(info.identityMismatchPaths?.editor).includes('ForeignProject'),
+      `reports the path the listener claimed (got ${info.identityMismatchPaths?.editor})`);
+
+    await app.server.close();
+  } finally {
+    cleanup(root);
+    cleanup(projectRoot);
+    cleanup(foreignRoot);
+  }
+});
+
 process.exit(t.summary());

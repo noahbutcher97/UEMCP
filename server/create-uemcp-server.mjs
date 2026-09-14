@@ -533,16 +533,19 @@ export async function createUemcpServer(options = {}) {
     },
     async ({ timeout_ms }) => {
       const timeoutMs = clampWaitTimeout(timeout_ms);
+      const attachedUproject = projectContext.snapshot()?.identity?.uprojectPath || null;
       // tcpFn directly, never connectionManager.send(): send() serializes
       // through the per-layer queue, so waiting inside it would block every
       // other call on this layer for the whole budget.
       const probe = createEditorProbe({
         tcpFn: connectionManager.getTcpTransport(),
         port: connectionManager.config.tcpPortCustom,
+        // EN-25: a listener that answers for another project is not readiness.
+        attachedUproject,
       });
       const outcome = await waitForEditorReady({
         listProcesses: () => listEditorProcesses(),
-        attachedUproject: projectContext.snapshot()?.identity?.uprojectPath || null,
+        attachedUproject,
         probe,
         timeoutMs,
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -565,12 +568,24 @@ export async function createUemcpServer(options = {}) {
       const editor = await refreshEditorReadinessForConnectionInfo(force_reconnect);
       const deploy = await refreshDeployReadinessForConnectionInfo(force_reconnect);
       const projectSnapshot = projectContext.snapshot();
+      // EN-25: the mismatch was already detected — refreshEditorHandshake sets
+      // editorIdentityState when get_editor_state reports a foreign project.
+      // It was only reachable by reading a nested readiness dimension; these
+      // two fields put it where a caller will actually look.
+      const identityMismatch = projectSnapshot.editorIdentityState === 'mismatch';
       return managementResult({
         ok: true,
         project: projectSnapshot.identity?.projectName || config.projectName || connectionManager.detectedProject || '(not detected)',
         projectRoot: connectionManager.resolvedProjectRoot || '(not set)',
         projectContext: projectSnapshot,
         targetAttachment: projectSnapshot.identity?.targetAttachment || null,
+        identityMismatch,
+        ...(identityMismatch ? {
+          identityMismatchPaths: {
+            attached: projectSnapshot.identity?.uprojectPath || null,
+            editor: projectSnapshot.editorCandidates?.[0]?.uprojectPath || null,
+          },
+        } : {}),
         readiness: {
           attachment: projectSnapshot.attachmentState,
           editorIdentity: projectSnapshot.editorIdentityState,
