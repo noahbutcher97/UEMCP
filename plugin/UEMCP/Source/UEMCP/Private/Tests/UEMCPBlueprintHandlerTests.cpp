@@ -1928,15 +1928,23 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	// The exec link from BeginPlay.then into the planted node survives the handler's
 	// own node/link removal — confirms rollback did not collaterally break exec
 	// fan-out it did not create.
-	UEdGraphPin* ExistingThenPinAfter = FindFixturePin(ExistingBeginPlay, {TEXT("then")}, EGPD_Output);
-	if (ExistingThenPinAfter)
+	// Re-resolved through FindNodeByGuid + FindFixturePin rather than reusing the
+	// ExistingBeginPlay/BrokenExecPin pointers captured before the compiling
+	// add_blueprint_timer dispatch above: this file's own constraints forbid reusing
+	// a node or pin pointer across a dispatch that may compile, and this one happens
+	// to be safe only because that compile skips garbage collection.
+	UEdGraphNode* ExistingBeginPlayAfter = FindNodeByGuid(EventGraph, ExistingBeginPlayId);
+	UEdGraphNode* BrokenNodeAfter = FindNodeByGuid(EventGraph, BrokenNodeId);
+	UEdGraphPin* ExistingThenPinAfter = FindFixturePin(ExistingBeginPlayAfter, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* BrokenExecPinAfter = FindFixturePin(BrokenNodeAfter, {TEXT("execute")}, EGPD_Input);
+	if (ExistingThenPinAfter && BrokenExecPinAfter)
 	{
 		TestTrue(TEXT("the exec link into the planted node survives rollback"),
-			ExistingThenPinAfter->LinkedTo.Contains(BrokenExecPin));
+			ExistingThenPinAfter->LinkedTo.Contains(BrokenExecPinAfter));
 	}
 	else
 	{
-		AddError(TEXT("could not re-resolve the BeginPlay then pin after rollback"));
+		AddError(TEXT("could not re-resolve the BeginPlay then/execute pins after rollback"));
 	}
 
 	DestroyFixtureBlueprint(Fixture);
