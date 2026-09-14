@@ -163,4 +163,18 @@ t.assert(
   'the digest is produced from an fsImpl with no stat call — mtimes cannot enter it',
 );
 
+// 18-19: line-ending normalisation is exactly CRLF → LF, nothing broader.
+const CRLF_TARGET = `${ROOT}/Source/UEMCP/Private/ActorHandlers.cpp`;
+const lfFiles = withFiles({ [CRLF_TARGET]: 'void Spawn() {}\n// comment\n' });
+const crlfFiles = withFiles({ [CRLF_TARGET]: 'void Spawn() {}\r\n// comment\r\n' });
+const loneCrFiles = withFiles({ [CRLF_TARGET]: 'void Spawn() {}\r// comment\r' });
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(crlfFiles)) === hashPluginTree(ROOT, createFakeFs(lfFiles)),
+  'a tree with CRLF files hashes identically to the same tree with LF files',
+);
+t.assert(
+  hashPluginTree(ROOT, createFakeFs(loneCrFiles)) !== hashPluginTree(ROOT, createFakeFs(lfFiles)),
+  'a lone CR not followed by LF hashes differently — normalisation is exactly CRLF',
+);
+
 process.exit(t.summary());

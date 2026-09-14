@@ -433,12 +433,17 @@ eq(
 eq(report.targets[1].contentIdentical, null, 'an unknown content verdict serialises as null');
 eq(
   buildJsonReport([], {}),
-  { version: 1, profile: null, targets: [], exitCode: 0 },
-  'an empty report has a null profile and exit 0',
+  { version: 1, profile: null, targets: [], warnings: [], exitCode: 0 },
+  'an empty report has a null profile, no warnings and exit 0',
 );
 assertOk(
   report.targets.every((row) => Object.values(row).every((v) => v !== undefined)),
   'no target row field is undefined — an undefined would vanish from the serialised document',
+);
+eq(
+  [buildJsonReport([], {}).warnings, buildJsonReport([], { warnings: ['primary: Marker comparison disabled: boom'] }).warnings],
+  [[], ['primary: Marker comparison disabled: boom']],
+  'warnings defaults to an empty array and echoes a supplied warning',
 );
 
 eq(buildJsonErrorReport('boom'), { version: 1, error: 'boom', exitCode: 2 }, 'the error document shape');

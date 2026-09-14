@@ -9,6 +9,10 @@
 //
 // fsImpl is injectable so the unit tests can run against an in-memory tree.
 // Deliberately absent from that contract: any stat call.
+//
+// Line endings are normalised (CRLF → LF) before hashing because they vary
+// per checkout — git's autocrlf, or a tree restored by `git archive` — and do
+// not change what compiles.
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -69,10 +73,11 @@ export function collectPluginContentFiles(pluginRoot, fsImpl = DEFAULT_FS) {
 }
 
 /**
- * SHA-256 over `relativePath + NUL + fileBytes` for every content file, in
- * sorted path order. Equal digests mean byte-identical trees. Returns null when
- * any file could not be read — an editor holding a file open must not be able
- * to turn a stale deployment into a confident match.
+ * SHA-256 over `relativePath + NUL + CRLF-normalised fileBytes` for every
+ * content file, in sorted path order. Equal digests mean content-identical
+ * trees modulo line endings. Returns null when any file could not be read —
+ * an editor holding a file open must not be able to turn a stale deployment
+ * into a confident match.
  */
 export function hashPluginTree(pluginRoot, fsImpl = DEFAULT_FS) {
   const files = collectPluginContentFiles(pluginRoot, fsImpl);
@@ -85,8 +90,11 @@ export function hashPluginTree(pluginRoot, fsImpl = DEFAULT_FS) {
     } catch {
       return null;
     }
+    // latin1 round-trips every byte 0-255 1:1 (unlike utf8), so this replaces
+    // only literal CRLF pairs and cannot re-encode or alter any other byte.
+    const normalized = Buffer.from(bytes.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
     hash.update(`${rel}\0`, 'utf8');
-    hash.update(bytes);
+    hash.update(normalized);
   }
   return hash.digest('hex');
 }

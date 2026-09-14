@@ -279,8 +279,12 @@ export function selectionErrorMessage(selection) {
 /**
  * The machine-readable verdict document. The pre-push gate's contract is this
  * shape — never the human printer's wording — so a reword cannot disarm it.
+ * `warnings` is additive: informational lines (e.g. a marker overlay that
+ * could not be computed) that no consumer is required to act on. The gate
+ * ignores it; it exists so a human reading the JSON sees what text mode would
+ * have printed to stderr.
  */
-export function buildJsonReport(targets, { profile = null, exitCode = 0 } = {}) {
+export function buildJsonReport(targets, { profile = null, exitCode = 0, warnings = [] } = {}) {
   return {
     version: 1,
     profile: profile || null,
@@ -294,6 +298,7 @@ export function buildJsonReport(targets, { profile = null, exitCode = 0 } = {}) 
       editors: (t.matchedEditors || []).map((e) => e.pid),
       mcpPointsHere: !!t.mcpPointsHere,
     })),
+    warnings,
     exitCode,
   };
 }
@@ -829,9 +834,17 @@ function runJsonMode(flags) {
   const gathered = gatherAllTargets(flags);
   if (gathered.error) return emitJsonError(gathered.error);
   const exitCode = exitCodeForResults(gathered.results);
+  // A marker-overlay failure disables that overlay for every target in this
+  // run (computeIncomingState runs once, not per target), so it is reported
+  // once per target, named — mirrors the single [WARN] text mode prints, but
+  // attributed so a JSON consumer knows which rows it affects.
+  const warnings = gathered.markerWarning
+    ? gathered.results.map((r) => `${r.alias || r.uprojectPath}: ${gathered.markerWarning}`)
+    : [];
   const report = buildJsonReport(gathered.results, {
     profile: gathered.targetSelection.profile?.name || null,
     exitCode,
+    warnings,
   });
   console.log(JSON.stringify(report, null, 2));
   return exitCode;

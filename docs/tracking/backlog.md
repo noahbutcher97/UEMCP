@@ -86,13 +86,13 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Root cause (2026-09-13, WS2 step 0.4)**: `UEMCPModule.cpp:42` calls `RawSocket->SetReuseAddr(true)` before `Listen()`, so a second editor (or a headless automation run) binds 55558 alongside the first instead of failing; which instance answers a connection is then up to the OS. Removing the reuse flag makes the second instance fail loudly; a per-project port avoids the collision entirely. Decide with EN-24.
 - **Trigger**: with EN-24, or when WS2's port-collision characterization lands and the runner needs a port strategy anyway.
 
-### EN-26 — Machine-readable verify-deploy output for the pre-push compile gate
+### EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — **DONE 2026-09**
 - **Source**: whole-branch review of the WS2 branch (2026-09-13).
 - **Gap**: `.githooks/pre-push` decides whether to block a plugin push by grepping `verify-deploy.mjs`'s human-readable output — the `Verdict:` prefix and the reason substrings `DLL missing` / `not built`. Those strings are now pinned by `test-verify-deploy.mjs` and the hook's shape by `test-pre-push-gate.mjs`, so a reformat fails a suite rather than silently disarming the gate, but the contract is still prose.
 - **Proposal**: a `--json` flag on `verify-deploy.mjs` emitting `{ targets: [{ uprojectPath, verdict, reason, dllExists, editors[] }], exitCode }`; the hook consumes `verdict` and `dllExists` directly and the two substring pins retire. Small: the verdict objects already exist in `classifyDeployState`; the flag is a printer switch plus one hook edit.
 - **Trigger**: the next change to `verify-deploy.mjs`'s printer, or the first time the gate needs a rule the reason strings cannot express.
 
-### EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge
+### EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge — **DONE 2026-09**
 - **Source**: first merge under the gate (WS5a, 2026-09-13).
 - **Symptom**: `git merge` (a fast-forward) rewrote the plugin source files in the working tree, so their mtimes became newer than DLLs built from identical content minutes earlier; `verify-deploy` then reported every built target as `NEEDS-DEPLOY — DLL predates HEAD source` and the gate refused the push. The deployed trees were byte-identical to HEAD (recursive diff), so the only way through was to sync and rebuild each target again. The same happens after `git checkout` of any commit that touches plugin source, and after `git stash pop`.
 - **Root cause**: `classifyDeployState` reasons from mtimes alone; nothing compares content. D138-FIX2 already removed one mtime over-estimate (`Math.max` with the commit time); this is the remaining class.
