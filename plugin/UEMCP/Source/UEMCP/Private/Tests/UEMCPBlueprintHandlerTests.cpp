@@ -201,8 +201,14 @@ namespace UEMCP::Blueprint::Tests
 		return MakeShared<FJsonObject>();
 	}
 
-	/** The entry of Result[ArrayField] whose "role" matches, or an empty object. */
-	TSharedPtr<FJsonObject> FindRole(const TSharedPtr<FJsonObject>& Result, const FString& ArrayField, const FString& Role)
+	/**
+	 * The entry of Result[ArrayField] whose FieldName equals Value, or an empty
+	 * object. FindRole is the role-keyed case; this exists because
+	 * add_blueprint_function_node returns a flat pins array whose rows carry no
+	 * role at all, so a pin there can only be found by name.
+	 */
+	TSharedPtr<FJsonObject> FindEntryByField(const TSharedPtr<FJsonObject>& Result, const FString& ArrayField,
+		const FString& FieldName, const FString& Value)
 	{
 		const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
 		if (Result.IsValid() && Result->TryGetArrayField(ArrayField, Entries) && Entries)
@@ -210,15 +216,21 @@ namespace UEMCP::Blueprint::Tests
 			for (const TSharedPtr<FJsonValue>& Entry : *Entries)
 			{
 				const TSharedPtr<FJsonObject>* Obj = nullptr;
-				FString EntryRole;
-				if (Entry.IsValid() && Entry->TryGetObject(Obj) && Obj && (*Obj)->TryGetStringField(TEXT("role"), EntryRole)
-					&& EntryRole == Role)
+				FString EntryValue;
+				if (Entry.IsValid() && Entry->TryGetObject(Obj) && Obj && (*Obj)->TryGetStringField(FieldName, EntryValue)
+					&& EntryValue == Value)
 				{
 					return *Obj;
 				}
 			}
 		}
 		return MakeShared<FJsonObject>();
+	}
+
+	/** The entry of Result[ArrayField] whose "role" matches, or an empty object. */
+	TSharedPtr<FJsonObject> FindRole(const TSharedPtr<FJsonObject>& Result, const FString& ArrayField, const FString& Role)
+	{
+		return FindEntryByField(Result, ArrayField, TEXT("role"), Role);
 	}
 
 	/** The fixture's event graph. CreateBlueprint gives an Actor Blueprint one. */
@@ -1039,6 +1051,188 @@ bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& P
 	TestEqual(TEXT("unknown source variable code"),
 		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), BadSourceParams)),
 		FString(TEXT("VARIABLE_NOT_FOUND")));
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// add_blueprint_variable_assignment — exec_from. The exec source is authored by
+// add_blueprint_function_node through the same registry rather than by reaching into
+// the editor API, so the arrangement is itself shipped behaviour.
+//
+// That call does double duty. SphereOverlapActors takes a plain UClass* parameter
+// (no DeterminesOutputType machinery, so setting its default reshapes nothing else)
+// and is BlueprintCallable rather than pure, so the node has both a class pin whose
+// DefaultObject the handler sets and the "then" exec output this test needs. Its pins
+// array is therefore the one response in reach that carries PinToJson's default_object
+// branch, which nothing has asserted before.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersAssignmentExecFromTest,
+	"UEMCP.BlueprintHandlers.AssignmentExecFrom",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
+
+	// ---- arrange: a non-pure library call, for its "then" exec output ----
+	// add_blueprint_function_node has no compile parameter and never compiles.
+	TSharedPtr<FJsonObject> PinDefaults = MakeShared<FJsonObject>();
+	PinDefaults->SetStringField(TEXT("ActorClassFilter"), TEXT("Actor"));
+	TSharedPtr<FJsonObject> FuncParams = MakeShared<FJsonObject>();
+	FuncParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	FuncParams->SetStringField(TEXT("function_name"), TEXT("SphereOverlapActors"));
+	FuncParams->SetStringField(TEXT("target"), TEXT("KismetSystemLibrary"));
+	FuncParams->SetObjectField(TEXT("params"), PinDefaults);
+
+	const TSharedPtr<FJsonObject> FuncResponse = Dispatch(TEXT("add_blueprint_function_node"), FuncParams);
+	FString Code;
+	if (!IsSuccess(FuncResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_function_node returned '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> FuncResult = ResultOf(FuncResponse);
+	const FString FuncNodeId = StringFieldOr(FuncResult, TEXT("node_id"));
+	TestEqual(TEXT("arranged node class"), StringFieldOr(FuncResult, TEXT("node_class")), FString(TEXT("K2Node_CallFunction")));
+	if (FuncNodeId.IsEmpty())
+	{
+		AddError(TEXT("arrange step produced no node id"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	UEdGraphNode* FuncNode = FindNodeByGuid(EventGraph, FuncNodeId);
+	UEdGraphPin* ClassPin = FindFixturePin(FuncNode, {TEXT("ActorClassFilter")}, EGPD_Input);
+	UEdGraphPin* ThenPin = FindFixturePin(FuncNode, {TEXT("then")}, EGPD_Output);
+	if (!FuncNode || !ClassPin || !ThenPin)
+	{
+		AddError(TEXT("the arranged call node is missing its ActorClassFilter or then pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- PinToJson's default_object branch, on the class pin the arrange step set ----
+	// The path is computed, not spelled out, so this does not encode where the engine
+	// keeps AActor.
+	const TSharedPtr<FJsonObject> ClassPinJson = FindEntryByField(FuncResult, TEXT("pins"), TEXT("name"), TEXT("ActorClassFilter"));
+	TestEqual(TEXT("class pin category"), StringFieldOr(ClassPinJson, TEXT("category")), UEdGraphSchema_K2::PC_Class.ToString());
+	TestEqual(TEXT("class pin default_object"), StringFieldOr(ClassPinJson, TEXT("default_object")), AActor::StaticClass()->GetPathName());
+	TestEqual(TEXT("class pin link_count"), (int32)NumberFieldOr(ClassPinJson, TEXT("link_count")), 0);
+	TestEqual(TEXT("class pin_id matches the graph pin"), StringFieldOr(ClassPinJson, TEXT("pin_id")), ClassPin->PinId.ToString());
+	TestTrue(TEXT("the graph pin really holds that DefaultObject"), ClassPin->DefaultObject == AActor::StaticClass());
+
+	// A pin with no DefaultObject omits the field rather than emitting it empty.
+	TestFalse(TEXT("the exec pin omits default_object"),
+		FindEntryByField(FuncResult, TEXT("pins"), TEXT("name"), TEXT("then"))->HasField(TEXT("default_object")));
+
+	// ---- act: a literal assignment wired into that node's exec output ----
+	TSharedPtr<FJsonObject> ExecFrom = MakeShared<FJsonObject>();
+	ExecFrom->SetStringField(TEXT("node_id"), FuncNodeId);
+	ExecFrom->SetStringField(TEXT("pin"), TEXT("then"));
+
+	TSharedPtr<FJsonObject> Assignment = MakeShared<FJsonObject>();
+	Assignment->SetStringField(TEXT("kind"), TEXT("literal"));
+	Assignment->SetNumberField(TEXT("value"), 7.0);
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	Params->SetObjectField(TEXT("assignment"), Assignment);
+	Params->SetObjectField(TEXT("exec_from"), ExecFrom);
+	Params->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("add_blueprint_variable_assignment"), Params);
+	if (!IsSuccess(Response, Code))
+	{
+		AddError(FString::Printf(TEXT("assignment with exec_from failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> Result = ResultOf(Response);
+	const FString SetNodeId = StringFieldOr(FindRole(Result, TEXT("nodes"), TEXT("set")), TEXT("node_id"));
+
+	// ---- the links[exec] row. A literal assignment on its own reports no links at
+	// all (the shipped test asserts exactly that), so this row is entirely exec_from's. ----
+	const TArray<TSharedPtr<FJsonValue>>* Links = nullptr;
+	TestTrue(TEXT("links array present"), Result->TryGetArrayField(TEXT("links"), Links));
+	TestEqual(TEXT("exec_from adds exactly one link to a literal assignment"), Links ? Links->Num() : -1, 1);
+	const TSharedPtr<FJsonObject> ExecLink = FindRole(Result, TEXT("links"), TEXT("exec"));
+	TestEqual(TEXT("exec link source node"), StringFieldOr(ExecLink, TEXT("source_node_id")), FuncNodeId);
+	TestEqual(TEXT("exec link target node"), StringFieldOr(ExecLink, TEXT("target_node_id")), SetNodeId);
+	const TSharedPtr<FJsonObject>* ExecSourcePin = nullptr;
+	const TSharedPtr<FJsonObject>* ExecTargetPin = nullptr;
+	if (ExecLink->TryGetObjectField(TEXT("source_pin"), ExecSourcePin) && ExecSourcePin
+		&& ExecLink->TryGetObjectField(TEXT("target_pin"), ExecTargetPin) && ExecTargetPin)
+	{
+		TestEqual(TEXT("exec link source pin"), StringFieldOr(*ExecSourcePin, TEXT("name")), FString(TEXT("then")));
+		TestEqual(TEXT("exec link target pin"), StringFieldOr(*ExecTargetPin, TEXT("name")), FString(TEXT("execute")));
+		TestEqual(TEXT("exec link source pin is an exec pin"),
+			StringFieldOr(*ExecSourcePin, TEXT("category")), UEdGraphSchema_K2::PC_Exec.ToString());
+		TestEqual(TEXT("exec link source pin_id matches the graph pin"),
+			StringFieldOr(*ExecSourcePin, TEXT("pin_id")), ThenPin->PinId.ToString());
+	}
+	else
+	{
+		AddError(TEXT("links[exec] carried no source_pin / target_pin objects"));
+	}
+
+	// The exec_in pin row now reports the link exec_from made.
+	TestEqual(TEXT("exec_in pin link_count"),
+		(int32)NumberFieldOr(FindRole(Result, TEXT("pins"), TEXT("exec_in")), TEXT("link_count")), 1);
+
+	// ---- graph state ----
+	UEdGraphNode* SetNode = FindNodeByGuid(EventGraph, SetNodeId);
+	UEdGraphPin* ExecutePin = FindFixturePin(SetNode, {TEXT("execute")}, EGPD_Input);
+	if (!SetNode || !ExecutePin)
+	{
+		AddError(TEXT("the reported set node id did not resolve, or it has no execute pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestTrue(TEXT("the call node's then pin links to the set node's execute pin"), ThenPin->LinkedTo.Contains(ExecutePin));
+	TestEqual(TEXT("the execute pin has exactly one link"), ExecutePin->LinkedTo.Num(), 1);
+
+	// ---- error: exec_from carrying node_id but no pin ----
+	TSharedPtr<FJsonObject> HalfExec = MakeShared<FJsonObject>();
+	HalfExec->SetStringField(TEXT("node_id"), FuncNodeId);
+	TSharedPtr<FJsonObject> HalfExecParams = MakeShared<FJsonObject>();
+	HalfExecParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	HalfExecParams->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	HalfExecParams->SetObjectField(TEXT("assignment"), Assignment);
+	HalfExecParams->SetObjectField(TEXT("exec_from"), HalfExec);
+	HalfExecParams->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("half-specified exec_from code"),
+		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), HalfExecParams)),
+		FString(TEXT("MISSING_PARAMS")));
+
+	// ---- error: exec_from naming a node that is not in the graph ----
+	TSharedPtr<FJsonObject> MissingExec = MakeShared<FJsonObject>();
+	MissingExec->SetStringField(TEXT("node_id"), FGuid::NewGuid().ToString());
+	MissingExec->SetStringField(TEXT("pin"), TEXT("then"));
+	TSharedPtr<FJsonObject> MissingExecParams = MakeShared<FJsonObject>();
+	MissingExecParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	MissingExecParams->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	MissingExecParams->SetObjectField(TEXT("assignment"), Assignment);
+	MissingExecParams->SetObjectField(TEXT("exec_from"), MissingExec);
+	MissingExecParams->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("unknown exec_from node code"),
+		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), MissingExecParams)),
+		FString(TEXT("NODE_NOT_FOUND")));
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;
