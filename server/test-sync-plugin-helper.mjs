@@ -11,10 +11,11 @@ import {
   writeDeployMarker,
   compareDeployMarker,
   computeIncomingState,
+  markerSyncedAtMs,
   MARKER_FILENAME,
   MARKER_SCHEMA_VERSION,
 } from './sync-plugin-helper.mjs';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +116,36 @@ const schemaVerdict = compareDeployMarker(oldSchemaPrior, incomingV1);
 eq(schemaVerdict.nukeRecommended, true, 'schema-version mismatch → nuke');
 eq(schemaVerdict.reason, 'schema-version-changed', 'schema-version mismatch → reason');
 
+// A content hash in the marker must not move the nuke decision: that decision
+// is about plugin metadata versions, not about source bytes.
+const hashOnlyChangedPrior = {
+  schemaVersion: MARKER_SCHEMA_VERSION,
+  manifestVersion: '1.0.1',
+  upluginVersion: 2,
+  upluginVersionName: '1.0.1',
+  sourceHash: 'f'.repeat(64),
+};
+eq(
+  compareDeployMarker(hashOnlyChangedPrior, incomingV1),
+  { nukeRecommended: false, reason: 'version-match' },
+  'a differing sourceHash alone does not recommend a nuke'
+);
+
+// ─── markerSyncedAtMs — the classifier's "when was this deployed" input ──
+eq(markerSyncedAtMs(null), null, 'markerSyncedAtMs(null) → null');
+eq(markerSyncedAtMs({}), null, 'marker with no time field → null');
+eq(markerSyncedAtMs({ syncTime: 'not-a-date' }), null, 'unparseable time → null');
+eq(
+  markerSyncedAtMs({ syncTime: '2026-05-05T20:34:11.000Z' }),
+  Date.parse('2026-05-05T20:34:11.000Z'),
+  'legacy syncTime is read'
+);
+eq(
+  markerSyncedAtMs({ syncTime: '2026-05-05T20:34:11.000Z', syncedAt: '2026-09-13T10:00:00.000Z' }),
+  Date.parse('2026-09-13T10:00:00.000Z'),
+  'syncedAt wins over syncTime when both are present'
+);
+
 // ─── readDeployMarker / writeDeployMarker — fs round-trip ────────────
 
 const tmpRoot = mkdtempSync(join(tmpdir(), 'uemcp-sync-helper-test-'));
@@ -144,6 +175,18 @@ try {
   eq(writtenBySetup.manifestVersion, '1.0.1', 'override preserves the other marker fields');
   eq(readDeployMarker(tmpRoot).syncedBy, 'setup-uemcp.bat', 'overridden syncedBy round-trips through disk');
   assertTrue(typeof written.syncTime === 'string' && written.syncTime.length > 0, 'syncTime stamped');
+
+  // The marker carries the content it deployed, so a later verify-deploy can
+  // tell "the DLL predates this sync" from "the DLL predates a different sync".
+  const hashed = writeDeployMarker(tmpRoot, { ...fields, sourceHash: 'a'.repeat(64) });
+  eq(hashed.sourceHash, 'a'.repeat(64), 'writeDeployMarker keeps the caller sourceHash');
+  eq(readDeployMarker(tmpRoot).sourceHash, 'a'.repeat(64), 'sourceHash round-trips through disk');
+
+  // A marker written before this field existed must still read cleanly.
+  const legacy = writeDeployMarker(tmpRoot, fields);
+  assertTrue(readDeployMarker(tmpRoot) !== null, 'a marker without sourceHash still reads');
+  eq(legacy.sourceHash, undefined, 'a marker without sourceHash reports it as undefined');
+  eq(readDeployMarker(tmpRoot).manifestVersion, '1.0.1', 'the other fields survive a hash-less marker');
 
   const readBack = readDeployMarker(tmpRoot);
   assertTrue(readBack !== null, 'read-back marker not null');
@@ -190,6 +233,8 @@ assertTrue(typeof incoming.upluginVersionName === 'string' && incoming.upluginVe
   'computeIncomingState upluginVersionName populated');
 assertTrue(typeof incoming.sourceCommitSha === 'string', 'sourceCommitSha is string');
 assertTrue(typeof incoming.headPluginCommitSha === 'string', 'headPluginCommitSha is string');
+assertTrue(/^[0-9a-f]{64}$/.test(String(incoming.sourceHash)),
+  'computeIncomingState hashes the repo plugin tree');
 
 // computeIncomingState throws on missing manifest.json — defensive contract
 let threw = false;

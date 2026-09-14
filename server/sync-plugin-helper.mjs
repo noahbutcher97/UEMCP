@@ -6,8 +6,9 @@
 //   1. **Deploy-marker write/read/compare** (closes the upgrade-cache stale risk
 //      surfaced post-D137 manifest 1.0.0 → 1.0.1 transition). After each
 //      successful sync, writes <dest>/Plugins/UEMCP/.uemcp-deploy-marker.json
-//      capturing manifest version + uplugin Version + commit SHAs. On the next
-//      sync, compares incoming manifest/uplugin versions against the marker:
+//      capturing manifest version + uplugin Version + commit SHAs + the
+//      source-tree content hash. On the next sync, compares incoming
+//      manifest/uplugin versions against the marker:
 //      mismatch → recommend nuking <dest>/Binaries + <dest>/Intermediate
 //      before xcopy so UBT does a clean rebuild against the structural change.
 //      D61's procedural nuke-rebuild hint becomes a structural auto-bust.
@@ -51,14 +52,14 @@
 // Pattern matches verify-deploy.bat → server/verify-deploy.mjs (D136).
 
 import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from 'node:fs';
-import { join, dirname, resolve, basename } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   listEditorProcesses,
   normalizePath,
-  extractUprojectFromCommandLine,
 } from './verify-deploy.mjs';
+import { hashPluginTree } from './plugin-content-hash.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -89,6 +90,19 @@ export function readDeployMarker(pluginDestDir) {
     // overwrites cleanly. Avoids a corrupt marker bricking future syncs.
     return null;
   }
+}
+
+/**
+ * The moment this marker's sync happened, in epoch milliseconds, or null when
+ * the marker records none. `syncedAt` is read first so a future writer can
+ * adopt that name; `syncTime` is what every marker on disk carries today.
+ */
+export function markerSyncedAtMs(marker) {
+  if (!marker) return null;
+  const raw = marker.syncedAt ?? marker.syncTime ?? null;
+  if (typeof raw !== 'string') return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 /**
@@ -162,8 +176,9 @@ export function compareDeployMarker(prior, incoming) {
 /**
  * Read manifest.json + UEMCP.uplugin from a repo root, plus git SHAs.
  * Returns { manifestVersion, upluginVersion, upluginVersionName, sourceCommitSha,
- * headPluginCommitSha }. Throws on missing manifest or missing uplugin (callers
- * should treat that as a fatal repo-state error, not a marker miss).
+ * headPluginCommitSha, sourceHash }. Throws on missing manifest or missing
+ * uplugin (callers should treat that as a fatal repo-state error, not a marker
+ * miss).
  *
  * sourceCommitSha = repo HEAD short SHA (whole repo).
  * headPluginCommitSha = last commit touching plugin/UEMCP/ specifically (matches
@@ -191,6 +206,9 @@ export function computeIncomingState(repoRoot) {
     upluginVersionName: String(uplugin.VersionName ?? ''),
     sourceCommitSha,
     headPluginCommitSha,
+    // Content identity of the tree being deployed. cliWrite spreads this into
+    // the marker, so the marker records what was synced, not only when.
+    sourceHash: hashPluginTree(join(repoRoot, 'plugin', 'UEMCP')),
   };
 }
 
