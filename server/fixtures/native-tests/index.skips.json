@@ -1,0 +1,69 @@
+{
+  "devices": [
+    {
+      "deviceName": "MACHINE",
+      "instance": "49F5E23A4EC2BDEFFF17DAB129E6B48B",
+      "instanceName": "MACHINE-1",
+      "platform": "WindowsEditor",
+      "oSVersion": "Windows 11",
+      "model": "Default",
+      "gPU": "GPU",
+      "cPUModel": "CPU",
+      "rAMInGB": 0,
+      "renderMode": "SM6",
+      "rHI": "",
+      "appInstanceLog": ""
+    }
+  ],
+  "reportCreatedOn": "2026.09.13-17.22.44",
+  "succeeded": 2,
+  "succeededWithWarnings": 0,
+  "failed": 0,
+  "notRun": 0,
+  "inProcess": 0,
+  "totalDuration": 0.05,
+  "comparisonExported": false,
+  "comparisonExportDirectory": "",
+  "tests": [
+    {
+      "testDisplayName": "CaptureAssetEditor",
+      "fullTestPath": "UEMCP.AssetEditorCapture.CaptureAssetEditor",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.02,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [
+        {
+          "event": {
+            "type": "Info",
+            "message": "skipped: UAssetEditorSubsystem declined to open an editor headless",
+            "context": "",
+            "artifact": "00000000000000000000000000000000"
+          },
+          "filename": "",
+          "lineNumber": -1,
+          "timestamp": "2026.09.13-17.22.44"
+        }
+      ],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    },
+    {
+      "testDisplayName": "AssetNotFound",
+      "fullTestPath": "UEMCP.AssetEditorCapture.AssetNotFound",
+      "state": "Success",
+      "deviceInstance": [
+        "49F5E23A4EC2BDEFFF17DAB129E6B48B"
+      ],
+      "duration": 0.02,
+      "dateTime": "2026.09.13-17.22.44",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    }
+  ]
+}

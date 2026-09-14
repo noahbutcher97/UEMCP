@@ -71,7 +71,7 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 
 ---
 
-### EN-24 — Asset-editor capture: `capture_asset_editor` + `list_asset_editor_tabs` (supersedes planned `capture_active_editor_tab`)
+### EN-24 — Asset-editor capture: `capture_asset_editor` + `list_asset_editor_tabs` (supersedes planned `capture_active_editor_tab`) — **DONE 2026-09**
 - **Source**: cross-session request, 2026-09-13, from a session building an asset-editor plugin in a private UE 5.8 host project (the request names no engine bug; it names a UEMCP gap). Reference implementation exists in that host project's test module, not in this repo.
 - **Gap**: `get_viewport_screenshot` reads `GEditor->GetActiveViewport()` (`VisualCaptureHandler.cpp:182`), which the engine resolves to the first active level-editor viewport, so no asset editor (an `FAssetEditorToolkit` with its own `SEditorViewport`, Details tab, timeline) can be captured. `capture_active_editor_tab` is `status: planned` in `tools.yaml` behind an `FWidgetRenderer` path that never shipped; this entry replaces that plan with a proven Slate path and explicit addressing.
 - **Design sketch (engine API, verified by the requester in 5.8)**: resolve the toolkit with `UAssetEditorSubsystem::FindEditorForAsset(Asset, false)`; use its `TabManager` (`TryInvokeTab` / `FindExistingLiveTab` by tab id); capture the toolkit's `SEditorViewport` or a tab's content widget with `FSlateApplication::Get().TakeScreenshot(Widget, OutColorData, OutSize)`; encode through `FImageUtils`. For long property grids: `IDetailsView::SetRootExpansionStates(true, true)` and `STableViewBase::SetScrollOffset` on the `SDetailTree` descendant (`GetScrollWidget()` returns the details view itself, not the tree).
@@ -79,12 +79,13 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Cost / shape**: plugin C++ (extend `VisualCaptureHandler.cpp` or a new `AssetEditorCaptureHandler.cpp`, shared helpers in `Public/` per the anon-namespace rule), `tools.yaml` entries in the visual-capture toolset, server-side handler wiring, rotation assertions for params and error shapes, and a live-editor smoke. Needs an editor and `Build.bat`, so it belongs in a plugin session; bundle with WS5 of the 2026-09-09 remediation design or the next visual-capture pass (EN-7 lineage).
 - **Trigger**: next plugin session that touches `VisualCaptureHandler.cpp`, or the first agent workflow that needs a non-level-editor capture.
 
-### EN-25 — PIE-window capture and editor-identity on TCP 55558
+### EN-25 — PIE-window capture and editor-identity on TCP 55558 — **DONE 2026-09**
 - **Source**: same 2026-09-13 cross-session request, two smaller observations.
 - **PIE in its own window**: when PIE launches in a separate window (an asset editor had focus), `get_viewport_screenshot` still returns the level-editor view. A `capture_pie_viewport` reading `GEngine->GameViewport->Viewport` would cover it. Small handler; bundle with EN-24.
 - **Wrong editor on 55558**: port 55558 was once answered by a different editor instance on the same machine. `connection_info` with `force_reconnect` caught it through the identity check, but the confusion is avoidable: either a per-project port (profile-configured, surfaced by `connection_info`) or a project check inside `wait_for_editor` that refuses a listener whose identity does not match the attached project. Related: WS2's finding that a headless automation run also tries to bind 55558 (`docs/handoffs/native-test-runner-and-compile-gate.md`, step 0.4), so a per-project or per-instance port would serve both cases.
 - **Root cause (2026-09-13, WS2 step 0.4)**: `UEMCPModule.cpp:42` calls `RawSocket->SetReuseAddr(true)` before `Listen()`, so a second editor (or a headless automation run) binds 55558 alongside the first instead of failing; which instance answers a connection is then up to the OS. Removing the reuse flag makes the second instance fail loudly; a per-project port avoids the collision entirely. Decide with EN-24.
 - **Trigger**: with EN-24, or when WS2's port-collision characterization lands and the runner needs a port strategy anyway.
+- **Closed 2026-09-13**: `capture_pie_viewport` shipped, and `wait_for_editor` now refuses a listener whose reported project is not the attached one (`EDITOR_PROJECT_MISMATCH`), with `connection_info` reporting `identityMismatch`. The per-project port and the `SetReuseAddr` removal stay open — the identity check removes the dangerous outcome (acting on the wrong editor) without a config surface in `.uemcp-targets.json`, `.mcp.json` and the plugin's `Listen()`. Revisit when the headless automation runner needs a port strategy anyway (WS2 step 0.4). Plan: `docs/superpowers/plans/2026-09-13-editor-capture-and-identity.md`.
 
 ### EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — **DONE 2026-09**
 - **Source**: whole-branch review of the WS2 branch (2026-09-13).
@@ -100,6 +101,11 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - **Trigger**: the next change to `verify-deploy.mjs`'s classifier, or the next time the gate blocks a push whose deployed trees match HEAD.
 - **Redundant re-sync (2026-09-14)**: the marker keeps `syncTime` when a sync deploys content whose hash equals the prior marker's, so a re-sync after a checkout no longer forces a rebuild; `lastSyncAt` records the most recent copy.
 - **Rule order (2026-09-14)**: a known content mismatch is NEEDS-SYNC or NEEDS-DEPLOY outright; the timestamp rules apply only when the hashes are unknown.
+
+### EN-28 — Confine capture output paths to the project directory
+- **Gap**: `capture_asset_editor` and `capture_pie_viewport` write a relative `out_png` under `Saved/` and an absolute one where it points, exactly like the older `get_viewport_screenshot` (`VisualCaptureHandler.cpp` ~119-123, ~240-251) — all three tools accept any absolute path and `..` escapes today.
+- **Proposal**: a single shared `ResolveCaptureOutputPath` that rejects paths outside `FPaths::ProjectDir()` would close it for all three, with one native test each.
+- **Trigger**: the next change to any capture handler.
 
 ## Fixture planting
 
