@@ -27,13 +27,19 @@
 //                              plugin/UEMCP/Source/ recursively; on change,
 //                              debounces 500ms then runs sync-plugin.bat -y
 //                              for each target. Run from setup-watcher.bat.
+//   --json                     print one JSON verdict document to stdout and
+//                              nothing else. Implies --no-color; ignores
+//                              --quiet; not combinable with --auto-sync or
+//                              --regenerate-mcp-json; ignored in --watch
+//                              mode. Consumed by .githooks/pre-push.
 //   --help                     show usage
 //
-// Pure functions for verdict classification are exported for testing
-// (test-verify-deploy.mjs).
+// Pure functions for verdict classification, plus buildJsonReport /
+// buildJsonErrorReport / selectionErrorMessage / exitCodeForResults for the
+// --json document, are exported for testing (test-verify-deploy.mjs).
 
 import { readFileSync, statSync, readdirSync, existsSync, writeFileSync, watch as fsWatch } from 'node:fs';
-import { join, dirname, resolve, sep, basename } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
@@ -59,11 +65,14 @@ import {
   readDeployMarker,
   compareDeployMarker,
   computeIncomingState,
+  markerSyncedAtMs,
 } from './sync-plugin-helper.mjs';
+import { hashPluginTree } from './plugin-content-hash.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(__filename), '..');
 const PLUGIN_SRC_DIR = join(REPO_ROOT, 'plugin', 'UEMCP', 'Source');
+const REPO_PLUGIN_DIR = join(REPO_ROOT, 'plugin', 'UEMCP');
 const MTIME_SLOP_SEC = 5;  // tolerance for filesystem mtime jitter on copy
 
 // ─── ANSI colors (no dependency) ────────────────────────────────────
@@ -99,25 +108,58 @@ export function newestMtimeSec(dir) {
   return { mtimeSec: newest, fileCount: count };
 }
 
+/**
+ * Content identity between the deployed tree and the repo tree. null means
+ * "unknown" — one of the hashes could not be computed — and must never be
+ * read as "differs".
+ */
+function compareSourceHashes(repoSourceHash, deployedSourceHash) {
+  if (!repoSourceHash || !deployedSourceHash) return null;
+  return repoSourceHash === deployedSourceHash;
+}
+
+/**
+ * When the deployed content was last put in place, in epoch seconds. The
+ * marker's own time is only usable when the marker describes the content that
+ * is actually on disk; a marker recording a different hash was written for a
+ * different tree, so fall back to the deployed files' mtime.
+ */
+function lastSyncRefSec({ markerSyncedAtMs: syncedMs, markerSourceHash, deployedSourceHash, deployedSrcMtime }) {
+  const markerDescribesDisk = !markerSourceHash || markerSourceHash === deployedSourceHash;
+  if (syncedMs && markerDescribesDisk) return Math.floor(syncedMs / 1000);
+  return deployedSrcMtime;
+}
+
 /** Classify a target's deploy state given gathered metrics. Pure function. */
-export function classifyDeployState({
-  pluginDirExists,
-  deployedSrcMtime,
-  deployedSrcFileCount,
-  dllExists,
-  dllMtime,
-  repoSrcMtime,
-}) {
+export function classifyDeployState(input) {
+  const contentIdentical = compareSourceHashes(
+    input.repoSourceHash ?? null,
+    input.deployedSourceHash ?? null,
+  );
+  return { ...classifyVerdict(input, contentIdentical), contentIdentical };
+}
+
+function classifyVerdict(input, contentIdentical) {
+  const { pluginDirExists, deployedSrcMtime, deployedSrcFileCount, dllExists, dllMtime, repoSrcMtime } = input;
   if (!pluginDirExists) return { verdict: 'MISSING', reason: 'No Plugins\\UEMCP at target' };
   if (deployedSrcFileCount === 0) return { verdict: 'MISSING-PARTIAL', reason: 'Plugin dir exists but Source/ is empty' };
   if (!dllExists) {
-    // Source deployed but no DLL — needs Build.bat
+    // Never built here. Content identity cannot make a missing DLL fresh, so
+    // the pre-content rules stand unchanged (design §3.3).
     if (deployedSrcMtime + MTIME_SLOP_SEC < repoSrcMtime) {
       return { verdict: 'NEEDS-DEPLOY', reason: 'Source stale AND DLL missing — full sync + Build needed' };
     }
     return { verdict: 'NEEDS-BUILD', reason: 'Source synced but DLL not built' };
   }
-  // Both source + DLL present
+  if (contentIdentical === true) {
+    // Byte-identical deployment: a merge or checkout cannot make it stale. The
+    // only question left is whether the DLL predates the sync that placed it.
+    if (dllMtime + MTIME_SLOP_SEC < lastSyncRefSec(input)) {
+      return { verdict: 'NEEDS-BUILD', reason: 'content-identical to repo; DLL predates the last sync' };
+    }
+    return { verdict: 'SYNC', reason: 'content-identical to repo; DLL built after the last sync' };
+  }
+  // Content differs or is unknown — the timestamp rules are still right.
   const sourceStale = deployedSrcMtime + MTIME_SLOP_SEC < repoSrcMtime;
   const dllStale = dllMtime + MTIME_SLOP_SEC < repoSrcMtime;
   if (sourceStale && dllStale) {
@@ -184,6 +226,7 @@ export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, in
     return {
       verdict: 'NEEDS-SYNC',
       reason: 'No deploy marker — run sync-plugin.bat once to seed',
+      contentIdentical: baseVerdict.contentIdentical ?? null,
     };
   }
   if (markerVerdict.nukeRecommended) {
@@ -196,12 +239,68 @@ export function applyMarkerVerdictOverlay(baseVerdict, marker, markerVerdict, in
     return {
       verdict: 'NEEDS-SYNC',
       reason: `Marker shows manifest=${p.manifestVersion ?? '?'} uplugin=${p.upluginVersion ?? '?'}, repo has manifest=${i.manifestVersion ?? '?'} uplugin=${i.upluginVersion ?? '?'}`,
+      contentIdentical: baseVerdict.contentIdentical ?? null,
     };
   }
   // version-match → marker says deploy is up-to-date metadata-wise;
   // base verdict (SYNC / NEEDS-BUILD / NEEDS-SYNC from mtime check)
   // prevails.
   return baseVerdict;
+}
+
+/** 0 when every target is SYNC, 1 when any needs attention. Both printers use it. */
+export function exitCodeForResults(results) {
+  return results.some((r) => r.verdict.verdict !== 'SYNC') ? 1 : 0;
+}
+
+/**
+ * One-line rendering of a target-selection failure, for the JSON error
+ * document. The text printer keeps its multi-line guidance.
+ */
+export function selectionErrorMessage(selection) {
+  const path = selection.targetsPath;
+  if (selection.status === 'valid' && selection.candidates.length === 0) {
+    return `No targets selected in ${path}`;
+  }
+  switch (selection.status) {
+    case 'profile_not_found': {
+      const available = selection.profile?.availableProfiles || [];
+      const suffix = available.length > 0 ? ` (available: ${available.join(', ')})` : '';
+      return `Profile not found: ${selection.profile?.name || '(none)'}${suffix}`;
+    }
+    case 'absent': return `Targets file not found: ${path}`;
+    case 'empty': return `No targets selected in ${path}`;
+    case 'invalid_config': return `Invalid targets config: ${path}`;
+    case 'invalid_profile': return `Invalid profile: ${selection.profile?.name || '(none)'}`;
+    default: return `Invalid targets: ${path}`;
+  }
+}
+
+/**
+ * The machine-readable verdict document. The pre-push gate's contract is this
+ * shape — never the human printer's wording — so a reword cannot disarm it.
+ */
+export function buildJsonReport(targets, { profile = null, exitCode = 0 } = {}) {
+  return {
+    version: 1,
+    profile: profile || null,
+    targets: targets.map((t) => ({
+      uprojectPath: t.uprojectPath,
+      alias: t.alias ?? null,
+      verdict: t.verdict.verdict,
+      reason: t.verdict.reason,
+      contentIdentical: t.verdict.contentIdentical ?? null,
+      dllExists: !!t.dllExists,
+      editors: (t.matchedEditors || []).map((e) => e.pid),
+      mcpPointsHere: !!t.mcpPointsHere,
+    })),
+    exitCode,
+  };
+}
+
+/** The document emitted when verify-deploy could not evaluate at all. */
+export function buildJsonErrorReport(message) {
+  return { version: 1, error: String(message), exitCode: 2 };
 }
 
 /** Normalize a Windows path for comparison: lowercase + forward slashes + no trailing slash. */
@@ -308,7 +407,14 @@ function regenerateMcpJson(uprojectPath) {
 
 // ─── Per-target metrics gathering ───────────────────────────────────
 
-function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpRoot, incomingState) {
+/**
+ * Everything known about one target: deployed content, DLL, marker, editors.
+ * `target` is { uprojectPath, alias }; `ctx` carries the per-run values that
+ * are identical for every target.
+ */
+function gatherTargetMetrics(target, ctx) {
+  const { uprojectPath, alias } = target;
+  const { repoSrcMtime, repoSourceHash, editorProcs, activeMcpRoot, incomingState } = ctx;
   const targetDir = dirname(uprojectPath);
   const pluginDir = join(targetDir, 'Plugins', 'UEMCP');
   const deployedSrcDir = join(pluginDir, 'Source');
@@ -318,6 +424,8 @@ function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpR
   const deployedSrcInfo = pluginDirExists ? newestMtimeSec(deployedSrcDir) : { mtimeSec: 0, fileCount: 0 };
   const dllExists = existsSync(dllPath);
   const dllMtime = dllExists ? Math.floor(statSync(dllPath).mtimeMs / 1000) : 0;
+  const marker = pluginDirExists ? readDeployMarker(pluginDir) : null;
+  const deployedSourceHash = pluginDirExists ? hashPluginTree(pluginDir) : null;
 
   const baseVerdict = classifyDeployState({
     pluginDirExists,
@@ -326,45 +434,33 @@ function gatherTargetMetrics(uprojectPath, repoSrcMtime, editorProcs, activeMcpR
     dllExists,
     dllMtime,
     repoSrcMtime,
+    repoSourceHash,
+    deployedSourceHash,
+    markerSourceHash: marker?.sourceHash ?? null,
+    markerSyncedAtMs: markerSyncedAtMs(marker),
   });
 
-  // W-L marker overlay: read the deploy marker (if any), compare against repo
-  // state, and downgrade SYNC verdicts to NEEDS-SYNC when the marker shows
-  // version-mismatch OR is absent on a populated plugin dir. Catches the
-  // class of deploys whose Source/ matches by mtime but whose UEMCP.uplugin
-  // metadata is stale (or whose marker was never seeded).
-  const marker = pluginDirExists ? readDeployMarker(pluginDir) : null;
+  // W-L marker overlay: stale or absent uplugin/manifest metadata still calls
+  // for a sync even when the source bytes match.
   const markerVerdict = incomingState ? compareDeployMarker(marker, incomingState) : null;
   const verdict = applyMarkerVerdictOverlay(
     baseVerdict, marker, markerVerdict, incomingState,
     pluginDirExists, deployedSrcInfo.fileCount,
   );
 
-  // Match running editors against this target by .uproject path (case-insensitive).
   const targetUprojNorm = normalizePath(uprojectPath);
   const matchedEditors = editorProcs.filter((p) =>
     p.uprojectPath && normalizePath(p.uprojectPath) === targetUprojNorm
   );
-
-  // Match active .mcp.json UNREAL_PROJECT_ROOT against this target's parent dir.
-  const targetParentNorm = normalizePath(targetDir);
-  const mcpPointsHere = activeMcpRoot && normalizePath(activeMcpRoot) === targetParentNorm;
+  const mcpPointsHere = activeMcpRoot && normalizePath(activeMcpRoot) === normalizePath(targetDir);
 
   return {
-    uprojectPath,
-    targetDir,
-    pluginDir,
+    uprojectPath, alias, targetDir, pluginDir,
     deployedSrcMtime: deployedSrcInfo.mtimeSec,
     deployedSrcFileCount: deployedSrcInfo.fileCount,
-    dllExists,
-    dllMtime,
-    verdict,
-    baseVerdict,
-    marker,
-    markerVerdict,
-    matchedEditors,
-    mcpPointsHere,
-    repoSrcMtime,
+    dllExists, dllMtime, deployedSourceHash,
+    verdict, baseVerdict, marker, markerVerdict,
+    matchedEditors, mcpPointsHere, repoSrcMtime,
   };
 }
 
@@ -382,7 +478,7 @@ function colorVerdict(verdict) {
   }
 }
 
-function printSummaryLine(idx, t, repoSrcMtime) {
+function printSummaryLine(idx, t) {
   const editorTag = t.matchedEditors.length > 0 ? cyan(' [EDITOR-LOCKED]') : '';
   const mcpTag = t.mcpPointsHere ? cyan(' [MCP]') : '';
   console.log(
@@ -456,6 +552,7 @@ function parseArgs(argv) {
     watch: false,
     debounceMs: 500,
     help: false,
+    json: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -468,7 +565,16 @@ function parseArgs(argv) {
     else if (a === '--watch') flags.watch = true;
     else if (a === '--debounce-ms') flags.debounceMs = parseInt(argv[++i], 10);
     else if (a === '--help' || a === '-h') flags.help = true;
-    else { console.error(red('[ERROR]') + ` Unknown arg: ${a}`); process.exit(2); }
+    else if (a === '--json') { flags.json = true; useColor = false; }
+    else {
+      // --json may not have been reached yet; the caller still gets a document.
+      if (argv.includes('--json')) {
+        console.log(JSON.stringify(buildJsonErrorReport(`Unknown arg: ${a}`), null, 2));
+        process.exit(2);
+      }
+      console.error(red('[ERROR]') + ` Unknown arg: ${a}`);
+      process.exit(2);
+    }
   }
   return flags;
 }
@@ -499,6 +605,11 @@ Flags:
                              Skips Binaries/, Intermediate/, *.tmp paths.
                              500ms debounce. Ctrl+C to stop.
   --debounce-ms N            override watch debounce window (default 500)
+  --json                     print one JSON verdict document to stdout and
+                             nothing else. Implies --no-color; ignores --quiet;
+                             not combinable with --auto-sync or
+                             --regenerate-mcp-json; ignored in --watch mode.
+                             Consumed by .githooks/pre-push.
   --help                     show this message
 
 Exit: 0 all SYNC; 1 any non-SYNC; 2 config error.`);
@@ -669,58 +780,78 @@ function runWatchMode(flags) {
 
 // ─── Main ───────────────────────────────────────────────────────────
 
-function main() {
-  const flags = parseArgs(process.argv.slice(2));
-  if (flags.help) { printHelp(); return 0; }
-  if (flags.watch) return runWatchMode(flags);
-
+/**
+ * Resolve targets and gather every per-target metric. Shared by both printers
+ * so text and JSON always report the same verdicts from the same inputs.
+ * Returns { error, targetSelection } on a config failure.
+ */
+function gatherAllTargets(flags) {
   const targetSelection = resolveTargetSelection(flags);
   if (!targetSelectionIsUsable(targetSelection)) {
-    printTargetSelectionError(targetSelection);
-    return 2;
+    return { error: selectionErrorMessage(targetSelection), targetSelection };
   }
-  const targets = targetSelection.candidates.map(candidate => candidate.uprojectPath);
 
-  // Repo-side metrics
   const repoSrcInfo = newestMtimeSec(PLUGIN_SRC_DIR);
   const headInfo = getHeadPluginCommitInfo();
-  // Use filesystem newest mtime as the comparison reference. xcopy preserves
-  // source mtimes (sync produces deployed files with mtime = repo file mtime),
-  // so the right "is deployed up-to-date" reference is the actual file mtime.
-  //
-  // Pre-D138-FIX2 this was Math.max(repoSrcInfo.mtimeSec, headInfo.commitTime)
-  // with the rationale "catches recently-pulled commits where mtimes got reset
-  // to checkout time." But git pull sets file mtimes to checkout time (fresher
-  // than the original commit time), so repoSrcInfo.mtimeSec >= headInfo.commitTime
-  // for pulled commits — the max never helped that case. The max ONLY fired for
-  // local-author commits (where commit time > file mtime because `git commit`
-  // doesn't update file mtimes), and there it produced false-positive STALE
-  // verdicts on just-synced targets. Empirically observed against a
-  // just-synced target post-W-L: deployed src 14:26:47 == repo src 14:26:47
-  // (xcopy preserved), but headInfo.commitTime 14:36:33 (D137 commit) made
-  // repoSrcMtime jump forward by 9m 46s, falsely marking deployed as stale.
-  // Dropping the max makes verify-deploy reflect what xcopy actually produces.
+  // Filesystem newest mtime is the comparison reference: xcopy preserves source
+  // mtimes, so deployed files carry the repo file's mtime. See D138-FIX2 for
+  // why the old Math.max with the commit time produced false staleness.
   const repoSrcMtime = repoSrcInfo.mtimeSec;
   const repoSrcLabel = `${repoSrcInfo.fileCount} files; HEAD plugin/Source commit ${headInfo.sha}`;
-
-  // Process scan + active MCP root
   const editorProcs = listEditorProcesses();
   const activeMcpRoot = readActiveMcpProjectRoot();
 
-  // Compute incoming repo state once for marker comparison (W-L / D138-FIX3).
-  // If the helper throws (e.g., manifest.json missing), skip marker checks
-  // entirely with a warning — verify-deploy still produces source/DLL verdicts.
   let incomingState = null;
+  let markerWarning = null;
   try {
     incomingState = computeIncomingState(REPO_ROOT);
   } catch (e) {
-    console.error(yellow('[WARN]') + ` Marker comparison disabled: ${e.message}`);
+    markerWarning = `Marker comparison disabled: ${e.message}`;
   }
+  // computeIncomingState already hashed the repo tree for the marker contract;
+  // reuse it so a run pays for one walk, and only hash again if that failed.
+  const repoSourceHash = incomingState?.sourceHash ?? hashPluginTree(REPO_PLUGIN_DIR);
 
-  // Gather per-target
-  const results = targets.map((t) => gatherTargetMetrics(t, repoSrcMtime, editorProcs, activeMcpRoot, incomingState));
+  const ctx = { repoSrcMtime, repoSourceHash, editorProcs, activeMcpRoot, incomingState };
+  const results = targetSelection.candidates.map((candidate) => gatherTargetMetrics(
+    { uprojectPath: candidate.uprojectPath, alias: candidate.targetAlias || null },
+    ctx,
+  ));
 
-  // Header
+  return { targetSelection, results, repoSrcMtime, repoSrcLabel, headInfo, editorProcs, activeMcpRoot, markerWarning };
+}
+
+/** Print exactly one JSON document to stdout and nothing else. */
+function runJsonMode(flags) {
+  if (flags.autoSync || flags.regenIdx !== null) {
+    return emitJsonError('--auto-sync and --regenerate-mcp-json are not available with --json');
+  }
+  const gathered = gatherAllTargets(flags);
+  if (gathered.error) return emitJsonError(gathered.error);
+  const exitCode = exitCodeForResults(gathered.results);
+  const report = buildJsonReport(gathered.results, {
+    profile: gathered.targetSelection.profile?.name || null,
+    exitCode,
+  });
+  console.log(JSON.stringify(report, null, 2));
+  return exitCode;
+}
+
+function emitJsonError(message) {
+  const doc = buildJsonErrorReport(message);
+  console.log(JSON.stringify(doc, null, 2));
+  return doc.exitCode;
+}
+
+function runTextMode(flags) {
+  const gathered = gatherAllTargets(flags);
+  if (gathered.error) {
+    printTargetSelectionError(gathered.targetSelection);
+    return 2;
+  }
+  const { targetSelection, results, repoSrcMtime, repoSrcLabel, headInfo, editorProcs, activeMcpRoot, markerWarning } = gathered;
+  if (markerWarning) console.error(yellow('[WARN]') + ` ${markerWarning}`);
+
   console.log(bold('=== UEMCP verify-deploy ==='));
   console.log(`Repo                : ${REPO_ROOT}`);
   console.log(`Repo plugin source  : ${formatTime(repoSrcMtime)} ${dim('(' + repoSrcLabel + ')')}`);
@@ -729,30 +860,25 @@ function main() {
   printTargetSelectionWarnings(targetSelection);
   console.log(`Active .mcp.json    : ${activeMcpRoot ? activeMcpRoot : '(none / not found)'}`);
   console.log(`Editor processes    : ${editorProcs.length}${editorProcs.length > 0 ? dim(' — ' + editorProcs.map((e) => `pid ${e.pid}`).join(', ')) : ''}`);
-  // List unmatched-but-active editors (running editors whose .uproject is not in targets list).
   const targetUprojNorms = new Set(results.map((r) => normalizePath(r.uprojectPath)));
   const orphanEditors = editorProcs.filter((p) =>
     p.uprojectPath && !targetUprojNorms.has(normalizePath(p.uprojectPath))
   );
   if (orphanEditors.length > 0) {
     console.log(yellow('[WARN]') + ` Editor running against workspace not in targets list:`);
-    for (const e of orphanEditors) {
-      console.log(`        pid ${e.pid} → ${e.uprojectPath}`);
-    }
+    for (const e of orphanEditors) console.log(`        pid ${e.pid} → ${e.uprojectPath}`);
     console.log(`        Add it to ${targetSelection.targetsPath} to track its deploy state.`);
   }
   console.log('');
   console.log(bold('Targets:'));
-  for (let i = 0; i < results.length; i++) printSummaryLine(i, results[i], repoSrcMtime);
+  for (let i = 0; i < results.length; i++) printSummaryLine(i, results[i]);
 
-  // Detail block
   if (!flags.quiet) {
     const nonSync = results.filter((r) => r.verdict.verdict !== 'SYNC' || r.matchedEditors.length > 0);
     if (nonSync.length > 0 || results.length <= 3) {
       console.log('');
       console.log(bold('Details:'));
       for (let i = 0; i < results.length; i++) {
-        // Print detail for non-SYNC OR if 3-or-fewer targets total.
         if (results[i].verdict.verdict !== 'SYNC' || results.length <= 3) {
           printTargetDetail(i, results[i], repoSrcMtime, repoSrcLabel);
         }
@@ -760,13 +886,25 @@ function main() {
     }
   }
 
-  // Action: --auto-sync
+  const actionCode = runTextActions(flags, results);
+  if (actionCode !== 0) return actionCode;
+
+  const exitCode = exitCodeForResults(results);
+  console.log('');
+  if (exitCode !== 0) {
+    console.log(red(bold('VERDICT: NOT-SYNC')) + ` — ${results.filter((r) => r.verdict.verdict !== 'SYNC').length} of ${results.length} target(s) need attention.`);
+    return 1;
+  }
+  console.log(green(bold('VERDICT: ALL-SYNC')) + ` — ${results.length} target(s) match repo source.`);
+  return 0;
+}
+
+/** --auto-sync and --regenerate-mcp-json. Returns a non-zero code only on failure. */
+function runTextActions(flags, results) {
   if (flags.autoSync) {
     console.log('');
     console.log(bold('--auto-sync: running sync-plugin.bat for stale targets...'));
-    const stale = results.filter((r) =>
-      ['NEEDS-SYNC', 'NEEDS-DEPLOY'].includes(r.verdict.verdict)
-    );
+    const stale = results.filter((r) => ['NEEDS-SYNC', 'NEEDS-DEPLOY'].includes(r.verdict.verdict));
     if (stale.length === 0) console.log(dim('  (no targets need sync)'));
     for (const t of stale) {
       if (t.matchedEditors.length > 0) {
@@ -780,7 +918,6 @@ function main() {
     console.log(dim('  Note: sync-plugin.bat propagates source only. Run Build.bat next to rebuild the DLL.'));
   }
 
-  // Action: --regenerate-mcp-json
   if (flags.regenIdx !== null) {
     console.log('');
     console.log(bold(`--regenerate-mcp-json ${flags.regenIdx}:`));
@@ -788,20 +925,18 @@ function main() {
       console.error(red('[ERROR]') + ` Index out of range (1..${results.length}): ${flags.regenIdx}`);
       return 2;
     }
-    const t = results[flags.regenIdx - 1];
-    const rc = regenerateMcpJson(t.uprojectPath);
+    const rc = regenerateMcpJson(results[flags.regenIdx - 1].uprojectPath);
     if (rc !== 0) return rc;
   }
-
-  // Exit code
-  const anyFailed = results.some((r) => r.verdict.verdict !== 'SYNC');
-  console.log('');
-  if (anyFailed) {
-    console.log(red(bold('VERDICT: NOT-SYNC')) + ` — ${results.filter((r) => r.verdict.verdict !== 'SYNC').length} of ${results.length} target(s) need attention.`);
-    return 1;
-  }
-  console.log(green(bold('VERDICT: ALL-SYNC')) + ` — ${results.length} target(s) match repo source.`);
   return 0;
+}
+
+function main() {
+  const flags = parseArgs(process.argv.slice(2));
+  if (flags.help) { printHelp(); return 0; }
+  if (flags.watch) return runWatchMode(flags);
+  if (flags.json) return runJsonMode(flags);
+  return runTextMode(flags);
 }
 
 // Entry-point detection: only run main() when executed directly, not when
