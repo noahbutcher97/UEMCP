@@ -34,6 +34,7 @@
 #include "GameFramework/Actor.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Event.h"
+#include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -168,6 +169,24 @@ namespace UEMCP::Blueprint::Tests
 		if (Obj.IsValid())
 		{
 			Obj->TryGetStringField(Field, Value);
+		}
+		return Value;
+	}
+
+	/**
+	 * Log-silent number read; the numeric twin of StringFieldOr, and needed for the
+	 * same reason — FJsonObject::GetNumberField on an absent field logs a LogJson
+	 * Error, and the automation framework scores an Error-level log as a test
+	 * failure. link_count and num_errors are both read off objects that may not
+	 * carry them. The default is negative so a missing field can never be mistaken
+	 * for a real count.
+	 */
+	double NumberFieldOr(const TSharedPtr<FJsonObject>& Obj, const FString& Field, double Fallback = -1.0)
+	{
+		double Value = Fallback;
+		if (Obj.IsValid())
+		{
+			Obj->TryGetNumberField(Field, Value);
 		}
 		return Value;
 	}
@@ -866,6 +885,160 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	}
 	TestEqual(TEXT("then pin has no links after untargeted break"), ThenPinAfterUntargeted->LinkedTo.Num(), 0);
 	TestEqual(TEXT("new timer execute pin has no links after untargeted break"), ExecuteTwoPinAfterUntargeted->LinkedTo.Num(), 0);
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// add_blueprint_variable_assignment — the variable kind. The shipped
+// AddVariableAssignment test covers the literal kind; this covers the branch that
+// creates a K2Node_VariableGet, links it into the set node, and reports a links[value]
+// row plus a source_value pin row — none of which a literal assignment produces.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersAssignmentVariableKindTest,
+	"UEMCP.BlueprintHandlers.AssignmentVariableKind",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersAssignmentVariableKindTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("SourceScore"), UEdGraphSchema_K2::PC_Int);
+
+	// Capitalized on purpose: the handler compares kind case-insensitively and
+	// lowercases it into the response, and the assertion below only proves that
+	// if the input is not already lowercase.
+	TSharedPtr<FJsonObject> Assignment = MakeShared<FJsonObject>();
+	Assignment->SetStringField(TEXT("kind"), TEXT("Variable"));
+	Assignment->SetStringField(TEXT("source_variable"), TEXT("SourceScore"));
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	Params->SetObjectField(TEXT("assignment"), Assignment);
+	Params->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("add_blueprint_variable_assignment"), Params);
+	FString Code;
+	if (!IsSuccess(Response, Code))
+	{
+		AddError(FString::Printf(TEXT("variable assignment failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	const TSharedPtr<FJsonObject> Result = ResultOf(Response);
+	TestEqual(TEXT("assignment_kind lowercased"), StringFieldOr(Result, TEXT("assignment_kind")), FString(TEXT("variable")));
+	TestEqual(TEXT("target_variable"), StringFieldOr(Result, TEXT("target_variable")), FString(TEXT("Score")));
+	TestEqual(TEXT("source_variable reported"), StringFieldOr(Result, TEXT("source_variable")), FString(TEXT("SourceScore")));
+	TestEqual(TEXT("graph_name"), StringFieldOr(Result, TEXT("graph_name")), FString(TEXT("EventGraph")));
+	TestTrue(TEXT("requires_compile set when compile is false"), Result->GetBoolField(TEXT("requires_compile")));
+	TestFalse(TEXT("compiled false"), Result->GetBoolField(TEXT("compiled")));
+
+	// ---- the get node a literal assignment never creates ----
+	const TSharedPtr<FJsonObject> GetNodeJson = FindRole(Result, TEXT("nodes"), TEXT("get"));
+	const TSharedPtr<FJsonObject> SetNodeJson = FindRole(Result, TEXT("nodes"), TEXT("set"));
+	const FString GetNodeId = StringFieldOr(GetNodeJson, TEXT("node_id"));
+	const FString SetNodeId = StringFieldOr(SetNodeJson, TEXT("node_id"));
+	TestEqual(TEXT("get node class"), StringFieldOr(GetNodeJson, TEXT("node_class")), FString(TEXT("K2Node_VariableGet")));
+	TestEqual(TEXT("set node class"), StringFieldOr(SetNodeJson, TEXT("node_class")), FString(TEXT("K2Node_VariableSet")));
+	TestFalse(TEXT("get node_id is empty"), GetNodeId.IsEmpty());
+	TestFalse(TEXT("set node_id is empty"), SetNodeId.IsEmpty());
+
+	// ---- the links[value] row ----
+	const TArray<TSharedPtr<FJsonValue>>* Links = nullptr;
+	TestTrue(TEXT("links array present"), Result->TryGetArrayField(TEXT("links"), Links));
+	TestEqual(TEXT("a variable assignment creates exactly one link"), Links ? Links->Num() : -1, 1);
+	const TSharedPtr<FJsonObject> ValueLink = FindRole(Result, TEXT("links"), TEXT("value"));
+	TestEqual(TEXT("value link source is the get node"), StringFieldOr(ValueLink, TEXT("source_node_id")), GetNodeId);
+	TestEqual(TEXT("value link target is the set node"), StringFieldOr(ValueLink, TEXT("target_node_id")), SetNodeId);
+	const TSharedPtr<FJsonObject>* LinkSourcePin = nullptr;
+	const TSharedPtr<FJsonObject>* LinkTargetPin = nullptr;
+	if (ValueLink->TryGetObjectField(TEXT("source_pin"), LinkSourcePin) && LinkSourcePin
+		&& ValueLink->TryGetObjectField(TEXT("target_pin"), LinkTargetPin) && LinkTargetPin)
+	{
+		TestEqual(TEXT("value link source pin name"), StringFieldOr(*LinkSourcePin, TEXT("name")), FString(TEXT("SourceScore")));
+		TestEqual(TEXT("value link source pin direction"), StringFieldOr(*LinkSourcePin, TEXT("direction")), FString(TEXT("output")));
+		TestEqual(TEXT("value link target pin name"), StringFieldOr(*LinkTargetPin, TEXT("name")), FString(TEXT("Score")));
+		TestEqual(TEXT("value link target pin direction"), StringFieldOr(*LinkTargetPin, TEXT("direction")), FString(TEXT("input")));
+	}
+	else
+	{
+		AddError(TEXT("links[value] carried no source_pin / target_pin objects"));
+	}
+
+	// ---- the source_value pin row, which only the variable kind emits ----
+	const TSharedPtr<FJsonObject> SourcePinJson = FindRole(Result, TEXT("pins"), TEXT("source_value"));
+	const TSharedPtr<FJsonObject> TargetPinJson = FindRole(Result, TEXT("pins"), TEXT("target_value"));
+	TestEqual(TEXT("source_value pin name"), StringFieldOr(SourcePinJson, TEXT("name")), FString(TEXT("SourceScore")));
+	TestEqual(TEXT("source_value pin direction"), StringFieldOr(SourcePinJson, TEXT("direction")), FString(TEXT("output")));
+	TestEqual(TEXT("source_value pin category"), StringFieldOr(SourcePinJson, TEXT("category")), UEdGraphSchema_K2::PC_Int.ToString());
+	TestEqual(TEXT("source_value pin link_count"), (int32)NumberFieldOr(SourcePinJson, TEXT("link_count")), 1);
+	TestEqual(TEXT("target_value pin link_count"), (int32)NumberFieldOr(TargetPinJson, TEXT("link_count")), 1);
+
+	// ---- graph state, read from the graph rather than the envelope ----
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	UK2Node_VariableGet* GetNode = Cast<UK2Node_VariableGet>(FindNodeByGuid(EventGraph, GetNodeId));
+	UK2Node_VariableSet* SetNode = Cast<UK2Node_VariableSet>(FindNodeByGuid(EventGraph, SetNodeId));
+	if (!GetNode || !SetNode)
+	{
+		AddError(TEXT("a reported node id did not resolve to a node of that class in the event graph"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestEqual(TEXT("get node reads SourceScore"), GetNode->VariableReference.GetMemberName(), FName(TEXT("SourceScore")));
+	TestEqual(TEXT("set node targets Score"), SetNode->VariableReference.GetMemberName(), FName(TEXT("Score")));
+
+	UEdGraphPin* SourcePin = FindFixturePin(GetNode, {TEXT("SourceScore")}, EGPD_Output);
+	UEdGraphPin* TargetPin = FindFixturePin(SetNode, {TEXT("Score")}, EGPD_Input);
+	if (!SourcePin || !TargetPin)
+	{
+		AddError(TEXT("the get or set node is missing its value pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestTrue(TEXT("the get output links to the set input"), SourcePin->LinkedTo.Contains(TargetPin));
+	TestEqual(TEXT("the target pin has exactly one link"), TargetPin->LinkedTo.Num(), 1);
+	TestEqual(TEXT("source_value pin_id matches the graph pin"), StringFieldOr(SourcePinJson, TEXT("pin_id")), SourcePin->PinId.ToString());
+	TestEqual(TEXT("target_value pin_id matches the graph pin"), StringFieldOr(TargetPinJson, TEXT("pin_id")), TargetPin->PinId.ToString());
+
+	// ---- error: assignment.source_variable omitted ----
+	TSharedPtr<FJsonObject> NoSource = MakeShared<FJsonObject>();
+	NoSource->SetStringField(TEXT("kind"), TEXT("variable"));
+	TSharedPtr<FJsonObject> NoSourceParams = MakeShared<FJsonObject>();
+	NoSourceParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	NoSourceParams->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	NoSourceParams->SetObjectField(TEXT("assignment"), NoSource);
+	NoSourceParams->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("missing source_variable code"),
+		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), NoSourceParams)),
+		FString(TEXT("MISSING_PARAMS")));
+
+	// ---- error: a source variable that does not exist. Distinct from the shipped
+	// test's VARIABLE_NOT_FOUND, which is raised for the TARGET variable well before
+	// the assignment object is read; this one is the source-side check at :2421. ----
+	TSharedPtr<FJsonObject> BadSource = MakeShared<FJsonObject>();
+	BadSource->SetStringField(TEXT("kind"), TEXT("variable"));
+	BadSource->SetStringField(TEXT("source_variable"), TEXT("NoSuchSourceVariable"));
+	TSharedPtr<FJsonObject> BadSourceParams = MakeShared<FJsonObject>();
+	BadSourceParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	BadSourceParams->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	BadSourceParams->SetObjectField(TEXT("assignment"), BadSource);
+	BadSourceParams->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("unknown source variable code"),
+		ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), BadSourceParams)),
+		FString(TEXT("VARIABLE_NOT_FOUND")));
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;
