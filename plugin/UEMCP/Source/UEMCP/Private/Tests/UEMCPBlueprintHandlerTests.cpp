@@ -1238,4 +1238,252 @@ bool FUEMCPBlueprintHandlersAssignmentExecFromTest::RunTest(const FString& Param
 	return true;
 }
 
+// =====================================================================================
+// disconnect_blueprint_pin — the edges the shipped DisconnectPin test leaves: the
+// PIN_AMBIGUOUS branch, target_direction parsing on the target side, and the
+// would_* / pin_info fields that only a dry run reports honestly.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersDisconnectPinEdgesTest,
+	"UEMCP.BlueprintHandlers.DisconnectPinEdges",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("fixture Blueprint was not created"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- arrange A: a node carrying one pin name in both directions ----
+	// A variable-set node for a member variable named "then" has an input data pin
+	// "then" and the output exec pin PN_Then, also "then". K2Node_VariableSet's own
+	// value output is named "Output_Get", so this is the collision, not that pin.
+	AddFixtureVariable(Fixture.Blueprint, TEXT("then"), UEdGraphSchema_K2::PC_Int);
+
+	TSharedPtr<FJsonObject> ThenAssignment = MakeShared<FJsonObject>();
+	ThenAssignment->SetStringField(TEXT("kind"), TEXT("literal"));
+	ThenAssignment->SetNumberField(TEXT("value"), 1.0);
+	TSharedPtr<FJsonObject> ThenParams = MakeShared<FJsonObject>();
+	ThenParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	ThenParams->SetStringField(TEXT("target_variable"), TEXT("then"));
+	ThenParams->SetObjectField(TEXT("assignment"), ThenAssignment);
+	ThenParams->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> ThenResponse = Dispatch(TEXT("add_blueprint_variable_assignment"), ThenParams);
+	FString Code;
+	if (!IsSuccess(ThenResponse, Code))
+	{
+		AddError(FString::Printf(
+			TEXT("arrange failed: no set node for a member variable named 'then' (code '%s'); see the fallback in this test's plan step"),
+			*Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const FString ThenSetNodeId = StringFieldOr(FindRole(ResultOf(ThenResponse), TEXT("nodes"), TEXT("set")), TEXT("node_id"));
+	if (ThenSetNodeId.IsEmpty())
+	{
+		AddError(TEXT("arrange step produced no set node id"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// ---- PIN_AMBIGUOUS: one name, both directions, no direction given ----
+	TSharedPtr<FJsonObject> Ambiguous = MakeShared<FJsonObject>();
+	Ambiguous->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Ambiguous->SetStringField(TEXT("node_id"), ThenSetNodeId);
+	Ambiguous->SetStringField(TEXT("pin"), TEXT("then"));
+	Ambiguous->SetBoolField(TEXT("dry_run"), true);
+	Ambiguous->SetBoolField(TEXT("compile"), false);
+	TestEqual(TEXT("ambiguous pin code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Ambiguous)),
+		FString(TEXT("PIN_AMBIGUOUS")));
+
+	// ---- the same call plus a direction resolves, which is what proves the
+	// ambiguity — not a missing pin — was the cause ----
+	TSharedPtr<FJsonObject> Disambiguated = MakeShared<FJsonObject>();
+	Disambiguated->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Disambiguated->SetStringField(TEXT("node_id"), ThenSetNodeId);
+	Disambiguated->SetStringField(TEXT("pin"), TEXT("then"));
+	Disambiguated->SetStringField(TEXT("direction"), TEXT("input"));
+	Disambiguated->SetBoolField(TEXT("dry_run"), true);
+	Disambiguated->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> DisambiguatedResponse = Dispatch(TEXT("disconnect_blueprint_pin"), Disambiguated);
+	if (!IsSuccess(DisambiguatedResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("the disambiguated dry run failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> DisambiguatedResult = ResultOf(DisambiguatedResponse);
+	TestEqual(TEXT("resolved direction"), StringFieldOr(DisambiguatedResult, TEXT("direction")), FString(TEXT("input")));
+	TestEqual(TEXT("an unlinked pin matches nothing"), (int32)DisambiguatedResult->GetNumberField(TEXT("links_matched")), 0);
+	TestFalse(TEXT("would_modify false with nothing linked"), DisambiguatedResult->GetBoolField(TEXT("would_modify")));
+	TestFalse(TEXT("would_require_compile false with nothing linked"), DisambiguatedResult->GetBoolField(TEXT("would_require_compile")));
+
+	// ---- arrange B: BeginPlay.then -> Timer.execute, so there is a link to report on ----
+	TSharedPtr<FJsonObject> TimerParams = MakeShared<FJsonObject>();
+	TimerParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPEdgesFixtureTimer"));
+	TimerParams->SetNumberField(TEXT("interval"), 1.0);
+	TimerParams->SetBoolField(TEXT("create_callback_graph"), true);
+	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerParams->SetBoolField(TEXT("compile"), false);
+
+	const TSharedPtr<FJsonObject> TimerResponse = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	if (!IsSuccess(TimerResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("arrange step failed: add_blueprint_timer returned '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> TimerResult = ResultOf(TimerResponse);
+	const FString BeginPlayId = StringFieldOr(TimerResult, TEXT("begin_play_node_id"));
+	const FString TimerNodeId = StringFieldOr(TimerResult, TEXT("timer_node_id"));
+	// Guarded before use: begin_play_node_id is conditional in the handler, and
+	// FindNodeByGuid returns null for an empty id — without this, a missing field
+	// would surface as the "did not link" error below and point at the wrong cause.
+	if (BeginPlayId.IsEmpty() || TimerNodeId.IsEmpty())
+	{
+		AddError(TEXT("arrange step produced no begin-play or timer node id"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
+	UEdGraphNode* BeginPlayNode = FindNodeByGuid(EventGraph, BeginPlayId);
+	UEdGraphNode* TimerNode = FindNodeByGuid(EventGraph, TimerNodeId);
+	UEdGraphPin* ThenPin = FindFixturePin(BeginPlayNode, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecutePin = FindFixturePin(TimerNode, {TEXT("execute")}, EGPD_Input);
+	if (!ThenPin || !ExecutePin || !ThenPin->LinkedTo.Contains(ExecutePin))
+	{
+		AddError(TEXT("arrange step did not link begin play then to the timer execute pin"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// Every dispatch below is a dry run, so the link survives all of them and each
+	// one reads the same arranged state.
+	auto MakeDryParams = [&Fixture, &BeginPlayId]()
+	{
+		TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+		Params->SetStringField(TEXT("node_id"), BeginPlayId);
+		Params->SetStringField(TEXT("pin"), TEXT("then"));
+		Params->SetStringField(TEXT("direction"), TEXT("output"));
+		Params->SetBoolField(TEXT("dry_run"), true);
+		Params->SetBoolField(TEXT("compile"), false);
+		return Params;
+	};
+
+	// ---- the dry-run report on a linked pin ----
+	const TSharedPtr<FJsonObject> DryResponse = Dispatch(TEXT("disconnect_blueprint_pin"), MakeDryParams());
+	if (!IsSuccess(DryResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("dry run on the linked pin failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> DryResult = ResultOf(DryResponse);
+	TestEqual(TEXT("dry run matched one link"), (int32)DryResult->GetNumberField(TEXT("links_matched")), 1);
+	TestEqual(TEXT("dry run broke nothing"), (int32)DryResult->GetNumberField(TEXT("links_broken")), 0);
+	TestTrue(TEXT("would_modify true with a link present"), DryResult->GetBoolField(TEXT("would_modify")));
+	TestTrue(TEXT("would_require_compile true with a link present"), DryResult->GetBoolField(TEXT("would_require_compile")));
+	TestFalse(TEXT("requires_compile stays false on a dry run"), DryResult->GetBoolField(TEXT("requires_compile")));
+	TestFalse(TEXT("compiled false on a dry run"), DryResult->GetBoolField(TEXT("compiled")));
+
+	// pin_info is built at the end of the handler, so on a dry run — where nothing
+	// was broken — its link_count is both correct and stable. The shipped test
+	// deliberately asserts only name and direction on target_pin_info, which is
+	// built before the break and is therefore stale on a real disconnect (BUG-2 in
+	// docs/tracking/backlog.md); that asymmetry is why this assertion lives here.
+	const TSharedPtr<FJsonObject>* PinInfo = nullptr;
+	if (DryResult->TryGetObjectField(TEXT("pin_info"), PinInfo) && PinInfo)
+	{
+		TestEqual(TEXT("pin_info name"), StringFieldOr(*PinInfo, TEXT("name")), FString(TEXT("then")));
+		TestEqual(TEXT("pin_info direction"), StringFieldOr(*PinInfo, TEXT("direction")), FString(TEXT("output")));
+		TestEqual(TEXT("pin_info category"), StringFieldOr(*PinInfo, TEXT("category")), UEdGraphSchema_K2::PC_Exec.ToString());
+		TestEqual(TEXT("pin_info link_count"), (int32)NumberFieldOr(*PinInfo, TEXT("link_count")), 1);
+		TestEqual(TEXT("pin_info pin_id matches the graph pin"), StringFieldOr(*PinInfo, TEXT("pin_id")), ThenPin->PinId.ToString());
+	}
+	else
+	{
+		AddError(TEXT("the dry-run response carried no pin_info"));
+	}
+
+	// ---- target_direction: rejected when unparseable ----
+	TSharedPtr<FJsonObject> BadTargetDirection = MakeDryParams();
+	BadTargetDirection->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	BadTargetDirection->SetStringField(TEXT("target_pin"), TEXT("execute"));
+	BadTargetDirection->SetStringField(TEXT("target_direction"), TEXT("sideways"));
+	TestEqual(TEXT("unparseable target_direction code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), BadTargetDirection)),
+		FString(TEXT("INVALID_DIRECTION")));
+
+	// ---- target_direction: parsed and actually applied. "execute" is an input pin,
+	// so asking for it on the output side must miss rather than fall back. ----
+	TSharedPtr<FJsonObject> WrongTargetDirection = MakeDryParams();
+	WrongTargetDirection->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	WrongTargetDirection->SetStringField(TEXT("target_pin"), TEXT("execute"));
+	WrongTargetDirection->SetStringField(TEXT("target_direction"), TEXT("output"));
+	TestEqual(TEXT("target_direction pointing the wrong way code"),
+		ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), WrongTargetDirection)),
+		FString(TEXT("PIN_NOT_FOUND")));
+
+	// ---- target_direction: the explicit correct value behaves like the inferred one ----
+	TSharedPtr<FJsonObject> RightTargetDirection = MakeDryParams();
+	RightTargetDirection->SetStringField(TEXT("target_node_id"), TimerNodeId);
+	RightTargetDirection->SetStringField(TEXT("target_pin"), TEXT("execute"));
+	RightTargetDirection->SetStringField(TEXT("target_direction"), TEXT("input"));
+
+	const TSharedPtr<FJsonObject> RightResponse = Dispatch(TEXT("disconnect_blueprint_pin"), RightTargetDirection);
+	if (!IsSuccess(RightResponse, Code))
+	{
+		AddError(FString::Printf(TEXT("dry run with an explicit target_direction failed with code '%s'"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> RightResult = ResultOf(RightResponse);
+	TestEqual(TEXT("explicit target_direction still matches the link"), (int32)RightResult->GetNumberField(TEXT("links_matched")), 1);
+	TestEqual(TEXT("target_pin echoed"), StringFieldOr(RightResult, TEXT("target_pin")), FString(TEXT("execute")));
+	const TSharedPtr<FJsonObject>* TargetPinInfo = nullptr;
+	if (RightResult->TryGetObjectField(TEXT("target_pin_info"), TargetPinInfo) && TargetPinInfo)
+	{
+		// Name and direction only: see the BUG-2 note above for why link_count on
+		// this block is not asserted anywhere.
+		TestEqual(TEXT("target_pin_info name"), StringFieldOr(*TargetPinInfo, TEXT("name")), FString(TEXT("execute")));
+		TestEqual(TEXT("target_pin_info direction"), StringFieldOr(*TargetPinInfo, TEXT("direction")), FString(TEXT("input")));
+	}
+	else
+	{
+		AddError(TEXT("the explicit-target dry run carried no target_pin_info"));
+	}
+
+	// ---- nothing above was a real break ----
+	// Re-resolved rather than reusing ThenPin/ExecutePin from before the four
+	// dispatches: none of them compiles, so those pointers are in fact still valid,
+	// but re-resolving keeps this file free of the pattern its own constraints
+	// forbid and matches how the shipped disconnect test re-reads after a dispatch.
+	UEdGraphPin* ThenPinAfter = FindFixturePin(FindNodeByGuid(EventGraph, BeginPlayId), {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* ExecutePinAfter = FindFixturePin(FindNodeByGuid(EventGraph, TimerNodeId), {TEXT("execute")}, EGPD_Input);
+	if (!ThenPinAfter || !ExecutePinAfter)
+	{
+		AddError(TEXT("could not re-resolve then/execute pins after the dry runs"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestTrue(TEXT("every dispatch here was a dry run, so the link is still there"),
+		ThenPinAfter->LinkedTo.Contains(ExecutePinAfter));
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
