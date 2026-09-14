@@ -388,6 +388,66 @@ export const MENHANCE_SCHEMAS = {
     },
     isReadOp: false,
   },
+
+  // ── EN-24/EN-25: asset-editor, details-panel and PIE capture ──
+  // All five skip the cache: editor UI state (open tabs, expansion, scroll,
+  // PIE frame) changes under the caller between identical requests, which is
+  // the same reason get_viewport_screenshot is not a read-op.
+  list_asset_editor_tabs: {
+    description: 'List the live tabs of an already-open asset editor, with the tab ids capture_asset_editor addresses. Never opens an editor.',
+    schema: {
+      asset_path: z.string().describe('/Game/... path to an asset whose editor is already open'),
+    },
+    isReadOp: false,
+  },
+
+  capture_asset_editor: {
+    description: 'Capture an open asset editor, or one of its tabs, as a PNG on disk. Call list_asset_editor_tabs first for tab ids.',
+    schema: {
+      asset_path: z.string().describe('/Game/... path to an asset whose editor is already open'),
+      tab_id: z.string().optional()
+        .describe('Tab id from list_asset_editor_tabs; default is the editor\'s active tab'),
+      out_png: z.string().optional()
+        .describe('Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/<asset>_<tab>_<timestamp>.png'),
+      // Left .optional() rather than .default(false) so an omitted flag stays
+      // off the wire and the plugin owns the default — the same shape as
+      // get_viewport_screenshot's return_base64.
+      inline: z.boolean().optional()
+        .describe('Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64'),
+    },
+    isReadOp: false,
+  },
+
+  details_panel_expand_all: {
+    description: 'Expand every row of an open editor\'s Details tab so a following capture shows the whole property grid.',
+    schema: {
+      asset_path: z.string().describe('/Game/... path to an asset whose editor is already open'),
+      tab_id: z.string().describe('Tab id of a Details tab, from list_asset_editor_tabs'),
+    },
+    isReadOp: false,
+  },
+
+  details_panel_scroll: {
+    description: 'Scroll an open editor\'s Details tab to a row offset for paged review captures.',
+    schema: {
+      asset_path: z.string().describe('/Game/... path to an asset whose editor is already open'),
+      tab_id: z.string().describe('Tab id of a Details tab, from list_asset_editor_tabs'),
+      row_offset: z.number().int().min(0)
+        .describe('0-based row to scroll to; clamped to max_row_offset'),
+    },
+    isReadOp: false,
+  },
+
+  capture_pie_viewport: {
+    description: 'Capture the running PIE game viewport as a PNG on disk, including when PIE runs in its own window.',
+    schema: {
+      out_png: z.string().optional()
+        .describe('Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/PIE_<timestamp>.png'),
+      inline: z.boolean().optional()
+        .describe('Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64'),
+    },
+    isReadOp: false,
+  },
 };
 
 // ── PARTIAL-RC response transforms ────────────────────────────

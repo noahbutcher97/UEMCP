@@ -659,9 +659,12 @@ try {
     'tools/list exposes the independently inventoried management and dynamic registrations',
     `listed=${listedRows.length} expected=${expectedNames.size}; missing: ${missingNames.join(', ')}; unexpected: ${unexpectedNames.join(', ')}`,
   );
+  // 149 = 144 + 5: EN-24/EN-25 added five visual-capture tools and removed
+  // the never-registered capture_active_editor_tab (status: planned, so it
+  // was not part of the prior 144).
   t.assert(
-    listedRows.length === 144,
-    'independent all-enabled tools/list inventory contains 144 registered tools',
+    listedRows.length === 149,
+    'independent all-enabled tools/list inventory contains 149 registered tools',
     `listed=${listedRows.length}`,
   );
 
