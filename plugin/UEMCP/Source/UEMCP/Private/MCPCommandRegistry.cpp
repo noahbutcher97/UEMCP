@@ -5,6 +5,7 @@
 #include "Logging/LogMacros.h"
 
 // M-enhance CP3 handler registration
+#include "AssetEditorCapture.h"
 #include "CompileDiagnosticHandler.h"
 #include "DataSourceHandlers.h"
 #include "EdgeCaseHandlers.h"
@@ -167,6 +168,11 @@ namespace UEMCP
 		RegisterDataSourceHandlers(*this);
 		RegisterSidecarCommands(*this);
 		RegisterVisualCaptureHandler(*this);
+
+		// EN-24/EN-25: asset-editor, details-panel and PIE capture. Kept out of
+		// VisualCaptureHandler.cpp so get_viewport_screenshot's shipped
+		// behaviour — and the source assertions that pin it — are untouched.
+		RegisterAssetEditorCaptureHandlers(*this);
 
 		// M3-actors: 10 actor-toolset commands (oracle retirement, D23).
 		RegisterActorHandlers(*this);

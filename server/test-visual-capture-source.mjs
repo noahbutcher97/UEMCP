@@ -74,4 +74,39 @@ t.assert(visualCapture.details_panel_scroll.params.row_offset?.required === true
 t.assert(visualCapture.capture_pie_viewport.requires_pie === true,
   'capture_pie_viewport declares requires_pie');
 
+// ── EN-24: asset-editor capture handler source ────────────────
+const captureHeader = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Public', 'AssetEditorCapture.h'), 'utf8');
+const captureHelpers = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'AssetEditorCapture.cpp'), 'utf8');
+const captureHandlers = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'AssetEditorCaptureHandler.cpp'), 'utf8');
+const commandRegistry = readFileSync(join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'MCPCommandRegistry.cpp'), 'utf8');
+
+t.assert(captureHeader.includes('void RegisterAssetEditorCaptureHandlers(FMCPCommandRegistry& Registry);'),
+  'AssetEditorCapture.h declares the registration entry point');
+t.assert(captureHandlers.includes('Registry.Register(TEXT("list_asset_editor_tabs")'),
+  'asset-editor capture registers list_asset_editor_tabs');
+t.assert(captureHandlers.includes('Registry.Register(TEXT("capture_asset_editor")'),
+  'asset-editor capture registers capture_asset_editor');
+t.assert(commandRegistry.includes('#include "AssetEditorCapture.h"') &&
+  commandRegistry.includes('RegisterAssetEditorCaptureHandlers(*this);'),
+  'the command registry wires the asset-editor capture family');
+t.assert(captureHelpers.includes('FindEditorForAsset(Target.Asset, /*bFocusIfOpen*/ false)'),
+  'editor lookup never steals focus');
+t.assert(captureHelpers.includes('FindExistingLiveTab') && !captureHelpers.includes('TryInvokeTab'),
+  'tabs are resolved, never opened');
+
+// Validation order is load-bearing: under -nullrhi every capture ends in
+// CAPTURE_UNSUPPORTED, so gating on the renderer before addressing would make
+// ASSET_NOT_FOUND / EDITOR_NOT_OPEN / TAB_NOT_FOUND unreachable headless.
+const captureBody = captureHandlers.slice(captureHandlers.indexOf('void HandleCaptureAssetEditor'));
+t.assert(captureBody.indexOf('ResolveCaptureTab') < captureBody.indexOf('CaptureWidgetToPng'),
+  'capture_asset_editor resolves the tab before it reaches the renderer gate');
+
+t.assert(captureHelpers.includes('FSlateApplication::Get().TakeScreenshot('),
+  'asset-editor capture reads pixels through FSlateApplication::TakeScreenshot');
+t.assert(captureHelpers.includes('FApp::CanEverRender()'),
+  'the renderer gate is FApp::CanEverRender, which is false under -nullrhi');
+t.assert(captureHeader.includes('InlineBase64MaxBytes = 8 * 1024 * 1024') &&
+  captureHelpers.includes('inline_omitted'),
+  'the 8 MiB inline cap is declared and enforced');
+
 process.exit(t.summary());
