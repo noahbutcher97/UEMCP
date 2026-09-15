@@ -3232,7 +3232,6 @@ namespace UEMCP
 					BuildErrorResponse(OutResponse, TEXT("Target pin not found"), TEXT("PIN_NOT_FOUND"));
 					return;
 				}
-				TargetPinJson = PinToJson(TargetPin);
 			}
 
 			TArray<TSharedPtr<FJsonValue>> BrokenLinks = CollectPinLinksJson(Pin, TargetPin);
@@ -3260,6 +3259,12 @@ namespace UEMCP
 					Pin->BreakAllPinLinks(true);
 					LinksBroken = LinksMatched;
 				}
+			}
+			// Both pin blocks describe the graph after the break (or after nothing, on a dry
+			// run), so their link counts agree.
+			if (TargetPin)
+			{
+				TargetPinJson = PinToJson(TargetPin);
 			}
 
 			bool bCompile = false;

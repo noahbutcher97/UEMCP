@@ -760,6 +760,10 @@ bool FUEMCPBlueprintHandlersDisconnectPinTest::RunTest(const FString& Parameters
 	{
 		TestEqual(TEXT("target_pin_info name"), StringFieldOr((*TargetPinInfo), TEXT("name")), FString(TEXT("execute")));
 		TestEqual(TEXT("target_pin_info direction"), StringFieldOr((*TargetPinInfo), TEXT("direction")), FString(TEXT("input")));
+		// After a real targeted break the target pin has no links left, and the
+		// response must say so in both pin blocks (BUG-2, bullet 1).
+		TestEqual(TEXT("target_pin_info link_count is the post-break value"),
+			(int32)(*TargetPinInfo)->GetNumberField(TEXT("link_count")), 0);
 	}
 	else
 	{
@@ -1468,8 +1472,8 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 	const TSharedPtr<FJsonObject>* TargetPinInfo = nullptr;
 	if (RightResult->TryGetObjectField(TEXT("target_pin_info"), TargetPinInfo) && TargetPinInfo)
 	{
-		// Name and direction only: see the BUG-2 note above for why link_count on
-		// this block is not asserted anywhere.
+		// link_count on target_pin_info is asserted in DisconnectPin, where a real
+		// break happens; this dry run only checks identity.
 		TestEqual(TEXT("target_pin_info name"), StringFieldOr(*TargetPinInfo, TEXT("name")), FString(TEXT("execute")));
 		TestEqual(TEXT("target_pin_info direction"), StringFieldOr(*TargetPinInfo, TEXT("direction")), FString(TEXT("input")));
 	}

@@ -47,6 +47,21 @@ namespace UEMCP
 		return Obj;
 	}
 
+	/** Reads [x, y, z] as three numbers; on failure OutBadIndex names the first offender. */
+	static bool ReadVectorComponents(const TArray<TSharedPtr<FJsonValue>>& Arr, double& X, double& Y, double& Z, int32& OutBadIndex)
+	{
+		double* Slots[3] = { &X, &Y, &Z };
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			if (Index >= Arr.Num() || !Arr[Index].IsValid() || !Arr[Index]->TryGetNumber(*Slots[Index]))
+			{
+				OutBadIndex = Index;
+				return false;
+			}
+		}
+		return true;
+	}
+
 	bool SetSupportedVariableDefault(UObject* CDO, FProperty* Property,
 		const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
 	{
@@ -161,9 +176,8 @@ namespace UEMCP
 			double X = 0.0;
 			double Y = 0.0;
 			double Z = 0.0;
-			if (!Arr[0].IsValid() || !Arr[0]->TryGetNumber(X)
-				|| !Arr[1].IsValid() || !Arr[1]->TryGetNumber(Y)
-				|| !Arr[2].IsValid() || !Arr[2]->TryGetNumber(Z))
+			int32 BadIndex = 0;
+			if (!ReadVectorComponents(Arr, X, Y, Z, BadIndex))
 			{
 				OutErrorMessage = FString::Printf(TEXT("Vector default for variable '%s' must contain only numbers"),
 					*Property->GetName());
@@ -246,10 +260,17 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"),
-				(*Arr)[0]->AsNumber(),
-				(*Arr)[1]->AsNumber(),
-				(*Arr)[2]->AsNumber());
+			double X = 0.0;
+			double Y = 0.0;
+			double Z = 0.0;
+			int32 BadIndex = 0;
+			if (!ReadVectorComponents(*Arr, X, Y, Z, BadIndex))
+			{
+				OutError = FString::Printf(TEXT("Vector variable assignment requires [x, y, z] numeric literal; element %d is not a number"), BadIndex);
+				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
+				return false;
+			}
+			OutDefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), X, Y, Z);
 			return true;
 		}
 

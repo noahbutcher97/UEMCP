@@ -295,6 +295,16 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("vector literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(VectorPin, JsonNumberArray({1.0, 2.0, 3.0}), Default, Error, Code));
 	TestEqual(TEXT("vector literal formatting"), Default, FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), 1.0, 2.0, 3.0));
+
+	TArray<TSharedPtr<FJsonValue>> Mixed;
+	Mixed.Add(JsonNumber(1.0));
+	Mixed.Add(JsonString(TEXT("a")));
+	Mixed.Add(JsonNumber(3.0));
+	TestFalse(TEXT("vector literal rejects a non-numeric element"),
+		UEMCP::FormatLiteralForPinCategory(VectorPin, MakeShared<FJsonValueArray>(Mixed), Default, Error, Code));
+	TestEqual(TEXT("vector element mismatch code"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
+	TestTrue(TEXT("vector element mismatch names the element"), Error.Contains(TEXT("element 1")));
+
 	TestTrue(TEXT("vector literal shape"), Default.StartsWith(TEXT("(X=1.")) && Default.EndsWith(TEXT(")")));
 
 	TestFalse(TEXT("vector literal rejects non-array"),
