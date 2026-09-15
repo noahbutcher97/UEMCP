@@ -54,17 +54,6 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 
 ---
 
-### EN-28 — Confine capture output paths to the project directory
-- **Gap**: `capture_asset_editor` and `capture_pie_viewport` write a relative `out_png` under `Saved/` and an absolute one where it points, exactly like the older `get_viewport_screenshot` (`VisualCaptureHandler.cpp` ~119-123, ~240-251) — all three tools accept any absolute path and `..` escapes today.
-- **Proposal**: a single shared `ResolveCaptureOutputPath` that rejects paths outside `FPaths::ProjectDir()` would close it for all three, with one native test each.
-- **Trigger**: the next change to any capture handler.
-
-### EN-29 — Capture tools: close the headless-unreachable coverage
-- **(a)**: `UEMCPAssetEditorCaptureTests.cpp`'s `CaptureUnsupportedHeadless` cannot assert its subject because `OpenFixtureEditor` declines whenever there is no renderer — assert `CAPTURE_UNSUPPORTED` at the helper level with `CaptureWidgetToPng(SNullWidget::NullWidget, …)`, keeping the handler-level path as a labelled skip.
-- **(b)**: `png_base64` and `inline_omitted` have never been emitted by the plugin in any run — pass `inline: true` on one smoke capture and decode it to `byte_length` bytes, and unit-test the over-cap branch with a fabricated buffer.
-- **(c)**: `details_panel_scroll` reports `row_offset` as landed even when no property row exists at the clamped offset (`CountRows` counts category rows, `GetPropertyRowNumbers` only property rows) — add `scrolled: bool` to the response and an over-range scroll to the smoke; plus the `.PNG` casing divergence from `get_viewport_screenshot`.
-- **Trigger**: the next change to any capture handler, or the next GUI smoke session.
-
 ### EN-30 — Data-asset writers and GAS authoring
 - **Source**: deferred remainder of EN-7's "defer after this" list. `capture_active_editor_tab` (the first item on that list) shipped as EN-24's `capture_asset_editor` + `list_asset_editor_tabs` (D199), and the older planned `capture_active_editor_tab` entry was deleted from `tools.yaml` (D199).
 - **Scope**: data-asset writers with an explicit dirty/save/undo policy, then GAS authoring/codegen — unchanged from EN-7's original ordering (lower destructive surface first).
@@ -84,6 +73,8 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - EN-25 — PIE-window capture and editor-identity on TCP 55558 — shipped 2026-09 (D199; per-project port residual tracked as EN-31)
 - EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — shipped 2026-09 (commit `e07837f`)
 - EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge — shipped 2026-09 (commit `e07837f`; refined by `d42805b`/`1166888`)
+- EN-28 — Confine capture output paths to the project directory — shipped 2026-09 (D201)
+- EN-29 — Capture tools: close the headless-unreachable coverage — shipped 2026-09 (D201)
 
 ## Fixture planting
 
@@ -178,12 +169,6 @@ When any dispatched handoff completes and residual items surface, consolidate th
 
 ## Bugs / defects
 
-### BUG-2 — Four pre-existing quirks surfaced by the WS5a handler tests (not fixed there: all four change wire behaviour)
-- `HandleDisconnectBlueprintPin` builds `target_pin_info` at `BlueprintHandlers.cpp:~3203`, before the targeted break at `~3220-3230`, so its `link_count` is the pre-break value on a real disconnect, while `pin_info` at `~3258` is built after the break; the two blocks in one response disagree. The native test asserts only `name` and `direction` on `target_pin_info` on purpose. Fix by building both blocks after the break.
-- `FormatLiteralForPinCategory` (`BlueprintHandlerHelpers.cpp:~248-251`, verbatim from the old `TryApplyLiteralAssignmentDefault`) reads a three-element array's elements with `AsNumber()` without checking each element's type, so `[1,"a",3]` logs a LogJson error and formats `0.000000` instead of returning `LITERAL_TYPE_MISMATCH`; `SetSupportedVariableDefault` validates each element ("must contain only numbers"). Align the literal path with the variable-default path.
-- `HandleAddBlueprintVariableAssignment` sets `requires_compile = !bCompile` and `compiled = bCompile` (`BlueprintHandlers.cpp:~2578-2579`) without consulting whether the compile it just ran succeeded, and it has no `COMPILE_FAILED` branch at all — unlike `add_blueprint_timer` and `disconnect_blueprint_pin`, which both derive `requires_compile` from `compiled_ok` and fail the call when the compile does. A caller passing `compile: true` to the assignment handler is told the Blueprint compiled whether or not it did. The handler exposes no compile diagnostics at all, so its compile leg in `UEMCP.BlueprintHandlers.CompilePaths` can only assert the echoed `compiled`/`requires_compile` flags, not a diagnostic result. `UEMCP.BlueprintHandlers.CompilePaths` asserts the current shape, including the absence of the `compile` block, so a fix has to update that test deliberately.
-- `FindOrCreateReceiveBeginPlay` (`BlueprintHandlers.cpp:~901-906`) returns any existing `ReceiveBeginPlay` verbatim, and `FindExistingEventNode` (`~794-809`) matches on member name with no enabled-state filter, so on a fresh Actor Blueprint the node it reuses is the auto-placed ghost that the engine creates with `ENodeEnabledState::Disabled` ("this node is disabled and will not be called"); the plugin never touches node enabled state, while the editor's own event spawner removes the ghost and spawns an enabled replacement. `add_blueprint_timer` with `insert_on_begin_play: true` therefore reports a BeginPlay chain hanging off a disabled node; the same reuse sits at `~1740` (`add_blueprint_event_node`) and `~1994` (`override_parent_member`). The native tests now pin this as shipped behaviour (`CompilePaths`, `TimerFailures`); whether the compiler prunes the disabled chain was not measured (validation does reach downstream nodes: `TimerFailures` plants its broken call below that ghost and still gets the compile error). Fix by un-ghosting a reused node (`SetEnabledState(ENodeEnabledState::Enabled)`) or by replacing it the way the editor does.
-- **Trigger**: the next change to `BlueprintHandlers.cpp` pin, literal, compile-flag, or event-node handling, with a native test for each; the disabled-ghost bullet first needs one measurement of whether the compiler prunes the chain.
-
 ### Fixed
 - BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema — fixed 2026-05-28 (D173)
+- BUG-2 — Four pre-existing quirks surfaced by the WS5a handler tests — fixed 2026-09 (D201): ghost event enabled in place at the two reuse sites that return it unlinked, reported as enabled_ghost (the timer site was never affected: the engine converts a linked ghost); target_pin_info built after the break; vector literal elements validated (LITERAL_TYPE_MISMATCH); add_blueprint_variable_assignment returns COMPILE_FAILED and rolls back

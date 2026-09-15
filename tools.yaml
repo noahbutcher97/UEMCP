@@ -543,7 +543,7 @@ toolsets:
           can_be_damaged:                { type: boolean, required: false, description: "Maps to bCanBeDamaged" }
       add_event_node:
         wire_type: add_blueprint_event_node
-        description: Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists. Returns pin metadata.
+        description: "Add event node (BeginPlay, Tick, etc.) — deduplicates, returns existing GUID if event already exists. Returns pin metadata. A reused auto-placed ghost event is enabled in place (enabled_ghost: true)."
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           event_name:     { type: string, required: true, description: "e.g. ReceiveBeginPlay, ReceiveTick" }
@@ -642,7 +642,7 @@ toolsets:
         compiles_asset: false
         offline_fallback: false
         wire_type: add_blueprint_timer
-        description: Create a Blueprint SetTimerByFunctionName setup, optionally inserted from ReceiveBeginPlay and optionally creating the callback function graph. Does not save the asset; compile behavior is controlled by the optional compile param.
+        description: "Create a Blueprint SetTimerByFunctionName setup, optionally inserted from ReceiveBeginPlay and optionally creating the callback function graph. Does not save the asset; compile behavior is controlled by the optional compile param. When the reused ReceiveBeginPlay was the editor's auto-placed disabled ghost, it is enabled in place and the response carries enabled_ghost: true."
         params:
           blueprint_name:         { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
           callback_function:      { type: string, required: true, description: "Function graph called by the timer" }
@@ -688,7 +688,7 @@ toolsets:
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
       override_parent_member:
         wire_type: override_blueprint_parent_member
-        description: Override a member inherited from a parent class. Events (BlueprintImplementableEvent/BlueprintNativeEvent) become an event node in the event graph; overridable functions get a new function graph matching the parent signature. Resolves against the parent chain — never guesses an owning class. Idempotent - returns the existing override if one is already present.
+        description: "Override a member inherited from a parent class. Events (BlueprintImplementableEvent/BlueprintNativeEvent) become an event node in the event graph; overridable functions get a new function graph matching the parent signature. Resolves against the parent chain — never guesses an owning class. Idempotent - returns the existing override if one is already present. A reused auto-placed ghost event is enabled in place (enabled_ghost: true)."
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           member_name:    { type: string, required: true, description: "Inherited event or function name to override" }
