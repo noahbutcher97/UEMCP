@@ -271,18 +271,20 @@ namespace UEMCP
 		Result->SetStringField(TEXT("png_path"), OutputPath);
 		if (bInline)
 		{
-			const int64 Base64Length = ((static_cast<int64>(Png.Num()) + 2) / 3) * 4;
-			if (Base64Length > InlineBase64MaxBytes)
-			{
-				Result->SetStringField(TEXT("inline_omitted"), TEXT("too_large"));
-			}
-			else
-			{
-				Result->SetStringField(TEXT("png_base64"),
-					FBase64::Encode(Png.GetData(), static_cast<uint32>(Png.Num())));
-			}
+			AppendInlinePng(Result.ToSharedRef(), Png, InlineBase64MaxBytes);
 		}
 		return true;
+	}
+
+	void AppendInlinePng(const TSharedRef<FJsonObject>& Result, const TArray64<uint8>& Png, int64 MaxBase64Bytes)
+	{
+		const int64 Base64Length = ((static_cast<int64>(Png.Num()) + 2) / 3) * 4;
+		if (Base64Length > MaxBase64Bytes)
+		{
+			Result->SetStringField(TEXT("inline_omitted"), TEXT("too_large"));
+			return;
+		}
+		Result->SetStringField(TEXT("png_base64"), FBase64::Encode(Png.GetData(), static_cast<uint32>(Png.Num())));
 	}
 
 	IDetailsView* FindDetailsViewInTab(const TSharedPtr<SDockTab>& Tab)

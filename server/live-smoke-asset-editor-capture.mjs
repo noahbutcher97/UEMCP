@@ -106,6 +106,28 @@ try {
     const detailsCapture = await call('capture_asset_editor',
       { asset_path: assetPath, tab_id: detailsTabId });
     reportCapture('capture-details', detailsCapture);
+    // EN-29 (b): the inline arm has never run outside this smoke. Decode it and
+    // hold it to byte_length.
+    const inlineCapture = await call('capture_asset_editor',
+      { asset_path: assetPath, tab_id: detailsTabId, inline: true });
+    reportCapture('capture-details-inline', inlineCapture);
+    if (inlineCapture.inline_omitted) {
+      console.log(`[inline] omitted: ${inlineCapture.inline_omitted} (${inlineCapture.byte_length} bytes)`);
+    } else {
+      const decoded = Buffer.from(inlineCapture.png_base64 || '', 'base64');
+      if (decoded.length !== inlineCapture.byte_length) {
+        throw new Error(`inline PNG decoded to ${decoded.length} bytes but byte_length says ${inlineCapture.byte_length}`);
+      }
+      console.log(`[inline] png_base64 decodes to ${decoded.length} bytes, matching byte_length`);
+    }
+    // EN-29 (c): an over-range scroll clamps and says whether it landed on a
+    // property row. Whether the last row is a property row depends on the panel,
+    // so scrolled is logged and type-checked rather than asserted false.
+    const overRange = await call('details_panel_scroll',
+      { asset_path: assetPath, tab_id: detailsTabId, row_offset: 100000 });
+    console.log(`[details] over-range scroll: scrolled=${overRange.scrolled} row_offset=${overRange.row_offset} max=${overRange.max_row_offset}`);
+    if (typeof overRange.scrolled !== 'boolean') throw new Error('details_panel_scroll response carries no scrolled boolean');
+    if (overRange.row_offset > overRange.max_row_offset) throw new Error('over-range scroll reported a row beyond max_row_offset');
   }
 
   // ── 4. PIE in its own window ───────────────────────────────
@@ -133,5 +155,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
-console.log('\n[live-smoke-asset-editor-capture] PASS — 3 PNGs written with non-zero size');
+console.log('\n[live-smoke-asset-editor-capture] PASS — 4 PNGs written with non-zero size');
 process.exit(0);

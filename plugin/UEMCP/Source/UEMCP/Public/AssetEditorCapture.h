@@ -34,7 +34,7 @@ class IDetailsView;
  *     { [asset_path, tab_id,] width, height, byte_length, mime, png_path,
  *       png_base64?, inline_omitted? }
  *   details_panel_expand_all   { expanded, rows_before, rows_after }
- *   details_panel_scroll       { row_offset, requested_row_offset, max_row_offset }
+ *   details_panel_scroll       { row_offset, requested_row_offset, max_row_offset, scrolled }
  */
 namespace UEMCP
 {
@@ -147,6 +147,13 @@ namespace UEMCP
 		bool bInline,
 		const TSharedPtr<FJsonObject>& Result,
 		FString& OutErrorMessage);
+
+	/**
+	 * Attaches png_base64, or inline_omitted = "too_large" when the encoded
+	 * length would exceed MaxBase64Bytes. Split out so the over-cap branch can be
+	 * tested with a fabricated buffer instead of a 6 MiB capture.
+	 */
+	void AppendInlinePng(const TSharedRef<FJsonObject>& Result, const TArray64<uint8>& Png, int64 MaxBase64Bytes);
 
 	/**
 	 * The IDetailsView inside a tab, or null.

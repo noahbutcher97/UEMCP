@@ -28,6 +28,7 @@
 #include "Dom/JsonValue.h"
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Base64.h"
 #include "Misc/Guid.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -40,6 +41,7 @@
 #include "Toolkits/AssetEditorToolkit.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "Widgets/SNullWidget.h"
 
 #include "AssetEditorCapture.h"
 #include "MCPCommandRegistry.h"
@@ -354,6 +356,7 @@ bool FUEMCPAssetEditorCaptureUnsupportedTest::RunTest(const FString& Parameters)
 	}
 	if (!OpenFixtureEditor(Fixture))
 	{
+		// The helper-level path is asserted by CaptureUnsupportedHelper; this handler path stays a labelled skip headless.
 		AddInfo(TEXT("skipped: UAssetEditorSubsystem declined to open an asset editor in this configuration"));
 		DestroyFixtureAsset(Fixture);
 		return true;
@@ -567,6 +570,67 @@ bool FUEMCPAssetEditorCaptureOutputPathTest::RunTest(const FString& Parameters)
 	ViewportEscaping->SetStringField(TEXT("output_path"), TEXT("../../../../escape"));
 	TestEqual(TEXT("get_viewport_screenshot refuses an escaping output_path first"),
 		CodeOf(Dispatch(TEXT("get_viewport_screenshot"), ViewportEscaping)), FString(TEXT("CAPTURE_PATH_OUTSIDE_PROJECT")));
+	return true;
+}
+
+// =====================================================================================
+// AppendInlinePng's over-cap branch has only ever run against a multi-MiB real
+// capture, so it has never been proved directly. A fabricated 32-byte buffer
+// exercises both branches of the cap without needing a renderer at all.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPAssetEditorCaptureInlinePngCapTest,
+	"UEMCP.AssetEditorCapture.InlinePngCap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPAssetEditorCaptureInlinePngCapTest::RunTest(const FString& Parameters)
+{
+	TArray64<uint8> Buffer;
+	Buffer.SetNumUninitialized(32);
+	for (int32 Index = 0; Index < 32; ++Index)
+	{
+		Buffer[Index] = static_cast<uint8>(Index * 7);
+	}
+	// 32 bytes encode to 44 base64 characters: a cap of 16 is over, 64 is under.
+	TSharedRef<FJsonObject> Over = MakeShared<FJsonObject>();
+	UEMCP::AppendInlinePng(Over, Buffer, 16);
+	TestEqual(TEXT("over the cap reports inline_omitted"), Over->GetStringField(TEXT("inline_omitted")), FString(TEXT("too_large")));
+	TestFalse(TEXT("over the cap carries no png_base64"), Over->HasField(TEXT("png_base64")));
+
+	TSharedRef<FJsonObject> Under = MakeShared<FJsonObject>();
+	UEMCP::AppendInlinePng(Under, Buffer, 64);
+	TestFalse(TEXT("under the cap carries no inline_omitted"), Under->HasField(TEXT("inline_omitted")));
+	TArray<uint8> Decoded;
+	TestTrue(TEXT("png_base64 decodes"), FBase64::Decode(Under->GetStringField(TEXT("png_base64")), Decoded));
+	TestEqual(TEXT("decoded length matches"), Decoded.Num(), 32);
+	TestTrue(TEXT("decoded bytes match"), Decoded.Num() == 32 && FMemory::Memcmp(Decoded.GetData(), Buffer.GetData(), 32) == 0);
+	return true;
+}
+
+// =====================================================================================
+// CaptureWidgetToPng's CAPTURE_UNSUPPORTED refusal is otherwise only reachable
+// through an open asset editor, which the headless runner may decline to open
+// (see CaptureUnsupportedHeadless above). SNullWidget::NullWidget lets this
+// assert the refusal directly against the helper, unconditionally.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPAssetEditorCaptureUnsupportedHelperTest,
+	"UEMCP.AssetEditorCapture.CaptureUnsupportedHelper",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPAssetEditorCaptureUnsupportedHelperTest::RunTest(const FString& Parameters)
+{
+	if (FApp::CanEverRender())
+	{
+		AddInfo(TEXT("skipped: a renderer is present, so CAPTURE_UNSUPPORTED is not the expected outcome"));
+		return true;
+	}
+	TArray64<uint8> Png;
+	FIntPoint Size(0, 0);
+	FString Code;
+	FString Message;
+	TestFalse(TEXT("CaptureWidgetToPng refuses without a renderer"),
+		UEMCP::CaptureWidgetToPng(SNullWidget::NullWidget, Png, Size, Code, Message));
+	TestEqual(TEXT("the helper reports CAPTURE_UNSUPPORTED"), Code, FString(TEXT("CAPTURE_UNSUPPORTED")));
+	TestEqual(TEXT("no bytes are produced"), (int64)Png.Num(), (int64)0);
 	return true;
 }
 

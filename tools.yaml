@@ -1668,7 +1668,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Scroll an open editor's Details tab to a row offset for paged review captures. Row offsets are stable across DPI and panel size; the response reports the row actually reached.
+        description: Scroll an open editor's Details tab to a row offset for paged review captures. Row offsets are stable across DPI and panel size; the response reports the row actually reached. scrolled is false when no property row exists at or after the clamped offset (row_offset then reports the clamp).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
           tab_id:     { type: string, required: true, description: "Tab id of a Details tab, from list_asset_editor_tabs" }

@@ -255,6 +255,7 @@ namespace UEMCP
 			Result->SetNumberField(TEXT("row_offset"), Landed == INDEX_NONE ? Clamped : Landed);
 			Result->SetNumberField(TEXT("requested_row_offset"), RowOffset);
 			Result->SetNumberField(TEXT("max_row_offset"), MaxRowOffset);
+			Result->SetBoolField(TEXT("scrolled"), bFoundRow);
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
