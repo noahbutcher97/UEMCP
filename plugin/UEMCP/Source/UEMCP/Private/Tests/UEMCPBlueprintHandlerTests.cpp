@@ -1991,6 +1991,7 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	if (!Fixture.Blueprint)
 	{
 		AddError(TEXT("could not create the fixture Blueprint"));
+		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
 	UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
@@ -2074,6 +2075,119 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	{
 		AddError(FString::Printf(TEXT("second add_blueprint_timer failed: %s"), *Code));
 	}
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+// =====================================================================================
+// The other two BUG-2 bullet-4 reuse sites: add_blueprint_event_node's dedup branch
+// and override_blueprint_parent_member's reuse branch both hand back an existing
+// event node without linking anything to it, so — unlike add_blueprint_timer — they
+// get no engine-side rescue from UEdGraphPin::MakeLinkTo's ghost conversion. The
+// reused node stays disabled and FEdGraphUtilities::CloneGraph drops it from the
+// compiled class at compile time, so EnsureEventNodeEnabled is load-bearing here.
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersEventNodeGhostSitesTest,
+	"UEMCP.BlueprintHandlers.EventNodeGhostSites",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("could not create the fixture Blueprint"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	FString Code;
+
+	// add_blueprint_event_node dedups against the ghost ReceiveBeginPlay.
+	TSharedPtr<FJsonObject> EventParams = MakeShared<FJsonObject>();
+	EventParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	EventParams->SetStringField(TEXT("event_name"), TEXT("ReceiveBeginPlay"));
+	const TSharedPtr<FJsonObject> EventResponse = Dispatch(TEXT("add_blueprint_event_node"), EventParams);
+	if (IsSuccess(EventResponse, Code))
+	{
+		const TSharedPtr<FJsonObject> Result = ResultOf(EventResponse);
+		TestTrue(TEXT("add_blueprint_event_node reports enabled_ghost"), Result->HasField(TEXT("enabled_ghost")) && Result->GetBoolField(TEXT("enabled_ghost")));
+
+		const FString NodeId = Result->GetStringField(TEXT("node_id"));
+		UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
+		UEdGraphNode* Reused = nullptr;
+		if (EventGraph)
+		{
+			for (UEdGraphNode* Node : EventGraph->Nodes)
+			{
+				if (Node && Node->NodeGuid.ToString() == NodeId) { Reused = Node; break; }
+			}
+		}
+		if (Reused)
+		{
+			TestTrue(TEXT("add_blueprint_event_node leaves the reused node enabled"), Reused->IsNodeEnabled());
+			TestFalse(TEXT("add_blueprint_event_node leaves no ghost behind"), Reused->IsAutomaticallyPlacedGhostNode());
+		}
+		else
+		{
+			AddError(TEXT("add_blueprint_event_node returned a node_id that is not in the event graph"));
+		}
+
+		const TSharedPtr<FJsonObject> Again = Dispatch(TEXT("add_blueprint_event_node"), EventParams);
+		TestTrue(TEXT("second add_blueprint_event_node succeeds"), IsSuccess(Again, Code));
+		TestFalse(TEXT("second add_blueprint_event_node omits enabled_ghost"), ResultOf(Again)->HasField(TEXT("enabled_ghost")));
+	}
+	else
+	{
+		AddError(FString::Printf(TEXT("add_blueprint_event_node failed: %s"), *Code));
+	}
+
+	// override_blueprint_parent_member reuses the ghost ReceiveTick the same way.
+	TSharedPtr<FJsonObject> OverrideParams = MakeShared<FJsonObject>();
+	OverrideParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	OverrideParams->SetStringField(TEXT("member_name"), TEXT("ReceiveTick"));
+	const TSharedPtr<FJsonObject> OverrideResponse = Dispatch(TEXT("override_blueprint_parent_member"), OverrideParams);
+	if (IsSuccess(OverrideResponse, Code))
+	{
+		const TSharedPtr<FJsonObject> Result = ResultOf(OverrideResponse);
+		TestTrue(TEXT("override reports already_present"), Result->GetBoolField(TEXT("already_present")));
+		TestTrue(TEXT("override reports enabled_ghost"), Result->HasField(TEXT("enabled_ghost")) && Result->GetBoolField(TEXT("enabled_ghost")));
+
+		const FString NodeId = Result->GetStringField(TEXT("node_id"));
+		UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
+		UEdGraphNode* Reused = nullptr;
+		if (EventGraph)
+		{
+			for (UEdGraphNode* Node : EventGraph->Nodes)
+			{
+				if (Node && Node->NodeGuid.ToString() == NodeId) { Reused = Node; break; }
+			}
+		}
+		if (Reused)
+		{
+			TestTrue(TEXT("override_blueprint_parent_member leaves the reused node enabled"), Reused->IsNodeEnabled());
+			TestFalse(TEXT("override_blueprint_parent_member leaves no ghost behind"), Reused->IsAutomaticallyPlacedGhostNode());
+		}
+		else
+		{
+			AddError(TEXT("override_blueprint_parent_member returned a node_id that is not in the event graph"));
+		}
+	}
+	else
+	{
+		AddError(FString::Printf(TEXT("override_blueprint_parent_member failed: %s"), *Code));
+	}
+
+	FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+	UClass* Generated = Fixture.Blueprint->GeneratedClass;
+	TestNotNull(TEXT("after enabling, the compiled class implements ReceiveBeginPlay"),
+		Generated ? Generated->FindFunctionByName(TEXT("ReceiveBeginPlay"), EIncludeSuperFlag::ExcludeSuper) : nullptr);
+	TestNotNull(TEXT("after enabling, the compiled class implements ReceiveTick"),
+		Generated ? Generated->FindFunctionByName(TEXT("ReceiveTick"), EIncludeSuperFlag::ExcludeSuper) : nullptr);
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;

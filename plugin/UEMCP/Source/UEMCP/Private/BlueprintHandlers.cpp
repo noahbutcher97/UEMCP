@@ -1739,13 +1739,23 @@ namespace UEMCP
 			if (!EventGraph) return;
 
 			// Dedup: return existing event GUID if one already exists for this name.
+			// An auto-placed ghost is enabled first: reused as-is it compiles to nothing.
 			if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, EventName))
 			{
+				const bool bEnabledGhost = EnsureEventNodeEnabled(Existing);
+				if (bEnabledGhost)
+				{
+					FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+				}
 				TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 				Result->SetStringField(TEXT("node_id"), Existing->NodeGuid.ToString());
 				Result->SetStringField(TEXT("graph_name"), EventGraph->GetName());
 				Result->SetStringField(TEXT("node_class"), Existing->GetClass()->GetName());
 				Result->SetArrayField(TEXT("pins"), PinsToJson(Existing));
+				if (bEnabledGhost)
+				{
+					Result->SetBoolField(TEXT("enabled_ghost"), true);
+				}
 				BuildSuccessResponse(OutResponse, Result);
 				return;
 			}
@@ -1995,9 +2005,18 @@ namespace UEMCP
 				}
 				if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, MemberName))
 				{
+					const bool bEnabledGhost = EnsureEventNodeEnabled(Existing);
+					if (bEnabledGhost)
+					{
+						FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+					}
 					TSharedPtr<FJsonObject> Result = NodeResultToJson(Existing, EventGraph);
 					Result->SetStringField(TEXT("member_kind"), TEXT("event"));
 					Result->SetBoolField(TEXT("already_present"), true);
+					if (bEnabledGhost)
+					{
+						Result->SetBoolField(TEXT("enabled_ghost"), true);
+					}
 					BuildSuccessResponse(OutResponse, Result);
 					return;
 				}
