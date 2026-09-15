@@ -1505,18 +1505,15 @@ bool FUEMCPBlueprintHandlersDisconnectPinEdgesTest::RunTest(const FString& Param
 // =====================================================================================
 // compile:true on all three handlers, in one fixture so each leg builds on the last.
 //
-// The three are deliberately asymmetric and this test pins that asymmetry:
-//   - add_blueprint_variable_assignment calls CompileBlueprint directly and reports
-//     only two booleans — no diagnostic block, no compiled_ok, and no COMPILE_FAILED
-//     branch anywhere in the handler. Asserting the ABSENCE is what would catch a
-//     later "make them consistent" change.
-//   - add_blueprint_timer and disconnect_blueprint_pin both go through
-//     BuildBlueprintCompileDiagnosticResult and carry the full block.
-//   - disconnect_blueprint_pin compiles only when it actually broke something, so a
-//     dry run with compile:true must not compile at all.
+// All three now compile through BuildBlueprintCompileDiagnosticResult and share one
+// contract on success: compiled_ok, a compile diagnostic block, and COMPILE_FAILED on
+// a failing compile. The assertions below pin that parity so one handler can't quietly
+// drift from it again; AssignmentCompileFailed covers the failure branch this test
+// doesn't exercise.
 //
-// The assignment handler's CompileBlueprint call passes no options, so unlike the
-// other two it does not set SkipGarbageCollection and it can reconstruct node pins.
+// disconnect_blueprint_pin compiles only when it actually broke something, so a dry
+// run with compile:true must not compile at all.
+//
 // Nothing below reuses a node or pin pointer taken before a dispatch.
 // =====================================================================================
 
