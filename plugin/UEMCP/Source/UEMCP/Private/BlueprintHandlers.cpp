@@ -899,11 +899,13 @@ namespace UEMCP
 		}
 
 		UK2Node_Event* FindOrCreateReceiveBeginPlay(UBlueprint* Blueprint, UEdGraph* EventGraph,
-			bool& bCreated, TSharedPtr<FJsonObject>& OutResponse)
+			bool& bCreated, bool& bOutEnabledGhost, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			bCreated = false;
+			bOutEnabledGhost = false;
 			if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, TEXT("ReceiveBeginPlay")))
 			{
+				bOutEnabledGhost = EnsureEventNodeEnabled(Existing);
 				return Existing;
 			}
 
@@ -2660,6 +2662,7 @@ namespace UEMCP
 			UK2Node_Event* BeginPlayNode = nullptr;
 			UK2Node_Self* SelfNode = nullptr;
 			bool bBeginPlayCreated = false;
+			bool bEnabledGhost = false;
 
 			UEdGraphPin* ObjectPin = FindInputPinByNames(TimerNode, { TEXT("Object") });
 			if (ObjectPin)
@@ -2689,7 +2692,7 @@ namespace UEMCP
 
 			if (bInsertOnBeginPlay)
 			{
-				BeginPlayNode = FindOrCreateReceiveBeginPlay(Blueprint, EventGraph, bBeginPlayCreated, OutResponse);
+				BeginPlayNode = FindOrCreateReceiveBeginPlay(Blueprint, EventGraph, bBeginPlayCreated, bEnabledGhost, OutResponse);
 				if (!BeginPlayNode)
 				{
 					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
@@ -2720,6 +2723,12 @@ namespace UEMCP
 			}
 
 			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			if (bEnabledGhost)
+			{
+				// Enabling an event changes the class layout (the compiler adds a stub), so a
+				// structural mark is the honest one; the compile below picks it up.
+				FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+			}
 
 			TSharedPtr<FJsonObject> CompileResult;
 			bool bCompiledOk = false;
@@ -2737,6 +2746,10 @@ namespace UEMCP
 			if (BeginPlayNode)
 			{
 				Result->SetStringField(TEXT("begin_play_node_id"), BeginPlayNode->NodeGuid.ToString());
+			}
+			if (bEnabledGhost)
+			{
+				Result->SetBoolField(TEXT("enabled_ghost"), true);
 			}
 			Result->SetStringField(TEXT("timer_node_id"), TimerNode->NodeGuid.ToString());
 			if (SelfNode)

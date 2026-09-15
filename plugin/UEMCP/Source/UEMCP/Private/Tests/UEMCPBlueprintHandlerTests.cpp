@@ -1951,4 +1951,132 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 	return true;
 }
 
+// =====================================================================================
+// Ghost BeginPlay (BUG-2, bullet 4) on the add_blueprint_timer reuse site. Not a
+// red/green pair for every assertion below — a red run with EnsureEventNodeEnabled
+// stubbed to always return false showed only one of these assertions actually
+// depends on the helper:
+//
+// (a) enabled_ghost is a wire fact this call reports, and it is the one thing that
+//     genuinely fails without the helper (proven empirically: the stubbed run
+//     returned success with the field absent).
+//
+// (b) the node ending up enabled, no longer a ghost, and the compiled class
+//     carrying its own ReceiveBeginPlay function all hold even with the helper
+//     stubbed out, because UEdGraphPin::MakeLinkTo (EdGraphPin.cpp) already calls
+//     UEdGraphPin::ConvertConnectedGhostNodesToRealNodes on both ends of a link —
+//     it un-ghosts a connected node as a side effect of the timer's own exec-pin
+//     wiring, before compile ever runs. These three assertions therefore guard an
+//     engine invariant the timer path depends on, not this helper: FEdGraphUtilities
+//     ::CloneGraph excludes disabled nodes of a non-transient graph at compile time
+//     (the mechanism BUG-2 bullet 4 names), and that is exactly what would bite this
+//     test if MakeLinkTo's auto-conversion ever stopped happening.
+//
+// The other two BUG-2 bullet-4 reuse sites (add_blueprint_event_node,
+// override_blueprint_parent_member) hand back an existing node without linking
+// anything to it, so they get no such engine-side rescue — EnsureEventNodeEnabled
+// is load-bearing there (see UEMCP.BlueprintHandlers.EventNodeGhostSites).
+// =====================================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest,
+	"UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("could not create the fixture Blueprint"));
+		return false;
+	}
+	UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
+	UK2Node_Event* Ghost = nullptr;
+	if (EventGraph)
+	{
+		for (UEdGraphNode* Node : EventGraph->Nodes)
+		{
+			if (UK2Node_Event* Ev = Cast<UK2Node_Event>(Node); Ev && Ev->EventReference.GetMemberName() == FName(TEXT("ReceiveBeginPlay")))
+			{
+				Ghost = Ev;
+				break;
+			}
+		}
+	}
+	if (!EventGraph || !Ghost)
+	{
+		AddError(TEXT("fixture has no event graph with a default ReceiveBeginPlay node"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	// Preconditions the mechanism depends on: the node is a ghost, and the graph is
+	// not transient (CloneGraph only drops disabled nodes from non-transient graphs).
+	TestTrue(TEXT("fixture ReceiveBeginPlay is an auto-placed ghost"), Ghost->IsAutomaticallyPlacedGhostNode());
+	TestFalse(TEXT("fixture event graph is not RF_Transient"), EventGraph->HasAnyFlags(RF_Transient));
+	const FString GhostId = Ghost->NodeGuid.ToString();
+
+	TSharedPtr<FJsonObject> TimerParams = MakeShared<FJsonObject>();
+	TimerParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	TimerParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPGhostTimer"));
+	TimerParams->SetNumberField(TEXT("interval"), 1.0);
+	TimerParams->SetBoolField(TEXT("create_callback_graph"), true);
+	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
+	TimerParams->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	FString Code;
+	if (!IsSuccess(Response, Code))
+	{
+		AddError(FString::Printf(TEXT("add_blueprint_timer failed: %s"), *Code));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const TSharedPtr<FJsonObject> Result = ResultOf(Response);
+	TestEqual(TEXT("the reused node is the ghost"), Result->GetStringField(TEXT("begin_play_node_id")), GhostId);
+	TestTrue(TEXT("response reports enabled_ghost"), Result->HasField(TEXT("enabled_ghost")) && Result->GetBoolField(TEXT("enabled_ghost")));
+	TestTrue(TEXT("the node is enabled"), Ghost->IsNodeEnabled());
+	TestFalse(TEXT("the node is no longer a ghost"), Ghost->IsAutomaticallyPlacedGhostNode());
+	TestTrue(TEXT("compiled_ok"), Result->GetBoolField(TEXT("compiled_ok")));
+
+	UClass* Generated = Fixture.Blueprint->GeneratedClass;
+	UFunction* Stub = Generated ? Generated->FindFunctionByName(TEXT("ReceiveBeginPlay"), EIncludeSuperFlag::ExcludeSuper) : nullptr;
+	TestNotNull(TEXT("the compiled class implements ReceiveBeginPlay (the chain was not dropped)"), Stub);
+
+	// Break the first timer's exec link before reusing BeginPlay again: an output
+	// exec pin accepts only one outgoing connection (a second link compiles to
+	// "Exec output pin <Unnamed> cannot have more than one connection", confirmed
+	// empirically) — a Blueprint constraint unrelated to ghost-enabling. Without
+	// this the second dispatch below would fail to compile for a reason that has
+	// nothing to do with what this test is proving.
+	UEdGraphPin* ThenPin = FindFixturePin(Ghost, {TEXT("then")}, EGPD_Output);
+	UEdGraphPin* FirstExecutePin = FindFixturePin(
+		FindNodeByGuid(EventGraph, StringFieldOr(Result, TEXT("timer_node_id"))), {TEXT("execute")}, EGPD_Input);
+	if (!ThenPin || !FirstExecutePin)
+	{
+		AddError(TEXT("could not resolve the first timer's exec link to break it before reusing BeginPlay"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	ThenPin->BreakLinkTo(FirstExecutePin);
+
+	// A second reuse of the now-enabled node reports nothing: the field is a fact
+	// about this call, not a property of the node.
+	TimerParams->SetStringField(TEXT("callback_function"), TEXT("OnUEMCPGhostTimerAgain"));
+	const TSharedPtr<FJsonObject> Second = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	if (IsSuccess(Second, Code))
+	{
+		TestFalse(TEXT("second dispatch omits enabled_ghost"), ResultOf(Second)->HasField(TEXT("enabled_ghost")));
+	}
+	else
+	{
+		AddError(FString::Printf(TEXT("second add_blueprint_timer failed: %s"), *Code));
+	}
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

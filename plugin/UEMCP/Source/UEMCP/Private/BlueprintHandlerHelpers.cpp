@@ -2,6 +2,7 @@
 #include "BlueprintHandlerHelpers.h"
 
 #include "EdGraphSchema_K2.h"
+#include "K2Node_Event.h"
 #include "UObject/UnrealType.h"
 
 namespace UEMCP
@@ -255,5 +256,25 @@ namespace UEMCP
 		OutError = TEXT("Unsupported literal assignment pin type");
 		OutErrorCode = TEXT("UNSUPPORTED_LITERAL_TYPE");
 		return false;
+	}
+
+	bool EnsureEventNodeEnabled(UK2Node_Event* EventNode)
+	{
+		if (!EventNode || !EventNode->IsAutomaticallyPlacedGhostNode())
+		{
+			return false;
+		}
+		// UEdGraphPin::ConvertConnectedGhostNodesToRealNodes does exactly this, but it
+		// is a private static helper (EdGraphPin.h), so this mirrors its three
+		// statements rather than calling it — the same conversion MakeLinkTo already
+		// runs when a link touches a ghost node, so a node this helper enables is
+		// indistinguishable from one the engine's own connection code enables.
+		EventNode->Modify();
+		EventNode->SetEnabledState(ENodeEnabledState::Enabled, /*bUserAction=*/false);
+		EventNode->NodeComment.Empty();
+#if WITH_EDITORONLY_DATA
+		EventNode->bCommentBubbleVisible = false;
+#endif
+		return true;
 	}
 }

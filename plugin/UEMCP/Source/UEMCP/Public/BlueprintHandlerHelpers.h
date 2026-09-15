@@ -9,6 +9,7 @@
 
 class FProperty;
 class UObject;
+class UK2Node_Event;
 
 /**
  * WS5a: the pure parts of BlueprintHandlers.cpp, lifted out of its anonymous
@@ -74,4 +75,21 @@ namespace UEMCP
 	bool FormatLiteralForPinCategory(const FEdGraphPinType& PinType,
 		const TSharedPtr<FJsonValue>& Value, FString& OutDefaultValue,
 		FString& OutError, FString& OutErrorCode);
+
+	/**
+	 * Enables an auto-placed ghost event node in place, mirroring the engine's own
+	 * UEdGraphPin::ConvertConnectedGhostNodesToRealNodes (EdGraphPin.cpp) — private,
+	 * so replicated here rather than called. FEdGraphUtilities::CloneGraph drops a
+	 * disabled ghost and everything wired below it at compile time, but only when
+	 * nothing has linked to the ghost: UEdGraphPin::MakeLinkTo already converts a
+	 * connected ghost to a real, enabled node as a side effect of making the link.
+	 * That makes this helper load-bearing at reuse sites that hand back an existing
+	 * node without linking anything to it (add_blueprint_event_node,
+	 * override_blueprint_parent_member); at add_blueprint_timer, which does link the
+	 * reused node, the drop never happens either way, so calling this helper there
+	 * only makes the enabled_ghost field an accurate report of what changed. Returns
+	 * true when the node was such a ghost and is now enabled; false (and no change)
+	 * for a null node or one whose enabled state the user set.
+	 */
+	bool EnsureEventNodeEnabled(UK2Node_Event* EventNode);
 }
