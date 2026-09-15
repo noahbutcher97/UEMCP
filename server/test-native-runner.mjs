@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TestRunner } from './test-helpers.mjs';
 import { parseAutomationReport, summarizeReport, reportExitCode } from './native-test-report.mjs';
-import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs, stripBom, loadReport } from './run-native-tests.mjs';
+import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs, stripBom, loadReport, applyExtraArgs } from './run-native-tests.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = name => JSON.parse(readFileSync(join(here, 'fixtures', 'native-tests', name), 'utf8'));
@@ -55,6 +55,25 @@ t.assert(cmd.file.endsWith('Engine/Binaries/Win64/UnrealEditor-Cmd.exe'), 'comma
 t.assert(cmd.args[0] === 'D:/P/P.uproject', 'first arg is the uproject');
 t.assert(cmd.args.includes('-ExecCmds=Automation RunTests UEMCP;Quit'), 'exec command runs the filter and quits');
 t.assert(cmd.args.includes('-ReportExportPath=C:/tmp/r') && cmd.args.includes('-unattended') && cmd.args.includes('-nullrhi'), 'headless flags present');
+
+// --extra-arg passthrough (spec §4.5). Unreal's FParse::Value returns the FIRST
+// -Name= occurrence, so an extra that shares a -Name= prefix with a standard
+// argument must replace it in place; anything else appends in order.
+const extras = buildEditorCommand({
+  engineRoot: 'C:/UE', uprojectPath: 'D:/P/P.uproject', filter: 'UEMCP', reportDir: 'C:/tmp/r',
+  extraArgs: ['-ExecCmds=Automation RunTests UEMCP,Automation Quit', '-ddc=InstalledNoZenLocalFallback', '-NoSourceControl'],
+});
+t.assert(extras.args.filter(a => a.toLowerCase().startsWith('-execcmds=')).length === 1, 'an -ExecCmds= extra leaves exactly one -ExecCmds= in the argument list');
+t.assert(extras.args[1] === '-ExecCmds=Automation RunTests UEMCP,Automation Quit', 'the extra -ExecCmds= replaces the standard one in its position');
+t.assert(extras.args.slice(-2).join(' ') === '-ddc=InstalledNoZenLocalFallback -NoSourceControl', 'non-matching extras append after the standard flags, in order');
+t.assert(applyExtraArgs(['D:/P/P.uproject', '-a=1'], ['-A=2']).join(' ') === 'D:/P/P.uproject -A=2', 'prefix matching is case-insensitive and never touches the uproject argument');
+const parsedExtras = parseRunnerArgs(['--extra-arg', '-NoSourceControl', '--extra-arg', '-ddc=X']);
+t.assert(parsedExtras.extraArgs.length === 2 && parsedExtras.extraArgs[0] === '-NoSourceControl' && parsedExtras.extraArgs[1] === '-ddc=X', '--extra-arg is repeatable and order-preserving');
+t.assert(parseRunnerArgs([]).extraArgs.length === 0, 'no --extra-arg yields an empty list');
+let extraErr = null;
+try { parseRunnerArgs(['--extra-arg']); } catch (e) { extraErr = e; }
+t.assert(extraErr && /--extra-arg/.test(extraErr.message), '--extra-arg without a value throws naming the flag');
+t.assert(readFileSync(join(here, 'run-native-tests.mjs'), 'utf8').includes('[--extra-arg <value>]...'), 'the usage line names --extra-arg');
 
 t.assert(resolveEngineRootForProject({ engineAssociation: '5.6', env: {}, existsImpl: p => p.endsWith('UE_5.6') }) === 'C:/Program Files/Epic Games/UE_5.6', 'EngineAssociation resolves to the matching install');
 t.assert(resolveEngineRootForProject({ engineAssociation: '5.6', env: { UE_ENGINE_ROOT: 'X:/UE' }, existsImpl: () => true }) === 'X:/UE', 'UE_ENGINE_ROOT overrides EngineAssociation');

@@ -21,7 +21,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function parseRunnerArgs(argv) {
-  const out = { profile: null, target: null, uproject: null, engineRoot: null, filter: 'UEMCP', timeoutMs: DEFAULT_TIMEOUT_MS, reportDir: null, dryRun: false, help: false };
+  const out = { profile: null, target: null, uproject: null, engineRoot: null, filter: 'UEMCP', timeoutMs: DEFAULT_TIMEOUT_MS, reportDir: null, dryRun: false, help: false, extraArgs: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--profile') out.profile = argv[++i];
@@ -31,6 +31,10 @@ export function parseRunnerArgs(argv) {
     else if (a === '--filter') out.filter = argv[++i];
     else if (a === '--timeout-ms') out.timeoutMs = parseInt(argv[++i], 10);
     else if (a === '--report-dir') out.reportDir = argv[++i];
+    else if (a === '--extra-arg') {
+      if (i + 1 >= argv.length) throw new Error('--extra-arg needs a value (an argument for UnrealEditor-Cmd)');
+      out.extraArgs.push(argv[++i]);
+    }
     else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(`Unknown arg: ${a}`);
@@ -81,6 +85,24 @@ export function resolveEngineRootForProject({ engineAssociation, env = process.e
   return resolveEngineRoot({ env: {}, preferVersion: version, existsImpl });
 }
 
+/**
+ * Merges caller-supplied editor arguments into the standard list. Unreal's
+ * FParse::Value takes the FIRST -Name= occurrence, so an extra that shares a
+ * -Name= prefix with a standard argument replaces it in place (case-insensitive,
+ * never the uproject at index 0); every other extra appends in the order given.
+ */
+export function applyExtraArgs(standardArgs, extraArgs) {
+  const args = [...standardArgs];
+  for (const extra of extraArgs) {
+    const eq = extra.indexOf('=');
+    const prefix = extra.startsWith('-') && eq > 0 ? extra.slice(0, eq + 1).toLowerCase() : null;
+    const at = prefix ? args.findIndex((a, i) => i > 0 && a.toLowerCase().startsWith(prefix)) : -1;
+    if (at >= 0) args[at] = extra;
+    else args.push(extra);
+  }
+  return args;
+}
+
 export function buildEditorCommand({ engineRoot, uprojectPath, filter, reportDir, extraArgs = [] }) {
   return {
     // Forward-slash join, not node:path's join(): engineRoot and uprojectPath
@@ -88,14 +110,13 @@ export function buildEditorCommand({ engineRoot, uprojectPath, filter, reportDir
     // displayPath()), and join() would emit backslashes on Windows here.
     // Windows accepts forward-slash paths for spawned executables fine.
     file: `${engineRoot.replace(/[\\/]+$/, '')}/Engine/Binaries/Win64/UnrealEditor-Cmd.exe`,
-    args: [
+    args: applyExtraArgs([
       uprojectPath,
       `-ExecCmds=Automation RunTests ${filter};Quit`,
       '-TestExit=Automation Test Queue Empty',
       `-ReportExportPath=${reportDir}`,
       '-unattended', '-nopause', '-nosplash', '-nullrhi', '-NoSound', '-nop4', '-log', '-stdout', '-FullStdOutLogOutput',
-      ...extraArgs,
-    ],
+    ], extraArgs),
   };
 }
 
@@ -115,7 +136,7 @@ function pickTarget(args) {
 export async function main(argv, { runner = createProcessRunner({ defaultOutputLimitBytes: 8 * 1024 * 1024 }), env = process.env } = {}) {
   const args = parseRunnerArgs(argv);
   if (args.help) {
-    console.log('Usage: run-native-tests.bat [--profile <name>] [--target <alias>] [--uproject <path>] [--engine-root <path>] [--filter <prefix>] [--timeout-ms <n>] [--report-dir <dir>] [--dry-run]');
+    console.log('Usage: run-native-tests.bat [--profile <name>] [--target <alias>] [--uproject <path>] [--engine-root <path>] [--filter <prefix>] [--timeout-ms <n>] [--report-dir <dir>] [--dry-run] [--extra-arg <value>]...');
     return 0;
   }
   const target = pickTarget(args);
@@ -127,7 +148,7 @@ export async function main(argv, { runner = createProcessRunner({ defaultOutputL
   const dll = join(dirname(uprojectPath), 'Plugins', 'UEMCP', 'Binaries', 'Win64', 'UnrealEditor-UEMCP.dll');
   if (!existsSync(dll)) { console.error(`[ERROR] plugin DLL not built: ${dll} (run Build.bat; verify-deploy.bat reports NEEDS-BUILD)`); return 2; }
   const reportDir = args.reportDir ? resolve(args.reportDir) : mkdtempSync(join(tmpdir(), 'uemcp-native-'));
-  const command = buildEditorCommand({ engineRoot, uprojectPath, filter: args.filter, reportDir });
+  const command = buildEditorCommand({ engineRoot, uprojectPath, filter: args.filter, reportDir, extraArgs: args.extraArgs });
   console.log(`Target : ${uprojectPath}${target.targetAlias ? ` (${target.targetAlias})` : ''}`);
   console.log(`Engine : ${engineRoot}`);
   console.log(`Filter : ${args.filter}`);
