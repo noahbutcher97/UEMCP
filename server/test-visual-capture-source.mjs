@@ -34,9 +34,17 @@ t.assert(source.includes('Viewport->ReadPixels'),
   'viewport screenshot path reads active viewport pixels');
 t.assert(source.includes('FPaths::ProjectSavedDir()'),
   'viewport screenshot relative output paths resolve under ProjectSavedDir');
-t.assert(viewportScreenshotBody.includes('OutputFilePath.EndsWith(TEXT(".png"))') &&
-  viewportScreenshotBody.includes('OutputFilePath += TEXT(".png")'),
-  'viewport screenshot appends .png to output_path when missing');
+// Task 6: output_path now routes through the shared ResolveCaptureOutputPath
+// (AssetEditorCapture.cpp), which appends .png when missing and refuses paths
+// outside the project — the inline append/relative-resolve block is gone.
+t.assert(viewportScreenshotBody.includes('UEMCP::ResolveCaptureOutputPath(OutputFilePath, TEXT("Viewport")') &&
+  viewportScreenshotBody.includes('CAPTURE_PATH_OUTSIDE_PROJECT'),
+  'viewport screenshot routes output_path through the shared resolver before any viewport lookup');
+const assetEditorCaptureSourceForPngAppend = readFileSync(
+  join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private', 'AssetEditorCapture.cpp'), 'utf8');
+t.assert(assetEditorCaptureSourceForPngAppend.includes('Candidate.EndsWith(TEXT(".png"))') &&
+  assetEditorCaptureSourceForPngAppend.includes('Candidate += TEXT(".png")'),
+  'the shared resolver appends .png to a requested output path when missing');
 t.assert(!assetPreviewBody.includes('OutputFilePath += TEXT(".png")'),
   'asset preview render does not append .png to JPEG output_path');
 t.assert(source.includes('TEXT("image/png")'),

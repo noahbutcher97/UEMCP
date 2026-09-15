@@ -1592,7 +1592,7 @@ toolsets:
           width:         { type: number, required: false, default: 768 }
           height:        { type: number, required: false, default: 432 }
           return_base64: { type: boolean, required: false, default: true }
-          output_path:   { type: string, required: false, description: "Optional disk output; absolute path or relative to Saved/ (.png appended if missing)" }
+          output_path:   { type: string, required: false, description: "Output path: absolute inside the project, or relative to Saved/UEMCP/Captures/ (.png appended if missing). Paths that resolve outside the project are refused with CAPTURE_PATH_OUTSIDE_PROJECT." }
       get_asset_preview_render:
         status: shipped
         availability_layer: tcp-55558
@@ -1640,7 +1640,7 @@ toolsets:
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to an asset whose editor is already open" }
           tab_id:     { type: string, required: false, description: "Tab id from list_asset_editor_tabs; default is the editor's active tab" }
-          out_png:    { type: string, required: false, description: "Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/<asset>_<tab>_<timestamp>.png" }
+          out_png:    { type: string, required: false, description: "Output path: absolute inside the project, or relative to Saved/UEMCP/Captures/ (.png appended if missing). Paths that resolve outside the project are refused with CAPTURE_PATH_OUTSIDE_PROJECT. Default Saved/UEMCP/Captures/<asset>_<tab>_<timestamp>.png" }
           inline:     { type: boolean, required: false, default: false, description: "Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64" }
       details_panel_expand_all:
         status: shipped
@@ -1686,7 +1686,7 @@ toolsets:
         offline_fallback: false
         description: Capture the running PIE game viewport as a PNG on disk, including when PIE runs in its own window (where get_viewport_screenshot still returns the level editor).
         params:
-          out_png: { type: string, required: false, description: "Output path; absolute or relative to Saved/. Default Saved/UEMCP/Captures/PIE_<timestamp>.png" }
+          out_png: { type: string, required: false, description: "Output path: absolute inside the project, or relative to Saved/UEMCP/Captures/ (.png appended if missing). Paths that resolve outside the project are refused with CAPTURE_PATH_OUTSIDE_PROJECT. Default Saved/UEMCP/Captures/PIE_<timestamp>.png" }
           inline:  { type: boolean, required: false, default: false, description: "Also return base64 PNG; replaced by inline_omitted=too_large above 8 MiB of base64" }
       get_asset_visual_summary:
         status: planned

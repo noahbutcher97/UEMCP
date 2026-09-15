@@ -1,6 +1,7 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "VisualCaptureHandler.h"
 
+#include "AssetEditorCapture.h"
 #include "Editor.h"
 #include "HAL/FileManager.h"
 #include "ImageUtils.h"
@@ -172,6 +173,17 @@ namespace UEMCP
 
 			FString OutputFilePath;
 			SafeParams->TryGetStringField(TEXT("output_path"), OutputFilePath);
+			if (!OutputFilePath.IsEmpty())
+			{
+				FString PathError;
+				FString Resolved;
+				if (!UEMCP::ResolveCaptureOutputPath(OutputFilePath, TEXT("Viewport"), Resolved, PathError))
+				{
+					BuildErrorResponse(OutResponse, PathError, TEXT("CAPTURE_PATH_OUTSIDE_PROJECT"));
+					return;
+				}
+				OutputFilePath = Resolved;
+			}
 
 			if (!GEditor || !GEditor->GetActiveViewport())
 			{
@@ -233,15 +245,6 @@ namespace UEMCP
 
 			if (!OutputFilePath.IsEmpty())
 			{
-				if (!OutputFilePath.EndsWith(TEXT(".png")))
-				{
-					OutputFilePath += TEXT(".png");
-				}
-				if (FPaths::IsRelative(OutputFilePath))
-				{
-					OutputFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir(), OutputFilePath);
-				}
-
 				const FString OutputDir = FPaths::GetPath(OutputFilePath);
 				if (!OutputDir.IsEmpty())
 				{

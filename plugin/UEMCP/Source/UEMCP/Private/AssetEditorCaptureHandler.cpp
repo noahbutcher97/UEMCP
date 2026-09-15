@@ -68,6 +68,21 @@ namespace UEMCP
 					TEXT("capture_asset_editor requires non-empty asset_path"), TEXT("MISSING_PARAMS"));
 				return;
 			}
+			bool bInline = false;
+			Params->TryGetBoolField(TEXT("inline"), bInline);
+			FString RequestedPath;
+			Params->TryGetStringField(TEXT("out_png"), RequestedPath);
+
+			// A caller-supplied path is checked before any editor lookup so an
+			// escaping path is refused even when nothing is open.
+			FString OutputPath;
+			FString PathError;
+			if (!RequestedPath.IsEmpty() && !ResolveCaptureOutputPath(RequestedPath, TEXT(""), OutputPath, PathError))
+			{
+				BuildErrorResponse(OutResponse, PathError, TEXT("CAPTURE_PATH_OUTSIDE_PROJECT"));
+				return;
+			}
+
 			const FAssetEditorTarget Target = ResolveAssetEditorTarget(AssetPath);
 			if (!Target.ErrorCode.IsEmpty())
 			{
@@ -104,11 +119,6 @@ namespace UEMCP
 				return;
 			}
 
-			bool bInline = false;
-			Params->TryGetBoolField(TEXT("inline"), bInline);
-			FString RequestedPath;
-			Params->TryGetStringField(TEXT("out_png"), RequestedPath);
-
 			const FString ResolvedTabId = Tab->GetLayoutIdentifier().TabType.ToString();
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("asset_path"), Target.Asset->GetPathName());
@@ -116,7 +126,11 @@ namespace UEMCP
 
 			const FString Stem = FString::Printf(TEXT("%s_%s"),
 				*FPaths::GetBaseFilename(AssetPath), *ResolvedTabId);
-			if (!FinishCapture(Png, Size, RequestedPath, Stem, bInline, Result, ErrorMessage))
+			if (OutputPath.IsEmpty())
+			{
+				OutputPath = DefaultCapturePath(Stem);
+			}
+			if (!FinishCapture(Png, Size, OutputPath, bInline, Result, ErrorMessage))
 			{
 				BuildErrorResponse(OutResponse, ErrorMessage, TEXT("FILE_WRITE_FAILED"));
 				return;
@@ -246,6 +260,24 @@ namespace UEMCP
 
 		void HandleCapturePieViewport(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
+			bool bInline = false;
+			FString RequestedPath;
+			if (Params.IsValid())
+			{
+				Params->TryGetBoolField(TEXT("inline"), bInline);
+				Params->TryGetStringField(TEXT("out_png"), RequestedPath);
+			}
+
+			// A caller-supplied path is checked before any PIE lookup so an
+			// escaping path is refused even when no PIE session is running.
+			FString OutputPath;
+			FString PathError;
+			if (!ResolveCaptureOutputPath(RequestedPath, TEXT("PIE"), OutputPath, PathError))
+			{
+				BuildErrorResponse(OutResponse, PathError, TEXT("CAPTURE_PATH_OUTSIDE_PROJECT"));
+				return;
+			}
+
 			// PIE state is checked before the renderer gate for the same reason
 			// the asset-editor path resolves addressing first: PIE_NOT_RUNNING
 			// must stay reachable under -nullrhi.
@@ -287,16 +319,9 @@ namespace UEMCP
 				return;
 			}
 
-			bool bInline = false;
-			FString RequestedPath;
-			if (Params.IsValid())
-			{
-				Params->TryGetBoolField(TEXT("inline"), bInline);
-				Params->TryGetStringField(TEXT("out_png"), RequestedPath);
-			}
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			FString ErrorMessage;
-			if (!FinishCapture(Png, Size, RequestedPath, TEXT("PIE"), bInline, Result, ErrorMessage))
+			if (!FinishCapture(Png, Size, OutputPath, bInline, Result, ErrorMessage))
 			{
 				BuildErrorResponse(OutResponse, ErrorMessage, TEXT("FILE_WRITE_FAILED"));
 				return;

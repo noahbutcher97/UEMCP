@@ -167,6 +167,44 @@ namespace UEMCP
 			FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UEMCP"), TEXT("Captures"), FileName));
 	}
 
+	bool ResolveCaptureOutputPath(const FString& Requested, const FString& DefaultStem, FString& OutAbsolutePath, FString& OutError)
+	{
+		FString Candidate;
+		if (Requested.IsEmpty())
+		{
+			Candidate = DefaultCapturePath(DefaultStem);
+		}
+		else if (FPaths::IsRelative(Requested))
+		{
+			Candidate = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UEMCP"), TEXT("Captures"), Requested);
+		}
+		else
+		{
+			Candidate = Requested;
+		}
+		if (!Candidate.EndsWith(TEXT(".png")))
+		{
+			Candidate += TEXT(".png");
+		}
+		FString Full = FPaths::ConvertRelativePathToFull(Candidate);
+		FPaths::NormalizeFilename(Full);
+		FPaths::CollapseRelativeDirectories(Full);
+
+		FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+		FPaths::NormalizeDirectoryName(ProjectRoot);
+		if (!ProjectRoot.EndsWith(TEXT("/")))
+		{
+			ProjectRoot += TEXT("/");
+		}
+		if (!Full.StartsWith(ProjectRoot, ESearchCase::IgnoreCase))
+		{
+			OutError = FString::Printf(TEXT("Capture output path '%s' resolves outside the project directory '%s'"), *Full, *ProjectRoot);
+			return false;
+		}
+		OutAbsolutePath = Full;
+		return true;
+	}
+
 	bool CaptureWidgetToPng(
 		const TSharedRef<SWidget>& Widget,
 		TArray64<uint8>& OutPng,
@@ -210,28 +248,11 @@ namespace UEMCP
 	bool FinishCapture(
 		const TArray64<uint8>& Png,
 		const FIntPoint& Size,
-		const FString& RequestedPath,
-		const FString& DefaultStem,
+		const FString& OutputPath,
 		bool bInline,
 		const TSharedPtr<FJsonObject>& Result,
 		FString& OutErrorMessage)
 	{
-		FString OutputPath = RequestedPath;
-		if (OutputPath.IsEmpty())
-		{
-			OutputPath = DefaultCapturePath(DefaultStem);
-		}
-		else
-		{
-			if (!OutputPath.EndsWith(TEXT(".png")))
-			{
-				OutputPath += TEXT(".png");
-			}
-			if (FPaths::IsRelative(OutputPath))
-			{
-				OutputPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir(), OutputPath);
-			}
-		}
 		const FString OutputDir = FPaths::GetPath(OutputPath);
 		if (!OutputDir.IsEmpty())
 		{

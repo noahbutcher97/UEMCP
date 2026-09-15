@@ -116,6 +116,16 @@ namespace UEMCP
 	/** Saved/UEMCP/Captures/<Stem>_<YYYYMMDD-HHMMSS>-<ms>.png, absolute. */
 	FString DefaultCapturePath(const FString& Stem);
 
+	/**
+	 * Resolves a requested capture path to an absolute .png inside the project.
+	 * Empty: Saved/UEMCP/Captures/<DefaultStem>_<timestamp>.png. Relative: under
+	 * Saved/UEMCP/Captures/. Absolute: as given. The result is normalised and
+	 * must lie under FPaths::ProjectDir(); anything else fails with OutError and
+	 * the handler reports CAPTURE_PATH_OUTSIDE_PROJECT. ".png" is appended when
+	 * the name lacks it (case-insensitive), so ".PNG" is kept.
+	 */
+	bool ResolveCaptureOutputPath(const FString& Requested, const FString& DefaultStem, FString& OutAbsolutePath, FString& OutError);
+
 	/** Widget -> PNG bytes. Sets CAPTURE_UNSUPPORTED or CAPTURE_FAILED on failure. */
 	bool CaptureWidgetToPng(
 		const TSharedRef<SWidget>& Widget,
@@ -128,12 +138,12 @@ namespace UEMCP
 	 * Writes the PNG and fills the shared result fields (width, height,
 	 * byte_length, mime, png_path, and png_base64 or inline_omitted). The file
 	 * is always written: the path is the fallback the inline cap relies on.
+	 * OutputPath is already resolved by ResolveCaptureOutputPath.
 	 */
 	bool FinishCapture(
 		const TArray64<uint8>& Png,
 		const FIntPoint& Size,
-		const FString& RequestedPath,
-		const FString& DefaultStem,
+		const FString& OutputPath,
 		bool bInline,
 		const TSharedPtr<FJsonObject>& Result,
 		FString& OutErrorMessage);
