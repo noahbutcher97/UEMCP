@@ -1559,8 +1559,8 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	const TSharedPtr<FJsonObject> AssignResult = ResultOf(AssignResponse);
 	TestTrue(TEXT("assignment reports compiled"), AssignResult->GetBoolField(TEXT("compiled")));
 	TestFalse(TEXT("assignment clears requires_compile"), AssignResult->GetBoolField(TEXT("requires_compile")));
-	TestFalse(TEXT("assignment carries no compile block"), AssignResult->HasField(TEXT("compile")));
-	TestFalse(TEXT("assignment carries no compiled_ok"), AssignResult->HasField(TEXT("compiled_ok")));
+	TestTrue(TEXT("assignment carries a compile block"), AssignResult->HasField(TEXT("compile")));
+	TestTrue(TEXT("assignment reports compiled_ok"), AssignResult->GetBoolField(TEXT("compiled_ok")));
 
 	// Re-resolved from the reported GUID rather than reused, because this handler's
 	// compile does not skip garbage collection and may reconstruct pins.
@@ -2178,6 +2178,115 @@ bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Para
 		Generated ? Generated->FindFunctionByName(TEXT("ReceiveBeginPlay"), EIncludeSuperFlag::ExcludeSuper) : nullptr);
 	TestNotNull(TEXT("after enabling, the compiled class implements ReceiveTick"),
 		Generated ? Generated->FindFunctionByName(TEXT("ReceiveTick"), EIncludeSuperFlag::ExcludeSuper) : nullptr);
+
+	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintHandlersAssignmentCompileFailedTest,
+	"UEMCP.BlueprintHandlers.AssignmentCompileFailed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!Fixture.Blueprint)
+	{
+		AddError(TEXT("could not create the fixture Blueprint"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
+	UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
+	UK2Node_Event* ExistingBeginPlay = nullptr;
+	if (EventGraph)
+	{
+		for (UEdGraphNode* Node : EventGraph->Nodes)
+		{
+			if (UK2Node_Event* Ev = Cast<UK2Node_Event>(Node); Ev && Ev->EventReference.GetMemberName() == FName(TEXT("ReceiveBeginPlay")))
+			{
+				ExistingBeginPlay = Ev;
+				break;
+			}
+		}
+	}
+	if (!EventGraph || !ExistingBeginPlay)
+	{
+		AddError(TEXT("fixture has no event graph with a default ReceiveBeginPlay node"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+
+	// Plant an unresolvable call under BeginPlay, exactly as TimerFailures does:
+	// ValidateNodeDuringCompilation reports it as an error, so any compile fails.
+	UK2Node_CallFunction* BrokenCallNode = NewObject<UK2Node_CallFunction>(EventGraph);
+	BrokenCallNode->FunctionReference.SetExternalMember(
+		FName(TEXT("UEMCPFunctionThatDoesNotExist")), UKismetSystemLibrary::StaticClass());
+	EventGraph->AddNode(BrokenCallNode);
+	BrokenCallNode->CreateNewGuid();
+	BrokenCallNode->PostPlacedNewNode();
+	BrokenCallNode->AllocateDefaultPins();
+	UEdGraphPin* BrokenExecPin = BrokenCallNode->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
+	UEdGraphPin* ExistingThenPin = FindFixturePin(ExistingBeginPlay, {TEXT("then")}, EGPD_Output);
+	if (!BrokenExecPin || !ExistingThenPin)
+	{
+		AddError(TEXT("could not wire the planted node into the BeginPlay exec chain"));
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	ExistingThenPin->MakeLinkTo(BrokenExecPin);
+
+	auto CountSetNodes = [EventGraph]()
+	{
+		int32 Count = 0;
+		for (UEdGraphNode* Node : EventGraph->Nodes)
+		{
+			if (Cast<UK2Node_VariableSet>(Node)) { ++Count; }
+		}
+		return Count;
+	};
+	const int32 SetNodesBefore = CountSetNodes();
+
+	TSharedPtr<FJsonObject> Assignment = MakeShared<FJsonObject>();
+	Assignment->SetStringField(TEXT("kind"), TEXT("literal"));
+	Assignment->SetNumberField(TEXT("value"), 5);
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("target_variable"), TEXT("Score"));
+	Params->SetObjectField(TEXT("assignment"), Assignment);
+	Params->SetBoolField(TEXT("compile"), true);
+
+	const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("add_blueprint_variable_assignment"), Params);
+	TestEqual(TEXT("compile failure code"), ErrorCodeOf(Response), FString(TEXT("COMPILE_FAILED")));
+	const TSharedPtr<FJsonObject>* Detail = nullptr;
+	if (Response.IsValid() && Response->TryGetObjectField(TEXT("detail"), Detail) && Detail)
+	{
+		TestFalse(TEXT("detail reports compiled false"), (*Detail)->GetBoolField(TEXT("compiled")));
+		TestTrue(TEXT("detail keeps requires_compile true"), (*Detail)->GetBoolField(TEXT("requires_compile")));
+		TestFalse(TEXT("detail reports compiled_ok false"), (*Detail)->GetBoolField(TEXT("compiled_ok")));
+	}
+	else
+	{
+		AddError(TEXT("COMPILE_FAILED carried no detail object"));
+	}
+	TestEqual(TEXT("the authored set node was rolled back"), CountSetNodes(), SetNodesBefore);
+
+	// Without compile the same call succeeds and says a compile is still owed.
+	Params->SetBoolField(TEXT("compile"), false);
+	const TSharedPtr<FJsonObject> NoCompile = Dispatch(TEXT("add_blueprint_variable_assignment"), Params);
+	FString Code;
+	if (IsSuccess(NoCompile, Code))
+	{
+		TestTrue(TEXT("requires_compile without compile"), ResultOf(NoCompile)->GetBoolField(TEXT("requires_compile")));
+		TestFalse(TEXT("compiled false without compile"), ResultOf(NoCompile)->GetBoolField(TEXT("compiled")));
+	}
+	else
+	{
+		AddError(FString::Printf(TEXT("assignment without compile failed: %s"), *Code));
+	}
 
 	DestroyFixtureBlueprint(Fixture);
 	return true;

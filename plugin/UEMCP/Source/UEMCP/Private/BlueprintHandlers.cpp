@@ -2561,9 +2561,12 @@ namespace UEMCP
 			bool bCompile = false;
 			Params->TryGetBoolField(TEXT("compile"), bCompile);
 			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			TSharedPtr<FJsonObject> CompileResult;
+			bool bCompiledOk = false;
 			if (bCompile)
 			{
-				FKismetEditorUtilities::CompileBlueprint(Blueprint);
+				CompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName());
+				CompileResult->TryGetBoolField(TEXT("compiled_ok"), bCompiledOk);
 			}
 
 			TArray<TSharedPtr<FJsonValue>> Nodes;
@@ -2596,8 +2599,24 @@ namespace UEMCP
 			Result->SetArrayField(TEXT("nodes"), Nodes);
 			Result->SetArrayField(TEXT("pins"), Pins);
 			Result->SetArrayField(TEXT("links"), Links);
-			Result->SetBoolField(TEXT("requires_compile"), !bCompile);
-			Result->SetBoolField(TEXT("compiled"), bCompile);
+			Result->SetBoolField(TEXT("requires_compile"), !bCompile || !bCompiledOk);
+			Result->SetBoolField(TEXT("compiled"), bCompile && bCompiledOk);
+			if (CompileResult.IsValid())
+			{
+				Result->SetBoolField(TEXT("compiled_ok"), bCompiledOk);
+				Result->SetObjectField(TEXT("compile"), CompileResult);
+			}
+			if (bCompile && !bCompiledOk)
+			{
+				// Same contract as add_blueprint_timer: a call whose compile failed
+				// leaves nothing behind and says so, instead of reporting success.
+				RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+				BuildErrorResponse(OutResponse,
+					FString::Printf(TEXT("Blueprint compile failed after adding an assignment to %s"), *TargetVarName),
+					TEXT("COMPILE_FAILED"),
+					Result);
+				return;
+			}
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
