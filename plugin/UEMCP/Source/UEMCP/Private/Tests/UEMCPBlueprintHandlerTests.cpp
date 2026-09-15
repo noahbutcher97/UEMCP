@@ -2119,14 +2119,7 @@ bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Para
 
 		const FString NodeId = Result->GetStringField(TEXT("node_id"));
 		UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
-		UEdGraphNode* Reused = nullptr;
-		if (EventGraph)
-		{
-			for (UEdGraphNode* Node : EventGraph->Nodes)
-			{
-				if (Node && Node->NodeGuid.ToString() == NodeId) { Reused = Node; break; }
-			}
-		}
+		UEdGraphNode* Reused = FindNodeByGuid(EventGraph, NodeId);
 		if (Reused)
 		{
 			TestTrue(TEXT("add_blueprint_event_node leaves the reused node enabled"), Reused->IsNodeEnabled());
@@ -2159,14 +2152,7 @@ bool FUEMCPBlueprintHandlersEventNodeGhostSitesTest::RunTest(const FString& Para
 
 		const FString NodeId = Result->GetStringField(TEXT("node_id"));
 		UEdGraph* EventGraph = Fixture.Blueprint->UbergraphPages.Num() > 0 ? Fixture.Blueprint->UbergraphPages[0] : nullptr;
-		UEdGraphNode* Reused = nullptr;
-		if (EventGraph)
-		{
-			for (UEdGraphNode* Node : EventGraph->Nodes)
-			{
-				if (Node && Node->NodeGuid.ToString() == NodeId) { Reused = Node; break; }
-			}
-		}
+		UEdGraphNode* Reused = FindNodeByGuid(EventGraph, NodeId);
 		if (Reused)
 		{
 			TestTrue(TEXT("override_blueprint_parent_member leaves the reused node enabled"), Reused->IsNodeEnabled());
