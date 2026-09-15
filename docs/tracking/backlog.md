@@ -73,7 +73,7 @@ New capability proposals not yet scoped. Each has a workflow trigger that would 
 - EN-25 — PIE-window capture and editor-identity on TCP 55558 — shipped 2026-09 (D199; per-project port residual tracked as EN-31)
 - EN-26 — Machine-readable verify-deploy output for the pre-push compile gate — shipped 2026-09 (commit `e07837f`)
 - EN-27 — Pre-push compile gate: false NEEDS-DEPLOY after a checkout or merge — shipped 2026-09 (commit `e07837f`; refined by `d42805b`/`1166888`)
-- EN-28 — Confine capture output paths to the project directory — shipped 2026-09 (D201)
+- EN-28 — Confine capture output paths to the project directory — shipped 2026-09 (D201); take_screenshot (ActorHandlers.cpp, param filepath) and get_asset_preview_render (VisualCaptureHandler.cpp, param output_path) still write any absolute path — confining them adds CAPTURE_PATH_OUTSIDE_PROJECT to two more tools and is deferred as a wire change
 - EN-29 — Capture tools: close the headless-unreachable coverage — shipped 2026-09 (D201)
 
 ## Fixture planting
@@ -168,6 +168,11 @@ Two items from that section were never dispatched and are not recorded as shippe
 When any dispatched handoff completes and residual items surface, consolidate them here if they're not immediately dispatchable. When a handoff fully ships, **remove it from this section** — completed work belongs in git history, not in the backlog index.
 
 ## Bugs / defects
+
+### BUG-3 — Two compile-path quirks left by the 2026-09 batch (both change wire behaviour)
+- `add_blueprint_timer` sets `compiled` to the raw `compile` flag, so its `COMPILE_FAILED` detail reports `compiled: true` beside `compiled_ok: false`; `add_blueprint_variable_assignment` gates it on `compiled_ok` (D201). Fix by gating the timer the same way, with the `TimerFailures` assertion updated.
+- When `add_blueprint_timer` enables a ghost `ReceiveBeginPlay` and its exec link then fails (`TryLinkPins` error path), the node stays enabled but the error carries no `enabled_ghost` field; only the `COMPILE_FAILED` path reports it. Fix by building the result object before the link or by adding the field to that error's detail.
+- **Trigger**: the next change to `add_blueprint_timer`, with a native test for each.
 
 ### Fixed
 - BUG-1 — `get_datatable_contents` / `get_montage_full` discoverable but not callable through the MCP schema — fixed 2026-05-28 (D173)

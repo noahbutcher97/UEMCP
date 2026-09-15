@@ -1559,8 +1559,9 @@ bool FUEMCPBlueprintHandlersCompilePathsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("assignment carries a compile block"), AssignResult->HasField(TEXT("compile")));
 	TestTrue(TEXT("assignment reports compiled_ok"), AssignResult->GetBoolField(TEXT("compiled_ok")));
 
-	// Re-resolved from the reported GUID rather than reused, because this handler's
-	// compile does not skip garbage collection and may reconstruct pins.
+	// Re-resolved from the reported GUID rather than reused, because a compile may
+	// reconstruct pins; all three handlers now compile the same way, through
+	// BuildBlueprintCompileDiagnosticResult.
 	const FString SetNodeId = StringFieldOr(FindRole(AssignResult, TEXT("nodes"), TEXT("set")), TEXT("node_id"));
 	UEdGraph* EventGraph = FixtureEventGraph(Fixture.Blueprint);
 	UEdGraphNode* SetNode = FindNodeByGuid(EventGraph, SetNodeId);
