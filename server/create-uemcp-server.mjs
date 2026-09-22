@@ -15,8 +15,21 @@ import { buildZodSchema } from './zod-builder.mjs';
 import { ProjectContext, withProjectContextGuard } from './project-context.mjs';
 import { PROJECT_ERROR_CODES, ProjectContextError, makeProjectToolResult } from './project-errors.mjs';
 import { readProjectTargets } from './project-targets.mjs';
-import { TOOL_REQUIREMENT_KINDS, getToolRequirement } from './tool-requirements.mjs';
-import { MANAGEMENT_SESSION_STATE_TOOLS, getToolAnnotations } from './tool-annotations.mjs';
+import { TOOL_REQUIREMENT_KINDS, getToolRequirement, isMutationRequirement } from './tool-requirements.mjs';
+import {
+  MANAGEMENT_DISPATCH_ANNOTATIONS,
+  MANAGEMENT_SESSION_STATE_TOOLS,
+  getToolAnnotations,
+} from './tool-annotations.mjs';
+import {
+  CALL_MUTATING_TOOL_DESCRIPTION,
+  CALL_TOOL_DESCRIPTION,
+  DESCRIBE_TOOL_DESCRIPTION,
+  DISPATCHER_NAMES,
+  MUTATING_DISPATCHER,
+  READ_DISPATCHER,
+  ToolDispatchRegistry,
+} from './tool-dispatch.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { clampWaitTimeout, createEditorProbe, readinessHint, waitForEditorReady } from './editor-readiness.mjs';
 import { registerProjectCodenames } from './project-hygiene.mjs';
@@ -25,6 +38,8 @@ import {
   CONNECTION_INFO_INPUT_SHAPE,
   WAIT_FOR_EDITOR_INPUT_SHAPE,
   FIND_TOOLS_INPUT_SHAPE,
+  DESCRIBE_TOOL_INPUT_SHAPE,
+  CALL_TOOL_INPUT_SHAPE,
   LIST_PROJECT_TARGETS_INPUT_SHAPE,
   MANAGEMENT_OUTPUT_SHAPE,
 } from './project-tools.mjs';
@@ -108,6 +123,7 @@ function getCanonicalToolDefinition(toolName, registrationGroupName) {
 const MANAGEMENT_PURE_INSPECTION_TOOL_NAMES = Object.freeze([
   'list_toolsets',
   'list_project_targets',
+  'describe_tool',
 ]);
 const MANAGEMENT_SESSION_STATE_ANNOTATIONS = Object.freeze({
   readOnlyHint: false,
@@ -116,7 +132,9 @@ const MANAGEMENT_SESSION_STATE_ANNOTATIONS = Object.freeze({
 const MANAGEMENT_PURE_INSPECTION_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
 });
-const MANAGEMENT_TOOL_COUNT = MANAGEMENT_SESSION_STATE_TOOLS.size + MANAGEMENT_PURE_INSPECTION_TOOL_NAMES.length;
+const MANAGEMENT_TOOL_COUNT = MANAGEMENT_SESSION_STATE_TOOLS.size
+  + MANAGEMENT_PURE_INSPECTION_TOOL_NAMES.length
+  + DISPATCHER_NAMES.length;
 
 function annotationsMatchLiteralPolicy(actual, expected) {
   if (!actual || typeof actual !== 'object') return false;
@@ -134,6 +152,7 @@ export function assertManagementAnnotationPolicies(registeredManagementTools) {
   const expectedNames = new Set([
     ...MANAGEMENT_SESSION_STATE_TOOLS,
     ...MANAGEMENT_PURE_INSPECTION_TOOL_NAMES,
+    ...DISPATCHER_NAMES,
   ]);
   const registeredNames = new Set(registeredManagementTools.keys());
   const missing = [...expectedNames].filter(name => !registeredNames.has(name)).sort();
@@ -156,6 +175,13 @@ export function assertManagementAnnotationPolicies(registeredManagementTools) {
     const actual = registeredManagementTools.get(name);
     if (!annotationsMatchLiteralPolicy(actual, MANAGEMENT_PURE_INSPECTION_ANNOTATIONS)) {
       throw new Error(`Management tool ${name} does not use the literal pure-inspection annotation policy`);
+    }
+  }
+
+  for (const name of DISPATCHER_NAMES) {
+    const actual = registeredManagementTools.get(name);
+    if (!annotationsMatchLiteralPolicy(actual, MANAGEMENT_DISPATCH_ANNOTATIONS[name])) {
+      throw new Error(`Management tool ${name} does not use its literal dispatch annotation policy`);
     }
   }
 }
@@ -255,13 +281,7 @@ function buildTcpSchemaShape(def) {
   return shape;
 }
 
-function isMutationRequirement(requirement) {
-  return requirement === TOOL_REQUIREMENT_KINDS.LIVE_MUTATION ||
-    requirement === TOOL_REQUIREMENT_KINDS.RC_MUTATION ||
-    requirement === TOOL_REQUIREMENT_KINDS.PYTHON_EXEC;
-}
-
-function registerToolGroup(server, toolsetManager, projectContext, log, toolsetName, label, defs, schemaBuilder, executor) {
+function registerToolGroup(server, toolsetManager, projectContext, log, dispatchRegistry, toolsetName, label, defs, schemaBuilder, executor) {
   for (const [name, def] of Object.entries(defs)) {
     const canonical = getCanonicalToolDefinition(name, toolsetName);
     const requirement = getToolRequirement(name, canonical.toolsetName, canonical.def);
@@ -307,6 +327,7 @@ function registerToolGroup(server, toolsetManager, projectContext, log, toolsetN
     );
     handle.disable();
     toolsetManager.registerToolHandle(name, handle);
+    dispatchRegistry.add(name, { handle, toolsetName: canonical.toolsetName, requirement });
   }
 }
 
@@ -419,14 +440,17 @@ export async function createUemcpServer(options = {}) {
   }
 
   const registeredManagementTools = new Map();
+  const dispatchRegistry = new ToolDispatchRegistry();
 
-  function registerManagementTool(name, configObject, handler) {
+  // The dispatchers pass a native CallToolResult through untouched, which has no
+  // structuredContent, so they opt out of the management output schema.
+  function registerManagementTool(name, configObject, handler, { structured = true } = {}) {
     const annotations = getToolAnnotations(name, TOOL_REQUIREMENT_KINDS.MANAGEMENT);
     const handle = server.registerTool(
       name,
       {
         ...configObject,
-        outputSchema: MANAGEMENT_OUTPUT_SHAPE,
+        ...(structured ? { outputSchema: MANAGEMENT_OUTPUT_SHAPE } : {}),
         annotations,
       },
       handler
@@ -688,6 +712,35 @@ export async function createUemcpServer(options = {}) {
   );
 
   registerManagementTool(
+    'describe_tool',
+    {
+      description: DESCRIBE_TOOL_DESCRIPTION,
+      inputSchema: DESCRIBE_TOOL_INPUT_SHAPE,
+    },
+    async ({ tool }) => managementResult(dispatchRegistry.describe(tool))
+  );
+
+  registerManagementTool(
+    READ_DISPATCHER,
+    {
+      description: CALL_TOOL_DESCRIPTION,
+      inputSchema: CALL_TOOL_INPUT_SHAPE,
+    },
+    async ({ tool, arguments: args }, extra) => dispatchRegistry.call(READ_DISPATCHER, tool, args, extra),
+    { structured: false }
+  );
+
+  registerManagementTool(
+    MUTATING_DISPATCHER,
+    {
+      description: CALL_MUTATING_TOOL_DESCRIPTION,
+      inputSchema: CALL_TOOL_INPUT_SHAPE,
+    },
+    async ({ tool, arguments: args }, extra) => dispatchRegistry.call(MUTATING_DISPATCHER, tool, args, extra),
+    { structured: false }
+  );
+
+  registerManagementTool(
     'list_toolsets',
     {
       description: 'Show all toolsets with tool count, required layer, availability, and enabled state.',
@@ -876,7 +929,7 @@ export async function createUemcpServer(options = {}) {
 
   function registerDynamicTools() {
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'offline', 'offline',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'offline', 'offline',
       TOOLS_YAML.toolsets.offline.tools,
       buildOfflineSchemaShape,
       (name, args) => executeOfflineTool(
@@ -887,35 +940,35 @@ export async function createUemcpServer(options = {}) {
     );
 
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'actors', 'actors',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'actors', 'actors',
       getActorsToolDefs(),
       buildTcpSchemaShape,
       (name, args) => executeActorsTool(name, args, connectionManager)
     );
 
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'blueprints-write', 'blueprints-write',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'blueprints-write', 'blueprints-write',
       getBlueprintsWriteToolDefs(),
       buildTcpSchemaShape,
       (name, args) => executeBlueprintsWriteTool(name, args, connectionManager)
     );
 
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'widgets', 'widgets',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'widgets', 'widgets',
       getWidgetsToolDefs(),
       buildTcpSchemaShape,
       (name, args) => executeWidgetsTool(name, args, connectionManager)
     );
 
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'remote-control', 'rc',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'remote-control', 'rc',
       getRcToolDefs(),
       buildTcpSchemaShape,
       (name, args) => executeRcTool(name, args, connectionManager)
     );
 
     registerToolGroup(
-      server, toolsetManager, projectContext, log, 'm-enhance', 'm-enhance',
+      server, toolsetManager, projectContext, log, dispatchRegistry, 'm-enhance', 'm-enhance',
       getMenhanceToolDefs(),
       buildTcpSchemaShape,
       (name, args) => executeMenhanceTool(name, args, connectionManager)
@@ -931,7 +984,7 @@ export async function createUemcpServer(options = {}) {
 
     for (const group of m5ToolsetGroups) {
       registerToolGroup(
-        server, toolsetManager, projectContext, log, group.name, `m5 ${group.name}`,
+        server, toolsetManager, projectContext, log, dispatchRegistry, group.name, `m5 ${group.name}`,
         group.defs,
         buildTcpSchemaShape,
         (name, args) => group.execute(name, args, connectionManager)

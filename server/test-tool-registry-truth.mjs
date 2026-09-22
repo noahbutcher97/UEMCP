@@ -38,6 +38,9 @@ const MANAGEMENT_TOOLS = new Set([
   'detach_project',
   'refresh_project_context',
   'wait_for_editor',
+  'describe_tool',
+  'call_tool',
+  'call_mutating_tool',
 ]);
 
 const LIVE_DEFINITION_GROUPS = [

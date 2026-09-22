@@ -78,9 +78,15 @@ const MANAGEMENT_SESSION_STATE_NAMES = Object.freeze([
 const MANAGEMENT_INSPECTION_NAMES = Object.freeze([
   'list_toolsets',
   'list_project_targets',
+  'describe_tool',
 ]);
 const SESSION_STATE_ANNOTATIONS = Object.freeze({ readOnlyHint: false, destructiveHint: false });
 const INSPECTION_ANNOTATIONS = Object.freeze({ readOnlyHint: true });
+// D202: each dispatcher carries the annotation of the class it runs.
+const DISPATCH_ANNOTATIONS = Object.freeze({
+  call_tool: Object.freeze({ readOnlyHint: true }),
+  call_mutating_tool: Object.freeze({ readOnlyHint: false, destructiveHint: true }),
+});
 const SUPPORTED_CLIENT_BRANDS = Object.freeze([
   'Claude',
   'Codex',
@@ -252,6 +258,7 @@ function literalManagementAnnotations() {
   return new Map([
     ...MANAGEMENT_SESSION_STATE_NAMES.map(name => [name, SESSION_STATE_ANNOTATIONS]),
     ...MANAGEMENT_INSPECTION_NAMES.map(name => [name, INSPECTION_ANNOTATIONS]),
+    ...Object.entries(DISPATCH_ANNOTATIONS),
   ]);
 }
 
@@ -522,6 +529,15 @@ if (typeof assertManagementAnnotationPolicies === 'function') {
     ),
     'startup invariant compares captured inspection annotations to a literal policy',
   );
+
+  const readOnlyMutatingDispatcher = new Map(expectedManagement);
+  readOnlyMutatingDispatcher.set('call_mutating_tool', INSPECTION_ANNOTATIONS);
+  t.assert(
+    /call_mutating_tool.*dispatch annotation/.test(
+      captureError(() => assertManagementAnnotationPolicies(readOnlyMutatingDispatcher))?.message || ''
+    ),
+    'startup invariant rejects a read-only annotation on the mutating dispatcher',
+  );
 }
 
 const committedProjectRoot = join(__dirname, 'fix' + 'tures', 'uemcp-' + 'fix' + 'ture');
@@ -661,10 +677,11 @@ try {
   );
   // 149 = 144 + 5: EN-24/EN-25 added five visual-capture tools and removed
   // the never-registered capture_active_editor_tab (status: planned, so it
-  // was not part of the prior 144).
+  // was not part of the prior 144). 152 = 149 + 3: D202 added describe_tool,
+  // call_tool and call_mutating_tool to management.
   t.assert(
-    listedRows.length === 149,
-    'independent all-enabled tools/list inventory contains 149 registered tools',
+    listedRows.length === 152,
+    'independent all-enabled tools/list inventory contains 152 registered tools',
     `listed=${listedRows.length}`,
   );
 
