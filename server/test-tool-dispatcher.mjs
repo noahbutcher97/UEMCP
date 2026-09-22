@@ -12,7 +12,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { z } from 'zod';
+
 import { createUemcpServer } from './create-uemcp-server.mjs';
+import { ToolDispatchRegistry } from './tool-dispatch.mjs';
 import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 import { TestRunner } from './test-helpers.mjs';
 
@@ -293,6 +296,33 @@ await runCase('project guard and python gate survive dispatch', async () => {
   } finally {
     cleanup(root);
   }
+});
+
+await runCase('dispatch never reads the SDK handle callback field', async () => {
+  // The SDK has renamed the registered-tool callback field before (callback ->
+  // handler). The registry must run its own recorded closure, so a handle that
+  // exposes neither field still dispatches.
+  const registry = new ToolDispatchRegistry();
+  const handle = { inputSchema: z.object({ asset_path: z.string() }), description: 'stub', annotations: { readOnlyHint: true } };
+  const calls = [];
+  registry.add('stub_read', {
+    handle,
+    invoke: async (args, extra) => { calls.push({ args, extra }); return { content: [{ type: 'text', text: 'ran' }] }; },
+    toolsetName: 'animation',
+    requirement: 'live_read',
+  });
+  const result = await registry.call('call_tool', 'stub_read', { asset_path: '/Game/X' }, { requestId: 7 });
+  t.assert(result.content[0].text === 'ran', 'recorded invoke closure ran without handle.handler or handle.callback');
+  t.assert(calls.length === 1 && calls[0].args.asset_path === '/Game/X' && calls[0].extra.requestId === 7,
+    'parsed args and request extra reach the closure');
+
+  let refused = null;
+  try {
+    registry.add('no_invoke', { handle, toolsetName: 'animation', requirement: 'live_read' });
+  } catch (err) {
+    refused = err;
+  }
+  t.assert(/no invoke closure/.test(refused?.message || ''), 'registry refuses an entry without an invoke closure');
 });
 
 process.exit(t.summary());

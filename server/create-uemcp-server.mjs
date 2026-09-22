@@ -285,14 +285,10 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
   for (const [name, def] of Object.entries(defs)) {
     const canonical = getCanonicalToolDefinition(name, toolsetName);
     const requirement = getToolRequirement(name, canonical.toolsetName, canonical.def);
-    const handle = server.registerTool(
-      name,
-      {
-        description: def.description,
-        inputSchema: schemaBuilder(def),
-        annotations: getToolAnnotations(name, requirement),
-      },
-      async (args) => {
+    // One closure serves both entry points: the SDK's tools/call and the D202
+    // dispatchers. The dispatch registry keeps its own reference rather than
+    // reading the SDK handle's callback field, which the SDK has renamed before.
+    const invoke = async (args) => {
         try {
           return await withProjectContextGuard(
             projectContext,
@@ -323,11 +319,19 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
             isError: true,
           };
         }
-      }
+    };
+    const handle = server.registerTool(
+      name,
+      {
+        description: def.description,
+        inputSchema: schemaBuilder(def),
+        annotations: getToolAnnotations(name, requirement),
+      },
+      invoke
     );
     handle.disable();
     toolsetManager.registerToolHandle(name, handle);
-    dispatchRegistry.add(name, { handle, toolsetName: canonical.toolsetName, requirement });
+    dispatchRegistry.add(name, { handle, invoke, toolsetName: canonical.toolsetName, requirement });
   }
 }
 

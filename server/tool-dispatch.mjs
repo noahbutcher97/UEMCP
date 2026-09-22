@@ -5,8 +5,9 @@
 // dispatchers make every registered dynamic tool callable regardless of its
 // SDK visibility, without re-implementing anything the native path does: the
 // arguments are validated with the SDK's own helpers against the handle's own
-// schema, then handed to the handle's own callback, which carries the project
-// guard, mutation tracking and executor. Parity is by construction.
+// schema, then handed to the same invoke closure the SDK was registered with,
+// which carries the project guard, mutation tracking and executor. Parity is
+// by construction.
 
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import {
@@ -50,10 +51,11 @@ export class ToolDispatchRegistry {
 
   /**
    * @param {string} name
-   * @param {{handle: object, toolsetName: string, requirement: string}} entry
+   * @param {{handle: object, invoke: Function, toolsetName: string, requirement: string}} entry
    */
   add(name, entry) {
     if (this._entries.has(name)) throw new Error(`Tool ${name} is already dispatchable`);
+    if (typeof entry.invoke !== 'function') throw new Error(`Tool ${name} has no invoke closure`);
     this._entries.set(name, Object.freeze({ ...entry }));
   }
 
@@ -110,7 +112,7 @@ export class ToolDispatchRegistry {
       }
       parsedArgs = parsed.data;
     }
-    return await handle.handler(parsedArgs, extra);
+    return await entry.invoke(parsedArgs, extra);
   }
 }
 
