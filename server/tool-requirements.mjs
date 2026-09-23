@@ -77,3 +77,10 @@ export function getToolRequirement(toolName, toolsetName, toolDef = {}) {
     ? TOOL_REQUIREMENT_KINDS.LIVE_MUTATION
     : TOOL_REQUIREMENT_KINDS.LIVE_READ;
 }
+
+/** Requirement classes that mutate editor or project state. */
+export function isMutationRequirement(requirement) {
+  return requirement === TOOL_REQUIREMENT_KINDS.LIVE_MUTATION ||
+    requirement === TOOL_REQUIREMENT_KINDS.RC_MUTATION ||
+    requirement === TOOL_REQUIREMENT_KINDS.PYTHON_EXEC;
+}

@@ -41,6 +41,15 @@ export const FIND_TOOLS_INPUT_SHAPE = {
   max_results: z.number().int().optional().default(15),
 };
 
+export const DESCRIBE_TOOL_INPUT_SHAPE = {
+  tool: z.string(),
+};
+
+export const CALL_TOOL_INPUT_SHAPE = {
+  tool: z.string(),
+  arguments: z.record(z.any()).optional(),
+};
+
 export const PROJECT_CONTEXT_OUTPUT_SHAPE = {
   ok: z.boolean().optional(),
   projectContext: z.any().optional(),
@@ -86,4 +95,12 @@ export const MANAGEMENT_OUTPUT_SHAPE = {
   // project I am attached to?"
   identityMismatch: z.boolean().optional(),
   identityMismatchPaths: z.any().optional(),
+  // D202: describe_tool's schema-on-demand answer.
+  tool: z.string().optional(),
+  toolset: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.any().optional(),
+  annotations: z.any().optional(),
+  requirement: z.string().optional(),
+  dispatcher: z.string().optional(),
 };

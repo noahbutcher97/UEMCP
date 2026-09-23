@@ -83,6 +83,13 @@ const managementSessionStateTools = new Proxy(managementSessionStateToolSet, {
 });
 export const MANAGEMENT_SESSION_STATE_TOOLS = Object.freeze(managementSessionStateTools);
 
+// D202: the generic dispatchers inherit the annotation of the class they run,
+// so a client's read auto-approval still applies to reads and writes still prompt.
+export const MANAGEMENT_DISPATCH_ANNOTATIONS = Object.freeze({
+  call_tool: Object.freeze({ readOnlyHint: true }),
+  call_mutating_tool: Object.freeze({ readOnlyHint: false, destructiveHint: true }),
+});
+
 export function getToolAnnotations(toolName, requirement) {
   let annotations;
 
@@ -98,6 +105,9 @@ export function getToolAnnotations(toolName, requirement) {
       annotations = { readOnlyHint: false, destructiveHint: true };
       break;
     case TOOL_REQUIREMENT_KINDS.MANAGEMENT:
+      if (Object.hasOwn(MANAGEMENT_DISPATCH_ANNOTATIONS, toolName)) {
+        return MANAGEMENT_DISPATCH_ANNOTATIONS[toolName];
+      }
       annotations = MANAGEMENT_SESSION_STATE_TOOLS.has(toolName)
         ? { readOnlyHint: false, destructiveHint: false }
         : { readOnlyHint: true };

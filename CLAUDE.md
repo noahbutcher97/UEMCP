@@ -8,7 +8,7 @@ This file provides guidance to Claude when working with code in this repository.
 
 - **MCP Server**: `server/` — Node.js, ES modules (.mjs), MCP SDK 1.29.0, Zod 3
 - **UE5 Plugin**: `plugin/` — C++ editor plugin for the active TCP:55558 layer
-- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 158 YAML-declared tools (11 management + 147 toolset-scoped across 16 toolsets); 9 of the toolset-scoped entries are `status: planned` (hidden, not yet registered), leaving 149 active/callable tools
+- **Tool Definitions**: `tools.yaml` — **single source of truth** for the registry: 161 YAML-declared tools (14 management + 147 toolset-scoped across 16 toolsets); 9 of the toolset-scoped entries are `status: planned` (hidden, not yet registered), leaving 152 active/callable tools
 - **Repo Root**: `D:\DevTools\UEMCP\`
 - **Version Control**: Git (NOT Perforce — unlike the UE projects themselves)
 
@@ -25,12 +25,13 @@ Claude ↔ MCP Server (stdio) ↔ active runtime layers:
 
 ## Dynamic Toolset System
 
-158 declared / 149 active tools (see Project Overview above for the full breakdown) across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
+161 declared / 152 active tools (see Project Overview above for the full breakdown) across 16 dynamic toolsets. Toolsets are enabled/disabled dynamically to stay under the ~40-tool accuracy threshold.
 
 - `find_tools(query)` — keyword search, auto-enables top 3 matching toolsets
 - `enable_toolset` / `disable_toolset` — explicit control
 - `list_toolsets` — orientation tool, warns when >40 active tools
 - Tools use SDK `handle.enable()`/`.disable()` for `tools/list` visibility — disabled tools are invisible to Claude, not just guarded at runtime
+- `describe_tool` / `call_tool` / `call_mutating_tool` (D202) — always-visible dispatch path for clients that snapshot `tools/list` once and ignore `tools/list_changed` (observed: Codex). `server/tool-dispatch.mjs` validates with the SDK's own helpers against the registered handle's schema, then invokes the handle's own callback, so the project guard, mutation tracking, executor and `PYTHON_EXEC_DISABLED` gate are shared, not re-implemented. Each dispatcher runs only its requirement class (`call_tool` is `readOnlyHint`, `call_mutating_tool` is `destructiveHint`) and never changes toolset enable state. Native dynamic visibility is unchanged for clients that honour `list_changed`
 
 **ToolIndex search** (`tool-index.mjs`): 6-tier weighted scoring — FULL_NAME(100) > NAME_EXACT(10) > NAME_PREFIX(6) > NAME_SUBSTR(4) > DESC_EXACT(2) > DESC_PREFIX(1). Coverage bonus: `score × (0.5 + 0.5 × matched_token_ratio)`. Aliases from tools.yaml `aliases:` + hardcoded supplements.
 
@@ -71,7 +72,7 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7798 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 80 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7838 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 81 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
 
 ### Follow-on queue
 - **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
@@ -418,7 +419,7 @@ Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_
 
 ## Testing
 
-Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7798 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 80 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
+Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7838 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 81 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 
 **Native plugin tests**: 40 UE automation tests live in `plugin/UEMCP/Source/UEMCP/Private/Tests/` (`UEMCPTests.cpp`, `MCPServerTransportPolicyTests.cpp`, `UEMCPBlueprintHelperTests.cpp`, `UEMCPBlueprintHandlerTests.cpp`, `UEMCPAssetEditorCaptureTests.cpp`; pretty-name filter `UEMCP.`; flags `EditorContext | EngineFilter`, compiled only when `WITH_DEV_AUTOMATION_TESTS`). They cover transport intake, the command registry, the response builder, the parsers, the pure Blueprint helpers in `Public/BlueprintHandlerHelpers.h`, three `BlueprintHandlers.cpp` handlers end-to-end through the registry (`add_blueprint_variable_assignment`, `add_blueprint_timer`, `disconnect_blueprint_pin`, each against an unsaved in-memory Blueprint), and every headless-reachable error path of the five asset-editor capture handlers, with `CAPTURE_UNSUPPORTED` asserted at the helper level (`CaptureWidgetToPng` on the null widget) because the handler path declines before capturing headless; the other `*Handlers.cpp` bodies remain uncovered. The runner passes `-nullrhi`, so captures themselves are proved only by `server/live-smoke-asset-editor-capture.mjs`, and the three capture tests that need an open asset editor record a labelled skip if `UAssetEditorSubsystem` declines headless — `run-native-tests.mjs` surfaces those on the test's PASS line and in a closing `Labelled skips: N` count. Run them with `run-native-tests.bat [--profile <name>] [--target <alias>]` (headless `UnrealEditor-Cmd`, about 30 s on a mid-size project; exit 0 only when every test passes, 1 on failures or not-run, 2 preflight or config, 3 timeout, 4 no report; `--dry-run` prints the command) — `--extra-arg <value>`, repeatable, forwards an argument to `UnrealEditor-Cmd`; an extra of the form `-Name=value` replaces the runner's own argument with that prefix (Unreal reads the first occurrence), and a later extra with the same prefix replaces the earlier one, anything else appends. The pre-push hook refuses to publish plugin source while any built target in the gate profile (`smoke` when present, else default; `UEMCP_PUSH_GATE_PROFILE` overrides) reports NEEDS-SYNC / NEEDS-BUILD / NEEDS-DEPLOY. It reads `node server/verify-deploy.mjs --json` and blocks on `verdict` plus `dllExists`, never on the human output, so never-built targets are ignored and a reformat of the printer cannot disarm the gate; a target whose deployed plugin tree is byte-identical to the repo reads SYNC whatever the file timestamps say (EN-27), so a merge or checkout no longer forces a rebuild. Bypass with `--no-verify` or `UEMCP_SKIP_COMPILE_GATE=1`.
 
@@ -502,7 +503,7 @@ Individually notable files, plus grouped rows for related suites (kept compact �
 | `test-project-context.mjs`, `test-project-guard.mjs`, `test-project-hygiene.mjs`, `test-project-identity.mjs`, `test-project-server-wire.mjs`, `test-project-targets.mjs`, `test-project-tools.mjs`, `test-editor-processes.mjs` | D177 project-attachment suite — one file per split attachment module (`project-context.mjs` etc.) |
 | `test-live-smoke-harness.mjs`, `test-run-live-smoke.mjs` | D177 reusable live-smoke harness + runner; assertions exercise the harness/runner logic itself (editor optional, unlike live-gated `test-m1-ping.mjs`) |
 | `test-oracle-freshness.mjs`, `test-rotation-oracle-freshness.mjs` | D187 oracle-freshness gate — stale-fixture classifier plus rotation-output surfacing of non-strict freshness counts |
-| `test-blueprint-workflow-variables.mjs`, `test-class-resolution-audit.mjs`, `test-connection-reset.mjs`, `test-mcp-fake-transport.mjs`, `test-migrate-targets.mjs`, `test-module-graph.mjs`, `test-native-runner.mjs`, `test-new-2-mitigation.mjs`, `test-pie-runtime-tools.mjs`, `test-plugin-get-editor-state-source.mjs`, `test-pre-push-gate.mjs`, `test-setup-uemcp-target-profile.mjs`, `test-slash-command-anchors.mjs`, `test-sync-plugin-bat-safety.mjs`, `test-tool-metadata.mjs`, `test-tool-registry-truth.mjs`, `test-tool-requirements.mjs`, `test-verify-deploy-profiles.mjs`, `test-visual-capture-source.mjs` | 19 focused single-topic suites, one area each (see filename) |
+| `test-blueprint-workflow-variables.mjs`, `test-class-resolution-audit.mjs`, `test-connection-reset.mjs`, `test-mcp-fake-transport.mjs`, `test-migrate-targets.mjs`, `test-module-graph.mjs`, `test-native-runner.mjs`, `test-new-2-mitigation.mjs`, `test-pie-runtime-tools.mjs`, `test-plugin-get-editor-state-source.mjs`, `test-pre-push-gate.mjs`, `test-setup-uemcp-target-profile.mjs`, `test-slash-command-anchors.mjs`, `test-sync-plugin-bat-safety.mjs`, `test-tool-dispatcher.mjs`, `test-tool-metadata.mjs`, `test-tool-registry-truth.mjs`, `test-tool-requirements.mjs`, `test-verify-deploy-profiles.mjs`, `test-visual-capture-source.mjs` | 20 focused single-topic suites, one area each (see filename) |
 | `test-helpers.mjs` | Shared infra — not a runner. Exports: FakeTcpResponder, ErrorTcpResponder, TestRunner, createTestConfig, resolveProjectRoot |
 | `test-fixtures.mjs` | Shared fixture constants — not a runner. Live-project asset-path constants (BP names, montages, maps) for supplementary-rotation tests; see file header for drift/fix guidance |
 

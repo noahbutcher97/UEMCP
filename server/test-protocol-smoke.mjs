@@ -22,7 +22,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const sampleServer = join(here, 'fixtures', 'deployment', 'fake-mcp-server.mjs');
 const expectedManagementTools = Object.freeze([
   'attach_project',
+  'call_mutating_tool',
+  'call_tool',
   'connection_info',
+  'describe_tool',
   'detach_project',
   'detect_project',
   'disable_toolset',
@@ -258,7 +261,7 @@ for (const [mode, label] of [
   });
   t.assert(smoke.status === 'HEALTHY', 'real no-project UEMCP descriptor initializes and lists tools');
   t.assert(smoke.instruction_bytes > 0 && smoke.instruction_bytes <= 2_048, 'real server instructions remain within the deployment contract');
-  t.assert(smoke.tool_count === 11, `real no-project server exposes eleven management tools (got ${smoke.tool_count})`);
+  t.assert(smoke.tool_count === 14, `real no-project server exposes fourteen management tools (got ${smoke.tool_count})`);
   t.assert(JSON.stringify(smoke.initial_tool_names) === JSON.stringify(expectedManagementTools), 'real initial tool names match the provider-neutral management surface');
 }
 

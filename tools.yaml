@@ -36,6 +36,24 @@ management:
         query:       { type: string, required: true }
         max_results: { type: integer, required: false, default: 15 }
 
+    # D202: always-visible dispatch path for clients that ignore tools/list_changed.
+    describe_tool:
+      description: Return one tool's input schema, description, annotations, and the dispatcher that runs it, without enabling its toolset. Use with call_tool or call_mutating_tool when a tool found by find_tools is not in your tool list.
+      params:
+        tool: { type: string, required: true }
+
+    call_tool:
+      description: Call any read-only UEMCP tool by name, even when your client has not refreshed its tool list. Same validation, project checks, and result as calling the tool directly. Mutating tools are refused; use call_mutating_tool.
+      params:
+        tool:      { type: string, required: true }
+        arguments: { type: object, required: false }
+
+    call_mutating_tool:
+      description: Call any mutating UEMCP tool by name, even when your client has not refreshed its tool list. Same validation, project and ownership checks, mutation tracking, security gates, and result as calling the tool directly. Read-only tools are refused; use call_tool.
+      params:
+        tool:      { type: string, required: true }
+        arguments: { type: object, required: false }
+
     list_toolsets:
       description: Show all toolsets with tool count, required layer, availability status, and enabled/disabled state. Orientation tool — call first to understand what's available.
       params: {}
