@@ -914,9 +914,10 @@ function readLegacyPropertyTag(cur, names, ue4Version) {
   const size = cur.readInt32();
   const arrayIndex = cur.readInt32();
 
+  const typeParams = [];
   if (typeNum === 0) {
     if (type === 'StructProperty') {
-      cur.skip(8);                                                    // StructName
+      typeParams.push({ name: readFNameAtCursor(cur, names), params: [] });
       if (ue4Version >= UE4_STRUCT_GUID_IN_PROPERTY_TAG) cur.skip(16); // StructGuid
     } else if (type === 'BoolProperty') {
       cur.skip(1);                                                    // BoolVal lives in the TAG
@@ -941,7 +942,7 @@ function readLegacyPropertyTag(cur, names, ue4Version) {
     terminator: false,
     name,
     type: type ?? null,
-    typeParams: [],
+    typeParams,
     size,
     flags: 0,
     arrayIndex,
@@ -1237,7 +1238,10 @@ function dispatchPropertyValue(cur, tag, names, opts) {
   const { type } = tag;
   if (type === 'StructProperty') {
     const structName = tag.typeParams?.[0]?.name ?? null;
-    const handler = structName && opts.structHandlers?.get(structName);
+    // Other handlers rely on the modern native/tagged flag, absent in legacy
+    // tags. Keep their existing fallback until their legacy layouts are known.
+    const handler = structName && (!opts.legacyPropertyTags || structName === 'Guid')
+      && opts.structHandlers?.get(structName);
     if (handler) return handler(cur, tag, names, opts);
     // Agent 10.5 tier 3 (D47): unknown struct tagged-fallback.
     // UUserDefinedStruct and engine structs without a registered handler

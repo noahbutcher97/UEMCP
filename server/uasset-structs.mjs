@@ -468,7 +468,9 @@ function handleFColor(cur, tag, names, opts) {
 }
 
 function handleFGuid(cur, tag, names, opts) {
-  if (tag.flags & HAS_BINARY_NATIVE) return readFGuidBinary(cur);
+  // Legacy tags have no native-serialization flag. FGuid still serializes its
+  // four uint32 words natively; preserve the existing raw-byte hex contract.
+  if (opts.legacyPropertyTags || (tag.flags & HAS_BINARY_NATIVE)) return readFGuidBinary(cur);
   // Very rare — FGuid is almost always native-serialized. Fall back to
   // tagged stream with A/B/C/D uint32 fields.
   const f = readTaggedStructFields(cur, tag, names, opts).properties || {};
