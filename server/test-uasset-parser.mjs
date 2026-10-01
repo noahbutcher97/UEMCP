@@ -21,6 +21,7 @@ import {
   makePackageIndexResolver,
   isGraphNodeExportClass,
   pinBlockLayoutForPackage,
+  propertyTagLayoutForPackage,
   readPropertyTag,
   readFText,
   parsePinBlock,
@@ -2281,7 +2282,10 @@ async function testPinBlockOffsetCP1() {
     const imports = readImportTable(cur, s, names);
     const exports = readExportTable(cur, s, names);
     const resolver = makePackageIndexResolver(exports, imports);
-    const parseOpts = { resolve: resolver, structHandlers: buildStructHandlers(), ...pinBlockLayoutForPackage(s) };
+    const parseOpts = {
+      resolve: resolver, structHandlers: buildStructHandlers(),
+      ...propertyTagLayoutForPackage(s), ...pinBlockLayoutForPackage(s),
+    };
 
     const oracleByGuid = new Map();
     for (const [graphName, graph] of Object.entries(oracle.graphs)) {

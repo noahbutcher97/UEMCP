@@ -8,6 +8,7 @@ import {
   resolvePackageIndex,
   readExportProperties,
   pinBlockLayoutForPackage,
+  propertyTagLayoutForPackage,
   formatFName,
   resolveLinkedToEdges,
 } from './uasset-parser.mjs';
@@ -944,6 +945,7 @@ function extractBPEdgeTopologyFromCtx(ctx, assetPath) {
   // a custom version, so one install holds packages on both sides of it.
   const topology = resolveLinkedToEdges(buf, exports, imports, names, {
     resolve, structHandlers, containerHandlers,
+    ...propertyTagLayoutForPackage(summary),
     ...pinBlockLayoutForPackage(summary),
   });
   return {
