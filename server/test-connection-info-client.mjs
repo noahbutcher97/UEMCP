@@ -86,6 +86,9 @@ try {
   });
   try {
     await stdioClient.connect(transport);
+    // Initialization requests roots asynchronously; await a completed refresh
+    // before asserting attachment rather than relying on process scheduling.
+    await stdioClient.callTool({ name: 'refresh_project_context', arguments: {} });
     const payload = await checkInfo(stdioClient, {}, 'stdio roots attachment');
     t.assert(rootsRequests > 0, 'server requested workspace roots');
     t.assert(payload.projectContext.identity?.projectName === 'SchemaFixture', 'stdio session attached to synthetic root');
