@@ -198,8 +198,9 @@ try {
   t.assert(replayCode === 4 && !replayLaunched && replayEvidence.problems.some(problem => problem.includes('REPORT_PREEXISTING')), 'required runner rejects recent preexisting passing report before fake process launch');
   t.assert(readFileSync(preexistingPath, 'utf8') === preexistingText, 'required freshness rejection preserves previous report bytes');
   rmSync(preexistingPath);
-  const portConflict = await main([...argv, '--test-profile', 'native-smoke'], { runner, listEditors: () => [], portAvailable: async () => false });
-  t.assert(portConflict === 2, 'occupied native listener port blocks required launch');
+  let portConflictLaunched = false;
+  const portConflict = await main([...argv, '--test-profile', 'native-smoke'], { runner: { run: async () => { portConflictLaunched = true; return { status: 'exited', exitCode: 0 }; } }, listEditors: () => [], portAvailable: async () => false });
+  t.assert(portConflict === 2 && !portConflictLaunched, 'occupied native listener port blocks required launch before process starts');
   for (const [label, fakeRun, expected] of [
     ['timeout', async () => ({ status: 'timed_out', exitCode: null }), 3],
     ['spawn failure', async () => ({ status: 'spawn_failed', exitCode: null }), 2],

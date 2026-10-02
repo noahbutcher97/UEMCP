@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Source-only, invocation-owned host staging. Build/runtime tools own generated output.
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,12 +21,29 @@ export const ownedHostEngineArgs = Object.freeze([
   '-ini:Engine:[Zen]:AutoLaunch=False,[Zen.ConnectExisting]:HostName=127.0.0.1,[Zen.ConnectExisting]:Port=0',
 ]);
 
-// Creates only invocation-owned scratch paths. This is launch policy, not proof
-// of an OS sandbox: Windows known-folder APIs do not obey UserDir/TEMP.
-export function prepareOwnedHostRuntime({ outputRoot, env = process.env }) {
+// Reviewed runtime policy, independent of historical manifests or mutable repo
+// bytes. Only LF/CRLF differences are ignored. Policy edits require review.
+const OWNED_CONFIG_SHA256 = '7c651ad2491cd42d99b6152c15a90917c9477eaedfd2e6ce591f75d6c29c0195';
+export function validateOwnedHostIsolation({ outputRoot, engineRoot }) {
   outputRoot = safePath(outputRoot);
   const manifest = json(safePath(join(outputRoot, 'host-manifest.json')));
-  if (manifest.outputRoot !== outputRoot || !manifest.invocationId) throw new Error('Host ownership mismatch');
+  if (manifest.schemaVersion !== 1 || manifest.outputRoot !== outputRoot || !manifest.invocationId) throw new Error('Host ownership mismatch');
+  if (JSON.stringify(engineIdentity(engineRoot ?? manifest.engine.root)) !== JSON.stringify(manifest.engine)) throw new Error('Requested engine identity differs from staged engine');
+  const config = readFileSync(safePath(join(outputRoot, 'host/Config/DefaultEngine.ini')), 'utf8').replace(/\r\n/g, '\n');
+  if (hash(config) !== OWNED_CONFIG_SHA256) throw new Error('Staged isolation configuration differs from reviewed owned DDC policy');
+  for (const prefix of ['host', 'host/Plugins/UEMCP']) {
+    const savedConfig = safePath(join(outputRoot, prefix, 'Saved/Config'));
+    if (existsSync(savedConfig) && walk(savedConfig).length) throw new Error('Generated Saved/Config overrides are not permitted for owned isolation');
+  }
+  safePath(join(manifest.engine.root, 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe'));
+  return manifest;
+}
+
+// Creates only invocation-owned scratch paths. This is launch policy, not proof
+// of an OS sandbox: Windows known-folder APIs do not obey UserDir/TEMP.
+export function prepareOwnedHostRuntime({ outputRoot, engineRoot, env = process.env }) {
+  outputRoot = safePath(outputRoot);
+  const manifest = validateOwnedHostIsolation({ outputRoot, engineRoot });
   const hostRoot = safePath(join(outputRoot, 'host'));
   const ddcRoot = safePath(join(hostRoot, 'DerivedDataCache'));
   if (process.platform === 'win32' && ddcRoot.length >= 119) throw new Error('Owned DDC path exceeds conservative UE Windows path limit; use a shorter stage root');
@@ -57,7 +75,7 @@ function safePath(path) {
   return absolute;
 }
 
-function walk(root, { generated = false } = {}) {
+function walk(root, { generated = false, sourceGenerated = new Set() } = {}) {
   safePath(root);
   const files = [];
   function visit(dir, prefix = '') {
@@ -65,6 +83,10 @@ function walk(root, { generated = false } = {}) {
       const name = prefix + entry.name;
       const path = join(dir, entry.name);
       safePath(path);
+      if (sourceGenerated.has(resolve(path))) {
+        if (!entry.isDirectory()) throw new Error('Generated source root is not an ordinary directory: ' + path);
+        continue;
+      }
       if (entry.isDirectory()) {
         if (generated && GENERATED.has(entry.name) && (prefix === '' || prefix === 'Plugins/UEMCP/')) continue;
         visit(path, name + '/');
@@ -86,7 +108,19 @@ function expectedFiles(repoRoot) {
     if (seen.has(name.toLowerCase())) throw new Error(`Path collision: ${name}`);
     seen.add(name.toLowerCase());
   }
-  const actual = [HOST, PLUGIN].flatMap(root => walk(join(repoRoot, root)).map(name => root + '/' + name)).sort();
+  // Only these two plugin build-output roots are excluded from source staging.
+  // Inspect HEAD and index even when absent; staged deletions remain source.
+  const generatedRoots = [PLUGIN + '/Binaries', PLUGIN + '/Intermediate'];
+  const beneathGenerated = name => generatedRoots.some(root => name.toLowerCase() === root.toLowerCase() || name.toLowerCase().startsWith(root.toLowerCase() + '/'));
+  if (allow.files.some(beneathGenerated)) throw new Error('Generated plugin roots cannot be allowlisted source');
+  let tracked;
+  try {
+    const git = args => execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 16 * 1024 * 1024 }).split('\0').filter(Boolean);
+    tracked = [...git(['ls-files', '--cached', '-z']), ...git(['ls-tree', '-r', '--name-only', '-z', 'HEAD'])];
+  } catch { throw new Error('Cannot inspect Git tracked source membership'); }
+  if (tracked.some(beneathGenerated)) throw new Error('Generated plugin roots contain Git tracked source');
+  const sourceGenerated = new Set(generatedRoots.map(root => safePath(join(repoRoot, root))));
+  const actual = [HOST, PLUGIN].flatMap(root => walk(join(repoRoot, root), { sourceGenerated }).map(name => root + '/' + name)).sort();
   if (JSON.stringify(actual) !== JSON.stringify([...allow.files].sort())) throw new Error('Source membership differs from reviewed host allowlist');
   return actual.map(source => ({ source, destination: source.startsWith(HOST + '/') ? source.slice(HOST.length + 1) : 'Plugins/UEMCP/' + source.slice(PLUGIN.length + 1), sha256: hash(readFileSync(join(repoRoot, source))) }));
 }
@@ -164,7 +198,7 @@ export async function prepareFixtureHost({ repoRoot = ROOT, outputRoot, engineRo
   return { manifestPath: join(outputRoot, 'host-manifest.json'), uprojectPath: join(outputRoot, 'host/UEMCPFixture.uproject'), manifest };
 }
 
-export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl }) {
+export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl, authoredAsset }) {
   outputRoot = safePath(outputRoot);
   const manifest = json(safePath(join(outputRoot, 'host-manifest.json')));
   if (manifest.schemaVersion !== 1 || manifest.outputRoot !== outputRoot || manifest.repoRoot !== resolve(repoRoot) || !manifest.invocationId) throw new Error('Host ownership mismatch');
@@ -177,6 +211,13 @@ export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixture
   if (JSON.stringify(engineIdentity(manifest.engine.root)) !== JSON.stringify(manifest.engine)) throw new Error('Engine identity changed since staging');
   const actual = walk(join(outputRoot, 'host'), { generated: true });
   const expected = manifest.files.map(f => f.destination).sort();
+  if (authoredAsset !== undefined) {
+    if (!['optional', 'required'].includes(authoredAsset) || manifest.corpus) throw new Error('Authored asset validation requires a source-only host');
+    const asset = 'Content/Serialization/BP_OwnedLink.uasset';
+    if (manifest.files.some(file => file.destination === asset)) throw new Error('Authored asset must not replace staged source');
+    if (authoredAsset === 'required' || actual.includes(asset)) expected.push(asset);
+    expected.sort();
+  }
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Staged source membership mismatch');
   for (const file of manifest.files) if (hash(readFileSync(join(outputRoot, 'host', file.destination))) !== file.sha256) throw new Error(`Staged bytes changed: ${file.destination}`);
   return manifest;

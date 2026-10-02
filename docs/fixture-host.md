@@ -38,6 +38,51 @@ source/config checks alone cannot prove that every engine service is isolated.
 Native host runs pass UE's `-nowrite` config flag to prevent editor startup from
 creating or rewriting DefaultInput.ini in the immutable staged source.
 
+Explicit author/export execution uses the `runOwnedAuthoring` API in
+`server/run-owned-authoring.mjs`; it adds no CLI. Before launch it checks actual
+staged runtime isolation independently of historical fixture provenance, matches
+the requested engine root and Build.version to the stage, and refuses conflicting
+editors. The isolation check pins the reviewed complete
+DefaultEngine.ini policy by SHA-256 (normalizing only CRLF to LF), including both
+fallback graphs and disabled Zen. Changing that policy requires reviewing and
+updating the pinned digest. Generated host or plugin Saved/Config overrides are
+refused. Historical `verifyAuthoringHost` remains a provenance check, not launch
+authorization; an old valid fixture can come from a stage that is unsafe to run.
+
+The API uses the shared runtime arguments/environment and bounded process runner.
+It validates current checkout and staged sources after success, nonzero exit,
+timeout, or runner exception, retaining both execution and validation failures.
+Only the single intended authored asset may be added; failed authoring may leave
+it absent or partial. Export requires that asset, preserves its hash, and refuses
+a preexisting oracle output. Failed output is retained for inspection. These
+source checks do not claim absolute filesystem confinement. Author/export runtime
+qualification remains held until independent review clears controlled validation.
+
+These fixed `-run=AuthorSerializationFixture` and `-run=DumpBPGraph` commandlets
+disable the UEMCP TCP server and use NullRHI, so their preflight does not reserve
+TCP 55558. Native/live execution retains its existing port checks. Positively
+identified unrelated editor projects may continue running, including editors
+using shared installed-engine binaries. Inspection remains strict: unknown or
+inaccessible project identities, overlapping project/source/output paths,
+junction targets, plugin directories, or runtime redirects block launch. The
+bounded filesystem inspection reads directory identities and project descriptors,
+not asset contents; exhausting its budget fails closed.
+The 10,000-directory budget counts unique canonical directories per editor;
+repeated aliases and cycles do not consume extra entries. Explicit redirects are
+checked before crawling. Returned diagnostics (also attached to rejected checks)
+contain only counts of unique directories, repeated aliases, reparses and distinct
+external targets, plus a fixed category and reason. Large unrelated projects can
+still exceed the bound; diagnostics do not authorize skipping directories.
+
+An atomic per-stage `.owned-authoring.lock` covers preflight, execution, source
+validation and retained evidence. Sequential author then export is supported;
+concurrent callers cannot use the same stage. Only the matching invocation token
+can release the lock. Stale or changed locks are retained for manual inspection,
+never automatically stolen or recursively removed. Timeout cleanup remains scoped
+to the bounded runner's child process tree, not every Unreal process. Controlled
+runtime qualification must inspect its owned child identity and descendants;
+unrelated editor survival is expected, not a cleanup failure.
+
 `server/fixtures/host-source-files.json` is the independently maintained complete
 input list. Source additions/deletions require reviewing this list. Staging
 checks exact membership, case collisions and symlink/junction aliases, and hashes
