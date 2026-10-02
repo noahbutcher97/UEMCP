@@ -7,24 +7,33 @@
 // Exit: 0 pass · 1 failures/not-run · 2 preflight/config · 3 timeout · 4 no tests
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createProcessRunner } from './deployment/process-runner.mjs';
+import { normalizeComparisonPath } from './project-identity.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { resolveEngineRoot } from './engine-fixtures.mjs';
-import { parseAutomationReport, reportExitCode, summarizeReport, NativeReportError } from './native-test-report.mjs';
+import { parseAutomationReport, reportExitCode, reportProblems, summarizeReport, NativeReportError } from './native-test-report.mjs';
+import { loadTestProfile, collectSourceState, collectFixtureIdentity, validateExecution } from './execution-manifest.mjs';
 import { readProjectTargets } from './project-targets.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function parseRunnerArgs(argv) {
-  const out = { profile: null, target: null, uproject: null, engineRoot: null, filter: 'UEMCP', timeoutMs: DEFAULT_TIMEOUT_MS, reportDir: null, dryRun: false, help: false, extraArgs: [] };
+  const out = { profile: null, testProfile: null, target: null, uproject: null, engineRoot: null, filter: 'UEMCP', timeoutMs: DEFAULT_TIMEOUT_MS, reportDir: null, dryRun: false, help: false, extraArgs: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--profile') out.profile = argv[++i];
+    else if (a === '--test-profile') {
+      const value = argv[++i];
+      if (!value || value.startsWith('--')) throw new Error('--test-profile needs a value');
+      out.testProfile = value;
+    }
     else if (a === '--target') out.target = argv[++i];
     else if (a === '--uproject') out.uproject = argv[++i];
     else if (a === '--engine-root') out.engineRoot = argv[++i];
@@ -133,52 +142,108 @@ function pickTarget(args) {
   return candidates[0];
 }
 
-export async function main(argv, { runner = createProcessRunner({ defaultOutputLimitBytes: 8 * 1024 * 1024 }), env = process.env } = {}) {
+// Bind only for preflight, close immediately; never connect to or stop another listener.
+export function nativePortAvailable(port = 55558) {
+  return new Promise(resolveResult => {
+    const probe = createServer();
+    probe.once('error', () => resolveResult(false));
+    probe.listen({ port, host: '127.0.0.1', exclusive: true }, () => probe.close(() => resolveResult(true)));
+  });
+}
+
+export async function main(argv, { runner = createProcessRunner({ defaultOutputLimitBytes: 8 * 1024 * 1024 }), env = process.env, listEditors = listEditorProcesses, portAvailable = nativePortAvailable } = {}) {
   const args = parseRunnerArgs(argv);
   if (args.help) {
-    console.log('Usage: run-native-tests.bat [--profile <name>] [--target <alias>] [--uproject <path>] [--engine-root <path>] [--filter <prefix>] [--timeout-ms <n>] [--report-dir <dir>] [--dry-run] [--extra-arg <value>]...');
+    console.log('Usage: run-native-tests.bat [--profile <name>] [--test-profile <name>] [--target <alias>] [--uproject <path>] [--engine-root <path>] [--filter <prefix>] [--timeout-ms <n>] [--report-dir <dir>] [--dry-run] [--extra-arg <value>]...');
     return 0;
   }
-  const target = pickTarget(args);
-  const uprojectPath = target.uprojectPath;
-  if (!existsSync(uprojectPath)) { console.error(`[ERROR] uproject not found: ${uprojectPath}`); return 2; }
-  const uproject = JSON.parse(readFileSync(uprojectPath, 'utf8'));
-  const engineRoot = args.engineRoot ?? resolveEngineRootForProject({ engineAssociation: uproject.EngineAssociation, env, existsImpl: existsSync });
-  if (!engineRoot) { console.error(`[ERROR] no engine root: set UE_ENGINE_ROOT or pass --engine-root (EngineAssociation=${uproject.EngineAssociation})`); return 2; }
-  const dll = join(dirname(uprojectPath), 'Plugins', 'UEMCP', 'Binaries', 'Win64', 'UnrealEditor-UEMCP.dll');
-  if (!existsSync(dll)) { console.error(`[ERROR] plugin DLL not built: ${dll} (run Build.bat; verify-deploy.bat reports NEEDS-BUILD)`); return 2; }
+  const testProfile = args.testProfile ? loadTestProfile(args.testProfile) : null;
+  if (testProfile && (testProfile.runner !== 'native' || testProfile.suites.length !== 1 || testProfile.suites[0].name !== 'native')) throw new Error('--test-profile must select a native profile with one native suite');
+  const expectedNames = testProfile ? testProfile.suites.flatMap(suite => suite.cases) : null;
+  // A required profile chooses its own complete filter unless explicitly overridden.
+  if (expectedNames && !argv.includes('--filter')) args.filter = expectedNames.join('+');
+  const sourceState = testProfile ? collectSourceState(REPO_ROOT) : null;
+  const fixtureIdentity = testProfile ? collectFixtureIdentity(REPO_ROOT, testProfile.fixturePaths) : null;
   const reportDir = args.reportDir ? resolve(args.reportDir) : mkdtempSync(join(tmpdir(), 'uemcp-native-'));
-  const command = buildEditorCommand({ engineRoot, uprojectPath, filter: args.filter, reportDir, extraArgs: args.extraArgs });
-  console.log(`Target : ${uprojectPath}${target.targetAlias ? ` (${target.targetAlias})` : ''}`);
-  console.log(`Engine : ${engineRoot}`);
-  console.log(`Filter : ${args.filter}`);
-  console.log(`Report : ${reportDir}`);
-  if (args.dryRun) { console.log(`Command: "${command.file}" ${command.args.map(a => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`); return 0; }
-
-  const editors = listEditorProcesses();
-  if (editors.length > 0) console.warn(`[WARN] ${editors.length} UnrealEditor process(es) running; the headless instance will share port 55558 with them.`);
-  const started = Date.now();
-  // process-runner: run(executable, args, { cwd, env, timeoutMs, outputLimitBytes, stdin })
-  // resolves { status: 'exited' | 'timed_out' | 'spawn_failed' | ..., exitCode, signal, stdout, stderr }.
-  // executable and cwd must be absolute paths.
-  const result = await runner.run(command.file, command.args, { timeoutMs: args.timeoutMs, cwd: dirname(uprojectPath) });
-  console.log(`Editor ${result.status}, exit ${result.exitCode ?? 'null'}, after ${Math.round((Date.now() - started) / 1000)}s`);
-  if (result.status === 'timed_out') { console.error(`[ERROR] timed out after ${args.timeoutMs}ms; process tree killed`); return 3; }
-  if (result.status === 'spawn_failed') { console.error(`[ERROR] could not start ${command.file}: ${result.stderr}`); return 2; }
-
-  const indexPath = join(reportDir, 'index.json');
-  let parsed;
-  try { parsed = loadReport(indexPath, started); }
-  catch (e) {
-    if (!(e instanceof NativeReportError)) throw e;
-    const stderrDetail = e.code === 'REPORT_MISSING' ? `\nlast stderr:\n${(result.stderr ?? '').slice(-2000)}` : '';
-    console.error(`[ERROR] ${e.code}: ${e.message}${stderrDetail}`);
-    return 4;
+  let started = Date.now();
+  let result = { status: 'not_started', exitCode: null };
+  let parsed = { tests: [] };
+  function finish(exitCode, problems = []) {
+    if (testProfile && !args.dryRun) {
+      const evidence = {
+        schemaVersion: 1, profile: testProfile.name, manifestDigest: testProfile.manifestDigest,
+        sourceState, fixtureIdentity,
+        suites: [{ name: 'native', state: exitCode === 0 ? 'passed' : 'failed', cases: parsed.tests.map(test => ({
+          name: test.path, state: test.state === 'Success' && test.hasFullPath && !test.errors.length && !test.skips.length ? 'passed' : 'failed',
+        })) }],
+        editor: { status: result.status, exitCode: result.exitCode },
+        startedAt: new Date(started).toISOString(), completedAt: new Date().toISOString(),
+      };
+      try {
+        problems.push(...validateExecution(evidence, testProfile, collectSourceState(REPO_ROOT)));
+        if (collectFixtureIdentity(REPO_ROOT, testProfile.fixturePaths).digest !== fixtureIdentity.digest) problems.push('fixtures changed during native execution');
+      } catch (error) { problems.push(`evidence validation failed: ${error.message}`); }
+      if (problems.length) exitCode = exitCode || 1;
+      evidence.suites[0].state = exitCode === 0 ? 'passed' : 'failed';
+      evidence.problems = problems;
+      evidence.exitCode = exitCode;
+      mkdirSync(reportDir, { recursive: true });
+      writeFileSync(join(reportDir, 'execution-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+    }
+    for (const problem of problems) console.error(`[ERROR] ${problem}`);
+    if (!testProfile && !args.reportDir && exitCode === 0) rmSync(reportDir, { recursive: true, force: true });
+    return exitCode;
   }
-  for (const line of summarizeReport(parsed)) console.log(line);
-  const exitCode = reportExitCode(parsed);
-  if (!args.reportDir && exitCode === 0) rmSync(reportDir, { recursive: true, force: true });
-  return exitCode;
+  try {
+    const target = pickTarget(args);
+    const uprojectPath = target.uprojectPath;
+    if (!existsSync(uprojectPath)) { console.error(`[ERROR] uproject not found: ${uprojectPath}`); return finish(2, ['native preflight failed']); }
+    const uproject = JSON.parse(readFileSync(uprojectPath, 'utf8'));
+    const engineRoot = args.engineRoot ?? resolveEngineRootForProject({ engineAssociation: uproject.EngineAssociation, env, existsImpl: existsSync });
+    if (!engineRoot) { console.error(`[ERROR] no engine root: set UE_ENGINE_ROOT or pass --engine-root (EngineAssociation=${uproject.EngineAssociation})`); return finish(2, ['native preflight failed']); }
+    const dll = join(dirname(uprojectPath), 'Plugins', 'UEMCP', 'Binaries', 'Win64', 'UnrealEditor-UEMCP.dll');
+    if (!existsSync(dll)) { console.error(`[ERROR] plugin DLL not built: ${dll} (run Build.bat; verify-deploy.bat reports NEEDS-BUILD)`); return finish(2, ['native preflight failed']); }
+    const command = buildEditorCommand({ engineRoot, uprojectPath, filter: args.filter, reportDir, extraArgs: args.extraArgs });
+    console.log(`Target : ${uprojectPath}${target.targetAlias ? ` (${target.targetAlias})` : ''}`);
+    console.log(`Engine : ${engineRoot}`);
+    console.log(`Filter : ${args.filter}`);
+    console.log(`Report : ${reportDir}`);
+    if (args.dryRun) { console.log(`Command: "${command.file}" ${command.args.map(a => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`); return 0; }
+
+    const editors = listEditors({ strict: Boolean(testProfile) });
+    if (testProfile && editors.some(editor => !editor.uprojectPath || normalizeComparisonPath(editor.uprojectPath) === normalizeComparisonPath(uprojectPath))) {
+      console.error('[ERROR] required native run refuses an existing editor for this project or an editor with unknown project identity'); return finish(2, ['existing or unidentified editor']);
+    }
+    if (!testProfile && editors.length > 0) console.warn(`[WARN] ${editors.length} UnrealEditor process(es) running; the headless instance will share port 55558 with them.`);
+    if (testProfile && !await portAvailable()) { console.error('[ERROR] required native run refuses occupied or unavailable port 55558'); return finish(2, ['occupied or unavailable port 55558']); }
+    // Required runs must own a new report; timestamp slack alone can accept a
+    // previous invocation completed within the same filesystem clock tick.
+    const indexPath = join(reportDir, 'index.json');
+    if (testProfile && existsSync(indexPath)) {
+      return finish(4, [`REPORT_PREEXISTING: required run refuses existing report at ${indexPath}`]);
+    }
+    started = Date.now();
+    // process-runner: run(executable, args, { cwd, env, timeoutMs, outputLimitBytes, stdin })
+    // resolves { status: 'exited' | 'timed_out' | 'spawn_failed' | ..., exitCode, signal, stdout, stderr }.
+    // executable and cwd must be absolute paths.
+    result = await runner.run(command.file, command.args, { timeoutMs: args.timeoutMs, cwd: dirname(uprojectPath) });
+    console.log(`Editor ${result.status}, exit ${result.exitCode ?? 'null'}, after ${Math.round((Date.now() - started) / 1000)}s`);
+    if (result.status === 'timed_out') { console.error(`[ERROR] timed out after ${args.timeoutMs}ms; process tree killed`); return finish(3, ['editor timed out']); }
+    if (result.status === 'spawn_failed') { console.error(`[ERROR] could not start ${command.file}: ${result.stderr}`); return finish(2, ['editor spawn failed']); }
+
+    try { parsed = loadReport(indexPath, started); }
+    catch (e) {
+      if (!(e instanceof NativeReportError)) throw e;
+      const stderrDetail = e.code === 'REPORT_MISSING' ? `\nlast stderr:\n${(result.stderr ?? '').slice(-2000)}` : '';
+      console.error(`[ERROR] ${e.code}: ${e.message}${stderrDetail}`);
+      return finish(4, [`${e.code}: ${e.message}`]);
+    }
+    for (const line of summarizeReport(parsed)) console.log(line);
+    const problems = reportProblems(parsed, { expectedNames, editorResult: result });
+    return finish(reportExitCode(parsed, { expectedNames, editorResult: result }), problems);
+  } catch (error) {
+    return finish(2, [`native runner error: ${error.message}`]);
+  }
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;

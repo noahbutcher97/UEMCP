@@ -1,0 +1,110 @@
+{
+	"schema_version": "oracle-a-v2",
+	"engine_version": "5.6.1-44394996+++UE5+Release-5.6",
+	"asset_path": "/Game/Serialization/BP_OwnedLink",
+	"graphs":
+	{
+		"OwnedGraph":
+		{
+			"nodes":
+			{
+				"00000001ABCDEF1280000000FFFFFFFF":
+				{
+					"class_name": "K2Node_CustomEvent",
+					"pins":
+					{
+						"10000000000000010000000300000004":
+						{
+							"name": "OutputDelegate",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"10000000000000020000000300000004":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": [
+								{
+									"node_guid": "12345678000000020000000300000004",
+									"pin_id": "10000001000000010000000300000004"
+								}
+							]
+						}
+					}
+				},
+				"12345678000000020000000300000004":
+				{
+					"class_name": "K2Node_CallFunction",
+					"pins":
+					{
+						"10000001000000010000000300000004":
+						{
+							"name": "execute",
+							"direction": "EGPD_Input",
+							"linked_to": [
+								{
+									"node_guid": "00000001ABCDEF1280000000FFFFFFFF",
+									"pin_id": "10000000000000020000000300000004"
+								}
+							]
+						},
+						"10000001000000020000000300000004":
+						{
+							"name": "then",
+							"direction": "EGPD_Output",
+							"linked_to": []
+						},
+						"10000001000000030000000300000004":
+						{
+							"name": "self",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000040000000300000004":
+						{
+							"name": "WorldContextObject",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000050000000300000004":
+						{
+							"name": "InString",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000060000000300000004":
+						{
+							"name": "bPrintToScreen",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000070000000300000004":
+						{
+							"name": "bPrintToLog",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000080000000300000004":
+						{
+							"name": "TextColor",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"10000001000000090000000300000004":
+						{
+							"name": "Duration",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						},
+						"100000010000000A0000000300000004":
+						{
+							"name": "Key",
+							"direction": "EGPD_Input",
+							"linked_to": []
+						}
+					}
+				}
+			}
+		}
+	}
+}

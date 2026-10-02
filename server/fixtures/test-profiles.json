@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "scope": "Bounded local foundation profiles only; remaining inventory and consumer obligations are retained, not qualified by these profiles.",
+  "profiles": {
+    "node-foundation": {
+      "runner": "node",
+      "capabilities": ["engine-free"],
+      "fixturePaths": [],
+      "suites": [
+        {
+          "name": "test-rotation-timeouts.mjs",
+          "cases": [
+            "ordinary rotation files retain the five-minute fail-loud budget",
+            "only the two Windows integration-heavy suites receive extended budgets",
+            "test-client-transaction.mjs receives the bounded eight-minute integration budget",
+            "test-deployment-contracts.mjs receives the bounded eight-minute integration budget",
+            "fixture-isolated adapter tests retain the default budget",
+            "other unlisted test files use the default budget",
+            "timeout policy rejects non-basename file identifiers"
+          ]
+        },
+        {
+          "name": "test-rotation-failure-details.mjs",
+          "cases": [
+            "failure detail extraction ignores chatter and deduplicates stderr/stdout reports",
+            "failure detail extraction bounds the number of reported assertions",
+            "failure detail extraction bounds individual assertion text"
+          ]
+        }
+      ]
+    },
+    "owned-serialization": {
+      "runner": "node",
+      "scope": "UE 5.6 modern saved-package slice only. UE 5.3 authoring is blocked by existing plugin API incompatibility; legacy and consumer obligations remain unqualified by this profile.",
+      "capabilities": ["engine-free", "owned-serialization"],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset"
+      ],
+      "suites": [{
+        "name": "test-owned-serialization.mjs",
+        "cases": [
+          "ue5.6-owned-v1: independent UE oracle agrees with saved topology",
+          "ue5.6-owned-v1: rejects missing corruption",
+          "ue5.6-owned-v1: rejects hash corruption",
+          "ue5.6-owned-v1: rejects oracle corruption"
+        ]
+      }]
+    },
+    "native-smoke": {
+      "runner": "native",
+      "capabilities": ["engine", "nullrhi"],
+      "fixturePaths": [],
+      "suites": [{"name": "native", "cases": ["UEMCP.MCPResponseBuilder.BuildSuccess"]}]
+    }
+  }
+}

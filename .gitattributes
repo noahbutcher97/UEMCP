@@ -24,3 +24,6 @@ server/package-lock.json text eol=lf
 dist/deploy-uemcp.mjs text eol=lf
 dist/deploy-uemcp.manifest.json text eol=lf
 dist/THIRD_PARTY_NOTICES.txt text eol=lf
+# Preserve immutable UE package and reference bytes on every checkout platform.
+server/fixtures/serialization/*/Content/**/*.uasset -text
+server/fixtures/serialization/*/*.json -text whitespace=cr-at-eol

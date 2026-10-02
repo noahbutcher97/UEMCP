@@ -237,6 +237,9 @@ export class TestRunner {
   }
 
   assert(condition, testName, detail) {
+    if (process.env.UEMCP_CASE_EVIDENCE === '1') {
+      console.log(`UEMCP_CASE ${JSON.stringify({ name: testName, state: condition ? 'passed' : 'failed' })}`);
+    }
     if (condition) {
       console.log(`  ✓ ${testName}`);
       this.passed++;

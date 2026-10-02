@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "id": "ue5.6-owned-v1",
+  "ownership": "Original UEMCP test graph authored from repository source; no copied content",
+  "rights": "Original repository test content; no additional license grant is asserted by this manifest",
+  "oracleSemantics": "independent UE reload; exact node GUID and unique pin name/direction topology",
+  "engineBuild": {
+    "MajorVersion": 5,
+    "MinorVersion": 6,
+    "PatchVersion": 1,
+    "Changelist": 44394996,
+    "CompatibleChangelist": 43139311,
+    "IsLicenseeVersion": 0,
+    "IsPromotedBuild": 1,
+    "BranchName": "++UE5+Release-5.6"
+  },
+  "oracleEngineVersion": "5.6.1-44394996+++UE5+Release-5.6",
+  "provenance": {
+    "invocationId": "47261c1d-54f1-476e-a483-99ed57d35203",
+    "hostManifestSha256": "800c8c4e9b7e2bc75e250975ec9f376b02a01ca4598dc1c6f17369f06cae6584",
+    "sourceHead": "65d2f1720ae8ba089d6c021f748c28f02ba5cf0f",
+    "sourceDirty": true,
+    "sourcePatchSha256": "4c665924b2ed3a07d563c9712d321fe826d7b9cfc210709f63daf266f1718999",
+    "engineBuildSha256": "b6a16a262d0136d1812f134ebd83e81138546dcc705f5f088a96702c970d24a0",
+    "allowlistSha256": "2ba03204fcb616ac597088a78b1ebd3182c6cc3dab5b6e216308511d36950b5d"
+  },
+  "savedPackage": {
+    "legacyFileVersion": -9,
+    "fileVersionUE4": 522,
+    "fileVersionUE5": 1017,
+    "fileVersionLicenseeUE": 0,
+    "packageFlags": 262144,
+    "customVersions": [
+      {
+        "key": "3cc15e37fb48e406f08400b57e712a26",
+        "version": 4
+      },
+      {
+        "key": "86181d60844f64acded316aad6c7ea0d",
+        "version": 207
+      },
+      {
+        "key": "81d57d69ab414fe6ec514aaa28b6b7be",
+        "version": 121
+      },
+      {
+        "key": "22d5549cbe4f26a846072194d082b461",
+        "version": 44
+      },
+      {
+        "key": "e432d8b00d4f891fb77ecfaca24afd36",
+        "version": 10
+      },
+      {
+        "key": "3f74fccf8044b043df14919373201d17",
+        "version": 37
+      },
+      {
+        "key": "425e9bd8464dbd24a8ac1284791764df",
+        "version": 56
+      },
+      {
+        "key": "ed68b0e4e94294f40bda31a241bb462e",
+        "version": 40
+      }
+    ]
+  },
+  "saveFlags": [
+    "SAVE_NoError"
+  ],
+  "serialization": "uncooked editor package; engine default versioned properties",
+  "dependencies": "Engine script classes only; no content dependencies",
+  "sourceHashes": {
+    "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp": "d4d35153696589073f02e1a7b4940853bed7a2faf1ff6e59152fcdcfca17e56a",
+    "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.h": "d5604859e3e102a97eca321594f1f137ce51a5d32164db1d50bba3e6e7eeca2b",
+    "plugin/UEMCP/Source/UEMCP/Private/Commandlets/EdgeOnlyBPSerializer.cpp": "96255a55280353cfdef23e45101ecc7054dbddaf23821a7b8acd21cea1c9834b",
+    "plugin/UEMCP/Source/UEMCP/Private/Commandlets/DumpBPGraphCommandlet.cpp": "24a61da03399eb1e2ccfda3b9093233e5383f2c2caaa68e6f216f392b6421ef0"
+  },
+  "files": {
+    "Content/Serialization/BP_OwnedLink.uasset": {
+      "size": 17405,
+      "sha256": "9f4e00c0d98409f42a689cab204bb10d140452b3586af0e741e23852309e56e6"
+    },
+    "oracle.json": {
+      "size": 2562,
+      "sha256": "08365b11b6c8cb62ed1b892a1e68559d6b1dd958eae1ae75131c1f87534ecef4"
+    }
+  }
+}

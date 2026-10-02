@@ -23,8 +23,8 @@ export function parseAutomationReport(json) {
       .map(e => e.event.message);
     const skips = (entry.entries ?? [])
       .map(e => e?.event?.message)
-      .filter(m => typeof m === 'string' && m.startsWith('skipped:'));
-    return { name: entry.testDisplayName ?? path, path, state, errors, skips };
+      .filter(m => typeof m === 'string' && /^\s*skipped:/i.test(m));
+    return { hasFullPath: typeof entry.fullTestPath === 'string' && entry.fullTestPath.length > 0, name: entry.testDisplayName ?? path, path, state, errors, skips };
   });
   const passed = tests.filter(x => x.state === 'Success').length;
   const failed = tests.filter(x => x.state === 'Fail').length;
@@ -39,7 +39,7 @@ export function summarizeReport(parsed) {
     const skips = test.skips ?? [];
     skipCount += skips.length;
     const skipSuffix = skips.map(message => ` (skip: ${message})`).join('');
-    lines.push(`${test.state === 'Success' ? 'PASS' : 'FAIL'} ${test.path}${skipSuffix}`);
+    lines.push(`${test.state === 'Success' && !test.errors.length ? 'PASS' : 'FAIL'} ${test.path}${skipSuffix}`);
     for (const message of test.errors) lines.push(`    ${message}`);
   }
   lines.push(`Native tests: ${parsed.passed} passed, ${parsed.failed} failed, ${parsed.notRun} not run`);
@@ -47,7 +47,29 @@ export function summarizeReport(parsed) {
   return lines;
 }
 
-export function reportExitCode(parsed) {
+// Required profiles compare complete paths, never display-name aliases.
+export function reportProblems(parsed, { expectedNames = null, editorResult = null } = {}) {
+  const problems = [];
+  if (editorResult && (editorResult.status !== 'exited' || editorResult.exitCode !== 0)) {
+    problems.push(`editor did not exit successfully (${editorResult.status}, ${editorResult.exitCode})`);
+  }
+  const seen = new Set();
+  for (const test of parsed.tests) {
+    if (expectedNames && !test.hasFullPath) problems.push(`missing fullTestPath: ${test.path}`);
+    if (expectedNames && seen.has(test.path)) problems.push(`duplicate test: ${test.path}`);
+    seen.add(test.path);
+    if (test.state !== 'Success') problems.push(`${test.path}: ${test.state}`);
+    if (test.errors.length) problems.push(`${test.path}: Error events`);
+    if (expectedNames && test.skips.length) problems.push(`${test.path}: labelled skip`);
+    if (expectedNames && !expectedNames.includes(test.path)) problems.push(`unexpected test: ${test.path}`);
+  }
+  if (expectedNames) {
+    for (const name of expectedNames) if (!seen.has(name)) problems.push(`missing required test: ${name}`);
+  }
+  return problems;
+}
+
+export function reportExitCode(parsed, options = {}) {
   if (parsed.total === 0) return 4;
-  return parsed.failed === 0 && parsed.notRun === 0 ? 0 : 1;
+  return reportProblems(parsed, options).length === 0 ? 0 : 1;
 }
