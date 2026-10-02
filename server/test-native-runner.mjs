@@ -2,13 +2,14 @@
 // parser plus the runner CLI's pure helpers (buildEditorCommand,
 // resolveEngineRootForProject, parseRunnerArgs).
 // Run: node test-native-runner.mjs
-import { readFileSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listEditorProcesses } from './editor-processes.mjs';
 import { TestRunner } from './test-helpers.mjs';
 import { parseAutomationReport, summarizeReport, reportExitCode } from './native-test-report.mjs';
-import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs, stripBom, loadReport, applyExtraArgs } from './run-native-tests.mjs';
+import { buildEditorCommand, resolveEngineRootForProject, parseRunnerArgs, stripBom, loadReport, applyExtraArgs, main } from './run-native-tests.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = name => JSON.parse(readFileSync(join(here, 'fixtures', 'native-tests', name), 'utf8'));
@@ -108,6 +109,119 @@ try {
   t.assert(badErr?.code === 'REPORT_UNREADABLE', 'loadReport on invalid JSON throws REPORT_UNREADABLE');
 } finally {
   rmSync(scratchDir, { recursive: true, force: true });
+}
+
+// Required full-name contract, including false-green mutations of a real report.
+const required = ok.tests.map(test => test.path);
+const requiredOptions = { expectedNames: required };
+t.assert(reportExitCode(ok, requiredOptions) === 0, 'complete required report passes');
+for (const [label, mutate] of [
+  ['missing', tests => tests.slice(1)],
+  ['duplicate', tests => [...tests, tests[0]]],
+  ['NotRun', tests => [{ ...tests[0], state: 'NotRun' }, ...tests.slice(1)]],
+  ['labelled skip', tests => [{ ...tests[0], skips: ['skipped: unavailable'] }, ...tests.slice(1)]],
+  ['Error on Success', tests => [{ ...tests[0], errors: ['fatal assertion'] }, ...tests.slice(1)]],
+]) {
+  const tests = mutate(ok.tests);
+  t.assert(reportExitCode({ ...ok, tests, total: tests.length }, requiredOptions) === 1, `required report rejects ${label}`);
+}
+t.assert(reportExitCode(skips) === 0, 'optional legacy mode still exposes and permits labelled skips');
+t.assert(reportExitCode(ok, { editorResult: { status: 'exited', exitCode: 7 } }) === 1, 'nonzero editor exit defeats a good report');
+t.assert(reportExitCode(ok, { editorResult: { status: 'signaled', exitCode: null } }) === 1, 'abnormal editor termination defeats a good report');
+const separateProfiles = parseRunnerArgs(['--profile', 'target-selection', '--test-profile', 'native-smoke']);
+t.assert(separateProfiles.profile === 'target-selection' && separateProfiles.testProfile === 'native-smoke', 'test profile does not repurpose target profile');
+let missingProfile = false;
+try { parseRunnerArgs(['--test-profile']); } catch { missingProfile = true; }
+t.assert(missingProfile, 'test profile needs an explicit value');
+
+const displayOnly = parseAutomationReport({ tests: [{ testDisplayName: 'UEMCP.MCPResponseBuilder.BuildSuccess', state: 'Success' }] });
+t.assert(reportExitCode(displayOnly, { expectedNames: ['UEMCP.MCPResponseBuilder.BuildSuccess'] }) === 1, 'required identity rejects display-name-only records');
+t.assert(reportExitCode(displayOnly) === 0, 'optional report retains display-name fallback');
+for (const [label, response] of [
+  ['failed CIM query', { status: 1, stdout: '', stderr: '' }],
+  ['nonterminating CIM error', { status: 0, stdout: '', stderr: 'access denied' }],
+  ['malformed process output', { status: 0, stdout: 'unreadable', stderr: '' }],
+]) {
+  let blocked = false;
+  try { listEditorProcesses({ strict: true, spawnSyncImpl: () => response }); } catch { blocked = true; }
+  t.assert(blocked, `strict enumeration rejects ${label}`);
+}
+let strictCommand;
+const noEditors = listEditorProcesses({ strict: true, spawnSyncImpl: (_file, args) => {
+  strictCommand = args.at(-1);
+  return { status: 0, stdout: '', stderr: '' };
+} });
+t.assert(noEditors.length === 0 && strictCommand.includes("$ErrorActionPreference = 'Stop'"), 'strict query makes PowerShell errors terminating');
+t.assert(listEditorProcesses({ spawnSyncImpl: () => ({ status: 1 }) }).length === 0, 'legacy failed enumeration behavior remains compatible');
+
+// Drive the actual runner through an injected process boundary; no engine runs.
+const fakeHost = mkdtempSync(join(tmpdir(), 'uemcp-native-fake-'));
+try {
+  const project = join(fakeHost, 'Fake.uproject');
+  writeFileSync(project, JSON.stringify({ EngineAssociation: '5.6' }));
+  const binaries = join(fakeHost, 'Plugins', 'UEMCP', 'Binaries', 'Win64');
+  mkdirSync(binaries, { recursive: true });
+  writeFileSync(join(binaries, 'UnrealEditor-UEMCP.dll'), 'fake preflight marker');
+  const reportDir = join(fakeHost, 'reports');
+  mkdirSync(reportDir);
+  const argv = ['--uproject', project, '--engine-root', fakeHost, '--report-dir', reportDir];
+  for (const [status, editorExit, expected] of [['exited', 0, 0], ['exited', 17, 1], ['timed_out', null, 3], ['spawn_failed', null, 2]]) {
+    const runner = { run: async () => {
+      writeFileSync(join(reportDir, 'index.json'), JSON.stringify(fixture('index.sample.json')));
+      return { status, exitCode: editorExit, stderr: '' };
+    } };
+    const code = await main(argv, { runner, listEditors: () => [], portAvailable: async () => true });
+    t.assert(code === expected, `runner preserves ${status}/${editorExit} result with good report`);
+  }
+  const smoke = { tests: [{ fullTestPath: 'UEMCP.MCPResponseBuilder.BuildSuccess', state: 'Success' }] };
+  const runner = { run: async () => {
+    writeFileSync(join(reportDir, 'index.json'), JSON.stringify(smoke));
+    return { status: 'exited', exitCode: 0 };
+  } };
+  rmSync(join(reportDir, 'index.json'), { force: true });
+  const code = await main([...argv, '--test-profile', 'native-smoke'], { runner, listEditors: () => [], portAvailable: async () => true });
+  t.assert(code === 0, 'required smoke profile succeeds through runner');
+  const evidence = JSON.parse(readFileSync(join(reportDir, 'execution-evidence.json'), 'utf8'));
+  t.assert(evidence.profile === 'native-smoke' && evidence.sourceState.digest && evidence.suites[0].cases.length === 1, 'required runner retains source-bound exact execution evidence');
+  const preexistingPath = join(reportDir, 'index.json');
+  const preexistingText = JSON.stringify(smoke);
+  writeFileSync(preexistingPath, preexistingText);
+  const recentReportTime = new Date(Date.now() - 1000);
+  utimesSync(preexistingPath, recentReportTime, recentReportTime);
+  t.assert(loadReport(preexistingPath, recentReportTime.getTime() + 1000).total === 1, 'negative control is inside legacy report timestamp tolerance');
+  let replayLaunched = false;
+  const replayCode = await main([...argv, '--test-profile', 'native-smoke'], {
+    runner: { run: async () => { replayLaunched = true; return { status: 'exited', exitCode: 0 }; } },
+    listEditors: () => [], portAvailable: async () => true,
+  });
+  const replayEvidence = JSON.parse(readFileSync(join(reportDir, 'execution-evidence.json'), 'utf8'));
+  t.assert(replayCode === 4 && !replayLaunched && replayEvidence.problems.some(problem => problem.includes('REPORT_PREEXISTING')), 'required runner rejects recent preexisting passing report before fake process launch');
+  t.assert(readFileSync(preexistingPath, 'utf8') === preexistingText, 'required freshness rejection preserves previous report bytes');
+  rmSync(preexistingPath);
+  const portConflict = await main([...argv, '--test-profile', 'native-smoke'], { runner, listEditors: () => [], portAvailable: async () => false });
+  t.assert(portConflict === 2, 'occupied native listener port blocks required launch');
+  for (const [label, fakeRun, expected] of [
+    ['timeout', async () => ({ status: 'timed_out', exitCode: null }), 3],
+    ['spawn failure', async () => ({ status: 'spawn_failed', exitCode: null }), 2],
+    ['runner throw', async () => { throw new Error('injected runner failure'); }, 2],
+    ['missing report', async () => { rmSync(join(reportDir, 'index.json'), { force: true }); return { status: 'exited', exitCode: 0 }; }, 4],
+    ['invalid report', async () => { writeFileSync(join(reportDir, 'index.json'), '{bad'); return { status: 'exited', exitCode: 0 }; }, 4],
+  ]) {
+    rmSync(join(reportDir, 'index.json'), { force: true });
+    const failureCode = await main([...argv, '--test-profile', 'native-smoke'], { runner: { run: fakeRun }, listEditors: () => [], portAvailable: async () => true });
+    const failure = JSON.parse(readFileSync(join(reportDir, 'execution-evidence.json'), 'utf8'));
+    t.assert(failureCode === expected && failure.exitCode === expected && failure.sourceState.digest && failure.suites[0].state === 'failed' && failure.problems.length > 0, `${label} retains source-bound failure evidence`);
+  }
+  let launched = false;
+  const enumerationFailure = await main([...argv, '--test-profile', 'native-smoke'], {
+    runner: { run: async () => { launched = true; } },
+    listEditors: ({ strict }) => { if (strict) throw new Error('enumeration unavailable'); return []; },
+  });
+  t.assert(enumerationFailure === 2 && !launched, 'strict enumeration failure prevents launch');
+  const conflict = await main([...argv, '--test-profile', 'native-smoke'], { runner, listEditors: () => [{ uprojectPath: project }] });
+  t.assert(conflict === 2, 'same-project editor blocks required launch');
+} finally {
+  rmSync(fakeHost, { recursive: true, force: true });
 }
 
 process.exit(t.summary() === 0 ? 0 : 1);

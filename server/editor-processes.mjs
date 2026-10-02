@@ -27,14 +27,21 @@ export function parseEditorProcessLines(stdout) {
 }
 
 /** Enumerate UnrealEditor* processes via PowerShell; return [{ pid, uprojectPath }]. */
-export function listEditorProcesses({ spawnSyncImpl = spawnSync } = {}) {
+export function listEditorProcesses({ spawnSyncImpl = spawnSync, strict = false } = {}) {
   const ps = spawnSyncImpl('powershell', [
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-Command',
-    "Get-CimInstance Win32_Process -Filter \"Name LIKE 'UnrealEditor%'\" | " +
+    (strict ? "$ErrorActionPreference = 'Stop'; " : "") + "Get-CimInstance Win32_Process -Filter \"Name LIKE 'UnrealEditor%'\" | " +
     "ForEach-Object { '{0}|{1}' -f $_.ProcessId, $_.CommandLine }",
   ], { encoding: 'utf8' });
+  if (strict) {
+    const lines = String(ps.stdout || '').split(/\r?\n/).filter(line => line.trim());
+    if (ps.status !== 0 || ps.error || String(ps.stderr || '').trim() || lines.some(line => !/^\d+\|/.test(line))) {
+      throw new Error('Could not reliably enumerate UnrealEditor processes');
+    }
+    return parseEditorProcessLines(ps.stdout);
+  }
   if (ps.status === 0) return parseEditorProcessLines(ps.stdout);
 
   const fallback = spawnSyncImpl('powershell', [

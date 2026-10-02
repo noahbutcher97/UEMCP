@@ -41,6 +41,7 @@ import {
 } from './rotation-oracle-freshness.mjs';
 import { extractAssertionFailureDetails } from './rotation-failure-details.mjs';
 import { rotationFileTimeoutMs } from './rotation-timeouts.mjs';
+import { loadTestProfile, collectSourceState, collectFixtureIdentity, parseCaseEvidence, validateExecution, REPOSITORY_ROOT } from './execution-manifest.mjs';
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -71,10 +72,21 @@ const FLAG_JSON = args.has('--json');
 const FLAG_SNAPSHOT = args.has('--snapshot');
 const FLAG_INCLUDE_LIVE_GATED = args.has('--include-live-gated');
 const FLAG_HELP = args.has('--help') || args.has('-h');
+const profileIndex = process.argv.indexOf('--test-profile');
+let testProfile;
+if (profileIndex !== -1) {
+  try {
+    if (process.argv.filter(arg => arg === '--test-profile').length !== 1) throw new Error('Duplicate --test-profile');
+    testProfile = loadTestProfile(process.argv[profileIndex + 1]);
+    if (testProfile.runner !== 'node') throw new Error('Rotation requires a node profile');
+    if (FLAG_INCLUDE_LIVE_GATED) throw new Error('Explicit profiles cannot expand via --include-live-gated');
+  } catch (error) { console.error(error.message); process.exit(2); }
+}
 
 if (FLAG_HELP) {
   console.log('Usage: node run-rotation.mjs [--json] [--snapshot] [--include-live-gated]');
   console.log('  --json                Machine-readable JSON output');
+  console.log('  --test-profile NAME   Require exact suites and named cases from fixtures/test-profiles.json');
   console.log('  --snapshot            Write .test-rotation-snapshot.json with per-file counts');
   console.log('  --include-live-gated  Include test-m1-ping.mjs (requires editor on TCP:55558)');
   process.exit(0);
@@ -160,7 +172,7 @@ function runOne(file) {
   const result = spawnSync('node', [file], {
     cwd: SERVER_DIR,
     encoding: 'utf8',
-    env: process.env,
+    env: testProfile ? { ...process.env, UEMCP_CASE_EVIDENCE: '1' } : process.env,
     timeout: timeoutMs,
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -198,7 +210,9 @@ function tail(s, n = 5) {
 }
 
 function main() {
-  const files = discoverTestFiles();
+  const files = testProfile ? testProfile.suites.map(suite => suite.name) : discoverTestFiles();
+  const sourceState = testProfile ? collectSourceState(REPOSITORY_ROOT) : null;
+  const fixtureIdentity = testProfile ? collectFixtureIdentity(REPOSITORY_ROOT, testProfile.fixturePaths) : null;
   if (files.length === 0) {
     console.error(`No test-*.mjs files found in ${SERVER_DIR}`);
     process.exit(2);
@@ -274,6 +288,26 @@ function main() {
 
   const aggregate = { passed: aggPassed, failed: aggFailed, total: aggPassed + aggFailed };
   const oracleFreshness = collectOracleFreshness(results);
+  let executionEvidence;
+  let executionErrors = [];
+  if (testProfile) {
+    executionEvidence = {
+      schemaVersion: 1, profile: testProfile.name, manifestDigest: testProfile.manifestDigest,
+      sourceState, fixtureIdentity,
+      command: [process.execPath, ...process.argv.slice(1)],
+      suites: results.map(result => {
+        let cases = [];
+        try { cases = parseCaseEvidence(result.stdout); }
+        catch { executionErrors.push(`Malformed case evidence: ${result.file}`); }
+        const counts = result.counts;
+        const valid = result.kind === 'PASS' && counts?.total > 0 && counts.failed === 0 && counts.total === counts.passed && counts.total === cases.length && !result.oracleFreshness.length;
+        return { name: result.file, state: valid ? 'passed' : 'failed', cases, counts };
+      }),
+    };
+    executionErrors.push(...validateExecution(executionEvidence, testProfile, collectSourceState(REPOSITORY_ROOT)));
+    if (collectFixtureIdentity(REPOSITORY_ROOT, testProfile.fixturePaths).digest !== fixtureIdentity.digest) executionErrors.push('Fixture inputs changed during execution');
+    if (!FLAG_JSON) console.log(`Required profile ${testProfile.name}: ${executionErrors.length ? executionErrors.join('; ') : 'passed'}`);
+  }
 
   if (FLAG_JSON) {
     console.log(JSON.stringify({
@@ -287,6 +321,8 @@ function main() {
         elapsedMs: r.elapsedMs,
       })),
       aggregate,
+      executionEvidence,
+      executionErrors,
       oracleFreshnessCount: oracleFreshness.count,
       oracleFreshness: oracleFreshness.entries,
       importErrorCount: importErrors.length,
@@ -388,7 +424,7 @@ function main() {
     if (!FLAG_JSON) console.log(`Snapshot written to ${snapshotPath}\n`);
   }
 
-  const hadFailure = importErrors.length + assertionFailures.length + timeouts.length + crashes.length + noSummary.length > 0;
+  const hadFailure = executionErrors.length + importErrors.length + assertionFailures.length + timeouts.length + crashes.length + noSummary.length > 0;
   process.exit(hadFailure ? 1 : 0);
 }
 
