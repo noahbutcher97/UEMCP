@@ -1,17 +1,19 @@
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, symlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, symlinkSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepareFixtureHost, validateFixtureHost, runFixtureHostNative, main, ownedHostEngineArgs, prepareOwnedHostRuntime } from './prepare-fixture-host.mjs';
 import { createCanonicalScratchRoot, cleanupCanonicalScratchRoot, TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('fixture host');
-const scratch = createCanonicalScratchRoot('uemcp-host-stage-');
+const scratch = createCanonicalScratchRoot('uemcp-h-');
 const repoRoot = join(scratch, 'repo');
 const engineRoot = join(scratch, 'engine');
 const host = 'server/fixtures/uemcp-fixture/UEMCPFixture.uproject';
 const resource = 'plugin/UEMCP/Resources/data.bin';
-const files = [host, resource].sort();
+const config = 'server/fixtures/uemcp-fixture/Config/DefaultEngine.ini';
+const files = [host, resource, config].sort();
 const put = (path, bytes) => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, bytes); };
 let sourceDigest = 'initial';
 let counter = 0;
@@ -19,20 +21,106 @@ const options = () => ({ repoRoot, engineRoot, outputRoot: join(scratch, `stage-
 async function check(name, fn) { try { await fn(); t.assert(true, name); } catch (error) { t.assert(false, name, error.stack); } }
 try {
   put(join(repoRoot, host), '{}');
+  put(join(repoRoot, config), readFileSync(new URL('./fixtures/uemcp-fixture/Config/DefaultEngine.ini', import.meta.url)));
   put(join(repoRoot, resource), Buffer.from([0, 13, 10, 255]));
   put(join(repoRoot, 'server/fixtures/host-source-files.json'), JSON.stringify({ schemaVersion: 1, files }));
   put(join(engineRoot, 'Engine/Build/Build.version'), JSON.stringify({ MajorVersion: 5, MinorVersion: 6, PatchVersion: 1, Changelist: 42 }));
+  execFileSync('git', ['init', '-q', repoRoot]);
+  execFileSync('git', ['-C', repoRoot, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture']);
+  put(join(repoRoot, '.gitignore'), '/plugin/UEMCP/Binaries/\n/plugin/UEMCP/Intermediate/\n');
   await check('fresh stage preserves raw bytes and validates', async () => {
     const opts = options(); const stage = await prepareFixtureHost(opts);
-    assert.equal(stage.manifest.files.length, 2);
+    assert.equal(stage.manifest.files.length, 3);
     assert.deepEqual(readFileSync(join(opts.outputRoot, 'host/Plugins/UEMCP/Resources/data.bin')), Buffer.from([0, 13, 10, 255]));
     await validateFixtureHost(opts);
     await assert.rejects(prepareFixtureHost(opts), /fresh/);
   });
+  await check('canonical checkout generated plugin outputs are preserved but not staged', async () => {
+    // repoRoot is the synthetic repo beneath this suite's fresh scratch root.
+    const syntheticRepoRoot = join(scratch, 'repo');
+    assert.equal(repoRoot, syntheticRepoRoot);
+    assert.notEqual(syntheticRepoRoot.toLowerCase(), 'd:\\devtools\\uemcp');
+    // Match the observed checkout shape without copying its generated binaries.
+    const generated = [
+      ...['UnrealEditor-UEMCP.dll', 'UnrealEditor-UEMCP.pdb', 'UnrealEditor.modules'].map(name => `plugin/UEMCP/Binaries/Win64/${name}`),
+      ...Array.from({ length: 59 }, (_, i) => `plugin/UEMCP/Intermediate/Build/Win64/generated-${i}.obj`),
+    ];
+    const bytes = Buffer.from([0, 13, 10, 255, 42]);
+    try {
+      for (const file of generated) put(join(syntheticRepoRoot, file), bytes);
+      const opts = options(); const stage = await prepareFixtureHost(opts);
+      assert.deepEqual(stage.manifest.files.map(file => file.source).sort(), files);
+      for (const file of generated) {
+        assert.deepEqual(readFileSync(join(syntheticRepoRoot, file)), bytes);
+        assert.equal(existsSync(join(opts.outputRoot, 'host/Plugins/UEMCP', file.slice('plugin/UEMCP/'.length))), false);
+      }
+      await validateFixtureHost(opts);
+    } finally {
+      for (const file of generated) if (existsSync(join(syntheticRepoRoot, file))) unlinkSync(join(syntheticRepoRoot, file));
+    }
+  });
+
   await check('unexpected source addition fails reviewed membership', async () => {
     const path = join(repoRoot, 'plugin/UEMCP/new.cpp'); put(path, 'new');
     await assert.rejects(prepareFixtureHost(options()), /membership/); unlinkSync(path);
   });
+  const git = (...args) => execFileSync('git', ['-C', repoRoot, ...args], { stdio: 'pipe' });
+  await check('force-added generated source is rejected even when absent on disk', async () => {
+    const file = 'plugin/UEMCP/Binaries/forced.cpp'; put(join(repoRoot, file), 'tracked');
+    git('add', '-f', '--', file);
+    try {
+      await assert.rejects(prepareFixtureHost(options()), /Git tracked source/);
+      unlinkSync(join(repoRoot, file));
+      await assert.rejects(prepareFixtureHost(options()), /Git tracked source/);
+    } finally { git('rm', '--cached', '-f', '--', file); if (existsSync(join(repoRoot, file))) unlinkSync(join(repoRoot, file)); }
+  });
+  await check('HEAD-tracked generated source remains rejected after index deletion', async () => {
+    const file = 'plugin/UEMCP/Intermediate/previously-tracked.cpp';
+    const base = git('rev-parse', 'HEAD').toString().trim();
+    put(join(repoRoot, file), 'tracked'); git('add', '-f', '--', file);
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'tracked generated fixture');
+    git('rm', '--cached', '-f', '--', file);
+    try { await assert.rejects(prepareFixtureHost(options()), /Git tracked source/); }
+    finally { git('reset', '--soft', base); unlinkSync(join(repoRoot, file)); }
+  });
+
+  await check('allowlisted generated source is rejected', async () => {
+    const allow = join(repoRoot, 'server/fixtures/host-source-files.json');
+    put(allow, JSON.stringify({ schemaVersion: 1, files: [...files, 'plugin/UEMCP/Intermediate/required.cpp'] }));
+    try { await assert.rejects(prepareFixtureHost(options()), /cannot be allowlisted/); }
+    finally { put(allow, JSON.stringify({ schemaVersion: 1, files })); }
+  });
+  await check('generated root junction is rejected without traversing its target', async () => {
+    const root = join(repoRoot, 'plugin/UEMCP/Binaries'); const backup = root + '-backup';
+    renameSync(root, backup); symlinkSync(engineRoot, root, 'junction');
+    try { await assert.rejects(prepareFixtureHost(options()), /Symlink|alias/); }
+    finally { unlinkSync(root); renameSync(backup, root); }
+  });
+  await check('generated ordinary root descendants are not traversed or staged', async () => {
+    const link = join(repoRoot, 'plugin/UEMCP/Intermediate/outside'); symlinkSync(engineRoot, link, 'junction');
+    try { const opts = options(); await prepareFixtureHost(opts); assert.equal(existsSync(join(opts.outputRoot, 'host/Plugins/UEMCP/Intermediate')), false); }
+    finally { unlinkSync(link); }
+  });
+  await check('generated root must be an ordinary directory', async () => {
+    const root = join(repoRoot, 'plugin/UEMCP/Binaries'); const backup = root + '-backup';
+    renameSync(root, backup); put(root, 'not a directory');
+    try { await assert.rejects(prepareFixtureHost(options()), /ordinary directory/); }
+    finally { unlinkSync(root); renameSync(backup, root); }
+  });
+  await check('nested and similarly named output directories remain unexpected source', async () => {
+    for (const name of ['Source/Binaries/extra.cpp', 'BinariesBackup/extra.cpp', 'Resources/Intermediate/extra.cpp']) {
+      const path = join(repoRoot, 'plugin/UEMCP', name); put(path, 'unexpected');
+      try { await assert.rejects(prepareFixtureHost(options()), /membership/); }
+      finally { unlinkSync(path); }
+    }
+  });
+  await check('Git inspection failure refuses source staging', async () => {
+    const original = join(repoRoot, '.git'); const backup = join(repoRoot, '.git-disabled');
+    renameSync(original, backup);
+    try { await assert.rejects(prepareFixtureHost(options()), /Cannot inspect Git/); }
+    finally { renameSync(backup, original); }
+  });
+
   await check('missing resource fails reviewed membership', async () => {
     unlinkSync(join(repoRoot, resource));
     await assert.rejects(prepareFixtureHost(options()), /membership/); put(join(repoRoot, resource), Buffer.from([0, 13, 10, 255]));
@@ -183,5 +271,5 @@ try {
     unlinkSync(join(opts.outputRoot, 'host', asset));
     await assert.rejects(validateFixtureHost(opts), /membership/);
   });
-} finally { cleanupCanonicalScratchRoot(scratch, 'uemcp-host-stage-'); }
+} finally { cleanupCanonicalScratchRoot(scratch, 'uemcp-h-'); }
 t.summary();
