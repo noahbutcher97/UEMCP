@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { writeFileSync, copyFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
-import { loadTestProfile, collectSourceState, collectFixtureIdentity, validateExecution, parseCaseEvidence, sha256 } from './execution-manifest.mjs';
+import { loadTestProfile, collectSourceState, collectFixtureIdentity, validateExecution, parseCaseEvidence, sha256, REPOSITORY_ROOT } from './execution-manifest.mjs';
 
 const runner = new TestRunner('Execution manifest contract');
 const root = createCanonicalScratchRoot('uemcp-execution-');
@@ -57,6 +57,30 @@ try {
   runner.assert(parseCaseEvidence('noise\nUEMCP_CASE {"name":"case","state":"passed"}\n').length === 1, 'structured case evidence ignores chatter');
   runner.assert(loadTestProfile('node-foundation').suites.length === 2, 'foundation remains a bounded explicit profile');
   runner.assert(loadTestProfile('native-smoke').runner === 'native', 'native smoke profile is separately selected');
+  const transportNames = ['ReceiveClassifier', 'ReceiveDeadlines', 'ReadOneRequestStopping', 'RequestReadResultMapping', 'FixtureSchema', 'SharedFixtures', 'DecoderBoundaries'].map(name => `UEMCP.Transport.${name}`);
+  const transportResource = 'plugin/UEMCP/Resources/Tests/tcp-transport-cases.json';
+  let transport;
+  try { transport = loadTestProfile('native-transport'); } catch { /* Assert missing profile without suppressing remaining controls. */ }
+  runner.assert(transport?.runner === 'native' && JSON.stringify(transport.suites) === JSON.stringify([{ name: 'native', cases: transportNames }]) && JSON.stringify(transport.fixturePaths) === JSON.stringify([transportResource]), 'native transport requires the exact seven cases and deployed transport resource');
+  const transportSource = readFileSync(new URL('../plugin/UEMCP/Source/UEMCP/Private/Tests/MCPServerTransportPolicyTests.cpp', import.meta.url), 'utf8');
+  const registrations = [...transportSource.matchAll(/"(UEMCP\.Transport\.[A-Za-z]+)"/g)].map(match => match[1]);
+  runner.assert(JSON.stringify(registrations) === JSON.stringify(transportNames), 'native transport expectations match existing C++ full-name registrations');
+  if (transport) {
+    const transportSourceState = collectSourceState(REPOSITORY_ROOT);
+    const transportEvidence = {
+      schemaVersion: 1, profile: transport.name, manifestDigest: transport.manifestDigest,
+      sourceState: transportSourceState, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, transport.fixturePaths),
+      suites: [{ name: 'native', state: 'passed', cases: transportNames.map(name => ({ name, state: 'passed' })) }],
+    };
+    runner.assert(validateExecution(transportEvidence, transport, transportSourceState).length === 0, 'transport evidence binds the complete raw resource and seven cases');
+    // Mutate only an in-memory evidence copy; never modify repository resources.
+    const tampered = structuredClone(transportEvidence);
+    const resourceBytes = readFileSync(new URL(`../${transportResource}`, import.meta.url));
+    tampered.fixtureIdentity.files[0].sha256 = sha256(Buffer.concat([resourceBytes, Buffer.from('\r\n')]));
+    tampered.fixtureIdentity.digest = sha256(JSON.stringify(tampered.fixtureIdentity.files));
+    runner.assert(validateExecution(tampered, transport, transportSourceState).some(error => error.startsWith('Fixture does not match source identity:')), 'transport rejects a self-consistent tampered resource against original source bytes');
+    await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, transport.fixturePaths)), /ENOENT/, 'transport missing resource is a hard failure');
+  }
   const owned = loadTestProfile('owned-serialization');
   runner.assert(owned.suites.length === 1 && owned.suites[0].cases.length === 4 && owned.fixturePaths.length === 3 && owned.fixturePaths.every(path => path.includes('/ue5.6-owned-v1/')), 'owned serialization requires four modern witnesses and all three modern corpus files');
   await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, owned.fixturePaths)), /ENOENT/, 'missing owned corpus is a hard prerequisite failure');

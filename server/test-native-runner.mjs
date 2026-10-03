@@ -6,6 +6,7 @@ import { readFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadTestProfile, sha256 } from './execution-manifest.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { TestRunner } from './test-helpers.mjs';
 import { parseAutomationReport, summarizeReport, reportExitCode } from './native-test-report.mjs';
@@ -154,6 +155,14 @@ const noEditors = listEditorProcesses({ strict: true, spawnSyncImpl: (_file, arg
 t.assert(noEditors.length === 0 && strictCommand.includes("$ErrorActionPreference = 'Stop'"), 'strict query makes PowerShell errors terminating');
 t.assert(listEditorProcesses({ spawnSyncImpl: () => ({ status: 1 }) }).length === 0, 'legacy failed enumeration behavior remains compatible');
 
+const transportProfile = loadTestProfile('native-transport');
+const transportNames = transportProfile.suites[0].cases;
+const transportReport = { tests: transportNames.map(fullTestPath => ({ fullTestPath, state: 'Success' })) };
+for (const name of transportNames) {
+  const missing = parseAutomationReport({ tests: transportReport.tests.filter(test => test.fullTestPath !== name) });
+  t.assert(reportExitCode(missing, { expectedNames: transportNames }) === 1, `transport rejects omission of ${name} despite six passing cases`);
+}
+
 // Drive the actual runner through an injected process boundary; no engine runs.
 const fakeHost = mkdtempSync(join(tmpdir(), 'uemcp-native-fake-'));
 try {
@@ -183,6 +192,31 @@ try {
   t.assert(code === 0, 'required smoke profile succeeds through runner');
   const evidence = JSON.parse(readFileSync(join(reportDir, 'execution-evidence.json'), 'utf8'));
   t.assert(evidence.profile === 'native-smoke' && evidence.sourceState.digest && evidence.suites[0].cases.length === 1, 'required runner retains source-bound exact execution evidence');
+  for (const [label, tests, editorExit, expected] of [
+    ['complete', transportReport.tests, 0, 0],
+    ['missing', transportReport.tests.slice(1), 0, 1],
+    ['duplicate', [...transportReport.tests, transportReport.tests[0]], 0, 1],
+    ['labelled skip', [{ ...transportReport.tests[0], entries: [{ event: { type: 'Info', message: 'skipped: fixture unavailable' } }] }, ...transportReport.tests.slice(1)], 0, 1],
+    ['nonzero exit', transportReport.tests, 19, 1],
+    ['zero cases', [], 0, 4],
+  ]) {
+    const transportReportDir = join(fakeHost, `transport-${label.replaceAll(' ', '-')}`);
+    mkdirSync(transportReportDir);
+    const transportCode = await main(['--uproject', project, '--engine-root', fakeHost, '--report-dir', transportReportDir, '--test-profile', 'native-transport'], {
+      runner: { run: async () => {
+        writeFileSync(join(transportReportDir, 'index.json'), JSON.stringify({ tests }));
+        return { status: 'exited', exitCode: editorExit };
+      } },
+      listEditors: () => [], portAvailable: async () => true,
+    });
+    const transportEvidence = JSON.parse(readFileSync(join(transportReportDir, 'execution-evidence.json'), 'utf8'));
+    t.assert(transportCode === expected && transportEvidence.exitCode === expected && transportEvidence.sourceState.digest && transportEvidence.profile === 'native-transport' && (expected === 0 ? transportEvidence.problems.length === 0 : transportEvidence.problems.length > 0), `transport runner ${label} retains correct source-bound outcome`);
+    if (label === 'complete') {
+      const resourcePath = transportProfile.fixturePaths[0];
+      const resourceHash = sha256(readFileSync(join(here, '..', resourcePath)));
+      t.assert(transportEvidence.fixtureIdentity.files.length === 1 && transportEvidence.fixtureIdentity.files[0].path === resourcePath && transportEvidence.fixtureIdentity.files[0].sha256 === resourceHash && JSON.stringify(transportEvidence.suites[0].cases.map(test => test.name)) === JSON.stringify(transportNames), 'transport runner retains exact seven names and raw shared-resource hash');
+    }
+  }
   const preexistingPath = join(reportDir, 'index.json');
   const preexistingText = JSON.stringify(smoke);
   writeFileSync(preexistingPath, preexistingText);
