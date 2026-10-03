@@ -66,6 +66,48 @@
         ]
       }]
     },
+    "owned-blueprint-exec": {
+      "runner": "node",
+      "scope": "Owned modern single-hop exec traversal and neighbor queries only. Private, legacy, branching, cycle, self-loop, data-flow, GUID-bridge and depth-truncation obligations remain retained and unqualified by this profile.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-blueprint-exec.mjs",
+          "cases": [
+            "owned exec: exact oracle chain at depths zero and one",
+            "owned exec: matching pin filter preserves exact chain",
+            "owned exec: unmatched pin filter yields only start",
+            "owned exec: terminal node yields only start",
+            "owned neighbors: event both matches oracle",
+            "owned neighbors: call both matches oracle",
+            "owned neighbors: event incoming matches oracle",
+            "owned neighbors: call incoming matches oracle",
+            "owned neighbors: event outgoing matches oracle",
+            "owned neighbors: call outgoing matches oracle",
+            "owned neighbors: default direction is both",
+            "owned neighbors: invalid direction is rejected",
+            "owned errors: bp_trace_exec unknown graph",
+            "owned errors: bp_trace_exec unknown node",
+            "owned errors: bp_neighbors unknown graph",
+            "owned errors: bp_neighbors unknown node",
+            "owned controls: rejects dropped edge",
+            "owned controls: rejects swapped pin endpoints",
+            "owned controls: rejects wrong node GUID",
+            "owned controls: rejects wrong edge kind",
+            "owned controls: rejects reversed edge direction",
+            "owned controls: missing fixture is a hard failure"
+          ]
+        }
+      ]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],

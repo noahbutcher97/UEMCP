@@ -45,3 +45,21 @@ host manifest, every staged source, reviewed allowlist and exact engine identity
 It retains the original invocation, source HEAD and dirty patch digest; later
 checkout edits are not falsely described as the authoring source. Input or
 verification failures never leave a partially finalized version directory.
+
+The separate `owned-blueprint-exec` profile exercises public offline dispatch
+against the existing UE oracle: the exact event-to-call chain at depths 0/1,
+matching and unmatched pin filters, terminal traversal, neighbor directions and
+endpoints, and invalid graph/node/direction responses. Run from `server`:
+
+```text
+node test-owned-blueprint-exec.mjs
+node run-rotation.mjs --test-profile owned-blueprint-exec --json
+```
+
+All 22 cases are required and the same three corpus files bind execution
+evidence. The suite validates provenance before querying its explicit owned
+root; it needs no project environment or installed engine. Mutation controls
+reject dropped edges, swapped pins, wrong node GUIDs, wrong edge kind and reversed edge direction.
+This single-hop graph does not qualify branching, cycles, self-loops, data-flow,
+GUID input bridging, depth truncation or genuine legacy packages. Existing
+consumer and synthetic compatibility witnesses remain unchanged.

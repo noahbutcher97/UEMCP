@@ -84,6 +84,25 @@ try {
   const owned = loadTestProfile('owned-serialization');
   runner.assert(owned.suites.length === 1 && owned.suites[0].cases.length === 4 && owned.fixturePaths.length === 3 && owned.fixturePaths.every(path => path.includes('/ue5.6-owned-v1/')), 'owned serialization requires four modern witnesses and all three modern corpus files');
   await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, owned.fixturePaths)), /ENOENT/, 'missing owned corpus is a hard prerequisite failure');
+  const ownedExec = loadTestProfile('owned-blueprint-exec');
+  runner.assert(ownedExec.runner === 'node' && ownedExec.suites.length === 1 && ownedExec.suites[0].name === 'test-owned-blueprint-exec.mjs' && ownedExec.suites[0].cases.length === 22 && JSON.stringify(ownedExec.fixturePaths) === JSON.stringify(owned.fixturePaths), 'owned exec requires its separate 22-case suite and immutable corpus identity');
+  const execSource = collectSourceState(REPOSITORY_ROOT);
+  const execEvidence = {
+    schemaVersion: 1, profile: ownedExec.name, manifestDigest: ownedExec.manifestDigest,
+    sourceState: execSource, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, ownedExec.fixturePaths),
+    suites: [{ name: 'test-owned-blueprint-exec.mjs', state: 'passed', cases: ownedExec.suites[0].cases.map(name => ({ name, state: 'passed' })) }],
+  };
+  runner.assert(validateExecution(execEvidence, ownedExec, execSource).length === 0, 'owned exec complete evidence binds all named cases and fixture bytes');
+  for (const [label, mutate] of [
+    ['missing case', value => { value.suites[0].cases.pop(); }],
+    ['duplicate case replacing required case', value => { value.suites[0].cases[1] = value.suites[0].cases[0]; }],
+    ['skipped case', value => { value.suites[0].cases[0].state = 'skipped'; }],
+  ]) {
+    const changedExec = structuredClone(execEvidence);
+    mutate(changedExec);
+    runner.assert(validateExecution(changedExec, ownedExec, execSource).some(error => error.startsWith('Missing, duplicate or unsuccessful case:')), 'owned exec rejects ' + label + ' despite passing suite');
+  }
+  await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, ownedExec.fixturePaths)), /ENOENT/, 'owned exec missing corpus cannot satisfy profile prerequisites');
   const schemaPath = join(root, 'profile-schema.json');
   for (const capabilities of ['engine-free', ['engine-free', 'engine-free'], [null]]) {
     writeFileSync(schemaPath, JSON.stringify({ schemaVersion: 1, profiles: { invalid: { ...owned, capabilities } } }));
