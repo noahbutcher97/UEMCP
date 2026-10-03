@@ -48,6 +48,24 @@
         ]
       }]
     },
+    "native-transport": {
+      "runner": "native",
+      "scope": "Seven existing native transport policy and decoder cases with their shared resource. Does not qualify live editor TCP, rendering, or the remaining native inventory.",
+      "capabilities": ["engine", "nullrhi"],
+      "fixturePaths": ["plugin/UEMCP/Resources/Tests/tcp-transport-cases.json"],
+      "suites": [{
+        "name": "native",
+        "cases": [
+          "UEMCP.Transport.ReceiveClassifier",
+          "UEMCP.Transport.ReceiveDeadlines",
+          "UEMCP.Transport.ReadOneRequestStopping",
+          "UEMCP.Transport.RequestReadResultMapping",
+          "UEMCP.Transport.FixtureSchema",
+          "UEMCP.Transport.SharedFixtures",
+          "UEMCP.Transport.DecoderBoundaries"
+        ]
+      }]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],

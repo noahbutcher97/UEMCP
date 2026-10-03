@@ -20,6 +20,28 @@ node server/prepare-fixture-host.mjs --output-root ../host-run-001 --validate
 node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-smoke --timeout-ms 900000
 ```
 
+The `native-transport` profile selects the seven existing `UEMCP.Transport.*`
+cases: ReceiveClassifier, ReceiveDeadlines, ReadOneRequestStopping,
+RequestReadResultMapping, FixtureSchema, SharedFixtures, and DecoderBoundaries.
+It requires their exact names once each and binds the raw hash of
+`plugin/UEMCP/Resources/Tests/tcp-transport-cases.json` to the execution evidence.
+After building the staged host, run:
+
+```powershell
+node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-transport --timeout-ms 900000
+```
+
+These tests exercise native transport policy and decoder behavior under NullRHI.
+SharedFixtures loads the staged plugin resource and checks 50 request cases,
+270 decoder executions (including 25 legacy byte-at-a-time proofs). FixtureSchema also
+checks malformed fixture controls. Missing resources, missing/duplicate test
+results, skipped/NotRun cases, error-bearing Success records, or a nonzero editor
+exit cannot qualify the required profile. Retain the report, execution evidence,
+host manifest, lifecycle outcome, and scoped owned-process cleanup checks.
+This does not qualify live socket/MCP sessions, renderer/UI behavior, all native
+tests, or BuildPlugin packaging. The one-case `native-smoke` profile remains
+available separately; neither profile replaces retained consumer coverage.
+
 Native execution delegates to `run-native-tests.mjs` and its process runner,
 including conflict checks and bounded process-tree shutdown. The wrapper checks
 the stage before and after execution and retains reports and lifecycle outcomes.
