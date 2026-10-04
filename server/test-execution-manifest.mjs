@@ -141,6 +141,88 @@ try {
     runner.assert(validateExecution(changedExec, ownedExec, execSource).some(error => error.startsWith('Missing, duplicate or unsuccessful case:')), 'owned exec rejects ' + label + ' despite passing suite');
   }
   await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, ownedExec.fixturePaths)), /ENOENT/, 'owned exec missing corpus cannot satisfy profile prerequisites');
+  const queryNames = [
+    'owned query: exact graph discovery excluding graph classification',
+    'owned query: exact node discovery',
+    'owned query: call class',
+    'owned query: event class',
+    'owned query: call member',
+    'owned query: event member',
+    'owned query: target path',
+    'owned query: target suffix',
+    'owned query: combined filters',
+    'owned query: conflicting filters',
+    'owned query: unknown class',
+    'owned query: unknown member',
+    'owned query: unknown target',
+    'owned query: case-sensitive member',
+    'owned query: page offset 0',
+    'owned query: page offset 1',
+    'owned query: page offset 2',
+    'owned query: filtering precedes pagination',
+    'owned query: exact entry point discovery',
+    'owned query: inspect OwnedPrint by name',
+    'owned query: inspect OwnedPrint by discovered ID',
+    'owned query: inspect OwnedEvent by name',
+    'owned query: inspect OwnedEvent by discovered ID',
+    'owned query: source-bound authored literal',
+    'owned query: authoring source accepts LF and CRLF checkouts',
+    'owned query controls: rejects edited authoring source',
+    'owned query: unknown graph rejected',
+    'owned query: unknown node rejected',
+    'owned query controls: rejects dropped discovery node',
+    'owned query controls: rejects wrong discovery GUID',
+    'owned query controls: rejects wrong pagination total',
+    'owned query controls: rejects dropped pin',
+    'owned query controls: rejects renamed pin',
+    'owned query controls: rejects reversed pin direction',
+    'owned query controls: rejects dropped link',
+    'owned query controls: rejects wrong linked node',
+    'owned query controls: rejects wrong linked pin',
+    'owned query controls: rejects changed literal',
+    'owned query controls: rejects missing corpus',
+    'owned query controls: rejects changed oracle hash',
+    'owned query controls: rejects changed provenance',
+  ];
+  const queryInputs = [
+    'server/fixtures/serialization/ue5.6-owned-v1/manifest.json',
+    'server/fixtures/serialization/ue5.6-owned-v1/oracle.json',
+    'server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset',
+    'server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp',
+  ];
+  let queryProfile;
+  try { queryProfile = loadTestProfile('owned-blueprint-query'); } catch { /* Keep missing-profile failure explicit. */ }
+  runner.assert(queryProfile?.runner === 'node' && JSON.stringify(queryProfile.capabilities) === JSON.stringify(['engine-free', 'owned-serialization']) && JSON.stringify(queryProfile.suites) === JSON.stringify([{ name: 'test-owned-blueprint-query.mjs', cases: queryNames }]) && JSON.stringify(queryProfile.fixturePaths) === JSON.stringify(queryInputs), 'owned query profile pins all 41 independent case identities and four required inputs');
+  if (queryProfile) {
+    const queryEvidence = {
+      schemaVersion: 1, profile: queryProfile.name, manifestDigest: queryProfile.manifestDigest,
+      sourceState: execSource, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, queryInputs),
+      suites: [{ name: 'test-owned-blueprint-query.mjs', state: 'passed', cases: queryNames.map(name => ({ name, state: 'passed' })) }],
+    };
+    runner.assert(validateExecution(queryEvidence, queryProfile, execSource).length === 0, 'owned query complete evidence binds corpus and authoring source bytes');
+    for (const name of queryNames) {
+      const missing = { ...queryEvidence, suites: [{ ...queryEvidence.suites[0], cases: queryEvidence.suites[0].cases.filter(item => item.name !== name) }] };
+      runner.assert(validateExecution(missing, queryProfile, execSource).some(error => error.includes(`/${name}`)), `owned query profile rejects omission of ${name}`);
+    }
+    for (const [label, cases] of [
+      ['duplicate', [queryEvidence.suites[0].cases[0], ...queryEvidence.suites[0].cases]],
+      ['skipped', [{ ...queryEvidence.suites[0].cases[0], state: 'skipped' }, ...queryEvidence.suites[0].cases.slice(1)]],
+      ['unknown', [{ name: 'owned query: undeclared case', state: 'passed' }, ...queryEvidence.suites[0].cases]],
+    ]) {
+      runner.assert(validateExecution({ ...queryEvidence, suites: [{ ...queryEvidence.suites[0], cases }] }, queryProfile, execSource).length > 0, `owned query profile rejects ${label} case despite passed suite`);
+    }
+    for (const path of queryInputs) {
+      const files = queryEvidence.fixtureIdentity.files.filter(file => file.path !== path);
+      runner.assert(validateExecution({ ...queryEvidence, fixtureIdentity: { files, digest: sha256(JSON.stringify(files)) } }, queryProfile, execSource).includes('Wrong fixture identity'), `owned query profile rejects missing required input ${path}`);
+      const tampered = queryEvidence.fixtureIdentity.files.map(file => file.path === path ? { ...file, sha256: 'a'.repeat(64) } : file);
+      runner.assert(validateExecution({ ...queryEvidence, fixtureIdentity: { files: tampered, digest: sha256(JSON.stringify(tampered)) } }, queryProfile, execSource).includes(`Fixture does not match source identity: ${path}`), `owned query profile rejects tampered required input ${path}`);
+    }
+    await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, queryInputs)), /ENOENT/, 'owned query missing inputs fail prerequisite collection');
+    const wrongQuerySource = { ...execSource, head: '0'.repeat(40) };
+    const { digest: unusedQueryDigest, ...rawQuerySource } = wrongQuerySource;
+    wrongQuerySource.digest = sha256(JSON.stringify(rawQuerySource));
+    runner.assert(validateExecution({ ...queryEvidence, sourceState: wrongQuerySource }, queryProfile, execSource).includes('Wrong source state'), 'owned query profile rejects self-consistent evidence for a different source');
+  }
   const schemaPath = join(root, 'profile-schema.json');
   for (const capabilities of ['engine-free', ['engine-free', 'engine-free'], [null]]) {
     writeFileSync(schemaPath, JSON.stringify({ schemaVersion: 1, profiles: { invalid: { ...owned, capabilities } } }));

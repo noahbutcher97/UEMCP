@@ -133,6 +133,68 @@
         ]
       }]
     },
+    "owned-blueprint-query": {
+      "runner": "node",
+      "scope": "Owned modern discovery, filters, pagination and node/pin/literal inspection only; partial INV-112/160/270. Graph-type classification, legacy, broader graph families, consumer compatibility and native/runtime behavior remain unqualified.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-blueprint-query.mjs",
+          "cases": [
+            "owned query: exact graph discovery excluding graph classification",
+            "owned query: exact node discovery",
+            "owned query: call class",
+            "owned query: event class",
+            "owned query: call member",
+            "owned query: event member",
+            "owned query: target path",
+            "owned query: target suffix",
+            "owned query: combined filters",
+            "owned query: conflicting filters",
+            "owned query: unknown class",
+            "owned query: unknown member",
+            "owned query: unknown target",
+            "owned query: case-sensitive member",
+            "owned query: page offset 0",
+            "owned query: page offset 1",
+            "owned query: page offset 2",
+            "owned query: filtering precedes pagination",
+            "owned query: exact entry point discovery",
+            "owned query: inspect OwnedPrint by name",
+            "owned query: inspect OwnedPrint by discovered ID",
+            "owned query: inspect OwnedEvent by name",
+            "owned query: inspect OwnedEvent by discovered ID",
+            "owned query: source-bound authored literal",
+            "owned query: authoring source accepts LF and CRLF checkouts",
+            "owned query controls: rejects edited authoring source",
+            "owned query: unknown graph rejected",
+            "owned query: unknown node rejected",
+            "owned query controls: rejects dropped discovery node",
+            "owned query controls: rejects wrong discovery GUID",
+            "owned query controls: rejects wrong pagination total",
+            "owned query controls: rejects dropped pin",
+            "owned query controls: rejects renamed pin",
+            "owned query controls: rejects reversed pin direction",
+            "owned query controls: rejects dropped link",
+            "owned query controls: rejects wrong linked node",
+            "owned query controls: rejects wrong linked pin",
+            "owned query controls: rejects changed literal",
+            "owned query controls: rejects missing corpus",
+            "owned query controls: rejects changed oracle hash",
+            "owned query controls: rejects changed provenance"
+          ]
+        }
+      ]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],

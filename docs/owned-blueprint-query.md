@@ -3,15 +3,26 @@
 Run from `server/`, with no project attachment or installed Unreal Engine:
 
 ```sh
-node test-owned-blueprint-query.mjs
+node run-rotation.mjs --test-profile owned-blueprint-query --json
 ```
 
 The suite has 41 required named cases. Missing or invalid corpus data fails before
 queries run; it never becomes a skipped consumer probe. The default rotation
 discovers `test-*.mjs`, so it also picks up this suite automatically.
-**Explicit required-profile integration is deferred** until the parallel desktop
-native Blueprint slice is published. This change adds no profile, execution
-manifest integration, runner modifications, or ledger updates.
+The `owned-blueprint-query` profile requires the exact 41 case names once each.
+Missing, duplicate, skipped, unexpected or unsuccessful cases fail qualification,
+even when the surrounding suite reports passes. Direct focused development runs
+remain available with `node test-owned-blueprint-query.mjs`.
+
+The profile binds four required inputs: the corpus manifest, UE oracle, saved
+`BP_OwnedLink.uasset`, and
+`server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp`.
+The authoring source is explicit because the literal assertion depends on it;
+missing source cannot silently leave an otherwise complete corpus qualified.
+Evidence hashes all four inputs as raw bytes and binds them to the tested source
+inventory, Git HEAD and dirty patch. The suite's historical authoring-provenance
+check separately accepts LF/CRLF checkout equivalence; it does not normalize the
+raw execution evidence or immutable asset/oracle hashes.
 
 ## Evidence and acceptance
 
@@ -67,7 +78,8 @@ packages, or general consumer compatibility. Existing synthetic, consumer and
 legacy compatibility witnesses remain necessary and unchanged. This engine-free
 suite is not native handler or runtime qualification and runs no Unreal process.
 
-The two-file boundary is `server/test-owned-blueprint-query.mjs` and this document.
-Native Blueprint profile/manifest/runner regressions and their documentation
-remain owned by the desktop task. Shared profile evidence must be added in a
-later coordinated change before claiming a required-profile migration gate.
+Required-profile integration uses the existing rotation and execution-evidence
+validator. The query suite, production dispatcher, authoring source and immutable
+corpus remain unchanged. A passing profile establishes the bounded cases above;
+it does not complete INV-112/160/270 or replace retained synthetic, consumer,
+legacy or native coverage.
