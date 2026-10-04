@@ -41,6 +41,10 @@ docs/
 
 ---
 
+## Test migration and retirement
+
+[Test retirement protocol](test-retirement.md) defines required equivalence evidence, independent review, explicit retirement approval, and recovery records before removing existing coverage.
+
 ## File index
 
 ### specs/ — system design
