@@ -209,4 +209,47 @@ for (const mutation of ['missing corpus', 'changed oracle hash', 'changed proven
     } finally { cleanupCanonicalScratchRoot(scratch, prefix); }
   });
 }
+// INV-160 response-shape contracts. These checks constrain the public vocabulary
+// and exclude null; they do not infer exact classifications or object omission.
+async function inspectAllOwnedPins() {
+  const found = await find();
+  assertDiscovery(found);
+  const pins = [];
+  for (const [index, guid] of [[0, callGuid], [1, eventGuid]]) {
+    const result = await query('bp_show_node', { node_id: found.nodes[index].node_id });
+    assertInspection(result, expected[index], guid, found.nodes[index].node_id);
+    pins.push(...result.node.pins);
+  }
+  assert.equal(pins.length, 12, 'both owned nodes must contribute the complete nonempty pin inventory');
+  return pins;
+}
+function assertPinKindVocabulary(pins) {
+  assert.equal(pins.length, 12);
+  assert.ok(pins.every(pin => pin.pin_kind === 'exec' || pin.pin_kind === 'data'));
+}
+function assertNoNullObjectDefaults(pins) {
+  assert.equal(pins.length, 12);
+  assert.ok(pins.every(pin => pin.default_object !== null));
+}
+await check('owned query: all twelve pins use exec or data vocabulary', async () => {
+  assertPinKindVocabulary(await inspectAllOwnedPins());
+});
+await check('owned query: all twelve pins reject null object defaults', async () => {
+  assertNoNullObjectDefaults(await inspectAllOwnedPins());
+});
+for (const [label, comparator, mutate] of [
+  ['invalid pin kind', assertPinKindVocabulary, pin => { pin.pin_kind = 'invalid'; }],
+  ['missing pin kind', assertPinKindVocabulary, pin => { delete pin.pin_kind; }],
+  ['null object default', assertNoNullObjectDefaults, pin => { pin.default_object = null; }],
+]) {
+  await check(`owned query controls: rejects ${label} on every pin`, async () => {
+    const pins = await inspectAllOwnedPins();
+    comparator(pins);
+    for (let index = 0; index < pins.length; index++) {
+      const changed = structuredClone(pins);
+      mutate(changed[index]);
+      assert.throws(() => comparator(changed), assert.AssertionError);
+    }
+  });
+}
 process.exit(t.summary());

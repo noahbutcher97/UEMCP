@@ -190,7 +190,12 @@
             "owned query controls: rejects changed literal",
             "owned query controls: rejects missing corpus",
             "owned query controls: rejects changed oracle hash",
-            "owned query controls: rejects changed provenance"
+            "owned query controls: rejects changed provenance",
+            "owned query: all twelve pins use exec or data vocabulary",
+            "owned query: all twelve pins reject null object defaults",
+            "owned query controls: rejects invalid pin kind on every pin",
+            "owned query controls: rejects missing pin kind on every pin",
+            "owned query controls: rejects null object default on every pin"
           ]
         }
       ]

@@ -183,6 +183,11 @@ try {
     'owned query controls: rejects missing corpus',
     'owned query controls: rejects changed oracle hash',
     'owned query controls: rejects changed provenance',
+    'owned query: all twelve pins use exec or data vocabulary',
+    'owned query: all twelve pins reject null object defaults',
+    'owned query controls: rejects invalid pin kind on every pin',
+    'owned query controls: rejects missing pin kind on every pin',
+    'owned query controls: rejects null object default on every pin',
   ];
   const queryInputs = [
     'server/fixtures/serialization/ue5.6-owned-v1/manifest.json',
@@ -192,7 +197,7 @@ try {
   ];
   let queryProfile;
   try { queryProfile = loadTestProfile('owned-blueprint-query'); } catch { /* Keep missing-profile failure explicit. */ }
-  runner.assert(queryProfile?.runner === 'node' && JSON.stringify(queryProfile.capabilities) === JSON.stringify(['engine-free', 'owned-serialization']) && JSON.stringify(queryProfile.suites) === JSON.stringify([{ name: 'test-owned-blueprint-query.mjs', cases: queryNames }]) && JSON.stringify(queryProfile.fixturePaths) === JSON.stringify(queryInputs), 'owned query profile pins all 41 independent case identities and four required inputs');
+  runner.assert(queryProfile?.runner === 'node' && JSON.stringify(queryProfile.capabilities) === JSON.stringify(['engine-free', 'owned-serialization']) && JSON.stringify(queryProfile.suites) === JSON.stringify([{ name: 'test-owned-blueprint-query.mjs', cases: queryNames }]) && JSON.stringify(queryProfile.fixturePaths) === JSON.stringify(queryInputs), 'owned query profile pins all 46 independent case identities and four required inputs');
   if (queryProfile) {
     const queryEvidence = {
       schemaVersion: 1, profile: queryProfile.name, manifestDigest: queryProfile.manifestDigest,
