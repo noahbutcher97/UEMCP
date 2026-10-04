@@ -81,6 +81,44 @@ try {
     runner.assert(validateExecution(tampered, transport, transportSourceState).some(error => error.startsWith('Fixture does not match source identity:')), 'transport rejects a self-consistent tampered resource against original source bytes');
     await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, transport.fixturePaths)), /ENOENT/, 'transport missing resource is a hard failure');
   }
+  const blueprintNames = [
+    'UEMCP.BlueprintHelpers.PinTypeToJson',
+    'UEMCP.BlueprintHelpers.VariableDefaults',
+    'UEMCP.BlueprintHelpers.LiteralDefaults',
+    'UEMCP.BlueprintHandlers.AddVariableAssignment',
+    'UEMCP.BlueprintHandlers.AddTimer',
+    'UEMCP.BlueprintHandlers.DisconnectPin',
+    'UEMCP.BlueprintHandlers.AssignmentVariableKind',
+    'UEMCP.BlueprintHandlers.AssignmentExecFrom',
+    'UEMCP.BlueprintHandlers.DisconnectPinEdges',
+    'UEMCP.BlueprintHandlers.CompilePaths',
+    'UEMCP.BlueprintHandlers.TimerFailures',
+    'UEMCP.BlueprintHandlers.GhostBeginPlayEnabled',
+    'UEMCP.BlueprintHandlers.EventNodeGhostSites',
+    'UEMCP.BlueprintHandlers.AssignmentCompileFailed',
+  ];
+  let blueprint;
+  try { blueprint = loadTestProfile('native-blueprint'); } catch { /* Keep the missing-profile regression explicit. */ }
+  runner.assert(blueprint?.runner === 'native' && JSON.stringify(blueprint.suites) === JSON.stringify([{ name: 'native', cases: blueprintNames }]) && JSON.stringify(blueprint.fixturePaths) === '[]' && JSON.stringify(blueprint.capabilities) === JSON.stringify(['engine', 'nullrhi']), 'native blueprint requires the exact fourteen cases without saved fixture inputs');
+  const blueprintRegistrations = ['UEMCPBlueprintHelperTests.cpp', 'UEMCPBlueprintHandlerTests.cpp'].flatMap(file => {
+    const source = readFileSync(new URL(`../plugin/UEMCP/Source/UEMCP/Private/Tests/${file}`, import.meta.url), 'utf8');
+    return [...source.matchAll(/IMPLEMENT_SIMPLE_AUTOMATION_TEST\s*\(\s*\w+\s*,\s*"(UEMCP\.Blueprint(?:Helpers|Handlers)\.[A-Za-z]+)"/g)].map(match => match[1]);
+  });
+  runner.assert(JSON.stringify(blueprintRegistrations) === JSON.stringify(blueprintNames), 'native blueprint expectations match three helper and eleven handler C++ registrations');
+  if (blueprint) {
+    const blueprintSource = collectSourceState(REPOSITORY_ROOT);
+    const blueprintEvidence = {
+      schemaVersion: 1, profile: blueprint.name, manifestDigest: blueprint.manifestDigest,
+      sourceState: blueprintSource, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, blueprint.fixturePaths),
+      suites: [{ name: 'native', state: 'passed', cases: blueprintNames.map(name => ({ name, state: 'passed' })) }],
+    };
+    runner.assert(validateExecution(blueprintEvidence, blueprint, blueprintSource).length === 0, 'native blueprint exact evidence binds source without claiming saved assets');
+    const wrongSource = structuredClone(blueprintEvidence);
+    wrongSource.sourceState.head = '0'.repeat(40);
+    const { digest: unusedBlueprintDigest, ...rawBlueprintSource } = wrongSource.sourceState;
+    wrongSource.sourceState.digest = sha256(JSON.stringify(rawBlueprintSource));
+    runner.assert(validateExecution(wrongSource, blueprint, blueprintSource).includes('Wrong source state'), 'native blueprint rejects self-consistent evidence for a different source revision');
+  }
   const owned = loadTestProfile('owned-serialization');
   runner.assert(owned.suites.length === 1 && owned.suites[0].cases.length === 4 && owned.fixturePaths.length === 3 && owned.fixturePaths.every(path => path.includes('/ue5.6-owned-v1/')), 'owned serialization requires four modern witnesses and all three modern corpus files');
   await runner.assertRejects(() => Promise.resolve(collectFixtureIdentity(root, owned.fixturePaths)), /ENOENT/, 'missing owned corpus is a hard prerequisite failure');
