@@ -50,8 +50,8 @@ function createDeploymentOrchestrator(options) {
   return createProductionDeploymentOrchestrator({
     ...options,
     knownFoldersProvider: options.knownFoldersProvider ?? (async () => ({
-      programData: 'C:\\ProgramData',
-      programFiles: 'C:\\Program Files',
+      programData: resolve(options.repoRoot, 'ProgramData'),
+      programFiles: resolve(options.repoRoot, 'Program Files'),
     })),
     descriptorLaunchPinner: options.descriptorLaunchPinner ?? (async (descriptor, { callback }) => callback(Object.freeze({ assertPinned() {} }), descriptor)),
   });

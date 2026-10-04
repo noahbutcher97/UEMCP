@@ -189,6 +189,8 @@ try {
   t.assert(JSON.stringify(bundlePlan.descriptor) === JSON.stringify(sourcePlan.descriptor), 'source and bundle preserve the same injected canonical descriptor');
   t.assert(JSON.stringify(bundlePlan.stages.map(row => [row.name, row.status])) === JSON.stringify(sourcePlan.stages.map(row => [row.name, row.status])), 'source and bundle preserve the same injected no-write stages');
 
+  const reviewedPlanPath = join(scratchRoot, 'reviewed-plan.json');
+  const inputPlanPath = join(scratchRoot, 'plan.json');
   for (const [label, parseArgs] of [['source', parseSourceArgs], ['bundle', parseBundleArgs]]) {
     const selected = parseArgs([
       'plan', '--operation', 'setup',
@@ -199,7 +201,7 @@ try {
       '--replace-owned-client-fields',
       '--shadow-gemini-extension',
       '--migrate-legacy-claude-project',
-      '--output-plan', 'C:\\isolated\\reviewed-plan.json',
+      '--output-plan', reviewedPlanPath,
     ]);
     t.assert(JSON.stringify(selected.includeClients) === JSON.stringify(['claude', 'codex'])
       && JSON.stringify(selected.excludeClients) === JSON.stringify(['gemini'])
@@ -207,14 +209,14 @@ try {
       && selected.replaceOwnedClientFields === true
       && selected.shadowGeminiExtension === true
       && selected.migrateLegacyClaudeProject === true
-      && selected.outputPlan === 'C:\\isolated\\reviewed-plan.json', `${label} CLI preserves client selection, repair decisions, and plan output authority`);
+      && selected.outputPlan === reviewedPlanPath, `${label} CLI preserves client selection, repair decisions, and plan output authority`);
     t.assert(await rejectsCode(() => parseArgs(['verify', '--include-client', 'unknown-client']), 'CLI_USAGE'), `${label} CLI rejects an unknown include client`);
     t.assert(await rejectsCode(() => parseArgs(['doctor', '--include-client', 'claude', '--exclude-client', 'claude']), 'CLI_USAGE'), `${label} CLI rejects include/exclude overlap`);
-    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--include-client', 'claude']), 'CLI_USAGE'), `${label} apply rejects selection overrides`);
-    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--vscode-profile', 'Work']), 'CLI_USAGE'), `${label} apply rejects profile overrides`);
-    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', 'C:\\isolated\\plan.json', '--approve-digest', 'a'.repeat(64), '--non-interactive', '--replace-owned-client-fields']), 'CLI_USAGE'), `${label} apply rejects repair-decision overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', inputPlanPath, '--approve-digest', 'a'.repeat(64), '--non-interactive', '--include-client', 'claude']), 'CLI_USAGE'), `${label} apply rejects selection overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', inputPlanPath, '--approve-digest', 'a'.repeat(64), '--non-interactive', '--vscode-profile', 'Work']), 'CLI_USAGE'), `${label} apply rejects profile overrides`);
+    t.assert(await rejectsCode(() => parseArgs(['apply', '--plan-file', inputPlanPath, '--approve-digest', 'a'.repeat(64), '--non-interactive', '--replace-owned-client-fields']), 'CLI_USAGE'), `${label} apply rejects repair-decision overrides`);
     t.assert(await rejectsCode(() => parseArgs(['doctor', '--shadow-gemini-extension']), 'CLI_USAGE'), `${label} standalone inspection rejects repair decisions`);
-    t.assert(await rejectsCode(() => parseArgs(['verify', '--output-plan', 'C:\\isolated\\reviewed-plan.json']), 'CLI_USAGE'), `${label} standalone inspection rejects plan output authority`);
+    t.assert(await rejectsCode(() => parseArgs(['verify', '--output-plan', reviewedPlanPath]), 'CLI_USAGE'), `${label} standalone inspection rejects plan output authority`);
   }
 
   let forwardedRequest = null;
