@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -52,7 +52,7 @@ const t = new TestRunner('Provider-Neutral MCP Conformance');
 const generatedScratchRoots = new Set();
 
 function scratchParent() {
-  return process.env['T' + 'EMP'] || process.env['T' + 'MP'] || homedir();
+  return process.env['T' + 'EMP'] || process.env['T' + 'MP'] || tmpdir();
 }
 
 function listScratchInventory() {
