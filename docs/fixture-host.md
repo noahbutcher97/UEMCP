@@ -42,6 +42,34 @@ This does not qualify live socket/MCP sessions, renderer/UI behavior, all native
 tests, or BuildPlugin packaging. The one-case `native-smoke` profile remains
 available separately; neither profile replaces retained consumer coverage.
 
+The `native-blueprint` profile requires exactly fourteen existing cases: three
+`UEMCP.BlueprintHelpers.*` registrations (PinTypeToJson, VariableDefaults,
+LiteralDefaults) and eleven `UEMCP.BlueprintHandlers.*` registrations
+(AddVariableAssignment, AddTimer, DisconnectPin, AssignmentVariableKind,
+AssignmentExecFrom, DisconnectPinEdges, CompilePaths, TimerFailures,
+GhostBeginPlayEnabled, EventNodeGhostSites, AssignmentCompileFailed). After
+building a fresh source-only stage, run:
+
+```powershell
+node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-blueprint --timeout-ms 900000
+```
+
+The helpers exercise native pin/default conversion. Handler cases dispatch through
+`FMCPCommandRegistry` and inspect real in-memory graph mutations and compilation
+outcomes under NullRHI. An expected compilation failure asserted by a successful
+native test remains valid; an Automation Error event on a Success record fails
+the required profile. All fourteen full names must run exactly once, with fresh
+source-bound evidence and a successful process exit.
+
+No saved fixture is required (`fixturePaths: []`). The handlers create unsaved
+packages under `/Game/__UEMCPTests/`; their teardown is best effort within a
+disposable process, not a guarantee of complete object reclamation after every
+early return. Use a fresh owned host/process, retain source and lifecycle checks,
+and inspect the staged host for unexpected `.uasset` or sidecar saves after the
+run. This profile qualifies native helper/registry/graph behavior only; it does
+not qualify socket/MCP transport, persistence, PIE, rendering, or consumer projects.
+Existing smoke, transport, and owned serialization profiles remain separate.
+
 Native execution delegates to `run-native-tests.mjs` and its process runner,
 including conflict checks and bounded process-tree shutdown. The wrapper checks
 the stage before and after execution and retains reports and lifecycle outcomes.

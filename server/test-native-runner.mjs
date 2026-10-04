@@ -163,6 +163,17 @@ for (const name of transportNames) {
   t.assert(reportExitCode(missing, { expectedNames: transportNames }) === 1, `transport rejects omission of ${name} despite six passing cases`);
 }
 
+const blueprintProfile = loadTestProfile('native-blueprint');
+const blueprintNames = blueprintProfile.suites[0].cases;
+const blueprintReport = { tests: blueprintNames.map(fullTestPath => ({ fullTestPath, state: 'Success' })) };
+// An expected compiler failure asserted by a passing native test is not an
+// Automation Error event. Preserve that successful case in the positive report.
+blueprintReport.tests.at(-1).entries = [{ event: { type: 'Info', message: 'Expected compiler failure observed and asserted' } }];
+for (const name of blueprintNames) {
+  const missing = parseAutomationReport({ tests: blueprintReport.tests.filter(test => test.fullTestPath !== name) });
+  t.assert(reportExitCode(missing, { expectedNames: blueprintNames }) === 1, `blueprint rejects omission of ${name} despite thirteen passing cases`);
+}
+
 // Drive the actual runner through an injected process boundary; no engine runs.
 const fakeHost = mkdtempSync(join(tmpdir(), 'uemcp-native-fake-'));
 try {
@@ -215,6 +226,40 @@ try {
       const resourcePath = transportProfile.fixturePaths[0];
       const resourceHash = sha256(readFileSync(join(here, '..', resourcePath)));
       t.assert(transportEvidence.fixtureIdentity.files.length === 1 && transportEvidence.fixtureIdentity.files[0].path === resourcePath && transportEvidence.fixtureIdentity.files[0].sha256 === resourceHash && JSON.stringify(transportEvidence.suites[0].cases.map(test => test.name)) === JSON.stringify(transportNames), 'transport runner retains exact seven names and raw shared-resource hash');
+    }
+  }
+  for (const [label, tests, editorExit, expected, problem] of [
+    ['complete', blueprintReport.tests, 0, 0, null],
+    ['duplicate', [...blueprintReport.tests, blueprintReport.tests[0]], 0, 1, 'duplicate test:'],
+    ['unexpected', [...blueprintReport.tests, { fullTestPath: 'UEMCP.BlueprintHandlers.Unreviewed', state: 'Success' }], 0, 1, 'unexpected test:'],
+    ['display only', blueprintReport.tests.map(({ fullTestPath, ...test }) => ({ ...test, testDisplayName: fullTestPath })), 0, 1, 'missing fullTestPath:'],
+    ['NotRun', [{ ...blueprintReport.tests[0], state: 'NotRun' }, ...blueprintReport.tests.slice(1)], 0, 1, ': NotRun'],
+    ['labelled skip', [{ ...blueprintReport.tests[0], entries: [{ event: { type: 'Info', message: 'skipped: blueprint unavailable' } }] }, ...blueprintReport.tests.slice(1)], 0, 1, ': labelled skip'],
+    ['Error on Success', [...blueprintReport.tests.slice(0, -1), { ...blueprintReport.tests.at(-1), entries: [{ event: { type: 'Error', message: 'Unexpected assertion failure' } }] }], 0, 1, ': Error events'],
+    ['nonzero exit', blueprintReport.tests, 23, 1, 'editor did not exit successfully'],
+    ['stale report', blueprintReport.tests, 0, 4, 'REPORT_STALE:'],
+  ]) {
+    const blueprintReportDir = join(fakeHost, `blueprint-${label.replaceAll(' ', '-')}`);
+    mkdirSync(blueprintReportDir);
+    let selectedCommand;
+    const blueprintCode = await main(['--uproject', project, '--engine-root', fakeHost, '--report-dir', blueprintReportDir, '--test-profile', 'native-blueprint'], {
+      runner: { run: async (_file, args) => {
+        selectedCommand = args.find(arg => arg.startsWith('-ExecCmds='));
+        const reportPath = join(blueprintReportDir, 'index.json');
+        writeFileSync(reportPath, JSON.stringify({ tests }));
+        if (label === 'stale report') {
+          const oldTime = new Date(Date.now() - 60_000);
+          utimesSync(reportPath, oldTime, oldTime);
+        }
+        return { status: 'exited', exitCode: editorExit };
+      } },
+      listEditors: () => [], portAvailable: async () => true,
+    });
+    const blueprintEvidence = JSON.parse(readFileSync(join(blueprintReportDir, 'execution-evidence.json'), 'utf8'));
+    t.assert(blueprintCode === expected && blueprintEvidence.exitCode === expected && blueprintEvidence.sourceState.digest && blueprintEvidence.profile === 'native-blueprint' && (problem ? blueprintEvidence.problems.some(message => message.includes(problem)) : blueprintEvidence.problems.length === 0), `blueprint runner ${label} retains correct source-bound outcome`);
+    if (label === 'complete') {
+      t.assert(selectedCommand === `-ExecCmds=Automation RunTests ${blueprintNames.join('+')};Quit`, 'blueprint runner selects exactly the fourteen required names');
+      t.assert(blueprintEvidence.fixtureIdentity.files.length === 0 && blueprintEvidence.suites[0].state === 'passed' && blueprintEvidence.suites[0].cases.every(test => test.state === 'passed') && JSON.stringify(blueprintEvidence.suites[0].cases.map(test => test.name)) === JSON.stringify(blueprintNames), 'blueprint runner retains exact successful cases including expected compile failure without claiming saved fixtures');
     }
   }
   const preexistingPath = join(reportDir, 'index.json');

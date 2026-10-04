@@ -108,6 +108,31 @@
         }
       ]
     },
+    "native-blueprint": {
+      "runner": "native",
+      "scope": "Fourteen existing native Blueprint helper, registry dispatch and in-memory graph mutation cases. Does not qualify socket/MCP sessions, persistence, PIE, rendering, or the remaining native inventory.",
+      "capabilities": ["engine", "nullrhi"],
+      "fixturePaths": [],
+      "suites": [{
+        "name": "native",
+        "cases": [
+          "UEMCP.BlueprintHelpers.PinTypeToJson",
+          "UEMCP.BlueprintHelpers.VariableDefaults",
+          "UEMCP.BlueprintHelpers.LiteralDefaults",
+          "UEMCP.BlueprintHandlers.AddVariableAssignment",
+          "UEMCP.BlueprintHandlers.AddTimer",
+          "UEMCP.BlueprintHandlers.DisconnectPin",
+          "UEMCP.BlueprintHandlers.AssignmentVariableKind",
+          "UEMCP.BlueprintHandlers.AssignmentExecFrom",
+          "UEMCP.BlueprintHandlers.DisconnectPinEdges",
+          "UEMCP.BlueprintHandlers.CompilePaths",
+          "UEMCP.BlueprintHandlers.TimerFailures",
+          "UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
+          "UEMCP.BlueprintHandlers.EventNodeGhostSites",
+          "UEMCP.BlueprintHandlers.AssignmentCompileFailed"
+        ]
+      }]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],
