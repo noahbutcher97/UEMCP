@@ -6,7 +6,7 @@ Run from `server/`, with no project attachment or installed Unreal Engine:
 node test-owned-blueprint-query.mjs
 ```
 
-The suite has 39 required named cases. Missing or invalid corpus data fails before
+The suite has 41 required named cases. Missing or invalid corpus data fails before
 queries run; it never becomes a skipped consumer probe. The default rotation
 discovers `test-*.mjs`, so it also picks up this suite automatically.
 **Explicit required-profile integration is deferred** until the parallel desktop
@@ -33,11 +33,14 @@ The suite checks:
   exact link endpoints in both directions.
 - The authored `InString` literal `UEMCP owned serialization fixture`. The UE
   oracle does not record defaults: this expectation is independently grounded
-  in `AuthorSerializationFixtureCommandlet.cpp`, whose bytes must match the
-  authoring source hash recorded by the corpus manifest.
+  in `AuthorSerializationFixtureCommandlet.cpp`, whose content must match the
+  recorded authoring source hash after normalizing checkout CRLF to LF. Both
+  newline forms are tested; an actual source edit is rejected. The original
+  manifest and immutable package/oracle byte hashes remain unchanged.
 - Unknown graph/node rejection and negative controls for missing discovery,
   wrong GUID/total, dropped/renamed/reversed pins, dropped/wrong link endpoints,
-  changed literal, missing corpus, changed oracle bytes and invalid provenance.
+  changed literal, edited authoring source, missing corpus, changed oracle bytes
+  and invalid provenance.
 
 Negative controls require an intact positive baseline first. Response mutations
 use clones; corpus mutations use temporary copies, cleaned in `finally`. Normal

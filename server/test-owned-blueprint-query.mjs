@@ -127,12 +127,28 @@ for (const [index, guid] of [[0, callGuid], [1, eventGuid]]) {
     });
   }
 }
+const sourcePath = 'server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp';
+function assertAuthoringSource(source) {
+  // Git may convert this text source to CRLF on Windows. The manifest retains
+  // the original LF authoring-byte hash; only checkout newline equivalence is
+  // accepted here. Immutable package/oracle hashes remain byte-exact.
+  const normalized = source.toString('utf8').replace(/\r\n/g, '\n');
+  assert.equal(sha256(normalized), manifest.sourceHashes[sourcePath], 'authoring source must match recorded provenance after checkout newline normalization');
+  assert.ok(normalized.includes('Call->FindPinChecked(TEXT("InString"))->DefaultValue = TEXT("UEMCP owned serialization fixture");'));
+}
 await check('owned query: source-bound authored literal', async () => {
-  const sourcePath = 'server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp';
-  const source = readFileSync(new URL(`../${sourcePath}`, import.meta.url));
-  assert.equal(sha256(source), manifest.sourceHashes[sourcePath], 'authoring source must match recorded provenance');
-  assert.ok(source.toString('utf8').includes('Call->FindPinChecked(TEXT("InString"))->DefaultValue = TEXT("UEMCP owned serialization fixture");'));
+  assertAuthoringSource(readFileSync(new URL(`../${sourcePath}`, import.meta.url)));
   assertLiteral(await query('bp_show_node', { node_id: 'OwnedPrint' }));
+});
+await check('owned query: authoring source accepts LF and CRLF checkouts', () => {
+  const source = readFileSync(new URL(`../${sourcePath}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  assertAuthoringSource(source);
+  assertAuthoringSource(source.replace(/\n/g, '\r\n'));
+});
+await check('owned query controls: rejects edited authoring source', () => {
+  const source = readFileSync(new URL(`../${sourcePath}`, import.meta.url), 'utf8');
+  assertAuthoringSource(source);
+  assert.throws(() => assertAuthoringSource(source.replace('UEMCP owned serialization fixture', 'Changed authored literal')), assert.AssertionError);
 });
 await check('owned query: unknown graph rejected', async () => assert.rejects(() => find({ graph_name: 'MissingOwnedGraph' }), /Graph not found: MissingOwnedGraph/));
 await check('owned query: unknown node rejected', async () => assert.rejects(() => query('bp_show_node', { node_id: 'MissingOwnedNode' }), /Node not found: MissingOwnedNode/));
