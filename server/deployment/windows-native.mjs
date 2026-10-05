@@ -8,7 +8,7 @@ import { spawn as defaultSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import * as defaultFs from 'node:fs/promises';
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep, win32 } from 'node:path';
 
 import { fingerprintPath } from './fingerprints.mjs';
 
@@ -998,11 +998,11 @@ function windowsPathKey(path) {
 function validatedKnownFolder(value) {
   if (typeof value !== 'string'
     || value.trim() === ''
-    || !isAbsolute(value)
+    || !win32.isAbsolute(value)
     || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
     throw new WindowsNativeError('Windows known-folder helper returned an invalid path', 'INVALID_KNOWN_FOLDER_RESULT');
   }
-  return resolve(value);
+  return win32.resolve(value);
 }
 
 async function waitForHelperClose(closePromise, timeoutMs) {

@@ -10276,7 +10276,7 @@ import {
   relative as relative5,
   resolve as resolve6,
   sep as sep5,
-  win32 as win326
+  win32 as win327
 } from "node:path";
 
 // server/deployment/canonical-json.mjs
@@ -11354,7 +11354,7 @@ import { spawn as defaultSpawn2 } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import * as defaultFs3 from "node:fs/promises";
-import { dirname, isAbsolute as isAbsolute4, join as join2, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { dirname, isAbsolute as isAbsolute4, join as join2, parse, relative as relative2, resolve as resolve2, sep as sep2, win32 as win325 } from "node:path";
 var AUTHENTICODE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $module = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
@@ -12322,10 +12322,10 @@ function windowsPathKey(path) {
   return resolve2(path).toLowerCase();
 }
 function validatedKnownFolder(value) {
-  if (typeof value !== "string" || value.trim() === "" || !isAbsolute4(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+  if (typeof value !== "string" || value.trim() === "" || !win325.isAbsolute(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
     throw new WindowsNativeError("Windows known-folder helper returned an invalid path", "INVALID_KNOWN_FOLDER_RESULT");
   }
-  return resolve2(value);
+  return win325.resolve(value);
 }
 async function waitForHelperClose(closePromise, timeoutMs) {
   let timer;
@@ -16088,7 +16088,7 @@ function removeJsoncValue(document, jsonPath) {
 }
 
 // server/deployment/ownership-ledger.mjs
-import { win32 as win325 } from "node:path";
+import { win32 as win326 } from "node:path";
 var LEDGER_SCHEMA_VERSION = "1.0";
 var SHA256_PATTERN = /^[0-9a-f]{64}$/;
 var CLIENT_PATHS = Object.freeze({
@@ -16118,10 +16118,10 @@ function normalizeLocation(input) {
   const configPath = input.configPath ?? input.canonical_config_path;
   const scope = input.scope;
   const entryName = input.entryName ?? input.entry_name ?? "uemcp";
-  if (!CLIENT_IDS.includes(clientId) || typeof configPath !== "string" || !win325.isAbsolute(configPath) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(configPath) || typeof scope !== "string" || scope.trim() === "" || typeof entryName !== "string" || entryName.trim() === "") {
+  if (!CLIENT_IDS.includes(clientId) || typeof configPath !== "string" || !win326.isAbsolute(configPath) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(configPath) || typeof scope !== "string" || scope.trim() === "" || typeof entryName !== "string" || entryName.trim() === "") {
     fail7("ownership location fields are invalid", "INVALID_OWNERSHIP_LOCATION");
   }
-  const canonicalPath = win325.normalize(configPath);
+  const canonicalPath = win326.normalize(configPath);
   return {
     client_id: clientId,
     canonical_config_path: canonicalPath,
@@ -16172,7 +16172,7 @@ function ownedPathsForClient(clientId, physicalEntry) {
       fail7(`required physical field is absent: ${path}`, "INVALID_OWNED_PATHS");
     }
   }
-  if (typeof physicalEntry.command !== "string" || physicalEntry.command.trim() === "" || !win325.isAbsolute(physicalEntry.command) || !Array.isArray(physicalEntry.args) || !physicalEntry.args.every((value) => typeof value === "string")) {
+  if (typeof physicalEntry.command !== "string" || physicalEntry.command.trim() === "" || !win326.isAbsolute(physicalEntry.command) || !Array.isArray(physicalEntry.args) || !physicalEntry.args.every((value) => typeof value === "string")) {
     fail7("physical command or args are invalid", "INVALID_OWNED_PATHS");
   }
   if ((clientId === "claude" || clientId === "vscode") && physicalEntry.type !== "stdio") {
@@ -16265,7 +16265,7 @@ function validRecord(record2) {
     "plan_digest",
     "written_at"
   ])) return false;
-  if (!CLIENT_IDS.includes(record2.client_id) || typeof record2.canonical_config_path !== "string" || !win325.isAbsolute(record2.canonical_config_path) || typeof record2.scope !== "string" || record2.scope === "" || typeof record2.entry_name !== "string" || record2.entry_name === "" || !Array.isArray(record2.owned_paths) || new Set(record2.owned_paths).size !== record2.owned_paths.length || !exactKeys2(record2.value_hashes, record2.owned_paths) || !record2.owned_paths.every((path) => typeof path === "string" && SHA256_PATTERN.test(record2.value_hashes[path])) || !SHA256_PATTERN.test(record2.applied_config_sha256) || !SHA256_PATTERN.test(record2.plan_digest) || typeof record2.written_at !== "string" || !Number.isFinite(Date.parse(record2.written_at))) return false;
+  if (!CLIENT_IDS.includes(record2.client_id) || typeof record2.canonical_config_path !== "string" || !win326.isAbsolute(record2.canonical_config_path) || typeof record2.scope !== "string" || record2.scope === "" || typeof record2.entry_name !== "string" || record2.entry_name === "" || !Array.isArray(record2.owned_paths) || new Set(record2.owned_paths).size !== record2.owned_paths.length || !exactKeys2(record2.value_hashes, record2.owned_paths) || !record2.owned_paths.every((path) => typeof path === "string" && SHA256_PATTERN.test(record2.value_hashes[path])) || !SHA256_PATTERN.test(record2.applied_config_sha256) || !SHA256_PATTERN.test(record2.plan_digest) || typeof record2.written_at !== "string" || !Number.isFinite(Date.parse(record2.written_at))) return false;
   return true;
 }
 function parseLedger(raw) {
@@ -16441,7 +16441,7 @@ function fail8(message, code = "CLAUDE_ADAPTER_FAILED", details = {}) {
   throw new ClaudeAdapterError(message, code, details);
 }
 function absolutePath2(value) {
-  return typeof value === "string" && value.trim() !== "" && (isAbsolute7(value) || win326.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute7(value) || win327.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 function plainObject(value) {
   if (!value || Array.isArray(value) || typeof value !== "object") return false;
@@ -16449,7 +16449,7 @@ function plainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 function pathIdentity2(path) {
-  const normalized = win326.normalize(resolve6(path));
+  const normalized = win327.normalize(resolve6(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained2(root, candidate) {
@@ -16847,7 +16847,7 @@ async function inspectInstalledPlugins({ fsImpl, captureFingerprint, locations, 
       }
       if (Object.hasOwn(manifestRoot, "mcpServers")) {
         if (typeof manifestRoot.mcpServers === "string") {
-          if (manifestRoot.mcpServers.trim() === "" || isAbsolute7(manifestRoot.mcpServers) || win326.isAbsolute(manifestRoot.mcpServers)) {
+          if (manifestRoot.mcpServers.trim() === "" || isAbsolute7(manifestRoot.mcpServers) || win327.isAbsolute(manifestRoot.mcpServers)) {
             fail8("Claude plugin MCP path must be relative", "MALFORMED_CONFIG");
           }
           const declarationPath = resolve6(pluginRoot, manifestRoot.mcpServers);
@@ -17473,7 +17473,7 @@ import {
   relative as relative6,
   resolve as resolve7,
   sep as sep6,
-  win32 as win327
+  win32 as win328
 } from "node:path";
 
 // server/deployment/toml-config.mjs
@@ -17815,10 +17815,10 @@ function plainObject2(value) {
   return prototype === Object.prototype || prototype === null;
 }
 function absolutePath3(value) {
-  return typeof value === "string" && value.trim() !== "" && (isAbsolute8(value) || win327.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute8(value) || win328.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 function pathIdentity3(path) {
-  const normalized = win327.normalize(resolve7(path));
+  const normalized = win328.normalize(resolve7(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained3(root, candidate) {
@@ -18662,7 +18662,7 @@ import {
   relative as relative7,
   resolve as resolve8,
   sep as sep7,
-  win32 as win328
+  win32 as win329
 } from "node:path";
 var DEFAULT_LIMITS3 = Object.freeze({
   fileBytes: 16 * 1024 * 1024,
@@ -18709,10 +18709,10 @@ function plainObject3(value) {
   return prototype === Object.prototype || prototype === null;
 }
 function absolutePath4(value) {
-  return typeof value === "string" && value.trim() !== "" && (isAbsolute9(value) || win328.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute9(value) || win329.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 function pathIdentity4(path) {
-  const normalized = win328.normalize(resolve8(path));
+  const normalized = win329.normalize(resolve8(path));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function contained4(root, candidate) {
@@ -19806,7 +19806,7 @@ import {
   isAbsolute as isAbsolute10,
   join as join9,
   resolve as resolve9,
-  win32 as win329
+  win32 as win3210
 } from "node:path";
 var DEFAULT_LIMITS4 = Object.freeze({
   fileBytes: 16 * 1024 * 1024,
@@ -19844,7 +19844,7 @@ function fail12(message, code = "VSCODE_ADAPTER_FAILED", details = {}) {
   throw new VsCodeAdapterError(message, code, details);
 }
 function absolutePath5(value) {
-  return typeof value === "string" && value.trim() !== "" && (isAbsolute10(value) || win329.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
+  return typeof value === "string" && value.trim() !== "" && (isAbsolute10(value) || win3210.isAbsolute(value)) && !/^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value);
 }
 function plainObject4(value) {
   if (!value || Array.isArray(value) || typeof value !== "object") return false;
@@ -20051,7 +20051,7 @@ function statusFromError4(error2) {
   throw error2;
 }
 function safeProfileLocation(value) {
-  if (typeof value !== "string" || value === "" || value !== value.trim() || value === "." || value === ".." || /[<>:"/\\|?*\x00-\x1f]/.test(value) || /[. ]$/.test(value) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(value) || value.toLowerCase() === "agents" || isAbsolute10(value) || win329.isAbsolute(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
+  if (typeof value !== "string" || value === "" || value !== value.trim() || value === "." || value === ".." || /[<>:"/\\|?*\x00-\x1f]/.test(value) || /[. ]$/.test(value) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(value) || value.toLowerCase() === "agents" || isAbsolute10(value) || win3210.isAbsolute(value) || /^(?:\\\\[?.]\\|\\\\GLOBALROOT\\)/i.test(value)) {
     fail12("VS Code profile location is unsafe", "UNSAFE_CONFIG_PATH");
   }
   return value;
@@ -20115,7 +20115,7 @@ function selectedProfileResource(context, locations, profiles) {
   });
 }
 function pathIdentity5(path) {
-  return win329.normalize(resolve9(path)).toLowerCase();
+  return win3210.normalize(resolve9(path)).toLowerCase();
 }
 async function captureLaunchEvidence4(captureFingerprint, context, detection) {
   const candidates = [
@@ -20672,7 +20672,7 @@ async function verifyDeploymentBundleFreshness({
 
 // server/deployment/client-domain.mjs
 import * as defaultFs12 from "node:fs/promises";
-import { posix as posix5, resolve as resolve12, win32 as win3211 } from "node:path";
+import { posix as posix5, resolve as resolve12, win32 as win3212 } from "node:path";
 
 // server/deployment/client-process.mjs
 import * as defaultFs11 from "node:fs/promises";
@@ -28844,7 +28844,7 @@ var Client = class extends Protocol {
 };
 
 // server/deployment/protocol-smoke.mjs
-import { isAbsolute as isAbsolute13, posix as posix4, win32 as win3210 } from "node:path";
+import { isAbsolute as isAbsolute13, posix as posix4, win32 as win3211 } from "node:path";
 
 // server/deployment/bounded-stdio-transport.mjs
 import { spawn as defaultSpawn3 } from "node:child_process";
@@ -29100,7 +29100,7 @@ function baseEvidence(status, started) {
   };
 }
 function absoluteDescriptorPath(value) {
-  return typeof value === "string" && (isAbsolute13(value) || win3210.isAbsolute(value) || posix4.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute13(value) || win3211.isAbsolute(value) || posix4.isAbsolute(value));
 }
 async function withPinnedDescriptorLaunch(descriptor, {
   callback,
@@ -29359,7 +29359,7 @@ function unique5(values) {
 }
 function pathKey4(path) {
   if (typeof path !== "string") return null;
-  if (win3211.isAbsolute(path)) return `win:${win3211.normalize(path).toLowerCase()}`;
+  if (win3212.isAbsolute(path)) return `win:${win3212.normalize(path).toLowerCase()}`;
   if (posix5.isAbsolute(path)) return `posix:${posix5.normalize(path)}`;
   return null;
 }
@@ -30488,7 +30488,7 @@ function createClientDomain({
 
 // server/deployment/descriptor.mjs
 import * as defaultFs13 from "node:fs/promises";
-import { isAbsolute as isAbsolute14, posix as posix6, resolve as resolve13, win32 as win3212 } from "node:path";
+import { isAbsolute as isAbsolute14, posix as posix6, resolve as resolve13, win32 as win3213 } from "node:path";
 var DESCRIPTOR_KEYS = ["name", "transport", "command", "args", "env", "cwd"];
 var DescriptorError = class extends Error {
   constructor(message, code = "INVALID_DESCRIPTOR", details = {}) {
@@ -30503,7 +30503,7 @@ function normalizePath(value) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function absolutePath6(value) {
-  return typeof value === "string" && (isAbsolute14(value) || win3212.isAbsolute(value) || posix6.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute14(value) || win3213.isAbsolute(value) || posix6.isAbsolute(value));
 }
 function exactDescriptorShape(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -31531,7 +31531,7 @@ function createLocalState({
 import { dirname as dirname13, isAbsolute as isAbsolute17, resolve as resolve16 } from "node:path";
 
 // server/deployment/plan-document.mjs
-import { isAbsolute as isAbsolute16, posix as posix7, win32 as win3213 } from "node:path";
+import { isAbsolute as isAbsolute16, posix as posix7, win32 as win3214 } from "node:path";
 
 // server/deployment/redaction.mjs
 var DEFAULT_SECRET_KEYS = Object.freeze([
@@ -31736,10 +31736,10 @@ function fail17(message, code, details) {
   throw new DeploymentPlanError(message, code, details);
 }
 function absolutePath7(value) {
-  return typeof value === "string" && (isAbsolute16(value) || win3213.isAbsolute(value) || posix7.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute16(value) || win3214.isAbsolute(value) || posix7.isAbsolute(value));
 }
 function pathIdentity6(value) {
-  return /^(?:[a-z]:[\\/]|\\\\)/i.test(value) ? win3213.resolve(value).toLowerCase() : posix7.resolve(value);
+  return /^(?:[a-z]:[\\/]|\\\\)/i.test(value) ? win3214.resolve(value).toLowerCase() : posix7.resolve(value);
 }
 function cloneCanonical(value) {
   return JSON.parse(canonicalJson(value));
@@ -32721,7 +32721,7 @@ function createDeploymentOrchestrator({
 
 // server/deployment/prerequisites.mjs
 import * as defaultFs16 from "node:fs/promises";
-import { dirname as dirname14, isAbsolute as isAbsolute18, join as join14, posix as posix8, resolve as resolve17, win32 as win3214 } from "node:path";
+import { dirname as dirname14, isAbsolute as isAbsolute18, join as join14, posix as posix8, resolve as resolve17, win32 as win3215 } from "node:path";
 var INSTALL_MODE = "production-no-scripts";
 var VALIDATION_COMMAND = "npm ls --omit=dev --all --json";
 var PrerequisiteError = class extends Error {
@@ -32733,7 +32733,7 @@ var PrerequisiteError = class extends Error {
   }
 };
 function absolutePath8(value) {
-  return typeof value === "string" && (isAbsolute18(value) || win3214.isAbsolute(value) || posix8.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute18(value) || win3215.isAbsolute(value) || posix8.isAbsolute(value));
 }
 function fail18(message, code, details) {
   throw new PrerequisiteError(message, code, details);
@@ -33173,7 +33173,7 @@ function createPrerequisiteDomain({
 
 // server/deployment/source-provenance.mjs
 import * as defaultFs17 from "node:fs/promises";
-import { dirname as dirname15, isAbsolute as isAbsolute19, join as join15, posix as posix9, relative as relative11, resolve as resolve18, sep as sep11, win32 as win3215 } from "node:path";
+import { dirname as dirname15, isAbsolute as isAbsolute19, join as join15, posix as posix9, relative as relative11, resolve as resolve18, sep as sep11, win32 as win3216 } from "node:path";
 var PROVENANCE_FILE = ".uemcp-source-provenance.json";
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var SHA2565 = /^[0-9a-f]{64}$/;
@@ -33285,7 +33285,7 @@ async function runGit(runner, executable, args, repoRoot, { allowFailure = false
 async function inspectCheckout({ repoRoot, fsImpl, runner, gitExecutable, authenticodeInspector, environment }) {
   const gitPath = await selectGitExecutable({ gitExecutable, fsImpl, runner, authenticodeInspector, environment });
   const reportedTopLevel = await runGit(runner, gitPath, ["rev-parse", "--show-toplevel"], repoRoot);
-  if (!(isAbsolute19(reportedTopLevel) || win3215.isAbsolute(reportedTopLevel) || posix9.isAbsolute(reportedTopLevel))) {
+  if (!(isAbsolute19(reportedTopLevel) || win3216.isAbsolute(reportedTopLevel) || posix9.isAbsolute(reportedTopLevel))) {
     fail19("Git returned a non-absolute top-level path");
   }
   let topLevel;
@@ -33446,7 +33446,7 @@ async function inspectSourceProvenance({
   authenticodeInspector = inspectAuthenticode,
   environment = process.env
 } = {}) {
-  if (typeof repoRoot !== "string" || !(isAbsolute19(repoRoot) || win3215.isAbsolute(repoRoot) || posix9.isAbsolute(repoRoot))) {
+  if (typeof repoRoot !== "string" || !(isAbsolute19(repoRoot) || win3216.isAbsolute(repoRoot) || posix9.isAbsolute(repoRoot))) {
     fail19("repository root must be absolute");
   }
   let canonicalRoot;
@@ -33476,7 +33476,7 @@ async function inspectSourceProvenance({
 import { randomBytes as randomBytes7 } from "node:crypto";
 import * as syncFs from "node:fs";
 import * as defaultAsyncFs from "node:fs/promises";
-import { dirname as dirname18, extname as extname4, isAbsolute as isAbsolute21, join as join18, parse as parse7, posix as posix10, relative as relative12, resolve as resolve21, sep as sep12, win32 as win3216 } from "node:path";
+import { dirname as dirname18, extname as extname4, isAbsolute as isAbsolute21, join as join18, parse as parse7, posix as posix10, relative as relative12, resolve as resolve21, sep as sep12, win32 as win3217 } from "node:path";
 
 // server/project-targets.mjs
 import { createHash as createHash2, randomBytes as randomBytes6 } from "node:crypto";
@@ -33707,7 +33707,7 @@ var TargetDomainError = class extends Error {
   }
 };
 function absolutePath9(value) {
-  return typeof value === "string" && (isAbsolute21(value) || win3216.isAbsolute(value) || posix10.isAbsolute(value));
+  return typeof value === "string" && (isAbsolute21(value) || win3217.isAbsolute(value) || posix10.isAbsolute(value));
 }
 function pathKey5(value) {
   const normalized = resolve21(value);

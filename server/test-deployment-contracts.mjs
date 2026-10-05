@@ -758,7 +758,7 @@ async function rejectsCode(fn, code) {
     t.assert(knownFolders.programData === 'D:\\PolicyData' && knownFolders.programFiles === 'E:\\Programs', 'known-folder helper returns normalized ProgramData and Program Files paths');
     const knownFolderCall = calls.find(call => call.options.stdin.includes('SHGetKnownFolderPath'));
     t.assert(knownFolderCall.options.timeoutMs === 30_000, 'known-folder helper uses the standard bounded production timeout');
-    t.assert(knownFolderCall.executable === resolve('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    t.assert(knownFolderCall.executable === resolve('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
       && JSON.stringify(Object.keys(knownFolderCall.options.env).sort()) === JSON.stringify(['PSModulePath', 'SystemRoot', 'WINDIR'].sort()),
     'known-folder resolution uses fixed System32 PowerShell with no inherited folder environment values');
     t.assert(WINDOWS_NATIVE_SCRIPTS.known_folders.includes('62AB5D82-FDC1-4DC3-A9DD-070D1D495D97')
@@ -925,6 +925,7 @@ async function rejectsCode(fn, code) {
         maxBytes: 1024,
         callback: async () => {},
         platform: 'win32',
+        systemRoot: 'C:\\Windows',
         spawnImpl: () => child,
         acquisitionTimeoutMs: 5,
         releaseTimeoutMs: 5,
@@ -933,6 +934,7 @@ async function rejectsCode(fn, code) {
         paths: [join(root, 'launch.mjs')],
         callback: async () => {},
         platform: 'win32',
+        systemRoot: 'C:\\Windows',
         spawnImpl: () => child,
         acquisitionTimeoutMs: 5,
         releaseTimeoutMs: 5,
