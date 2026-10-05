@@ -1131,7 +1131,10 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
     const localState = createTestLocalState(root);
     const sharedPath = writeBytes(join(home, 'shared.json'), Buffer.from('{}\n'));
     const claude = await transactionOperation('claude', sharedPath, home, windowsNative);
-    const vscode = await transactionOperation('vscode', sharedPath.toUpperCase(), home.toUpperCase(), windowsNative, {
+    // Preserve Windows case-alias coverage; POSIX case variants are distinct paths.
+    const aliasPath = process.platform === 'win32' ? sharedPath.toUpperCase() : `${home}/./shared.json`;
+    const aliasHome = process.platform === 'win32' ? home.toUpperCase() : `${home}/.`;
+    const vscode = await transactionOperation('vscode', aliasPath, aliasHome, windowsNative, {
       operation_id: 'vscode-shared-write',
     });
     const ownershipFingerprint = await captureClientPathFingerprint(localState.paths().ownership, {
@@ -1163,7 +1166,8 @@ function adoptionOperation(target, currentEntry, overrides = {}) {
       context: {},
       ownershipFingerprint: partitionedOwnership,
     });
-    t.assert(snapshot.writable_paths.filter(path => path.toLowerCase() === resolve(sharedPath).toLowerCase()).length === 1, 'case aliases with non-overlapping declared fields produce one physical snapshot');
+    const comparablePath = path => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+    t.assert(snapshot.writable_paths.filter(path => comparablePath(path) === comparablePath(sharedPath)).length === 1, 'path aliases with non-overlapping declared fields produce one physical snapshot');
     await partitioned.rollback({ reason: 'test cleanup' });
   } finally {
     cleanupTransactionRoot(root);
