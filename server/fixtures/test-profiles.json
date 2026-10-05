@@ -200,6 +200,149 @@
         }
       ]
     },
+    "owned-asset-info": {
+      "runner": "node",
+      "scope": "Owned UE5.6 asset-info identity/size/saved-version and cache lifecycle only. Consumer-specific counts/tags, maps, legacy and native runtime qualification remain retained. No ledger equivalence or retirement is asserted.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-asset-info.mjs",
+          "cases": [
+            "owned asset-info: authored identity and manifest metadata",
+            "owned asset-info: warm dispatcher preserves metadata",
+            "owned asset-info: unchanged bytes reuse the cached payload",
+            "owned asset-info: dirty index reparses unchanged bytes",
+            "owned asset-info: newer mtime reparses equal-size bytes",
+            "owned asset-info: equal-mtime size change cannot serve a stale payload",
+            "owned asset-info: dirty index detects same-size same-mtime corruption",
+            "owned asset-info: cached asset deletion reports missing asset",
+            "owned asset-info: identical asset names in different roots have separate caches",
+            "owned asset-info: unknown asset rejects without a cache entry",
+            "owned asset-info: missing asset parameter rejects before cache population",
+            "owned asset-info controls: rejects incorrect path",
+            "owned asset-info controls: rejects incorrect packageName",
+            "owned asset-info controls: rejects incorrect objectPath",
+            "owned asset-info controls: rejects incorrect objectClassName",
+            "owned asset-info controls: rejects incorrect tags",
+            "owned asset-info controls: rejects incorrect sizeBytes",
+            "owned asset-info controls: rejects incorrect sizeKB",
+            "owned asset-info controls: rejects incorrect fileVersionUE5",
+            "owned asset-info controls: rejects incorrect diskPath",
+            "owned asset-info controls: edited authoring source is rejected",
+            "owned asset-info: corpus remains byte-identical after all cases"
+          ]
+        }
+      ]
+    },
+    "owned-package-parser": {
+      "runner": "node",
+      "scope": "Saved UE5.6 owned package table descriptors, boundaries, export records and Blueprint/BPGC registry pair; buffer-only malformed/truncation/overflow controls. Other engine versions, consumer fixtures, numbered references and real VFX salvage retained. No ledger equivalence or retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-package-parser.mjs",
+          "cases": [
+            "owned parser: saved summary descriptors and name-table boundary",
+            "owned parser: saved import stride and class references",
+            "owned parser: all saved export tuples and 112-byte stride",
+            "owned parser: Blueprint and generated-class registry records end at dependency data",
+            "owned parser: saved package with corrupted magic rejects",
+            "owned parser: summary accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: names accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: imports accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: exports accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: registry accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: wrong export version desynchronizes the saved second record",
+            "owned parser: injected serialSize overflow marks only its export and preserves later records",
+            "owned parser: injected serialOffset overflow marks only its export and preserves later records",
+            "owned parser: injected scriptSerializationStartOffset overflow marks only its export and preserves later records",
+            "owned parser: injected scriptSerializationEndOffset overflow marks only its export and preserves later records",
+            "owned parser: source buffer and on-disk package remain byte-identical"
+          ]
+        }
+      ]
+    },
+    "owned-asset-parser": {
+      "runner": "node",
+      "scope": "Combined owned asset-info/cache and saved UE5.6 parser witnesses only. Partial mapping; consumer, legacy, native and broader engine obligations retained. No retirement or equivalent replacement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-asset-info.mjs",
+          "cases": [
+            "owned asset-info: authored identity and manifest metadata",
+            "owned asset-info: warm dispatcher preserves metadata",
+            "owned asset-info: unchanged bytes reuse the cached payload",
+            "owned asset-info: dirty index reparses unchanged bytes",
+            "owned asset-info: newer mtime reparses equal-size bytes",
+            "owned asset-info: equal-mtime size change cannot serve a stale payload",
+            "owned asset-info: dirty index detects same-size same-mtime corruption",
+            "owned asset-info: cached asset deletion reports missing asset",
+            "owned asset-info: identical asset names in different roots have separate caches",
+            "owned asset-info: unknown asset rejects without a cache entry",
+            "owned asset-info: missing asset parameter rejects before cache population",
+            "owned asset-info controls: rejects incorrect path",
+            "owned asset-info controls: rejects incorrect packageName",
+            "owned asset-info controls: rejects incorrect objectPath",
+            "owned asset-info controls: rejects incorrect objectClassName",
+            "owned asset-info controls: rejects incorrect tags",
+            "owned asset-info controls: rejects incorrect sizeBytes",
+            "owned asset-info controls: rejects incorrect sizeKB",
+            "owned asset-info controls: rejects incorrect fileVersionUE5",
+            "owned asset-info controls: rejects incorrect diskPath",
+            "owned asset-info controls: edited authoring source is rejected",
+            "owned asset-info: corpus remains byte-identical after all cases"
+          ]
+        },
+        {
+          "name": "test-owned-package-parser.mjs",
+          "cases": [
+            "owned parser: saved summary descriptors and name-table boundary",
+            "owned parser: saved import stride and class references",
+            "owned parser: all saved export tuples and 112-byte stride",
+            "owned parser: Blueprint and generated-class registry records end at dependency data",
+            "owned parser: saved package with corrupted magic rejects",
+            "owned parser: summary accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: names accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: imports accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: exports accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: registry accepts exact saved boundary and rejects one-byte truncation",
+            "owned parser: wrong export version desynchronizes the saved second record",
+            "owned parser: injected serialSize overflow marks only its export and preserves later records",
+            "owned parser: injected serialOffset overflow marks only its export and preserves later records",
+            "owned parser: injected scriptSerializationStartOffset overflow marks only its export and preserves later records",
+            "owned parser: injected scriptSerializationEndOffset overflow marks only its export and preserves later records",
+            "owned parser: source buffer and on-disk package remain byte-identical"
+          ]
+        }
+      ]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],

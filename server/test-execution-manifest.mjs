@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, copyFileSync, mkdirSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, unlinkSync, renameSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
 import { loadTestProfile, collectSourceState, collectFixtureIdentity, validateExecution, parseCaseEvidence, sha256, REPOSITORY_ROOT } from './execution-manifest.mjs';
 
@@ -228,6 +228,86 @@ try {
     wrongQuerySource.digest = sha256(JSON.stringify(rawQuerySource));
     runner.assert(validateExecution({ ...queryEvidence, sourceState: wrongQuerySource }, queryProfile, execSource).includes('Wrong source state'), 'owned query profile rejects self-consistent evidence for a different source');
   }
+  const assetParserSuites = [
+    {
+      "name": "test-owned-asset-info.mjs",
+      "cases": [
+        "owned asset-info: authored identity and manifest metadata",
+        "owned asset-info: warm dispatcher preserves metadata",
+        "owned asset-info: unchanged bytes reuse the cached payload",
+        "owned asset-info: dirty index reparses unchanged bytes",
+        "owned asset-info: newer mtime reparses equal-size bytes",
+        "owned asset-info: equal-mtime size change cannot serve a stale payload",
+        "owned asset-info: dirty index detects same-size same-mtime corruption",
+        "owned asset-info: cached asset deletion reports missing asset",
+        "owned asset-info: identical asset names in different roots have separate caches",
+        "owned asset-info: unknown asset rejects without a cache entry",
+        "owned asset-info: missing asset parameter rejects before cache population",
+        "owned asset-info controls: rejects incorrect path",
+        "owned asset-info controls: rejects incorrect packageName",
+        "owned asset-info controls: rejects incorrect objectPath",
+        "owned asset-info controls: rejects incorrect objectClassName",
+        "owned asset-info controls: rejects incorrect tags",
+        "owned asset-info controls: rejects incorrect sizeBytes",
+        "owned asset-info controls: rejects incorrect sizeKB",
+        "owned asset-info controls: rejects incorrect fileVersionUE5",
+        "owned asset-info controls: rejects incorrect diskPath",
+        "owned asset-info controls: edited authoring source is rejected",
+        "owned asset-info: corpus remains byte-identical after all cases"
+      ]
+    },
+    {
+      "name": "test-owned-package-parser.mjs",
+      "cases": [
+        "owned parser: saved summary descriptors and name-table boundary",
+        "owned parser: saved import stride and class references",
+        "owned parser: all saved export tuples and 112-byte stride",
+        "owned parser: Blueprint and generated-class registry records end at dependency data",
+        "owned parser: saved package with corrupted magic rejects",
+        "owned parser: summary accepts exact saved boundary and rejects one-byte truncation",
+        "owned parser: names accepts exact saved boundary and rejects one-byte truncation",
+        "owned parser: imports accepts exact saved boundary and rejects one-byte truncation",
+        "owned parser: exports accepts exact saved boundary and rejects one-byte truncation",
+        "owned parser: registry accepts exact saved boundary and rejects one-byte truncation",
+        "owned parser: wrong export version desynchronizes the saved second record",
+        "owned parser: injected serialSize overflow marks only its export and preserves later records",
+        "owned parser: injected serialOffset overflow marks only its export and preserves later records",
+        "owned parser: injected scriptSerializationStartOffset overflow marks only its export and preserves later records",
+        "owned parser: injected scriptSerializationEndOffset overflow marks only its export and preserves later records",
+        "owned parser: source buffer and on-disk package remain byte-identical"
+      ]
+    }
+  ];
+  const assetParserInputs = [...queryInputs];
+  for (const [profileName, suites, inputs] of [
+    ['owned-asset-info', [assetParserSuites[0]], assetParserInputs],
+    ['owned-package-parser', [assetParserSuites[1]], assetParserInputs.slice(0, 3)],
+    ['owned-asset-parser', assetParserSuites, assetParserInputs],
+  ]) {
+    const profile = loadTestProfile(profileName);
+    runner.assert(profile.runner === 'node'
+      && JSON.stringify(profile.capabilities) === JSON.stringify(['engine-free', 'owned-serialization'])
+      && JSON.stringify(profile.suites) === JSON.stringify(suites)
+      && JSON.stringify(profile.fixturePaths) === JSON.stringify(inputs), `${profileName} pins exact suites, cases and inputs`);
+    const value = {
+      schemaVersion: 1, profile: profileName, manifestDigest: profile.manifestDigest,
+      sourceState: execSource, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, inputs),
+      suites: suites.map(suite => ({ name: suite.name, state: 'passed', cases: suite.cases.map(name => ({ name, state: 'passed' })) })),
+    };
+    runner.assert(validateExecution(value, profile, execSource).length === 0, `${profileName} accepts complete bound evidence`);
+    for (const suite of suites) {
+      const missingSuite = { ...value, suites: value.suites.filter(item => item.name !== suite.name) };
+      runner.assert(validateExecution(missingSuite, profile, execSource).includes(`Missing or duplicate suite: ${suite.name}`), `${profileName} rejects omitted ${suite.name}`);
+      for (const name of suite.cases) {
+        const missingCase = { ...value, suites: value.suites.map(item => item.name !== suite.name ? item : { ...item, cases: item.cases.filter(row => row.name !== name) }) };
+        runner.assert(validateExecution(missingCase, profile, execSource).includes(`Missing, duplicate or unsuccessful case: ${suite.name}/${name}`), `${profileName} rejects omitted ${name}`);
+      }
+    }
+    for (const path of inputs) {
+      const files = value.fixtureIdentity.files.filter(file => file.path !== path);
+      runner.assert(validateExecution({ ...value, fixtureIdentity: { files, digest: sha256(JSON.stringify(files)) } }, profile, execSource).includes('Wrong fixture identity'), `${profileName} rejects omitted input ${path}`);
+    }
+  }
   const schemaPath = join(root, 'profile-schema.json');
   for (const capabilities of ['engine-free', ['engine-free', 'engine-free'], [null]]) {
     writeFileSync(schemaPath, JSON.stringify({ schemaVersion: 1, profiles: { invalid: { ...owned, capabilities } } }));
@@ -258,6 +338,39 @@ try {
   }
   unlinkSync(join(server, 'test-control.mjs'));
   runner.assert(run().status === 1, 'rotation CLI missing required suite fails');
+
+  // Runner protocol controls only, in this owned scratch checkout. These tiny
+  // emitters do not claim to execute the actual asset-info or parser assertions.
+  const combinedProfile = loadTestProfile('owned-asset-parser');
+  writeFileSync(join(server, 'fixtures/test-profiles.json'), JSON.stringify({
+    schemaVersion: 1, profiles: { 'owned-asset-parser': combinedProfile },
+  }));
+  for (const path of assetParserInputs) {
+    const target = join(root, path);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(REPOSITORY_ROOT, path), target);
+  }
+  for (const suite of assetParserSuites) writeFileSync(join(server, suite.name), script(suite.cases));
+  const runCombinedControl = () => spawnSync(process.execPath,
+    ['run-rotation.mjs', '--test-profile', 'owned-asset-parser', '--json'],
+    { cwd: server, encoding: 'utf8', timeout: 30000 });
+  runner.assert(runCombinedControl().status === 0, 'combined profile CLI control accepts complete case protocol');
+  for (const path of [...assetParserInputs, ...assetParserSuites.map(suite => `server/${suite.name}`)]) {
+    const target = join(root, path);
+    renameSync(target, `${target}.withheld`);
+    try {
+      runner.assert(runCombinedControl().status === 1, `combined profile CLI rejects missing file ${path}`);
+    } finally { renameSync(`${target}.withheld`, target); }
+  }
+  for (const suite of assetParserSuites) {
+    writeFileSync(join(server, suite.name), script(suite.cases.slice(1)));
+    try {
+      const result = runCombinedControl();
+      const report = JSON.parse(result.stdout);
+      runner.assert(result.status === 1 && report.executionErrors.some(error => error.includes(`/${suite.cases[0]}`)),
+        `combined profile CLI rejects case omission despite passing ${suite.name} summary`);
+    } finally { writeFileSync(join(server, suite.name), script(suite.cases)); }
+  }
 } finally {
   cleanupCanonicalScratchRoot(root, 'uemcp-execution-');
 }
