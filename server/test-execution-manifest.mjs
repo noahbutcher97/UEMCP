@@ -308,6 +308,105 @@ try {
       runner.assert(validateExecution({ ...value, fixtureIdentity: { files, digest: sha256(JSON.stringify(files)) } }, profile, execSource).includes('Wrong fixture identity'), `${profileName} rejects omitted input ${path}`);
     }
   }
+  const registryBlueprintSuites = [
+    {
+      "name": "test-owned-blueprint-data.mjs",
+      "cases": [
+        "owned data: known positive exec edge is excluded from data sinks",
+        "owned data: terminal call has no outgoing data sinks",
+        "owned data: empty traversal at requested depth -1 reports cap 1",
+        "owned data: empty traversal at requested depth 0 reports cap 1",
+        "owned data: empty traversal at requested depth 1 reports cap 1",
+        "owned data: empty traversal at requested depth 500 reports cap 500",
+        "owned data: empty traversal at requested depth 501 reports cap 500",
+        "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
+        "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+        "owned data: unknown graph returns exact unavailable envelope",
+        "owned data: unknown node returns exact unavailable envelope",
+        "owned data: missing asset_path is rejected after valid baseline",
+        "owned data: missing graph_name is rejected after valid baseline",
+        "owned data: missing start_node_id is rejected after valid baseline",
+        "owned data: controls reject exec edge leaked with consistent count",
+        "owned data: controls reject invented sink despite zero count",
+        "owned data: controls reject nonzero count despite empty sinks",
+        "owned data: controls reject raw rather than canonical echo",
+        "owned data: controls reject wrong asset identity",
+        "owned data: controls reject wrong graph identity",
+        "owned data: controls reject incorrect depth cap",
+        "owned data: controls reject false reached depth",
+        "owned data: controls reject false truncation",
+        "owned data: controls reject unavailable success-shaped response"
+      ]
+    },
+    {
+      "name": "test-owned-asset-registry.mjs",
+      "cases": [
+        "owned registry: /Game scans the expected root and finds the authored package",
+        "owned registry: /Game/ scans the expected root and finds the authored package",
+        "owned registry: /Game/Serialization scans the expected root and finds the authored package",
+        "owned registry: full and short primary class filters retain the real match",
+        "owned registry: unknown, wrong full path and secondary class do not match",
+        "owned registry: tag presence and independently authored exact value retain the match",
+        "owned registry: absent or inherited tag keys and wrong values reject a scanned package",
+        "owned registry: first page and exhausted offset retain the filtered total",
+        "owned registry: combined filters determine total before exhausted pagination",
+        "owned registry: absent directory scans zero files rather than reporting a filtered match",
+        "owned registry: invalid mount and escaping traversal paths reject after a valid scan",
+        "owned registry: positive comparator rejects dropped identity, filters and scan metadata",
+        "owned registry: empty comparator rejects a leaked match and confused scan or pagination counts",
+        "owned registry: corpus remains verified after all registry queries"
+      ]
+    },
+    {
+      "name": "test-owned-blueprint-inspect.mjs",
+      "cases": [
+        "owned inspect: generated-class selection resolves the authored Object parent",
+        "owned inspect: CDO resolves its positive package index to the local generated class",
+        "owned inspect: graph and compiled functions retain distinct Blueprint and generated-class owners",
+        "owned inspect: only Blueprint and generated class have the saved asset flag",
+        "owned inspect: controls reject missing or inconsistent generated-class and parent selection",
+        "owned inspect: controls reject unresolved or misdirected CDO class identity",
+        "owned inspect: controls reject collapsed or swapped graph and function ownership",
+        "owned inspect: controls reject an inverted asset flag on every saved export"
+      ]
+    }
+  ];
+  const registryBlueprintInputs = [...queryInputs];
+  for (const [name, suites, inputs] of [
+    ['owned-blueprint-data', [registryBlueprintSuites[0]], registryBlueprintInputs.slice(0, 3)],
+    ['owned-asset-registry', [registryBlueprintSuites[1]], registryBlueprintInputs],
+    ['owned-blueprint-inspect', [registryBlueprintSuites[2]], registryBlueprintInputs],
+    ['owned-registry-blueprint', registryBlueprintSuites, registryBlueprintInputs],
+  ]) {
+    const profile = loadTestProfile(name);
+    runner.assert(profile.runner === 'node'
+      && JSON.stringify(profile.capabilities) === JSON.stringify(['engine-free', 'owned-serialization'])
+      && JSON.stringify(profile.suites) === JSON.stringify(suites)
+      && JSON.stringify(profile.fixturePaths) === JSON.stringify(inputs), `${name} pins exact suites, cases and inputs`);
+    const value = {
+      schemaVersion: 1, profile: name, manifestDigest: profile.manifestDigest,
+      sourceState: execSource, fixtureIdentity: collectFixtureIdentity(REPOSITORY_ROOT, inputs),
+      suites: suites.map(suite => ({ name: suite.name, state: 'passed', cases: suite.cases.map(caseName => ({ name: caseName, state: 'passed' })) })),
+    };
+    runner.assert(validateExecution(value, profile, execSource).length === 0, `${name} accepts complete bound evidence`);
+    for (const suite of suites) {
+      const missingSuite = { ...value, suites: value.suites.filter(item => item.name !== suite.name) };
+      runner.assert(validateExecution(missingSuite, profile, execSource).includes(`Missing or duplicate suite: ${suite.name}`), `${name} rejects omitted ${suite.name}`);
+      for (const caseName of suite.cases) {
+        const missingCase = { ...value, suites: value.suites.map(item => item.name !== suite.name ? item : { ...item, cases: item.cases.filter(row => row.name !== caseName) }) };
+        runner.assert(validateExecution(missingCase, profile, execSource).includes(`Missing, duplicate or unsuccessful case: ${suite.name}/${caseName}`), `${name} rejects omitted ${caseName}`);
+      }
+      for (const state of ['skipped', 'failed']) {
+        const changed = structuredClone(value);
+        changed.suites.find(item => item.name === suite.name).cases[0].state = state;
+        runner.assert(validateExecution(changed, profile, execSource).some(error => error.startsWith('Missing, duplicate or unsuccessful case:')), `${name} rejects ${state} case in ${suite.name} despite passed suite`);
+      }
+    }
+    for (const path of inputs) {
+      const files = value.fixtureIdentity.files.filter(file => file.path !== path);
+      runner.assert(validateExecution({ ...value, fixtureIdentity: { files, digest: sha256(JSON.stringify(files)) } }, profile, execSource).includes('Wrong fixture identity'), `${name} rejects omitted input ${path}`);
+    }
+  }
   const schemaPath = join(root, 'profile-schema.json');
   for (const capabilities of ['engine-free', ['engine-free', 'engine-free'], [null]]) {
     writeFileSync(schemaPath, JSON.stringify({ schemaVersion: 1, profiles: { invalid: { ...owned, capabilities } } }));
@@ -369,6 +468,34 @@ try {
       const report = JSON.parse(result.stdout);
       runner.assert(result.status === 1 && report.executionErrors.some(error => error.includes(`/${suite.cases[0]}`)),
         `combined profile CLI rejects case omission despite passing ${suite.name} summary`);
+    } finally { writeFileSync(join(server, suite.name), script(suite.cases)); }
+  }
+
+  // Protocol-only emitters in the same owned scratch checkout. Real 46-case
+  // semantic acceptance is established by running the registered suites themselves.
+  const registryBlueprintProfile = loadTestProfile('owned-registry-blueprint');
+  writeFileSync(join(server, 'fixtures/test-profiles.json'), JSON.stringify({
+    schemaVersion: 1, profiles: { 'owned-registry-blueprint': registryBlueprintProfile },
+  }));
+  for (const suite of registryBlueprintSuites) writeFileSync(join(server, suite.name), script(suite.cases));
+  const runRegistryBlueprintControl = () => spawnSync(process.execPath,
+    ['run-rotation.mjs', '--test-profile', 'owned-registry-blueprint', '--json'],
+    { cwd: server, encoding: 'utf8', timeout: 30000 });
+  runner.assert(runRegistryBlueprintControl().status === 0, 'registry Blueprint profile CLI accepts complete case protocol');
+  for (const path of [...registryBlueprintInputs, ...registryBlueprintSuites.map(suite => `server/${suite.name}`)]) {
+    const target = join(root, path);
+    renameSync(target, `${target}.withheld`);
+    try {
+      runner.assert(runRegistryBlueprintControl().status === 1, `registry Blueprint profile CLI rejects missing file ${path}`);
+    } finally { renameSync(`${target}.withheld`, target); }
+  }
+  for (const suite of registryBlueprintSuites) {
+    writeFileSync(join(server, suite.name), script(suite.cases.slice(1)));
+    try {
+      const result = runRegistryBlueprintControl();
+      const report = JSON.parse(result.stdout);
+      runner.assert(result.status === 1 && report.executionErrors.some(error => error.includes(`/${suite.cases[0]}`)),
+        `registry Blueprint profile CLI rejects case omission despite passing ${suite.name} summary`);
     } finally { writeFileSync(join(server, suite.name), script(suite.cases)); }
   }
 } finally {

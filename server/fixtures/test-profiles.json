@@ -343,6 +343,191 @@
         }
       ]
     },
+    "owned-blueprint-data": {
+      "runner": "node",
+      "scope": "Partial INV-158/168: empty data results on a verified exec-only saved graph, exec exclusion, raw public GUID composition/canonical echo, error envelopes and empty-walk depth clamp metadata. Positive data sinks/pin endpoints, fan-out, multi-hop/cycles and depth truncation remain unqualified. Consumer obligations retained; no retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-blueprint-data.mjs",
+          "cases": [
+            "owned data: known positive exec edge is excluded from data sinks",
+            "owned data: terminal call has no outgoing data sinks",
+            "owned data: empty traversal at requested depth -1 reports cap 1",
+            "owned data: empty traversal at requested depth 0 reports cap 1",
+            "owned data: empty traversal at requested depth 1 reports cap 1",
+            "owned data: empty traversal at requested depth 500 reports cap 500",
+            "owned data: empty traversal at requested depth 501 reports cap 500",
+            "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
+            "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+            "owned data: unknown graph returns exact unavailable envelope",
+            "owned data: unknown node returns exact unavailable envelope",
+            "owned data: missing asset_path is rejected after valid baseline",
+            "owned data: missing graph_name is rejected after valid baseline",
+            "owned data: missing start_node_id is rejected after valid baseline",
+            "owned data: controls reject exec edge leaked with consistent count",
+            "owned data: controls reject invented sink despite zero count",
+            "owned data: controls reject nonzero count despite empty sinks",
+            "owned data: controls reject raw rather than canonical echo",
+            "owned data: controls reject wrong asset identity",
+            "owned data: controls reject wrong graph identity",
+            "owned data: controls reject incorrect depth cap",
+            "owned data: controls reject false reached depth",
+            "owned data: controls reject false truncation",
+            "owned data: controls reject unavailable success-shaped response"
+          ]
+        }
+      ]
+    },
+    "owned-asset-registry": {
+      "runner": "node",
+      "scope": "One immutable owned UE5.6 package: registry scan roots, primary-class and authored-tag filters, exhausted pagination, missing directory and path rejection. Consumer primary BPGC, performance, populated multi-file pagination/scan caps, legacy and native obligations retained. Ledger IDs unavailable; no completion or retirement claim.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-asset-registry.mjs",
+          "cases": [
+            "owned registry: /Game scans the expected root and finds the authored package",
+            "owned registry: /Game/ scans the expected root and finds the authored package",
+            "owned registry: /Game/Serialization scans the expected root and finds the authored package",
+            "owned registry: full and short primary class filters retain the real match",
+            "owned registry: unknown, wrong full path and secondary class do not match",
+            "owned registry: tag presence and independently authored exact value retain the match",
+            "owned registry: absent or inherited tag keys and wrong values reject a scanned package",
+            "owned registry: first page and exhausted offset retain the filtered total",
+            "owned registry: combined filters determine total before exhausted pagination",
+            "owned registry: absent directory scans zero files rather than reporting a filtered match",
+            "owned registry: invalid mount and escaping traversal paths reject after a valid scan",
+            "owned registry: positive comparator rejects dropped identity, filters and scan metadata",
+            "owned registry: empty comparator rejects a leaked match and confused scan or pagination counts",
+            "owned registry: corpus remains verified after all registry queries"
+          ]
+        }
+      ]
+    },
+    "owned-blueprint-inspect": {
+      "runner": "node",
+      "scope": "One saved UE5.6 Blueprint: inspection generated/parent selection, positive-index CDO class, graph/function outer ownership and saved asset flags. Query node/pin semantics and parser raw tuples retained. Consumer GAS parent, defaults, maps, legacy and native qualification unclaimed; no ledger completion or retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-blueprint-inspect.mjs",
+          "cases": [
+            "owned inspect: generated-class selection resolves the authored Object parent",
+            "owned inspect: CDO resolves its positive package index to the local generated class",
+            "owned inspect: graph and compiled functions retain distinct Blueprint and generated-class owners",
+            "owned inspect: only Blueprint and generated class have the saved asset flag",
+            "owned inspect: controls reject missing or inconsistent generated-class and parent selection",
+            "owned inspect: controls reject unresolved or misdirected CDO class identity",
+            "owned inspect: controls reject collapsed or swapped graph and function ownership",
+            "owned inspect: controls reject an inverted asset flag on every saved export"
+          ]
+        }
+      ]
+    },
+    "owned-registry-blueprint": {
+      "runner": "node",
+      "scope": "Combined 46-case owned registry and Blueprint data/inspection slice: empty data traversal and GUID composition, registry filters/path boundaries, and inspection export relationships. Positive data flow, multi-file scan limits/performance, consumer GAS parents, defaults/maps/legacy/native behavior retained. No ledger completion or retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-blueprint-data.mjs",
+          "cases": [
+            "owned data: known positive exec edge is excluded from data sinks",
+            "owned data: terminal call has no outgoing data sinks",
+            "owned data: empty traversal at requested depth -1 reports cap 1",
+            "owned data: empty traversal at requested depth 0 reports cap 1",
+            "owned data: empty traversal at requested depth 1 reports cap 1",
+            "owned data: empty traversal at requested depth 500 reports cap 500",
+            "owned data: empty traversal at requested depth 501 reports cap 500",
+            "owned data: raw entry-point GUID feeds data query and echoes oracle canonical identity",
+            "owned data: raw inspected call GUID echoes its distinct oracle canonical identity",
+            "owned data: unknown graph returns exact unavailable envelope",
+            "owned data: unknown node returns exact unavailable envelope",
+            "owned data: missing asset_path is rejected after valid baseline",
+            "owned data: missing graph_name is rejected after valid baseline",
+            "owned data: missing start_node_id is rejected after valid baseline",
+            "owned data: controls reject exec edge leaked with consistent count",
+            "owned data: controls reject invented sink despite zero count",
+            "owned data: controls reject nonzero count despite empty sinks",
+            "owned data: controls reject raw rather than canonical echo",
+            "owned data: controls reject wrong asset identity",
+            "owned data: controls reject wrong graph identity",
+            "owned data: controls reject incorrect depth cap",
+            "owned data: controls reject false reached depth",
+            "owned data: controls reject false truncation",
+            "owned data: controls reject unavailable success-shaped response"
+          ]
+        },
+        {
+          "name": "test-owned-asset-registry.mjs",
+          "cases": [
+            "owned registry: /Game scans the expected root and finds the authored package",
+            "owned registry: /Game/ scans the expected root and finds the authored package",
+            "owned registry: /Game/Serialization scans the expected root and finds the authored package",
+            "owned registry: full and short primary class filters retain the real match",
+            "owned registry: unknown, wrong full path and secondary class do not match",
+            "owned registry: tag presence and independently authored exact value retain the match",
+            "owned registry: absent or inherited tag keys and wrong values reject a scanned package",
+            "owned registry: first page and exhausted offset retain the filtered total",
+            "owned registry: combined filters determine total before exhausted pagination",
+            "owned registry: absent directory scans zero files rather than reporting a filtered match",
+            "owned registry: invalid mount and escaping traversal paths reject after a valid scan",
+            "owned registry: positive comparator rejects dropped identity, filters and scan metadata",
+            "owned registry: empty comparator rejects a leaked match and confused scan or pagination counts",
+            "owned registry: corpus remains verified after all registry queries"
+          ]
+        },
+        {
+          "name": "test-owned-blueprint-inspect.mjs",
+          "cases": [
+            "owned inspect: generated-class selection resolves the authored Object parent",
+            "owned inspect: CDO resolves its positive package index to the local generated class",
+            "owned inspect: graph and compiled functions retain distinct Blueprint and generated-class owners",
+            "owned inspect: only Blueprint and generated class have the saved asset flag",
+            "owned inspect: controls reject missing or inconsistent generated-class and parent selection",
+            "owned inspect: controls reject unresolved or misdirected CDO class identity",
+            "owned inspect: controls reject collapsed or swapped graph and function ownership",
+            "owned inspect: controls reject an inverted asset flag on every saved export"
+          ]
+        }
+      ]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],
