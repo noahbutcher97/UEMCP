@@ -14,8 +14,8 @@ UDumpBPGraphCommandlet::UDumpBPGraphCommandlet()
 	IsServer = false;
 	IsClient = false;
 	LogToConsole = true;
-	HelpDescription = TEXT("Dumps a Blueprint's pin-edge topology as JSON (M-new Oracle-A dev-infra).");
-	HelpUsage = TEXT("-run=DumpBPGraph -BP=/Game/Path/To/BP -Out=path/to/out.json [-Pretty]");
+	HelpDescription = TEXT("Dumps Blueprint topology or an explicitly requested pin-default supplement as JSON.");
+	HelpUsage = TEXT("-run=DumpBPGraph -BP=/Game/Path/To/BP -Out=path/to/out.json [-Pretty] [-PinDefaults]");
 }
 
 int32 UDumpBPGraphCommandlet::Main(const FString& Params)
@@ -28,6 +28,7 @@ int32 UDumpBPGraphCommandlet::Main(const FString& Params)
 	const FString* BPPathPtr = SwitchParams.Find(TEXT("BP"));
 	const FString* OutPathPtr = SwitchParams.Find(TEXT("Out"));
 	const bool bPretty = Switches.Contains(TEXT("Pretty"));
+	const bool bPinDefaults = Switches.Contains(TEXT("PinDefaults"));
 
 	if (!BPPathPtr || BPPathPtr->IsEmpty() || !OutPathPtr || OutPathPtr->IsEmpty())
 	{
@@ -51,7 +52,10 @@ int32 UDumpBPGraphCommandlet::Main(const FString& Params)
 	}
 
 	FString Json;
-	if (!UEMCP::SerializeBlueprintEdges(Blueprint, BPPath, bPretty, Json))
+	const bool bSerialized = bPinDefaults
+		? UEMCP::SerializeBlueprintPinDefaults(Blueprint, BPPath, bPretty, Json)
+		: UEMCP::SerializeBlueprintEdges(Blueprint, BPPath, bPretty, Json);
+	if (!bSerialized)
 	{
 		UE_LOG(LogUEMCP, Error, TEXT("DumpBPGraph: JSON serialization failed"));
 		return 3;
