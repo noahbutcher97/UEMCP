@@ -611,6 +611,50 @@
           ]
         }
       ]
+    },
+    "owned-registry-budget-cache": {
+      "runner": "node",
+      "scope": "Bounded registry scan-budget/cache paths over verified copies of one owned UE5.6 package. Four/five/six-file cap boundaries, result-limit versus scan-cap, no-match scans, exact cold/warm cache paths and invalidation. Copies are not distinct authored Unreal identities. Consumer scale/performance, primary BPGC assumptions and native/version obligations retained; no retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "server/fixtures/uemcp-fixture/Source/UEMCPFixture/AuthorSerializationFixtureCommandlet.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-registry-budget-cache.mjs",
+          "cases": [
+            "owned registry budget: corpus and authored package metadata prerequisites",
+            "owned registry budget: bounded scratch inventory contains only independently enumerated byte copies",
+            "owned registry budget: below five-file cap scans 4 and truncated is false",
+            "owned registry budget: exact five-file cap scans 5 and truncated is true",
+            "owned registry budget: above five-file cap scans 5 and truncated is true",
+            "owned registry budget: result limit caps returned rows without capping scanned files or cache population",
+            "owned registry budget: exact result limit does not truncate below the scan cap",
+            "owned registry budget: scan cap and result limit remain separate budgets",
+            "owned registry budget: no-match filter still scans and caches all six exact paths",
+            "owned registry budget: no-match scan reaching the cap still reports truncation",
+            "owned registry budget: exhausted result offset does not manufacture scan-cap truncation",
+            "owned registry budget: exhausted offset cannot clear a reached scan cap",
+            "owned registry budget: cold and warm registry queries preserve exact keys and reuse each payload",
+            "owned registry budget: warm no-match queries reuse parsed entries rather than clear the cache",
+            "owned registry budget: switching the registry prefix adds only that prefix to existing cached paths",
+            "owned registry budget: identical internal package identities from another project get distinct absolute cache keys",
+            "owned registry budget: dirty index causes registry queries to replace all scanned cache payloads",
+            "owned registry budget: newer mtime refreshes only the changed registry path",
+            "owned registry budget: response controls reject incorrect cap metadata and copied identity assumptions",
+            "owned registry budget: response controls reject conflating result limits with scan or match counts",
+            "owned registry budget: cache controls reject missing extra relative or foreign-project entries",
+            "owned registry budget: warm-cache control rejects a replaced payload even when its values are equal",
+            "owned registry budget: all copied bytes and committed corpus remain immutable after queries"
+          ]
+        }
+      ]
     }
   }
 }
