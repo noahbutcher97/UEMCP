@@ -528,6 +528,48 @@
         }
       ]
     },
+    "owned-project-reads": {
+      "runner": "node",
+      "scope": "Owned committed text-project reads through direct offline handlers and real MCP registration: exact identity, tags/globs, declared plugins, selected config, and bounded error envelopes. Retains all broader consumer asset, coercion, notification, truncation and native obligations. No retirement claim.",
+      "capabilities": [
+        "engine-free",
+        "owned-text-project"
+      ],
+      "fixturePaths": [
+        "server/fixtures/uemcp-fixture/UEMCPFixture.uproject",
+        "server/fixtures/uemcp-fixture/Config/DefaultGameplayTags.ini",
+        "server/fixtures/uemcp-fixture/Config/DefaultEngine.ini"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-project-reads.mjs",
+          "cases": [
+            "owned reads: authored text inputs match pinned normalized hashes",
+            "owned reads: direct project identity modules and declared plugins are exact",
+            "owned reads: direct tag count comments and hierarchy are exact",
+            "owned reads: direct glob ** has exact membership",
+            "owned reads: direct glob Fixture.** has exact membership",
+            "owned reads: direct glob Audio.** has exact membership",
+            "owned reads: direct glob Fixture.* has exact membership",
+            "owned reads: direct glob fixture.combat.* has exact membership",
+            "owned reads: direct glob MissingOwnedTag.** has exact membership",
+            "owned reads: direct declared plugin enablement is distinct from local installation",
+            "owned reads: direct config section and selected values match authored inputs",
+            "owned reads: direct absent config key returns an empty value array",
+            "owned reads: direct missing config file rejects rather than returning an empty success",
+            "owned reads: direct missing root rejects project and tag reads",
+            "owned reads: wire real project handler returns the exact owned payload",
+            "owned reads: wire real tag handler returns the exact owned hierarchy",
+            "owned reads: wire real glob handler returns authored descendants and no-match control",
+            "owned reads: wire missing config produces an error envelope and the next request succeeds",
+            "owned reads: wire removed owned root produces project and tag error envelopes without a parse crash",
+            "owned reads: comparators reject wrong identity missing tags and incorrect glob membership",
+            "owned reads: wire success decoder rejects error and non-text envelopes before parsing",
+            "owned reads: authored text inputs remain unchanged after direct and wire reads"
+          ]
+        }
+      ]
+    },
     "native-smoke": {
       "runner": "native",
       "capabilities": ["engine", "nullrhi"],
