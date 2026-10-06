@@ -575,6 +575,42 @@
       "capabilities": ["engine", "nullrhi"],
       "fixturePaths": [],
       "suites": [{"name": "native", "cases": ["UEMCP.MCPResponseBuilder.BuildSuccess"]}]
+    },
+    "owned-toolset-lifecycle": {
+      "runner": "node",
+      "scope": "Owned temporary-project manager lifecycle for inventory P1-P4: unresolved rejection, attachment, disable, re-enable, final enabled state, identity/generation and simulated handle visibility. Explicit env and down transports. Consumer, actual MCP wire, bootstrap, native and legacy obligations retained; no retirement.",
+      "capabilities": [
+        "engine-free",
+        "owned-toolset-lifecycle"
+      ],
+      "fixturePaths": [
+        "server/test-owned-toolset-lifecycle.mjs"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-toolset-lifecycle.mjs",
+          "cases": [
+            "owned toolset: load stays unresolved and manual offline enable is rejected",
+            "owned toolset: available configured root cannot bypass unresolved attachment",
+            "owned toolset: owned attachment enables offline handles with exact identity and generation",
+            "owned toolset: disable hides offline while preserving attached identity and generation",
+            "owned toolset: re-enable restores offline while preserving attached identity and generation",
+            "owned toolset: complete unresolved attach disable re-enable cycle ends with only offline enabled",
+            "owned toolset: repeated enable and disable are idempotent without extra notifications",
+            "owned toolset: live toolsets remain unavailable with explicit TCP and HTTP down stubs",
+            "owned toolset: missing path stays unavailable and cannot attach",
+            "owned toolset: directory without descriptor stays unavailable and cannot attach",
+            "owned toolset: fresh availability check rejects a removed descriptor on re-enable",
+            "owned toolset: invalid replacement attach preserves the valid enabled project",
+            "owned toolset: unresolved context application hides enabled tools and blocks re-enable",
+            "owned toolset: oracle rejects wrong identity",
+            "owned toolset: oracle rejects generation drift",
+            "owned toolset: oracle rejects missing enabled set",
+            "owned toolset: oracle rejects hidden offline sentinel",
+            "owned toolset: oracle rejects wrong connection root"
+          ]
+        }
+      ]
     }
   }
 }
