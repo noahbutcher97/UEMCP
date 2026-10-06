@@ -542,6 +542,7 @@ if (typeof assertManagementAnnotationPolicies === 'function') {
 
 const committedProjectRoot = join(__dirname, 'fix' + 'tures', 'uemcp-' + 'fix' + 'ture');
 const serverApp = await UemcpServerModule.createUemcpServer({
+  env: {},
   cwd: process.cwd(),
   workspaceRoots: [committedProjectRoot],
   writeProjectCodenames: false,
