@@ -234,6 +234,11 @@ function supportsFormElicitation(capabilities) {
 
 function installToolListBatching(server) {
   const original = server.server.sendToolListChanged.bind(server.server);
+  // Match McpServer's disconnected-notification policy: preparation already
+  // updates the initial tools/list state, so there is no startup event to replay.
+  const sendIfConnected = async () => {
+    if (server.isConnected()) await original();
+  };
   let depth = 0;
   let pending = false;
 
@@ -242,7 +247,7 @@ function installToolListBatching(server) {
       pending = true;
       return;
     }
-    return original();
+    return sendIfConnected();
   };
 
   return async function withToolListBatch(fn) {
@@ -253,7 +258,7 @@ function installToolListBatching(server) {
       depth -= 1;
       if (depth === 0 && pending) {
         pending = false;
-        await original();
+        await sendIfConnected();
       }
     }
   };
