@@ -47,6 +47,7 @@
     "plugin/UEMCP/Source/UEMCP/Private/SidecarMenuHook.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/SidecarSaveHook.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/SidecarWriter.cpp",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/EdgeOnlyBPSerializerTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/MCPServerTransportPolicyTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPAssetEditorCaptureTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPBlueprintHandlerTests.cpp",
