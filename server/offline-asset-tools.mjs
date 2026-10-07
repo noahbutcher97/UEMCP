@@ -343,8 +343,8 @@ function assetPathLeaf(assetPath) {
 }
 
 function canonicalExportName(entry) {
-  const number = Number.isInteger(entry.objectNameNumber) ? entry.objectNameNumber : 0;
-  return number > 0 ? `${entry.objectName}_${number - 1}` : entry.objectName;
+  // readExportTable already resolves the FName number into objectName.
+  return entry.objectName;
 }
 
 function formatExportRow(entry, index, exports, imports) {
