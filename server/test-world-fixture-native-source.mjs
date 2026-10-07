@@ -7,6 +7,7 @@ const t = new TestRunner('World fixture native source (offline)');
 const nativeRoot = '../plugin/UEMCP/Source/UEMCP/Private/Tests/';
 const source = readFileSync(new URL(`${nativeRoot}UEMCPWorldMapFixtureTests.proposal.cpp`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const preflight = readFileSync(new URL(`${nativeRoot}SummaryAllocationPreflight.proposal.h`, import.meta.url), 'utf8');
+const reader = readFileSync(new URL(`${nativeRoot}WorldPackageReader.proposal.h`, import.meta.url), 'utf8');
 const names = ['UEMCP.WorldMapFixture.AuthorMap', 'UEMCP.WorldMapFixture.ReloadAndReadOracle'];
 const gate = '#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 6';
 const gateAt = source.indexOf(gate);
@@ -56,6 +57,12 @@ for (const field of ['schema', 'run_id', 'stage_id', 'attempt_id', 'phase', 'pro
 }
 t.assert(open.includes('marker alone is not supervisor launch authority') && open.includes('Missing/mismatched owned World authority') && !open.includes('return true; // skipped'), 'World enumeration admission never replaces supervisor authority');
 t.assert(supported.includes('AuthorAttempt==R.Attempt') && supported.includes('FindPackage(nullptr,*R.Package)') && supported.includes('File.Sha1!=Sha1') && supported.includes('File.Bytes.Num()!=Size'), 'World reload still requires a distinct attempt, fresh package and author byte identity');
+
+// These assert native control registration; only a native run executes the byte mutations.
+t.assert(reader.includes('Ar.Cursor()!=Dependency') && reader.includes('Registry object data must end at dependency offset'), 'World reader rejects a registry gap as well as an overrun');
+t.assert(supported.includes('Dependency>=Baseline.Budget.SectionEnd(RegistryAt)') && supported.includes('GetNumberField(TEXT("end")))!=Dependency'), 'World registry mutation requires a contiguous baseline with room for an in-section gap');
+t.assert(supported.includes('I64(GapBytes,RegistryAt,Dependency+1)') && supported.includes('GapReader.Read(GapBytes,R.Package)') && supported.includes('GapReader.Error,FString(TEXT("Registry object data must end at dependency offset"))'), 'World forward boundary mutation must fail at the exact registry boundary');
+t.assert(supported.includes('I64(B,RegistryAt,Dependency-1)') && supported.includes('if(RegistryObjects>1)') && supported.includes('I32(B,RegistryAt+8,RegistryObjects-1)'), 'World controls include backward boundary and eligible positive underreported counts');
 
 // Exercise the actual report validator: absence, skip or false success cannot
 // replace either explicitly required case, even alongside unrelated success.
