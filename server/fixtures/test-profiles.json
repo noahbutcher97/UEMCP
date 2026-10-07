@@ -861,7 +861,11 @@
             "owned PIE lifecycle: ambiguous stop never retries stop and reconciles once",
             "owned PIE lifecycle: failed cleanup retains original error and reports reconciliation failure",
             "owned PIE lifecycle: deadline parameters are validated before any host call",
-            "owned PIE lifecycle: timed-out reconciliation runs once and leaves an actionable locked adapter"
+            "owned PIE lifecycle: timed-out reconciliation runs once and leaves an actionable locked adapter",
+            "owned PIE lifecycle: ownership timeout with unsettled verifier remains locked after bounded cleanup",
+            "owned PIE lifecycle: ownership timeout cleanup drained retains original failure and never stops blindly",
+            "owned PIE lifecycle: ownership timeout cleanup unverified retains original failure and never stops blindly",
+            "owned PIE lifecycle: ownership timeout cleanup timeout retains original failure and never stops blindly"
           ]
         },
         {
@@ -910,7 +914,15 @@
             "owned PIE transport: stop_pie empty result object is an ambiguous acknowledgement",
             "owned PIE transport: forced project change during start locks the original adapter",
             "owned PIE transport: verify rejects a synchronous callback that overruns its deadline",
-            "owned PIE transport: reconcile rejects a synchronous callback that overruns its deadline"
+            "owned PIE transport: reconcile rejects a synchronous callback that overruns its deadline",
+            "owned PIE transport: verification timeout locks every later operation without a mutation guard",
+            "owned PIE transport: late verifier resolve cannot reopen the adapter",
+            "owned PIE transport: reconciliation waits for verifier resolve then requires owner drainage",
+            "owned PIE transport: late verifier reject cannot reopen the adapter",
+            "owned PIE transport: reconciliation waits for verifier reject then requires owner drainage",
+            "owned PIE transport: expired reconciliation wait cannot invoke owner after late verifier settlement",
+            "owned PIE transport: pre-expired verification deadline does not poison an unused adapter",
+            "owned PIE transport: verification deadline error object is preserved"
           ]
         }
       ]

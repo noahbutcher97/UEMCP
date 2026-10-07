@@ -145,4 +145,44 @@ await check('timed-out reconciliation runs once and leaves an actionable locked 
   pendingReconcile.resolve({ owned: true, stopped: true, pendingOperationsDrained: true });
   await nextTurn(); assert.equal(f.adapter.state, 'locked');
 });
+await check('ownership timeout with unsettled verifier remains locked after bounded cleanup', async () => {
+  const pending = deferred(); const f = await fixture({ verifyOwnedHost: () => pending.promise });
+  await assert.rejects(run(f, { timeoutMs: 25, cleanupTimeoutMs: 25 }), error => {
+    assert.equal(error.code, 'PIE_DEADLINE_EXCEEDED');
+    assert.deepEqual(error.cleanup, { stopped: false, reconciliationCode: 'PIE_DEADLINE_EXCEEDED' });
+    assert.deepEqual(error.events, []); return true;
+  });
+  assert.equal(f.callbacks.reconcile.length, 0); assert.equal(f.fake.calls.length, 0);
+  assert.equal(f.context.getInFlightMutationCount(), 0); assert.equal(f.adapter.state, 'locked');
+  pending.resolve({}); await nextTurn();
+  assert.equal(f.callbacks.reconcile.length, 0); assert.equal(f.adapter.state, 'locked');
+  await assert.rejects(f.adapter.reconcile(new Error('retry'), Date.now() + 100), { code: 'PIE_ADAPTER_LOCKED' });
+});
+for (const result of ['drained', 'unverified', 'timeout']) {
+  await check(`ownership timeout cleanup ${result} retains original failure and never stops blindly`, async () => {
+    const pendingOwner = deferred();
+    const f = await fixture({
+      verifyOwnedHost: ({ signal }) => new Promise(resolve => {
+        signal.addEventListener('abort', () => setTimeout(() => resolve({}), 5), { once: true });
+      }),
+      reconcile: () => result === 'timeout' ? pendingOwner.promise : { owned: true, stopped: true, pendingOperationsDrained: result === 'drained' },
+    });
+    await assert.rejects(run(f, { timeoutMs: 25, cleanupTimeoutMs: 100 }), error => {
+      assert.equal(error.code, 'PIE_DEADLINE_EXCEEDED');
+      assert.equal(f.callbacks.reconcile.length, 1);
+      assert.equal(f.callbacks.reconcile[0].reason, error);
+      assert.equal(f.callbacks.reconcile[0].ambiguity.command, 'verify_owned_host');
+      assert.equal(error.cleanup.stopped, result === 'drained');
+      if (result !== 'drained') assert.equal(error.cleanup.reconciliationCode, result === 'timeout' ? 'PIE_DEADLINE_EXCEEDED' : 'PIE_RECONCILIATION_UNVERIFIED');
+      return true;
+    });
+    assert.equal(f.adapter.state, result === 'drained' ? 'closed' : 'locked');
+    assert.equal(f.fake.calls.length, 0); assert.equal(f.context.getInFlightMutationCount(), 0);
+    if (result === 'timeout') {
+      pendingOwner.resolve({ owned: true, stopped: true, pendingOperationsDrained: true }); await nextTurn();
+      assert.equal(f.adapter.state, 'locked');
+    }
+    await assert.rejects(f.adapter.reconcile(new Error('retry'), Date.now() + 100), { code: 'PIE_ADAPTER_LOCKED' });
+  });
+}
 process.exitCode = t.summary();

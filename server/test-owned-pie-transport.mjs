@@ -193,7 +193,76 @@ for (const operation of ['verify', 'reconcile']) {
     const deadlineAt = Date.now() + 10;
     await assert.rejects(operation === 'verify' ? f.adapter.verifyOwnedHost(oracle, deadlineAt) : f.adapter.reconcile(new Error('test'), deadlineAt), { code: 'PIE_DEADLINE_EXCEEDED' });
     assert.equal(f.callbacks[operation][0].signal.aborted, true);
-    if (operation === 'reconcile') assert.equal(f.adapter.state, 'locked');
+    assert.equal(f.adapter.state, 'locked');
   });
 }
+const verificationProof = () => ({ owned: true, mapPath: oracle.mapPath, missingActorAbsent: true, standalone: true });
+await check('verification timeout locks every later operation without a mutation guard', async () => {
+  const pending = deferred(); const f = await fixture({ verifyOwnedHost: () => pending.promise });
+  await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 25), { code: 'PIE_DEADLINE_EXCEEDED' });
+  assert.equal(f.callbacks.verify[0].signal.aborted, true);
+  assert.equal(f.adapter.state, 'locked');
+  assert.equal(f.context.getInFlightMutationCount(), 0);
+  for (const command of ['get_pie_session_state', 'get_pie_actor_state', 'start_pie', 'stop_pie']) {
+    await assert.rejects(call(f, command), error => {
+      assert.equal(error.code, 'PIE_ADAPTER_LOCKED');
+      assert.deepEqual(error.details.ambiguity, { command: 'verify_owned_host', code: 'PIE_DEADLINE_EXCEEDED' });
+      return true;
+    });
+  }
+  await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 1000), { code: 'PIE_ADAPTER_LOCKED' });
+  assert.equal(f.callbacks.verify.length, 1); assert.equal(f.fake.calls.length, 0);
+  pending.resolve(verificationProof()); await nextTurn();
+});
+for (const settlement of ['resolve', 'reject']) {
+  await check(`late verifier ${settlement} cannot reopen the adapter`, async () => {
+    const pending = deferred(); const f = await fixture({ verifyOwnedHost: () => pending.promise });
+    await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 25), { code: 'PIE_DEADLINE_EXCEEDED' });
+    pending[settlement](settlement === 'resolve' ? verificationProof() : new Error('late verifier failure'));
+    await nextTurn();
+    assert.equal(f.adapter.state, 'locked');
+    await assert.rejects(call(f, 'start_pie'), { code: 'PIE_ADAPTER_LOCKED' });
+    assert.equal(f.fake.calls.length, 0);
+  });
+  await check(`reconciliation waits for verifier ${settlement} then requires owner drainage`, async () => {
+    const pending = deferred(); const f = await fixture({ verifyOwnedHost: () => pending.promise });
+    let original;
+    await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 25), error => { original = error; return error.code === 'PIE_DEADLINE_EXCEEDED'; });
+    const deadlineAt = Date.now() + 500;
+    const finishing = f.adapter.reconcile(original, deadlineAt);
+    await nextTurn(); assert.equal(f.callbacks.reconcile.length, 0);
+    pending[settlement](settlement === 'resolve' ? verificationProof() : new Error('late verifier failure'));
+    const proof = await finishing;
+    assert.equal(proof.pendingOperationsDrained, true);
+    assert.equal(f.callbacks.reconcile.length, 1);
+    assert.equal(f.callbacks.reconcile[0].reason, original);
+    assert.equal(f.callbacks.reconcile[0].deadlineAt, deadlineAt);
+    assert.equal(f.callbacks.reconcile[0].ambiguity.command, 'verify_owned_host');
+    assert.equal(f.adapter.state, 'closed');
+    assert.equal(f.context.getInFlightMutationCount(), 0);
+    await assert.rejects(call(f), { code: 'PIE_ADAPTER_LOCKED' });
+  });
+}
+await check('expired reconciliation wait cannot invoke owner after late verifier settlement', async () => {
+  const pending = deferred(); const f = await fixture({ verifyOwnedHost: () => pending.promise });
+  await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 25), { code: 'PIE_DEADLINE_EXCEEDED' });
+  await assert.rejects(f.adapter.reconcile(new Error('verify timeout'), Date.now() + 25), { code: 'PIE_DEADLINE_EXCEEDED' });
+  assert.equal(f.callbacks.reconcile.length, 0);
+  pending.resolve(verificationProof()); await nextTurn();
+  assert.equal(f.callbacks.reconcile.length, 0); assert.equal(f.adapter.state, 'locked');
+  await assert.rejects(f.adapter.reconcile(new Error('retry'), Date.now() + 1000), { code: 'PIE_ADAPTER_LOCKED' });
+});
+await check('pre-expired verification deadline does not poison an unused adapter', async () => {
+  const f = await fixture();
+  await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() - 1), { code: 'PIE_DEADLINE_EXCEEDED' });
+  assert.equal(f.callbacks.verify.length, 0); assert.equal(f.adapter.state, 'open');
+  await f.adapter.verifyOwnedHost(oracle, Date.now() + 1000);
+  assert.deepEqual(await call(f), stopped);
+});
+await check('verification deadline error object is preserved', async () => {
+  const original = Object.assign(new Error('owner deadline'), { code: 'PIE_DEADLINE_EXCEEDED' });
+  const f = await fixture({ verifyOwnedHost: () => { throw original; } });
+  await assert.rejects(f.adapter.verifyOwnedHost(oracle, Date.now() + 1000), error => error === original);
+  assert.equal(f.adapter.state, 'locked');
+});
 process.exitCode = t.summary();

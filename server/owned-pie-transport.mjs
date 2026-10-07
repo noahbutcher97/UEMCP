@@ -62,6 +62,7 @@ export function createOwnedPieTransport({ projectContext, connectionManager, ver
   let retainedMutation;
   let ambiguity;
   let reconciliationAttempted = false;
+  let verificationSettled;
 
   function ready() {
     if (state !== 'open') throw new PieLifecycleError('PIE_ADAPTER_LOCKED', `PIE adapter is ${state}.`, { ambiguity });
@@ -83,13 +84,26 @@ export function createOwnedPieTransport({ projectContext, connectionManager, ver
       ready();
       if (busy) throw new PieLifecycleError('PIE_ADAPTER_BUSY', 'PIE adapter already has an operation in flight.');
       busy = true;
+      let started = false;
       try {
-        const proof = await withinDeadline(options => verifyOwnedHost({ ...options, oracle, identity, generation }), deadlineAt);
+        const proof = await withinDeadline(options => {
+          started = true;
+          const verification = Promise.resolve().then(() => verifyOwnedHost({ ...options, oracle, identity, generation }));
+          // Settlement is separate from the bounded local wait. Rejection also
+          // settles the callback, but neither outcome proves remote drainage.
+          verificationSettled = verification.then(() => undefined, () => undefined);
+          return verification;
+        }, deadlineAt);
         ready();
         if (proof?.owned !== true || proof.mapPath !== oracle.mapPath || proof.missingActorAbsent !== true || proof.standalone !== true) {
           throw new PieLifecycleError('OWNED_HOST_UNVERIFIED', 'Owned map, absent probe and standalone settings must be verified.');
         }
         return proof;
+      } catch (error) {
+        if (started && error.code === 'PIE_DEADLINE_EXCEEDED') {
+          lock({ command: 'verify_owned_host', code: error.code });
+        }
+        throw error;
       } finally { busy = false; }
     },
     async call(command, params = {}, { deadlineAt } = {}) {
@@ -147,6 +161,9 @@ export function createOwnedPieTransport({ projectContext, connectionManager, ver
       lock(ambiguity || { code: reason?.code || 'LIFECYCLE_FAILED' });
       busy = true;
       try {
+        // Do not overlap a timed-out verifier with reconciliation. If this wait
+        // expires, later settlement cannot invoke the owner or close the adapter.
+        if (verificationSettled) await withinDeadline(() => verificationSettled, deadlineAt);
         const proof = await withinDeadline(options => reconcile({ ...options, identity, generation, reason, ambiguity }), deadlineAt);
         if (proof?.owned !== true || proof.stopped !== true || proof.pendingOperationsDrained !== true) {
           throw new PieLifecycleError('PIE_RECONCILIATION_UNVERIFIED', 'Reconciliation must prove ownership, drained operations and stopped PIE.');

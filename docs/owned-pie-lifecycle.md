@@ -60,6 +60,15 @@ cooperate with the signal. The adapter bounds its local wait, checks elapsed tim
 after fulfillment, and aborts its signal on expiry. This cannot cancel remote
 commands or a callback that ignores the signal.
 
+A deadline failure after verification starts locks the adapter, even if the
+verifier ignores cancellation or later settles. Reads, start/stop and another
+verification are rejected. A deadline already expired before invocation leaves
+an unused adapter open. Verification does not create a mutation guard.
+Reconciliation first waits for that verifier to settle, then invokes the owner
+callback under the same absolute deadline. Settlement alone is not drainage.
+If the wait expires, the adapter remains locked and later settlement cannot
+invoke reconciliation; the coordinator must handle remaining work out of band.
+
 `verifyOwnedHost` is read-only. It must hold/validate the coordinator's exclusive
 lease, confirm the exact attached project and owned loaded map, validate the
 independently authored oracle and absent probe, and confirm one in-process
