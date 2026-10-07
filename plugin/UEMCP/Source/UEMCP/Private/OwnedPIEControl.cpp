@@ -241,8 +241,8 @@ namespace UEMCP
 			{
 				if (!Flags.bQueuedEnd) { GEditor->RequestEndPlayMap(); bRequestedAction = true; }
 			}
-			else if (Flags.bSession || Flags.Contexts != 0)
-			{ Fail(Out, TEXT("OWNED_PIE_STARTUP_UNRESOLVED"), TEXT("Session/context exists without a play world; cannot safely cancel startup")); return; }
+			// A session/context without PlayWorld is pending startup, not a failed reconciliation.
+			// Leave it untouched and report a non-drained snapshot so bounded polling can continue.
 			Flags = ReadFlags();
 			{
 				FScopeLock Lock(&State().Mutex);

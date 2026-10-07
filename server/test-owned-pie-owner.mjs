@@ -179,6 +179,37 @@ await check('pending operations poll uncached until completion with one deadline
   await f.adapter.reconcile(new Error('test'), deadlineAt);
   assert.equal(polls, 3);
   for (const call of f.fake.callsFor('owned_pie_reconcile')) assert.ok(call.ts + call.timeoutMs <= deadlineAt + 1);
+  // Exercise owner polling with native-shaped snapshots; this is not native execution.
+  for (const startup of [{ session_active: true, pie_contexts: 0 }, { session_active: false, pie_contexts: 1 }, { session_active: true, pie_contexts: 1 }]) {
+    const transition = await owned(); await verify(transition);
+    let transitionPolls = 0;
+    transition.fake.on('owned_pie_reconcile', () => {
+      transition.proof.tick++;
+      const step = ++transitionPolls;
+      Object.assign(transition.proof.flags, { queued_start: false, session_active: false, play_world: false, pie_contexts: 0, queued_end: false, simulating: false });
+      if (step === 1) Object.assign(transition.proof.flags, startup);
+      if (step === 2) Object.assign(transition.proof.flags, { session_active: true, play_world: true, pie_contexts: 1, queued_end: true });
+      transition.proof.drained = step === 4;
+      transition.proof.drained_tick = step === 4 ? transition.proof.tick : 0;
+      return success(transition.proof);
+    });
+    const transitionDeadline = Date.now() + 500;
+    await transition.adapter.reconcile(new Error('startup transition'), transitionDeadline);
+    assert.equal(transitionPolls, 4);
+    assert.equal(transition.fake.callsFor('owned_pie_fence').length, 1);
+    assert.equal(transition.adapter.state, 'closed');
+    for (const call of transition.fake.callsFor('owned_pie_reconcile')) assert.ok(call.ts + call.timeoutMs <= transitionDeadline + 1);
+  }
+  const stuck = await owned(); await verify(stuck);
+  stuck.fake.on('owned_pie_reconcile', () => {
+    stuck.proof.tick++; stuck.proof.flags.session_active = true; stuck.proof.flags.pie_contexts = 1;
+    stuck.proof.drained = false; stuck.proof.drained_tick = 0;
+    return success(stuck.proof);
+  });
+  await assert.rejects(reconcile(stuck, 40), { code: 'PIE_DEADLINE_EXCEEDED' });
+  assert.equal(stuck.adapter.state, 'locked');
+  assert.equal(stuck.fake.callsFor('owned_pie_fence').length, 1);
+  await assert.rejects(reconcile(stuck), { code: 'PIE_ADAPTER_LOCKED' });
 });
 await check('timeout leaves late operation locked and cannot repeat reconciliation', async () => {
   const f = await owned(); await verify(f);

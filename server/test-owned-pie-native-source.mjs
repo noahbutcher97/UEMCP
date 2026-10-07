@@ -66,7 +66,8 @@ check('reconciliation waits for outstanding callbacks before engine mutation', (
 });
 check('queued cancellation excludes active startup and blind session reset', () => {
   assert.ok(reconcile.includes('Flags.bQueuedStart && !Flags.bSession && !Flags.bWorld && Flags.Contexts == 0'));
-  ordered(reconcile, 'else if (Flags.bSession || Flags.Contexts != 0)', 'OWNED_PIE_STARTUP_UNRESOLVED');
+  assert.equal(reconcile.includes('OWNED_PIE_STARTUP_UNRESOLVED'), false);
+  ordered(reconcile, 'else if (Flags.bWorld)', 'Flags = ReadFlags();', 'State().bReconcileRequested = true', 'BuildSuccessResponse(Out, Snapshot(Flags))');
   assert.equal((native.match(/CancelRequestPlaySession\(/g) || []).length, 1);
   assert.equal(/GEditor->EndPlayMap\(/.test(native), false);
 });
