@@ -4,7 +4,9 @@
   "profiles": {
     "node-foundation": {
       "runner": "node",
-      "capabilities": ["engine-free"],
+      "capabilities": [
+        "engine-free"
+      ],
       "fixturePaths": [],
       "suites": [
         {
@@ -32,58 +34,75 @@
     "owned-serialization": {
       "runner": "node",
       "scope": "UE 5.6 modern saved-package slice only. UE 5.3 authoring is blocked by existing plugin API incompatibility; legacy and consumer obligations remain unqualified by this profile.",
-      "capabilities": ["engine-free", "owned-serialization"],
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
       "fixturePaths": [
         "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
         "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
         "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset"
       ],
-      "suites": [{
-        "name": "test-owned-serialization.mjs",
-        "cases": [
-          "ue5.6-owned-v1: independent UE oracle agrees with saved topology",
-          "ue5.6-owned-v1: rejects missing corruption",
-          "ue5.6-owned-v1: rejects hash corruption",
-          "ue5.6-owned-v1: rejects oracle corruption"
-        ]
-      }]
+      "suites": [
+        {
+          "name": "test-owned-serialization.mjs",
+          "cases": [
+            "ue5.6-owned-v1: independent UE oracle agrees with saved topology",
+            "ue5.6-owned-v1: rejects missing corruption",
+            "ue5.6-owned-v1: rejects hash corruption",
+            "ue5.6-owned-v1: rejects oracle corruption"
+          ]
+        }
+      ]
     },
     "native-core": {
       "runner": "native",
       "scope": "Eight existing response-error, transform, actor-guard, scalar-property and command-registry cases under NullRHI. Does not qualify populated-world actor lookup, socket/MCP transport, persistence, PIE, rendering, consumer projects or other native tests.",
-      "capabilities": ["engine", "nullrhi"],
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
       "fixturePaths": [],
-      "suites": [{
-        "name": "native",
-        "cases": [
-          "UEMCP.MCPResponseBuilder.BuildError",
-          "UEMCP.TransformParser.Valid",
-          "UEMCP.TransformParser.Invalid",
-          "UEMCP.ActorLookupHelper.Guards",
-          "UEMCP.PropertyHandlerRegistry.Scalars",
-          "UEMCP.PropertyHandlerRegistry.Invalid",
-          "UEMCP.MCPCommandRegistry.Dispatch",
-          "UEMCP.MCPCommandRegistry.CustomRegister"
-        ]
-      }]
+      "suites": [
+        {
+          "name": "native",
+          "cases": [
+            "UEMCP.MCPResponseBuilder.BuildError",
+            "UEMCP.TransformParser.Valid",
+            "UEMCP.TransformParser.Invalid",
+            "UEMCP.ActorLookupHelper.Guards",
+            "UEMCP.PropertyHandlerRegistry.Scalars",
+            "UEMCP.PropertyHandlerRegistry.Invalid",
+            "UEMCP.MCPCommandRegistry.Dispatch",
+            "UEMCP.MCPCommandRegistry.CustomRegister"
+          ]
+        }
+      ]
     },
     "native-transport": {
       "runner": "native",
       "scope": "Seven existing native transport policy and decoder cases with their shared resource. Does not qualify live editor TCP, rendering, or the remaining native inventory.",
-      "capabilities": ["engine", "nullrhi"],
-      "fixturePaths": ["plugin/UEMCP/Resources/Tests/tcp-transport-cases.json"],
-      "suites": [{
-        "name": "native",
-        "cases": [
-          "UEMCP.Transport.ReceiveClassifier",
-          "UEMCP.Transport.ReceiveDeadlines",
-          "UEMCP.Transport.ReadOneRequestStopping",
-          "UEMCP.Transport.RequestReadResultMapping",
-          "UEMCP.Transport.FixtureSchema",
-          "UEMCP.Transport.SharedFixtures",
-          "UEMCP.Transport.DecoderBoundaries"
-        ]
-      }]
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
+      "fixturePaths": [
+        "plugin/UEMCP/Resources/Tests/tcp-transport-cases.json"
+      ],
+      "suites": [
+        {
+          "name": "native",
+          "cases": [
+            "UEMCP.Transport.ReceiveClassifier",
+            "UEMCP.Transport.ReceiveDeadlines",
+            "UEMCP.Transport.ReadOneRequestStopping",
+            "UEMCP.Transport.RequestReadResultMapping",
+            "UEMCP.Transport.FixtureSchema",
+            "UEMCP.Transport.SharedFixtures",
+            "UEMCP.Transport.DecoderBoundaries"
+          ]
+        }
+      ]
     },
     "owned-blueprint-exec": {
       "runner": "node",
@@ -130,27 +149,32 @@
     "native-blueprint": {
       "runner": "native",
       "scope": "Fourteen existing native Blueprint helper, registry dispatch and in-memory graph mutation cases. Does not qualify socket/MCP sessions, persistence, PIE, rendering, or the remaining native inventory.",
-      "capabilities": ["engine", "nullrhi"],
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
       "fixturePaths": [],
-      "suites": [{
-        "name": "native",
-        "cases": [
-          "UEMCP.BlueprintHelpers.PinTypeToJson",
-          "UEMCP.BlueprintHelpers.VariableDefaults",
-          "UEMCP.BlueprintHelpers.LiteralDefaults",
-          "UEMCP.BlueprintHandlers.AddVariableAssignment",
-          "UEMCP.BlueprintHandlers.AddTimer",
-          "UEMCP.BlueprintHandlers.DisconnectPin",
-          "UEMCP.BlueprintHandlers.AssignmentVariableKind",
-          "UEMCP.BlueprintHandlers.AssignmentExecFrom",
-          "UEMCP.BlueprintHandlers.DisconnectPinEdges",
-          "UEMCP.BlueprintHandlers.CompilePaths",
-          "UEMCP.BlueprintHandlers.TimerFailures",
-          "UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
-          "UEMCP.BlueprintHandlers.EventNodeGhostSites",
-          "UEMCP.BlueprintHandlers.AssignmentCompileFailed"
-        ]
-      }]
+      "suites": [
+        {
+          "name": "native",
+          "cases": [
+            "UEMCP.BlueprintHelpers.PinTypeToJson",
+            "UEMCP.BlueprintHelpers.VariableDefaults",
+            "UEMCP.BlueprintHelpers.LiteralDefaults",
+            "UEMCP.BlueprintHandlers.AddVariableAssignment",
+            "UEMCP.BlueprintHandlers.AddTimer",
+            "UEMCP.BlueprintHandlers.DisconnectPin",
+            "UEMCP.BlueprintHandlers.AssignmentVariableKind",
+            "UEMCP.BlueprintHandlers.AssignmentExecFrom",
+            "UEMCP.BlueprintHandlers.DisconnectPinEdges",
+            "UEMCP.BlueprintHandlers.CompilePaths",
+            "UEMCP.BlueprintHandlers.TimerFailures",
+            "UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
+            "UEMCP.BlueprintHandlers.EventNodeGhostSites",
+            "UEMCP.BlueprintHandlers.AssignmentCompileFailed"
+          ]
+        }
+      ]
     },
     "owned-blueprint-query": {
       "runner": "node",
@@ -591,9 +615,19 @@
     },
     "native-smoke": {
       "runner": "native",
-      "capabilities": ["engine", "nullrhi"],
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
       "fixturePaths": [],
-      "suites": [{"name": "native", "cases": ["UEMCP.MCPResponseBuilder.BuildSuccess"]}]
+      "suites": [
+        {
+          "name": "native",
+          "cases": [
+            "UEMCP.MCPResponseBuilder.BuildSuccess"
+          ]
+        }
+      ]
     },
     "owned-toolset-lifecycle": {
       "runner": "node",
@@ -830,7 +864,16 @@
             "owned PIE lifecycle: wrong location fails and cleans up the owned session",
             "owned PIE lifecycle: wrong rotation fails and cleans up the owned session",
             "owned PIE lifecycle: wrong scale fails and cleans up the owned session",
-            "owned PIE lifecycle: wrong CustomTimeDilation fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority default fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority changed fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority string fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority boolean fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority missing fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong InputPriority fractional fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong automatic input enabled fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong automatic input missing fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong input component present fails and cleans up the owned session",
+            "owned PIE lifecycle: wrong input component unproved fails and cleans up the owned session",
             "owned PIE lifecycle: wrong missing property fails and cleans up the owned session",
             "owned PIE lifecycle: wrong actor world fails and cleans up the owned session",
             "owned PIE lifecycle: wrong runtime count is rejected",
@@ -847,7 +890,9 @@
             "owned PIE lifecycle: incomplete oracle location fails before host verification",
             "owned PIE lifecycle: incomplete oracle rotation fails before host verification",
             "owned PIE lifecycle: incomplete oracle scale fails before host verification",
-            "owned PIE lifecycle: incomplete oracle CustomTimeDilation fails before host verification",
+            "owned PIE lifecycle: incomplete oracle InputPriority fails before host verification",
+            "owned PIE lifecycle: incomplete oracle AutoReceiveInput fails before host verification",
+            "owned PIE lifecycle: incomplete oracle has_input_component fails before host verification",
             "owned PIE lifecycle: incomplete oracle missingActorName fails before host verification",
             "owned PIE lifecycle: incomplete oracle mapPath fails before host verification",
             "owned PIE lifecycle: host proof requires owned",
@@ -923,6 +968,110 @@
             "owned PIE transport: expired reconciliation wait cannot invoke owner after late verifier settlement",
             "owned PIE transport: pre-expired verification deadline does not poison an unused adapter",
             "owned PIE transport: verification deadline error object is preserved"
+          ]
+        }
+      ]
+    },
+    "owned-pie-owner-offline": {
+      "runner": "node",
+      "scope": "Engine-free owner contract controls with fake responses and actual ProjectContext/ConnectionManager. Integrated native build, author/reload, real PIE cycles and post-fence drainage remain separately required.",
+      "capabilities": [
+        "engine-free"
+      ],
+      "fixturePaths": [
+        "server/fixtures/owned-pie/oracle.json"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-pie-owner.mjs",
+          "cases": [
+            "owned PIE owner: fresh attached context bootstraps through exactly one guarded native verification",
+            "owned PIE owner: fresh context rejects lifecycle commands before bootstrap and guard failure sends nothing",
+            "owned PIE owner: mismatched native bootstrap proof cannot establish readiness",
+            "owned PIE owner: late native verification cannot establish readiness or unlock lifecycle commands",
+            "owned PIE owner: project generation change during native bootstrap cannot publish readiness",
+            "owned PIE owner: owned native readiness reports truthful provenance and rejects invalid binding",
+            "owned PIE owner: two cycles use actual context manager and nonce then seal permanently",
+            "owned PIE owner: lifecycle dispatch requires native verification",
+            "owned PIE owner: initial queued start rejects stopped-looking fixture",
+            "owned PIE owner: initial ledger must be unused",
+            "owned PIE owner: pending operations poll uncached until completion with one deadline",
+            "owned PIE owner: timeout leaves late operation locked and cannot repeat reconciliation",
+            "owned PIE owner: ownership callback bounded before any native command",
+            "owned PIE owner: ownership loss after drain cannot release mutation guard",
+            "owned PIE owner: committed oracle agrees with independently fixed commandlet constants",
+            "owned PIE owner: ownership is rechecked before a later lifecycle mutation",
+            "owned PIE owner: signed zero canonicalizes without changing the accepted lifecycle runner",
+            "owned PIE owner: nonzero transform differences remain exact failures",
+            "owned PIE owner: new native oracle verifies zero rotation independently of historical fake oracle",
+            "owned PIE owner: coordinator guard requires owned",
+            "owned PIE owner: coordinator guard requires exclusive",
+            "owned PIE owner: coordinator guard requires sourceVerified",
+            "owned PIE owner: native identity rejects nonce mismatch",
+            "owned PIE owner: native identity rejects process_id mismatch",
+            "owned PIE owner: native identity rejects project_path mismatch",
+            "owned PIE owner: native identity rejects map_path mismatch",
+            "owned PIE owner: editor oracle rejects name mismatch",
+            "owned PIE owner: editor oracle rejects class mismatch",
+            "owned PIE owner: editor oracle rejects location mismatch",
+            "owned PIE owner: editor oracle rejects rotation mismatch",
+            "owned PIE owner: editor oracle rejects scale mismatch",
+            "owned PIE owner: editor oracle rejects InputPriority mismatch",
+            "owned PIE owner: editor oracle rejects AutoReceiveInput mismatch",
+            "owned PIE owner: editor oracle rejects has_input_component mismatch",
+            "owned PIE owner: editor witness rejects 0",
+            "owned PIE owner: editor witness rejects 174",
+            "owned PIE owner: editor witness rejects 173.5",
+            "owned PIE owner: editor witness rejects 173",
+            "owned PIE owner: editor witness rejects true",
+            "owned PIE owner: editor witness rejects null",
+            "owned PIE owner: editor witness rejects undefined",
+            "owned PIE owner: editor input safety rejects AutoReceiveInput:1",
+            "owned PIE owner: editor input safety rejects AutoReceiveInput:0",
+            "owned PIE owner: editor input safety rejects has_input_component:true",
+            "owned PIE owner: editor input safety rejects has_input_component:0",
+            "owned PIE owner: verification requires missing_actor_absent",
+            "owned PIE owner: verification requires standalone",
+            "owned PIE owner: verification requires online_disabled",
+            "owned PIE owner: drain proof rejects outstanding",
+            "owned PIE owner: drain proof rejects queued_start",
+            "owned PIE owner: drain proof rejects session_active",
+            "owned PIE owner: drain proof rejects play_world",
+            "owned PIE owner: drain proof rejects pie_contexts",
+            "owned PIE owner: drain proof rejects queued_end",
+            "owned PIE owner: drain proof rejects simulating",
+            "owned PIE owner: drain proof rejects tick",
+            "owned PIE owner: drain proof rejects ledger",
+            "owned PIE owner: drain proof rejects seal"
+          ]
+        }
+      ]
+    },
+    "owned-pie-native-source-offline": {
+      "runner": "node",
+      "scope": "Structural C++ source contracts only; does not execute or compile Unreal. Native qualification is coordinator-owned.",
+      "capabilities": [
+        "engine-free"
+      ],
+      "fixturePaths": [],
+      "suites": [
+        {
+          "name": "test-owned-pie-native-source.mjs",
+          "cases": [
+            "owned PIE native source: ordinary mode bypasses qualification policy and internal registration",
+            "owned PIE native source: nonce validation precedes permanent native sealing",
+            "owned PIE native source: owned mode excludes non-lifecycle mutation surfaces",
+            "owned PIE native source: sealed or unverified commands cannot receive operation tickets",
+            "owned PIE native source: admission precedes dispatch and completion is owned by actual callback",
+            "owned PIE native source: late callback rejection retains exactly-once completion accounting",
+            "owned PIE native source: reconciliation waits for outstanding callbacks before engine mutation",
+            "owned PIE native source: queued cancellation excludes active startup and blind session reset",
+            "owned PIE native source: drain witnesses require distinct post-editor ticks after latest action",
+            "owned PIE native source: snapshot drain requires completed ledger and all lifecycle flags clear",
+            "owned PIE native source: owned start duplicates settings and forces one in-process standalone world",
+            "owned PIE native source: native verification returns array transforms compatible with owner oracle",
+            "owned PIE native source: shutdown seals only its lane and removes its delegate without process authority",
+            "owned PIE native source: source staging includes both native control files"
           ]
         }
       ]

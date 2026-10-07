@@ -51,10 +51,11 @@ const REJECTED_WITHOUT_MUTATION = {
 
 // A dedicated adapter/ConnectionManager belongs to one owned-host qualification.
 // Reconciliation is out of band: it must drain late commands before confirming stopped.
-export function createOwnedPieTransport({ projectContext, connectionManager, verifyOwnedHost, reconcile }) {
+export function createOwnedPieTransport({ projectContext, connectionManager, verifyOwnedHost, reconcile, bootstrapVerification = false }) {
   if (!projectContext || !connectionManager || typeof verifyOwnedHost !== 'function' || typeof reconcile !== 'function') {
     throw new TypeError('ProjectContext, ConnectionManager, verifyOwnedHost and reconcile are required.');
   }
+  if (typeof bootstrapVerification !== 'boolean') throw new TypeError('Boolean verification bootstrap policy required.');
   const generation = projectContext.generation;
   const identity = projectContext.identity?.canonicalUprojectPath;
   let state = 'open';
@@ -64,12 +65,12 @@ export function createOwnedPieTransport({ projectContext, connectionManager, ver
   let reconciliationAttempted = false;
   let verificationSettled;
 
-  function ready() {
+  function ready(requirement = TOOL_REQUIREMENT_KINDS.LIVE_MUTATION) {
     if (state !== 'open') throw new PieLifecycleError('PIE_ADAPTER_LOCKED', `PIE adapter is ${state}.`, { ambiguity });
     if (projectContext.generation !== generation || projectContext.identity?.canonicalUprojectPath !== identity) {
       throw new PieLifecycleError('PROJECT_CONTEXT_CHANGED', 'PIE adapter project binding changed.');
     }
-    const readiness = projectContext.evaluateToolReadiness({ requirement: TOOL_REQUIREMENT_KINDS.LIVE_MUTATION });
+    const readiness = projectContext.evaluateToolReadiness({ requirement });
     if (!readiness.ok) throw new PieLifecycleError(readiness.error.code, readiness.error.message, readiness.error);
   }
 
@@ -81,7 +82,9 @@ export function createOwnedPieTransport({ projectContext, connectionManager, ver
   return {
     get state() { return state; },
     async verifyOwnedHost(oracle, deadlineAt) {
-      ready();
+      // Only the real owner opts in: its callback checks exclusive OS/source
+      // ownership before single-use native verification establishes transport.
+      ready(bootstrapVerification ? TOOL_REQUIREMENT_KINDS.OFFLINE_READ : TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
       if (busy) throw new PieLifecycleError('PIE_ADAPTER_BUSY', 'PIE adapter already has an operation in flight.');
       busy = true;
       let started = false;

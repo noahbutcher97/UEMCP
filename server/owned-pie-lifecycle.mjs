@@ -13,7 +13,8 @@ export function validatePieOracle(oracle) {
   for (const key of ['location', 'rotation', 'scale']) {
     requireValue(Array.isArray(oracle[key]) && oracle[key].length === 3 && oracle[key].every(Number.isFinite), `Oracle ${key} must be a finite triple.`);
   }
-  requireValue(Number.isFinite(oracle.CustomTimeDilation), 'Oracle CustomTimeDilation required.');
+  requireValue(oracle.AutoReceiveInput === 0 && oracle.has_input_component === false, 'Oracle input must be disabled.');
+  requireValue(Number.isSafeInteger(oracle.InputPriority) && oracle.InputPriority !== 0 && oracle.InputPriority >= -2147483648 && oracle.InputPriority <= 2147483647, 'Oracle nondefault int32 InputPriority required.');
 }
 
 export function assertPieActor(actual, oracle, world) {
@@ -21,7 +22,8 @@ export function assertPieActor(actual, oracle, world) {
   for (const key of ['name', 'class']) requireValue(actual.resolved[key] === oracle[key], `Actor ${key} differs.`);
   requireValue(isDeepStrictEqual(actual.world, world), 'Actor belongs to a different runtime world.');
   for (const key of ['location', 'rotation', 'scale']) requireValue(isDeepStrictEqual(actual.transform?.[key], oracle[key]), `Actor ${key} differs.`);
-  requireValue(actual.properties?.CustomTimeDilation === oracle.CustomTimeDilation, 'CustomTimeDilation differs.');
+  requireValue(actual.properties?.InputPriority === oracle.InputPriority, 'InputPriority differs.');
+  requireValue(actual.properties?.AutoReceiveInput === 0 && actual.has_input_component === false, 'Owned actor must have no automatic input or input component.');
 }
 
 function stopped(session) {
@@ -64,7 +66,7 @@ export async function runOwnedPieLifecycle({ adapter, oracle, timeoutMs = 30000,
   let needsCleanup = false;
   let observedRunning = false;
   const call = (command, params = {}, deadline = deadlineAt) => adapter.call(command, params, { deadlineAt: deadline });
-  const actorParams = { actor_ref: { name: oracle.name }, properties: ['CustomTimeDilation'] };
+  const actorParams = { actor_ref: { name: oracle.name }, properties: ['InputPriority', 'AutoReceiveInput'] };
   async function poll(running, deadline = deadlineAt) {
     while (true) {
       remainingMs(deadline);

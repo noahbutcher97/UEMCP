@@ -11,6 +11,8 @@ import { load } from 'js-yaml';
 import { REPO_ROOT, TestRunner } from './test-helpers.mjs';
 import {
   collectCoveredWireCommands,
+  collectUncoveredPluginCommands,
+  OWNED_PIE_INTERNAL_WIRE_COMMANDS,
   collectPluginRegisteredCommands,
   collectYamlTools,
   names,
@@ -119,13 +121,13 @@ runner.assert(
   missingNames.join(', '),
 );
 
-const missingWireCoverage = [...registeredPluginCommands]
-  .filter(command => !coveredWireCommands.has(command))
-  .sort();
+const missingWireCoverage = collectUncoveredPluginCommands(registeredPluginCommands, coveredWireCommands, {
+  allowInternal: OWNED_PIE_INTERNAL_WIRE_COMMANDS,
+});
 
 runner.assert(
   missingWireCoverage.length === 0,
-  'plugin TCP commands are covered by a Node wrapper, wire_type, partialRc mapping, or ping',
+  'plugin TCP commands have public wrapper coverage or explicit gated owned-control coverage',
   missingWireCoverage.join(', '),
 );
 

@@ -106,6 +106,10 @@
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPWorldMapFixtureTests.proposal.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/WorldPackageReader.proposal.h",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/BoundedPackageArchive.proposal.h",
-    "plugin/UEMCP/Source/UEMCP/Private/Tests/SummaryAllocationPreflight.proposal.h"
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/SummaryAllocationPreflight.proposal.h",
+    "plugin/UEMCP/Source/UEMCP/Private/OwnedPIEControl.cpp",
+    "plugin/UEMCP/Source/UEMCP/Public/OwnedPIEControl.h",
+    "server/fixtures/uemcp-fixture/Source/UEMCPFixture/OwnedPIEFixtureCommandlet.cpp",
+    "server/fixtures/uemcp-fixture/Source/UEMCPFixture/OwnedPIEFixtureCommandlet.h"
   ]
 }

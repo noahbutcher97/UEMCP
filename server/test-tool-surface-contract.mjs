@@ -18,6 +18,7 @@ import { getM5GeometryToolDefs } from './m5-geometry-tools.mjs';
 import { getM5EditorUtilityToolDefs } from './m5-editor-utility-tools.mjs';
 import {
   collectCoveredWireCommands,
+  OWNED_PIE_INTERNAL_WIRE_COMMANDS,
   collectNodeToolsMissingYaml,
   collectPluginRegisteredCommands,
   collectRegisteredCommandsFromSource,
@@ -53,7 +54,7 @@ const LIVE_DEFINITION_GROUPS = [
   ['m5-editor-utility', getM5EditorUtilityToolDefs()],
 ];
 
-const INTERNAL_WIRE_COMMANDS = new Map();
+const INTERNAL_WIRE_COMMANDS = OWNED_PIE_INTERNAL_WIRE_COMMANDS;
 
 const t = new TestRunner('Tool Surface Contract Gate');
 const toolsData = load(await readFile(join(REPO_ROOT, 'tools.yaml'), 'utf-8'));
@@ -121,6 +122,12 @@ t.assert(
 const registeredCommands = await collectPluginRegisteredCommands({
   privateDir: join(REPO_ROOT, 'plugin', 'UEMCP', 'Source', 'UEMCP', 'Private'),
 });
+const ownedSource = await readFile(join(REPO_ROOT, 'plugin/UEMCP/Source/UEMCP/Private/OwnedPIEControl.cpp'), 'utf8');
+t.assert(
+  /void RegisterOwnedPIEHandlers[\s\S]*?if \(!State\(\)\.bEnabled\) return;/.test(ownedSource)
+    && [...INTERNAL_WIRE_COMMANDS.keys()].every(command => ownedSource.includes(`Registry.Register(TEXT("${command}")`)),
+  'internal owned controls are exact registrations gated off on the ordinary bridge',
+);
 const coveredCommands = collectCoveredWireCommands(toolsData, LIVE_DEFINITION_GROUPS);
 const uncoveredCommands = collectUncoveredPluginCommands(registeredCommands, coveredCommands, {
   allowInternal: INTERNAL_WIRE_COMMANDS,

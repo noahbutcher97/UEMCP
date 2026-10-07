@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "UEMCPModule.h"
+#include "OwnedPIEControl.h"
 #include "MCPCommandRegistry.h"
 #include "MCPServerRunnable.h"
 #include "SidecarMenuHook.h"
@@ -177,6 +178,7 @@ void FUEMCPModule::StartupModule()
 
 void FUEMCPModule::ShutdownModule()
 {
+	UEMCP::ShutdownOwnedPIEControl();
 	UEMCP::UnregisterSidecarMenuHook();
 	UEMCP::UnregisterSidecarSaveHook();
 	StopTcpServer();
