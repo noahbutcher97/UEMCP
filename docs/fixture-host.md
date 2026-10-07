@@ -182,3 +182,47 @@ this foundation. The new portable test files are discovered by the existing
 rotation. UE 5.3 host qualification is blocked by existing plugin calls to
 `IDetailsView::ScrollPropertyIntoView`, unavailable in that engine; no legacy
 binary was fabricated or substituted with a modern save.
+
+## Owned component edit coverage
+
+`node run-rotation.mjs --test-profile owned-live-edit-offline --json` checks
+15 offline routing, native registration and synthetic evidence-gate witnesses.
+It does not run Unreal. Existing profiles and coverage remain unchanged.
+
+The separate `native-owned-component-edit` profile requires exactly:
+
+- `UEMCP.OwnedComponentEdit.LiveValuesAndErrors`
+- `UEMCP.OwnedComponentEdit.ExternalTransactionUndoRedo`
+- `UEMCP.OwnedComponentEdit.RejectedEditPreservesPriorUndo`
+
+Each case creates a unique unsaved Actor Blueprint under `/Game/__UEMCPTests/`
+with an `OwnedScene` component template, dispatches the real registry command,
+and reads the live template again. Error coverage checks missing fields, missing
+component/property, short vectors and wrong vector JSON type against prior state.
+The fixture is unregistered and released on scope exit, without saving a package.
+A private scoped transactor preserves the editor's previous undo/redo history;
+only the private buffer is reset. Tests refuse an already active transaction.
+
+Undo/redo is explicitly an **external test transaction** guarantee for component
+edits. The component handler calls template `Modify()` but opens no transaction;
+the variable-default handler calls CDO `Modify()` but opens no transaction;
+`set_blueprint_property` has neither an explicit CDO `Modify()` nor an owned
+transaction. The latter two are routing-only in this slice. Rejection preservation
+means rejection outside a transaction leaves a prior valid external edit undoable.
+Rejection within an external transaction, mixed-type vector elements, persistence,
+CDO undo, transport integration, PIE and rendering remain unqualified.
+
+After a coordinator stages and builds the exact source in an isolated fixture host,
+run from the repository root through the source-validating host wrapper:
+
+```text
+node server/prepare-fixture-host.mjs --output-root <fresh-owned-stage> --validate
+node server/prepare-fixture-host.mjs --output-root <fresh-owned-stage> --native --test-profile native-owned-component-edit --timeout-ms 900000
+```
+
+The wrapper supplies the owned runtime/DDC configuration and delegates to
+`run-native-tests.mjs`; do not bypass those staging and lifecycle checks.
+
+All three full paths must succeed with zero errors and a successful process exit.
+Retain the source identity, build evidence and exported native report together.
+Offline success or C++ source registration alone is not native execution evidence.
