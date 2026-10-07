@@ -35,6 +35,9 @@ class IDetailsView;
  *       png_base64?, inline_omitted? }
  *   details_panel_expand_all   { expanded, rows_before, rows_after }
  *   details_panel_scroll       { row_offset, requested_row_offset, max_row_offset, scrolled }
+ *
+ * The two details_panel_* operations return CAPTURE_UNSUPPORTED on UE 5.3
+ * after normal parameter/target validation, without changing panel state.
  */
 namespace UEMCP
 {
