@@ -729,6 +729,84 @@
           ]
         }
       ]
+    },
+    "owned-editor-capture-offline": {
+      "runner": "node",
+      "scope": "Partial editor-capture coverage: owned corpus integrity, real JS schema/dispatch, static C++ contracts, and synthetic scenario acceptance/failure controls only. No native, Slate, PNG decode, visual, or consumer qualification; retain all original witnesses.",
+      "capabilities": [
+        "engine-free",
+        "owned-serialization"
+      ],
+      "fixturePaths": [
+        "server/fixtures/serialization/ue5.6-owned-v1/manifest.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/oracle.json",
+        "server/fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset",
+        "plugin/UEMCP/Source/UEMCP/Private/AssetEditorCapture.cpp",
+        "plugin/UEMCP/Source/UEMCP/Private/AssetEditorCaptureHandler.cpp",
+        "plugin/UEMCP/Source/UEMCP/Public/AssetEditorCapture.h",
+        "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPAssetEditorCaptureTests.cpp",
+        "tools.yaml"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-editor-capture-offline.mjs",
+          "cases": [
+            "owned capture offline: owned corpus verifies without editor or ambient project",
+            "owned capture offline: list_asset_editor_tabs ships with uncached TCP dispatch",
+            "owned capture offline: capture_asset_editor ships with uncached TCP dispatch",
+            "owned capture offline: details_panel_expand_all ships with uncached TCP dispatch",
+            "owned capture offline: details_panel_scroll ships with uncached TCP dispatch",
+            "owned capture offline: capture forwards explicit tab output and inline without inventing defaults",
+            "owned capture offline: missing asset rejects before transport",
+            "owned capture offline: missing details tab rejects before transport",
+            "owned capture offline: missing row rejects before transport",
+            "owned capture offline: invalid row -1 rejects before transport",
+            "owned capture offline: invalid row 0.5 rejects before transport",
+            "owned capture offline: invalid row 20 rejects before transport",
+            "owned capture offline: invalid row NaN rejects before transport",
+            "owned capture offline: nonboolean inline rejects before transport",
+            "owned capture offline: dispatch preserves ASSET_NOT_FOUND",
+            "owned capture offline: dispatch preserves EDITOR_NOT_OPEN",
+            "owned capture offline: dispatch preserves TAB_NOT_FOUND",
+            "owned capture offline: dispatch preserves NOT_A_DETAILS_PANEL",
+            "owned capture offline: dispatch preserves CAPTURE_PATH_OUTSIDE_PROJECT",
+            "owned capture offline: dispatch preserves CAPTURE_UNSUPPORTED",
+            "owned capture offline: dispatch preserves FILE_WRITE_FAILED",
+            "owned capture offline: source validates output then target then tab before pixel capture",
+            "owned capture offline: source resolves existing owned tabs without opening or focusing",
+            "owned capture offline: source confines output with normalized project boundary",
+            "owned capture offline: source guards Slate and emits PNG with bounded inline bytes",
+            "owned capture offline: source uses exact Details type public expansion and bounded row paging",
+            "owned capture offline: all eight queued native names remain registered with skip limits visible",
+            "owned capture offline: synthetic scenario executes all nine required branches",
+            "owned capture offline: Details captures await asynchronous post-scroll refresh",
+            "owned capture offline: post-scroll refresh rejection prevents Details captures",
+            "owned capture offline: existing Slate refresh callback also runs after scrolling",
+            "owned capture offline: controls reject wrong active tab success",
+            "owned capture offline: controls reject wrong details tab success",
+            "owned capture offline: controls reject wrong asset success",
+            "owned capture offline: controls reject no active tab fallback",
+            "owned capture offline: controls reject duplicate tab",
+            "owned capture offline: controls reject false expansion",
+            "owned capture offline: controls reject empty Details panel",
+            "owned capture offline: controls reject ordinary scroll no-op",
+            "owned capture offline: controls reject missing scroll boolean",
+            "owned capture offline: controls reject over-range result",
+            "owned capture offline: controls reject wrong requested row",
+            "owned capture offline: controls reject under-cap inline omission",
+            "owned capture offline: controls reject same-length corrupt inline",
+            "owned capture offline: controls reject success or wrong error instead of TAB_NOT_FOUND",
+            "owned capture offline: controls reject success or wrong error instead of NOT_A_DETAILS_PANEL",
+            "owned capture offline: byte comparator rejects header size mime identity and disk mismatch",
+            "owned capture offline: inline comparator accepts exact base64 cap and requires omission above it",
+            "owned capture offline: scroll comparator accepts unscrollable clamped final row only",
+            "owned capture offline: capture reader accepts platform-correct path casing without an unbounded walk",
+            "owned capture offline: capture reader rejects traversal absolute sibling and Git metadata escapes",
+            "owned capture offline: capture reader rejects Git file redirects and junction escapes",
+            "owned capture offline: owned corpus bytes remain immutable after offline checks"
+          ]
+        }
+      ]
     }
   }
 }
