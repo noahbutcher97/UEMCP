@@ -875,6 +875,8 @@ export class ConnectionManager {
    * @param {object} [opts]
    * @param {boolean} [opts.skipCache=false]
    * @param {number} [opts.timeoutMs] — per-call wire timeout override; defaults to config.tcpTimeoutMs
+   * @param {number} [opts.deadlineAt] - absolute Unix-ms deadline including queue residence
+   * @param {Function} [opts.beforeDispatch] - synchronous guard immediately before wire dispatch
    * @returns {Promise<object>}
    */
   async send(layerKey, type, params = {}, opts = {}) {
@@ -911,11 +913,24 @@ export class ConnectionManager {
       // (config.tcpCommandFn) ignores extra args so test fixtures don't break.
       const metrics = this._metrics.isEnabled() ? this._metrics : null;
 
+      // Optional absolute deadline includes queue residence. Check ownership at
+      // dispatch too: queued lifecycle mutations must not outlive their caller.
+      let dispatchTimeoutMs = timeoutMs;
+      if (opts.deadlineAt !== undefined) {
+        const remaining = Math.floor(opts.deadlineAt - Date.now());
+        if (!Number.isFinite(opts.deadlineAt) || remaining <= 0) {
+          const error = new Error('TCP command deadline expired before dispatch.');
+          error.code = 'PIE_DEADLINE_EXCEEDED';
+          throw error;
+        }
+        dispatchTimeoutMs = Math.min(timeoutMs, remaining);
+      }
+      opts.beforeDispatch?.();
       result = await tcpFn(
         this.config.tcpPortCustom,
         type,
         params,
-        timeoutMs,
+        dispatchTimeoutMs,
         metrics
       );
 
