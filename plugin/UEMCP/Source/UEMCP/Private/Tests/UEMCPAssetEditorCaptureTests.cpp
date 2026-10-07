@@ -547,8 +547,40 @@ bool FUEMCPAssetEditorCaptureOutputPathTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("empty request lands under Saved/UEMCP/Captures"), Abs.Contains(TEXT("/UEMCP/Captures/")) && Abs.EndsWith(TEXT(".png")));
 	TestTrue(TEXT("relative request resolves"), UEMCP::ResolveCaptureOutputPath(TEXT("review/shot"), TEXT("Stem"), Abs, Err));
 	TestTrue(TEXT("relative request lands under Captures and gains .png"), Abs.EndsWith(TEXT("/UEMCP/Captures/review/shot.png")));
-	TestFalse(TEXT("an escaping relative request is rejected"), UEMCP::ResolveCaptureOutputPath(TEXT("../../../../escape"), TEXT("Stem"), Abs, Err));
+	// Saved can be relocated beneath a deeper owned runtime UserDir. Derive a
+	// real project escape instead of assuming a fixed number of parent segments.
+	FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+	FPaths::NormalizeDirectoryName(ProjectRoot);
+	FPaths::CollapseRelativeDirectories(ProjectRoot);
+	const FString Outside = FPaths::GetPath(ProjectRoot) / TEXT("escape.png");
+	const FString CaptureBase = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UEMCP"), TEXT("Captures"))) + TEXT("/");
+	FString EscapingRelative = Outside;
+	if (!TestTrue(TEXT("outside target can be made relative to capture directory"),
+		FPaths::MakePathRelativeTo(EscapingRelative, *CaptureBase)) ||
+		!TestTrue(TEXT("escape fixture is relative"), FPaths::IsRelative(EscapingRelative)))
+	{
+		return false;
+	}
+	FString ResolvedEscape = FPaths::ConvertRelativePathToFull(CaptureBase / EscapingRelative);
+	FPaths::NormalizeFilename(ResolvedEscape);
+	FPaths::CollapseRelativeDirectories(ResolvedEscape);
+	if (!TestEqual(TEXT("escape fixture reaches the explicit outside target"), ResolvedEscape, Outside) ||
+		!TestFalse(TEXT("escape fixture is outside the project boundary"),
+			ResolvedEscape.StartsWith(ProjectRoot + TEXT("/"), ESearchCase::IgnoreCase)))
+	{
+		return false;
+	}
+	AddInfo(FString::Printf(TEXT("Capture path fixture: project=%s base=%s relative=%s outside=%s"),
+		*ProjectRoot, *CaptureBase, *EscapingRelative, *ResolvedEscape));
+	TestFalse(TEXT("an escaping relative request is rejected"), UEMCP::ResolveCaptureOutputPath(EscapingRelative, TEXT("Stem"), Abs, Err));
 	TestTrue(TEXT("the rejection names the path"), Err.Contains(TEXT("escape")));
+	TestFalse(TEXT("an absolute parent-directory path is rejected"), UEMCP::ResolveCaptureOutputPath(Outside, TEXT("Stem"), Abs, Err));
+	const FString PrefixSibling = ProjectRoot + TEXT("_Outside/escape.png");
+	TestFalse(TEXT("a sibling sharing the project name prefix is rejected"), UEMCP::ResolveCaptureOutputPath(PrefixSibling, TEXT("Stem"), Abs, Err));
+	TestTrue(TEXT("relative parent traversal remaining inside the project resolves"),
+		UEMCP::ResolveCaptureOutputPath(TEXT("review/../shot"), TEXT("Stem"), Abs, Err));
+	TestTrue(TEXT("in-project traversal is normalized"), Abs.EndsWith(TEXT("/UEMCP/Captures/shot.png")));
 	const FString EngineSide = FPaths::ConvertRelativePathToFull(FPaths::EngineDir()) / TEXT("outside.png");
 	TestFalse(TEXT("an absolute path outside the project is rejected"), UEMCP::ResolveCaptureOutputPath(EngineSide, TEXT("Stem"), Abs, Err));
 	const FString Inside = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("UEMCP/ok.PNG");
@@ -559,15 +591,15 @@ bool FUEMCPAssetEditorCaptureOutputPathTest::RunTest(const FString& Parameters)
 	// rejection is reachable headless and wins over ASSET_NOT_FOUND, PIE_NOT_RUNNING
 	// and NO_VIEWPORT.
 	TSharedPtr<FJsonObject> Escaping = AssetParams(TEXT("/Game/__UEMCPTests/BP_DoesNotExist"));
-	Escaping->SetStringField(TEXT("out_png"), TEXT("../../../../escape"));
+	Escaping->SetStringField(TEXT("out_png"), EscapingRelative);
 	TestEqual(TEXT("capture_asset_editor refuses an escaping out_png first"),
 		CodeOf(Dispatch(TEXT("capture_asset_editor"), Escaping)), FString(TEXT("CAPTURE_PATH_OUTSIDE_PROJECT")));
 	TSharedPtr<FJsonObject> PieEscaping = MakeShared<FJsonObject>();
-	PieEscaping->SetStringField(TEXT("out_png"), TEXT("../../../../escape"));
+	PieEscaping->SetStringField(TEXT("out_png"), EscapingRelative);
 	TestEqual(TEXT("capture_pie_viewport refuses an escaping out_png first"),
 		CodeOf(Dispatch(TEXT("capture_pie_viewport"), PieEscaping)), FString(TEXT("CAPTURE_PATH_OUTSIDE_PROJECT")));
 	TSharedPtr<FJsonObject> ViewportEscaping = MakeShared<FJsonObject>();
-	ViewportEscaping->SetStringField(TEXT("output_path"), TEXT("../../../../escape"));
+	ViewportEscaping->SetStringField(TEXT("output_path"), EscapingRelative);
 	TestEqual(TEXT("get_viewport_screenshot refuses an escaping output_path first"),
 		CodeOf(Dispatch(TEXT("get_viewport_screenshot"), ViewportEscaping)), FString(TEXT("CAPTURE_PATH_OUTSIDE_PROJECT")));
 	return true;
