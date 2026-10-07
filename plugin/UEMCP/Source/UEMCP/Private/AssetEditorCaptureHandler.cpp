@@ -14,6 +14,7 @@
 #include "Toolkits/IToolkit.h"
 #include "UnrealClient.h"
 #include "UObject/Object.h"
+#include "UEMCPCompat.h"
 
 // No per-handler game-thread marshal: FMCPCommandRegistry::Dispatch already
 // wraps every handler in RunOnGameThread (the Audit F-1 fix), so these run on
@@ -175,6 +176,7 @@ namespace UEMCP
 				return;
 			}
 
+#if UEMCP_UE_5_4_OR_LATER
 			const int32 RowsBefore = View->CountRows();
 			// UE 5.6 exposes no public expand-all: SetRootExpansionStates is
 			// declared in Editor/PropertyEditor/Private/SDetailsViewBase.h and
@@ -196,6 +198,13 @@ namespace UEMCP
 			Result->SetNumberField(TEXT("rows_before"), RowsBefore);
 			Result->SetNumberField(TEXT("rows_after"), View->CountRows());
 			BuildSuccessResponse(OutResponse, Result);
+#else
+			// UE 5.3 has no public API that also expands the addressed property.
+			// Refuse before changing advanced visibility or refreshing the panel.
+			BuildErrorResponse(OutResponse,
+				TEXT("This engine version does not support details panel expansion through the public API"),
+				TEXT("CAPTURE_UNSUPPORTED"));
+#endif
 		}
 
 		void HandleDetailsPanelScroll(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
@@ -222,6 +231,7 @@ namespace UEMCP
 				return;
 			}
 
+#if UEMCP_UE_5_4_OR_LATER
 			// IDetailsView has no pixel scroll on 5.6: GetScrollWidget returns
 			// the details view itself, not the row tree, and SDetailTree is a
 			// private type. Rows are addressed instead — GetPropertyRowNumbers
@@ -257,6 +267,12 @@ namespace UEMCP
 			Result->SetNumberField(TEXT("max_row_offset"), MaxRowOffset);
 			Result->SetBoolField(TEXT("scrolled"), bFoundRow);
 			BuildSuccessResponse(OutResponse, Result);
+#else
+			// HighlightProperty is not an equivalent fallback: it changes highlights.
+			BuildErrorResponse(OutResponse,
+				TEXT("This engine version does not support details panel scrolling through the public API"),
+				TEXT("CAPTURE_UNSUPPORTED"));
+#endif
 		}
 
 		void HandleCapturePieViewport(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)

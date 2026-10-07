@@ -159,8 +159,9 @@ function classify(exitCode, counts, importError, timedOut) {
   // ENV_SKIP / live-gate SKIPPED takes precedence over exit code — env-skip tests
   // are inconsistent on whether they exit 0 or 1, but both intent the same thing.
   if (counts && counts.skipped) return 'SKIPPED';
+  // Assertion evidence wins even if a child accidentally exits successfully.
+  if (counts && counts.failed > 0) return 'ASSERTION_FAILED';
   if (exitCode === 0 && counts) return 'PASS';
-  if (exitCode !== 0 && counts && counts.failed > 0) return 'ASSERTION_FAILED';
   if (exitCode !== 0 && !counts) return 'CRASHED_NO_SUMMARY';
   if (exitCode === 0 && !counts) return 'NO_SUMMARY_PARSED';
   return 'UNKNOWN';
@@ -424,7 +425,9 @@ function main() {
     if (!FLAG_JSON) console.log(`Snapshot written to ${snapshotPath}\n`);
   }
 
-  const hadFailure = executionErrors.length + importErrors.length + assertionFailures.length + timeouts.length + crashes.length + noSummary.length > 0;
+  // Keep the aggregate authoritative independently of per-file classification.
+  const hadFailure = aggregate.failed > 0
+    || executionErrors.length + importErrors.length + assertionFailures.length + timeouts.length + crashes.length + noSummary.length > 0;
   process.exit(hadFailure ? 1 : 0);
 }
 

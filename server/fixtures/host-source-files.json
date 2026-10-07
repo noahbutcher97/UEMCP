@@ -54,6 +54,7 @@
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPBlueprintHelperTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPTestObject.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPTestObject.h",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPOwnedComponentEditTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/TransformParser.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/UEMCPModule.cpp",

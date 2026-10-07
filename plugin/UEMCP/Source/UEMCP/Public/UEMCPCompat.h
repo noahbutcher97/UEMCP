@@ -25,6 +25,9 @@
 
 // --- 1. Semantic version gates ------------------------------------------------
 // Add gates as real divergences appear (YAGNI — don't pre-declare unused ones).
+// Excludes the verified UE 5.3 details-scroll API gap. This gate does not
+// establish API availability or qualification for untested 5.4/5.5 engines.
+#define UEMCP_UE_5_4_OR_LATER (!UE_VERSION_OLDER_THAN(5, 4, 0))
 #define UEMCP_UE_5_5_OR_LATER (!UE_VERSION_OLDER_THAN(5, 5, 0))
 
 // --- 2. Relocated-header macros ----------------------------------------------
