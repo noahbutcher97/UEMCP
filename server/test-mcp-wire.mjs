@@ -14,33 +14,67 @@
 //   • Happy-path tool/call returns correct response shape
 //   • Error paths return isError:true with diagnostic text
 //   • tools/list_changed fires when toolsets toggle
-//   • Size-budget truncation round-trips correctly
+//   • Numeric size budgets and nested JSON responses round-trip correctly
 //
 // Option A: in-process McpServer + fake transport. ~90% defect coverage of
 // Option B (subprocess + stdio) at 1/10 the overhead. If a stdio-specific
 // defect ever surfaces that this harness misses, add Option B then.
 //
-// Run: cd D:\DevTools\UEMCP\server && set UNREAL_PROJECT_ROOT=path/to/YourProject&& node test-mcp-wire.mjs
+// Run: cd server && node test-mcp-wire.mjs
+// Explicit consumer lane: node test-mcp-wire.mjs --project path/to/YourProject
+// Ambient project settings do not select inputs for the default fixture run.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import yaml from 'js-yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { buildZodSchema } from './zod-builder.mjs';
 import { executeOfflineTool } from './offline-tools.mjs';
-import { TestRunner, resolveProjectRoot } from './test-helpers.mjs';
+import { TestRunner } from './test-helpers.mjs';
 import { FakeMcpTransport } from './test-mcp-fake-transport.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TOOLS_YAML = yaml.load(readFileSync(join(__dirname, '..', 'tools.yaml'), 'utf-8'));
 const OFFLINE_DEFS = TOOLS_YAML.toolsets.offline.tools;
-const PROJECT_ROOT = resolveProjectRoot();
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== '--project' || !args[1].trim())) {
+  console.error('Usage: node test-mcp-wire.mjs [--project PATH]');
+  process.exit(2);
+}
+const PROJECT_ROOT = args.length ? resolve(args[1]) : join(__dirname, 'fixtures', 'uemcp-fixture');
+console.log(`MCP wire project: ${PROJECT_ROOT} (${args.length ? 'explicit consumer' : 'committed fixture'})`);
 
 const PROTOCOL_VERSION = '2024-11-05';
 
 const t = new TestRunner('MCP-Wire Integration Tests');
+const activeServers = new Set();
+
+// Record a failed section without losing later protocol witnesses or cleanup.
+async function runCase(name, run) {
+  try { await run(); }
+  catch (error) { t.assert(false, name, error.stack || error.message); }
+  finally {
+    for (const server of activeServers) {
+      try { await server.close(); }
+      catch (error) { t.assert(false, `${name}: server cleanup`, error.message); }
+      finally { activeServers.delete(server); }
+    }
+  }
+}
+
+function readSuccessfulJson(response, label) {
+  const content = response.result?.content;
+  const first = content?.[0];
+  if (response.error || response.result?.isError === true || !Array.isArray(content)
+      || first?.type !== 'text' || typeof first.text !== 'string') {
+    throw new Error(`${label}: expected successful MCP text result; ${JSON.stringify(response).slice(0, 600)}`);
+  }
+  try { return JSON.parse(first.text); }
+  catch (error) { throw new Error(`${label}: malformed JSON text; ${error.message}`); }
+}
+
 
 // ── Test server factory ──────────────────────────────────────────────
 // Mirrors server.mjs's offline-tool registration using the SAME inputs:
@@ -56,6 +90,7 @@ async function createTestServer(handlerFactory) {
     { capabilities: { logging: {} } }
   );
 
+  activeServers.add(server);
   const handles = {};
   for (const [name, def] of Object.entries(OFFLINE_DEFS)) {
     const schema = buildZodSchema(def.params);
@@ -117,7 +152,7 @@ function makeEchoHandler(captures) {
 
 // Test 1: initialize handshake
 console.log('\n── Test 1: initialize handshake ──');
-{
+await runCase('MCP wire section 1', async () => {
   const { transport, initialize } = await createTestServer(makeEchoHandler({}));
 
   const resp = await initialize();
@@ -127,11 +162,11 @@ console.log('\n── Test 1: initialize handshake ──');
   t.assert(resp.result.capabilities?.tools != null, 'tools capability advertised');
 
   await transport.close();
-}
+});
 
 // Test 2: tools/list D44 invariant at runtime
 console.log('\n── Test 2: tools/list matches tools.yaml (D44 runtime) ──');
-{
+await runCase('MCP wire section 2', async () => {
   const { transport, sendRequest, initialize } = await createTestServer(makeEchoHandler({}));
   await initialize();
 
@@ -182,11 +217,11 @@ console.log('\n── Test 2: tools/list matches tools.yaml (D44 runtime) ──
   );
 
   await transport.close();
-}
+});
 
 // Test 3: Zod coerce — boolean stringification (F-1 validation)
 console.log('\n── Test 3: Zod coerce boolean (F-1) ──');
-{
+await runCase('MCP wire section 3', async () => {
   const captures = {};
   const { transport, sendRequest, initialize } = await createTestServer(makeEchoHandler(captures));
   await initialize();
@@ -242,11 +277,11 @@ console.log('\n── Test 3: Zod coerce boolean (F-1) ──');
   );
 
   await transport.close();
-}
+});
 
 // Test 4: Zod coerce — number stringification (F-1 validation)
 console.log('\n── Test 4: Zod coerce number (F-1) ──');
-{
+await runCase('MCP wire section 4', async () => {
   const captures = {};
   const { transport, sendRequest, initialize } = await createTestServer(makeEchoHandler(captures));
   await initialize();
@@ -291,14 +326,14 @@ console.log('\n── Test 4: Zod coerce number (F-1) ──');
   t.assert(captures.list_level_actors?.offset === 0, 'offset="0" coerced to numeric 0');
 
   await transport.close();
-}
+});
 
 // Test 4.5: Zod preprocess — array stringification (F-1.5 validation)
 // Mirror of Test 3/4 for array<string> wire stringification. Uses
 // read_asset_properties.property_names — the exact param the manual tester
 // hit with "Expected array, received string" pre-fix.
 console.log('\n── Test 4.5: Zod preprocess array (F-1.5) ──');
-{
+await runCase('MCP wire section 5', async () => {
   const captures = {};
   const { transport, sendRequest, initialize } = await createTestServer(makeEchoHandler(captures));
   await initialize();
@@ -351,11 +386,11 @@ console.log('\n── Test 4.5: Zod preprocess array (F-1.5) ──');
   t.assert(r4.result?.isError === true, 'malformed JSON string rejected with isError:true');
 
   await transport.close();
-}
+});
 
 // Test 5: Happy-path tool/call response shape (real handler)
 console.log('\n── Test 5: Happy-path response shape ──');
-{
+await runCase('MCP wire section 6', async () => {
   if (!PROJECT_ROOT) {
     console.log('  · skipped happy-path response shape (no project root)');
   } else {
@@ -373,10 +408,10 @@ console.log('\n── Test 5: Happy-path response shape ──');
     t.assert(!resp.result?.isError, `project_info succeeds (got isError=${resp.result?.isError})`);
     t.assert(Array.isArray(resp.result?.content), 'response.content is an array');
     t.assert(
-      resp.result.content[0]?.type === 'text',
-      `first content item is text (got ${resp.result.content[0]?.type})`
+      resp.result?.content?.[0]?.type === 'text',
+      `first content item is text (got ${resp.result?.content?.[0]?.type})`
     );
-    const payload = JSON.parse(resp.result.content[0].text);
+    const payload = readSuccessfulJson(resp, 'project_info');
     t.assert(
       typeof payload === 'object' && payload !== null,
       'content text is parseable JSON object'
@@ -394,7 +429,7 @@ console.log('\n── Test 5: Happy-path response shape ──');
     });
     t.assert(!bulkResp.result?.isError,
       `EN-2 wire: find_blueprint_nodes_bulk succeeds (got isError=${bulkResp.result?.isError})`);
-    const bulkPayload = JSON.parse(bulkResp.result.content[0].text);
+    const bulkPayload = readSuccessfulJson(bulkResp, 'find_blueprint_nodes_bulk');
     t.assert(bulkPayload.path_prefix === '/Game/Blueprints',
       'EN-2 wire: path_prefix round-trips through JSON-RPC');
     t.assert(typeof bulkPayload.total_bps_scanned === 'number' && Array.isArray(bulkPayload.results),
@@ -402,13 +437,13 @@ console.log('\n── Test 5: Happy-path response shape ──');
 
     await transport.close();
   }
-}
+});
 
 // ── Phase 2: should-have ═════════════════════════════════════════════
 
 // Test 6: Error-response shape on handler throw
 console.log('\n── Test 6: Error response shape ──');
-{
+await runCase('MCP wire section 7', async () => {
   const throwingHandler = (toolName) => async () => {
     throw new Error(`synthetic failure in ${toolName}`);
   };
@@ -421,7 +456,7 @@ console.log('\n── Test 6: Error response shape ──');
   });
   t.assert(resp.result?.isError === true, `isError:true set on handler throw (got ${resp.result?.isError})`);
   t.assert(
-    Array.isArray(resp.result?.content) && resp.result.content[0]?.type === 'text',
+    Array.isArray(resp.result?.content) && resp.result?.content?.[0]?.type === 'text',
     'error response still carries content[0].text'
   );
   t.assert(
@@ -446,11 +481,11 @@ console.log('\n── Test 6: Error response shape ──');
   );
 
   await transport.close();
-}
+});
 
 // Test 7: tools/list_changed notification on enable/disable
 console.log('\n── Test 7: tools/list_changed timing ──');
-{
+await runCase('MCP wire section 8', async () => {
   const { transport, handles, sendRequest, initialize } = await createTestServer(makeEchoHandler({}));
   await initialize();
 
@@ -482,11 +517,11 @@ console.log('\n── Test 7: tools/list_changed timing ──');
   t.assert(names2.includes('project_info'), 're-enabled tool reappears in tools/list');
 
   await transport.close();
-}
+});
 
 // Test 8: Truncation-path wire coverage (max_bytes round-trip)
 console.log('\n── Test 8: Truncation path (max_bytes) ──');
-{
+await runCase('MCP wire section 9', async () => {
   // Capture-only handler that echoes max_bytes — we care that the
   // stringified number arrives as a number at the handler boundary,
   // not that truncation fires (that's covered by the parser tests).
@@ -512,9 +547,8 @@ console.log('\n── Test 8: Truncation path (max_bytes) ──');
     `array param round-trips (got ${JSON.stringify(captures.read_asset_properties?.property_names)})`
   );
 
-  // If UNREAL_PROJECT_ROOT is set, also exercise the real truncation code
-  // via a small max_bytes on a real .uasset — ensures the response
-  // wrapping doesn't mangle the truncated flag.
+  // Exercise real gameplay-tag JSON wrapping against the selected project.
+  // This branch does not exercise asset-property truncation.
   if (PROJECT_ROOT) {
     const realHandlers = (name) => async (args) =>
       executeOfflineTool(name, args, PROJECT_ROOT);
@@ -531,7 +565,7 @@ console.log('\n── Test 8: Truncation path (max_bytes) ──');
       `real list_gameplay_tags succeeds over wire (got ${resp.result?.content?.[0]?.text?.slice(0,120)})`
     );
     // Response must parse as JSON even with nested tag hierarchy
-    const parsed = JSON.parse(resp.result.content[0].text);
+    const parsed = readSuccessfulJson(resp, 'list_gameplay_tags');
     t.assert(
       typeof parsed === 'object',
       'large nested response JSON-stringifies + parses cleanly over wire'
@@ -541,7 +575,7 @@ console.log('\n── Test 8: Truncation path (max_bytes) ──');
   }
 
   await transport.close();
-}
+});
 
 // ── Summary ──────────────────────────────────────────────────────────
 process.exit(t.summary());
