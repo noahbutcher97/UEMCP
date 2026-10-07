@@ -318,6 +318,23 @@ export class ProjectContext {
   }
 
   refreshEditorHandshake(payload = {}) {
+    return this._refreshTransportIdentity(payload, 'plugin_handshake');
+  }
+
+  refreshOwnedPieVerification(proof, { generation, nonce, processId } = {}) {
+    if (!this.identity || this.generation !== generation || proof?.owned !== true
+      || proof.nonce !== nonce || proof.process_id !== processId
+      || !Number.isSafeInteger(processId) || processId <= 0
+      || normalizeComparisonPath(proof.project_path || '') !== this.identity.canonicalUprojectPath) {
+      throw new ProjectContextError('OWNED_PIE_PROOF_INVALID', 'Owned native transport identity differs from the attached project binding.');
+    }
+    // The owner validates the complete native oracle/accounting proof after its
+    // real coordinator guard. This is not a fabricated get_editor_state response.
+    const result = this._refreshTransportIdentity({ uproject_path: proof.project_path }, 'owned_pie_verification', processId);
+    return { ...result, nativeIdentity: { nonce, processId, generation, projectPath: proof.project_path } };
+  }
+
+  _refreshTransportIdentity(payload, source, processId = null) {
     const editorState = unwrapEditorStatePayload(payload);
     const identitySource = editorState.project_identity || editorState.projectIdentity || editorState;
     const uprojectPath =
@@ -330,7 +347,7 @@ export class ProjectContext {
     if (!uprojectPath) {
       this.transportOwnershipState = 'unverified';
       return {
-        source: 'plugin_handshake',
+        source,
         state: 'unknown',
         code: PROJECT_ERROR_CODES.EDITOR_IDENTITY_UNKNOWN,
         message: 'Plugin get_editor_state did not include project identity.',
@@ -339,11 +356,12 @@ export class ProjectContext {
     }
 
     const candidate = editorCandidateFromProcess({
-      pid: null,
-      cmdLine: 'plugin:get_editor_state',
-      commandLineAvailable: true,
+      pid: processId,
+      cmdLine: source === 'owned_pie_verification' ? '' : 'plugin:get_editor_state',
+      commandLineAvailable: source !== 'owned_pie_verification',
       uprojectPath,
     }, this.fsImpl, this.workspaceRoots);
+    candidate.transportIdentitySource = source;
 
     if (identitySource.project_root || identitySource.projectRoot) {
       candidate.projectRoot = identitySource.project_root || identitySource.projectRoot;
@@ -369,7 +387,7 @@ export class ProjectContext {
       this.editorIdentityState = 'candidate';
       this.transportOwnershipState = 'unverified';
       return {
-        source: 'plugin_handshake',
+        source,
         state: this.editorIdentityState,
         candidates: [...this.editorCandidates],
       };
@@ -379,7 +397,7 @@ export class ProjectContext {
       this.editorIdentityState = 'verified';
       this.transportOwnershipState = 'verified';
       return {
-        source: 'plugin_handshake',
+        source,
         state: this.editorIdentityState,
         matchedEditor: candidate,
         candidates: [...this.editorCandidates],
@@ -389,7 +407,7 @@ export class ProjectContext {
     this.editorIdentityState = 'mismatch';
     this.transportOwnershipState = 'unverified';
     return {
-      source: 'plugin_handshake',
+      source,
       state: this.editorIdentityState,
       code: PROJECT_ERROR_CODES.EDITOR_PROJECT_MISMATCH,
       message: 'Plugin get_editor_state identity does not match the attached project.',

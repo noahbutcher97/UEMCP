@@ -8,7 +8,7 @@ import { createOwnedPieTransport } from './owned-pie-transport.mjs';
 export const oracle = Object.freeze({
   mapPath: '/Game/OwnedPIE/Lifecycle', name: 'OwnedLifecycleActor',
   class: '/Script/Engine.StaticMeshActor', missingActorName: 'DefinitelyAbsentOwnedProbe',
-  location: [120, -240, 360], rotation: [0, 90, 0], scale: [1, 2, 1], CustomTimeDilation: 0.5,
+  location: [120, -240, 360], rotation: [0, 90, 0], scale: [1, 2, 1], InputPriority: 173, AutoReceiveInput: 0, has_input_component: false,
 });
 export const world = Object.freeze({
   pie_instance: 0, world_name: 'Lifecycle',
@@ -19,7 +19,7 @@ export const running = { pie_running: true, active_context_count: 1, default_pie
 export const actor = {
   world, resolved: { matched_by: 'name', name: oracle.name, class: oracle.class },
   transform: { location: oracle.location, rotation: oracle.rotation, scale: oracle.scale },
-  properties: { CustomTimeDilation: oracle.CustomTimeDilation },
+  properties: { InputPriority: oracle.InputPriority, AutoReceiveInput: 0 }, has_input_component: false,
 };
 export const success = result => ({ status: 'success', result: structuredClone(result) });
 export const wireError = code => ({ status: 'error', code, error: `Typed ${code}`, detail: { witness: true } });

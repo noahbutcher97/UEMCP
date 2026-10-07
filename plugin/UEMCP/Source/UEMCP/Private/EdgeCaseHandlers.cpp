@@ -3,6 +3,7 @@
 
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
+#include "OwnedPIEControl.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -266,6 +267,7 @@ namespace UEMCP
 				// "viewport" (explicit) → leave SessionDestination default
 			}
 
+			if (!ConfigureOwnedPIEStart(PlayParams, OutResponse)) return;
 			GEditor->RequestPlaySession(PlayParams);
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -792,6 +794,8 @@ namespace UEMCP
 			Result->SetObjectField(TEXT("world"), WorldJson);
 			Result->SetObjectField(TEXT("resolved"), SerializeResolvedActor(Resolution.Actor, Resolution.MatchedBy));
 			Result->SetObjectField(TEXT("transform"), TransformToJson(Resolution.Actor->GetActorTransform()));
+			// Readonly safety witness; no input activation or generic UObject serialization.
+			Result->SetBoolField(TEXT("has_input_component"), Resolution.Actor->InputComponent != nullptr);
 
 			if (USceneComponent* Root = Resolution.Actor->GetRootComponent())
 			{

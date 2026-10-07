@@ -7,6 +7,14 @@ const DEFAULT_IGNORED_PLUGIN_SOURCE_FRAGMENTS = [
   'PropertyHandlerRegistry.cpp',
 ];
 
+// These controls are absent on an ordinary editor bridge. They register only
+// under the disposable owned-PIE flag and are consumed by owned-pie-owner.mjs.
+export const OWNED_PIE_INTERNAL_WIRE_COMMANDS = new Map([
+  ['owned_pie_verify', 'Exclusive owned host bootstrap; no public MCP tool'],
+  ['owned_pie_fence', 'Permanent nonce-bound native admission fence'],
+  ['owned_pie_reconcile', 'Native outstanding-ledger and post-editor-tick drainage'],
+]);
+
 export function isPlannedOrExcluded(def) {
   return def?.status === 'planned' || def?.discoverable === false;
 }

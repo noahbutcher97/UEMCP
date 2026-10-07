@@ -38,7 +38,16 @@ for (const [field, mutate] of [
   ['location', a => { a.transform.location[0]++; }],
   ['rotation', a => { a.transform.rotation[1]++; }],
   ['scale', a => { a.transform.scale[2]++; }],
-  ['CustomTimeDilation', a => { a.properties.CustomTimeDilation = 1; }],
+  ['InputPriority default', a => { a.properties.InputPriority = 0; }],
+  ['InputPriority changed', a => { a.properties.InputPriority = 174; }],
+  ['InputPriority string', a => { a.properties.InputPriority = '173'; }],
+  ['InputPriority boolean', a => { a.properties.InputPriority = true; }],
+  ['InputPriority missing', a => { delete a.properties.InputPriority; }],
+  ['InputPriority fractional', a => { a.properties.InputPriority = 173.5; }],
+  ['automatic input enabled', a => { a.properties.AutoReceiveInput = 1; }],
+  ['automatic input missing', a => { delete a.properties.AutoReceiveInput; }],
+  ['input component present', a => { a.has_input_component = true; }],
+  ['input component unproved', a => { delete a.has_input_component; }],
   ['missing property', a => { delete a.properties; }],
   ['actor world', a => { a.world.pie_instance = 9; }],
 ]) {
@@ -77,7 +86,7 @@ await check('initial running PIE fails without stopping an existing session', as
   await assert.rejects(run(f), { code: 'PIE_ORACLE_MISMATCH' });
   assert.equal(f.fake.callsFor('start_pie').length, 0); assert.equal(f.fake.callsFor('stop_pie').length, 0);
 });
-for (const field of ['name', 'class', 'location', 'rotation', 'scale', 'CustomTimeDilation', 'missingActorName', 'mapPath']) {
+for (const field of ['name', 'class', 'location', 'rotation', 'scale', 'InputPriority', 'AutoReceiveInput', 'has_input_component', 'missingActorName', 'mapPath']) {
   await check(`incomplete oracle ${field} fails before host verification`, async () => {
     const f = await fixture(); const invalid = { ...oracle }; delete invalid[field];
     await assert.rejects(run(f, { oracle: invalid }), { code: 'PIE_ORACLE_MISMATCH' });

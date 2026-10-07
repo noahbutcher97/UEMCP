@@ -2,6 +2,8 @@
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 #include "MCPThreadMarshal.h"
+#include "OwnedPIEControl.h"
+#include "Misc/ScopeExit.h"
 #include "Logging/LogMacros.h"
 
 // M-enhance CP3 handler registration
@@ -72,6 +74,9 @@ namespace UEMCP
 			return;
 		}
 
+		FOwnedPIEAdmission OwnedAdmission;
+		if (!AdmitOwnedPIECommand(CommandType, Params, OwnedAdmission, OutResponse)) return;
+
 		// Audit F-1 fix: every handler runs on the game thread. Most touch UObject
 		// reflection / GEditor / FKismetEditorUtilities — game-thread-only APIs that
 		// would race the editor tick if invoked from the socket thread. Single-point
@@ -96,8 +101,10 @@ namespace UEMCP
 			MakeShared<TSharedPtr<FJsonObject>, ESPMode::ThreadSafe>();
 		double WallClockSeconds = 0.0;
 
-		const bool bDispatched = RunOnGameThread([HandlerPtr, ParamsCopy, SharedOut]()
+		const bool bDispatched = RunOnGameThread([HandlerPtr, ParamsCopy, SharedOut, OwnedAdmission]()
 		{
+			ON_SCOPE_EXIT { CompleteOwnedPIECallback(OwnedAdmission); };
+			if (!BeginOwnedPIECallback(OwnedAdmission, *SharedOut)) return;
 			(*HandlerPtr)(ParamsCopy, *SharedOut);
 		}, /*TimeoutSeconds=*/30.0, &WallClockSeconds);
 
@@ -194,5 +201,6 @@ namespace UEMCP
 		RegisterInputAndPieHandlers(*this);
 		RegisterGeometryHandlers(*this);
 		RegisterEditorUtilityHandlers(*this);
+		RegisterOwnedPIEHandlers(*this);
 	}
 }
