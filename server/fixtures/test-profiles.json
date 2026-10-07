@@ -674,6 +674,61 @@
           ]
         }
       ]
+    },
+    "native-owned-component-edit": {
+      "runner": "native",
+      "scope": "Three unsaved Actor Blueprint/OwnedScene cases: live vector, scalar broadcast and boolean edits, bounded errors, external test transaction undo/redo, and rejection outside a transaction preserving prior undo. No command-owned transaction, persistence, CDO-default undo, TCP/MCP, PIE or rendering guarantee.",
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
+      "fixturePaths": [
+        "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPOwnedComponentEditTests.cpp",
+        "plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp"
+      ],
+      "suites": [
+        {
+          "name": "native",
+          "cases": [
+            "UEMCP.OwnedComponentEdit.LiveValuesAndErrors",
+            "UEMCP.OwnedComponentEdit.ExternalTransactionUndoRedo",
+            "UEMCP.OwnedComponentEdit.RejectedEditPreservesPriorUndo"
+          ]
+        }
+      ]
+    },
+    "owned-live-edit-offline": {
+      "runner": "node",
+      "scope": "Offline edit routing, required identities, native registration and synthetic evidence-gate controls only. Does not execute Unreal or qualify live values, error state preservation or undo. Existing profiles and obligations retained.",
+      "capabilities": [
+        "engine-free"
+      ],
+      "fixturePaths": [
+        "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPOwnedComponentEditTests.cpp",
+        "plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp"
+      ],
+      "suites": [
+        {
+          "name": "test-owned-live-edit.mjs",
+          "cases": [
+            "owned live edit: component vector exact uncached wire routing",
+            "owned live edit: component scalar exact uncached wire routing",
+            "owned live edit: CDO property exact uncached wire routing",
+            "owned live edit: variable default exact uncached wire routing",
+            "owned live edit: invalid vector reaches native validation unchanged",
+            "owned live edit: missing required identity fails before transport",
+            "owned live edit: native errors preserve exact envelopes",
+            "owned live edit: native profile requires exact source registrations",
+            "owned live edit: synthetic exact native evidence accepted",
+            "owned live edit: synthetic missing native evidence rejected",
+            "owned live edit: synthetic duplicate native evidence rejected",
+            "owned live edit: synthetic skipped native evidence rejected",
+            "owned live edit: synthetic failed native evidence rejected",
+            "owned live edit: synthetic extra native evidence rejected",
+            "owned live edit: synthetic wrong source native evidence rejected"
+          ]
+        }
+      ]
     }
   }
 }
