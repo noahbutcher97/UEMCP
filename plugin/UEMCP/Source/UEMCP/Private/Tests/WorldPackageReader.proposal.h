@@ -123,7 +123,7 @@ struct FWorldPackageTables
    auto J=JsonObject(); J->SetStringField(TEXT("path"),ObjectPath); J->SetStringField(TEXT("class"),ClassName);
    J->SetArrayField(TEXT("tags"),Tags); Objects.Add(JsonValue(J));
   }
-  if(Ar.HasError() || Ar.Cursor()>Dependency) return Fail(TEXT("Registry consumed dependency bytes"));
+  if(Ar.HasError() || Ar.Cursor()!=Dependency) return Fail(TEXT("Registry object data must end at dependency offset"));
   FString FirstClass,FirstPath; Objects[0]->AsObject()->TryGetStringField(TEXT("class"),FirstClass);
   Objects[0]->AsObject()->TryGetStringField(TEXT("path"),FirstPath);
   if(FirstClass!=TEXT("World") && FirstClass!=TEXT("/Script/Engine.World")) return Fail(TEXT("First serialized registry class must be World"));

@@ -388,7 +388,28 @@ static bool ReaderControls(FAutomationTestBase& T,const FRun& R,const FReadGuard
  };
  const auto I32=[](TArray<uint8>& Bytes,int64 At,int32 Value)
  { const uint32 Raw=uint32(Value); for(int32 I=0; I<4; ++I) Bytes[At+I]=uint8(Raw>>(I*8)); };
+ const auto I64=[](TArray<uint8>& Bytes,int64 At,int64 Value)
+ { const uint64 Raw=uint64(Value); for(int32 I=0; I<8; ++I) Bytes[At+I]=uint8(Raw>>(I*8)); };
  bool Good=true;
+ // Mutate only copied authored bytes; the dependency boundary must be exact.
+ {
+  const int64 RegistryAt=Baseline.Summary.AssetRegistryDataOffset;
+  const int64 Dependency=int64(Baseline.Registry->GetNumberField(TEXT("dependency_offset")));
+  if(RegistryAt<0 || RegistryAt+12>File.Bytes.Num() || Dependency<=RegistryAt+12 ||
+   int64(Baseline.Registry->GetNumberField(TEXT("end")))!=Dependency ||
+   Dependency>=Baseline.Budget.SectionEnd(RegistryAt))
+  { T.AddError(TEXT("Exact registry boundary control requires contiguous baseline and one dependency byte")); return false; }
+  TArray<uint8> GapBytes=File.Bytes; I64(GapBytes,RegistryAt,Dependency+1);
+  FWorldPackageTables GapReader;
+  Good &= T.TestFalse(TEXT("Forward dependency offset leaves an unparsed byte"),GapReader.Read(GapBytes,R.Package));
+  Good &= T.TestEqual(TEXT("Registry gap rejects at exact boundary"),GapReader.Error,FString(TEXT("Registry object data must end at dependency offset")));
+  Good &= Reject(TEXT("Backward dependency offset truncates object data"),[&](auto& B){ I64(B,RegistryAt,Dependency-1); });
+  const int32 RegistryObjects=Baseline.Registry->GetArrayField(TEXT("objects")).Num();
+  if(RegistryObjects>1)
+   Good &= Reject(TEXT("Positive underreported registry object count"),[&](auto& B){ I32(B,RegistryAt+8,RegistryObjects-1); });
+  else
+   T.AddInfo(TEXT("Positive underreported object count not exercised: authored registry contains one object"));
+ }
  if(Baseline.Budget.SoftPaths==1)
  {
   const int64 At=Baseline.Budget.SoftPathOffset;
