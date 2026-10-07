@@ -102,6 +102,10 @@
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/UEMCPFixture.Build.cs",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixture/UEMCPFixture.cpp",
     "server/fixtures/uemcp-fixture/Source/UEMCPFixtureEditor.Target.cs",
-    "server/fixtures/uemcp-fixture/UEMCPFixture.uproject"
+    "server/fixtures/uemcp-fixture/UEMCPFixture.uproject",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPWorldMapFixtureTests.proposal.cpp",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/WorldPackageReader.proposal.h",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/BoundedPackageArchive.proposal.h",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/SummaryAllocationPreflight.proposal.h"
   ]
 }
