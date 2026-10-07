@@ -48,6 +48,25 @@
         ]
       }]
     },
+    "native-core": {
+      "runner": "native",
+      "scope": "Eight existing response-error, transform, actor-guard, scalar-property and command-registry cases under NullRHI. Does not qualify populated-world actor lookup, socket/MCP transport, persistence, PIE, rendering, consumer projects or other native tests.",
+      "capabilities": ["engine", "nullrhi"],
+      "fixturePaths": [],
+      "suites": [{
+        "name": "native",
+        "cases": [
+          "UEMCP.MCPResponseBuilder.BuildError",
+          "UEMCP.TransformParser.Valid",
+          "UEMCP.TransformParser.Invalid",
+          "UEMCP.ActorLookupHelper.Guards",
+          "UEMCP.PropertyHandlerRegistry.Scalars",
+          "UEMCP.PropertyHandlerRegistry.Invalid",
+          "UEMCP.MCPCommandRegistry.Dispatch",
+          "UEMCP.MCPCommandRegistry.CustomRegister"
+        ]
+      }]
+    },
     "native-transport": {
       "runner": "native",
       "scope": "Seven existing native transport policy and decoder cases with their shared resource. Does not qualify live editor TCP, rendering, or the remaining native inventory.",

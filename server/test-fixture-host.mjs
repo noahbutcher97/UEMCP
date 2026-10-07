@@ -159,6 +159,20 @@ try {
   await check('output inside checkout is refused', async () => {
     await assert.rejects(prepareFixtureHost({ ...options(), outputRoot: join(repoRoot, 'stage') }), /outside source/);
   });
+  await check('native core delegates explicit owned host and 900s budget without a real engine', async () => {
+    const opts = options(); await prepareFixtureHost(opts);
+    const code = await runFixtureHostNative({ ...opts, testProfile: 'native-core', timeoutMs: 900000 }, { nativeMain: async argv => {
+      assert.equal(argv[argv.indexOf('--uproject') + 1], join(opts.outputRoot, 'host/UEMCPFixture.uproject'));
+      assert.equal(argv[argv.indexOf('--engine-root') + 1], engineRoot);
+      assert.equal(argv[argv.indexOf('--test-profile') + 1], 'native-core');
+      assert.equal(argv[argv.indexOf('--timeout-ms') + 1], '900000');
+      assert.ok(argv[argv.indexOf('--report-dir') + 1].startsWith(join(opts.outputRoot, 'native-')));
+      const extras = argv.filter((_, index) => argv[index - 1] === '--extra-arg');
+      assert.deepEqual(extras.slice(0, ownedHostEngineArgs.length), [...ownedHostEngineArgs]);
+      return 0;
+    } });
+    assert.equal(code, 0); await validateFixtureHost(opts);
+  });
   await check('native timeout remains failure and delegates bounded lifecycle', async () => {
     const opts = options(); await prepareFixtureHost(opts);
     const code = await runFixtureHostNative({ ...opts, testProfile: 'native-smoke', timeoutMs: 123 }, { nativeMain: async argv => {

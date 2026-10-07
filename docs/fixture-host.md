@@ -70,6 +70,29 @@ run. This profile qualifies native helper/registry/graph behavior only; it does
 not qualify socket/MCP transport, persistence, PIE, rendering, or consumer projects.
 Existing smoke, transport, and owned serialization profiles remain separate.
 
+The `native-core` profile requires eight existing cases from `UEMCPTests.cpp`:
+`MCPResponseBuilder.BuildError`, `TransformParser.Valid`, `TransformParser.Invalid`,
+`ActorLookupHelper.Guards`, `PropertyHandlerRegistry.Scalars`,
+`PropertyHandlerRegistry.Invalid`, `MCPCommandRegistry.Dispatch`, and
+`MCPCommandRegistry.CustomRegister` (each prefixed `UEMCP.`).
+
+```powershell
+node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-core --timeout-ms 900000
+```
+
+All eight full names must succeed exactly once, without labelled skips or Error
+events, in a fresh report from a successful process. This profile uses no saved
+assets (`fixturePaths: []`). Its actor case checks null-world guards, not populated
+world lookup; the scalar case assigns int, float, bool and string values and only
+checks NameProperty registration. CustomRegister leaves a transient registry entry,
+so run in a fresh disposable owned process. BuildSuccess remains in native-smoke;
+transport and Blueprint profiles remain separate. This does not qualify socket/MCP
+transport, persistence, PIE, rendering, consumer projects or other native tests.
+Native qualification requires a fresh build and run for each engine. Offline
+validation is
+`node server/test-native-core-profile.mjs`; its injected process reports are
+controls for orchestration and must never be presented as native runtime proof.
+
 Native execution delegates to `run-native-tests.mjs` and its process runner,
 including conflict checks and bounded process-tree shutdown. The wrapper checks
 the stage before and after execution and retains reports and lifecycle outcomes.
