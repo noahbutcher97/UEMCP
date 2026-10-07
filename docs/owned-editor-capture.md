@@ -41,7 +41,7 @@ These native automation tests author their own temporary Blueprint fixture. They
 
 ## Required rendered scenario
 
-Use `runOwnedEditorCaptureScenario` with the actual tab IDs, an error-preserving dispatch adapter, a Slate refresh wait, and the real PNG inspection callback, or execute the identical sequence manually and retain per-step evidence. Do not invoke the old combined smoke blindly: it additionally starts/stops PIE and is outside this bounded editor-capture scenario.
+Use `runOwnedEditorCaptureScenario` with the actual tab IDs, an error-preserving dispatch adapter, `afterExpand` and `afterScroll` callbacks that await Slate refresh, and the real PNG inspection callback, or execute the identical sequence manually and retain per-step evidence. `afterScroll` defaults to `afterExpand` for callers using one refresh callback; both Details captures await it. Offline no-op callbacks do not provide rendered evidence. Do not invoke the old combined smoke blindly: it additionally starts/stops PIE and is outside this bounded editor-capture scenario.
 
 | Step | Tool and parameters (all asset calls use the owned path) | Required evidence |
 | --- | --- | --- |

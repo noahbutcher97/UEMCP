@@ -74,8 +74,9 @@ export function assertDetailsScroll(result, requested) {
   if (!result.scrolled) assert.equal(result.row_offset, clamped);
 }
 
-export async function runOwnedEditorCaptureScenario({ call, inspectCapture, detailsTabId, nonDetailsTabId, afterExpand = async () => {} }) {
+export async function runOwnedEditorCaptureScenario({ call, inspectCapture, detailsTabId, nonDetailsTabId, afterExpand = async () => {}, afterScroll = afterExpand }) {
   assert.equal(typeof call, 'function');
+  assert.equal(typeof afterScroll, 'function', 'Slate refresh callback required after scrolling');
   assert.equal(typeof inspectCapture, 'function', 'PNG decode and visual acceptance callback required');
   assert.ok(detailsTabId && nonDetailsTabId && detailsTabId !== nonDetailsTabId);
   const asset_path = OWNED_CAPTURE_ASSET;
@@ -119,6 +120,7 @@ export async function runOwnedEditorCaptureScenario({ call, inspectCapture, deta
   assert.ok(scroll.max_row_offset >= 20, 'populated Details panel required for positive paging');
   assert.equal(scroll.scrolled, true, 'ordinary Details paging must reach a property row');
   completed.push('details-scroll');
+  await afterScroll(); // ScrollPropertyIntoView also completes on a later Slate tick.
   await capture('capture-details', { tab_id: detailsTabId }, detailsTabId);
   await capture('inline-details', { tab_id: detailsTabId, inline: true }, detailsTabId);
   assertDetailsScroll(await call('details_panel_scroll', { asset_path, tab_id: detailsTabId, row_offset: 100000 }), 100000);

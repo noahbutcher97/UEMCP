@@ -141,8 +141,46 @@ function scenarioCall(mutate = () => {}) {
     return result;
   };
 }
-const runScenario = call => runOwnedEditorCaptureScenario({ call, detailsTabId: 'Details', nonDetailsTabId: 'Graph', inspectCapture: async (label, result, options) => assertCaptureBytes(result, png, options) });
+const runScenario = (call, options = {}) => runOwnedEditorCaptureScenario({ call, detailsTabId: 'Details', nonDetailsTabId: 'Graph', inspectCapture: async (label, result, options) => assertCaptureBytes(result, png, options), ...options });
 await check('synthetic scenario executes all nine required branches', async () => assert.deepEqual(await runScenario(scenarioCall()), scenarioLabels));
+
+await check('Details captures await asynchronous post-scroll refresh', async () => {
+  const baseline = scenarioCall();
+  const captures = [];
+  let release, entered;
+  const pending = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const run = runScenario(async (name, args) => {
+    if (name === 'capture_asset_editor' && args.tab_id === 'Details') captures.push(args.inline === true);
+    return baseline(name, args);
+  }, { afterScroll: async () => { entered(); await pending; } });
+  try {
+    await started;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(captures, [], 'neither Details capture may run during deferred refresh');
+  } finally { release(); await run; }
+  assert.deepEqual(captures, [false, true]);
+});
+await check('post-scroll refresh rejection prevents Details captures', async () => {
+  const baseline = scenarioCall();
+  const error = new Error('Slate refresh failed');
+  let captures = 0;
+  await assert.rejects(() => runScenario(async (name, args) => {
+    if (name === 'capture_asset_editor' && args.tab_id === 'Details') captures++;
+    return baseline(name, args);
+  }, { afterScroll: async () => { throw error; } }), e => e === error);
+  assert.equal(captures, 0);
+});
+await check('existing Slate refresh callback also runs after scrolling', async () => {
+  const baseline = scenarioCall();
+  let refreshes = 0;
+  await runScenario(async (name, args) => {
+    if (name === 'capture_asset_editor' && args.tab_id === 'Details') assert.equal(refreshes, 2);
+    return baseline(name, args);
+  }, { afterExpand: async () => { refreshes++; } });
+  assert.equal(refreshes, 2);
+});
+
 for (const [label, mutate] of [
   ['wrong active tab success', (name, r, args) => { if (name === 'capture_asset_editor' && !args.tab_id) r.tab_id = 'Details'; }],
   ['wrong details tab success', (name, r, args) => { if (name === 'capture_asset_editor' && args.tab_id === 'Details') r.tab_id = 'Graph'; }],
