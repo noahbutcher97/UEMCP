@@ -169,7 +169,13 @@ static bool Placement(FAutomationTestBase& T,const FRun& R,UWorld* World,TArray<
   !Model->Verts.IsEmpty() || !Model->Surfs.IsEmpty() || !Model->Polys || !Model->Polys->Element.IsEmpty() ||
   Model->Polys->GetClass()!=UPolys::StaticClass() || Model->Polys->GetOuter()!=Level || Level->LevelScriptBlueprint || !Level->ModelComponents.IsEmpty())
  { T.AddError(TEXT("Unexpected engine default, BSP content or embedded Blueprint; review required")); return false; }
+ auto RegistryWitness=FindObject<UWorldThumbnailInfo>(World->GetOutermost(),TEXT("OwnedRegistryCountWitness"));
+ if(!RegistryWitness || RegistryWitness->GetClass()!=UWorldThumbnailInfo::StaticClass() ||
+  RegistryWitness->GetOuter()!=World->GetOutermost() || !RegistryWitness->HasAllFlags(RF_Public|RF_Standalone) ||
+  RegistryWitness->HasAnyFlags(RF_Transient|RF_ClassDefaultObject) || !RegistryWitness->IsAsset())
+ { T.AddError(TEXT("Exact top-level owned registry-count witness required")); return false; }
  TMap<UObject*,FString> Allowed; Allowed.Add(World,TEXT("world")); Allowed.Add(Level,TEXT("level"));
+ Allowed.Add(RegistryWitness,TEXT("registry-count-witness"));
  Allowed.Add(Settings,TEXT("world-settings")); Allowed.Add(Model,TEXT("empty-model")); Allowed.Add(Model->Polys,TEXT("empty-polys"));
  auto Config=Settings->GetNavigationSystemConfig();
  if(Config)
@@ -313,6 +319,12 @@ static bool Author(FAutomationTestBase& T)
  if(!World->ThumbnailInfo || World->ThumbnailInfo->GetClass()!=UWorldThumbnailInfo::StaticClass() ||
   World->ThumbnailInfo->GetOuter()!=World || World->ThumbnailInfo->GetName()!=TEXT("WorldThumbnailInfo") || World->ThumbnailInfo->HasAnyFlags(RF_Transient))
  { T.AddError(TEXT("Exact serializable owned World thumbnail required")); return false; }
+ // A separate top-level asset supplies the second real serialized registry object.
+ // Keep the existing World thumbnail, actor topology and nested outers unchanged.
+ auto RegistryWitness=NewObject<UWorldThumbnailInfo>(Package,TEXT("OwnedRegistryCountWitness"),RF_Public|RF_Standalone);
+ if(!RegistryWitness || !RegistryWitness->IsAsset())
+ { T.AddError(TEXT("Owned registry-count witness creation failed")); return false; }
+ ON_SCOPE_EXIT { RegistryWitness->ClearFlags(RF_Standalone); };
  auto Settings=World->GetWorldSettings(false,false);
  if(!Settings) return false;
  // Configure only the new owned World; global engine/project defaults remain unchanged.
@@ -376,6 +388,8 @@ static bool Author(FAutomationTestBase& T)
  if(!File.Open(R.Asset) || !Tables.Read(File.Bytes,R.Package) || !File.Unchanged())
  { T.AddError(TEXT("Saved map byte/table/count/identity qualification failed: ")+Tables.Error); return false; }
  auto Receipt=Provenance(R,TEXT("owned-world-map-author-v1"),TEXT("author"),File);
+ if(!T.TestEqual(TEXT("Exactly two authored registry objects"),Tables.Registry->GetArrayField(TEXT("objects")).Num(),2)) return false;
+ Receipt->SetNumberField(TEXT("registry_object_count"),2);
  Receipt->SetNumberField(TEXT("export_count"),Tables.Summary.ExportCount);
  return T.TestTrue(TEXT("Exclusive author receipt"),WriteExclusiveJson(R.Receipt,Receipt));
 }
@@ -405,10 +419,11 @@ static bool ReaderControls(FAutomationTestBase& T,const FRun& R,const FReadGuard
   Good &= T.TestEqual(TEXT("Registry gap rejects at exact boundary"),GapReader.Error,FString(TEXT("Registry object data must end at dependency offset")));
   Good &= Reject(TEXT("Backward dependency offset truncates object data"),[&](auto& B){ I64(B,RegistryAt,Dependency-1); });
   const int32 RegistryObjects=Baseline.Registry->GetArrayField(TEXT("objects")).Num();
-  if(RegistryObjects>1)
-   Good &= Reject(TEXT("Positive underreported registry object count"),[&](auto& B){ I32(B,RegistryAt+8,RegistryObjects-1); });
-  else
-   T.AddInfo(TEXT("Positive underreported object count not exercised: authored registry contains one object"));
+  if(!T.TestEqual(TEXT("Positive count control requires two real registry objects"),RegistryObjects,2)) return false;
+  TArray<uint8> CountBytes=File.Bytes; I32(CountBytes,RegistryAt+8,1);
+  FWorldPackageTables CountReader;
+  Good &= T.TestFalse(TEXT("Positive underreported registry object count"),CountReader.Read(CountBytes,R.Package));
+  Good &= T.TestEqual(TEXT("Positive underreported count rejects at exact boundary"),CountReader.Error,FString(TEXT("Registry object data must end at dependency offset")));
  }
  if(Baseline.Budget.SoftPaths==1)
  {
@@ -543,6 +558,7 @@ static bool Reload(FAutomationTestBase& T)
  J->SetStringField(TEXT("persistent_level_path"),World->PersistentLevel->GetPathName());
  J->SetArrayField(TEXT("markers"),Markers); J->SetArrayField(TEXT("object_inventory"),Inventory);
  J->SetObjectField(TEXT("tables"),Tables.ToJson()); J->SetBoolField(TEXT("reader_negative_controls_passed"),true);
+ J->SetBoolField(TEXT("positive_underreported_registry_count_exercised"),true);
  return T.TestTrue(TEXT("Exclusive fresh-reload byte and placement oracle"),WriteExclusiveJson(R.Oracle,J));
 }
 }
