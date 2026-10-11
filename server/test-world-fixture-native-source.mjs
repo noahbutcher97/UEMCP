@@ -62,7 +62,7 @@ t.assert(supported.includes('AuthorAttempt==R.Attempt') && supported.includes('F
 t.assert(reader.includes('Ar.Cursor()!=Dependency') && reader.includes('Registry object data must end at dependency offset'), 'World reader rejects a registry gap as well as an overrun');
 t.assert(supported.includes('Dependency>=Baseline.Budget.SectionEnd(RegistryAt)') && supported.includes('GetNumberField(TEXT("end")))!=Dependency'), 'World registry mutation requires a contiguous baseline with room for an in-section gap');
 t.assert(supported.includes('I64(GapBytes,RegistryAt,Dependency+1)') && supported.includes('GapReader.Read(GapBytes,R.Package)') && supported.includes('GapReader.Error,FString(TEXT("Registry object data must end at dependency offset"))'), 'World forward boundary mutation must fail at the exact registry boundary');
-t.assert(supported.includes('I64(B,RegistryAt,Dependency-1)') && supported.includes('if(RegistryObjects>1)') && supported.includes('I32(B,RegistryAt+8,RegistryObjects-1)'), 'World controls include backward boundary and eligible positive underreported counts');
+t.assert(supported.includes('I64(B,RegistryAt,Dependency-1)') && supported.includes('RegistryObjects,2') && supported.includes('I32(CountBytes,RegistryAt+8,1)') && supported.includes('CountReader.Error,FString(TEXT("Registry object data must end at dependency offset"))'), 'World controls require two real registry objects and reject positive underreported count at the exact boundary');
 
 // Exercise the actual report validator: absence, skip or false success cannot
 // replace either explicitly required case, even alongside unrelated success.
