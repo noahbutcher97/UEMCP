@@ -5,6 +5,7 @@
 
 import { getMountTable, resolveMountedAssetPath } from './content-mounts.mjs';
 import { readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join, resolve as pathResolve } from 'node:path';
 
 import {
@@ -140,7 +141,7 @@ export function resolve(projectRoot, relPath) {
 
 /**
  * Resolve an asset path (/Game/..., or a fs-relative path) to an absolute
- * disk path. Appends .uasset if neither .uasset nor .umap is present.
+ * disk path. Extensionless /Game paths prefer .uasset, falling back to an existing .umap.
  * @param {string} projectRoot
  * @param {string} assetPath
  * @returns {string}
@@ -150,7 +151,7 @@ export function resolveAssetDiskPath(projectRoot, assetPath, { engineRoot, env =
   if (assetPath.startsWith('/Game/')) {
     diskPath = join(projectRoot, 'Content', assetPath.replace('/Game/', ''));
     if (!diskPath.endsWith('.uasset') && !diskPath.endsWith('.umap')) {
-      diskPath += '.uasset';
+      diskPath += !existsSync(diskPath + '.uasset') && existsSync(diskPath + '.umap') ? '.umap' : '.uasset';
     }
   } else if (assetPath.startsWith('/')) {
     // Any other leading-slash path is a MOUNT POINT, not a project-relative

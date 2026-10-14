@@ -9,7 +9,10 @@
 // Before this, /Game/ and /Engine/ were the only mounts the offline tools knew,
 // which made every plugin-mounted asset unreachable.
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { resolveAssetDiskPath } from './offline-core.mjs';
 
 import { buildMountTable, resolveMountedAssetPath } from './content-mounts.mjs';
 import { resolveEngineRoot } from './engine-fixtures.mjs';
@@ -148,6 +151,30 @@ const file = name => ({ name, isDirectory: () => false });
     const resolved = resolveMountedAssetPath(mounts, '/Niagara/Modules/Spawn/Initialization/V2/InitializeParticle');
     t.assert(resolved !== null && existsSync(resolved),
       `a plugin-mounted asset path resolves to a file that exists (got ${resolved})`);
+  }
+}
+
+// Extensionless map packages must resolve before offline export parsing.
+{
+  const projectRoot = mkdtempSync(join(tmpdir(), 'uemcp-map-path-'));
+  try {
+    mkdirSync(join(projectRoot, 'Content', 'Maps'), { recursive: true });
+    const mapPath = join(projectRoot, 'Content', 'Maps', 'Level.umap');
+    const assetPath = join(projectRoot, 'Content', 'Maps', 'Level.uasset');
+    writeFileSync(mapPath, '');
+    t.assert(resolveAssetDiskPath(projectRoot, '/Game/Maps/Level') === mapPath,
+      'extensionless /Game map resolves to the existing .umap');
+    t.assert(resolveAssetDiskPath(projectRoot, '/Game/Maps/Level.uasset') === assetPath,
+      'explicit .uasset does not fall back to a map');
+    writeFileSync(assetPath, '');
+    t.assert(resolveAssetDiskPath(projectRoot, '/Game/Maps/Level') === assetPath,
+      'existing .uasset keeps precedence over a same-name map');
+    t.assert(resolveAssetDiskPath(projectRoot, '/Game/Maps/Level.umap') === mapPath,
+      'explicit .umap remains authoritative');
+    t.assert(resolveAssetDiskPath(projectRoot, '/Game/Maps/Missing') === join(projectRoot, 'Content', 'Maps', 'Missing.uasset'),
+      'missing extensionless package retains the default .uasset path');
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
   }
 }
 
