@@ -10,6 +10,7 @@
 #include "Misc/EngineVersion.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
 
 namespace UEMCP
 {
