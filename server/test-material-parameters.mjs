@@ -4,6 +4,7 @@ import { FakeHttpResponder, TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('material parameter UFUNCTION dispatch');
 const library = '/Script/MaterialEditor.Default__MaterialEditingLibrary';
+const definitionLibrary = '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary';
 const asset = '/Game/Materials/MI_Test.MI_Test';
 const instanceDescription = { Class: '/Script/Engine.MaterialInstanceConstant' };
 
@@ -22,6 +23,10 @@ for (const [type, name, value] of [
         throw new Error('Invalid native inheritance probe');
       }
       return { ReturnValue: true };
+    }
+    if (body.functionName === 'GetGlobalParameterNames') {
+      if (body.objectPath !== definitionLibrary || body.parameters.ParameterType !== type) throw new Error('Invalid native definition lookup');
+      return { ReturnValue: [name] };
     }
     if (body.objectPath !== library) throw new Error('Target is not the reflected library CDO');
     if (body.functionName === `Get${type}ParameterNames`) return { ParameterNames: [name] };
@@ -53,6 +58,29 @@ for (const [type, name, value] of [
 }
 
 for (const [type, name, value] of [
+  ['Scalar', 'LayerOnly', 0],
+  ['Vector', 'LayerOnly', { R: 0, G: 0, B: 0, A: 1 }],
+  ['Texture', 'LayerOnly', '/Game/Textures/T_Test.T_Test'],
+]) {
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/object/call', (_port, _method, _path, body) => {
+      if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: [] };
+      if (body.functionName === `Get${type}ParameterNames`) return { ParameterNames: [name] };
+      return { ReturnValue: value };
+    })
+    .on('PUT /remote/object/property', { [`${type}ParameterValues`]: [{
+      ParameterInfo: { Name: name, Association: 'Global Parameter', Index: -1 }, ParameterValue: value,
+    }] });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  await t.assertRejects(() => executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: name, value,
+  }, conn), /global.*definition|not found/i, `${type}: an orphan override cannot substitute for a global definition`);
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+    `${type}: a layer-only name is rejected before mutation`);
+}
+
+for (const [type, name, value] of [
   ['Scalar', 'Roughness', 0],
   ['Vector', 'Tint', { R: 0, G: 0, B: 0, A: 1 }],
   ['Texture', 'Diffuse', '/Game/Textures/T_Test.T_Test'],
@@ -65,7 +93,7 @@ for (const [type, name, value] of [
     const mock = new FakeHttpResponder()
       .on('PUT /remote/object/describe', instanceDescription)
       .on('PUT /remote/object/call', (_port, _method, _path, body) => (
-        body.functionName === `Get${type}ParameterNames` ? { ParameterNames: [name] } : { ReturnValue: value }
+        body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: [name] } : { ReturnValue: value }
       ))
       .on('PUT /remote/object/property', { [`${type}ParameterValues`]: overrides });
     const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
@@ -91,7 +119,7 @@ for (const [type, name, value] of [
 
 {
   const mock = new FakeHttpResponder().on('PUT /remote/object/describe', instanceDescription).on('PUT /remote/object/call', (_port, _method, _path, body) => {
-    if (body.functionName === 'GetScalarParameterNames') return { ParameterNames: ['Roughness'] };
+    if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: ['Roughness'] };
     return { ReturnValue: 0.1 };
   });
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
@@ -107,7 +135,7 @@ for (const [type, name, value] of [
   const mock = new FakeHttpResponder()
     .on('PUT /remote/object/describe', instanceDescription)
     .on('PUT /remote/object/call', (_port, _method, _path, body) => (
-      body.functionName === 'GetScalarParameterNames' ? { ParameterNames: ['Roughness'] } : { ReturnValue: 0 }
+      body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: ['Roughness'] } : { ReturnValue: 0 }
     ));
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
@@ -162,6 +190,18 @@ for (const Responses of [[], [
   const result = await executeRcTool('list_material_parameters', { asset_path: asset }, conn);
   t.assert(result.scalar.length + result.vector.length + result.texture.length === 0 && !result._subErrors,
     'a loaded material with no parameters returns clean empty arrays');
+}
+
+{
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/object/call', () => { throw new Error('Function does not exist'); });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  await t.assertRejects(() => executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: 'Roughness', value: 0,
+  }, conn), /UEMCP 1.0.20\+ plugin/, 'a missing native definition helper requires plugin deployment explicitly');
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+    'a missing helper cannot fall back to the unsafe names-only preflight');
 }
 
 process.exit(t.summary());

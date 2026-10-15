@@ -686,7 +686,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
     return new FakeHttpResponder()
       .on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' })
       .on('PUT /remote/object/call', (_port, _method, _path, body) => {
-        if (body.functionName.endsWith('ParameterNames')) return { ParameterNames: ['Roughness', 'Tint', 'Diffuse', 'AlphaMask'] };
+        if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: ['Roughness', 'Tint', 'Diffuse', 'AlphaMask'] };
         if (body.functionName.startsWith('SetMaterialInstance')) { stored = body.parameters.Value; storedName = body.parameters.ParameterName; return { ReturnValue: false }; }
         return { ReturnValue: stored };
       })
@@ -873,6 +873,8 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       'set_material_parameter is a write — both identical calls hit wire (skipCache)');
     t.assert(rcMock.callsFor('PUT /remote/object/property').length === 2,
       'set_material_parameter fetches the instance override state uncached after each write');
+    t.assert(rcMock.calls.filter(c => c.body.functionName === 'GetGlobalParameterNames').length === 2,
+      'set_material_parameter refreshes the native global definitions before each write');
   }
 }
 

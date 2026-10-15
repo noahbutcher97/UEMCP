@@ -139,7 +139,7 @@ export const RC_SCHEMAS = {
   // MaterialEditingLibrary exposes reflected wrappers; the underlying
   // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Verify both the effective value and the instance\'s typed global override, uncached. Names match case-insensitively. Type is auto-detected from value (number, color array/object, or texture asset path); parameter_type overrides detection. Does not save the asset. Remote Control must allow the MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf.',
+    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Requires UEMCP plugin 1.0.20+ for native global-definition preflight, then verifies effective readback and the typed instance override uncached. Names match case-insensitively. Type is inferred from value unless parameter_type is supplied. Does not save. RC must allow UEMCPMaterialParameterLibrary.GetGlobalParameterNames, MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
@@ -517,14 +517,25 @@ async function execSetMaterialParameter(args, connectionManager) {
     const req = rc.rcCallFunction({ objectPath: MATERIAL_EDITING_LIBRARY, functionName: name, parameters: args, generateTransaction });
     return connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
   };
-  const names = await callLibrary(`Get${typeName}ParameterNames`, { Material: objectPath });
-  if (!Array.isArray(names.ParameterNames)) {
-    throw new Error('set_material_parameter: malformed ParameterNames response');
+  const definitionRequest = rc.rcCallFunction({
+    objectPath: '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary',
+    functionName: 'GetGlobalParameterNames',
+    parameters: { Material: objectPath, ParameterType: typeName },
+    generateTransaction: false,
+  });
+  let names;
+  try {
+    names = await connectionManager.sendHttp(definitionRequest.method, definitionRequest.path, definitionRequest.body, { skipCache: true });
+  } catch (error) {
+    throw new Error(`set_material_parameter: global definition lookup requires the UEMCP 1.0.20+ plugin and permission for UEMCPMaterialParameterLibrary.GetGlobalParameterNames (${error.message})`);
+  }
+  if (!Array.isArray(names.ReturnValue) || names.ReturnValue.some(name => typeof name !== 'string')) {
+    throw new Error('set_material_parameter: malformed global parameter definition response');
   }
   const sameName = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
-  const canonicalName = names.ParameterNames.find(name => sameName(name, parameterName));
+  const canonicalName = names.ReturnValue.find(name => sameName(name, parameterName));
   if (canonicalName === undefined) {
-    throw new Error(`set_material_parameter: ${paramType} parameter '${parameterName}' not found (ensure the material instance is loaded)`);
+    throw new Error(`set_material_parameter: global ${paramType} definition '${parameterName}' not found (ensure the material instance is loaded)`);
   }
   const target = { Instance: objectPath, ParameterName: canonicalName, Association: 'GlobalParameter' };
   const res = await callLibrary(functionName, { ...target, ...parameters }, true);

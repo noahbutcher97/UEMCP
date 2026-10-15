@@ -1216,7 +1216,7 @@ toolsets:
         saves_asset: false
         compiles_asset: true
         offline_fallback: false
-        description: "Set a global scalar/vector/texture parameter on a loaded UMaterialInstanceConstant via reflected MaterialEditingLibrary wrappers. Names match case-insensitively. Verify both the effective value and a matching typed global override on the instance using uncached reads; matching inherited/default readback alone is insufficient. An already matching instance override is an idempotent success. Recompiles/updates the instance but does not save it. Type is inferred from value unless parameter_type is supplied. Remote Control must allow MaterialEditingLibrary calls and, for derived targets, KismetMathLibrary.ClassIsChildOf; the library's boolean return is unreliable in UE 5.8."
+        description: "Set a global scalar/vector/texture parameter on a loaded UMaterialInstanceConstant. Requires UEMCP plugin 1.0.20+: its native GetGlobalParameterNames helper verifies an actual global definition before mutation. Names match case-insensitively. Then verify effective readback and a matching typed global override using uncached reads; inherited/default values and orphan overrides alone are insufficient. An already matching defined override is an idempotent success. Updates/recompiles without saving. Type is inferred from value unless parameter_type is supplied. RC must allow UEMCPMaterialParameterLibrary.GetGlobalParameterNames, MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf."
         params:
           asset_path:     { type: string, required: true }
           parameter_name: { type: string, required: true }
