@@ -1216,12 +1216,14 @@ toolsets:
         saves_asset: false
         compiles_asset: true
         offline_fallback: false
-        description: "Set a global scalar/vector/texture parameter on a loaded UMaterialInstanceConstant. Requires UEMCP plugin 1.0.20+: its native GetGlobalParameterNames helper verifies an actual global definition before mutation. Names match case-insensitively. Then verify effective readback and a matching typed global override using uncached reads; inherited/default values and orphan overrides alone are insufficient. An already matching defined override is an idempotent success. Updates/recompiles without saving. Type is inferred from value unless parameter_type is supplied. RC must allow UEMCPMaterialParameterLibrary.GetGlobalParameterNames, MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf."
+        description: "Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. association defaults to global; layer/blend requires an explicit index from detailed listing and UEMCP 1.0.21+. Validate the exact definition before mutation, then verify effective readback and the matching typed override uncached. Names match case-insensitively. Updates/recompiles without saving. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets."
         params:
           asset_path:     { type: string, required: true }
           parameter_name: { type: string, required: true }
           value:          { type: any, required: true }
           parameter_type: { type: string, required: false, description: "scalar | vector | texture; overrides inference from value" }
+          association: { type: string, required: false, description: "global (default) | layer | blend" }
+          index: { type: number, required: false, description: "Required nonnegative layer/blend index; global uses -1" }
       # reduced_scope: compiled shader uniforms (compile-time constants baked by the editor material compiler); static parameter defaults shipped offline
       # displaced_by: read_asset_properties (D50 tagged-fallback for FMaterialParameterInfo)
       list_material_parameters:
@@ -1235,9 +1237,10 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: read_asset_properties
-        description: "List scalar, vector, and texture parameter names, including inherited names, on a loaded material or material instance via reflected MaterialEditingLibrary functions. scalar/vector/texture rows contain Name only; info_fields explicitly declares this. GUIDs, associations, layer indices, and values are unavailable from these wrappers. Partial batch failures remain visible in _subErrors. Remote Control must allow MaterialEditingLibrary calls; an unloaded/missing object is an error."
+        description: "List scalar/vector/texture parameter identities and effective values, including inherited, layer and blend parameters. Requires UEMCP 1.0.21+ GetParameterDetails permission. Rows expose Name, Id (expression GUID), Association, Index, Value and ValueFound; failed lookups have Value=null. Name/Association/Index distinguishes duplicate layer names. Partial batch failures remain visible in _subErrors. include_details=false uses legacy names-only MaterialEditingLibrary listing."
         params:
           asset_path: { type: string, required: true }
+          include_details: { type: boolean, required: false, description: "Defaults true; false selects legacy names-only listing" }
       get_material_graph:
         description: Full material expression node graph — nodes, connections, parameters. Covers UMaterial and UMaterialFunction.
         note: Consolidated — was listed in both Material Commands and Expanded Graph Introspection.

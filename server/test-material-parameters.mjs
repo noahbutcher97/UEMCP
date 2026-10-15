@@ -111,7 +111,7 @@ for (const [type, name, value] of [
     })),
   }));
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
-  const result = await executeRcTool('list_material_parameters', { asset_path: asset }, conn);
+  const result = await executeRcTool('list_material_parameters', { include_details: false, asset_path: asset }, conn);
   t.assert(result.scalar[0]?.Name === 'InheritedScalar', 'listing decodes reflected name arrays, including inherited parameters');
   t.assert(result._subErrors?.length === 2, 'listing preserves partial-failure diagnostics');
   t.assert(result.info_fields?.join(',') === 'Name', 'listing declares names-only metadata without inventing IDs or layer indices');
@@ -176,7 +176,7 @@ for (const Responses of [[], [
     .on('PUT /remote/object/describe', instanceDescription)
     .on('PUT /remote/batch', { Responses });
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
-  await t.assertRejects(() => executeRcTool('list_material_parameters', { asset_path: asset }, conn),
+  await t.assertRejects(() => executeRcTool('list_material_parameters', { include_details: false, asset_path: asset }, conn),
     /malformed/i, 'missing batch data cannot masquerade as an empty material');
 }
 
@@ -187,7 +187,7 @@ for (const Responses of [[], [
       ResponseCode: 200, ResponseBody: { ParameterNames: [] },
     })) });
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
-  const result = await executeRcTool('list_material_parameters', { asset_path: asset }, conn);
+  const result = await executeRcTool('list_material_parameters', { include_details: false, asset_path: asset }, conn);
   t.assert(result.scalar.length + result.vector.length + result.texture.length === 0 && !result._subErrors,
     'a loaded material with no parameters returns clean empty arrays');
 }
@@ -202,6 +202,92 @@ for (const Responses of [[], [
   }, conn), /UEMCP 1.0.20\+ plugin/, 'a missing native definition helper requires plugin deployment explicitly');
   t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
     'a missing helper cannot fall back to the unsafe names-only preflight');
+}
+
+{
+  const rows = [
+    { Name: 'Tint', Id: '11111111-2222-3333-4444-555555555555', Association: 'LayerParameter', Index: 0,
+      bValueFound: true, VectorValue: { R: 0.1, G: 0.2, B: 0.3, A: 1 } },
+    { Name: 'Tint', Id: '66666666-7777-8888-9999-AAAAAAAAAAAA', Association: 'LayerParameter', Index: 1,
+      bValueFound: false, VectorValue: { R: 0, G: 0, B: 0, A: 0 } },
+  ];
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/batch', (_port, _method, _path, body) => ({ Responses: body.Requests.map(({ Body }) => ({
+      ResponseCode: 200,
+      ResponseBody: Body.functionName === 'GetParameterDetails' && Body.objectPath === definitionLibrary
+        ? { ReturnValue: Body.parameters.ParameterType === 'Vector' ? rows : [] } : { ParameterNames: ['Tint'] },
+    })) }));
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  const result = await executeRcTool('list_material_parameters', { asset_path: asset, include_details: true }, conn);
+  t.assert(result.vector.length === 2 && result.vector[0].Index === 0 && result.vector[1].Index === 1,
+    'detailed listing preserves duplicate names at different layer indices');
+  t.assert(result.vector[0]?.Id === rows[0].Id && result.vector[0]?.Association === 'LayerParameter',
+    'detailed listing exposes actual GUID and association');
+  t.assert(result.vector[0]?.Value?.G === 0.2 && result.vector[0]?.ValueFound === true,
+    'detailed listing decodes effective typed values');
+  t.assert(result.vector[1]?.Value === null && result.vector[1]?.ValueFound === false,
+    'failed native value lookup is explicit rather than a fabricated default');
+  t.assert(result.info_fields.includes('Association') && result.info_fields.includes('Value'),
+    'detailed listing advertises identity and value fields');
+}
+
+for (const [associatedKind, parameterType, requestedValue] of [
+  ['layer', 'scalar', 0.7], ['blend', 'scalar', 0.7],
+  ['layer', 'vector', { R: 0.1, G: 0.2, B: 0.3, A: 1 }], ['blend', 'vector', { R: 0.1, G: 0.2, B: 0.3, A: 1 }],
+  ['layer', 'texture', '/Game/Textures/T_Test.T_Test'], ['blend', 'texture', '/Game/Textures/T_Test.T_Test'],
+]) {
+  let written = false;
+  const typeName = parameterType[0].toUpperCase() + parameterType.slice(1);
+  const associatedName = associatedKind === 'layer' ? 'LayerParameter' : 'BlendParameter';
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/object/call', (_port, _method, _path, body) => {
+      if (body.functionName === 'GetParameterDetails') return { ReturnValue: [0, 1].map(Index => ({
+        Name: 'Roughness', Association: associatedName, Index, Id: '11111111-2222-3333-4444-555555555555',
+        bValueFound: true, [`${typeName}Value`]: requestedValue,
+      })) };
+      if (body.functionName === 'SetParameterValue') {
+        written = body.parameters.Index === 1 && body.parameters.Association === associatedName
+          && body.parameters.ParameterName === 'Roughness';
+        return { ReturnValue: written };
+      }
+      return { ReturnValue: [] };
+    })
+    .on('PUT /remote/object/property', { [`${typeName}ParameterValues`]: [{
+      ParameterInfo: { Name: 'Roughness', Association: associatedKind === 'layer' ? 'Layer Parameter' : 'Blend Parameter', Index: 1 }, ParameterValue: requestedValue,
+    }] });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  const result = await executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: 'roughness', value: requestedValue, association: associatedName, index: 1,
+  }, conn).catch(error => ({ error: error.message }));
+  t.assert(result.verified === true && written, `${associatedKind} ${parameterType}: setter targets exact identity with canonical FName`);
+  t.assert(result.association === associatedKind && result.index === 1, 'verified result reports the exact identity');
+  await t.assertRejects(() => executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: 'roughness', value: requestedValue, association: associatedKind,
+  }, conn), /index/i, 'a layer write requires an explicit nonnegative index');
+}
+
+for (const mode of ['missing-definition', 'rejected-write', 'wrong-readback', 'wrong-index-override']) {
+  let writes = 0;
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/object/call', (_port, _method, _path, body) => {
+      if (body.functionName === 'GetParameterDetails') return { ReturnValue: mode === 'missing-definition' ? [] : [{
+        Name: 'Tint', Association: 'BlendParameter', Index: 0, Id: '', bValueFound: true,
+        ScalarValue: mode === 'wrong-readback' ? 0.2 : 0.7,
+      }] };
+      writes++;
+      return { ReturnValue: mode !== 'rejected-write' };
+    })
+    .on('PUT /remote/object/property', { ScalarParameterValues: [{
+      ParameterInfo: { Name: 'Tint', Association: 'Blend Parameter', Index: 1 }, ParameterValue: 0.7,
+    }] });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  await t.assertRejects(() => executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: 'Tint', value: 0.7, association: 'blend', index: 0,
+  }, conn), /not found|rejected|readback|override/, `${mode}: associated write cannot falsely certify success`);
+  if (mode === 'missing-definition') t.assert(writes === 0, 'unknown association/index is rejected before mutation');
 }
 
 process.exit(t.summary());
