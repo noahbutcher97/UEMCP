@@ -407,7 +407,7 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
     });
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
-    const result = await executeRcTool('list_material_parameters', {
+    const result = await executeRcTool('list_material_parameters', { include_details: false,
       asset_path: '/Game/Materials/M_Brick.M_Brick',
     }, conn);
 
@@ -435,7 +435,7 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
 
     // F-7 regression guard — BP-class material path (unusual but valid) still gets CDO.
     rcMock.resetCalls();
-    await executeRcTool('list_material_parameters', {
+    await executeRcTool('list_material_parameters', { include_details: false,
       asset_path: '/Game/Materials/M_Base.M_Base_C',
     }, conn);
     const bpcall = rcMock.lastCall('PUT /remote/batch');
@@ -456,7 +456,7 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
       ],
     });
     const partialConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
-    const partial = await executeRcTool('list_material_parameters', {
+    const partial = await executeRcTool('list_material_parameters', { include_details: false,
       asset_path: '/Game/Materials/M_Brick.M_Brick',
     }, partialConn);
     t.assert(Array.isArray(partial._subErrors) && partial._subErrors.length === 1,
@@ -469,7 +469,7 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
     // W-G: success path — when ALL responses are 2xx, _subErrors is OMITTED
     // so the common-case shape stays unchanged.
     rcMock.resetCalls();
-    const cleanResult = await executeRcTool('list_material_parameters', {
+    const cleanResult = await executeRcTool('list_material_parameters', { include_details: false,
       asset_path: '/Game/Materials/M_Brick.M_Brick',
     }, conn);
     t.assert(cleanResult._subErrors === undefined,
@@ -618,7 +618,7 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
       ],
     });
     const pConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
-    const pRes = await executeRcTool('list_material_parameters', {
+    const pRes = await executeRcTool('list_material_parameters', { include_details: false,
       asset_path: '/Game/Materials/M_Partial.M_Partial',
     }, pConn);
     t.assert(pRes.scalar.length === 1, 'partial batch: scalar still populates');

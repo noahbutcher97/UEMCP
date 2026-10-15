@@ -129,9 +129,10 @@ export const RC_SCHEMAS = {
   // Dispatched via DELEGATE_EXECS in executeRcTool — multi-call orchestrations,
   // not single-shot primitives.
   list_material_parameters: {
-    description: 'List scalar, vector, and texture parameter names, including inherited parameters, via MaterialEditingLibrary. Rows contain Name only; GUIDs, associations, layer indices, and values are not exposed by these reflected enumeration functions.',
+    description: 'List scalar/vector/texture parameter identities and effective values, including inherited, layer and blend parameters. Requires UEMCP 1.0.21+ GetParameterDetails permission. Name/Association/Index identifies a parameter; Id is its expression GUID. ValueFound=false reports an unavailable value. include_details=false selects legacy names-only listing.',
     schema: {
       asset_path: z.string().describe('/Game/... path to the material or material instance'),
+      include_details: z.boolean().default(true).describe('Include GUID, association, index and effective value; false uses legacy names-only APIs'),
     },
     isReadOp: true,
   },
@@ -139,12 +140,16 @@ export const RC_SCHEMAS = {
   // MaterialEditingLibrary exposes reflected wrappers; the underlying
   // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Requires UEMCP plugin 1.0.20+ for native global-definition preflight, then verifies effective readback and the typed instance override uncached. Names match case-insensitively. Type is inferred from value unless parameter_type is supplied. Does not save. RC must allow UEMCPMaterialParameterLibrary.GetGlobalParameterNames, MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf.',
+    description: 'Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. association defaults to global; layer/blend requires an explicit index from detailed listing and UEMCP 1.0.21+. Validates the exact definition before writing and verifies effective readback plus the matching instance override uncached. Names match case-insensitively. Does not save. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
       value:          z.any().describe('Scalar (number), Vector (4-element array or {R,G,B,A} object), or Texture (asset path string)'),
       parameter_type: z.string().optional().describe('Optional override: scalar | vector | texture (default: auto-detect from value shape)'),
+      association: z.enum(['global', 'layer', 'blend', 'GlobalParameter', 'LayerParameter', 'BlendParameter'])
+        .default('global').transform(value => ({ GlobalParameter: 'global', LayerParameter: 'layer', BlendParameter: 'blend' }[value] ?? value))
+        .describe('global/layer/blend, or the Association string returned by detailed listing'),
+      index: z.number().int().optional().describe('Required nonnegative layer/blend index; global parameters use -1'),
     },
     isReadOp: false,
   },
@@ -259,7 +264,12 @@ async function execListMaterialParameters(args, connectionManager) {
   // A null Material argument makes the library return an empty array, which
   // would otherwise disguise an unloaded/missing object as a parameterless one.
   await describeMaterialObject(objectPath, connectionManager);
-  const batch = rc.rcBatch([
+  const batch = args.include_details ? rc.rcBatch(['Scalar', 'Vector', 'Texture'].map(ParameterType => ({
+    method: 'PUT', path: '/remote/object/call', body: {
+      objectPath: '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary', functionName: 'GetParameterDetails',
+      parameters: { Material: objectPath, ParameterType }, generateTransaction: false,
+    },
+  }))) : rc.rcBatch([
     { method: 'PUT', path: '/remote/object/call',
       body: { objectPath: MATERIAL_EDITING_LIBRARY, functionName: 'GetScalarParameterNames', parameters: { Material: objectPath }, generateTransaction: false } },
     { method: 'PUT', path: '/remote/object/call',
@@ -267,17 +277,17 @@ async function execListMaterialParameters(args, connectionManager) {
     { method: 'PUT', path: '/remote/object/call',
       body: { objectPath: MATERIAL_EDITING_LIBRARY, functionName: 'GetTextureParameterNames', parameters: { Material: objectPath }, generateTransaction: false } },
   ]);
-  const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
+  const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: args.include_details });
   const r = res.Responses;
   if (!Array.isArray(r) || r.length !== 3) {
     throw new Error('list_material_parameters: malformed batch response');
   }
   const out = {
     object_path: objectPath,
-    info_fields: ['Name'],
-    scalar:  extractParamInfo(r[0]),
-    vector:  extractParamInfo(r[1]),
-    texture: extractParamInfo(r[2]),
+    info_fields: args.include_details ? ['Name', 'Id', 'Association', 'Index', 'Value', 'ValueFound'] : ['Name'],
+    scalar:  args.include_details ? extractParamDetails(r[0], 'scalar') : extractParamInfo(r[0]),
+    vector:  args.include_details ? extractParamDetails(r[1], 'vector') : extractParamInfo(r[1]),
+    texture: args.include_details ? extractParamDetails(r[2], 'texture') : extractParamInfo(r[2]),
   };
   // W-G (D144 / Gauntlet Finding 2.4): pre-W-G non-2xx batch sub-responses
   // surfaced as `[]` indistinguishable from "no parameters" — silent-success-
@@ -288,6 +298,24 @@ async function execListMaterialParameters(args, connectionManager) {
   const subErrors = collectSubErrors(r, ['scalar', 'vector', 'texture']);
   if (subErrors.length > 0) out._subErrors = subErrors;
   return out;
+}
+
+function extractParamDetails(response, type) {
+  if (response?.ResponseCode && (response.ResponseCode < 200 || response.ResponseCode >= 300)) return [];
+  const rows = response?.ResponseBody?.ReturnValue;
+  if (!Array.isArray(rows)) throw new Error('list_material_parameters: malformed native details response (requires UEMCP 1.0.21+)');
+  return rows.map(row => {
+    const kinds = ['LayerParameter', 'BlendParameter', 'GlobalParameter'];
+    if (typeof row?.Name !== 'string' || typeof row.Id !== 'string' || !kinds.includes(row.Association)
+      || !Number.isInteger(row.Index) || (row.Association === 'GlobalParameter' ? row.Index !== -1 : row.Index < 0)
+      || typeof row.bValueFound !== 'boolean') throw new Error('list_material_parameters: malformed parameter identity');
+    const Value = !row.bValueFound ? null : type === 'scalar' ? row.ScalarValue
+      : type === 'vector' ? row.VectorValue : row.TextureValue || null;
+    if (row.bValueFound && (type === 'scalar' ? !Number.isFinite(Value)
+      : type === 'vector' ? !['R', 'G', 'B', 'A'].every(key => Number.isFinite(Value?.[key]))
+        : typeof row.TextureValue !== 'string')) throw new Error('list_material_parameters: malformed parameter value');
+    return { Name: row.Name, Id: row.Id || null, Association: row.Association, Index: row.Index, Value, ValueFound: row.bValueFound };
+  });
 }
 
 function extractParamInfo(response) {
@@ -439,6 +467,11 @@ async function execSetMaterialParameter(args, connectionManager) {
   const objectPath = args.asset_path;
   const parameterName = args.parameter_name;
   const value = args.value;
+  const association = args.association;
+  const index = args.index ?? -1;
+  if (association === 'global' ? index !== -1 : index < 0) {
+    throw new Error('set_material_parameter: global index must be -1; layer/blend requires an explicit nonnegative index');
+  }
 
   let paramType = args.parameter_type;
   if (!paramType) {
@@ -513,6 +546,9 @@ async function execSetMaterialParameter(args, connectionManager) {
     if (inheritance.ReturnValue !== true) throw new Error('set_material_parameter requires a UMaterialInstanceConstant or subclass');
   }
   const typeName = paramType[0].toUpperCase() + paramType.slice(1);
+  if (association !== 'global') return execAssociatedMaterialParameter({
+    objectPath, parameterName, paramType, typeName, association, index, value: parameters.Value,
+  }, connectionManager);
   const callLibrary = async (name, args, generateTransaction = false) => {
     const req = rc.rcCallFunction({ objectPath: MATERIAL_EDITING_LIBRARY, functionName: name, parameters: args, generateTransaction });
     return connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
@@ -565,10 +601,51 @@ async function execSetMaterialParameter(args, connectionManager) {
     asset_path: objectPath,
     parameter_name: parameterName,
     parameter_type: paramType,
+    association,
+    index,
     function_called: functionName,
     verified: true,
     response: res,
   };
+}
+
+async function execAssociatedMaterialParameter(target, connectionManager) {
+  const { objectPath, parameterName, paramType, typeName, association, index, value } = target;
+  const Association = association === 'layer' ? 'LayerParameter' : 'BlendParameter';
+  const call = async (functionName, parameters) => {
+    const req = rc.rcCallFunction({ objectPath: '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary',
+      functionName, parameters, generateTransaction: false });
+    return connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  };
+  const read = async () => extractParamDetails({ ResponseBody: await call('GetParameterDetails', {
+    Material: objectPath, ParameterType: typeName,
+  }) }, paramType).find(row => row.Name.toLowerCase() === parameterName.toLowerCase()
+    && row.Association === Association && row.Index === index);
+  const definition = await read();
+  if (!definition) throw new Error('set_material_parameter: requested name/association/index definition not found');
+  const response = await call('SetParameterValue', { Instance: objectPath, ParameterType: typeName,
+    ParameterName: definition.Name, Association, Index: index,
+    ScalarValue: paramType === 'scalar' ? value : 0,
+    VectorValue: paramType === 'vector' ? value : { R: 0, G: 0, B: 0, A: 1 },
+    TextureValue: paramType === 'texture' ? value : null,
+  });
+  if (response.ReturnValue !== true) throw new Error('set_material_parameter: native associated write was rejected');
+  const normalizeTexture = path => typeof path === 'string' && !path.includes('.') ? `${path}.${path.split('/').pop()}` : path;
+  const close = (a, b) => Number.isFinite(a) && Math.abs(a - b) <= 1e-6 * Math.abs(b);
+  const matches = actual => paramType === 'scalar' ? close(actual, value)
+    : paramType === 'vector' ? ['R', 'G', 'B', 'A'].every(key => close(actual?.[key], value[key]))
+      : normalizeTexture(actual) === normalizeTexture(value);
+  const readback = await read();
+  if (!readback?.ValueFound || !matches(readback.Value)) throw new Error('set_material_parameter: associated readback did not match');
+  const propertyName = `${typeName}ParameterValues`;
+  const req = rc.rcGetProperty({ objectPath, propertyName });
+  const overrides = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  const valid = overrides[propertyName]?.some(row => row?.ParameterInfo?.Name?.toLowerCase() === definition.Name.toLowerCase()
+    && row.ParameterInfo.Index === index && [Association, association === 'layer' ? 'Layer Parameter' : 'Blend Parameter', association === 'layer' ? 0 : 1].includes(row.ParameterInfo.Association)
+    && matches(row.ParameterValue));
+  if (!valid) throw new Error('set_material_parameter: exact associated override was not verified');
+  return { asset_path: objectPath, parameter_name: definition.Name, parameter_type: paramType,
+    association, index, function_called: 'SetParameterValue', verified: true, response };
 }
 
 const DELEGATE_EXECS = {
