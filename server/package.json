@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "deploy": "node deploy-uemcp.mjs",
     "build:deployment": "node build-deployment-cli.mjs",
-    "doctor": "node deploy-uemcp.mjs doctor --json"
+    "doctor": "node deploy-uemcp.mjs doctor --json",
+    "test:material-lifecycle": "node run-rotation.mjs --test-profile material-lifecycle"
   },
   "keywords": [
     "mcp",

@@ -2,6 +2,23 @@
   "schemaVersion": 1,
   "scope": "Bounded local foundation profiles only; remaining inventory and consumer obligations are retained, not qualified by these profiles.",
   "profiles": {
+    "material-lifecycle": {
+      "runner": "node",
+      "scope": "Opt-in owned UE host build, native RC dispatch, Undo, package save and separate-process reload. No external project, HTTP transport, UI or rendered qualification.",
+      "capabilities": [
+        "engine",
+        "nullrhi"
+      ],
+      "fixturePaths": [],
+      "suites": [
+        {
+          "name": "test-material-lifecycle-live.mjs",
+          "cases": [
+            "owned host writes Undo saves and reloads all nine material parameters"
+          ]
+        }
+      ]
+    },
     "node-foundation": {
       "runner": "node",
       "capabilities": ["engine-free"],
@@ -11,9 +28,10 @@
           "name": "test-rotation-timeouts.mjs",
           "cases": [
             "ordinary rotation files retain the five-minute fail-loud budget",
-            "only the two Windows integration-heavy suites receive extended budgets",
+            "only Windows integration suites and the opt-in engine lifecycle receive extended budgets",
             "test-client-transaction.mjs receives the bounded eight-minute integration budget",
             "test-deployment-contracts.mjs receives the bounded eight-minute integration budget",
+            "engine lifecycle budget covers build and both bounded processes",
             "fixture-isolated adapter tests retain the default budget",
             "other unlisted test files use the default budget",
             "timeout policy rejects non-basename file identifiers"
