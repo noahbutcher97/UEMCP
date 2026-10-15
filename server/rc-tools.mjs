@@ -22,6 +22,8 @@
 import { z } from 'zod';
 import * as rc from './rc-url-translator.mjs';
 
+const MATERIAL_EDITING_LIBRARY = '/Script/MaterialEditor.Default__MaterialEditingLibrary';
+
 // ── Zod schemas ───────────────────────────────────────────────
 
 export const RC_SCHEMAS = {
@@ -127,20 +129,17 @@ export const RC_SCHEMAS = {
   // Dispatched via DELEGATE_EXECS in executeRcTool — multi-call orchestrations,
   // not single-shot primitives.
   list_material_parameters: {
-    description: 'Get scalar, vector, and texture parameter info from a UMaterialInterface (names and IDs only; values require rc_call_function with GetScalar/Vector/TextureParameterValue per name).',
+    description: 'List scalar, vector, and texture parameter names, including inherited parameters, via MaterialEditingLibrary. Rows contain Name only; GUIDs, associations, layer indices, and values are not exposed by these reflected enumeration functions.',
     schema: {
       asset_path: z.string().describe('/Game/... path to the material or material instance'),
     },
     isReadOp: true,
   },
 
-  // M5 (D101 (ii)): set_material_parameter ships as an RC delegate rather
-  // than a plugin C++ handler — UMaterialInstance exposes
-  // SetScalar/Vector/TextureParameterValueEditorOnly UFUNCTIONs that take
-  // FMaterialParameterInfo + value, so RC can drive the write directly. The
-  // agent-facing toolset is `materials`; the dispatch layer is RC HTTP.
+  // MaterialEditingLibrary exposes reflected wrappers; the underlying
+  // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set scalar, vector, or texture parameter on a UMaterialInstanceConstant. Parameter type is auto-detected from `value` shape (number → scalar, [r,g,b,a] or {R,G,B,A} → vector, /Game/... string → texture); pass `parameter_type` to override. Transactional by default (records in editor Undo stack).',
+    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Requires UEMCP plugin 1.0.20+ for native global-definition preflight, then verifies effective readback and the typed instance override uncached. Names match case-insensitively. Type is inferred from value unless parameter_type is supplied. Does not save. RC must allow UEMCPMaterialParameterLibrary.GetGlobalParameterNames, MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
@@ -245,28 +244,37 @@ function buildRcRequest(toolName, args) {
 // description's promised surface.
 
 /**
- * list_material_parameters — batch-call the three info UFUNCTIONs
- * (scalar, vector, texture) on a UMaterialInterface and merge results.
- *
- * Returns parameter info only (names + IDs); values require per-parameter
- * GetScalarParameterValue/GetVectorParameterValue/GetTextureParameterValue
- * calls, exposed via rc_call_function. Batching values inline would inflate
- * round-trips proportional to parameter count without a clear ceiling.
+ * Reflected enumeration returns names, including inherited names, but omits
+ * FMaterialParameterInfo association/index and expression GUIDs. Do not invent them.
  */
+async function describeMaterialObject(objectPath, connectionManager) {
+  const req = rc.rcDescribeObject({ objectPath });
+  const description = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  if (typeof description.Class !== 'string') throw new Error('Material object description is missing its Class');
+  return description;
+}
+
 async function execListMaterialParameters(args, connectionManager) {
   const objectPath = rc.toCdoPath(args.asset_path);
+  // A null Material argument makes the library return an empty array, which
+  // would otherwise disguise an unloaded/missing object as a parameterless one.
+  await describeMaterialObject(objectPath, connectionManager);
   const batch = rc.rcBatch([
     { method: 'PUT', path: '/remote/object/call',
-      body: { objectPath, functionName: 'GetAllScalarParameterInfo', parameters: {}, generateTransaction: false } },
+      body: { objectPath: MATERIAL_EDITING_LIBRARY, functionName: 'GetScalarParameterNames', parameters: { Material: objectPath }, generateTransaction: false } },
     { method: 'PUT', path: '/remote/object/call',
-      body: { objectPath, functionName: 'GetAllVectorParameterInfo', parameters: {}, generateTransaction: false } },
+      body: { objectPath: MATERIAL_EDITING_LIBRARY, functionName: 'GetVectorParameterNames', parameters: { Material: objectPath }, generateTransaction: false } },
     { method: 'PUT', path: '/remote/object/call',
-      body: { objectPath, functionName: 'GetAllTextureParameterInfo', parameters: {}, generateTransaction: false } },
+      body: { objectPath: MATERIAL_EDITING_LIBRARY, functionName: 'GetTextureParameterNames', parameters: { Material: objectPath }, generateTransaction: false } },
   ]);
   const res = await connectionManager.sendHttp(batch.method, batch.path, batch.body, { skipCache: false });
-  const r = res.Responses || [];
+  const r = res.Responses;
+  if (!Array.isArray(r) || r.length !== 3) {
+    throw new Error('list_material_parameters: malformed batch response');
+  }
   const out = {
     object_path: objectPath,
+    info_fields: ['Name'],
     scalar:  extractParamInfo(r[0]),
     vector:  extractParamInfo(r[1]),
     texture: extractParamInfo(r[2]),
@@ -283,13 +291,16 @@ async function execListMaterialParameters(args, connectionManager) {
 }
 
 function extractParamInfo(response) {
-  if (!response || !response.ResponseBody) return [];
+  if (!response) throw new Error('list_material_parameters: malformed ParameterNames response');
   // Treat non-2xx batch sub-responses as empty rather than leaking an error body.
   // The non-2xx case is now ALSO surfaced via collectSubErrors at the call site
   // so partial-failure stops being silent-success-on-edge-case.
   if (response.ResponseCode && (response.ResponseCode < 200 || response.ResponseCode >= 300)) return [];
   const body = response.ResponseBody;
-  return body.OutInfo || body.OutParameterInfo || body.ReturnValue || [];
+  if (!Array.isArray(body?.ParameterNames) || body.ParameterNames.some(name => typeof name !== 'string')) {
+    throw new Error('list_material_parameters: malformed ParameterNames response');
+  }
+  return body.ParameterNames.map(Name => ({ Name }));
 }
 
 /**
@@ -413,11 +424,8 @@ function pickReturn(response) {
  * UMaterialInstanceConstant via RC HTTP (D101 (ii) — RC delegate over plugin
  * C++ handler).
  *
- * Routes through SetScalar/Vector/TextureParameterValueEditorOnly UFUNCTIONs
- * on the MIC asset itself. ParameterInfo's Association field is `2`
- * (GlobalParameter) — note: not 0; LayerParameter occupies 0 in
- * EMaterialParameterAssociation, GlobalParameter is the 3rd enum value.
- * Index is -1 for global (non-layered) parameters.
+ * Routes through reflected MaterialEditingLibrary wrappers. UE 5.8's wrappers
+ * return false even after a successful write, so verify via an uncached getter.
  *
  * Type discrimination:
  *   - `parameter_type` explicit override wins
@@ -445,21 +453,15 @@ async function execSetMaterialParameter(args, connectionManager) {
     }
   }
 
-  const ParameterInfo = {
-    Name: parameterName,
-    Association: 2,  // EMaterialParameterAssociation::GlobalParameter
-    Index: -1,
-  };
-
   let functionName;
   let parameters;
   switch (paramType) {
     case 'scalar': {
-      if (typeof value !== 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new Error(`set_material_parameter: scalar requires numeric value (got ${typeof value})`);
       }
-      functionName = 'SetScalarParameterValueEditorOnly';
-      parameters = { ParameterInfo, Value: value };
+      functionName = 'SetMaterialInstanceScalarParameterValue';
+      parameters = { Value: value };
       break;
     }
     case 'vector': {
@@ -475,34 +477,96 @@ async function execSetMaterialParameter(args, connectionManager) {
       } else {
         throw new Error(`set_material_parameter: vector requires array or object value (got ${typeof value})`);
       }
-      functionName = 'SetVectorParameterValueEditorOnly';
-      parameters = { ParameterInfo, Value: { R: r, G: g, B: b, A: a } };
+      if (![r, g, b, a].every(component => typeof component === 'number' && Number.isFinite(component))) {
+        throw new Error('set_material_parameter: vector components must be finite numbers');
+      }
+      functionName = 'SetMaterialInstanceVectorParameterValue';
+      parameters = { Value: { R: r, G: g, B: b, A: a } };
       break;
     }
     case 'texture': {
       if (typeof value !== 'string') {
         throw new Error(`set_material_parameter: texture requires asset-path string (got ${typeof value})`);
       }
-      functionName = 'SetTextureParameterValueEditorOnly';
-      parameters = { ParameterInfo, Value: value };
+      functionName = 'SetMaterialInstanceTextureParameterValue';
+      parameters = { Value: value };
       break;
     }
     default:
       throw new Error(`set_material_parameter: unknown parameter_type '${paramType}' (expected scalar|vector|texture)`);
   }
 
-  const req = rc.rcCallFunction({
-    objectPath,
-    functionName,
-    parameters,
-    generateTransaction: true,
+  const description = await describeMaterialObject(objectPath, connectionManager);
+  if (description.Class !== '/Script/Engine.MaterialInstanceConstant') {
+    const probe = rc.rcCallFunction({
+      objectPath: '/Script/Engine.Default__KismetMathLibrary',
+      functionName: 'ClassIsChildOf',
+      parameters: { TestClass: description.Class, ParentClass: '/Script/Engine.MaterialInstanceConstant' },
+      generateTransaction: false,
+    });
+    let inheritance;
+    try {
+      inheritance = await connectionManager.sendHttp(probe.method, probe.path, probe.body, { skipCache: true });
+    } catch (error) {
+      throw new Error(`set_material_parameter: cannot verify UMaterialInstanceConstant inheritance; allow KismetMathLibrary.ClassIsChildOf in Remote Control (${error.message})`);
+    }
+    if (inheritance.ReturnValue !== true) throw new Error('set_material_parameter requires a UMaterialInstanceConstant or subclass');
+  }
+  const typeName = paramType[0].toUpperCase() + paramType.slice(1);
+  const callLibrary = async (name, args, generateTransaction = false) => {
+    const req = rc.rcCallFunction({ objectPath: MATERIAL_EDITING_LIBRARY, functionName: name, parameters: args, generateTransaction });
+    return connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  };
+  const definitionRequest = rc.rcCallFunction({
+    objectPath: '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary',
+    functionName: 'GetGlobalParameterNames',
+    parameters: { Material: objectPath, ParameterType: typeName },
+    generateTransaction: false,
   });
-  const res = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  let names;
+  try {
+    names = await connectionManager.sendHttp(definitionRequest.method, definitionRequest.path, definitionRequest.body, { skipCache: true });
+  } catch (error) {
+    throw new Error(`set_material_parameter: global definition lookup requires the UEMCP 1.0.20+ plugin and permission for UEMCPMaterialParameterLibrary.GetGlobalParameterNames (${error.message})`);
+  }
+  if (!Array.isArray(names.ReturnValue) || names.ReturnValue.some(name => typeof name !== 'string')) {
+    throw new Error('set_material_parameter: malformed global parameter definition response');
+  }
+  const sameName = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
+  const canonicalName = names.ReturnValue.find(name => sameName(name, parameterName));
+  if (canonicalName === undefined) {
+    throw new Error(`set_material_parameter: global ${paramType} definition '${parameterName}' not found (ensure the material instance is loaded)`);
+  }
+  const target = { Instance: objectPath, ParameterName: canonicalName, Association: 'GlobalParameter' };
+  const res = await callLibrary(functionName, { ...target, ...parameters }, true);
+  const readback = await callLibrary(`GetMaterialInstance${typeName}ParameterValue`, target);
+  const close = (left, right) => typeof left === 'number' && Number.isFinite(left)
+    && Math.abs(left - right) <= 1e-6 * Math.abs(right);
+  const texturePath = path => typeof path === 'string' && !path.includes('.')
+    ? `${path}.${path.split('/').pop()}` : path;
+  const matchesValue = actual => paramType === 'scalar' ? close(actual, parameters.Value)
+    : paramType === 'vector' ? ['R', 'G', 'B', 'A'].every(key => close(actual?.[key], parameters.Value[key]))
+      : typeof actual === 'string' && texturePath(actual) === texturePath(parameters.Value);
+  if (!matchesValue(readback.ReturnValue)) throw new Error(`set_material_parameter: ${paramType} readback did not match the requested value`);
+  // Effective getters may return an inherited value or a default even when
+  // the write failed (e.g. a layer-only name sent to the global setter).
+  // Require the typed override on this instance, not just matching readback.
+  const propertyName = `${typeName}ParameterValues`;
+  const req = rc.rcGetProperty({ objectPath, propertyName });
+  const overrides = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  const override = Array.isArray(overrides[propertyName]) && overrides[propertyName].find(row => {
+    const info = row?.ParameterInfo;
+    return sameName(info?.Name, canonicalName) && info.Index === -1
+      && [2, 'GlobalParameter', 'Global Parameter'].includes(info.Association)
+      && matchesValue(row.ParameterValue);
+  });
+  if (!override) throw new Error(`set_material_parameter: ${paramType} global override was not verified on the instance`);
   return {
     asset_path: objectPath,
     parameter_name: parameterName,
     parameter_type: paramType,
     function_called: functionName,
+    verified: true,
     response: res,
   };
 }
