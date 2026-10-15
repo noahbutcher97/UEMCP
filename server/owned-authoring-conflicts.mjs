@@ -73,7 +73,10 @@ export function assertNoOwnedAuthoringConflicts(editors, { outputRoot, repoRoot 
         if (visited.size >= 10000) reject('Editor path inspection budget exceeded', 'budget-exceeded');
         visited.add(identity);
         diagnostics.unique++;
-        for (const entry of readdirSync(path, { withFileTypes: true })) {
+        // Windows SUBST drive roots can return ENOENT for bare V:\ while
+        // V:\. enumerates that same directory. Keep identity/overlap checks on
+        // the canonical path; normalize only the directory enumeration spelling.
+        for (const entry of readdirSync(path + (/[\\/]$/.test(path) ? '.' : '/.'), { withFileTypes: true })) {
           const child = join(path, entry.name);
           const childCategory = identity === rootIdentity ? (Object.hasOwn(categories, entry.name) ? categories[entry.name] : 'other') : category;
           diagnostics.category = childCategory;

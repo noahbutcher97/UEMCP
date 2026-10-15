@@ -1216,7 +1216,7 @@ toolsets:
         saves_asset: false
         compiles_asset: true
         offline_fallback: false
-        description: "Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. association defaults to global; layer/blend requires an explicit index from detailed listing and UEMCP 1.0.21+. Validate the exact definition before mutation, then verify effective readback and the matching typed override uncached. Names match case-insensitively. Updates/recompiles without saving. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets."
+        description: "Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. All writes require UEMCP 1.0.21+ and record the instance for Undo. association defaults to global; layer/blend requires an explicit index from detailed listing. Validate the exact definition before mutation, then verify effective readback and the matching typed override uncached. Names match case-insensitively. Updates/recompiles without saving. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets."
         params:
           asset_path:     { type: string, required: true }
           parameter_name: { type: string, required: true }

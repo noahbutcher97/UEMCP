@@ -21,8 +21,8 @@ runner.assert(
 
 runner.assert(
   Object.isFrozen(ROTATION_FILE_TIMEOUT_OVERRIDES_MS)
-    && JSON.stringify(Object.keys(ROTATION_FILE_TIMEOUT_OVERRIDES_MS).sort()) === JSON.stringify(extendedFiles),
-  'only the two Windows integration-heavy suites receive extended budgets',
+    && JSON.stringify(Object.keys(ROTATION_FILE_TIMEOUT_OVERRIDES_MS).sort()) === JSON.stringify([...extendedFiles, 'test-material-lifecycle-live.mjs'].sort()),
+  'only Windows integration suites and the opt-in engine lifecycle receive extended budgets',
 );
 
 for (const file of extendedFiles) {
@@ -31,6 +31,9 @@ for (const file of extendedFiles) {
     `${file} receives the bounded eight-minute integration budget`,
   );
 }
+
+runner.assert(rotationFileTimeoutMs('test-material-lifecycle-live.mjs') === 26 * 60 * 1000,
+  'engine lifecycle budget covers build and both bounded processes');
 
 runner.assert(
   rotationFileTimeoutMs('test-client-adapters.mjs') === DEFAULT_ROTATION_FILE_TIMEOUT_MS,

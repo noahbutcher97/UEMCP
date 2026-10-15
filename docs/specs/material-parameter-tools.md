@@ -46,8 +46,12 @@ than being synthesized.
 ## Permissions and compatibility
 
 Allow Remote Control calls to `UEMCPMaterialParameterLibrary.GetParameterDetails`
-and `SetParameterValue` for detailed listing and associated writes. Global
-writes also use `GetGlobalParameterNames` and MaterialEditingLibrary wrappers.
+and `SetParameterValue` for detailed listing and all writes (UEMCP 1.0.21+).
+The native setter records the instance in its own Undo transaction; Remote
+Control must not add an automatic transaction on the library CDO. Global
+writes also use `GetGlobalParameterNames` and MaterialEditingLibrary readback
+getters. Restart the MCP server after updating the server write route; an
+already deployed 1.0.21 plugin needs no rebuild for this routing fix.
 Derived material instance classes require `KismetMathLibrary.ClassIsChildOf`.
 Typed override verification reads instance properties. Python and broad
 Allow Any Remote Function Call are unnecessary.
@@ -60,3 +64,24 @@ read-after-write calls reflect current editor state.
 The tools cover scalar, vector, and texture parameters. They do not create
 parameter definitions or alter a material's layer stack. Re-list after changing
 the layer stack because indices may move.
+
+## Owned-host lifecycle regression gate
+
+From `server/` in PowerShell, set an explicit fresh output directory and the
+installed engine root, then run the opt-in profile:
+
+```powershell
+$env:UEMCP_MATERIAL_LIFECYCLE_ROOT = 'D:/UEMCP-Material-Lifecycle-Run'
+$env:UEMCP_MATERIAL_LIFECYCLE_ENGINE = 'C:/Program Files/Epic Games/UE_5.8'
+npm.cmd run test:material-lifecycle
+```
+
+The runner stages only the repository's UEMCPFixture host, compiles its editor
+target, and launches `VerifyMaterialLifecycle` with `author` and `verify` in
+separate bounded processes. It checks all nine case identities, Undo success,
+save success, process exits, source/engine identity, and unchanged saved asset
+hashes after reload. Reports and process output are retained in the stage.
+Existing output directories are refused; use a fresh directory for every run.
+The engine-free runner failure tests participate in default rotation. The
+engine profile requires both environment variables and fails if skipped.
+This gate does not exercise HTTP/MCP transport, keyboard Undo, Redo or rendering.
