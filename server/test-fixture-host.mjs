@@ -35,6 +35,17 @@ try {
     await validateFixtureHost(opts);
     await assert.rejects(prepareFixtureHost(opts), /fresh/);
   });
+  await check('material lifecycle validation permits only its two explicit owned assets', async () => {
+    const opts = options(); await prepareFixtureHost(opts);
+    await validateFixtureHost({ ...opts, materialLifecycleAssets: 'optional' });
+    await assert.rejects(validateFixtureHost({ ...opts, materialLifecycleAssets: 'required' }), /membership/);
+    put(join(opts.outputRoot, 'host/Content/MaterialVerification/M_Parameters.uasset'), 'material');
+    put(join(opts.outputRoot, 'host/Content/MaterialVerification/MI_Parameters.uasset'), 'instance');
+    await validateFixtureHost({ ...opts, materialLifecycleAssets: 'required' });
+    put(join(opts.outputRoot, 'host/Content/MaterialVerification/Unowned.uasset'), 'unowned');
+    await assert.rejects(validateFixtureHost({ ...opts, materialLifecycleAssets: 'required' }), /membership/);
+  });
+
   await check('canonical checkout generated plugin outputs are preserved but not staged', async () => {
     // repoRoot is the synthetic repo beneath this suite's fresh scratch root.
     const syntheticRepoRoot = join(scratch, 'repo');

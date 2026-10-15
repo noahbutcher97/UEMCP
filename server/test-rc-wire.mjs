@@ -687,7 +687,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       .on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' })
       .on('PUT /remote/object/call', (_port, _method, _path, body) => {
         if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: ['Roughness', 'Tint', 'Diffuse', 'AlphaMask'] };
-        if (body.functionName.startsWith('SetMaterialInstance')) { stored = body.parameters.Value; storedName = body.parameters.ParameterName; return { ReturnValue: false }; }
+        if (body.functionName === 'SetParameterValue') { stored = body.parameters[`${body.parameters.ParameterType}Value`]; storedName = body.parameters.ParameterName; return { ReturnValue: true }; }
         return { ReturnValue: stored };
       })
       .on('PUT /remote/object/property', (_port, _method, _path, body) => ({
@@ -709,11 +709,11 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       value:          0.42,
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
     t.assert(call, 'scalar set dispatches to /remote/object/call');
-    t.assert(call.body.objectPath === '/Script/MaterialEditor.Default__MaterialEditingLibrary',
-      'objectPath = reflected MaterialEditingLibrary CDO');
-    t.assert(call.body.functionName === 'SetMaterialInstanceScalarParameterValue',
+    t.assert(call.body.objectPath === '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary',
+      'objectPath = instance-recording native helper CDO');
+    t.assert(call.body.functionName === 'SetParameterValue' && call.body.parameters.ParameterType === 'Scalar',
       'auto-detected scalar → SetMaterialInstanceScalarParameterValue');
     t.assert(call.body.parameters.ParameterName === 'Roughness',
       'ParameterName = parameter_name');
@@ -721,13 +721,13 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       'Association = GlobalParameter — note: not 0!)');
     t.assert(call.body.parameters.Instance === '/Game/Materials/MIC_Brick.MIC_Brick',
       'Instance points to the material instance asset');
-    t.assert(call.body.parameters.Value === 0.42,
+    t.assert(call.body.parameters.ScalarValue === 0.42,
       'scalar Value passed through');
-    t.assert(call.body.generateTransaction === true,
-      'set_material_parameter wraps in transaction by default');
+    t.assert(call.body.generateTransaction === false,
+      'native helper records the instance in its own transaction without a CDO wrapper');
     t.assert(res.parameter_type === 'scalar',
       'response surfaces detected parameter_type');
-    t.assert(res.function_called === 'SetMaterialInstanceScalarParameterValue',
+    t.assert(res.function_called === 'SetParameterValue',
       'response surfaces dispatched function name');
   }
 
@@ -742,10 +742,10 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       value:          [0.1, 0.2, 0.3, 1.0],
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
-    t.assert(call.body.functionName === 'SetMaterialInstanceVectorParameterValue',
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
+    t.assert(call.body.functionName === 'SetParameterValue' && call.body.parameters.ParameterType === 'Vector',
       'array value → SetMaterialInstanceVectorParameterValue');
-    const v = call.body.parameters.Value;
+    const v = call.body.parameters.VectorValue;
     t.assert(v.R === 0.1 && v.G === 0.2 && v.B === 0.3 && v.A === 1.0,
       'array [r,g,b,a] mapped to {R,G,B,A} (RC-native FLinearColor shape)');
   }
@@ -761,10 +761,10 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       value:          { R: 0.5, G: 0.6, B: 0.7, A: 0.8 },
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
-    t.assert(call.body.functionName === 'SetMaterialInstanceVectorParameterValue',
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
+    t.assert(call.body.functionName === 'SetParameterValue' && call.body.parameters.ParameterType === 'Vector',
       'object value → SetMaterialInstanceVectorParameterValue');
-    const v = call.body.parameters.Value;
+    const v = call.body.parameters.VectorValue;
     t.assert(v.R === 0.5 && v.G === 0.6 && v.B === 0.7 && v.A === 0.8,
       '{R,G,B,A} object passed through');
   }
@@ -780,8 +780,8 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       value:          { r: 0.9, g: 0.8, b: 0.7, a: 0.6 },
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
-    t.assert(call.body.parameters.Value.R === 0.9 && call.body.parameters.Value.A === 0.6,
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
+    t.assert(call.body.parameters.VectorValue.R === 0.9 && call.body.parameters.VectorValue.A === 0.6,
       'lowercase {r,g,b,a} mapped to uppercase {R,G,B,A}');
   }
 
@@ -796,10 +796,10 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       value:          '/Game/Textures/T_Brick.T_Brick',
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
-    t.assert(call.body.functionName === 'SetMaterialInstanceTextureParameterValue',
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
+    t.assert(call.body.functionName === 'SetParameterValue' && call.body.parameters.ParameterType === 'Texture',
       'string value → SetMaterialInstanceTextureParameterValue');
-    t.assert(call.body.parameters.Value === '/Game/Textures/T_Brick.T_Brick',
+    t.assert(call.body.parameters.TextureValue === '/Game/Textures/T_Brick.T_Brick',
       'texture asset-path string passed through unchanged');
   }
 
@@ -815,8 +815,8 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       parameter_type: 'texture',
     }, conn);
 
-    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
-    t.assert(call.body.functionName === 'SetMaterialInstanceTextureParameterValue',
+    const call = rcMock.calls.find(c => c.body.functionName === 'SetParameterValue');
+    t.assert(call.body.functionName === 'SetParameterValue' && call.body.parameters.ParameterType === 'Texture',
       'explicit parameter_type=texture honored');
   }
 
@@ -869,7 +869,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
       parameter_name: 'Roughness',
       value:          0.5,
     }, conn);
-    t.assert(rcMock.calls.filter(c => c.body.functionName?.startsWith('SetMaterialInstance')).length === 2,
+    t.assert(rcMock.calls.filter(c => c.body.functionName === 'SetParameterValue').length === 2,
       'set_material_parameter is a write — both identical calls hit wire (skipCache)');
     t.assert(rcMock.callsFor('PUT /remote/object/property').length === 2,
       'set_material_parameter fetches the instance override state uncached after each write');

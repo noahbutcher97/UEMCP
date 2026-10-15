@@ -28,12 +28,12 @@ for (const [type, name, value] of [
       if (body.objectPath !== definitionLibrary || body.parameters.ParameterType !== type) throw new Error('Invalid native definition lookup');
       return { ReturnValue: [name] };
     }
-    if (body.objectPath !== library) throw new Error('Target is not the reflected library CDO');
-    if (body.functionName === `Get${type}ParameterNames`) return { ParameterNames: [name] };
-    if (body.functionName === `SetMaterialInstance${type}ParameterValue`) {
-      stored = body.parameters.Value;
-      return { ReturnValue: false }; // UE 5.8 writes successfully but always returns false.
+    if (body.functionName === 'SetParameterValue') {
+      if (body.objectPath !== definitionLibrary || body.parameters.ParameterType !== type || body.parameters.Index !== -1) throw new Error('Invalid native transaction target');
+      stored = body.parameters[`${type}Value`];
+      return { ReturnValue: true };
     }
+    if (body.objectPath !== library) throw new Error('Target is not the reflected library CDO');
     if (body.functionName === `GetMaterialInstance${type}ParameterValue`) return { ReturnValue: stored };
     throw new Error('Function does not exist on object');
   }).on('PUT /remote/object/property', () => ({
@@ -48,7 +48,7 @@ for (const [type, name, value] of [
       asset_path: asset, parameter_name: name.toLowerCase(), value,
     }, conn);
     t.assert(result.verified === true, `${type}: lowercase FName and valid MIC subclass succeed with a verified override`);
-    const call = mock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    const call = mock.calls.find(c => c.body.functionName === 'SetParameterValue');
     t.assert(call?.body.parameters.Instance === asset && call.body.parameters.ParameterName === name,
       `${type}: setter receives the instance reference and parameter name`);
     t.assert(call?.body.parameters.Association === 'GlobalParameter', `${type}: uses global parameter association`);
@@ -76,7 +76,7 @@ for (const [type, name, value] of [
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
     asset_path: asset, parameter_name: name, value,
   }, conn), /global.*definition|not found/i, `${type}: an orphan override cannot substitute for a global definition`);
-  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetParameterValue')),
     `${type}: a layer-only name is rejected before mutation`);
 }
 
@@ -93,7 +93,7 @@ for (const [type, name, value] of [
     const mock = new FakeHttpResponder()
       .on('PUT /remote/object/describe', instanceDescription)
       .on('PUT /remote/object/call', (_port, _method, _path, body) => (
-        body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: [name] } : { ReturnValue: value }
+        body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: [name] } : { ReturnValue: body.functionName === 'SetParameterValue' ? true : value }
       ))
       .on('PUT /remote/object/property', { [`${type}ParameterValues`]: overrides });
     const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
@@ -120,6 +120,7 @@ for (const [type, name, value] of [
 {
   const mock = new FakeHttpResponder().on('PUT /remote/object/describe', instanceDescription).on('PUT /remote/object/call', (_port, _method, _path, body) => {
     if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: ['Roughness'] };
+    if (body.functionName === 'SetParameterValue') return { ReturnValue: true };
     return { ReturnValue: 0.1 };
   });
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
@@ -135,7 +136,7 @@ for (const [type, name, value] of [
   const mock = new FakeHttpResponder()
     .on('PUT /remote/object/describe', instanceDescription)
     .on('PUT /remote/object/call', (_port, _method, _path, body) => (
-      body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: ['Roughness'] } : { ReturnValue: 0 }
+      body.functionName === 'GetGlobalParameterNames' ? { ReturnValue: ['Roughness'] } : { ReturnValue: body.functionName === 'SetParameterValue' ? true : 0 }
     ));
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
@@ -151,7 +152,7 @@ for (const classPath of ['/Script/Engine.Material', '/Script/Engine.MaterialInst
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
     asset_path: asset, parameter_name: 'Roughness', value: 0,
   }, conn), /MaterialInstanceConstant/, `${classPath}: a non-MIC target is rejected by native inheritance`);
-  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetParameterValue')),
     `${classPath}: an incompatible target is rejected before mutation`);
 }
 
@@ -163,7 +164,7 @@ for (const classPath of ['/Script/Engine.Material', '/Script/Engine.MaterialInst
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
     asset_path: asset, parameter_name: 'Roughness', value: 0,
   }, conn), /allow KismetMathLibrary.ClassIsChildOf/, 'denied inheritance probe gives a specific prerequisite error');
-  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetParameterValue')),
     'denied inheritance probe cannot fall back to an unsafe write');
 }
 
@@ -200,7 +201,7 @@ for (const Responses of [[], [
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
     asset_path: asset, parameter_name: 'Roughness', value: 0,
   }, conn), /UEMCP 1.0.20\+ plugin/, 'a missing native definition helper requires plugin deployment explicitly');
-  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetParameterValue')),
     'a missing helper cannot fall back to the unsafe names-only preflight');
 }
 
@@ -288,6 +289,34 @@ for (const mode of ['missing-definition', 'rejected-write', 'wrong-readback', 'w
     asset_path: asset, parameter_name: 'Tint', value: 0.7, association: 'blend', index: 0,
   }, conn), /not found|rejected|readback|override/, `${mode}: associated write cannot falsely certify success`);
   if (mode === 'missing-definition') t.assert(writes === 0, 'unknown association/index is rejected before mutation');
+}
+
+for (const accepted of [true, false]) {
+  let transactionalWrite = false;
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', instanceDescription)
+    .on('PUT /remote/object/call', (_port, _method, _path, body) => {
+      if (body.functionName === 'GetGlobalParameterNames') return { ReturnValue: ['Roughness'] };
+      if (body.functionName === 'SetParameterValue') {
+        transactionalWrite = body.objectPath === definitionLibrary && body.generateTransaction === false
+          && body.parameters.ParameterType === 'Scalar' && body.parameters.Index === -1
+          && body.parameters.ScalarValue === 0.4 && body.parameters.ParameterName === 'Roughness';
+        return { ReturnValue: accepted };
+      }
+      return { ReturnValue: 0.4 };
+    })
+    .on('PUT /remote/object/property', { ScalarParameterValues: [{
+      ParameterInfo: { Name: 'Roughness', Association: 'GlobalParameter', Index: -1 }, ParameterValue: 0.4,
+    }] });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  const run = () => executeRcTool('set_material_parameter', { asset_path: asset, parameter_name: 'roughness', value: 0.4 }, conn);
+  if (accepted) {
+    const result = await run();
+    t.assert(result.verified && transactionalWrite && result.function_called === 'SetParameterValue',
+      'global writes dispatch to the instance-recording native transaction helper');
+  } else {
+    await t.assertRejects(run, /rejected/, 'native rejection cannot certify a global write from matching preexisting readback');
+  }
 }
 
 process.exit(t.summary());

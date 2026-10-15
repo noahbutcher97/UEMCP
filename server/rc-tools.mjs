@@ -140,7 +140,7 @@ export const RC_SCHEMAS = {
   // MaterialEditingLibrary exposes reflected wrappers; the underlying
   // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. association defaults to global; layer/blend requires an explicit index from detailed listing and UEMCP 1.0.21+. Validates the exact definition before writing and verifies effective readback plus the matching instance override uncached. Names match case-insensitively. Does not save. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets.',
+    description: 'Set scalar/vector/texture parameters on a loaded UMaterialInstanceConstant. All writes require UEMCP 1.0.21+ and record the instance for Undo. association defaults to global; layer/blend requires an explicit index from detailed listing. Validates the exact definition before writing and verifies effective readback plus the matching instance override uncached. Names match case-insensitively. Does not save. RC must allow UEMCPMaterialParameterLibrary, MaterialEditingLibrary and ClassIsChildOf for derived targets.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
@@ -452,8 +452,8 @@ function pickReturn(response) {
  * UMaterialInstanceConstant via RC HTTP (D101 (ii) — RC delegate over plugin
  * C++ handler).
  *
- * Routes through reflected MaterialEditingLibrary wrappers. UE 5.8's wrappers
- * return false even after a successful write, so verify via an uncached getter.
+ * The native SetParameterValue helper records the instance in its own Undo
+ * transaction. Verify the mutation through uncached readback and overrides.
  *
  * Type discrimination:
  *   - `parameter_type` explicit override wins
@@ -486,14 +486,12 @@ async function execSetMaterialParameter(args, connectionManager) {
     }
   }
 
-  let functionName;
   let parameters;
   switch (paramType) {
     case 'scalar': {
       if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new Error(`set_material_parameter: scalar requires numeric value (got ${typeof value})`);
       }
-      functionName = 'SetMaterialInstanceScalarParameterValue';
       parameters = { Value: value };
       break;
     }
@@ -513,7 +511,6 @@ async function execSetMaterialParameter(args, connectionManager) {
       if (![r, g, b, a].every(component => typeof component === 'number' && Number.isFinite(component))) {
         throw new Error('set_material_parameter: vector components must be finite numbers');
       }
-      functionName = 'SetMaterialInstanceVectorParameterValue';
       parameters = { Value: { R: r, G: g, B: b, A: a } };
       break;
     }
@@ -521,7 +518,6 @@ async function execSetMaterialParameter(args, connectionManager) {
       if (typeof value !== 'string') {
         throw new Error(`set_material_parameter: texture requires asset-path string (got ${typeof value})`);
       }
-      functionName = 'SetMaterialInstanceTextureParameterValue';
       parameters = { Value: value };
       break;
     }
@@ -574,7 +570,19 @@ async function execSetMaterialParameter(args, connectionManager) {
     throw new Error(`set_material_parameter: global ${paramType} definition '${parameterName}' not found (ensure the material instance is loaded)`);
   }
   const target = { Instance: objectPath, ParameterName: canonicalName, Association: 'GlobalParameter' };
-  const res = await callLibrary(functionName, { ...target, ...parameters }, true);
+  // A transaction on the MaterialEditingLibrary CDO does not capture the MIC.
+  // The native helper records Instance->Modify() inside its own transaction.
+  const writeRequest = rc.rcCallFunction({
+    objectPath: '/Script/UEMCP.Default__UEMCPMaterialParameterLibrary', functionName: 'SetParameterValue',
+    parameters: { ...target, ParameterType: typeName, Index: -1,
+      ScalarValue: paramType === 'scalar' ? parameters.Value : 0,
+      VectorValue: paramType === 'vector' ? parameters.Value : { R: 0, G: 0, B: 0, A: 1 },
+      TextureValue: paramType === 'texture' ? parameters.Value : null,
+    },
+    generateTransaction: false,
+  });
+  const res = await connectionManager.sendHttp(writeRequest.method, writeRequest.path, writeRequest.body, { skipCache: true });
+  if (res.ReturnValue !== true) throw new Error('set_material_parameter: native global write was rejected');
   const readback = await callLibrary(`GetMaterialInstance${typeName}ParameterValue`, target);
   const close = (left, right) => typeof left === 'number' && Number.isFinite(left)
     && Math.abs(left - right) <= 1e-6 * Math.abs(right);
@@ -603,7 +611,7 @@ async function execSetMaterialParameter(args, connectionManager) {
     parameter_type: paramType,
     association,
     index,
-    function_called: functionName,
+    function_called: 'SetParameterValue',
     verified: true,
     response: res,
   };
