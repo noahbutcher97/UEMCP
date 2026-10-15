@@ -139,7 +139,7 @@ export const RC_SCHEMAS = {
   // MaterialEditingLibrary exposes reflected wrappers; the underlying
   // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Verify both the effective value and the instance\'s typed global override, uncached. Names match case-insensitively. Type is auto-detected from value (number, color array/object, or texture asset path); parameter_type overrides detection. Does not save the asset. Remote Control must allow the MaterialEditingLibrary functions.',
+    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Verify both the effective value and the instance\'s typed global override, uncached. Names match case-insensitively. Type is auto-detected from value (number, color array/object, or texture asset path); parameter_type overrides detection. Does not save the asset. Remote Control must allow the MaterialEditingLibrary functions and, for derived targets, KismetMathLibrary.ClassIsChildOf.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
@@ -498,7 +498,19 @@ async function execSetMaterialParameter(args, connectionManager) {
 
   const description = await describeMaterialObject(objectPath, connectionManager);
   if (description.Class !== '/Script/Engine.MaterialInstanceConstant') {
-    throw new Error('set_material_parameter requires a UMaterialInstanceConstant');
+    const probe = rc.rcCallFunction({
+      objectPath: '/Script/Engine.Default__KismetMathLibrary',
+      functionName: 'ClassIsChildOf',
+      parameters: { TestClass: description.Class, ParentClass: '/Script/Engine.MaterialInstanceConstant' },
+      generateTransaction: false,
+    });
+    let inheritance;
+    try {
+      inheritance = await connectionManager.sendHttp(probe.method, probe.path, probe.body, { skipCache: true });
+    } catch (error) {
+      throw new Error(`set_material_parameter: cannot verify UMaterialInstanceConstant inheritance; allow KismetMathLibrary.ClassIsChildOf in Remote Control (${error.message})`);
+    }
+    if (inheritance.ReturnValue !== true) throw new Error('set_material_parameter requires a UMaterialInstanceConstant or subclass');
   }
   const typeName = paramType[0].toUpperCase() + paramType.slice(1);
   const callLibrary = async (name, args, generateTransaction = false) => {

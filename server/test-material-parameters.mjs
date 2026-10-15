@@ -13,7 +13,16 @@ for (const [type, name, value] of [
   ['Texture', 'Diffuse', '/Game/Textures/T_Test.T_Test'],
 ]) {
   let stored;
-  const mock = new FakeHttpResponder().on('PUT /remote/object/describe', instanceDescription).on('PUT /remote/object/call', (_port, _method, _path, body) => {
+  const classPath = type === 'Scalar' ? '/Script/Landscape.LandscapeMaterialInstanceConstant'
+    : type === 'Vector' ? '/Script/Test.CustomMaterialInstanceConstant' : instanceDescription.Class;
+  const mock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: classPath }).on('PUT /remote/object/call', (_port, _method, _path, body) => {
+    if (body.functionName === 'ClassIsChildOf') {
+      if (body.objectPath !== '/Script/Engine.Default__KismetMathLibrary'
+        || body.parameters.TestClass !== classPath || body.parameters.ParentClass !== instanceDescription.Class) {
+        throw new Error('Invalid native inheritance probe');
+      }
+      return { ReturnValue: true };
+    }
     if (body.objectPath !== library) throw new Error('Target is not the reflected library CDO');
     if (body.functionName === `Get${type}ParameterNames`) return { ParameterNames: [name] };
     if (body.functionName === `SetMaterialInstance${type}ParameterValue`) {
@@ -33,7 +42,7 @@ for (const [type, name, value] of [
     const result = await executeRcTool('set_material_parameter', {
       asset_path: asset, parameter_name: name.toLowerCase(), value,
     }, conn);
-    t.assert(result.verified === true, `${type}: lowercase FName succeeds with a verified override despite false wrapper return`);
+    t.assert(result.verified === true, `${type}: lowercase FName and valid MIC subclass succeed with a verified override`);
     const call = mock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
     t.assert(call?.body.parameters.Instance === asset && call.body.parameters.ParameterName === name,
       `${type}: setter receives the instance reference and parameter name`);
@@ -106,14 +115,28 @@ for (const [type, name, value] of [
   }, conn), /readback/i, 'float tolerance does not hide a small nonzero write that stayed zero');
 }
 
-{
+for (const classPath of ['/Script/Engine.Material', '/Script/Engine.MaterialInstanceDynamic', '/Script/Test.DerivedDynamicInstance']) {
   const mock = new FakeHttpResponder()
-    .on('PUT /remote/object/describe', { Class: '/Script/Engine.Material' })
-    .on('PUT /remote/object/call', { ParameterNames: ['Roughness'], ReturnValue: 0 });
+    .on('PUT /remote/object/describe', { Class: classPath })
+    .on('PUT /remote/object/call', { ReturnValue: false });
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
   await t.assertRejects(() => executeRcTool('set_material_parameter', {
     asset_path: asset, parameter_name: 'Roughness', value: 0,
-  }, conn), /MaterialInstanceConstant/, 'a base material cannot be reported as a successful instance write');
+  }, conn), /MaterialInstanceConstant/, `${classPath}: a non-MIC target is rejected by native inheritance`);
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+    `${classPath}: an incompatible target is rejected before mutation`);
+}
+
+{
+  const mock = new FakeHttpResponder()
+    .on('PUT /remote/object/describe', { Class: '/Script/Test.CustomMaterialInstanceConstant' })
+    .on('PUT /remote/object/call', () => { throw new Error('Function call is not allowed'); });
+  const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+  await t.assertRejects(() => executeRcTool('set_material_parameter', {
+    asset_path: asset, parameter_name: 'Roughness', value: 0,
+  }, conn), /allow KismetMathLibrary.ClassIsChildOf/, 'denied inheritance probe gives a specific prerequisite error');
+  t.assert(!mock.calls.some(call => call.body.functionName?.startsWith('SetMaterialInstance')),
+    'denied inheritance probe cannot fall back to an unsafe write');
 }
 
 for (const Responses of [[], [
