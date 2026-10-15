@@ -397,12 +397,12 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
 
   // ── list_material_parameters (F-6) — batches 3 Info UFUNCTIONs via rc_batch ──
   {
-    const rcMock = new FakeHttpResponder();
+    const rcMock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: '/Script/Engine.Material' });
     rcMock.on('PUT /remote/batch', {
       Responses: [
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'BaseColor' }, { Name: 'Tint' }] } },
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Diffuse' }] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['Opacity'] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['BaseColor', 'Tint'] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['Diffuse'] } },
       ],
     });
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
@@ -416,12 +416,12 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
     t.assert(Array.isArray(bcall.body.Requests) && bcall.body.Requests.length === 3,
       'list_material_parameters batches 3 requests');
     const fnNames = bcall.body.Requests.map(r => r.Body.functionName);
-    t.assert(fnNames.includes('GetAllScalarParameterInfo'), 'batch includes GetAllScalarParameterInfo');
-    t.assert(fnNames.includes('GetAllVectorParameterInfo'), 'batch includes GetAllVectorParameterInfo');
-    t.assert(fnNames.includes('GetAllTextureParameterInfo'), 'batch includes GetAllTextureParameterInfo');
+    t.assert(fnNames.includes('GetScalarParameterNames'), 'batch includes GetScalarParameterNames');
+    t.assert(fnNames.includes('GetVectorParameterNames'), 'batch includes GetVectorParameterNames');
+    t.assert(fnNames.includes('GetTextureParameterNames'), 'batch includes GetTextureParameterNames');
 
     // F-7 interaction — non-BP material path must NOT get CDO suffix.
-    const targetPath = bcall.body.Requests[0].Body.objectPath;
+    const targetPath = bcall.body.Requests[0].Body.parameters.Material;
     t.assert(targetPath === '/Game/Materials/M_Brick.M_Brick',
       `list_material_parameters preserves non-BP asset path (got ${targetPath})`);
 
@@ -439,20 +439,20 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
       asset_path: '/Game/Materials/M_Base.M_Base_C',
     }, conn);
     const bpcall = rcMock.lastCall('PUT /remote/batch');
-    const bpPath = bpcall.body.Requests[0].Body.objectPath;
+    const bpPath = bpcall.body.Requests[0].Body.parameters.Material;
     t.assert(bpPath === '/Game/Materials/M_Base.M_Base_C:Default__M_Base_C',
       `list_material_parameters resolves CDO for _C class paths (got ${bpPath})`);
 
     // W-G (D144 / Gauntlet Finding 2.4): _subErrors[] surfaces non-2xx batch
-    // sub-responses. Pre-W-G, a 500 on (e.g.) GetAllVectorParameterInfo
+    // sub-responses. Pre-W-G, a 500 on (e.g.) GetVectorParameterNames
     // returned `vector: []` — indistinguishable from "no vector params".
     // Post-W-G, the response also carries `_subErrors:[{index:1,label:'vector',code:500,body:...}]`.
-    const partialMock = new FakeHttpResponder();
+    const partialMock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: '/Script/Engine.Material' });
     partialMock.on('PUT /remote/batch', {
       Responses: [
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['Opacity'] } },
         { ResponseCode: 500, ResponseBody: { errorMessage: 'editor race' } },
-        { ResponseCode: 200, ResponseBody: { OutInfo: [] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: [] } },
       ],
     });
     const partialConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
@@ -609,12 +609,12 @@ console.log('\n── Test 9: semantic delegates ride RC internally ──');
     t.assert(errRes.triangles === null, 'non-2xx sub-response → null (no error-body leak)');
     t.assert(errRes.bounds === null, 'non-2xx sub-response → null for bounds');
 
-    const partialMock = new FakeHttpResponder();
+    const partialMock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: '/Script/Engine.Material' });
     partialMock.on('PUT /remote/batch', {
       Responses: [
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Opacity' }] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['Opacity'] } },
         { ResponseCode: 500, ResponseBody: { ErrorCode: 'X' } },
-        { ResponseCode: 200, ResponseBody: { OutInfo: [{ Name: 'Diffuse' }] } },
+        { ResponseCode: 200, ResponseBody: { ParameterNames: ['Diffuse'] } },
       ],
     });
     const pConn = new ConnectionManager({ ...baseConfig, httpCommandFn: partialMock.handler() });
@@ -676,14 +676,24 @@ console.log('\n── Test 11: Zod rejects missing required fields ──');
 }
 
 // ── Test 12: set_material_parameter (M5 — D101 (ii) RC delegate) ──
-console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParameterValueEditorOnly ──');
+console.log('\n── Test 12: set_material_parameter dispatches via MaterialEditingLibrary UFUNCTIONs ──');
 {
   const { executeRcTool } = await import('./rc-tools.mjs');
 
-  // Scalar: number value → SetScalarParameterValueEditorOnly
+  function makeMaterialSetterMock() {
+    let stored;
+    return new FakeHttpResponder()
+      .on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' })
+      .on('PUT /remote/object/call', (_port, _method, _path, body) => {
+        if (body.functionName.endsWith('ParameterNames')) return { ParameterNames: ['Roughness', 'Tint', 'Diffuse', 'AlphaMask'] };
+        if (body.functionName.startsWith('SetMaterialInstance')) { stored = body.parameters.Value; return { ReturnValue: false }; }
+        return { ReturnValue: stored };
+      });
+  }
+
+  // Scalar: number value → SetMaterialInstanceScalarParameterValue
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     const res = await executeRcTool('set_material_parameter', {
@@ -692,32 +702,31 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       value:          0.42,
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
     t.assert(call, 'scalar set dispatches to /remote/object/call');
-    t.assert(call.body.objectPath === '/Game/Materials/MIC_Brick.MIC_Brick',
-      'objectPath = MIC asset path');
-    t.assert(call.body.functionName === 'SetScalarParameterValueEditorOnly',
-      'auto-detected scalar → SetScalarParameterValueEditorOnly');
-    t.assert(call.body.parameters.ParameterInfo.Name === 'Roughness',
-      'ParameterInfo.Name = parameter_name');
-    t.assert(call.body.parameters.ParameterInfo.Association === 2,
-      'ParameterInfo.Association = 2 (GlobalParameter — note: not 0!)');
-    t.assert(call.body.parameters.ParameterInfo.Index === -1,
-      'ParameterInfo.Index = -1 (non-layered)');
+    t.assert(call.body.objectPath === '/Script/MaterialEditor.Default__MaterialEditingLibrary',
+      'objectPath = reflected MaterialEditingLibrary CDO');
+    t.assert(call.body.functionName === 'SetMaterialInstanceScalarParameterValue',
+      'auto-detected scalar → SetMaterialInstanceScalarParameterValue');
+    t.assert(call.body.parameters.ParameterName === 'Roughness',
+      'ParameterName = parameter_name');
+    t.assert(call.body.parameters.Association === 'GlobalParameter',
+      'Association = GlobalParameter — note: not 0!)');
+    t.assert(call.body.parameters.Instance === '/Game/Materials/MIC_Brick.MIC_Brick',
+      'Instance points to the material instance asset');
     t.assert(call.body.parameters.Value === 0.42,
       'scalar Value passed through');
     t.assert(call.body.generateTransaction === true,
       'set_material_parameter wraps in transaction by default');
     t.assert(res.parameter_type === 'scalar',
       'response surfaces detected parameter_type');
-    t.assert(res.function_called === 'SetScalarParameterValueEditorOnly',
+    t.assert(res.function_called === 'SetMaterialInstanceScalarParameterValue',
       'response surfaces dispatched function name');
   }
 
-  // Vector via array [r,g,b,a] → SetVectorParameterValueEditorOnly
+  // Vector via array [r,g,b,a] → SetMaterialInstanceVectorParameterValue
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -726,18 +735,17 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       value:          [0.1, 0.2, 0.3, 1.0],
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
-    t.assert(call.body.functionName === 'SetVectorParameterValueEditorOnly',
-      'array value → SetVectorParameterValueEditorOnly');
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    t.assert(call.body.functionName === 'SetMaterialInstanceVectorParameterValue',
+      'array value → SetMaterialInstanceVectorParameterValue');
     const v = call.body.parameters.Value;
     t.assert(v.R === 0.1 && v.G === 0.2 && v.B === 0.3 && v.A === 1.0,
       'array [r,g,b,a] mapped to {R,G,B,A} (RC-native FLinearColor shape)');
   }
 
-  // Vector via {R,G,B,A} object → SetVectorParameterValueEditorOnly
+  // Vector via {R,G,B,A} object → SetMaterialInstanceVectorParameterValue
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -746,9 +754,9 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       value:          { R: 0.5, G: 0.6, B: 0.7, A: 0.8 },
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
-    t.assert(call.body.functionName === 'SetVectorParameterValueEditorOnly',
-      'object value → SetVectorParameterValueEditorOnly');
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    t.assert(call.body.functionName === 'SetMaterialInstanceVectorParameterValue',
+      'object value → SetMaterialInstanceVectorParameterValue');
     const v = call.body.parameters.Value;
     t.assert(v.R === 0.5 && v.G === 0.6 && v.B === 0.7 && v.A === 0.8,
       '{R,G,B,A} object passed through');
@@ -756,8 +764,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
 
   // Lowercase {r,g,b,a} object → mapped to uppercase
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -766,15 +773,14 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       value:          { r: 0.9, g: 0.8, b: 0.7, a: 0.6 },
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
     t.assert(call.body.parameters.Value.R === 0.9 && call.body.parameters.Value.A === 0.6,
       'lowercase {r,g,b,a} mapped to uppercase {R,G,B,A}');
   }
 
-  // Texture: string value (asset path) → SetTextureParameterValueEditorOnly
+  // Texture: string value (asset path) → SetMaterialInstanceTextureParameterValue
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -783,17 +789,16 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       value:          '/Game/Textures/T_Brick.T_Brick',
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
-    t.assert(call.body.functionName === 'SetTextureParameterValueEditorOnly',
-      'string value → SetTextureParameterValueEditorOnly');
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    t.assert(call.body.functionName === 'SetMaterialInstanceTextureParameterValue',
+      'string value → SetMaterialInstanceTextureParameterValue');
     t.assert(call.body.parameters.Value === '/Game/Textures/T_Brick.T_Brick',
       'texture asset-path string passed through unchanged');
   }
 
   // Explicit parameter_type override beats auto-detect
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -803,14 +808,14 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       parameter_type: 'texture',
     }, conn);
 
-    const call = rcMock.lastCall('PUT /remote/object/call');
-    t.assert(call.body.functionName === 'SetTextureParameterValueEditorOnly',
+    const call = rcMock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
+    t.assert(call.body.functionName === 'SetMaterialInstanceTextureParameterValue',
       'explicit parameter_type=texture honored');
   }
 
   // Type-mismatch errors are loud (scalar with non-numeric value)
   {
-    const rcMock = new FakeHttpResponder();
+    const rcMock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' });
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await t.assertRejects(
@@ -827,7 +832,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
 
   // Unknown parameter_type rejects
   {
-    const rcMock = new FakeHttpResponder();
+    const rcMock = new FakeHttpResponder().on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' });
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await t.assertRejects(
@@ -844,8 +849,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
 
   // isReadOp false — write skips cache (two identical calls both hit wire)
   {
-    const rcMock = new FakeHttpResponder();
-    rcMock.on('PUT /remote/object/call', { ReturnValue: true });
+    const rcMock = makeMaterialSetterMock();
     const conn = new ConnectionManager({ ...baseConfig, httpCommandFn: rcMock.handler() });
 
     await executeRcTool('set_material_parameter', {
@@ -858,7 +862,7 @@ console.log('\n── Test 12: set_material_parameter dispatches via SetXxxParam
       parameter_name: 'Roughness',
       value:          0.5,
     }, conn);
-    t.assert(rcMock.calls.length === 2,
+    t.assert(rcMock.calls.filter(c => c.body.functionName?.startsWith('SetMaterialInstance')).length === 2,
       'set_material_parameter is a write — both identical calls hit wire (skipCache)');
   }
 }
