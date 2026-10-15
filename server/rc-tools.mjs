@@ -139,7 +139,7 @@ export const RC_SCHEMAS = {
   // MaterialEditingLibrary exposes reflected wrappers; the underlying
   // Set*ParameterValueEditorOnly C++ methods are not UFUNCTIONs.
   set_material_parameter: {
-    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary and verify by reading it back. Type is auto-detected from value (number, color array/object, or texture asset path); parameter_type overrides detection. Does not save the asset. Remote Control must allow the MaterialEditingLibrary functions.',
+    description: 'Set a global scalar, vector, or texture parameter on a loaded UMaterialInstanceConstant via MaterialEditingLibrary. Verify both the effective value and the instance\'s typed global override, uncached. Names match case-insensitively. Type is auto-detected from value (number, color array/object, or texture asset path); parameter_type overrides detection. Does not save the asset. Remote Control must allow the MaterialEditingLibrary functions.',
     schema: {
       asset_path:     z.string().describe('/Game/... path to the UMaterialInstanceConstant'),
       parameter_name: z.string().describe('Material parameter name (matches the parameter as exposed in the parent material)'),
@@ -509,21 +509,35 @@ async function execSetMaterialParameter(args, connectionManager) {
   if (!Array.isArray(names.ParameterNames)) {
     throw new Error('set_material_parameter: malformed ParameterNames response');
   }
-  if (!names.ParameterNames.includes(parameterName)) {
+  const sameName = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
+  const canonicalName = names.ParameterNames.find(name => sameName(name, parameterName));
+  if (canonicalName === undefined) {
     throw new Error(`set_material_parameter: ${paramType} parameter '${parameterName}' not found (ensure the material instance is loaded)`);
   }
-  const target = { Instance: objectPath, ParameterName: parameterName, Association: 'GlobalParameter' };
+  const target = { Instance: objectPath, ParameterName: canonicalName, Association: 'GlobalParameter' };
   const res = await callLibrary(functionName, { ...target, ...parameters }, true);
   const readback = await callLibrary(`GetMaterialInstance${typeName}ParameterValue`, target);
-  const actual = readback.ReturnValue;
   const close = (left, right) => typeof left === 'number' && Number.isFinite(left)
     && Math.abs(left - right) <= 1e-6 * Math.abs(right);
   const texturePath = path => typeof path === 'string' && !path.includes('.')
     ? `${path}.${path.split('/').pop()}` : path;
-  const matches = paramType === 'scalar' ? close(actual, parameters.Value)
+  const matchesValue = actual => paramType === 'scalar' ? close(actual, parameters.Value)
     : paramType === 'vector' ? ['R', 'G', 'B', 'A'].every(key => close(actual?.[key], parameters.Value[key]))
       : typeof actual === 'string' && texturePath(actual) === texturePath(parameters.Value);
-  if (!matches) throw new Error(`set_material_parameter: ${paramType} readback did not match the requested value`);
+  if (!matchesValue(readback.ReturnValue)) throw new Error(`set_material_parameter: ${paramType} readback did not match the requested value`);
+  // Effective getters may return an inherited value or a default even when
+  // the write failed (e.g. a layer-only name sent to the global setter).
+  // Require the typed override on this instance, not just matching readback.
+  const propertyName = `${typeName}ParameterValues`;
+  const req = rc.rcGetProperty({ objectPath, propertyName });
+  const overrides = await connectionManager.sendHttp(req.method, req.path, req.body, { skipCache: true });
+  const override = Array.isArray(overrides[propertyName]) && overrides[propertyName].find(row => {
+    const info = row?.ParameterInfo;
+    return sameName(info?.Name, canonicalName) && info.Index === -1
+      && [2, 'GlobalParameter', 'Global Parameter'].includes(info.Association)
+      && matchesValue(row.ParameterValue);
+  });
+  if (!override) throw new Error(`set_material_parameter: ${paramType} global override was not verified on the instance`);
   return {
     asset_path: objectPath,
     parameter_name: parameterName,

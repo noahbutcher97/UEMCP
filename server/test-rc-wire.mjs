@@ -682,13 +682,20 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
 
   function makeMaterialSetterMock() {
     let stored;
+    let storedName;
     return new FakeHttpResponder()
       .on('PUT /remote/object/describe', { Class: '/Script/Engine.MaterialInstanceConstant' })
       .on('PUT /remote/object/call', (_port, _method, _path, body) => {
         if (body.functionName.endsWith('ParameterNames')) return { ParameterNames: ['Roughness', 'Tint', 'Diffuse', 'AlphaMask'] };
-        if (body.functionName.startsWith('SetMaterialInstance')) { stored = body.parameters.Value; return { ReturnValue: false }; }
+        if (body.functionName.startsWith('SetMaterialInstance')) { stored = body.parameters.Value; storedName = body.parameters.ParameterName; return { ReturnValue: false }; }
         return { ReturnValue: stored };
-      });
+      })
+      .on('PUT /remote/object/property', (_port, _method, _path, body) => ({
+        [body.propertyName]: [{
+          ParameterInfo: { Name: storedName, Association: 'Global Parameter', Index: -1 },
+          ParameterValue: stored,
+        }],
+      }));
   }
 
   // Scalar: number value → SetMaterialInstanceScalarParameterValue
@@ -864,6 +871,8 @@ console.log('\n── Test 12: set_material_parameter dispatches via MaterialEdi
     }, conn);
     t.assert(rcMock.calls.filter(c => c.body.functionName?.startsWith('SetMaterialInstance')).length === 2,
       'set_material_parameter is a write — both identical calls hit wire (skipCache)');
+    t.assert(rcMock.callsFor('PUT /remote/object/property').length === 2,
+      'set_material_parameter fetches the instance override state uncached after each write');
   }
 }
 

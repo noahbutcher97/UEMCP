@@ -22,19 +22,47 @@ for (const [type, name, value] of [
     }
     if (body.functionName === `GetMaterialInstance${type}ParameterValue`) return { ReturnValue: stored };
     throw new Error('Function does not exist on object');
-  });
+  }).on('PUT /remote/object/property', () => ({
+    [`${type}ParameterValues`]: [{
+      ParameterInfo: { Name: name, Association: type === 'Scalar' ? 2 : type === 'Vector' ? 'Global Parameter' : 'GlobalParameter', Index: -1 },
+      ParameterValue: stored,
+    }],
+  }));
   const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
   try {
     const result = await executeRcTool('set_material_parameter', {
-      asset_path: asset, parameter_name: name, value,
+      asset_path: asset, parameter_name: name.toLowerCase(), value,
     }, conn);
-    t.assert(result.verified === true, `${type}: success is based on readback despite false wrapper return`);
+    t.assert(result.verified === true, `${type}: lowercase FName succeeds with a verified override despite false wrapper return`);
     const call = mock.calls.find(c => c.body.functionName?.startsWith('SetMaterialInstance'));
     t.assert(call?.body.parameters.Instance === asset && call.body.parameters.ParameterName === name,
       `${type}: setter receives the instance reference and parameter name`);
     t.assert(call?.body.parameters.Association === 'GlobalParameter', `${type}: uses global parameter association`);
   } catch (error) {
     t.assert(false, `${type}: reflected setter round-trip`, error.message);
+  }
+}
+
+for (const [type, name, value] of [
+  ['Scalar', 'Roughness', 0],
+  ['Vector', 'Tint', { R: 0, G: 0, B: 0, A: 1 }],
+  ['Texture', 'Diffuse', '/Game/Textures/T_Test.T_Test'],
+]) {
+  for (const overrides of [[], [{
+    ParameterInfo: { Name: name, Association: 'LayerParameter', Index: 0 }, ParameterValue: value,
+  }], [{
+    ParameterInfo: { Name: name, Association: 'GlobalParameter', Index: -1 }, ParameterValue: null,
+  }]]) {
+    const mock = new FakeHttpResponder()
+      .on('PUT /remote/object/describe', instanceDescription)
+      .on('PUT /remote/object/call', (_port, _method, _path, body) => (
+        body.functionName === `Get${type}ParameterNames` ? { ParameterNames: [name] } : { ReturnValue: value }
+      ))
+      .on('PUT /remote/object/property', { [`${type}ParameterValues`]: overrides });
+    const conn = new ConnectionManager({ rcPort: 30010, httpCommandFn: mock.handler() });
+    await t.assertRejects(() => executeRcTool('set_material_parameter', {
+      asset_path: asset, parameter_name: name, value,
+    }, conn), /global override/i, `${type}: matching effective value alone cannot certify a missing, layered, or mismatched override`);
   }
 }
 

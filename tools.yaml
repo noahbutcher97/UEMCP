@@ -1216,7 +1216,7 @@ toolsets:
         saves_asset: false
         compiles_asset: true
         offline_fallback: false
-        description: "Set a global scalar/vector/texture parameter on a loaded UMaterialInstanceConstant via reflected MaterialEditingLibrary wrappers, then verify with an uncached getter. Recompiles/updates the instance but does not save it. Type is inferred from value unless parameter_type is supplied. Remote Control must allow MaterialEditingLibrary calls; the library's boolean return is unreliable in UE 5.8, so verified readback determines success."
+        description: "Set a global scalar/vector/texture parameter on a loaded UMaterialInstanceConstant via reflected MaterialEditingLibrary wrappers. Names match case-insensitively. Verify both the effective value and a matching typed global override on the instance using uncached reads; matching inherited/default readback alone is insufficient. An already matching instance override is an idempotent success. Recompiles/updates the instance but does not save it. Type is inferred from value unless parameter_type is supplied. Remote Control must allow MaterialEditingLibrary calls; the library's boolean return is unreliable in UE 5.8."
         params:
           asset_path:     { type: string, required: true }
           parameter_name: { type: string, required: true }
