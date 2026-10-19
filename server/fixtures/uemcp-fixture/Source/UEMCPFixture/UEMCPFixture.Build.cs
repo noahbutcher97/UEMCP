@@ -8,7 +8,7 @@ public class UEMCPFixture : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "BlueprintGraph", "KismetCompiler", "UEMCP", "RemoteControl", "MaterialEditor", "Json", "JsonUtilities" });
+			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "BlueprintGraph", "KismetCompiler", "UEMCP", "RemoteControl", "RemoteControlCommon", "MaterialEditor", "Json", "JsonUtilities" });
 		}
 	}
 }

@@ -21,7 +21,7 @@ runner.assert(
 
 runner.assert(
   Object.isFrozen(ROTATION_FILE_TIMEOUT_OVERRIDES_MS)
-    && JSON.stringify(Object.keys(ROTATION_FILE_TIMEOUT_OVERRIDES_MS).sort()) === JSON.stringify([...extendedFiles, 'test-material-lifecycle-live.mjs'].sort()),
+    && JSON.stringify(Object.keys(ROTATION_FILE_TIMEOUT_OVERRIDES_MS).sort()) === JSON.stringify([...extendedFiles, 'test-material-lifecycle-live.mjs', 'test-material-mcp-live.mjs'].sort()),
   'only Windows integration suites and the opt-in engine lifecycle receive extended budgets',
 );
 
@@ -31,6 +31,9 @@ for (const file of extendedFiles) {
     `${file} receives the bounded eight-minute integration budget`,
   );
 }
+
+runner.assert(rotationFileTimeoutMs('test-material-mcp-live.mjs') === 48 * 60 * 1000,
+  'MCP HTTP engine budget covers native setup and both editor processes');
 
 runner.assert(rotationFileTimeoutMs('test-material-lifecycle-live.mjs') === 26 * 60 * 1000,
   'engine lifecycle budget covers build and both bounded processes');
