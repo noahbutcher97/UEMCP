@@ -2,6 +2,12 @@
   "schemaVersion": 1,
   "scope": "Bounded local foundation profiles only; remaining inventory and consumer obligations are retained, not qualified by these profiles.",
   "profiles": {
+    "material-mcp-live": {
+      "runner": "node",
+      "capabilities": ["engine", "offscreen", "mcp", "http"],
+      "fixturePaths": [],
+      "suites": [{ "name": "test-material-mcp-live.mjs", "cases": ["owned MCP HTTP material writes Undo Redo and restart persistence"] }]
+    },
     "material-lifecycle": {
       "runner": "node",
       "scope": "Opt-in owned UE host build, native RC dispatch, Undo, package save and separate-process reload. No external project, HTTP transport, UI or rendered qualification.",
@@ -32,6 +38,7 @@
             "test-client-transaction.mjs receives the bounded eight-minute integration budget",
             "test-deployment-contracts.mjs receives the bounded eight-minute integration budget",
             "engine lifecycle budget covers build and both bounded processes",
+            "MCP HTTP engine budget covers native setup and both editor processes",
             "fixture-isolated adapter tests retain the default budget",
             "other unlisted test files use the default budget",
             "timeout policy rejects non-basename file identifiers"
