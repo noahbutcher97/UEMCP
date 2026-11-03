@@ -10,4 +10,8 @@ class UVerifyMaterialLifecycleCommandlet : public UCommandlet
 public:
 	UVerifyMaterialLifecycleCommandlet();
 	virtual int32 Main(const FString& Params) override;
+
+	/** Test-host controls only; requires the explicit UEMCPMaterialLive launch flag. */
+	UFUNCTION(BlueprintCallable, Category="UEMCPFixture")
+	static FString LiveControl(const FString& Operation);
 };

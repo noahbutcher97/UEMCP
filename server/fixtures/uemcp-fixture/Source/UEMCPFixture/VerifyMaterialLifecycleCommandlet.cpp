@@ -32,6 +32,9 @@
 #include "Misc/App.h"
 #include "Misc/Paths.h"
 #include "TimerManager.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/PlatformMisc.h"
+#include "RemoteControlSettings.h"
 
 namespace UEMCPFixture::MaterialLifecycle
 {
@@ -151,6 +154,46 @@ UMaterialInstanceConstant* CreateFixture()
 UVerifyMaterialLifecycleCommandlet::UVerifyMaterialLifecycleCommandlet()
 {
 	IsEditor = true; IsClient = false; IsServer = false; LogToConsole = true;
+}
+
+FString UVerifyMaterialLifecycleCommandlet::LiveControl(const FString& Operation)
+{
+#if WITH_EDITOR
+	if (FString(FApp::GetProjectName()) != TEXT("UEMCPFixture") || !GEditor || !FParse::Param(FCommandLine::Get(), TEXT("UEMCPMaterialLive"))) return TEXT("{\"success\":false}");
+	bool Success = false;
+	if (Operation == TEXT("identity")) Success = true;
+	else if (Operation == TEXT("load")) Success = LoadObject<UMaterialInstanceConstant>(nullptr, TEXT("/Game/MaterialVerification/MI_Parameters.MI_Parameters")) != nullptr;
+	else if (Operation == TEXT("reset")) { GEditor->ResetTransaction(FText::FromString(TEXT("Material live verification"))); Success = true; }
+	else if (Operation == TEXT("undo")) Success = GEditor->UndoTransaction();
+	else if (Operation == TEXT("redo")) Success = GEditor->RedoTransaction();
+	else if (Operation == TEXT("save"))
+	{
+		Success = true;
+		for (const TCHAR* Path : { TEXT("/Game/MaterialVerification/M_Parameters.M_Parameters"), TEXT("/Game/MaterialVerification/MI_Parameters.MI_Parameters") })
+		{
+			UObject* Object = LoadObject<UObject>(nullptr, Path);
+			if (!Object) { Success = false; break; }
+			FSavePackageArgs Args; Args.TopLevelFlags = RF_Public | RF_Standalone; Args.SaveFlags = SAVE_NoError;
+			Success &= UPackage::SavePackage(Object->GetOutermost(), Object, *FPackageName::LongPackageNameToFilename(Object->GetOutermost()->GetName(), FPackageName::GetAssetPackageExtension()), Args);
+		}
+	}
+	else if (Operation == TEXT("quit"))
+	{
+		FTimerHandle Timer;
+		GEditor->GetTimerManager()->SetTimer(Timer, []() { FPlatformMisc::RequestExit(false); }, 1.0f, false);
+		Success = true;
+	}
+	auto Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), Success);
+	Result->SetStringField(TEXT("project"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
+	Result->SetNumberField(TEXT("pid"), FPlatformProcess::GetCurrentProcessId());
+	Result->SetBoolField(TEXT("allowAny"), GetDefault<URemoteControlSettings>()->bAllowAnyRemoteFunctionCall);
+	Result->SetBoolField(TEXT("pythonEnabled"), GetDefault<URemoteControlSettings>()->bEnableRemotePythonExecution);
+	FString Json; auto Writer = TJsonWriterFactory<>::Create(&Json); FJsonSerializer::Serialize(Result, Writer);
+	return Json;
+#else
+	return TEXT("{\"success\":false}");
+#endif
 }
 
 int32 UVerifyMaterialLifecycleCommandlet::Main(const FString& Params)

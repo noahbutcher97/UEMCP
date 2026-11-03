@@ -85,3 +85,43 @@ Existing output directories are refused; use a fresh directory for every run.
 The engine-free runner failure tests participate in default rotation. The
 engine profile requires both environment variables and fails if skipped.
 This gate does not exercise HTTP/MCP transport, keyboard Undo, Redo or rendering.
+
+## MCP / HTTP / owned editor verification
+
+The opt-in live profile exercises the actual stdio MCP server, Remote Control
+HTTP listener, and material tools against only a fresh UEMCPFixture stage:
+
+```powershell
+$env:UEMCP_MATERIAL_LIVE_ROOT = 'D:/UEMCP-Material-Live-Run'
+$env:UEMCP_MATERIAL_LIVE_ENGINE = 'C:/Program Files/Epic Games/UE_5.8'
+npm.cmd run test:material-live
+```
+
+It reuses the native lifecycle gate for staging, compilation, and saved fixture
+authoring. The live editor runs offscreen because UE 5.8 disables HTTP under NullRHI.
+Each subsequent editor process uses an isolated runtime directory,
+a dedicated loopback HTTP port, explicit RC class permissions, and
+`-UEMCPTcpPort=<owned-port>` for the real UEMCP ownership handshake. This
+new port override (1.0.22+) requires
+compiling the current plugin source, as the owned-stage runner does. Normal
+editor launches retain their default TCP port. Python execution and Allow Any
+Remote Function Call remain disabled for the test listener.
+
+The MCP client uses `describe_tool` and the existing `call_tool` /
+`call_mutating_tool` dispatchers. These run the same schemas, project guards,
+and executors as direct calls. The runner verifies the owned TCP handshake
+through `connection_info` before issuing HTTP mutations. The fixture sets a narrow in-memory function allowlist only for
+verification launches; it never saves these settings.
+
+The MCP client attaches only the staged project and checks its editor PID and
+project identity before loading or changing assets. All nine typed global,
+layer, and blend writes use lowercase names; every write is read back, undone,
+and redone. Full listing snapshots also verify unchanged neighboring layers.
+Layer-only global names and invalid indices must fail without mutation. A
+separate editor process reloads saved values through MCP and verifies unchanged
+saved-package hashes. Reports include MCP transcripts and process outcomes.
+Required profiles fail on missing evidence; default rotation skips this engine
+profile and runs its engine-free failure tests.
+
+Undo/Redo use explicit test-host native editor controls called through MCP, not
+keyboard input. This profile does not qualify rendered output or UI acceptance.

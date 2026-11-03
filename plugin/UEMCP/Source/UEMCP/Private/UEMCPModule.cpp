@@ -7,6 +7,8 @@
 
 #include "Misc/App.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
@@ -18,7 +20,7 @@ DEFINE_LOG_CATEGORY(LogUEMCP);
 
 namespace
 {
-	constexpr int32 UEMCPPort = 55558;
+	constexpr int32 DefaultUEMCPPort = 55558;
 
 	FSocket* GListenerSocket = nullptr;
 	FMCPServerRunnable* GServerRunnable = nullptr;
@@ -26,6 +28,14 @@ namespace
 
 	bool StartTcpServer()
 	{
+		int32 UEMCPPort = DefaultUEMCPPort;
+		FParse::Value(FCommandLine::Get(), TEXT("UEMCPTcpPort="), UEMCPPort);
+		if (UEMCPPort < 1 || UEMCPPort > 65535)
+		{
+			UE_LOG(LogUEMCP, Error, TEXT("UEMCP: invalid explicit TCP port"));
+			return false;
+		}
+
 		ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 		if (!SocketSubsystem)
 		{
