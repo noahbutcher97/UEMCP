@@ -925,6 +925,8 @@ export class ConnectionManager {
     // path runs ~5.6s wall-clock; the default 5s wire timeout fires before
     // the handler returns).
     const timeoutMs = opts.timeoutMs ?? this.config.tcpTimeoutMs;
+    const generation = this._attachmentGeneration;
+    const port = this.config.tcpPortCustom;
 
     return this._queue.enqueue(layerKey, async () => {
       let result;
@@ -947,13 +949,15 @@ export class ConnectionManager {
         dispatchTimeoutMs = Math.min(timeoutMs, remaining);
       }
       opts.beforeDispatch?.();
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed before TCP dispatch');
       result = await tcpFn(
-        this.config.tcpPortCustom,
+        port,
         type,
         params,
         dispatchTimeoutMs,
         metrics
       );
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed during TCP request');
 
       // Normalize error responses — P0-1 (audit 2026-04-12). Three formats exist on the
       // wire; the bridge catches two and leaks the third as a success-wrapped payload.
@@ -1020,6 +1024,7 @@ export class ConnectionManager {
       }
 
       await this._prepareRcRequest();
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed before HTTP request');
 
       // Pass the agent only when the recycle flag is on. When the mock seam
       // (config.httpCommandFn) is in use, the agent argument is ignored.

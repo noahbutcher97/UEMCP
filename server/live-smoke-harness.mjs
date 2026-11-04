@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import yaml from 'js-yaml';
 import { ConnectionManager } from './connection-manager.mjs';
+import { createProjectIdentity, canonicalizePath } from './project-identity.mjs';
 import { initActorsTools } from './actors-tcp-tools.mjs';
 import { initBlueprintsWriteTools } from './blueprints-write-tcp-tools.mjs';
 import { initMenhanceTools } from './menhance-tcp-tools.mjs';
@@ -71,7 +72,7 @@ export function loadLiveSmokeTools({
 }
 
 export function createLiveSmokeConnectionManager(projectRoot, env = process.env, overrides = {}) {
-  return new ConnectionManager({
+  const cm = new ConnectionManager({
     projectRoot,
     projectName: env.UNREAL_PROJECT_NAME || '',
     tcpPortCustom: parseEnvInt(env, 'UNREAL_TCP_PORT_CUSTOM', 55558),
@@ -80,11 +81,23 @@ export function createLiveSmokeConnectionManager(projectRoot, env = process.env,
     autoDetect: true,
     ...overrides,
   });
+  cm.setAttachedProject(createProjectIdentity({ projectRoot }));
+  if (cm.projectTransport.source === 'invalid') throw new Error(cm.projectTransport.error);
+  return cm;
 }
 
 export async function probeEditor(connectionManager) {
+  let reachable = false;
   try {
-    const reachable = await connectionManager.isLayerAvailable('tcp-55558', true);
+    reachable = await connectionManager.isLayerAvailable('tcp-55558', true);
+    if (reachable) {
+      const reply = await connectionManager.send('tcp-55558', 'get_editor_state', {}, { skipCache: true });
+      const state = reply?.result ?? reply;
+      const path = (state?.project_identity ?? state)?.uproject_path;
+      if (!path || canonicalizePath(path) !== connectionManager._attachedProjectIdentity.canonicalUprojectPath) {
+        throw new Error('Live smoke TCP editor does not match the selected project');
+      }
+    }
     const status = connectionManager.getStatus()?.['tcp-55558'];
     return {
       reachable,
@@ -92,6 +105,7 @@ export async function probeEditor(connectionManager) {
       reason: reachable ? '' : `tcp-55558 unavailable: ${JSON.stringify(status)}`,
     };
   } catch (err) {
+    if (reachable) throw err; // A responding editor with unverifiable ownership is a failure, not an offline skip.
     return {
       reachable: false,
       status: null,

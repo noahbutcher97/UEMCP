@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConnectionManager } from './connection-manager.mjs';
+import { createLiveSmokeConnectionManager, probeEditor } from './live-smoke-harness.mjs';
 import { readProjectTransport } from './project-transport.mjs';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
 
@@ -24,6 +25,31 @@ try {
   });
   await check('legacy projects retain session fallback ports', () => {
     assert.deepEqual(readProjectTransport(legacy.projectRoot, defaults).ports, defaults);
+  });
+  await check('reattachment discards in-flight TCP replies and cancels queued writes', async () => {
+    const calls = [];
+    let unblock, started;
+    const ready = new Promise(r => { started = r; });
+    const cm = new ConnectionManager({ ...defaults, tcpCommandFn: async (port, type) => {
+      calls.push([port, type]); started(); await new Promise(r => { unblock = r; }); return {};
+    } });
+    cm.setAttachedProject(a);
+    const read = cm.send('tcp-55558', 'read');
+    await ready;
+    const write = cm.send('tcp-55558', 'mutate', {}, { skipCache: true });
+    cm.setAttachedProject(b); unblock();
+    await Promise.all([assert.rejects(read, /context changed/), assert.rejects(write, /context changed/)]);
+    assert.deepEqual(calls, [[56001, 'read']]);
+  });
+  await check('live smoke probes the selected project ports and rejects foreign TCP identity', async () => {
+    const calls = []; let path = a.uprojectPath;
+    const cm = createLiveSmokeConnectionManager(a.projectRoot, {}, { tcpCommandFn: async (port, type) => {
+      calls.push(port); return type === 'ping' ? {} : { result: { uproject_path: path } };
+    } });
+    assert.equal((await probeEditor(cm)).reachable, true);
+    path = b.uprojectPath;
+    await assert.rejects(probeEditor(cm), /does not match/);
+    assert.deepEqual([...new Set(calls)], [56001]); assert.equal(cm.config.rcPort, 31001);
   });
   await check('separate managers and reattachments never inherit another project ports', () => {
     const shared = { ...defaults };
