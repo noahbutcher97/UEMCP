@@ -53,8 +53,8 @@ async function createWireApp(options = {}) {
     workspaceRoots: options.workspaceRoots || [],
     processInspector: options.processInspector,
     deployInspector: options.deployInspector,
-    tcpCommandFn: options.tcpCommandFn,
-    httpCommandFn: options.httpCommandFn,
+    tcpCommandFn: options.tcpCommandFn ?? (async () => { throw new Error('No TCP editor in engine-free wire test'); }),
+    httpCommandFn: options.httpCommandFn ?? (async () => { throw new Error('No HTTP editor in engine-free wire test'); }),
     writeProjectCodenames: options.writeProjectCodenames === true,
     stderr: { write() {} },
   });
@@ -670,6 +670,9 @@ await runCase('attach_project target_profile is visible in connection_info', asy
   try {
     const primary = writeProject(join(repoRoot, 'PrimaryProject'), 'PrimaryProject');
     const secondary = writeProject(join(repoRoot, 'SecondaryProject'), 'SecondaryProject');
+    mkdirSync(join(secondary.projectRoot, 'Config'), { recursive: true });
+    writeFileSync(join(secondary.projectRoot, 'Config/DefaultUEMCP.ini'), '[UEMCP]\nTcpPort=56002\n');
+    writeFileSync(join(secondary.projectRoot, 'Config/DefaultRemoteControl.ini'), '[/Script/RemoteControlCommon.RemoteControlSettings]\nRemoteControlHttpServerPort=31002\n');
     writeFileSync(join(repoRoot, '.uemcp-targets.json'), `${JSON.stringify({
       version: 1,
       profiles: {
@@ -688,6 +691,8 @@ await runCase('attach_project target_profile is visible in connection_info', asy
     t.assert(!attach.result.isError, `profile target attach succeeds (got isError=${attach.result.isError})`);
 
     const info = parseTextResult(await callTool(transport, 'connection_info', {}));
+    t.assert(info.transportConfiguration.ports.tcpPortCustom === 56002 && info.transportConfiguration.ports.rcPort === 31002,
+      'alias attachment reads the selected project persistent port pair');
     t.assert(info.targetAttachment.profile === 'smoke', `connection_info target profile is smoke (got ${info.targetAttachment?.profile})`);
     t.assert(info.targetAttachment.alias === 'secondary', `connection_info target alias is secondary (got ${info.targetAttachment?.alias})`);
     t.assert(info.targetAttachment.requestedTarget === 'secondary', `connection_info requested target is secondary (got ${info.targetAttachment?.requestedTarget})`);

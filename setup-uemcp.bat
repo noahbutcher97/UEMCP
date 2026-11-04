@@ -265,9 +265,10 @@ REM seeds "default", "smoke", and "release-gate"; legacy .txt is kept only for
 REM older scripts that have not migrated yet.
 set "TARGETS_JSON=!UEMCP_PATH!\.uemcp-targets.json"
 set "TARGETS_FILE=!UEMCP_PATH!\.uemcp-targets.txt"
-node --input-type=module -e "import { pathToFileURL } from 'node:url'; const mod = await import(pathToFileURL(process.env.UEMCP_PATH + '\\server\\project-targets.mjs').href); const r = mod.registerProjectTargetProfile({ configPath: process.env.TARGETS_JSON, uprojectPath: process.env.UPROJECT_FULL }); console.log(r.status.toUpperCase() + ': ' + r.alias + ' -> ' + process.env.UPROJECT_FULL);"
+node "!UEMCP_PATH!\server\configure-project-ports.mjs" --project "!UPROJECT_FULL!" --targets "!TARGETS_JSON!"
 if errorlevel 1 (
-  echo [WARN] Failed to update !TARGETS_JSON!; continuing.
+  echo [ERROR] Could not configure isolated project ports. No default-port fallback will be installed.
+  exit /b 1
 ) else (
   echo [SUCCESS] Registered target in !TARGETS_JSON! profile "default". Curated smoke / release-gate profiles left untouched.
 )

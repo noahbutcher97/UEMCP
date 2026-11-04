@@ -16,6 +16,9 @@ import net from 'node:net';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { PROJECT_ERROR_CODES } from './project-errors.mjs';
+import { readProjectTransport } from './project-transport.mjs';
+import { canonicalizePath } from './project-identity.mjs';
+import { isAbsolute } from 'node:path';
 import {
   encodeTcpRequest,
   TcpResponseDecoder,
@@ -646,7 +649,11 @@ export class ConnectionManager {
    * @param {object} config — from server.mjs config object
    */
   constructor(config) {
-    this.config = config;
+    this.config = { ...config };
+    this._sessionTransportPorts = { tcpPortCustom: config.tcpPortCustom || 55558, rcPort: config.rcPort || 30010 };
+    this._projectTransportError = null;
+    this._attachmentGeneration = 0;
+    this.projectTransport = { ports: { ...this._sessionTransportPorts }, source: 'session' };
 
     /**
      * Test seam: inject a replacement for the real tcpCommand function.
@@ -759,6 +766,21 @@ export class ConnectionManager {
    * @param {object|null} identityOrNull
    */
   setAttachedProject(identityOrNull) {
+    const previousTransport = JSON.stringify(this.projectTransport);
+    const previous = this._attachedProjectIdentity;
+    this._projectTransportError = null;
+    try {
+      this.projectTransport = identityOrNull?.projectRoot
+        ? readProjectTransport(identityOrNull.projectRoot, this._sessionTransportPorts)
+        : { ports: { ...this._sessionTransportPorts }, source: 'session' };
+    } catch (error) {
+      this._projectTransportError = error;
+      this.projectTransport = { ports: { ...this._sessionTransportPorts }, source: 'invalid', error: error.message };
+    }
+    Object.assign(this.config, this.projectTransport.ports);
+    if ((previous?.projectRoot ?? '') !== (identityOrNull?.projectRoot ?? '')
+      || (previous?.uprojectPath ?? '') !== (identityOrNull?.uprojectPath ?? '')
+      || previousTransport !== JSON.stringify(this.projectTransport)) this._attachmentGeneration++;
     this._attachedProjectIdentity = identityOrNull || null;
     const projectRoot = this._attachedProjectIdentity?.projectRoot || '';
     this.config.projectRoot = projectRoot;
@@ -783,6 +805,7 @@ export class ConnectionManager {
       layer.status = LayerStatus.UNKNOWN;
       layer.lastCheck = 0;
       delete layer.error;
+      delete layer.ownerProcessId;
     }
     this._detectedProject = null;
     if (this._rcAgent) {
@@ -860,6 +883,7 @@ export class ConnectionManager {
         status: info.status,
         error: info.error || null,
         lastCheck: info.lastCheck ? new Date(info.lastCheck).toISOString() : null,
+        ...(info.ownerProcessId ? { ownerProcessId: info.ownerProcessId } : {}),
       };
     }
     return out;
@@ -880,6 +904,7 @@ export class ConnectionManager {
    * @returns {Promise<object>}
    */
   async send(layerKey, type, params = {}, opts = {}) {
+    if (this._projectTransportError) throw this._projectTransportError;
     if (layerKey !== 'tcp-55558' && layerKey !== 'http-30010') {
       throw new Error(`Unknown layer: ${layerKey}`);
     }
@@ -904,6 +929,8 @@ export class ConnectionManager {
     // path runs ~5.6s wall-clock; the default 5s wire timeout fires before
     // the handler returns).
     const timeoutMs = opts.timeoutMs ?? this.config.tcpTimeoutMs;
+    const generation = this._attachmentGeneration;
+    const port = this.config.tcpPortCustom;
 
     return this._queue.enqueue(layerKey, async () => {
       let result;
@@ -926,13 +953,15 @@ export class ConnectionManager {
         dispatchTimeoutMs = Math.min(timeoutMs, remaining);
       }
       opts.beforeDispatch?.();
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed before TCP dispatch');
       result = await tcpFn(
-        this.config.tcpPortCustom,
+        port,
         type,
         params,
         dispatchTimeoutMs,
         metrics
       );
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed during TCP request');
 
       // Normalize error responses — P0-1 (audit 2026-04-12). Three formats exist on the
       // wire; the bridge catches two and leaks the third as a success-wrapped payload.
@@ -982,47 +1011,29 @@ export class ConnectionManager {
    * @returns {Promise<object>}
    */
   async sendHttp(method, path, body = null, opts = {}) {
+    if (this._projectTransportError) throw this._projectTransportError;
+    const generation = this._attachmentGeneration;
     const cacheType = `HTTP ${method} ${path}`;
-    if (!opts.skipCache) {
-      const cached = this._cache.get(cacheType, body || {});
-      if (cached) return cached;
-    }
 
     return this._queue.enqueue('http-30010', async () => {
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed before HTTP dispatch');
       const httpFn = this._httpCommandFn || httpCommand;
       const port = this.config.rcPort || 30010;
       const timeoutMs = this.config.httpTimeoutMs || 5000;
-
-      // NEW-2 mitigation #2 — rate-cap (wait for a token before dispatch).
-      if (this._rcRateCap > 0) {
-        await this._rcConsumeToken();
+      await this._verifyHttpOwner(httpFn, port, timeoutMs);
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed during HTTP ownership lookup');
+      if (!opts.skipCache) {
+        const cached = this._cache.get(cacheType, body || {});
+        if (cached) return cached;
       }
 
-      // NEW-2 mitigation #1 — recycle agent every N un-cached calls.
-      // First call lazily creates the agent; subsequent recycles destroy + recreate.
-      if (this._rcRecycleAfterN > 0) {
-        if (this._rcAgent === null || this._rcCallsSinceRecycle >= this._rcRecycleAfterN) {
-          this._recycleRcAgent();
-        }
-        this._rcCallsSinceRecycle++;
-      }
-
-      // NEW-2 mitigation #3 — fire relaunch hint once when cumulative count crosses N.
-      this._rcCallCount++;
-      if (
-        !this._rcRelaunchHintFired &&
-        this._rcRelaunchHintAfterN > 0 &&
-        this._rcCallCount >= this._rcRelaunchHintAfterN
-      ) {
-        process.stderr.write(
-          `[uemcp] WARNING: ${this._rcCallCount} RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Relaunch the Unreal Editor, then restart the MCP server before resuming RC operations.\n`
-        );
-        this._rcRelaunchHintFired = true;
-      }
+      await this._prepareRcRequest();
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed before HTTP request');
 
       // Pass the agent only when the recycle flag is on. When the mock seam
       // (config.httpCommandFn) is in use, the agent argument is ignored.
       const result = await httpFn(port, method, path, body, timeoutMs, this._rcAgent || undefined);
+      if (generation !== this._attachmentGeneration) throw new Error('Project context changed during HTTP request');
 
       const wireError = extractWireError(result);
       if (wireError !== null) {
@@ -1038,6 +1049,61 @@ export class ConnectionManager {
       this.layers['http-30010'].error = undefined;
       return result;
     });
+  }
+
+  async _prepareRcRequest() {
+  // NEW-2 mitigation #2 — rate-cap (wait for a token before dispatch).
+  if (this._rcRateCap > 0) {
+    await this._rcConsumeToken();
+  }
+
+  // NEW-2 mitigation #1 — recycle agent every N un-cached calls.
+  // First call lazily creates the agent; subsequent recycles destroy + recreate.
+  if (this._rcRecycleAfterN > 0) {
+    if (this._rcAgent === null || this._rcCallsSinceRecycle >= this._rcRecycleAfterN) {
+      this._recycleRcAgent();
+    }
+    this._rcCallsSinceRecycle++;
+  }
+
+  // NEW-2 mitigation #3 — fire relaunch hint once when cumulative count crosses N.
+  this._rcCallCount++;
+  if (
+    !this._rcRelaunchHintFired &&
+    this._rcRelaunchHintAfterN > 0 &&
+    this._rcCallCount >= this._rcRelaunchHintAfterN
+  ) {
+    process.stderr.write(
+      `[uemcp] WARNING: ${this._rcCallCount} RC HTTP calls accumulated since last editor relaunch — NEW-2 ceiling approaching. Relaunch the Unreal Editor, then restart the MCP server before resuming RC operations.\n`
+    );
+    this._rcRelaunchHintFired = true;
+  }
+  }
+
+  async _verifyHttpOwner(httpFn, port, timeoutMs) {
+    if (!this._attachedProjectIdentity) return;
+    const expected = this._attachedProjectIdentity.uprojectPath;
+    const fail = (message, code = 'HTTP_TRANSPORT_OWNER_MISMATCH') => {
+      this.layers['http-30010'].ownerProcessId = null;
+      this.layers['http-30010'].status = LayerStatus.UNAVAILABLE;
+      this.layers['http-30010'].error = message;
+      const error = new Error(message); error.code = code; throw error;
+    };
+    if (!expected) fail('HTTP owner identity requires an attached .uproject', 'HTTP_TRANSPORT_OWNER_UNVERIFIED');
+    const reply = await (this._tcpCommandFn || tcpCommand)(this.config.tcpPortCustom || 55558, 'get_editor_state', {}, this.config.tcpTimeoutMs || 5000);
+    const state = reply?.result ?? reply;
+    const tcp = state?.project_identity ?? state;
+    const tcpPath = tcp?.uproject_path;
+    const pid = state?.process_id ?? tcp?.process_id;
+    if (!isAbsolute(tcpPath ?? '') || canonicalizePath(tcpPath) !== canonicalizePath(expected) || !Number.isSafeInteger(pid) || pid <= 0) fail('TCP editor owner identity is missing or mismatches the attached project');
+    await this._prepareRcRequest();
+    const response = await httpFn(port, 'PUT', '/remote/object/property', {
+      objectPath: '/Script/UEMCP.Default__UEMCPEditorIdentity', propertyName: 'Identity', access: 'READ_ACCESS',
+    }, timeoutMs, this._rcAgent || undefined);
+    const http = response?.Identity;
+    if (!http || !isAbsolute(http.ProjectFile ?? '') || !Number.isSafeInteger(http.ProcessId)) fail('HTTP editor owner identity unavailable; deploy UEMCP 1.0.23+ before live HTTP calls', 'HTTP_TRANSPORT_OWNER_UNVERIFIED');
+    if (canonicalizePath(http.ProjectFile) !== canonicalizePath(expected) || http.ProcessId !== pid || http.TcpPort !== this.config.tcpPortCustom) fail('HTTP owner identity mismatches the attached TCP editor');
+    this.layers['http-30010'].ownerProcessId = pid;
   }
 
   /**
@@ -1226,6 +1292,7 @@ export class ConnectionManager {
       return false;
     }
 
+    const generation = this._attachmentGeneration;
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
 
@@ -1241,6 +1308,7 @@ export class ConnectionManager {
 
     // Look for .uproject at the configured root
     const hasUproject = await this._findUprojectIn(fs, projectRoot);
+    if (generation !== this._attachmentGeneration) return false;
 
     if (hasUproject) {
       // Configured root is correct
@@ -1254,6 +1322,7 @@ export class ConnectionManager {
 
     // No .uproject at configured root — scan immediate children
     const resolved = await this._resolveProjectRoot(fs, path, projectRoot);
+    if (generation !== this._attachmentGeneration) return false;
 
     if (resolved) {
       this.setAttachedProject({ ...(this._attachedProjectIdentity || {}), projectRoot: resolved.root });
@@ -1320,6 +1389,9 @@ export class ConnectionManager {
 
   async _probeLayer(layerKey) {
     const layer = this.layers[layerKey];
+    if (this._projectTransportError && layerKey !== 'offline') {
+      layer.status = LayerStatus.UNAVAILABLE; layer.error = this._projectTransportError.message; layer.lastCheck = Date.now(); return false;
+    }
     layer.status = LayerStatus.CONNECTING;
 
     try {
@@ -1351,6 +1423,7 @@ export class ConnectionManager {
             layer.lastCheck = Date.now();
             return false;
           }
+          await this._verifyHttpOwner(httpFn, port, 3000);
           layer.status = LayerStatus.AVAILABLE;
           layer.lastCheck = Date.now();
           layer.error = undefined;

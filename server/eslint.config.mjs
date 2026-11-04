@@ -37,6 +37,7 @@ const CLI_ONLY_GLOBS = [
   'oracle-freshness.mjs',
   'rotation-oracle-freshness.mjs',
   'write-mcp-config.mjs',
+  'configure-project-ports.mjs',
   'run-native-tests.mjs',
 ];
 

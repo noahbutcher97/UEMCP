@@ -63,6 +63,12 @@ try {
     t.assert(refreshed.deploy.code === 'DEPLOY_STALE', 'stale deploy diagnostic survives validation');
     const cached = await checkInfo(client, {}, 'attached cached');
     t.assert(cached.readiness.deployFreshness === 'stale', 'cached deploy readiness retained');
+    mkdirSync(join(root, 'Config'), { recursive: true });
+    writeFileSync(join(root, 'Config/DefaultUEMCP.ini'), '[UEMCP]\nTcpPort=invalid\n');
+    await client.callTool({ name: 'attach_project', arguments: { uproject_path: uprojectPath, allow_outside_client_roots: true } });
+    const invalid = await checkInfo(client, { force_reconnect: true }, 'invalid transport');
+    t.assert(invalid.transportConfiguration.source === 'invalid' && Boolean(invalid.transportConfiguration.error), 'invalid transport diagnostic survives schema validation');
+    writeFileSync(join(root, 'Config/DefaultUEMCP.ini'), '[UEMCP]\nTcpPort=55558\n');
   } catch (error) {
     t.assert(false, 'official client in-memory lifecycle', error.stack);
   } finally {

@@ -45,6 +45,17 @@ try {
     put(join(opts.outputRoot, 'host/Content/MaterialVerification/Unowned.uasset'), 'unowned');
     await assert.rejects(validateFixtureHost({ ...opts, materialLifecycleAssets: 'required' }), /membership/);
   });
+  await check('generated transport config admits only the declared port keys', async () => {
+    const opts = options(); await prepareFixtureHost(opts);
+    const projectPorts = { tcpPortCustom: 56001, rcPort: 31001 };
+    put(join(opts.outputRoot, 'host/Config/DefaultUEMCP.ini'), '[UEMCP]\nTcpPort=56001\n');
+    const rcPath = join(opts.outputRoot, 'host/Config/DefaultRemoteControl.ini');
+    put(rcPath, '[/Script/RemoteControlCommon.RemoteControlSettings]\nRemoteControlHttpServerPort=31001\n');
+    await assert.rejects(validateFixtureHost(opts), /membership/);
+    await validateFixtureHost({ ...opts, projectPorts });
+    put(rcPath, '[/Script/RemoteControlCommon.RemoteControlSettings]\nRemoteControlHttpServerPort=31001\nbAllowAnyRemoteFunctionCall=True\n');
+    await assert.rejects(validateFixtureHost({ ...opts, projectPorts }), /transport config/);
+  });
 
   await check('canonical checkout generated plugin outputs are preserved but not staged', async () => {
     // repoRoot is the synthetic repo beneath this suite's fresh scratch root.

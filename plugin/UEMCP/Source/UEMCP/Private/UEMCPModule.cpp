@@ -9,6 +9,9 @@
 #include "Misc/CoreDelegates.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Misc/Paths.h"
+#include "UEMCPEditorIdentity.h"
 #include "Modules/ModuleManager.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
@@ -29,6 +32,9 @@ namespace
 	bool StartTcpServer()
 	{
 		int32 UEMCPPort = DefaultUEMCPPort;
+		FConfigFile ProjectTransport;
+		ProjectTransport.Read(FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("DefaultUEMCP.ini")));
+		ProjectTransport.GetInt(TEXT("UEMCP"), TEXT("TcpPort"), UEMCPPort);
 		FParse::Value(FCommandLine::Get(), TEXT("UEMCPTcpPort="), UEMCPPort);
 		if (UEMCPPort < 1 || UEMCPPort > 65535)
 		{
@@ -49,7 +55,8 @@ namespace
 			UE_LOG(LogUEMCP, Error, TEXT("UEMCP: failed to create listener socket"));
 			return false;
 		}
-		RawSocket->SetReuseAddr(true);
+		// Fail loudly on port conflicts; never share a listener with another editor.
+		RawSocket->SetReuseAddr(false);
 		RawSocket->SetNonBlocking(true);
 
 		// E-1 §4 hygiene fix: bind loopback-only (127.0.0.1) instead of FIPv4Address::Any.
@@ -86,6 +93,7 @@ namespace
 		}
 
 		GListenerSocket = RawSocket;
+		UUEMCPEditorIdentity::Publish(UEMCPPort);
 
 		// Force registry singleton construction (default handlers) BEFORE the server thread
 		// is created — honors the Register-before-start invariant documented in MCPCommandRegistry.h.
