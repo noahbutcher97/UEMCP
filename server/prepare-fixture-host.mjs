@@ -198,7 +198,7 @@ export async function prepareFixtureHost({ repoRoot = ROOT, outputRoot, engineRo
   return { manifestPath: join(outputRoot, 'host-manifest.json'), uprojectPath: join(outputRoot, 'host/UEMCPFixture.uproject'), manifest };
 }
 
-export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl, authoredAsset, materialLifecycleAssets }) {
+export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl, authoredAsset, materialLifecycleAssets, projectPorts }) {
   outputRoot = safePath(outputRoot);
   const manifest = json(safePath(join(outputRoot, 'host-manifest.json')));
   if (manifest.schemaVersion !== 1 || manifest.outputRoot !== outputRoot || manifest.repoRoot !== resolve(repoRoot) || !manifest.invocationId) throw new Error('Host ownership mismatch');
@@ -224,6 +224,20 @@ export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixture
       const asset = `Content/MaterialVerification/${name}.uasset`;
       if (manifest.files.some(file => file.destination === asset)) throw new Error('Material lifecycle asset must not replace staged source');
       if (materialLifecycleAssets === 'required' || actual.includes(asset)) expected.push(asset);
+    }
+    expected.sort();
+  }
+  if (projectPorts !== undefined) {
+    const ports = Object.values(projectPorts);
+    if (ports.length !== 2 || ports.some(port => !Number.isInteger(port) || port < 1 || port > 65535) || ports[0] === ports[1] || manifest.corpus) throw new Error('Invalid generated transport config ports');
+    const configs = {
+      'Config/DefaultUEMCP.ini': `[UEMCP]\nTcpPort=${projectPorts.tcpPortCustom}`,
+      'Config/DefaultRemoteControl.ini': `[/Script/RemoteControlCommon.RemoteControlSettings]\nRemoteControlHttpServerPort=${projectPorts.rcPort}`,
+    };
+    for (const [path, text] of Object.entries(configs)) {
+      if (manifest.files.some(f => f.destination === path)) throw new Error('Generated transport config cannot replace staged source');
+      if (readFileSync(safePath(join(outputRoot, 'host', path)), 'utf8').replace(/\r\n/g, '\n').trim() !== text) throw new Error('Unexpected generated transport config content');
+      expected.push(path);
     }
     expected.sort();
   }

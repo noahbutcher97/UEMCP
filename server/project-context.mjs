@@ -649,6 +649,13 @@ export class ProjectContext {
     return { identity: null, candidates: allCandidates };
   }
 
+  invalidateTransportReadiness() {
+    this.editorIdentityState = 'not_checked';
+    this.editorCandidates = [];
+    this.transportOwnershipState = 'not_checked';
+    this.setDeployReadiness({ state: 'not_checked' });
+  }
+
   async _transition({ attachmentState, identity, candidates }, reason) {
     const previousIdentity = this.identity;
     const previousCanonical = canonicalOf(previousIdentity);
@@ -660,10 +667,7 @@ export class ProjectContext {
     this.lastResolvedAt = new Date().toISOString();
 
     if (previousCanonical !== nextCanonical) {
-      this.editorIdentityState = 'not_checked';
-      this.editorCandidates = [];
-      this.transportOwnershipState = 'not_checked';
-      this.setDeployReadiness({ state: 'not_checked' });
+      this.invalidateTransportReadiness();
     }
 
     for (const handler of this._resetHandlers) {

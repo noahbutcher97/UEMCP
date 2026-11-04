@@ -402,7 +402,9 @@ export async function createUemcpServer(options = {}) {
   async function applyProjectContextToManagers() {
     await withToolListBatch(async () => {
       const projectRoot = projectContext.identity?.projectRoot || '';
+      const previousTransport = JSON.stringify(connectionManager.projectTransport);
       connectionManager.setAttachedProject(projectContext.identity);
+      if (previousTransport !== JSON.stringify(connectionManager.projectTransport)) projectContext.invalidateTransportReadiness();
       connectionManager.resetProjectScopedState({ generation: projectContext.generation, reason: 'project_context_reset' });
       resetOfflineAssetCache();
 
@@ -619,6 +621,7 @@ export async function createUemcpServer(options = {}) {
         projectRoot: connectionManager.resolvedProjectRoot || '(not set)',
         projectContext: projectSnapshot,
         targetAttachment: projectSnapshot.identity?.targetAttachment || null,
+        transportConfiguration: connectionManager.projectTransport,
         identityMismatch,
         ...(identityMismatch ? {
           identityMismatchPaths: {

@@ -91,6 +91,12 @@ export const MANAGEMENT_OUTPUT_SHAPE = {
   results: z.any().optional(),
   autoEnabled: z.array(z.string()).optional(),
   targetAttachment: z.any().optional(),
+  transportConfiguration: z.object({
+    ports: z.object({ tcpPortCustom: z.number().int(), rcPort: z.number().int() }),
+    source: z.enum(['project', 'session', 'invalid']),
+    configured: z.object({ tcp: z.number().nullable(), http: z.number().nullable() }).optional(),
+    error: z.string().optional(),
+  }).optional(),
   editor: z.any().optional(),
   deploy: z.any().optional(),
   // EN-25: connection_info's answer to "is the listener on 55558 actually the

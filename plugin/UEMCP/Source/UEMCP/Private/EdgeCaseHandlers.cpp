@@ -34,6 +34,7 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
+#include "HAL/PlatformProcess.h"
 
 namespace UEMCP
 {
@@ -89,6 +90,7 @@ namespace UEMCP
 
 			Result->SetStringField(TEXT("project_root"), ProjectRoot);
 			Result->SetStringField(TEXT("uproject_path"), UprojectPath);
+			Result->SetNumberField(TEXT("process_id"), FPlatformProcess::GetCurrentProcessId());
 			Result->SetStringField(TEXT("project_name"), ProjectName);
 
 			TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UEMCP"));

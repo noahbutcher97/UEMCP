@@ -546,8 +546,10 @@ const serverApp = await UemcpServerModule.createUemcpServer({
   cwd: process.cwd(),
   workspaceRoots: [committedProjectRoot],
   writeProjectCodenames: false,
-  tcpCommandFn: async () => ({ status: 'success' }),
-  httpCommandFn: async () => ({ Presets: [] }),
+  tcpCommandFn: async () => ({ status: 'success', result: { uproject_path: join(committedProjectRoot, 'UEMCPFixture.uproject'), process_id: 42 } }),
+  httpCommandFn: async (_port, _method, _path, body) => body?.propertyName === 'Identity'
+    ? { Identity: { ProjectFile: join(committedProjectRoot, 'UEMCPFixture.uproject'), ProcessId: 42, TcpPort: 55558 } }
+    : { Presets: [] },
   stderr: { write() {} },
 });
 const transport = new FakeMcpTransport();
