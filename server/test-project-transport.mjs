@@ -26,6 +26,18 @@ try {
   await check('legacy projects retain session fallback ports', () => {
     assert.deepEqual(readProjectTransport(legacy.projectRoot, defaults).ports, defaults);
   });
+  await check('offline health checks do not cancel an unchanged editor write', async () => {
+    let started, finish;
+    const ready = new Promise(r => { started = r; });
+    const cm = new ConnectionManager({ ...defaults, tcpCommandFn: async () => {
+      started(); await new Promise(r => { finish = r; }); return { success: true };
+    } });
+    cm.setAttachedProject(a);
+    const write = cm.send('tcp-55558', 'mutate', {}, { skipCache: true });
+    await ready;
+    assert.equal(await cm.checkOfflineAvailable(), true);
+    finish(); assert.equal((await write).success, true);
+  });
   await check('reattachment discards in-flight TCP replies and cancels queued writes', async () => {
     const calls = [];
     let unblock, started;

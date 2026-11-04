@@ -766,7 +766,8 @@ export class ConnectionManager {
    * @param {object|null} identityOrNull
    */
   setAttachedProject(identityOrNull) {
-    this._attachmentGeneration++;
+    const previousTransport = JSON.stringify(this.projectTransport);
+    const previous = this._attachedProjectIdentity;
     this._projectTransportError = null;
     try {
       this.projectTransport = identityOrNull?.projectRoot
@@ -777,6 +778,9 @@ export class ConnectionManager {
       this.projectTransport = { ports: { ...this._sessionTransportPorts }, source: 'invalid', error: error.message };
     }
     Object.assign(this.config, this.projectTransport.ports);
+    if ((previous?.projectRoot ?? '') !== (identityOrNull?.projectRoot ?? '')
+      || (previous?.uprojectPath ?? '') !== (identityOrNull?.uprojectPath ?? '')
+      || previousTransport !== JSON.stringify(this.projectTransport)) this._attachmentGeneration++;
     this._attachedProjectIdentity = identityOrNull || null;
     const projectRoot = this._attachedProjectIdentity?.projectRoot || '';
     this.config.projectRoot = projectRoot;
@@ -1288,6 +1292,7 @@ export class ConnectionManager {
       return false;
     }
 
+    const generation = this._attachmentGeneration;
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
 
@@ -1303,6 +1308,7 @@ export class ConnectionManager {
 
     // Look for .uproject at the configured root
     const hasUproject = await this._findUprojectIn(fs, projectRoot);
+    if (generation !== this._attachmentGeneration) return false;
 
     if (hasUproject) {
       // Configured root is correct
@@ -1316,6 +1322,7 @@ export class ConnectionManager {
 
     // No .uproject at configured root — scan immediate children
     const resolved = await this._resolveProjectRoot(fs, path, projectRoot);
+    if (generation !== this._attachmentGeneration) return false;
 
     if (resolved) {
       this.setAttachedProject({ ...(this._attachedProjectIdentity || {}), projectRoot: resolved.root });

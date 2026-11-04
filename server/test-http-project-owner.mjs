@@ -42,7 +42,7 @@ await check('reattachment during HTTP identity lookup cancels the operation', as
   const f = fixture(); const original = f.cm._httpCommandFn;
   f.cm._httpCommandFn = async (...args) => {
     const result = await original(...args);
-    f.cm.setAttachedProject({ projectRoot: dirname(project), uprojectPath: project });
+    f.cm.setAttachedProject(null);
     return result;
   };
   await assert.rejects(f.cm.sendHttp('PUT', '/remote/object/call', {}, { skipCache: true }), /context changed/);
