@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "scope": "Bounded local foundation profiles only; remaining inventory and consumer obligations are retained, not qualified by these profiles.",
   "profiles": {
+    "material-graph-live": {
+      "runner": "node",
+      "scope": "Owned host scalar function authoring, Undo/Redo, compile diagnostics and restart persistence. No texture/layer/rendered qualification.",
+      "capabilities": ["engine", "offscreen", "mcp", "http"],
+      "fixturePaths": [],
+      "suites": [{ "name": "test-material-graph-live.mjs", "cases": ["owned material function graph authoring Undo Redo compile rejection and restart persistence"] }]
+    },
     "project-isolation": {
       "runner": "node",
       "capabilities": ["engine", "offscreen", "mcp", "http", "two-editors"],

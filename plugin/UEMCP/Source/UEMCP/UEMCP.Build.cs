@@ -33,6 +33,8 @@ public class UEMCP : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UnrealEd",
+			"MaterialEditor", // Typed graph authoring helpers
+			"RHI", // Current shader platform/feature level for compile diagnostics
 			"Slate",
 			"SlateCore",
 			"EditorScriptingUtilities",
