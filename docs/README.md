@@ -1,7 +1,8 @@
 # UEMCP Documentation
 
 **Source of truth for tool definitions**: [tools.yaml](../tools.yaml)
-**Authoritative project-state snapshot**: [CLAUDE.md](../CLAUDE.md) at repo root
+**Working conventions and implementation overview**: [CLAUDE.md](../CLAUDE.md)
+**Current triage and proof boundaries**: [backlog.md](tracking/backlog.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
 
@@ -29,15 +30,15 @@ docs/
 2. `specs/architecture.md` — current transport model
 3. `specs/dynamic-toolsets.md` — how the tool-surface loads
 4. `../tools.yaml` — tool definitions (single source of truth per D44)
-5. `tracking/risks-and-decisions.md` — D1-D188 decision log (load-bearing context)
+5. `tracking/risks-and-decisions.md` — historical decisions (load-bearing context)
 
 **Quick reference during work**:
 - `tools.yaml` for tool lookup
-- `tracking/backlog.md` for in-flight + queued dispatches
+- `tracking/backlog.md` for current triage, retained reports and completion links
 - `tracking/risks-and-decisions.md` for decision rationale
 
-**Phase 3 context** (current phase):
-- See `tracking/risks-and-decisions.md` D58/D77/D87 for the current Phase 3 wave structure; session-local research and handoffs (in `research/`, `handoffs/`) are not tracked.
+**Historical phase-planning context**:
+- See `tracking/risks-and-decisions.md` D58/D77/D87 for historical Phase 3 sequencing; session-local research and handoffs (in `research/`, `handoffs/`) are not tracked.
 
 ---
 
@@ -91,5 +92,9 @@ Manual-test deliverables tied to specific milestones. Tracks what humans verifie
 Updated continuously across sessions.
 | File | Covers |
 |---|---|
-| [risks-and-decisions.md](tracking/risks-and-decisions.md) | Decision log D1-D188 + risk table |
-| [backlog.md](tracking/backlog.md) | In-flight dispatches, queued waves, recently-shipped items, enhancement candidates |
+| [risks-and-decisions.md](tracking/risks-and-decisions.md) | Historical decisions and risk table |
+| [backlog.md](tracking/backlog.md) | Active triage, qualification gaps, retained candidates and completion links |
+
+### Test hygiene
+
+See [testing isolation and shell selection](specs/test-hygiene.md) for fixture metadata isolation, Windows Git Bash, and hook token-file regression checks.

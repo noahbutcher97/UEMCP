@@ -3,18 +3,22 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { resolveGitInfoPath } from './project-hygiene.mjs';
 import { createUemcpServer } from './create-uemcp-server.mjs';
 import { cleanupCanonicalScratchRoot, createCanonicalScratchRoot, TestRunner } from './test-helpers.mjs';
 
 const t = new TestRunner('Connection Info Official Client Tests');
 const prefix = 'uemcp-connection-info-client-';
 const scratchRoot = createCanonicalScratchRoot(prefix);
-// Generic directory names keep stdio attachment out of the codename ledger.
-const root = join(scratchRoot, 'fixtures', 'uemcp-fixture');
+// Deliberately use names that must never leak out of a fixture session.
+const root = join(scratchRoot, 'host', 'A');
+const ledger = resolveGitInfoPath(fileURLToPath(new URL('..', import.meta.url)), 'info/known-test-targets.txt');
+const ledgerBytes = () => existsSync(ledger) ? readFileSync(ledger).toString('base64') : null;
+const ledgerBefore = ledgerBytes();
 mkdirSync(root, { recursive: true });
 const emptyWorkspace = join(scratchRoot, 'empty');
 mkdirSync(emptyWorkspace);
@@ -76,7 +80,7 @@ try {
     await app.server.close();
   }
 
-  // Also exercise the real stdio entrypoint, including MCP workspace roots.
+  // Exercise the production factory over stdio with test-only metadata isolation.
   const stdioClient = new Client({ name: 'connection-info-stdio', version: '1.0.0' }, {
     capabilities: { roots: { listChanged: true } },
   });
@@ -87,7 +91,7 @@ try {
   });
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
+    args: [fileURLToPath(new URL('./fixtures/stdio-test-server.mjs', import.meta.url))],
     cwd: emptyWorkspace, env: { UEMCP_PROJECT_ATTACH_MODE: 'workspace' }, stderr: 'pipe',
   });
   try {
@@ -102,6 +106,7 @@ try {
     t.assert(false, 'official client stdio lifecycle', error.stack);
   } finally {
     await stdioClient.close();
+    t.assert(ledgerBytes() === ledgerBefore, 'stdio fixture attachment leaves developer codename metadata unchanged');
   }
 } finally {
   cleanupCanonicalScratchRoot(scratchRoot, prefix);
