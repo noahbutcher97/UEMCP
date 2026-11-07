@@ -29,6 +29,26 @@ is not one atomic reversible transaction, and transport timeouts leave unknown
 outcomes. These are documented contract boundaries, not unreported passing tests.
 See [the material-function contract](../specs/material-function-authoring.md).
 
+## Product use versus test infrastructure
+
+Normal-use priorities are reliable editor attachment, truthful mutation results,
+PIE start/stop boundaries, useful asset/graph inspection and screenshots. QA-1,
+BUG-3 and the relevant F-14/EN-28 reproductions directly protect those workflows.
+Archived OWN fixture work is enabling coverage, not a prerequisite for every
+normal session and not automatically more valuable than a requested feature.
+
+For animation work, start by exercising the shipped `get_anim_graph` read on an
+owned AnimBP with `include_node_properties`, `include_pin_topology` and
+`include_pin_defaults`. The July 8 readback and July 12 pin-serialization plans
+have implementations; their unchecked historical items are not proof of absence.
+Create/rewire AnimGraph nodes is a separate potential authoring slice, explicitly
+outside those read-only plans. Define a concrete user workflow before scheduling
+it, with graph identity, schema validation, Undo, compile diagnostics and
+save/restart verification. Keep Chooser row/result inspection separate.
+
+The sequence below is a reliability/recovery track, not a requirement to finish
+all archived fixture proposals before developing user-facing animation tools.
+
 ## Recommended follow-up sequence
 
 This is the proposed execution order, not authorization to deploy to consumer
@@ -90,7 +110,7 @@ an owned fixture before implementing or declaring closure.
 | EN-8 P2/P4 | Partly implemented | Subobject traversal exists. Remaining report asks for GameplayEffect cue/component decoding and a runtime spawn/reference summary or documented recipe. |
 | EN-8 P5 / EN-4 | Deferred capability | Graduate MakeStruct/BreakStruct and selected math/comparison K2Nodes into supported inspection; demand and fixtures determine the subset. |
 | EN-8 P7 | Needs re-triage | Editor-requirement metadata exists. Define and add useful per-tool offline-fidelity hints rather than claiming the old request is wholly absent. |
-| Animation/Chooser residual | Needs reproduction / capability design | Chooser row-to-result mapping and deeper AnimGraph slot/blend properties. Montage/sequence reads and AnimGraph listing already received fixes; do not reopen the entire historical report as broken. |
+| Animation/Chooser residual | Product workflow validation / remaining readback design | `get_anim_graph` is shipped with state machines, states, transitions, slot names, layered-blend settings/branch filters and optional visual pin topology/defaults. Validate those existing reads on an owned AnimBP before defining missing fields. Chooser row-to-result mapping and any additional static blend fields remain separate gaps to reproduce. Runtime-evaluated blend output is not static graph readback. |
 
 Sources: [original animation audit](limitations-from-project-a-animation-audit-2026-06-18.md),
 [follow-on queue with scope-to-commit correspondence](../superpowers/plans/2026-06-18-live-usage-follow-on-queue.md),
