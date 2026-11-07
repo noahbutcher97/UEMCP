@@ -34,7 +34,7 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `actors` | 10 | TCP:55558 | Spawn, delete, transform, properties, viewport, screenshot |
 | `blueprints-write` | 27 | TCP:55558 | Create BP, add components, nodes, variables, compile |
 | `widgets` | 7 | TCP:55558 | Create UMG widgets, add elements, bind events |
-| `gas` | 4 | TCP:55558 | Create/modify GE, create GA, create AttributeSet |
+| `gas` | 0 callable (4 planned) | TCP:55558 | Planned GE, GA, and AttributeSet authoring; handlers are not implemented |
 | `blueprint-read` | 8 | TCP:55558 | BP introspection (info, variables, functions, components, dispatchers), Widget BP, Niagara |
 | `asset-registry` | 2 | TCP:55558 | Live asset dependencies, referencers, reverse-dependency checks, and DataTable contents |
 | `materials` | 5 | TCP:55558 | Create material/instance, set parameters, list parameters, material graph read |
@@ -46,6 +46,8 @@ These are always visible to Claude regardless of which toolsets are enabled:
 | `editor-utility` | 8 | TCP:55558 | Editor state, run Python, EUB introspection/run, duplicate/rename/delete assets |
 | `sidecar` | 1 | TCP:55558 | Narrow-sidecar regeneration |
 | `remote-control` | 8 | HTTP:30010 | RC get/set property, call function, list/describe objects, batch, presets, passthrough |
+
+`list_toolsets` includes configured toolsets even when all their tools are planned. Such toolsets report zero callable tools and remain unavailable; `enable_toolset` returns `TOOLSET_NOT_IMPLEMENTED` in its blocked reasons. Connecting an editor does not make planned tools callable. Planned entries remain excluded from `tools/list`, `find_tools`, and dispatch.
 
 **Subtotals from `tools.yaml`**: 10 always-loaded management tools plus dynamic project-scoped toolsets. Layer totals are derived from `tools.yaml`; do not hardcode counts outside registry truthfulness tests.
 
@@ -93,11 +95,12 @@ This historical deduplication removed 6 redundant tools from the early v2 design
 
 ## Typical Workflows
 
-**GAS debugging session**:
+**Checking GAS availability**:
 ```
-Claude: find_tools("gameplay ability effects combat")
-→ Enables: gas, blueprint-read, animation
-→ Active tools: 10 always + 4 + 8 + 8 = 30 tools
+Claude: list_toolsets()
+→ gas: toolCount 0, available false, enabled false
+Claude: enable_toolset({ toolsets: ["gas"] })
+→ unavailable: ["gas"], blocked reason: TOOLSET_NOT_IMPLEMENTED
 ```
 
 **Level design session**:

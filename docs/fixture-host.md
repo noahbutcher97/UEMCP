@@ -42,12 +42,13 @@ This does not qualify live socket/MCP sessions, renderer/UI behavior, all native
 tests, or BuildPlugin packaging. The one-case `native-smoke` profile remains
 available separately; neither profile replaces retained consumer coverage.
 
-The `native-blueprint` profile requires exactly fourteen existing cases: three
+The `native-blueprint` profile requires exactly fifteen cases: three
 `UEMCP.BlueprintHelpers.*` registrations (PinTypeToJson, VariableDefaults,
-LiteralDefaults) and eleven `UEMCP.BlueprintHandlers.*` registrations
+LiteralDefaults) and twelve `UEMCP.BlueprintHandlers.*` registrations
 (AddVariableAssignment, AddTimer, DisconnectPin, AssignmentVariableKind,
 AssignmentExecFrom, DisconnectPinEdges, CompilePaths, TimerFailures,
-GhostBeginPlayEnabled, EventNodeGhostSites, AssignmentCompileFailed). After
+GhostBeginPlayEnabled, EventNodeGhostSites, AssignmentCompileFailed,
+CreateBlueprintParents). After
 building a fresh source-only stage, run:
 
 ```powershell
@@ -58,7 +59,7 @@ The helpers exercise native pin/default conversion. Handler cases dispatch throu
 `FMCPCommandRegistry` and inspect real in-memory graph mutations and compilation
 outcomes under NullRHI. An expected compilation failure asserted by a successful
 native test remains valid; an Automation Error event on a Success record fails
-the required profile. All fourteen full names must run exactly once, with fresh
+the required profile. All fifteen full names must run exactly once, with fresh
 source-bound evidence and a successful process exit.
 
 No saved fixture is required (`fixturePaths: []`). The handlers create unsaved
@@ -249,3 +250,17 @@ The wrapper supplies the owned runtime/DDC configuration and delegates to
 All three full paths must succeed with zero errors and a successful process exit.
 Retain the source identity, build evidence and exported native report together.
 Offline success or C++ source registration alone is not native execution evidence.
+
+## Recovered worktree regressions
+
+The `native-worktree-regressions` profile requires exactly
+`UEMCP.BlueprintHandlers.CreateBlueprintParents` and
+`UEMCP.Capture.PieViewportOpaquePixels`. Use the same owned-host staging, build
+and native invocation above with this profile name. It checks parent class
+identity/refusals through the real handler and alpha-only pixel normalization.
+It does not prove a rendered PIE screenshot or consumer-project deployment.
+
+On 2026-11-07 the UE 5.8.3 Win64 owned host compiled successfully; both focused
+cases and all 15 native-blueprint cases passed. The first attempted focused run
+was refused by port preflight while the Node rotation was active; the serial
+rerun passed. Keep port-using Node suites and native execution sequential.

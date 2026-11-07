@@ -39,6 +39,7 @@ assertRequirement('management', 'connection_info', TOOL_REQUIREMENT_KINDS.MANAGE
 assertRequirement('offline', 'project_info', TOOL_REQUIREMENT_KINDS.OFFLINE_READ);
 assertRequirement('editor-utility', 'get_editor_state', TOOL_REQUIREMENT_KINDS.LIVE_READ);
 assertRequirement('blueprints-write', 'create_blueprint', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
+assertRequirement('blueprints-write', 'add_variable', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
 assertRequirement('input-and-pie', 'start_pie', TOOL_REQUIREMENT_KINDS.LIVE_MUTATION);
 assertRequirement('remote-control', 'rc_get_property', TOOL_REQUIREMENT_KINDS.RC_READ);
 assertRequirement('remote-control', 'rc_set_property', TOOL_REQUIREMENT_KINDS.RC_MUTATION);

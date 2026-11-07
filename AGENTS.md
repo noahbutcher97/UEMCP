@@ -51,3 +51,28 @@ Pull requests should describe the behavioral change, list commands run, call out
 ## Security & Configuration Tips
 
 Do not commit machine-local configuration or sensitive paths. `.mcp.json`, `.uemcp-targets.json`, `.uemcp-targets.txt`, logs, `node_modules/`, UE `Binaries/`, and `Intermediate/` are intentionally ignored. Use `.mcp.json.example` as the template for client configuration, `.uemcp-targets.json.example` for new local target profiles, and `migrate-targets.bat` only for local conversion of existing legacy lists.
+
+## Worktree and scratch cleanup
+
+Use `.worktrees/<task-name>` under this repository for new worktrees. The older
+sibling worktree directory is legacy; do not create another worktree root. Reuse
+an appropriate clean checkout when isolation is unnecessary.
+
+At task start, record the worktree, branch, owned processes and temporary output
+roots. At task completion or merge:
+
+- Check tracked changes, untracked files, ignored evidence/configuration and
+  commits not reachable from main. A clean status alone does not prove redundancy.
+- Preserve unique work and concise verification receipts before removal. Record
+  any retained worktree with its owner/task, reason and next action in a local
+  audit; do not discard another session's work or private configuration.
+- Stop only processes started for the task. Confirm the exact resolved removal
+  path is within the intended worktree/scratch root and that it is inactive.
+  Inspect junctions/symlinks and shared dependency targets before recursive
+  cleanup; never traverse into another checkout through a shared link.
+- Remove retired checkouts with `git worktree remove`; do not force removal to
+  bypass unexplained dirty files. Delete merged task branches after verifying
+  recovery through the merged commit. Clean owned fixtures and disposable outputs.
+- End with `git status --short` and `git worktree list`, and report anything
+  intentionally retained. Do not claim the repository is fully cleaned merely
+  because the primary checkout is clean.

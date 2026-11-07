@@ -32,6 +32,8 @@
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/Pawn.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Event.h"
 #include "K2Node_VariableGet.h"
@@ -44,6 +46,7 @@
 #include "UObject/UObjectGlobals.h"
 
 #include "MCPCommandRegistry.h"
+#include "UEMCPTestObject.h"
 
 namespace UEMCP::Blueprint::Tests
 {
@@ -2287,6 +2290,120 @@ bool FUEMCPBlueprintHandlersAssignmentCompileFailedTest::RunTest(const FString& 
 	}
 
 	DestroyFixtureBlueprint(Fixture);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FUEMCPBlueprintCreateParentsTest,
+	"UEMCP.BlueprintHandlers.CreateBlueprintParents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+
+	// These go through the real create handler and inspect the resulting object.
+	// Plugin-module fixtures exercise the same /Script/<module> lookup contract
+	// as a game module without requiring a particular user's project to be loaded.
+	struct FParentCase { FString Identifier; UClass* Expected; };
+	const TArray<FParentCase> Cases = {
+		{ TEXT(""), AActor::StaticClass() },
+		{ TEXT("Actor"), AActor::StaticClass() },
+		{ TEXT("AActor"), AActor::StaticClass() },
+		{ TEXT("Pawn"), APawn::StaticClass() },
+		{ TEXT("APawn"), APawn::StaticClass() },
+		{ TEXT("Character"), ACharacter::StaticClass() },
+		{ TEXT("ACharacter"), ACharacter::StaticClass() },
+		{ ACharacter::StaticClass()->GetPathName(), ACharacter::StaticClass() },
+		{ AUEMCPTestParentActor::StaticClass()->GetName(), AUEMCPTestParentActor::StaticClass() },
+		{ AUEMCPTestParentActor::StaticClass()->GetPathName(), AUEMCPTestParentActor::StaticClass() },
+		{ TEXT("AUEMCPTestParentActor"), AAUEMCPTestParentActor::StaticClass() },
+		{ TEXT("AAUEMCPTestParentActor"), AAUEMCPTestParentActor::StaticClass() },
+	};
+	for (const FParentCase& Entry : Cases)
+	{
+		const FString Leaf = TEXT("BP_Parent_") + FGuid::NewGuid().ToString(EGuidFormats::Short);
+		FFixtureBlueprint Fixture;
+		Fixture.PackagePath = FString::Printf(TEXT("%s/%s"), FixtureRoot, *Leaf);
+		TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("name"), Leaf);
+		Params->SetStringField(TEXT("path"), FixtureRoot);
+		if (!Entry.Identifier.IsEmpty()) Params->SetStringField(TEXT("parent_class"), Entry.Identifier);
+		const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("create_blueprint"), Params);
+		FString Code;
+		TestTrue(*FString::Printf(TEXT("parent '%s' succeeds (%s)"), *Entry.Identifier, *ErrorCodeOf(Response)), IsSuccess(Response, Code));
+		Fixture.Package = FindPackage(nullptr, *Fixture.PackagePath);
+		Fixture.Blueprint = FindObject<UBlueprint>(nullptr, *(Fixture.PackagePath + TEXT(".") + Leaf));
+		if (TestNotNull(TEXT("created Blueprint exists in memory"), Fixture.Blueprint))
+		{
+			TestTrue(*FString::Printf(TEXT("parent '%s' has exact class identity"), *Entry.Identifier),
+				Fixture.Blueprint->ParentClass == Entry.Expected);
+		}
+		DestroyFixtureBlueprint(Fixture);
+	}
+
+	// Use a real loaded content Blueprint so these refusals establish deliberate
+	// path scope, rather than succeeding only because a fake content path is absent.
+	FFixtureBlueprint ContentParent = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("content parent fixture exists"), ContentParent.Blueprint))
+	{
+		DestroyFixtureBlueprint(ContentParent);
+		return false;
+	}
+	UClass* ContentParentClass = ContentParent.Blueprint->GeneratedClass;
+	if (!TestNotNull(TEXT("content parent has a generated class"), ContentParentClass))
+	{
+		DestroyFixtureBlueprint(ContentParent);
+		return false;
+	}
+	ContentParent.Blueprint->AddToRoot(); // child-fixture cleanup performs GC
+	{
+		// Bare class lookup remains permissive; excluding content paths must not
+		// impose a new CLASS_Native restriction on loaded Actor-derived classes.
+		const FString Leaf = TEXT("BP_BareParent_") + FGuid::NewGuid().ToString(EGuidFormats::Short);
+		FFixtureBlueprint Fixture;
+		Fixture.PackagePath = FString::Printf(TEXT("%s/%s"), FixtureRoot, *Leaf);
+		TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("name"), Leaf);
+		Params->SetStringField(TEXT("path"), FixtureRoot);
+		Params->SetStringField(TEXT("parent_class"), ContentParentClass->GetName());
+		const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("create_blueprint"), Params);
+		FString Code;
+		TestTrue(TEXT("loaded Actor-derived bare class remains accepted"), IsSuccess(Response, Code));
+		Fixture.Package = FindPackage(nullptr, *Fixture.PackagePath);
+		Fixture.Blueprint = FindObject<UBlueprint>(nullptr, *(Fixture.PackagePath + TEXT(".") + Leaf));
+		if (TestNotNull(TEXT("bare-parent child exists"), Fixture.Blueprint))
+		{
+			TestTrue(TEXT("bare-parent child retains exact generated parent"), Fixture.Blueprint->ParentClass == ContentParentClass);
+		}
+		DestroyFixtureBlueprint(Fixture);
+	}
+	const TArray<FString> Rejected = {
+		TEXT("UEMCPDefinitelyMissingParent"),
+		UUEMCPTestObject::StaticClass()->GetName(),
+		UUEMCPTestObject::StaticClass()->GetPathName(),
+		ContentParent.PackagePath,
+		ContentParentClass->GetPathName(),
+	};
+	for (const FString& Identifier : Rejected)
+	{
+		const FString Leaf = TEXT("BP_RefusedParent_") + FGuid::NewGuid().ToString(EGuidFormats::Short);
+		FFixtureBlueprint Fixture;
+		Fixture.PackagePath = FString::Printf(TEXT("%s/%s"), FixtureRoot, *Leaf);
+		TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("name"), Leaf);
+		Params->SetStringField(TEXT("path"), FixtureRoot);
+		Params->SetStringField(TEXT("parent_class"), Identifier);
+		const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("create_blueprint"), Params);
+		TestEqual(*FString::Printf(TEXT("parent '%s' is refused"), *Identifier), ErrorCodeOf(Response), FString(TEXT("INVALID_PARENT_CLASS")));
+		Fixture.Package = FindPackage(nullptr, *Fixture.PackagePath);
+		Fixture.Blueprint = FindObject<UBlueprint>(nullptr, *(Fixture.PackagePath + TEXT(".") + Leaf));
+		TestNull(TEXT("refusal creates no Blueprint"), Fixture.Blueprint);
+		TestNull(TEXT("refusal creates no package"), Fixture.Package);
+		DestroyFixtureBlueprint(Fixture);
+	}
+	ContentParent.Blueprint->RemoveFromRoot();
+	DestroyFixtureBlueprint(ContentParent);
 	return true;
 }
 

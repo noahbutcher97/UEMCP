@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
 #include "UObject/Object.h"
 #include "UEMCPTestObject.generated.h"
 
@@ -39,4 +40,18 @@ public:
 
 	UPROPERTY()
 	FRotator RotatorValue = FRotator::ZeroRotator;
+};
+
+/** Native non-Engine-module parent fixtures; never placed or saved by tests. */
+UCLASS(Blueprintable)
+class AUEMCPTestParentActor : public AActor
+{
+	GENERATED_BODY()
+};
+
+/** Reflected name starts with A: exact spelling must win over prefix stripping. */
+UCLASS(Blueprintable)
+class AAUEMCPTestParentActor : public AActor
+{
+	GENERATED_BODY()
 };

@@ -258,7 +258,7 @@ try {
     const blueprintEvidence = JSON.parse(readFileSync(join(blueprintReportDir, 'execution-evidence.json'), 'utf8'));
     t.assert(blueprintCode === expected && blueprintEvidence.exitCode === expected && blueprintEvidence.sourceState.digest && blueprintEvidence.profile === 'native-blueprint' && (problem ? blueprintEvidence.problems.some(message => message.includes(problem)) : blueprintEvidence.problems.length === 0), `blueprint runner ${label} retains correct source-bound outcome`);
     if (label === 'complete') {
-      t.assert(selectedCommand === `-ExecCmds=Automation RunTests ${blueprintNames.join('+')};Quit`, 'blueprint runner selects exactly the fourteen required names');
+      t.assert(selectedCommand === `-ExecCmds=Automation RunTests ${blueprintNames.join('+')};Quit`, 'blueprint runner selects exactly the fifteen required names');
       t.assert(blueprintEvidence.fixtureIdentity.files.length === 0 && blueprintEvidence.suites[0].state === 'passed' && blueprintEvidence.suites[0].cases.every(test => test.state === 'passed') && JSON.stringify(blueprintEvidence.suites[0].cases.map(test => test.name)) === JSON.stringify(blueprintNames), 'blueprint runner retains exact successful cases including expected compile failure without claiming saved fixtures');
     }
   }

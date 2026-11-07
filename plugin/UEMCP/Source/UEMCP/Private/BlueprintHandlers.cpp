@@ -1016,35 +1016,24 @@ namespace UEMCP
 				return;
 			}
 
-			// Resolve parent class with oracle's auto-A-prefix + Engine/Game module fallbacks.
-			// W-G (D144): pre-fold this silently fell back to AActor on a miss
-			// — Gauntlet Finding 5.2 + Pattern P2 silent-success-on-edge-case.
-			// We now error explicitly when parent_class is provided but unresolvable.
-			// parent_class omitted still defaults to AActor (documented behavior).
+			// Preserve reflected names and /Script/<module>.<class> paths. C++ A-prefix
+			// spellings are only a short-name fallback; never rewrite a supplied path.
+			// Content-path Blueprint parents remain unsupported. An omitted parent
+			// defaults to Actor, but an explicit unresolved/wrong-base parent is refused.
 			UClass* ParentClass = AActor::StaticClass();
 			FString ParentName;
 			if (Params->TryGetStringField(TEXT("parent_class"), ParentName) && !ParentName.IsEmpty())
 			{
-				FString ClassName = ParentName;
-				if (!ClassName.StartsWith(TEXT("A")))
-				{
-					ClassName = TEXT("A") + ClassName;
-				}
 				UClass* Found = nullptr;
-				if (ClassName == TEXT("APawn"))      Found = APawn::StaticClass();
-				else if (ClassName == TEXT("AActor")) Found = AActor::StaticClass();
-				else
+				TArray<FString> Candidates;
+				if (!ParentName.Contains(TEXT("/")) || ParentName.StartsWith(TEXT("/Script/")))
 				{
-					// Route through the shared resolver: the new delta is a bare-name
-					// in-memory probe (FindFirstObjectSafe) added over the old
-					// /Script/Engine + /Script/Game LoadClass chain. (/Game content-path
-					// parents are NOT reachable here — upstream A-prefix normalization
-					// mangles content paths; genuine /Game-parent support is out of scope.)
-					const TArray<FString> Candidates = {
-						ClassName,
-						FString::Printf(TEXT("/Script/Engine.%s"), *ClassName),
-						FString::Printf(TEXT("/Script/Game.%s"), *ClassName),
-					};
+					Candidates.Add(ParentName);
+					if (!ParentName.Contains(TEXT("/")) && ParentName.Len() > 1
+						&& ParentName.StartsWith(TEXT("A")) && FChar::IsUpper(ParentName[1]))
+					{
+						Candidates.Add(ParentName.Mid(1));
+					}
 					for (const FString& Candidate : Candidates)
 					{
 						Found = UEMCP::ResolveClass(Candidate, AActor::StaticClass());
@@ -1066,9 +1055,9 @@ namespace UEMCP
 					Detail->SetArrayField (TEXT("allowed_examples"), AllowedExamples);
 					Detail->SetStringField(TEXT("provided"),         ParentName);
 					Detail->SetStringField(TEXT("attempted_paths"),
-						FString::Printf(TEXT("/Script/Engine.%s, /Script/Game.%s"), *ClassName, *ClassName));
+						FString::Join(Candidates, TEXT(", ")));
 					BuildErrorResponse(OutResponse,
-						FString::Printf(TEXT("Unknown parent_class: %s (engine + game module lookups failed)"), *ParentName),
+						FString::Printf(TEXT("Invalid parent_class: %s (expected an Actor-derived class name or /Script path)"), *ParentName),
 						TEXT("INVALID_PARENT_CLASS"),
 						Detail);
 					return;

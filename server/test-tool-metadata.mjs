@@ -106,6 +106,7 @@ const REQUIRED_ANNOTATED_TOOLS = new Set([
 
   // Representative high-risk categories.
   'create_blueprint',
+  'add_variable',
   'add_component',
   'create_widget',
   'add_text_block',
@@ -598,25 +599,6 @@ try {
     `got ${JSON.stringify(actorRuntimeTip)}`,
   );
 
-  const allToolsetNames = Object.keys(toolsData.toolsets);
-  const enableResponse = await transport.sendClientRequest('tools/call', {
-    name: 'enable_toolset',
-    arguments: { toolsets: allToolsetNames },
-  });
-  const enableResult = enableResponse.result?.structuredContent || {};
-  const enabledOrAlreadyEnabled = new Set([
-    ...(enableResult.enabled || []),
-    ...(enableResult.alreadyEnabled || []),
-  ]);
-  const toolsetsNotEnabled = allToolsetNames.filter(name => !enabledOrAlreadyEnabled.has(name));
-  t.assert(
-    toolsetsNotEnabled.length === 0 &&
-      (enableResult.unavailable || []).length === 0 &&
-      (enableResult.unknown || []).length === 0,
-    'deterministic transport stubs enable every registered toolset shape',
-    `not enabled: ${toolsetsNotEnabled.join(', ')}; unavailable: ${(enableResult.unavailable || []).join(', ')}; unknown: ${(enableResult.unknown || []).join(', ')}`,
-  );
-
   const dynamicRegistrationGroups = [
     ['offline', toolsData.toolsets.offline.tools],
     ['actors', getActorsToolDefs()],
@@ -630,6 +612,35 @@ try {
     ['geometry', getM5GeometryToolDefs()],
     ['editor-utility', getM5EditorUtilityToolDefs()],
   ];
+  const registeredToolNames = new Set(dynamicRegistrationGroups.flatMap(([, definitions]) => Object.keys(definitions)));
+  const callableToolsetNames = Object.entries(toolsData.toolsets)
+    .filter(([, definition]) => Object.keys(definition.tools || {}).some(name => registeredToolNames.has(name)))
+    .map(([name]) => name);
+  const allToolsetNames = Object.keys(toolsData.toolsets);
+  const enableResponse = await transport.sendClientRequest('tools/call', {
+    name: 'enable_toolset',
+    arguments: { toolsets: allToolsetNames },
+  });
+  const enableResult = enableResponse.result?.structuredContent || {};
+  const enabledOrAlreadyEnabled = new Set([
+    ...(enableResult.enabled || []),
+    ...(enableResult.alreadyEnabled || []),
+  ]);
+  const toolsetsNotEnabled = callableToolsetNames.filter(name => !enabledOrAlreadyEnabled.has(name));
+  t.assert(
+    toolsetsNotEnabled.length === 0 &&
+      !(enableResult.unavailable || []).some(name => callableToolsetNames.includes(name)) &&
+      (enableResult.unknown || []).length === 0,
+    'deterministic transport stubs enable every registered toolset shape',
+    `not enabled: ${toolsetsNotEnabled.join(', ')}; unavailable: ${(enableResult.unavailable || []).join(', ')}; unknown: ${(enableResult.unknown || []).join(', ')}`,
+  );
+
+  t.assert(
+    !enabledOrAlreadyEnabled.has('gas') &&
+      (enableResult.unavailable || []).includes('gas') &&
+      (enableResult.blocked || []).some(row => row.toolset === 'gas' && row.code === 'TOOLSET_NOT_IMPLEMENTED'),
+    'planned-only GAS is explicitly unavailable while registered toolsets enable',
+  );
   const canonicalDynamicDefinitions = new Map();
   const duplicateCanonicalNames = [];
   for (const [toolsetName, toolset] of Object.entries(toolsData.toolsets || {})) {
@@ -672,6 +683,11 @@ try {
   const toolList = await transport.sendClientRequest('tools/list', {});
   const listedRows = toolList.result?.tools || [];
   const listedByName = new Map(listedRows.map(row => [row.name, row]));
+  t.assert(
+    annotationsMatch(listedByName.get('add_variable')?.annotations, { readOnlyHint: false, destructiveHint: true }),
+    'add_variable tools/list annotation declares its Blueprint mutation',
+    JSON.stringify(listedByName.get('add_variable')?.annotations),
+  );
   const expectedManagementAnnotations = literalManagementAnnotations();
   const expectedNames = new Set([
     ...expectedManagementAnnotations.keys(),
