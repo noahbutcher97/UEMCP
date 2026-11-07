@@ -54,8 +54,8 @@ console.log('\n── Group 1: Tool Definitions ──');
 const defs = getM5MaterialsToolDefs();
 const expectedTools = ['create_material', 'create_material_instance'];
 
-t.assert(Object.keys(defs).length === 2,
-  `2 materials create tools defined (got ${Object.keys(defs).length})`);
+t.assert(Object.keys(defs).length === 8,
+  `8 materials tools defined (got ${Object.keys(defs).length})`);
 t.assert(defs === M5_MATERIALS_SCHEMAS, 'getM5MaterialsToolDefs returns M5_MATERIALS_SCHEMAS');
 
 // set_material_parameter ships RC-only — must NOT appear in M5 schema map

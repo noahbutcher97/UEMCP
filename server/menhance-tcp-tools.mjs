@@ -76,7 +76,8 @@ export const MENHANCE_SCHEMAS = {
   get_material_graph: {
     description: 'Full material expression node graph — nodes, pins, edges, parameters. UMaterial only (material instances share the parent graph).',
     schema: {
-      asset_path: z.string().describe('/Game/... path to UMaterial'),
+      asset_path: z.string().describe('/Game/... path to material or function'),
+      representation: z.enum(['editor', 'source']).optional().describe('source reads expressions without an editor tab and includes an authoring revision'),
     },
     isReadOp: true,
   },
@@ -753,7 +754,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
   if (def.partialRc) {
     const { tcpWireType, transform } = def.partialRc;
     const raw = await connectionManager.send(
-      'tcp-55558', tcpWireType, validated, { skipCache: !def.isReadOp },
+      'tcp-55558', tcpWireType, validated, { skipCache: !def.isReadOp || (toolName === 'get_material_graph' && validated.representation === 'source') },
     );
     const transformFn = TRANSFORMS[transform] || TRANSFORMS.identity;
     return transformFn(raw);
@@ -761,7 +762,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
 
   // FULL-TCP path: wire_type translation + direct dispatch.
   const wireType = MENHANCE_WIRE_MAP[toolName] || toolName;
-  return connectionManager.send('tcp-55558', wireType, validated, { skipCache: !def.isReadOp });
+  return connectionManager.send('tcp-55558', wireType, validated, { skipCache: !def.isReadOp || (toolName === 'get_material_graph' && validated.representation === 'source') });
 }
 
 /** Export tool-def shape for server.mjs registration. */

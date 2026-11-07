@@ -50,6 +50,7 @@ docs/
 ### specs/ — system design
 | File | Covers |
 |---|---|
+| [material-function-authoring.md](specs/material-function-authoring.md) | Typed scalar function graphs, revisions, Undo and host verification |
 | [architecture.md](specs/architecture.md) | Current transport architecture, auto-detection chain, caching |
 | [plugin-design.md](specs/plugin-design.md) | Custom C++ plugin design, TCP protocol, command routing |
 | [dynamic-toolsets.md](specs/dynamic-toolsets.md) | Always-loaded tools, ToolIndex scoring, alias expansion |

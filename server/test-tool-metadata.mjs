@@ -121,6 +121,12 @@ const REQUIRED_ANNOTATED_TOOLS = new Set([
   // Source-backed shipped live authoring tools.
   'create_material',
   'create_material_instance',
+  'create_material_function',
+  'create_material_expression',
+  'connect_material_expressions',
+  'connect_material_property',
+  'update_material_graph',
+  'get_material_compile_status',
   'create_input_action',
   'create_mapping_context',
   'add_mapping',
@@ -683,8 +689,8 @@ try {
   // was not part of the prior 144). 152 = 149 + 3: D202 added describe_tool,
   // call_tool and call_mutating_tool to management.
   t.assert(
-    listedRows.length === 152,
-    'independent all-enabled tools/list inventory contains 152 registered tools',
+    listedRows.length === 158,
+    'independent all-enabled tools/list inventory contains 158 registered tools',
     `listed=${listedRows.length}`,
   );
 

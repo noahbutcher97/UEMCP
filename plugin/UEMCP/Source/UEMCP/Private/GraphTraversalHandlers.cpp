@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "GraphTraversalHandlers.h"
+#include "MaterialGraphAuthoring.h"
 
 #include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
@@ -108,6 +109,12 @@ namespace UEMCP
 				return;
 			}
 
+			FString Representation;
+			if (Params->TryGetStringField(TEXT("representation"), Representation) && Representation == TEXT("source"))
+			{
+				ReadMaterialSourceGraph(Params, OutResponse);
+				return;
+			}
 			UMaterial* Material = ResolveMaterial(AssetPath);
 			if (!Material)
 			{

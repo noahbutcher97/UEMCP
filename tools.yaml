@@ -1172,6 +1172,78 @@ toolsets:
     priority: 2
     description: Material creation, parameter access, and graph read
     tools:
+      create_material_function:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: "create material function - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
+      create_material_expression:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: "create material expression - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
+      connect_material_expressions:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: "connect material expressions - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
+      connect_material_property:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: "connect material property - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
+      update_material_graph:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: true
+        offline_fallback: false
+        description: "update material graph - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
+      get_material_compile_status:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: false
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: "get material compile status - UEMCP 1.0.24+ typed graph authoring; see describe_tool for required revision and supported operations."
       create_material:
         status: shipped
         availability_layer: tcp-55558
@@ -1242,7 +1314,7 @@ toolsets:
           asset_path: { type: string, required: true }
           include_details: { type: boolean, required: false, description: "Defaults true; false selects legacy names-only listing" }
       get_material_graph:
-        description: Full material expression node graph — nodes, connections, parameters. Covers UMaterial and UMaterialFunction.
+        description: "Material graph: legacy editor wrappers by default; representation:source reads material/function expressions and revisions without an editor tab."
         note: Consolidated — was listed in both Material Commands and Expanded Graph Introspection.
         params:
           asset_path: { type: string, required: true }

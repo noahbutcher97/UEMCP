@@ -82,7 +82,7 @@ namespace UEMCP
 		// be null for parameter-less commands like ping.
 		//
 		// Use-after-free guard (D87 audit-queue): on the GT_TIMEOUT path, this method
-		// returns and its stack frame unwinds — but the AsyncTask queued by
+		// returns and its stack frame unwinds — but the ticker callback queued by
 		// RunOnGameThread can still fire afterward. Capturing OutResponse / Params by
 		// reference would dereference freed stack memory inside the late-firing lambda.
 		// Fix: hoist the response payload into a TSharedRef the lambda owns by value;
@@ -106,7 +106,7 @@ namespace UEMCP
 			// 30s timeout — game thread saturated or editor shutting down. Emit a typed
 			// error envelope so the caller doesn't trip the belt-and-suspenders branch
 			// below with a misleading "did not populate a response". The orphaned
-			// AsyncTask may still complete later and write into SharedOut — harmless,
+			// ticker callback may still complete later and write into SharedOut — harmless,
 			// no consumer left.
 			BuildErrorResponse(OutResponse,
 				FString::Printf(TEXT("handler for '%s' did not complete within 30s on game thread"), *CommandType),

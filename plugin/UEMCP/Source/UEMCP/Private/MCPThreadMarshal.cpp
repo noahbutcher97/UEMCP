@@ -1,8 +1,8 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "MCPThreadMarshal.h"
 
-#include "Async/Async.h"
 #include "Async/Future.h"
+#include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/Timespan.h"
 
@@ -29,7 +29,9 @@ namespace UEMCP
 			MakeShared<TPromise<double>, ESPMode::ThreadSafe>();
 		TFuture<double> Future = PromisePtr->GetFuture();
 
-		AsyncTask(ENamedThreads::GameThread, [PromisePtr, Work = MoveTemp(Work)]()
+		// Use the editor's frame context, not the socket worker's inherited
+		// TaskGraph context. UE 5.8 render tasks require a valid FAppTime context.
+		ExecuteOnGameThread(TEXT("UEMCPDispatch"), [PromisePtr, Work = MoveTemp(Work)]()
 		{
 			const double Start = FPlatformTime::Seconds();
 			Work();

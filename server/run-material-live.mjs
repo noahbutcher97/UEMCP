@@ -39,13 +39,15 @@ export function materialMcpEnvelope(name, args, descriptor) {
   if (descriptor?.ok !== true || descriptor.tool !== name || !['call_tool', 'call_mutating_tool'].includes(descriptor.dispatcher)) throw new Error('Invalid MCP tool description');
   return { name: descriptor.dispatcher, arguments: { tool: name, arguments: args } };
 }
-export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, '..'), outputRoot, engineRoot }) {
+export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, '..'), outputRoot, engineRoot, flow = exerciseMaterialLiveFlow, materialGraphAssets = false }) {
   if (!outputRoot || !engineRoot) throw new Error('Explicit fresh stage and engine required');
   // Reuse the owned build, fixture authoring, native baseline and reload gate.
   await runMaterialLifecycle({ repoRoot, outputRoot, engineRoot });
   const project = join(outputRoot, 'host/UEMCPFixture.uproject');
-  const validation = { repoRoot, outputRoot, materialLifecycleAssets: 'required' };
+  const validation = { repoRoot, outputRoot, materialLifecycleAssets: 'required', ...(materialGraphAssets ? { materialGraphAssets: 'optional' } : {}) };
   const assets = ['M_Parameters', 'MI_Parameters'].map(name => join(outputRoot, `host/Content/MaterialVerification/${name}.uasset`));
+  if (materialGraphAssets) assets.push(...['MF_Scale', 'MF_Nested', 'M_Consumer', 'M_Invalid'].map(name =>
+    join(outputRoot, `host/Content/MaterialGraphVerification/${name}.uasset`)));
   const hashes = () => assets.map(path => createHash('sha256').update(readFileSync(path)).digest('hex'));
   const records = [];
   try {
@@ -77,7 +79,7 @@ export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, 
       const descriptions = new Map();
       const call = async (name, args) => {
         let request = { name, arguments: args };
-        if (['rc_call_function', 'list_material_parameters', 'set_material_parameter'].includes(name)) {
+        if (!['attach_project', 'connection_info'].includes(name)) {
           if (!descriptions.has(name)) {
             const response = await client.callTool({ name: 'describe_tool', arguments: { tool: name } });
             transcript.push({ name: 'describe_tool', args: { tool: name }, response });
@@ -85,7 +87,7 @@ export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, 
           }
           request = materialMcpEnvelope(name, args, descriptions.get(name));
         }
-        const response = await client.callTool(request, undefined, { timeout: 15000 });
+        const response = await client.callTool(request, undefined, { timeout: name === 'update_material_graph' ? 45000 : 15000 });
         transcript.push({ name, args, request, response });
         return readMcpJson(response);
       };
@@ -109,7 +111,7 @@ export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, 
         if (!editor || resolve(editor.uprojectPath ?? '').toLowerCase() !== resolve(project).toLowerCase()) throw new Error('Live editor process ownership mismatch');
         owned = true;
         await hostControl(call, 'load');
-        const evidence = await exerciseMaterialLiveFlow({ call, phase });
+        const evidence = await flow({ call, phase });
         records.push({ ...evidence, identity, port, tcpPort });
       } catch (error) { failure = error; }
       finally {
@@ -125,6 +127,7 @@ export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, 
         if (result.status !== 'exited' || result.exitCode !== 0) failure ??= new Error(`Live editor failed: ${result.status}/${result.exitCode}`);
       }
       if (failure) throw failure;
+      if (materialGraphAssets) validation.materialGraphAssets = 'required';
       await validateFixtureHost(validation);
       if (before && JSON.stringify(before) !== JSON.stringify(hashes())) throw new Error('Live reload changed saved assets');
       records.at(-1).assetHashes = hashes();

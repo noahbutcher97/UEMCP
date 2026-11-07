@@ -1,4 +1,6 @@
 #include "VerifyMaterialLifecycleCommandlet.h"
+#include "MaterialGraphOracle.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #if WITH_EDITOR
 #include "UEMCPMaterialParameterLibrary.h"
 #include "Materials/Material.h"
@@ -162,6 +164,17 @@ FString UVerifyMaterialLifecycleCommandlet::LiveControl(const FString& Operation
 	if (FString(FApp::GetProjectName()) != TEXT("UEMCPFixture") || !GEditor || !FParse::Param(FCommandLine::Get(), TEXT("UEMCPMaterialLive"))) return TEXT("{\"success\":false}");
 	bool Success = false;
 	if (Operation == TEXT("identity")) Success = true;
+	else if (Operation == TEXT("graph_oracle")) Success = VerifyMaterialGraphFixture();
+	else if (Operation == TEXT("graph_open"))
+	{
+		UObject* Function = LoadObject<UObject>(nullptr, TEXT("/Game/MaterialGraphVerification/MF_Scale.MF_Scale"));
+		Success = Function && GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(Function);
+	}
+	else if (Operation == TEXT("graph_close"))
+	{
+		UObject* Function = LoadObject<UObject>(nullptr, TEXT("/Game/MaterialGraphVerification/MF_Scale.MF_Scale"));
+		Success = Function && GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->CloseAllEditorsForAsset(Function) > 0;
+	}
 	else if (Operation == TEXT("load")) Success = LoadObject<UMaterialInstanceConstant>(nullptr, TEXT("/Game/MaterialVerification/MI_Parameters.MI_Parameters")) != nullptr;
 	else if (Operation == TEXT("reset")) { GEditor->ResetTransaction(FText::FromString(TEXT("Material live verification"))); Success = true; }
 	else if (Operation == TEXT("undo")) Success = GEditor->UndoTransaction();

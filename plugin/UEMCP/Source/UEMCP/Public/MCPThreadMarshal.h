@@ -20,7 +20,7 @@
  * tick, and crashes inside Kismet's compiler. Audit F-1 (D79) flagged this as
  * the single highest-severity systemic finding pre-Wave-4.
  *
- * This helper centralizes the AsyncTask + TPromise pattern so the migration is
+ * This helper centralizes the one-shot ticker + TPromise pattern so the migration is
  * a single change at the dispatch site rather than 17 per-handler edits.
  */
 namespace UEMCP
@@ -29,9 +29,9 @@ namespace UEMCP
 	 * Run `Work` on the game thread and block the caller until it returns
 	 * (or the timeout elapses).
 	 *
-	 * - If already on the game thread, runs `Work` inline (no AsyncTask hop) —
+	 * - If already on the game thread, runs `Work` inline (no ticker hop) —
 	 *   prevents self-deadlock if a handler ever ends up dispatched from GT.
-	 * - On non-GT callers, queues `Work` to `ENamedThreads::GameThread` and
+	 * - On non-GT callers, queues `Work` to the core game-thread ticker and
 	 *   blocks via `TFuture::WaitFor`. Returns true when `Work` completed,
 	 *   false on timeout.
 	 * - The internal promise is shared (TSharedPtr); on timeout the caller
@@ -39,8 +39,8 @@ namespace UEMCP
 	 *   touching freed state.
 	 *
 	 * CALLER RESPONSIBILITY (D87 audit-queue note): on the timeout path the
-	 * outer caller stack frame unwinds, but the queued AsyncTask may still
-	 * fire afterward. `Work` itself is moved into the AsyncTask lambda and
+	 * outer caller stack frame unwinds, but the queued ticker callback may still
+	 * fire afterward. `Work` itself is moved into the ticker lambda and
 	 * survives, but anything `Work` captured BY REFERENCE in the caller's
 	 * scope does NOT. Capture caller-scope state BY VALUE (or via TSharedPtr /
 	 * TSharedRef) — never by reference — when constructing the lambda you

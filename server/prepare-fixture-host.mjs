@@ -198,7 +198,7 @@ export async function prepareFixtureHost({ repoRoot = ROOT, outputRoot, engineRo
   return { manifestPath: join(outputRoot, 'host-manifest.json'), uprojectPath: join(outputRoot, 'host/UEMCPFixture.uproject'), manifest };
 }
 
-export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl, authoredAsset, materialLifecycleAssets, projectPorts }) {
+export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixtureVersion, sourceIdentityImpl = sourceIdentity, verifyOwnedFixtureImpl, authoredAsset, materialLifecycleAssets, materialGraphAssets, projectPorts }) {
   outputRoot = safePath(outputRoot);
   const manifest = json(safePath(join(outputRoot, 'host-manifest.json')));
   if (manifest.schemaVersion !== 1 || manifest.outputRoot !== outputRoot || manifest.repoRoot !== resolve(repoRoot) || !manifest.invocationId) throw new Error('Host ownership mismatch');
@@ -216,6 +216,14 @@ export async function validateFixtureHost({ repoRoot = ROOT, outputRoot, fixture
     const asset = 'Content/Serialization/BP_OwnedLink.uasset';
     if (manifest.files.some(file => file.destination === asset)) throw new Error('Authored asset must not replace staged source');
     if (authoredAsset === 'required' || actual.includes(asset)) expected.push(asset);
+    expected.sort();
+  }
+  if (materialGraphAssets !== undefined) {
+    if (!['optional', 'required'].includes(materialGraphAssets) || manifest.corpus || authoredAsset !== undefined) throw new Error('Material graph assets require a source-only host');
+    for (const name of ['MF_Scale', 'MF_Nested', 'M_Consumer', 'M_Invalid']) {
+      const asset = `Content/MaterialGraphVerification/${name}.uasset`;
+      if (materialGraphAssets === 'required' || actual.includes(asset)) expected.push(asset);
+    }
     expected.sort();
   }
   if (materialLifecycleAssets !== undefined) {

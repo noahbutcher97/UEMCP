@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "MaterialsHandlers.h"
+#include "MaterialGraphAuthoring.h"
 
 #include "HandlerCommon.h"
 #include "MCPCommandRegistry.h"
@@ -220,6 +221,7 @@ namespace UEMCP
 
 	void RegisterMaterialsHandlers(FMCPCommandRegistry& Registry)
 	{
+		RegisterMaterialGraphAuthoring(Registry);
 		Registry.Register(TEXT("create_material"),          &HandleCreateMaterial);
 		Registry.Register(TEXT("create_material_instance"), &HandleCreateMaterialInstance);
 		// set_material_parameter: ships as RC HTTP delegate via rc-tools.mjs per
