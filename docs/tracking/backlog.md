@@ -21,6 +21,7 @@ projects. Historical rationale is retained in the [September notes preserved at 
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
 | OPS-1 | Pending explicit target selection | Roll out plugin 1.0.24 to intended consumer projects, with deployment verification and editor/client restart. The PR #62 run deployed only to a disposable owned host. |
+| OPS-2 | Reconciliation required | Audit of historical worktrees removed 22 proven redundant checkouts on 2026-11-07. The remaining 57 retain unmatched source changes, commits or evidence; compare them with merged behavior before integrating or retiring them. Local recovery and per-worktree decisions are in the ignored `docs/audits/worktree-cleanup-2026-11-07/` audit. Follow the AGENTS.md cleanup checklist for new tasks. |
 
 PR #62's graph edits/connections have verified Undo/Redo and save/restart
 persistence. Function asset allocation is explicitly not undoable, propagation
