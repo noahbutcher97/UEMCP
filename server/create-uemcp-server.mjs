@@ -37,6 +37,7 @@ import {
   ATTACH_PROJECT_INPUT_SHAPE,
   CONNECTION_INFO_INPUT_SHAPE,
   WAIT_FOR_EDITOR_INPUT_SHAPE,
+  WAIT_FOR_EDITOR_OUTPUT_SHAPE,
   FIND_TOOLS_INPUT_SHAPE,
   DESCRIBE_TOOL_INPUT_SHAPE,
   CALL_TOOL_INPUT_SHAPE,
@@ -461,7 +462,7 @@ export async function createUemcpServer(options = {}) {
       name,
       {
         ...configObject,
-        ...(structured ? { outputSchema: MANAGEMENT_OUTPUT_SHAPE } : {}),
+        ...(structured ? { outputSchema: configObject.outputSchema || MANAGEMENT_OUTPUT_SHAPE } : {}),
         annotations,
       },
       handler
@@ -565,6 +566,7 @@ export async function createUemcpServer(options = {}) {
     {
       description: 'Wait, bounded, for the editor transport to become usable. ready=false is a normal in-progress result — call again to keep waiting.',
       inputSchema: WAIT_FOR_EDITOR_INPUT_SHAPE,
+      outputSchema: WAIT_FOR_EDITOR_OUTPUT_SHAPE,
     },
     async ({ timeout_ms }) => {
       const timeoutMs = clampWaitTimeout(timeout_ms);

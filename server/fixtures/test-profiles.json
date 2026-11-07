@@ -168,7 +168,7 @@
     },
     "native-blueprint": {
       "runner": "native",
-      "scope": "Fourteen existing native Blueprint helper, registry dispatch and in-memory graph mutation cases. Does not qualify socket/MCP sessions, persistence, PIE, rendering, or the remaining native inventory.",
+      "scope": "Fifteen native Blueprint helper, registry dispatch, parent resolution and in-memory graph mutation cases. Does not qualify socket/MCP sessions, persistence, PIE, rendering, or the remaining native inventory.",
       "capabilities": ["engine", "nullrhi"],
       "fixturePaths": [],
       "suites": [{
@@ -187,7 +187,8 @@
           "UEMCP.BlueprintHandlers.TimerFailures",
           "UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
           "UEMCP.BlueprintHandlers.EventNodeGhostSites",
-          "UEMCP.BlueprintHandlers.AssignmentCompileFailed"
+          "UEMCP.BlueprintHandlers.AssignmentCompileFailed",
+          "UEMCP.BlueprintHandlers.CreateBlueprintParents"
         ]
       }]
     },
@@ -627,6 +628,13 @@
           ]
         }
       ]
+    },
+    "native-worktree-regressions": {
+      "runner": "native",
+      "scope": "Owned host class-resolution and pure pixel regressions. No rendered screenshot or external-project qualification.",
+      "capabilities": ["engine", "nullrhi"],
+      "fixturePaths": [],
+      "suites": [{"name": "native", "cases": ["UEMCP.BlueprintHandlers.CreateBlueprintParents", "UEMCP.Capture.PieViewportOpaquePixels"]}]
     },
     "native-smoke": {
       "runner": "native",

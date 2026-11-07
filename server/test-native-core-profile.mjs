@@ -25,7 +25,7 @@ const source = readFileSync(new URL('../plugin/UEMCP/Source/UEMCP/Private/Tests/
 const registrations = [...source.matchAll(/IMPLEMENT_SIMPLE_AUTOMATION_TEST\s*\(\s*\w+\s*,\s*"([^"]+)"/g)].map(match => match[1]);
 for (const name of names) t.assert(registrations.filter(value => value === name).length === 1, `core source registers ${name} exactly once`);
 t.assert(!names.includes('UEMCP.MCPResponseBuilder.BuildSuccess') && loadTestProfile('native-smoke').suites[0].cases.includes('UEMCP.MCPResponseBuilder.BuildSuccess'), 'core leaves BuildSuccess in the existing smoke profile');
-t.assert(loadTestProfile('native-transport').suites[0].cases.length === 7 && loadTestProfile('native-blueprint').suites[0].cases.length === 14, 'existing transport and blueprint profiles remain separately loadable');
+t.assert(loadTestProfile('native-transport').suites[0].cases.length === 7 && loadTestProfile('native-blueprint').suites[0].cases.length === 15, 'existing transport and blueprint profiles remain separately loadable');
 const parsedArgs = parseRunnerArgs(['--test-profile', 'native-core', '--profile', 'target-profile', '--timeout-ms', '900000']);
 t.assert(parsedArgs.testProfile === 'native-core' && parsedArgs.profile === 'target-profile' && parsedArgs.timeoutMs === 900000, 'core CLI keeps target selection separate and accepts the 900s budget');
 

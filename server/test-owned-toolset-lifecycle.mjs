@@ -137,7 +137,10 @@ await check('repeated enable and disable are idempotent without extra notificati
 await check('live toolsets remain unavailable with explicit TCP and HTTP down stubs', async f => {
   await f.attach();
   const result = await f.manager.enable(['actors', 'gas']);
-  assert.deepEqual(result, { ...emptyEnable, unavailable: ['actors', 'gas'] });
+  assert.deepEqual(result, { ...emptyEnable, unavailable: ['actors', 'gas'], blocked: [{
+    toolset: 'gas', code: 'TOOLSET_NOT_IMPLEMENTED',
+    message: 'No callable tools are implemented in this toolset; its configured tools are planned or excluded from discovery.',
+  }] });
   assert.equal(await f.cm.isLayerAvailable('http-30010', true), false);
   assert.ok(f.probes.some(p => p.layer === 'tcp')); assert.ok(f.probes.some(p => p.layer === 'http'));
   assertAttached(f.view(), f, true);

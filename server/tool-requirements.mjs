@@ -43,6 +43,19 @@ const LIVE_MUTATION_OVERRIDES = new Set([
   'send_input',
   'send_input_action',
   'execute_console_command',
+  // Runtime/editor UI effects are not asset or level authoring.
+  'add_widget_to_viewport',
+  'run_editor_utility',
+  'focus_viewport',
+  'details_panel_expand_all',
+  'details_panel_scroll',
+  // File writers, including captures with optional output paths.
+  'regenerate_sidecar',
+  'take_screenshot',
+  'get_asset_preview_render',
+  'get_viewport_screenshot',
+  'capture_asset_editor',
+  'capture_pie_viewport',
 ]);
 
 const RC_MUTATION_OVERRIDES = new Set([

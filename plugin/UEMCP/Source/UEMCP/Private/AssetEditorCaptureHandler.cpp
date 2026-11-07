@@ -11,6 +11,7 @@
 #include "Misc/App.h"
 #include "Misc/Paths.h"
 #include "PropertyPath.h"
+#include "PieViewportPixels.h"
 #include "Toolkits/IToolkit.h"
 #include "UnrealClient.h"
 #include "UObject/Object.h"
@@ -326,6 +327,8 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("PIE viewport ReadPixels failed"), TEXT("CAPTURE_FAILED"));
 				return;
 			}
+			// Preserve screenshot RGB while discarding unused framebuffer alpha.
+			MakePieViewportPixelsOpaque(Bitmap);
 			TArray64<uint8> Png;
 			const FImageView View(Bitmap.GetData(), Size.X, Size.Y);
 			FImageUtils::CompressImage(Png, TEXT("png"), View, 0);

@@ -173,6 +173,16 @@ export class ToolsetManager {
         continue;
       }
 
+      if (this._hasOnlyExcludedTools(name)) {
+        result.unavailable.push(name);
+        result.blocked.push({
+          toolset: name,
+          code: 'TOOLSET_NOT_IMPLEMENTED',
+          message: this._unavailableReason(name),
+        });
+        continue;
+      }
+
       if (this.isProjectScopedToolset(name) && !this._projectAttached && source !== 'project_context') {
         result.unavailable.push(name);
         result.blocked.push({
@@ -282,7 +292,9 @@ export class ToolsetManager {
    */
   async listToolsets() {
     const result = [];
-    const toolsetNames = this.toolIndex.getToolsetNames();
+    // Planned-only definitions must remain visible as unavailable, even though
+    // their tools are deliberately excluded from callable/searchable entries.
+    const toolsetNames = Object.keys(this._toolsData?.toolsets || {});
 
     for (const name of toolsetNames) {
       const layer = TOOLSET_LAYERS[name];
@@ -360,7 +372,16 @@ export class ToolsetManager {
 
   // ── Private ───────────────────────────────────────────────
 
+  _hasOnlyExcludedTools(name) {
+    const definitions = this._toolsData?.toolsets?.[name]?.tools || {};
+    // Empty configuration is valid. Only nonempty planned/hidden definitions
+    // with no discoverable tools represent an unavailable implementation.
+    return Object.keys(definitions).length > 0
+      && this.toolIndex.getToolsetTools(name).length === 0;
+  }
+
   async _isToolsetAvailable(name) {
+    if (this._hasOnlyExcludedTools(name)) return false;
     const layer = TOOLSET_LAYERS[name];
     if (!layer) return false;
     if (layer === 'offline') return await this.connectionManager.isLayerAvailable('offline');
@@ -424,6 +445,9 @@ export class ToolsetManager {
   }
 
   _unavailableReason(name) {
+    if (this._hasOnlyExcludedTools(name)) {
+      return 'No callable tools are implemented in this toolset; its configured tools are planned or excluded from discovery.';
+    }
     const layer = TOOLSET_LAYERS[name];
     const layerInfo = this.connectionManager.layers[layer];
     if (!layerInfo) return `Unknown layer: ${layer}`;

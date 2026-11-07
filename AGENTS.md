@@ -68,6 +68,8 @@ roots. At task completion or merge:
   audit; do not discard another session's work or private configuration.
 - Stop only processes started for the task. Confirm the exact resolved removal
   path is within the intended worktree/scratch root and that it is inactive.
+  Inspect junctions/symlinks and shared dependency targets before recursive
+  cleanup; never traverse into another checkout through a shared link.
 - Remove retired checkouts with `git worktree remove`; do not force removal to
   bypass unexplained dirty files. Delete merged task branches after verifying
   recovery through the merged commit. Clean owned fixtures and disposable outputs.

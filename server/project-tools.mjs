@@ -67,6 +67,46 @@ export const PROJECT_ERROR_OUTPUT_SHAPE = {
   message: z.string().optional(),
   projectContext: z.any().optional(),
   next: z.any().optional(),
+  // Attachment failures retain their diagnostic details in structuredContent.
+  sources: z.array(z.string()).optional(),
+  path: z.string().optional(),
+  reason: z.string().optional(),
+  directUprojects: z.array(z.string()).optional(),
+  workspaceRoots: z.array(z.string()).optional(),
+  inFlightMutations: z.number().int().nonnegative().optional(),
+  target: z.string().optional(),
+  targetProfile: z.string().optional(),
+  status: z.string().optional(),
+  collisions: z.array(z.object({
+    alias: z.string(),
+    candidates: z.array(z.string()),
+  })).optional(),
+  uri: z.string().optional(),
+  authority: z.string().optional(),
+};
+
+export const WAIT_FOR_EDITOR_OUTPUT_SHAPE = {
+  ok: z.boolean(),
+  ready: z.boolean(),
+  phase: z.enum(['no_editor_process', 'wrong_project', 'ready', 'identity_mismatch', 'initializing', 'transport_ready']),
+  effective_timeout_ms: z.number().int().nonnegative(),
+  elapsed_ms: z.number().nonnegative(),
+  attempts: z.number().int().nonnegative(),
+  editor: z.object({
+    project_name: z.string().nullable(),
+    world_path: z.string().nullable(),
+  }).nullable(),
+  last_error: z.object({
+    code: z.string().nullable(),
+    nativeCode: z.string().nullable(),
+    message: z.string(),
+  }).nullable(),
+  hint: z.string(),
+  code: z.string().nullable().optional(),
+  mismatch: z.object({
+    attached_uproject: z.string(),
+    editor_uproject: z.string(),
+  }).nullable().optional(),
 };
 
 export const TOOLSET_RESULT_OUTPUT_SHAPE = {
@@ -77,6 +117,8 @@ export const TOOLSET_RESULT_OUTPUT_SHAPE = {
   alreadyEnabled: z.array(z.string()).optional(),
   unavailable: z.array(z.string()).optional(),
   unknown: z.array(z.string()).optional(),
+  disabled: z.array(z.string()).optional(),
+  wasNotEnabled: z.array(z.string()).optional(),
   blocked: z.any().optional(),
   projectContext: z.any().optional(),
 };
@@ -90,6 +132,11 @@ export const MANAGEMENT_OUTPUT_SHAPE = {
   resultCount: z.number().optional(),
   results: z.any().optional(),
   autoEnabled: z.array(z.string()).optional(),
+  selectedBundle: z.object({ name: z.string(), toolsets: z.array(z.string()) }).optional(),
+  directToolsets: z.array(z.string()).optional(),
+  bundleToolsets: z.array(z.string()).optional(),
+  unavailableBundlePieces: z.array(z.string()).optional(),
+  tips: z.array(z.string()).optional(),
   targetAttachment: z.any().optional(),
   transportConfiguration: z.object({
     ports: z.object({ tcpPortCustom: z.number().int(), rcPort: z.number().int() }),

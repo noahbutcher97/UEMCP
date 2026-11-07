@@ -276,6 +276,61 @@ await runCase('call_mutating_tool tracks the mutation like the native path', asy
   }
 });
 
+await runCase('add_variable advertises and dispatches a tracked Blueprint mutation', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(join(root, 'VariableCase'), 'VariableCase');
+    const tcpCalls = [];
+    const wireApp = await createWireApp({ root, project, tcpCalls });
+    app = wireApp.app;
+    const { transport } = wireApp;
+    await attachAndVerify(transport, project);
+
+    const described = (await callTool(transport, 'describe_tool', { tool: 'add_variable' })).result.structuredContent;
+    t.assert(described.annotations?.readOnlyHint === false,
+      'describe_tool marks add_variable as mutating');
+    t.assert(described.dispatcher === 'call_mutating_tool',
+      'describe_tool routes add_variable through call_mutating_tool');
+
+    const args = { blueprint_name: 'BP_Variable', variable_name: 'Speed', variable_type: 'Float' };
+    const before = tcpCalls.length;
+    const refused = await dispatch(transport, 'add_variable', args);
+    t.assert(refused.result?.isError === true && text(refused).includes('call_mutating_tool'),
+      'call_tool refuses add_variable with mutation dispatcher guidance', text(refused));
+    t.assert(tcpCalls.length === before, 'refused add_variable never reaches the editor');
+
+    const begun = [];
+    const ended = [];
+    const beginMutation = app.projectContext.beginMutation.bind(app.projectContext);
+    const endMutation = app.projectContext.endMutation.bind(app.projectContext);
+    app.projectContext.beginMutation = info => {
+      const id = beginMutation(info);
+      begun.push({ id, toolName: info.toolName });
+      return id;
+    };
+    app.projectContext.endMutation = id => {
+      ended.push(id);
+      return endMutation(id);
+    };
+
+    const dispatched = await dispatch(transport, 'add_variable', args, 'call_mutating_tool');
+    t.assert(!dispatched.result?.isError, 'call_mutating_tool accepts add_variable', text(dispatched));
+    await callTool(transport, 'enable_toolset', { toolsets: ['blueprints-write'] });
+    const direct = await callTool(transport, 'add_variable', args);
+    t.assert(!direct.result?.isError, 'direct add_variable accepts the same arguments', text(direct));
+    t.assert(begun.length === 2 && begun.every(item => item.toolName === 'add_variable'),
+      'both direct and dispatched add_variable begin a tracked mutation');
+    t.assert(ended.length === 2 && ended.every((id, index) => id === begun[index]?.id),
+      'both add_variable mutation scopes close');
+    t.assert(tcpCalls.filter(call => call.type === 'add_blueprint_variable').length === 2,
+      'only the accepted add_variable calls reach the editor stub');
+  } finally {
+    await app?.server.close();
+    cleanup(root);
+  }
+});
+
 await runCase('project guard and python gate survive dispatch', async () => {
   const root = makeTempRoot();
   try {

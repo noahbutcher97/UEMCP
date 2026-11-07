@@ -21,7 +21,6 @@ projects. Historical rationale is retained in the [September notes preserved at 
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
 | OPS-1 | Pending explicit target selection | Roll out plugin 1.0.24 to intended consumer projects, with deployment verification and editor/client restart. The PR #62 run deployed only to a disposable owned host. |
-| OPS-2 | Reconciliation required | Audit of historical worktrees removed 22 proven redundant checkouts on 2026-11-07. The remaining 57 retain unmatched source changes, commits or evidence; compare them with merged behavior before integrating or retiring them. Local recovery and per-worktree decisions are in the ignored `docs/audits/worktree-cleanup-2026-11-07/` audit. Follow the AGENTS.md cleanup checklist for new tasks. |
 
 PR #62's graph edits/connections have verified Undo/Redo and save/restart
 persistence. Function asset allocation is explicitly not undoable, propagation
@@ -61,6 +60,10 @@ establish that an item is still open.
 | EN-5 | Automated YAML parameter declarations versus handler reads | Next schema-drift recurrence or focused maintenance slice. |
 | EN-30 | Purpose-built data-asset writers and GAS authoring with explicit dirty/save/Undo guarantees | Concrete authoring workflow; existing generic live mutation is not equivalent qualification. |
 | T-1b/c | Migrate remaining project-dependent tests/oracles to synthetic, engine or owned-host fixtures | CI portability or fixture drift. Existing owned runners are progress, not proof that all legacy dependencies are gone. |
+| OWN-1 | Archived native PIE ownership, property witness and late-callback proposals | Reconcile the historical UE 5.6 contracts with current transport; qualify a bounded serial supervisor, author/reload, two live cycles and injected late-callback drainage. Preserve historical receipts without carrying proof across changed source. |
+| OWN-2 | Archived World map reader/authority proposals | Review the UE 5.6 package-layout assumptions, engine matrix and exact-request discovery before integrating author/separate-reload coverage. |
+| OWN-3 | Archived Blueprint persistence and data-flow fixture iterations | Choose a concrete missing witness, preserve existing coverage, and qualify an owned multi-process author/reload runner. Material persistence does not discharge this gap. |
+| OWN-4 | Archived Python Details-paging fixture | Explicit Python-enabled owned-host workflow and rendered paging acceptance; pure PIE pixel normalization does not qualify it. |
 | FX-1 | TMap Blueprint CDO owned-host fixture | A parser regression that synthetic coverage cannot represent. |
 | EN-23 | Structured native duration reporting, per-tool cache metrics, connection/error lifecycle metrics, memory/rotation costs and final metric flush | Before a transport/cache performance decision. Wire timings and native hitch-duration logging already exist. |
 | EN-22 | Supplemental editor event push over WebSocket | Measured cache/readiness/progress need; no transport rewrite scheduled. |
@@ -75,6 +78,7 @@ establish that an item is still open.
 | HY-1: fixture metadata isolation | Fixture-only stdio launcher; production registration remains enabled. Full rotation preserved both codename ledgers and the target registry byte-for-byte. |
 | HY-2: Windows test shell selection | Explicit Git Bash resolution passes with the WSL launcher first on PATH; no environment workaround. |
 | HY-3: CRLF hook token lists | Both hooks accept clean content and reject protected names with CRLF token files. See [test hygiene](../specs/test-hygiene.md). |
+| OPS-2: historical worktree reconciliation | Four missing fixes recovered; 14 superseded snapshots identified; 39 proposal/evidence states preserved for OWN-1 through OWN-4. Local recovery bundle, per-worktree patches and decisions are in ignored `docs/audits/worktree-cleanup-2026-11-07/`. No existing test lane was removed. |
 | Extensionless map paths | [PR #56](https://github.com/noahbutcher97/UEMCP/pull/56). |
 | UE material parameter APIs, override verification and FName casing | [PR #57](https://github.com/noahbutcher97/UEMCP/pull/57). |
 | Full material parameter identities and layer/blend writes | [PR #58](https://github.com/noahbutcher97/UEMCP/pull/58). Names-only/global-only is not the current limitation. |
