@@ -72,19 +72,14 @@ All are single `server.mjs`, ES modules, stdio transport — same pattern UEMCP 
 - RC HTTP toolsets including 11 FULL-RC tools (rc_* primitives + material/curve/mesh delegates per D66/D74/D76)
 - D44: `tools.yaml` is the sole source for tool metadata; `tools/list` + `find_tools` report identical data
 - Archival conformance research: `docs/specs/conformance-oracle-contracts.md` is not current setup or runtime guidance
-- Test infrastructure: mock seam in ConnectionManager, FakeTcpResponder/ErrorTcpResponder, **7838 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 81 rotation test files** (D-log tracks per-milestone deltas — do not duplicate here)
+- Test infrastructure: default Node rotation plus explicit owned-host native/MCP profiles. PR #62 recorded 9,112 local assertions and 9,055 hosted assertions across 122 files, with nine environment/live-gated skips. Counts are dated evidence, not a fixed inventory; use the current rotation result.
+- Material parameters, project isolation and scalar material-function authoring shipped through PRs #56–#62. See the corresponding specs and the backlog completion table for proof boundaries.
 
-### Follow-on queue
-- **Parser extensions** — FExpressionInput native binary layout (deferred per D50), nested FieldPathProperty
-- **Cleanup** — int64 VFX parse bug, semgrep deep refactor
-- **3F sidecar writer** (editor plugin) — spec at `docs/specs/blueprints-as-picture-amendment.md`
-- See `docs/tracking/backlog.md` for future-consideration items
+### Current work and remaining qualification
 
-### Not yet implemented
-- 3F sidecar writer
-- HTTP client for Remote Control API beyond current delegates (Phase 4)
-- Distribution to Project B via P4 (Phase 5)
-- Per-project tuning (Phase 6)
+Use [docs/tracking/backlog.md](docs/tracking/backlog.md) as the single current triage index. It distinguishes source-confirmed gaps, older reports needing reproduction, deferred research and completed work. The historical implementation phases and old unchecked plans are not current status.
+
+A narrow sidecar writer/save hook already exists. Broader parser/3F proposals need a defined residual gap before dispatch. New runtime tests must use repository-owned hosts rather than external projects. See [docs/specs/test-hygiene.md](docs/specs/test-hygiene.md) for subprocess isolation.
 
 ## File Layout
 

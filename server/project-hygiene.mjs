@@ -64,7 +64,7 @@ export function registerProjectCodenames({
   const toAdd = [];
   for (const c of candidates) {
     if (!c) continue;
-    if (VERSION_PATTERN.test(c) || SKIP_LITERALS.has(c.toLowerCase())) {
+    if (/^[a-z]:$/i.test(c) || VERSION_PATTERN.test(c) || SKIP_LITERALS.has(c.toLowerCase())) {
       result.skipped.push(c);
       continue;
     }

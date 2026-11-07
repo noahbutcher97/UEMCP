@@ -200,7 +200,7 @@ function runGit(cwd, args) {
       'utf8'
     );
     chmodSync(join(testRepo, '.githooks', 'pre-push'), 0o755);
-    writeFileSync(join(testRepo, '.git', 'info', 'forbidden-tokens'), `${token}\n`, 'utf8');
+    writeFileSync(join(testRepo, '.git', 'info', 'forbidden-tokens'), `# CRLF token file\r\n\r\n${token}\r\n`, 'utf8');
 
     const hookConfig = ['-c', 'core.hooksPath=.githooks'];
     const cleanResult = runProcess('git', [
@@ -250,6 +250,37 @@ function runGit(cwd, args) {
   } finally {
     cleanup(root);
   }
+}
+
+{
+  const root = makeTempRoot();
+  try {
+    const result = registerProjectCodenames({ projectRoot: 'X:\\ZXQDriveFixture7', repoRoot: join(root, 'repo'), stderr: { write() {} } });
+    t.assert(result.registered.includes('ZXQDriveFixture7') && !result.registered.includes('X:'), 'drive designators are not project codenames');
+    const shortName = registerProjectCodenames({ projectRoot: 'X:/A', repoRoot: join(root, 'repo'), stderr: { write() {} } });
+    t.assert(shortName.registered.includes('A'), 'real short project names remain protected; test isolation is not a name bypass');
+  } finally { cleanup(root); }
+}
+
+{
+  const root = makeTempRoot();
+  try {
+    runGit(root, ['init']);
+    mkdirSync(join(root, '.githooks'));
+    writeFileSync(join(root, '.githooks', 'pre-commit'), readFileSync(join(repoRoot, '.githooks', 'pre-commit')));
+    chmodSync(join(root, '.githooks', 'pre-commit'), 0o755);
+    const token = 'ZXQGateToken7';
+    writeFileSync(join(root, '.git', 'info', 'forbidden-tokens'), `# Windows line endings\r\n\r\n${token}\r\n`);
+    writeFileSync(join(root, 'clean.txt'), 'ordinary text\n');
+    runGit(root, ['add', 'clean.txt']);
+    const args = ['-c', 'core.hooksPath=.githooks', '-c', 'user.name=Hygiene Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Test'];
+    const clean = runProcess('git', args, { cwd: root });
+    t.assert(clean.status === 0, 'CRLF token file permits clean commits', clean.stderr);
+    writeFileSync(join(root, 'private.txt'), `${token}\n`);
+    runGit(root, ['add', 'private.txt']);
+    const blocked = runProcess('git', args, { cwd: root });
+    t.assert(blocked.status !== 0 && /Commit blocked/.test(blocked.stderr), 'CRLF token file still blocks protected names', blocked.stderr);
+  } finally { cleanup(root); }
 }
 
 process.exit(t.summary());

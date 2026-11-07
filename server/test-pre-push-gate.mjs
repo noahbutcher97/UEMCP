@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { TestRunner } from './test-helpers.mjs';
+import { resolveTestBash } from './shell-test-support.mjs';
 
 const t = new TestRunner('pre-push compile gate Tests');
 
@@ -60,8 +61,11 @@ t.assert(hookText.includes('"$gate_parse_rc" == "1"'), 'hook blocks the push on 
 t.assert(hookText.includes('"$gate_parse_rc" != "0"'), 'hook warns without blocking on any other reader exit');
 t.assert(hookText.includes('compile gate could not evaluate'), 'hook contains the could-not-evaluate warning phrase');
 
-const bashCheck = spawnSync('bash', ['-n', hookPath], { encoding: 'utf8' });
-if (bashCheck.error && bashCheck.error.code === 'ENOENT') {
+const bash = resolveTestBash();
+const bashCheck = bash ? spawnSync(bash, ['-n', hookPath], { encoding: 'utf8', windowsHide: true }) : null;
+if (!bashCheck) {
+  t.assert(false, 'Git Bash is required for the Windows hook syntax check');
+} else if (bashCheck.error && bashCheck.error.code === 'ENOENT') {
   t.assert(true, 'bash -n .githooks/pre-push — SKIPPED (bash not on PATH on this machine)');
 } else {
   t.assert(bashCheck.status === 0, 'bash -n .githooks/pre-push exits 0', bashCheck.stderr);

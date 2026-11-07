@@ -72,7 +72,7 @@ export async function runMaterialLive({ repoRoot = resolve(import.meta.dirname, 
         { cwd: join(outputRoot, 'host'), env: runtime.env, timeoutMs: 600000 }).then(result => { exited = true; return result; });
       const env = { ...process.env, UNREAL_AUTO_DETECT: 'false', UNREAL_RC_PORT: String(port), UNREAL_TCP_PORT_CUSTOM: String(tcpPort) };
       delete env.UNREAL_PROJECT_ROOT; delete env.UEMCP_PROJECT_ATTACH_MODE;
-      const transport = new BoundedStdioClientTransport({ command: process.execPath, args: [join(repoRoot, 'server/server.mjs')], cwd: repoRoot, env });
+      const transport = new BoundedStdioClientTransport({ command: process.execPath, args: [join(repoRoot, 'server/fixtures/stdio-test-server.mjs')], cwd: repoRoot, env });
       let stderr = ''; transport.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-1000000); });
       const client = new Client({ name: 'uemcp-owned-material-verifier', version: '1.0.0' }, { capabilities: {} });
       const transcript = [];

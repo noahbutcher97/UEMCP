@@ -38,7 +38,7 @@ export async function openOwnedEditorSession({ repoRoot, outputRoot, engineRoot,
   } });
   const env = { ...process.env, UNREAL_AUTO_DETECT: 'false' };
   for (const key of ['UNREAL_PROJECT_ROOT', 'UEMCP_PROJECT_ATTACH_MODE', 'UNREAL_TCP_PORT_CUSTOM', 'UNREAL_RC_PORT']) delete env[key];
-  const transport = new BoundedStdioClientTransport({ command: process.execPath, args: [join(repoRoot, 'server/server.mjs')], cwd: join(outputRoot, 'host'), env });
+  const transport = new BoundedStdioClientTransport({ command: process.execPath, args: [join(repoRoot, 'server/fixtures/stdio-test-server.mjs')], cwd: join(outputRoot, 'host'), env });
   let stderr = ''; transport.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-1000000); });
   const client = new Client({ name: `owned-isolation-${label}`, version: '1' }, { capabilities: {} });
   const execution = runner.run(editorExe, args, { cwd: join(outputRoot, 'host'), env: runtime.env, timeoutMs: 1200000 })
