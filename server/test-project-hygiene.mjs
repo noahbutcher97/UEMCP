@@ -268,6 +268,7 @@ function runGit(cwd, args) {
     runGit(root, ['init']);
     mkdirSync(join(root, '.githooks'));
     writeFileSync(join(root, '.githooks', 'pre-commit'), readFileSync(join(repoRoot, '.githooks', 'pre-commit')));
+    chmodSync(join(root, '.githooks', 'pre-commit'), 0o755);
     const token = 'ZXQGateToken7';
     writeFileSync(join(root, '.git', 'info', 'forbidden-tokens'), `# Windows line endings\r\n\r\n${token}\r\n`);
     writeFileSync(join(root, 'clean.txt'), 'ordinary text\n');
