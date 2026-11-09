@@ -3,6 +3,9 @@
 **Source of truth for tool definitions**: [tools.yaml](../tools.yaml)
 **Working conventions and implementation overview**: [CLAUDE.md](../CLAUDE.md)
 **Current triage and proof boundaries**: [backlog.md](tracking/backlog.md)
+**Roadmap work units and available paths**: [work-unit map](../tasks/plan.md)
+**Scoped animation authoring**: [U5 Slot insertion](plans/u5-animation-authoring.md)
+**Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
 
@@ -35,6 +38,8 @@ docs/
 **Quick reference during work**:
 - `tools.yaml` for tool lookup
 - `tracking/backlog.md` for current triage, retained reports and completion links
+- `../tasks/plan.md` for work-unit grouping, dependencies and selectable paths
+- `../tasks/todo.md` for bounded starting slices and verification gates
 - `tracking/risks-and-decisions.md` for decision rationale
 
 **Historical phase-planning context**:

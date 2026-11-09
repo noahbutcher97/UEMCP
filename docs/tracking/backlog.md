@@ -1,14 +1,15 @@
 # UEMCP backlog and triage
 
-Reconciled 2026-11-07 against main through PR #62 (`15de65d`), current source,
-and the owned-host verification from that change. GitHub had no open issues or
-PRs at reconciliation. This file is the active index; old checklists are not
+Reconciled 2026-11-07 against main through PR #64 (`1c61c24`), current source,
+and the archived recovery evidence. This file is the active index; old checklists are not
 completion evidence. Preserve IDs when moving work into a handoff or PR, and
 replace the row with a completion link when it ships.
 
 Status meanings: **verified** identifies inspected implementation or recorded
 runtime evidence; **needs reproduction** preserves an older report without
-claiming it was reproduced today; **deferred** requires the stated trigger.
+claiming it was reproduced today; **advanced recovery candidate** means historical
+implementation/execution evidence exists but current-main readiness is not yet
+established; **deferred** requires the stated trigger.
 All new runtime tests use UEMCP-owned hosts. Do not plant fixtures in external
 projects. Historical rationale is retained in the [September notes preserved at PR #62](https://github.com/noahbutcher97/UEMCP/blob/15de65d5b04c717309fb4aaff228b0f8385d9791/docs/tracking/backlog.md).
 
@@ -20,13 +21,74 @@ projects. Historical rationale is retained in the [September notes preserved at 
 | QA-2 | Open qualification | Run the supported-engine compilation/runtime matrix for the new material graph surface. UE 5.8.3 Win64 D3D12/SM5 is verified; other versions/platforms and rendered appearance are not. |
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
-| OPS-1 | Pending explicit target selection | Roll out plugin 1.0.24 to intended consumer projects, with deployment verification and editor/client restart. The PR #62 run deployed only to a disposable owned host. |
+| OPS-1 | Pending explicit target selection | Select intended consumer targets and deploy an explicitly verified source revision, with deployment verification and editor/client restart. PR #62 and PR #64 verification used disposable owned hosts; a version label alone does not identify the tested source. |
 
 PR #62's graph edits/connections have verified Undo/Redo and save/restart
 persistence. Function asset allocation is explicitly not undoable, propagation
 is not one atomic reversible transaction, and transport timeouts leave unknown
 outcomes. These are documented contract boundaries, not unreported passing tests.
 See [the material-function contract](../specs/material-function-authoring.md).
+
+## Product use versus test infrastructure
+
+Normal-use priorities are reliable editor attachment, truthful mutation results,
+PIE start/stop boundaries, useful asset/graph inspection and screenshots. QA-1,
+BUG-3 and the relevant F-14/EN-28 reproductions directly protect those workflows.
+Archived OWN fixture work is enabling coverage, not a prerequisite for every
+normal session and not automatically more valuable than a requested feature.
+
+For animation work, start by exercising the shipped `get_anim_graph` read on an
+owned AnimBP with `include_node_properties`, `include_pin_topology` and
+`include_pin_defaults`. The July 8 readback and July 12 pin-serialization plans
+have implementations; their unchecked historical items are not proof of absence.
+Create/rewire AnimGraph nodes is a separate potential authoring slice, explicitly
+outside those read-only plans. Define a concrete user workflow before scheduling
+it, with graph identity, schema validation, Undo, compile diagnostics and
+save/restart verification. Keep Chooser row/result inspection separate.
+
+## Work units and available paths
+
+Use the [roadmap work-unit map](../../tasks/plan.md) to choose coherent slices
+and the [starting-task list](../../tasks/todo.md) to see their completion gates.
+The map replaces a single recommended sequence with independent reliability,
+animation, authoring, inspection, developer-validation and delivery paths.
+This backlog remains the source for status, IDs and evidence boundaries.
+
+Units are not giant PRs or authorization to deploy. Select a bounded workflow,
+include its own regression proof, and serialize heavy compilation/live-editor
+work in owned hosts. Confirmed unsafe writes or silently widened mutations take
+priority; archived fixture recovery is not a gate for unrelated product work.
+
+## Scoped additions
+
+| ID | Status | Work / acceptance |
+|---|---|---|
+| U5 | Scoped proposal; implementation pending | [Insert a named Slot into an existing pose edge](../plans/u5-animation-authoring.md), with explicit identities/revision, no Skeleton changes, truthful compile results and owned Undo/persistence proof. |
+| AUD-1 | Recurring organization audit; baseline pending | Reconcile docs, roadmap, tool status, test ownership and retained linked checkouts and artifacts at slice closure and release checkpoints. |
+| AUD-2 | Recurring research audit | Refresh decision-driving engine/API assumptions before implementation and after relevant changes; preserve historical evidence and record superseding decisions. |
+| AUD-3 | Ecosystem discovery started; revision/activity baseline pending | Maintain a bounded primary-source watchlist and adopt/experiment/defer/reject findings. See [U12 audit policy](ecosystem-watch.md); no monitoring automation is configured. |
+
+## Archived fixture recovery readiness
+
+The 39 archived states are overlapping iterations, not 39 independent features.
+Keep parent IDs OWN-1 through OWN-4; the suffixes below separate different gates.
+
+| ID | Readiness and historical evidence | Remaining work before integration |
+|---|---|---|
+| OWN-1a | Advanced recovery candidate: archived late-callback notes reference an accepted frozen-v11 ordinary two-cycle PIE receipt. This pass read that reference, not a complete independently verified receipt chain. | Locate and match the exact source/build/live receipt, reconcile current transport and game-thread scheduling, then qualify owned author/fresh verify and two ordinary PIE cycles on the intended engine. |
+| OWN-1b | Implemented proposal with offline controls: late-callback injection is explicitly separate from the accepted ordinary PIE run. Its notes require fresh native validation. | Review the serial supervisor, compile the exact integrated source and prove real timeout, receipt-thread fencing, callback exclusion and post-editor drainage in a fresh process. Ordinary PIE success does not discharge this gate. |
+| OWN-2 | Engine-specific World reader/authority proposal, with historical evidence references and UE 5.6 package-layout assumptions. | Reconcile the exact source and receipts, review engine compatibility and exact-request discovery, then qualify author/separate-reload behavior. No completion percentage assigned. |
+| OWN-3a | Advanced recovery candidate: the archived data-flow qualification manifest records UE 5.6.1 author and separate-process reload passing with exit 0, source/asset/oracle hashes and cleanup results. | Verify referenced artifact availability and bindings (the manifest contains references outside the archive), reconcile the fixture and runner with main, and rerun on the integrated source. Historical success is stronger than an unexecuted proposal, but is not current-main qualification. |
+| OWN-3b | Blueprint persistence fixture iterations retained; this review has not established a complete accepted execution chain for them. | Audit their source and receipts independently, choose the missing save/reload witness, and qualify its multi-process runner. Data-flow or material persistence proof must not be substituted. |
+| OWN-4 | Details paging fixture: eight mocked API controls passed; the receipt explicitly says `nativeExecution: false`. | Qualify the Python-enabled owned-host fixture and actual editor/rendered paging behavior before treating it as usable runtime coverage. |
+
+Local recovery index: `docs/audits/worktree-cleanup-2026-11-07/RECONCILIATION.md`.
+The ignored `legacy-evidence.zip` contains the data-flow
+`actual-byte-corpus/qualification-manifest.json` and Details
+`fixture-controls-v2.json`; `retained-source/native-window-late-20261008-v1.zip`
+contains `files/docs/owned-pie-late-callback.md`. The verified history bundle and
+per-worktree patches preserve source recovery. These are local evidence pointers,
+not public links or a substitute for checking the underlying receipts.
 
 ## Retained correctness and workflow reports
 
@@ -44,7 +106,7 @@ an owned fixture before implementing or declaring closure.
 | EN-8 P2/P4 | Partly implemented | Subobject traversal exists. Remaining report asks for GameplayEffect cue/component decoding and a runtime spawn/reference summary or documented recipe. |
 | EN-8 P5 / EN-4 | Deferred capability | Graduate MakeStruct/BreakStruct and selected math/comparison K2Nodes into supported inspection; demand and fixtures determine the subset. |
 | EN-8 P7 | Needs re-triage | Editor-requirement metadata exists. Define and add useful per-tool offline-fidelity hints rather than claiming the old request is wholly absent. |
-| Animation/Chooser residual | Needs reproduction / capability design | Chooser row-to-result mapping and deeper AnimGraph slot/blend properties. Montage/sequence reads and AnimGraph listing already received fixes; do not reopen the entire historical report as broken. |
+| Animation/Chooser residual | Product workflow validation / remaining readback design | `get_anim_graph` is shipped with state machines, states, transitions, slot names, layered-blend settings/branch filters and optional visual pin topology/defaults. Validate those existing reads on an owned AnimBP before defining missing fields. Chooser row-to-result mapping and any additional static blend fields remain separate gaps to reproduce. Runtime-evaluated blend output is not static graph readback. |
 
 Sources: [original animation audit](limitations-from-project-a-animation-audit-2026-06-18.md),
 [follow-on queue with scope-to-commit correspondence](../superpowers/plans/2026-06-18-live-usage-follow-on-queue.md),
@@ -60,9 +122,9 @@ establish that an item is still open.
 | EN-5 | Automated YAML parameter declarations versus handler reads | Next schema-drift recurrence or focused maintenance slice. |
 | EN-30 | Purpose-built data-asset writers and GAS authoring with explicit dirty/save/Undo guarantees | Concrete authoring workflow; existing generic live mutation is not equivalent qualification. |
 | T-1b/c | Migrate remaining project-dependent tests/oracles to synthetic, engine or owned-host fixtures | CI portability or fixture drift. Existing owned runners are progress, not proof that all legacy dependencies are gone. |
-| OWN-1 | Archived native PIE ownership, property witness and late-callback proposals | Reconcile the historical UE 5.6 contracts with current transport; qualify a bounded serial supervisor, author/reload, two live cycles and injected late-callback drainage. Preserve historical receipts without carrying proof across changed source. |
+| OWN-1 | Ordinary PIE recovery (OWN-1a) and separate late-callback proposal (OWN-1b) | Follow the readiness and execution gates above; ordinary historical success must not be described as an entirely untested proposal. |
 | OWN-2 | Archived World map reader/authority proposals | Review the UE 5.6 package-layout assumptions, engine matrix and exact-request discovery before integrating author/separate-reload coverage. |
-| OWN-3 | Archived Blueprint persistence and data-flow fixture iterations | Choose a concrete missing witness, preserve existing coverage, and qualify an owned multi-process author/reload runner. Material persistence does not discharge this gap. |
+| OWN-3 | Advanced data-flow recovery (OWN-3a) and separately audited Blueprint persistence (OWN-3b) | Recover exact evidence first, then qualify the smallest current-source owned author/reload slice. |
 | OWN-4 | Archived Python Details-paging fixture | Explicit Python-enabled owned-host workflow and rendered paging acceptance; pure PIE pixel normalization does not qualify it. |
 | FX-1 | TMap Blueprint CDO owned-host fixture | A parser regression that synthetic coverage cannot represent. |
 | EN-23 | Structured native duration reporting, per-tool cache metrics, connection/error lifecycle metrics, memory/rotation costs and final metric flush | Before a transport/cache performance decision. Wire timings and native hitch-duration logging already exist. |
@@ -79,6 +141,7 @@ establish that an item is still open.
 | HY-2: Windows test shell selection | Explicit Git Bash resolution passes with the WSL launcher first on PATH; no environment workaround. |
 | HY-3: CRLF hook token lists | Both hooks accept clean content and reject protected names with CRLF token files. See [test hygiene](../specs/test-hygiene.md). |
 | OPS-2: historical worktree reconciliation | Four missing fixes recovered; 14 superseded snapshots identified; 39 proposal/evidence states preserved for OWN-1 through OWN-4. Local recovery bundle, per-worktree patches and decisions are in ignored `docs/audits/worktree-cleanup-2026-11-07/`. No existing test lane was removed. |
+| Recovered Blueprint parents, PIE pixel alpha, management responses and mutation classification | [PR #64](https://github.com/noahbutcher97/UEMCP/pull/64). UE 5.8.3 build, 2/2 focused native cases and 15/15 Blueprint cases passed; rendered screenshots and consumer deployment remain unverified. |
 | Extensionless map paths | [PR #56](https://github.com/noahbutcher97/UEMCP/pull/56). |
 | UE material parameter APIs, override verification and FName casing | [PR #57](https://github.com/noahbutcher97/UEMCP/pull/57). |
 | Full material parameter identities and layer/blend writes | [PR #58](https://github.com/noahbutcher97/UEMCP/pull/58). Names-only/global-only is not the current limitation. |
