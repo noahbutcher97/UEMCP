@@ -46,31 +46,27 @@ outside those read-only plans. Define a concrete user workflow before scheduling
 it, with graph identity, schema validation, Undo, compile diagnostics and
 save/restart verification. Keep Chooser row/result inspection separate.
 
-The sequence below is a reliability/recovery track, not a requirement to finish
-all archived fixture proposals before developing user-facing animation tools.
+## Work units and available paths
 
-## Recommended follow-up sequence
+Use the [roadmap work-unit map](../../tasks/plan.md) to choose coherent slices
+and the [starting-task list](../../tasks/todo.md) to see their completion gates.
+The map replaces a single recommended sequence with independent reliability,
+animation, authoring, inspection, developer-validation and delivery paths.
+This backlog remains the source for status, IDs and evidence boundaries.
 
-This is the proposed execution order, not authorization to deploy to consumer
-projects or a claim that historical evidence qualifies current source. Build and
-live-editor phases run serially in UEMCP-owned hosts; do not overlap port-using
-Node suites with native runs.
+Units are not giant PRs or authorization to deploy. Select a bounded workflow,
+include its own regression proof, and serialize heavy compilation/live-editor
+work in owned hosts. Confirmed unsafe writes or silently widened mutations take
+priority; archived fixture recovery is not a gate for unrelated product work.
 
-| Order | Slice | Concrete completion gate |
+## Scoped additions
+
+| ID | Status | Work / acceptance |
 |---|---|---|
-| 1 | Recover provenance for OWN-3a and OWN-1a (engine-free) | Match archived source to the data-flow manifest and frozen-v11 PIE receipt; identify which referenced artifacts still exist, current-main differences, runner dependencies and exact missing checks. Produce one bounded integration/test plan for each. A manifest referencing an unavailable report is not equivalent to having that report. |
-| 2 | QA-1 live regression smoke, including F-14 reproduction | On current UE 5.8.3, verify editor/project identity, representative read/write commands, PIE start, actual stop completion before the next operation, and PIE screenshot output. Preserve native, MCP, rendered and UI proof separately. Use recovered ordinary PIE machinery only after it is reconciled; late-callback injection is a separate slice. |
-| 3 | BUG-3 timer result correctness | Reproduce compile-failure and ghost-event link-failure paths in an owned fixture, fix inaccurate result fields, and add failure-sensitive native regressions. Source still sets timer `compiled` from the request flag; do not close this from unrelated Blueprint passes. |
-| 4 | OWN-3a data-flow integration | Port the smallest useful fixture/runner changes onto current main, qualify author and separate-process reload, verify the graph oracle and input hashes, and run parser consumers. Start with historical UE 5.6.1 compatibility where needed; explicitly qualify UE 5.8.3 rather than assuming it. |
-| 5 | OWN-1a ordinary PIE integration, then OWN-1b late-callback proof | Requalify the ordinary two-cycle workflow first. Only then add the separate injected timeout/fence/drain test with its own fresh process and evidence. |
-
-QA-2 engine/platform qualification becomes a release gate before claiming broader
-support. QA-3 rendered/desktop acceptance and OPS-1 target selection precede
-consumer rollout. EN-28 confinement and EN-8 unknown-parameter reports should be
-reproduced during the relevant smoke checks; a confirmed unsafe write or silently
-widened mutation takes priority over fixture expansion. EN-32, broader GAS/data-
-asset authoring, telemetry and transport redesign remain workflow-driven rather
-than automatic next work.
+| U5 | Scoped proposal; implementation pending | [Insert a named Slot into an existing pose edge](../plans/u5-animation-authoring.md), with explicit identities/revision, no Skeleton changes, truthful compile results and owned Undo/persistence proof. |
+| AUD-1 | Recurring organization audit; baseline pending | Reconcile docs, roadmap, tool status, test ownership and retained linked checkouts and artifacts at slice closure and release checkpoints. |
+| AUD-2 | Recurring research audit | Refresh decision-driving engine/API assumptions before implementation and after relevant changes; preserve historical evidence and record superseding decisions. |
+| AUD-3 | Ecosystem discovery started; revision/activity baseline pending | Maintain a bounded primary-source watchlist and adopt/experiment/defer/reject findings. See [U12 audit policy](ecosystem-watch.md); no monitoring automation is configured. |
 
 ## Archived fixture recovery readiness
 
