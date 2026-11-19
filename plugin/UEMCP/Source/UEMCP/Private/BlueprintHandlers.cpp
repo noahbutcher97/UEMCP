@@ -899,13 +899,11 @@ namespace UEMCP
 		}
 
 		UK2Node_Event* FindOrCreateReceiveBeginPlay(UBlueprint* Blueprint, UEdGraph* EventGraph,
-			bool& bCreated, bool& bOutEnabledGhost, TSharedPtr<FJsonObject>& OutResponse)
+			bool& bCreated, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			bCreated = false;
-			bOutEnabledGhost = false;
 			if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, TEXT("ReceiveBeginPlay")))
 			{
-				bOutEnabledGhost = EnsureEventNodeEnabled(Existing);
 				return Existing;
 			}
 
@@ -2719,7 +2717,7 @@ namespace UEMCP
 
 			if (bInsertOnBeginPlay)
 			{
-				BeginPlayNode = FindOrCreateReceiveBeginPlay(Blueprint, EventGraph, bBeginPlayCreated, bEnabledGhost, OutResponse);
+				BeginPlayNode = FindOrCreateReceiveBeginPlay(Blueprint, EventGraph, bBeginPlayCreated, OutResponse);
 				if (!BeginPlayNode)
 				{
 					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
@@ -2727,11 +2725,14 @@ namespace UEMCP
 				}
 				UEdGraphPin* SourceExecPin = FindPin(BeginPlayNode, TEXT("then"), EGPD_Output);
 				UEdGraphPin* TargetExecPin = FindPin(TimerNode, TEXT("execute"), EGPD_Input);
+				// MakeLinkTo enables a connected ghost after the schema accepts the link.
+				const bool bWasGhost = BeginPlayNode->IsAutomaticallyPlacedGhostNode();
 				if (!TryLinkPins(EventGraph, SourceExecPin, TargetExecPin, OutResponse))
 				{
 					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, BeginPlayNode, bBeginPlayCreated, SelfNode, TimerNode);
 					return;
 				}
+				bEnabledGhost = bWasGhost && BeginPlayNode->IsNodeEnabled();
 				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("exec"), BeginPlayNode, SourceExecPin, TimerNode, TargetExecPin)));
 				Nodes.Add(MakeShared<FJsonValueObject>(NodeResultToJsonWithRole(TEXT("begin_play"), BeginPlayNode, EventGraph)));
 			}
@@ -2785,7 +2786,7 @@ namespace UEMCP
 			}
 			Result->SetBoolField(TEXT("function_graph_created"), bFunctionGraphCreated);
 			Result->SetBoolField(TEXT("requires_compile"), !bCompile || !bCompiledOk);
-			Result->SetBoolField(TEXT("compiled"), bCompile);
+			Result->SetBoolField(TEXT("compiled"), bCompile && bCompiledOk);
 			Result->SetArrayField(TEXT("nodes"), Nodes);
 			Result->SetArrayField(TEXT("links"), Links);
 			if (CompileResult.IsValid())

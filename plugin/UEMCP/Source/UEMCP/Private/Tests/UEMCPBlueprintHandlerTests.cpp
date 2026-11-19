@@ -1871,7 +1871,7 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 		DestroyFixtureBlueprint(Fixture);
 		return false;
 	}
-	TestTrue(TEXT("detail reports compiled"), (*Detail)->GetBoolField(TEXT("compiled")));
+	TestFalse(TEXT("a failed timer compile reports compiled false"), (*Detail)->GetBoolField(TEXT("compiled")));
 	TestTrue(TEXT("detail keeps requires_compile set after a failed compile"), (*Detail)->GetBoolField(TEXT("requires_compile")));
 	TestFalse(TEXT("detail reports compiled_ok false"), (*Detail)->GetBoolField(TEXT("compiled_ok")));
 	TestEqual(TEXT("detail names the callback graph"), StringFieldOr(*Detail, TEXT("callback_graph_name")), CallbackName);
@@ -1957,30 +1957,10 @@ bool FUEMCPBlueprintHandlersTimerFailuresTest::RunTest(const FString& Parameters
 }
 
 // =====================================================================================
-// Ghost BeginPlay (BUG-2, bullet 4) on the add_blueprint_timer reuse site. Not a
-// red/green pair for every assertion below — a red run with EnsureEventNodeEnabled
-// stubbed to always return false showed only one of these assertions actually
-// depends on the helper:
-//
-// (a) enabled_ghost is a wire fact this call reports, and it is the one thing that
-//     genuinely fails without the helper (proven empirically: the stubbed run
-//     returned success with the field absent).
-//
-// (b) the node ending up enabled, no longer a ghost, and the compiled class
-//     carrying its own ReceiveBeginPlay function all hold even with the helper
-//     stubbed out, because UEdGraphPin::MakeLinkTo (EdGraphPin.cpp) already calls
-//     UEdGraphPin::ConvertConnectedGhostNodesToRealNodes on both ends of a link —
-//     it un-ghosts a connected node as a side effect of the timer's own exec-pin
-//     wiring, before compile ever runs. These three assertions therefore guard an
-//     engine invariant the timer path depends on, not this helper: FEdGraphUtilities
-//     ::CloneGraph excludes disabled nodes of a non-transient graph at compile time
-//     (the mechanism BUG-2 bullet 4 names), and that is exactly what would bite this
-//     test if MakeLinkTo's auto-conversion ever stopped happening.
-//
-// The other two BUG-2 bullet-4 reuse sites (add_blueprint_event_node,
-// override_blueprint_parent_member) hand back an existing node without linking
-// anything to it, so they get no such engine-side rescue — EnsureEventNodeEnabled
-// is load-bearing there (see UEMCP.BlueprintHandlers.EventNodeGhostSites).
+// A rejected timer link preserves the default BeginPlay ghost. On retry,
+// MakeLinkTo converts it in place, the handler reports the transition, and
+// the compiled class implements BeginPlay. EventNodeGhostSites covers the
+// handlers that reuse events without making a link.
 // =====================================================================================
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -2031,6 +2011,47 @@ bool FUEMCPBlueprintHandlersGhostBeginPlayEnabledTest::RunTest(const FString& Pa
 	TimerParams->SetBoolField(TEXT("create_callback_graph"), true);
 	TimerParams->SetBoolField(TEXT("insert_on_begin_play"), true);
 	TimerParams->SetBoolField(TEXT("compile"), true);
+
+	// Force the K2 schema to reject the exec connection, then repair the same pin
+	// and retry. The rejected attempt must leave the original ghost usable.
+	UEdGraphPin* GhostThen = FindFixturePin(Ghost, {TEXT("then")}, EGPD_Output);
+	if (!TestNotNull(TEXT("ghost has a then pin"), GhostThen))
+	{
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	const int32 OriginalNodeCount = EventGraph->Nodes.Num();
+	const int32 OriginalFunctionCount = Fixture.Blueprint->FunctionGraphs.Num();
+	const FString OriginalComment = Ghost->NodeComment;
+	const bool bOriginalBubbleVisible = Ghost->bCommentBubbleVisible;
+	const FName OriginalCategory = GhostThen->PinType.PinCategory;
+	GhostThen->PinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+	const TSharedPtr<FJsonObject> Rejected = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
+	TestEqual(TEXT("K2 rejects the incompatible BeginPlay pin"), ErrorCodeOf(Rejected), FString(TEXT("INCOMPATIBLE_PINS")));
+	const TSharedPtr<FJsonObject>* LinkDetail = nullptr;
+	if (Rejected.IsValid() && Rejected->TryGetObjectField(TEXT("detail"), LinkDetail) && LinkDetail)
+	{
+		TestTrue(TEXT("link error identifies the incompatible source pin"), (*LinkDetail)->HasField(TEXT("source_pin")));
+		TestFalse(TEXT("link error omits enabled_ghost"), (*LinkDetail)->HasField(TEXT("enabled_ghost")));
+	}
+	else
+	{
+		AddError(TEXT("link error carried no pin detail"));
+	}
+	TestEqual(TEXT("link failure removes the timer and self nodes"), EventGraph->Nodes.Num(), OriginalNodeCount);
+	TestEqual(TEXT("link failure removes the new callback graph"), Fixture.Blueprint->FunctionGraphs.Num(), OriginalFunctionCount);
+	Ghost = Cast<UK2Node_Event>(FindNodeByGuid(EventGraph, GhostId));
+	GhostThen = FindFixturePin(Ghost, {TEXT("then")}, EGPD_Output);
+	if (!TestNotNull(TEXT("original BeginPlay pin survives rollback"), GhostThen))
+	{
+		DestroyFixtureBlueprint(Fixture);
+		return false;
+	}
+	TestTrue(TEXT("rejected link leaves BeginPlay a ghost"), Ghost->IsAutomaticallyPlacedGhostNode());
+	TestEqual(TEXT("rejected link preserves the ghost comment"), Ghost->NodeComment, OriginalComment);
+	TestEqual(TEXT("rejected link preserves comment visibility"), bool(Ghost->bCommentBubbleVisible), bOriginalBubbleVisible);
+	TestEqual(TEXT("rejected link leaves the then pin unconnected"), GhostThen->LinkedTo.Num(), 0);
+	GhostThen->PinType.PinCategory = OriginalCategory;
 
 	const TSharedPtr<FJsonObject> Response = Dispatch(TEXT("add_blueprint_timer"), TimerParams);
 	FString Code;

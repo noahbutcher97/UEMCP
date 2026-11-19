@@ -97,7 +97,7 @@ an owned fixture before implementing or declaring closure.
 
 | ID | Status | Remaining scope |
 |---|---|---|
-| BUG-3 | Source-confirmed; runtime reproduction pending | Blueprint timer result uses the requested compile flag even on compilation failure; its ghost-event link-failure path needs consistent `enabled_ghost` reporting. See `BlueprintHandlers.cpp`, `HandleAddBlueprintTimer`, and its native tests. |
+| BUG-3 | Fixed and verified locally, 2026-11-19 | On a real compiler error, `add_blueprint_timer` returns `COMPILE_FAILED` with `compiled=false`, `compiled_ok=false` and `requires_compile=true`. A rejected BeginPlay link preserves the ghost and its comment and removes the new timer nodes and callback graph. A successful retry reports `enabled_ghost=true`. On the UEMCP-owned UE 5.8.4 Win64 host, `TimerFailures` and `GhostBeginPlayEnabled` failed before the fix. After rebuilding, all 15 `native-blueprint` cases passed with zero skips. UE 5.6.1 fixture compilation stopped at missing Remote Control APIs. [Native regressions](../../plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPBlueprintHandlerTests.cpp) |
 | F-14 | Needs reproduction | PIE teardown completion can lag `RequestEndPlayMap`; verify the stop/next-operation boundary rather than treating request acceptance as completed teardown. |
 | FText histories | Source-confirmed limitation | `uasset-parser.mjs` still rejects unsupported FText HistoryType values beyond the supported cases. Add representative fixtures before extending decoding. |
 | EN-28 residual | Needs reproduction | Check output-path confinement for `take_screenshot` and `get_asset_preview_render`; the dedicated editor-capture tools already confine their output. |
