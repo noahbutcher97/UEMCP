@@ -40,6 +40,10 @@ For Unreal C++, follow the existing UE style: tabs for indentation, PascalCase t
 
 ## Testing Guidelines
 
+For engine-specific native or live qualification, locate the UEMCP-owned project
+through the [fixture host guide](docs/fixture-host.md#locate-an-owned-host-by-engine)
+and verify its engine manifest before selecting a deployment target.
+
 Before submitting server or tool-surface changes, run `npm test`. Use `node run-rotation.mjs --include-live-gated` only when Unreal Editor is running and reachable on the expected TCP port. For plugin deployment checks, run `verify-deploy.bat` before and after syncing. Use `test-uemcp-gate.bat` as a commandlet-gate smoke test. Use `smoke-live.bat` for the opt-in live-editor smoke suite after relaunching the editor and restarting the MCP client; it skips cleanly unless `UEMCP_LIVE_SMOKE=1` is set.
 
 ## Commit & Pull Request Guidelines

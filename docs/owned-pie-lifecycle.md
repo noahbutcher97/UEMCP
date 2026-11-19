@@ -30,6 +30,31 @@ The timings measure client calls. They establish the first externally observed
 state in these two runs. The exact instant of teardown relative to the stop
 reply and the late-callback scenario remain unqualified.
 
+### UE 5.3.2 and 5.6.1 qualification
+
+Both Win64 hosts ran the same two-cycle MCP probe on the BUG-3 plugin. All 102
+staged plugin files matched the primary checkout at `1afa268`. The disposable
+hosts used the matching retained UEMCP fixture module, checked against its
+manifest, with current isolation settings. The probe verified the editor PID,
+project path and map over TCP. Each cycle verified the camera in its PIE world
+and read back the editor write after stop. Each editor exited with code 0.
+
+| Engine | First state reply after stop acknowledgement, cycles 1 / 2 | First observed state in both cycles | Following editor write and readback, cycles 1 / 2 |
+|---|---|---|---|
+| UE 5.3.2, CL 29314046 | 26.4 / 26.5 ms | Stopped, zero PIE contexts | `[144, 272, 528]` / `[160, 288, 544]` |
+| UE 5.6.1, CL 44394996 | 187.9 / 66.8 ms | Stopped, zero PIE contexts | `[144, 272, 528]` / `[160, 288, 544]` |
+
+The separate `native-blueprint` run passed all 15 cases on each engine with
+zero skips. UE 5.3.2 logged one warning during `TimerFailures` when it looked
+for `/Script/PCG.PCGSettings`. The initial 5.3.2 live setup stopped before PIE
+because `LevelEditorSubsystem.new_level` accepts a single argument on that
+version. The one-argument fixture setup completed both cycles with the same DLL.
+
+The separate Win64 `BuildPlugin` gate passed on UE 5.6.1, including the packaged
+transport fixture hash check. On UE 5.3.2, UnrealHeaderTool stopped in the
+generated packaging host because two installed Marketplace plugins both supplied
+`ComboGraph.h` and `ComboGraphSchema.h`. UE 5.3 packaging remains open.
+
 ## Offline runner
 
 `owned-pie-lifecycle-offline` is an additive engine-free profile. It exercises a

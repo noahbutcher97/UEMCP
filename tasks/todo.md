@@ -7,8 +7,8 @@ already shipped capabilities. Each row is a starting slice, not the entire unit.
 
 | Task | Acceptance and verification | Dependency / likely area |
 |---|---|---|
-| [x] U1a: truthful timer failures (BUG-3) | Reproduced both failures and verified the fix on the owned UE 5.8.4 Win64 host. All 15 native Blueprint cases passed. | [BUG-3 evidence](../docs/tracking/backlog.md#retained-correctness-and-workflow-reports) |
-| [x] U2a: stop/next-operation lifecycle (QA-1, F-14) | Verified identity, actor edits/readback and two ordinary PIE cycles. The first MCP query after each stop saw zero worlds, and the next editor edit succeeded. | [Owned UE 5.8.4 execution](../docs/owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
+| [x] U1a: truthful timer failures (BUG-3) | Reproduced both failures on UE 5.8.4. The fix passed all 15 native Blueprint cases on UE 5.3.2, 5.6.1 and 5.8.4 Win64. | [BUG-3 evidence](../docs/tracking/backlog.md#retained-correctness-and-workflow-reports) |
+| [x] U2a: stop/next-operation lifecycle (QA-1, F-14) | Verified identity, actor edits/readback and two ordinary PIE cycles per engine on UE 5.3.2, 5.6.1 and 5.8.4 Win64. All six first MCP queries after stop saw zero worlds, and all six following editor edits succeeded. | [Owned host results](../docs/owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
 | [ ] U3a: capture confinement (EN-28) | Reproduce both screenshot/preview paths; reject invalid output locations and inspect valid rendered output. | None; capture handlers and focused tests. |
 | [ ] U4a: shipped AnimGraph read qualification | Owned AnimBP oracle agrees with properties, topology and defaults; document actual missing fields without treating existing tools as absent. | None; animation fixture, runner and read handler only if a defect is found. |
 | [x] U5a: scope the first AnimGraph edit | [Slot-insertion contract](../docs/plans/u5-animation-authoring.md) records identity, schema, failure, Undo and persistence requirements with engine-source findings. Runtime feasibility and upstream equivalence remain implementation gates. | Scoping complete; implementation not started. |
