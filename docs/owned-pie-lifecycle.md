@@ -1,5 +1,37 @@
 # Owned PIE lifecycle qualification
 
+## Live stop and next-operation check (2026-11-19)
+
+At commit `a59f33e`, the UEMCP-owned UE 5.8.4 Win64 fixture completed two
+ordinary viewport PIE cycles through the MCP stdio server. The editor ran
+offscreen with D3D11. Deployment reported `ALL-SYNC`. The editor process,
+project path and loaded map `/Game/OwnedPIE/U2a` matched the MCP identity.
+
+The probe spawned a camera on the empty owned map, moved it through MCP and
+read its transform back. During each cycle it verified the camera by name,
+class, transform and time dilation in the single standalone PIE world. It then
+called `stop_pie` and immediately issued `get_pie_session_state` over the same
+MCP session, with no intervening request, delay or retry.
+
+| Cycle | First query sent after stop reply | First query returned after stop reply | First observed state | Following editor write and readback (XYZ) |
+|---|---:|---:|---|---|
+| 1 | 0.046 ms | 154.0 ms | Stopped, zero PIE contexts | `[144, 272, 528]` |
+| 2 | 0.039 ms | 70.1 ms | Stopped, zero PIE contexts | `[160, 288, 544]` |
+
+Both stop replies carried `was_running=true` and `requested_stop=true`.
+Both subsequent state replies carried `default_pie_instance=-1` and an empty
+context list. The probe restored the camera's original position, deleted it,
+confirmed its absence and observed the final stopped state. The editor log
+records two world creations and teardowns. The editor exited with code 0.
+The first setup run stopped before PIE because the probe read the outer MCP
+envelope. The corrected run read its `result` field.
+
+The timings measure client calls. They establish the first externally observed
+state in these two runs. The exact instant of teardown relative to the stop
+reply and the late-callback scenario remain unqualified.
+
+## Offline runner
+
 `owned-pie-lifecycle-offline` is an additive engine-free profile. It exercises a
 two-cycle runner through the real `ProjectContext` and `ConnectionManager` using
 an injected responder. It does not prove that Unreal started, stopped, or returned

@@ -17,7 +17,7 @@ projects. Historical rationale is retained in the [September notes preserved at 
 
 | ID | Status | Work / acceptance |
 |---|---|---|
-| QA-1 | Open qualification | Exercise existing live tools after PR #62's game-thread scheduling change. Existing graph/MCP and parameter-host gates pass, but they do not qualify every tool. |
+| QA-1 | Owned actor and ordinary PIE slice passed; broader qualification open | At `a59f33e` on UE 5.8.4 Win64, live MCP identity, actor writes/readback and two stop/next-operation cycles passed. [Execution and limits](../owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
 | QA-2 | Open qualification | Run the supported-engine compilation/runtime matrix for the new material graph surface. UE 5.8.3 Win64 D3D12/SM5 is verified; other versions/platforms and rendered appearance are not. |
 | QA-3 | Open qualification | Desktop client/editor UI acceptance remains separate from the completed terminal-client and transport-isolation proof. Shared-directory concurrent asset edits are not made safe by port isolation. See [session isolation](../project-session-isolation.md). |
 | EN-32 | Deferred capability | Extend scalar material functions with typed vector/texture inputs and nodes, more math, function instances, layer/blend functions and safe interface edits. Choose one workflow-driven slice with its own host oracle, Undo and persistence gate. |
@@ -98,7 +98,7 @@ an owned fixture before implementing or declaring closure.
 | ID | Status | Remaining scope |
 |---|---|---|
 | BUG-3 | Fixed and verified locally, 2026-11-19 | On a real compiler error, `add_blueprint_timer` returns `COMPILE_FAILED` with `compiled=false`, `compiled_ok=false` and `requires_compile=true`. A rejected BeginPlay link preserves the ghost and its comment and removes the new timer nodes and callback graph. A successful retry reports `enabled_ghost=true`. On the UEMCP-owned UE 5.8.4 Win64 host, `TimerFailures` and `GhostBeginPlayEnabled` failed before the fix. After rebuilding, all 15 `native-blueprint` cases passed with zero skips. UE 5.6.1 fixture compilation stopped at missing Remote Control APIs. [Native regressions](../../plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPBlueprintHandlerTests.cpp) |
-| F-14 | Needs reproduction | PIE teardown completion can lag `RequestEndPlayMap`; verify the stop/next-operation boundary rather than treating request acceptance as completed teardown. |
+| F-14 | Unreproduced in two ordinary live cycles | Both first queries after `requested_stop` found zero PIE contexts and both following editor writes read back correctly. Teardown timing at acknowledgement and late callbacks remain open. [UE 5.8.4 results](../owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
 | FText histories | Source-confirmed limitation | `uasset-parser.mjs` still rejects unsupported FText HistoryType values beyond the supported cases. Add representative fixtures before extending decoding. |
 | EN-28 residual | Needs reproduction | Check output-path confinement for `take_screenshot` and `get_asset_preview_render`; the dedicated editor-capture tools already confine their output. |
 | EN-8 P1/P6 | Needs reproduction | Unknown-parameter rejection, ergonomic aliases and bounded asset-registry output. Historical report: a misspelled path filter silently widened the query. |
