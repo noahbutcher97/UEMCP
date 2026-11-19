@@ -2,7 +2,7 @@
 
 ## Live stop and next-operation check (2026-11-19)
 
-At commit `a59f33e`, the UEMCP-owned UE 5.8.4 Win64 fixture completed two
+With plugin source tree `5ace74b4808b`, the UEMCP-owned UE 5.8.4 Win64 fixture completed two
 ordinary viewport PIE cycles through the MCP stdio server. The editor ran
 offscreen with D3D11. Deployment reported `ALL-SYNC`. The editor process,
 project path and loaded map `/Game/OwnedPIE/U2a` matched the MCP identity.
@@ -33,7 +33,7 @@ reply and the late-callback scenario remain unqualified.
 ### UE 5.3.2 and 5.6.1 qualification
 
 Both Win64 hosts ran the same two-cycle MCP probe on the BUG-3 plugin. All 102
-staged plugin files matched the primary checkout at `1afa268`. The disposable
+staged plugin files matched the checkout of the same plugin tree. The disposable
 hosts used the matching retained UEMCP fixture module, checked against its
 manifest, with current isolation settings. The probe verified the editor PID,
 project path and map over TCP. Each cycle verified the camera in its PIE world
@@ -50,10 +50,26 @@ for `/Script/PCG.PCGSettings`. The initial 5.3.2 live setup stopped before PIE
 because `LevelEditorSubsystem.new_level` accepts a single argument on that
 version. The one-argument fixture setup completed both cycles with the same DLL.
 
-The separate Win64 `BuildPlugin` gate passed on UE 5.6.1, including the packaged
-transport fixture hash check. On UE 5.3.2, UnrealHeaderTool stopped in the
-generated packaging host because two installed Marketplace plugins both supplied
-`ComboGraph.h` and `ComboGraphSchema.h`. UE 5.3 packaging remains open.
+### Win64 plugin packaging
+
+The first UE 5.3.2 `BuildPlugin` run stopped in UnrealHeaderTool because two
+installed Marketplace plugins supplied duplicate headers. A separate copy of
+the same engine build with `Engine/Plugins/Marketplace` excluded reached UEMCP
+compilation and exposed a missing declaration for `MD_Surface`. Including
+`MaterialDomain.h` directly in `MaterialGraphAuthoring.cpp` fixed that error.
+
+The stock `test-plugin-build-matrix.ps1` then packaged plugin tree `f71e84bc2cef`
+on UE 5.3.2, 5.6.1 and 5.8.4 for Win64. All three packages contained
+`UnrealEditor-UEMCP.dll` and `Resources/Tests/tcp-transport-cases.json`.
+The fixture matched the repository SHA-256 on each engine
+(`28d405cb631090087c86f71ac4819a91494d9bc00290e64c42e242b7e2a00710`).
+
+Each packaged DLL then ran the same 15 Blueprint automation tests in an owned
+project on its matching engine. All 45 cases passed with zero skips. UE 5.3.2
+logged the `TimerFailures` PCG warning described above. An initial 5.3.2 host
+configuration disabled the engine's default plugins and exited before automation
+when `WorldPartitionHLODUtilities` could not load. The passing runs used the
+engine's default built-in plugins.
 
 ## Offline runner
 
