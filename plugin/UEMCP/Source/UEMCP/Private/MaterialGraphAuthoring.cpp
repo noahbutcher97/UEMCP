@@ -5,6 +5,7 @@
 #include "MCPResponseBuilder.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Editor.h"
+#include "MaterialDomain.h"
 #include "MaterialEditingLibrary.h"
 #include "MaterialShared.h"
 #include "ShaderCompiler.h"

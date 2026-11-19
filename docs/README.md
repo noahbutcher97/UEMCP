@@ -36,6 +36,7 @@ docs/
 5. `tracking/risks-and-decisions.md` — historical decisions (load-bearing context)
 
 **Quick reference during work**:
+- [Locate an owned fixture host by engine](fixture-host.md#locate-an-owned-host-by-engine) for native and live tests.
 - `tools.yaml` for tool lookup
 - `tracking/backlog.md` for current triage, retained reports and completion links
 - `../tasks/plan.md` for work-unit grouping, dependencies and selectable paths

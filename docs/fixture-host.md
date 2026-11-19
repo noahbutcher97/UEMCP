@@ -4,6 +4,21 @@
 module supports the retained Game target and the Editor target. UEMCP is enabled
 explicitly; its descriptor declares required engine plugin dependencies.
 
+## Locate an owned host by engine
+
+For an existing host, check the checkout's local `docs/audits/local-owned-hosts.md`
+if available. It gives the path to each retained host and the engine build from its
+`host-manifest.json`. The deployment profiles in `.uemcp-targets.json` list
+deployment targets and can omit owned fixture stages. Machine-specific paths belong
+in the local inventory.
+
+Open the stage manifest and check `engine.root`, `engine.build`, `source` and the
+project under `host/`. A copied `.uproject` can retain a different engine association.
+For a retained evidence stage, take a verified source copy and sync the plugin
+under test into the new stage. Record the host and plugin revisions separately.
+
+## Stage a fresh host
+
 From the repository root, stage into a new, absent directory whose parent exists:
 
 ```powershell
