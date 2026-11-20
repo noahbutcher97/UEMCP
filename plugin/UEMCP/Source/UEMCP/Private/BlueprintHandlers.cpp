@@ -965,7 +965,7 @@ namespace UEMCP
 				return Existing;
 			}
 
-			UK2Node_Event* BeginPlay = NewObject<UK2Node_Event>(EventGraph);
+			UK2Node_Event* BeginPlay = NewObject<UK2Node_Event>(EventGraph, NAME_None, RF_Transactional);
 			if (!BeginPlay)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create ReceiveBeginPlay node"), TEXT("CREATE_FAILED"));
@@ -1944,7 +1944,7 @@ namespace UEMCP
 			bool bPure = false;
 			Params->TryGetBoolField(TEXT("pure"), bPure);
 
-			UK2Node_DynamicCast* CastNode = NewObject<UK2Node_DynamicCast>(Graph);
+			UK2Node_DynamicCast* CastNode = NewObject<UK2Node_DynamicCast>(Graph, NAME_None, RF_Transactional);
 			if (!CastNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create cast node"), TEXT("CREATE_FAILED"));
@@ -1996,7 +1996,7 @@ namespace UEMCP
 
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
-			UK2Node_CallParentFunction* CallNode = NewObject<UK2Node_CallParentFunction>(Graph);
+			UK2Node_CallParentFunction* CallNode = NewObject<UK2Node_CallParentFunction>(Graph, NAME_None, RF_Transactional);
 			if (!CallNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create parent-call node"), TEXT("CREATE_FAILED"));
@@ -2074,7 +2074,7 @@ namespace UEMCP
 				}
 
 				const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
-				UK2Node_Event* EventNode = NewObject<UK2Node_Event>(EventGraph);
+				UK2Node_Event* EventNode = NewObject<UK2Node_Event>(EventGraph, NAME_None, RF_Transactional);
 				if (!EventNode)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to create event node"), TEXT("CREATE_FAILED"));
@@ -2210,7 +2210,7 @@ namespace UEMCP
 				return;
 			}
 
-			UK2Node_CallFunction* FuncNode = NewObject<UK2Node_CallFunction>(EventGraph);
+			UK2Node_CallFunction* FuncNode = NewObject<UK2Node_CallFunction>(EventGraph, NAME_None, RF_Transactional);
 			if (!FuncNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create function call node"), TEXT("CREATE_FAILED"));
@@ -2435,7 +2435,7 @@ namespace UEMCP
 			if (!Graph) return;
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
-			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph);
+			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph, NAME_None, RF_Transactional);
 			if (!SetNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create variable set node"), TEXT("CREATE_FAILED"));
@@ -2772,7 +2772,7 @@ namespace UEMCP
 				return;
 			}
 
-			UK2Node_CallFunction* TimerNode = NewObject<UK2Node_CallFunction>(EventGraph);
+			UK2Node_CallFunction* TimerNode = NewObject<UK2Node_CallFunction>(EventGraph, NAME_None, RF_Transactional);
 			if (!TimerNode)
 			{
 				RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, nullptr, nullptr);
@@ -2802,7 +2802,7 @@ namespace UEMCP
 			UEdGraphPin* ObjectPin = FindInputPinByNames(TimerNode, { TEXT("Object") });
 			if (ObjectPin)
 			{
-				SelfNode = NewObject<UK2Node_Self>(EventGraph);
+				SelfNode = NewObject<UK2Node_Self>(EventGraph, NAME_None, RF_Transactional);
 				if (!SelfNode)
 				{
 					RollbackTimerAuthoring(Blueprint, CallbackGraph, bFunctionGraphCreated, nullptr, false, nullptr, TimerNode);
@@ -2936,11 +2936,11 @@ namespace UEMCP
 			UEdGraphNode* Node = nullptr;
 			if (NodeKind.Equals(TEXT("Branch"), ESearchCase::IgnoreCase))
 			{
-				Node = NewObject<UK2Node_IfThenElse>(Graph);
+				Node = NewObject<UK2Node_IfThenElse>(Graph, NAME_None, RF_Transactional);
 			}
 			else if (NodeKind.Equals(TEXT("Sequence"), ESearchCase::IgnoreCase))
 			{
-				Node = NewObject<UK2Node_ExecutionSequence>(Graph);
+				Node = NewObject<UK2Node_ExecutionSequence>(Graph, NAME_None, RF_Transactional);
 			}
 			else if (NodeKind.Equals(TEXT("Return"), ESearchCase::IgnoreCase))
 			{
@@ -2951,7 +2951,7 @@ namespace UEMCP
 					BuildErrorResponse(OutResponse, TEXT("Return nodes require a function graph with an entry node"), TEXT("FUNCTION_GRAPH_INVALID"));
 					return;
 				}
-				UK2Node_FunctionResult* ResultNode = NewObject<UK2Node_FunctionResult>(Graph);
+				UK2Node_FunctionResult* ResultNode = NewObject<UK2Node_FunctionResult>(Graph, NAME_None, RF_Transactional);
 				ResultNode->FunctionReference = EntryNodes[0]->FunctionReference;
 				Node = ResultNode;
 			}
@@ -3046,7 +3046,7 @@ namespace UEMCP
 			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!EventGraph) return;
 
-			UK2Node_Self* SelfNode = NewObject<UK2Node_Self>(EventGraph);
+			UK2Node_Self* SelfNode = NewObject<UK2Node_Self>(EventGraph, NAME_None, RF_Transactional);
 			if (!SelfNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create self node"), TEXT("CREATE_FAILED"));
@@ -3080,7 +3080,7 @@ namespace UEMCP
 			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!EventGraph) return;
 
-			UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(EventGraph);
+			UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(EventGraph, NAME_None, RF_Transactional);
 			if (!GetNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create get component node"), TEXT("CREATE_FAILED"));
@@ -3100,6 +3100,14 @@ namespace UEMCP
 		}
 
 		// ── 14. connect_blueprint_nodes ───────────────────────────────────────────
+		void ModifyPinOwnerForUndo(UEdGraphNode* Node)
+		{
+			// Existing assets may contain nodes created without RF_Transactional.
+			// Pin::Modify delegates to its owner, which must be eligible for Undo.
+			Node->SetFlags(RF_Transactional);
+			Node->Modify();
+		}
+
 		bool ConnectionChangeRebuildsOtherPins(UEdGraphPin* Input)
 		{
 			if (Input->Direction != EGPD_Input) return false;
@@ -3260,12 +3268,12 @@ namespace UEMCP
 				FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "ConnectGraphPins", "Connect Blueprint pins"));
 				Blueprint->Modify();
 				EventGraph->Modify();
-				SourceNode->Modify();
-				TargetNode->Modify();
+				ModifyPinOwnerForUndo(SourceNode);
+				ModifyPinOwnerForUndo(TargetNode);
 				if (Old)
 				{
 					OldId = Old->PinId.ToString();
-					Old->GetOwningNode()->Modify();
+					ModifyPinOwnerForUndo(Old->GetOwningNode());
 				}
 				const FEdGraphPinReference SourceRef(SourcePin), TargetRef(TargetPin), OldRef(Old);
 				if (!K2Schema->TryCreateConnection(SourcePin, TargetPin))
@@ -3280,7 +3288,16 @@ namespace UEMCP
 				if (!SourcePin || !TargetPin || !SourcePin->LinkedTo.Contains(TargetPin) || !TargetPin->LinkedTo.Contains(SourcePin) ||
 					(!OldId.IsEmpty() && (TargetPin->LinkedTo.Num() != 1 || (Removed && Removed->LinkedTo.Contains(TargetPin)))))
 				{
-					BuildErrorResponse(OutResponse, TEXT("Schema changed graph endpoints during connection. Read current topology before retrying or undoing."), TEXT("GRAPH_CHANGED"));
+					// Cancel discards the undo record without restoring UObject state.
+					// An editor listener may already have rebuilt pins or removed links.
+					auto Detail = MakeShared<FJsonObject>();
+					Detail->SetBoolField(TEXT("rolled_back"), false);
+					Detail->SetStringField(TEXT("graph_guid"), EventGraph->GraphGuid.ToString());
+					Detail->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(EventGraph));
+					BuildErrorResponse(OutResponse, Transaction.IsOutstanding()
+						? TEXT("The schema edited the graph but the requested connection could not be verified. Inspect the current topology or undo Connect Blueprint pins.")
+						: TEXT("The schema edited the graph but the requested connection could not be verified. Inspect the current topology before another edit."),
+						TEXT("GRAPH_CHANGED"), Detail);
 					return;
 				}
 			}
@@ -3568,9 +3585,9 @@ namespace UEMCP
 			{
 				Blueprint->Modify();
 				Graph->Modify();
-				Node->Modify();
+				ModifyPinOwnerForUndo(Node);
 				for (UEdGraphPin* Peer : Pin->LinkedTo)
-					if (Peer && (!TargetPin || Peer == TargetPin)) Peer->GetOwningNode()->Modify();
+					if (Peer && (!TargetPin || Peer == TargetPin)) ModifyPinOwnerForUndo(Peer->GetOwningNode());
 				if (TargetPin)
 				{
 					if (Schema) Schema->BreakSinglePinLink(Pin, TargetPin);

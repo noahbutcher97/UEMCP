@@ -192,7 +192,8 @@
           "UEMCP.BlueprintHandlers.FormatTextConnection",
           "UEMCP.BlueprintHandlers.ClassPinConnections",
           "UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation",
-          "UEMCP.BlueprintHandlers.StateNamingIsolation"
+          "UEMCP.BlueprintHandlers.StateNamingIsolation",
+          "UEMCP.BlueprintHandlers.FunctionConnectionUndo"
         ]
       }]
     },

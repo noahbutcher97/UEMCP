@@ -2724,7 +2724,7 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 	FGraphNodeCreator<UAnimGraphNode_LinkedAnimGraph> LinkedCreator(*Graph);
 	auto* Linked = LinkedCreator.CreateNode();
 	LinkedCreator.Finalize();
-	auto* CustomInput = Linked->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Struct, Input->PinType.PinSubCategoryObject.Get(), TEXT("CustomPose"));
+	auto* CustomInput = Linked->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Struct, Root->FindPinChecked(TEXT("Result"))->PinType.PinSubCategoryObject.Get(), TEXT("CustomPose"));
 	const FName BindingName(*Linked->GetPinTargetVariableName(CustomInput));
 	UObject* Owner = Linked;
 	if (const auto* Prop = FindFProperty<FObjectPropertyBase>(Owner->GetClass(), TEXT("Binding")))
@@ -2747,6 +2747,41 @@ bool FInteractivePoseConnection::RunTest(const FString& Parameters)
 	Bound->SetStringField(TEXT("target_pin"), CustomInput->PinName.ToString());
 	TestEqual(TEXT("Refuse generated custom-property binding"), ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Bound)), FString(TEXT("BOUND_PIN")));
 	TestTrue(TEXT("Generated binding survives"), Bindings.Num() == 1 && CustomInput->LinkedTo.IsEmpty());
+
+	// A listener may replace a pin after the schema has already displaced B.
+	// The handler must report that state and preserve the user's recovery entry.
+	const FString BeforeChange = UEMCP::GraphTopologyRevision(Graph);
+	Request->SetStringField(TEXT("source_node_id"), A->NodeGuid.ToString());
+	Request->SetStringField(TEXT("source_pin_id"), A->FindPinChecked(TEXT("Pose"))->PinId.ToString());
+	Request->SetStringField(TEXT("replace_source_pin_id"), B->FindPinChecked(TEXT("Pose"))->PinId.ToString());
+	Request->SetStringField(TEXT("target_pin_id"), Root->FindPinChecked(TEXT("Result"))->PinId.ToString());
+	Request->SetStringField(TEXT("expected_revision"), BeforeChange);
+	bool bReplaced = false;
+	const auto Listener = Graph->AddOnGraphChangedHandler(FOnGraphChanged::FDelegate::CreateLambda([&](const FEdGraphEditAction&)
+	{
+		auto* Pose = A->FindPin(TEXT("Pose"));
+		auto* Sink = Root->FindPin(TEXT("Result"));
+		if (bReplaced || !Pose || !Sink || !Pose->LinkedTo.Contains(Sink)) return;
+		bReplaced = true;
+		const auto Type = Pose->PinType;
+		Pose->BreakLinkTo(Sink);
+		A->RemovePin(Pose);
+		A->CreatePin(EGPD_Output, Type, TEXT("Pose"));
+	}));
+	const auto Changed = Dispatch(TEXT("connect_blueprint_nodes"), Request);
+	Graph->RemoveOnGraphChangedHandler(Listener);
+	if (!TestTrue(TEXT("Listener replaced wired source pin"), bReplaced)) return false;
+	TestEqual(TEXT("Changed endpoint reported"), ErrorCodeOf(Changed), FString(TEXT("GRAPH_CHANGED")));
+	const TSharedPtr<FJsonObject>* Detail = nullptr;
+	TestTrue(TEXT("Response identifies live graph after unrolled schema edit"),
+		Changed && Changed->TryGetObjectField(TEXT("detail"), Detail) && Detail &&
+		StringFieldOr(*Detail, TEXT("topology_revision")) == UEMCP::GraphTopologyRevision(Graph) &&
+		(*Detail)->HasTypedField<EJson::Boolean>(TEXT("rolled_back")) && !(*Detail)->GetBoolField(TEXT("rolled_back")));
+	TestTrue(TEXT("Displaced edge actually absent"), B->FindPinChecked(TEXT("Pose"))->LinkedTo.IsEmpty() &&
+		Root->FindPinChecked(TEXT("Result"))->LinkedTo.IsEmpty());
+	TestTrue(TEXT("One Undo recovers pre-callback graph"), History->Undo());
+	TestEqual(TEXT("Original topology recovered"), UEMCP::GraphTopologyRevision(Graph), BeforeChange);
+	Check(B, A);
 	return true;
 }
 
@@ -2923,6 +2958,7 @@ bool FAssignmentSavedFailureIsolation::RunTest(const FString& Parameters)
 			History->Reset(NSLOCTEXT("UEMCPTests", "AssignmentIsolationCleanup", "Assignment isolation cleanup"));
 			DestroyFixtureBlueprint(Fixture);
 			IFileManager::Get().Delete(*Filename, false, true);
+			TestFalse(FString::Printf(TEXT("Saved fixture removed from %s"), *Filename), IFileManager::Get().FileExists(*Filename));
 		};
 		AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
 		AddFixtureVariable(Fixture.Blueprint, TEXT("SourceScore"), UEdGraphSchema_K2::PC_Int);
@@ -3139,6 +3175,76 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Undo accepted state"), History->Undo());
 	TestTrue(TEXT("Undo accepted machine"), History->Undo());
 	TestFalse(TEXT("Rejected state did not add an undo entry"), History->CanUndo());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFunctionConnectionUndo, "UEMCP.BlueprintHandlers.FunctionConnectionUndo",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
+	auto Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("function_name"), TEXT("Not_PreBool"));
+	Params->SetStringField(TEXT("target"), TEXT("KismetMathLibrary"));
+	auto Place = [&]()
+	{
+		const auto Result = ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Params));
+		return FindNodeByGuid(Graph, StringFieldOr(Result, TEXT("node_id")));
+	};
+	auto* From = Place();
+	auto* To = Place();
+	if (!TestNotNull(TEXT("Function output node"), From) || !TestNotNull(TEXT("Function input node"), To)) return false;
+	TestTrue(TEXT("Placed calls participate in editor transactions"), From->HasAnyFlags(RF_Transactional) && To->HasAnyFlags(RF_Transactional));
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	auto Connect = MakeShared<FJsonObject>();
+	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Connect->SetStringField(TEXT("source_node_id"), From->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("source_pin"), TEXT("ReturnValue"));
+	Connect->SetStringField(TEXT("target_node_id"), To->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("target_pin"), TEXT("A"));
+	// Emulate an existing asset with unflagged function nodes from older plugin versions.
+	From->ClearFlags(RF_Transactional);
+	To->ClearFlags(RF_Transactional);
+	FString Code;
+	if (!TestTrue(TEXT("Connect existing function nodes"), IsSuccess(Dispatch(TEXT("connect_blueprint_nodes"), Connect), Code))) return false;
+	auto Connected = [&]()
+	{
+		auto* Output = From->FindPinChecked(TEXT("ReturnValue"));
+		auto* Input = To->FindPinChecked(TEXT("A"));
+		return Output->LinkedTo.Num() == 1 && Input->LinkedTo.Num() == 1 &&
+			Output->LinkedTo.Contains(Input) && Input->LinkedTo.Contains(Output);
+	};
+	TestTrue(TEXT("New edge reciprocal"), Connected());
+	TestTrue(TEXT("One Undo"), History->Undo());
+	TestTrue(TEXT("Undo removes links on both function nodes"), From->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() &&
+		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+	TestFalse(TEXT("No additional edit to undo"), History->CanUndo());
+	TestTrue(TEXT("Redo connection"), History->Redo());
+	TestTrue(TEXT("Redo restores both function pins"), Connected());
+	// Disconnect is also a first edit on a previously wired legacy asset.
+	From->ClearFlags(RF_Transactional);
+	To->ClearFlags(RF_Transactional);
+	auto Disconnect = MakeShared<FJsonObject>();
+	Disconnect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Disconnect->SetStringField(TEXT("node_id"), From->NodeGuid.ToString());
+	Disconnect->SetStringField(TEXT("pin"), TEXT("ReturnValue"));
+	Disconnect->SetStringField(TEXT("direction"), TEXT("output"));
+	if (!TestTrue(TEXT("Disconnect legacy function nodes"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Disconnect), Code))) return false;
+	TestTrue(TEXT("Disconnect clears both endpoints"), From->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() &&
+		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+	TestTrue(TEXT("Undo legacy disconnect"), History->Undo());
+	TestTrue(TEXT("Undo restores both legacy links"), Connected());
 	return true;
 }
 

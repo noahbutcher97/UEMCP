@@ -85,7 +85,7 @@ bool FUEMCPCachedPoseReferences::RunTest(const FString& Parameters)
 	if (!Ok(Invoke(TEXT("create_use"), TEXT(""), SaveId)) || !Ok(Invoke(TEXT("create_use"), TEXT(""), SaveId))) return false;
 	TArray<UAnimGraphNode_UseCachedPose*> Users;
 	Graph->GetNodesOfClass(Users);
-	TestEqual(TEXT("Repeated uses"), Users.Num(), 2);
+	if (!TestEqual(TEXT("Repeated uses"), Users.Num(), 2)) return false;
 	const FString BeforeRename = UEMCP::GraphTopologyRevision(Graph);
 	if (!Ok(Invoke(TEXT("rename"), TEXT("Stride"), SaveId))) return false;
 	const FString Renamed = UEMCP::GraphTopologyRevision(Graph);
@@ -191,7 +191,6 @@ bool FUEMCPCachedPoseReferences::RunTest(const FString& Parameters)
 	CheckNestedRejection(NestedOutput, StateSink);
 	FGraphNodeCreator<UAnimGraphNode_LocalRefPose> NestedPoseCreator(*StateGraph);
 	auto* IndependentPose = NestedPoseCreator.CreateNode(); NestedPoseCreator.Finalize();
-	TestTrue(TEXT("Independent nested route remains supported"), Ok(Connect(IndependentPose->FindPin(TEXT("Pose"), EGPD_Output), StateSink)));
 	const auto NestedIdentityBefore = UEMCP::GraphTopologyRevision(StateGraph);
 	TestEqual(TEXT("Conflicting graph name refused"), Connect(NestedOutput, StateSink, TEXT("AnimGraph"))->GetStringField(TEXT("code")), FString(TEXT("GRAPH_IDENTITY_MISMATCH")));
 	TestEqual(TEXT("Stale graph GUID refused"), Connect(NestedOutput, StateSink, FString(), FGuid::NewGuid().ToString())->GetStringField(TEXT("code")), FString(TEXT("GRAPH_NOT_FOUND")));
@@ -261,7 +260,32 @@ bool FUEMCPCachedPoseReferences::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Cross-layer rejection preserves top graph"), UEMCP::GraphTopologyRevision(Graph), CrossLayerTopBefore);
 	TestEqual(TEXT("Cross-layer rejection preserves layer graph"), UEMCP::GraphTopologyRevision(LayerGraph), CrossLayerBefore);
 	TestFalse(TEXT("Cross-layer rejection preserves clean package"), Package->IsDirty());
-	TestTrue(TEXT("Unrelated same-layer nested route still accepted"), Ok(Connect(IndependentPose->FindPin(TEXT("Pose"), EGPD_Output), StateSink)));
+	// The unrelated invalid reference must not prevent a new wire in this layer.
+	// Keep this route unconnected until now; a repeated request only proves no-op handling.
+	auto* IndependentOutput = IndependentPose->FindPin(TEXT("Pose"), EGPD_Output);
+	if (!TestNotNull(TEXT("Independent nested output"), IndependentOutput)) return false;
+	if (!TestTrue(TEXT("Independent output starts unconnected"), IndependentOutput->LinkedTo.IsEmpty()) ||
+		!TestTrue(TEXT("State sink starts unconnected"), StateSink->LinkedTo.IsEmpty())) return false;
+	auto StateEdges = [&]()
+	{
+		TArray<FString> Edges;
+		for (UEdGraphNode* Node : StateGraph->Nodes) for (const UEdGraphPin* Pin : Node->Pins)
+			for (const UEdGraphPin* Peer : Pin->LinkedTo)
+				Edges.Add(Pin->PinId.ToString() + TEXT("|") + Peer->PinId.ToString());
+		Edges.Sort();
+		return Edges;
+	};
+	auto ExpectedEdges = StateEdges();
+	ExpectedEdges.Add(IndependentOutput->PinId.ToString() + TEXT("|") + StateSink->PinId.ToString());
+	ExpectedEdges.Add(StateSink->PinId.ToString() + TEXT("|") + IndependentOutput->PinId.ToString());
+	ExpectedEdges.Sort();
+	const auto Connected = Connect(IndependentOutput, StateSink);
+	if (!Ok(Connected)) return false;
+	TestTrue(TEXT("Unrelated nested connection adds a new wire"), Connected->GetObjectField(TEXT("result"))->GetBoolField(TEXT("changed")));
+	TestTrue(TEXT("Independent output has exactly the new sink"), IndependentOutput->LinkedTo.Num() == 1 && IndependentOutput->LinkedTo[0] == StateSink);
+	TestTrue(TEXT("State sink has exactly the new output"), StateSink->LinkedTo.Num() == 1 && StateSink->LinkedTo[0] == IndependentOutput);
+	TestTrue(TEXT("All nested edges equal the exact intended delta"), StateEdges() == ExpectedEdges);
+	TestTrue(TEXT("Unrelated invalid cross-layer reference is preserved"), CrossLayerUse->SaveCachedPoseNode.Get() == Save);
 	CrossLayerUse->SaveCachedPoseNode = LayerSave;
 	Stored->SetPropertyValue_InContainer(CrossLayerUse, LayerSave->CacheName);
 	FString ValidationError;

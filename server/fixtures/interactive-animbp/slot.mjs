@@ -42,6 +42,7 @@ export async function qualifyMontageSlot({
   const preview = await insert('preview');
   assert.equal(preview.applied, false);
   assert.equal(preview.saved, false);
+  assert.equal(preview.compiled, false);
   assert.equal(preview.topology_revision, args.expected_revision);
   assert.deepEqual(preview.removed_edges, [{ source_pin_id: source.pin, target_pin_id: target.pin }]);
   assert.deepEqual(preview.planned_edges, [
@@ -75,6 +76,8 @@ export async function qualifyMontageSlot({
   assert.equal(failed.outcome, 'applied_compile_failed');
   assert.equal(failed.applied, true);
   assert.equal(failed.saved, false);
+  assert.equal(failed.compiled, false);
+  assert.equal(failed.compilation.compiled_ok, false);
   assert.ok(failed.compilation.num_errors > 0 && JSON.stringify(failed.compilation.errors).includes('UEMCPMissingFixtureFunction'));
   assert.ok((await verify('slot-failed-compile')).some((p) => p.node === failed.node_id));
   assert.equal(await history('undo', 'slot-undo-failed'), true);
@@ -88,6 +91,8 @@ export async function qualifyMontageSlot({
   assert.equal(applied.outcome, 'applied_and_compiled');
   assert.equal(applied.applied, true);
   assert.equal(applied.saved, false);
+  assert.equal(applied.compiled, true);
+  assert.equal(applied.compilation.compiled_ok, true);
   assert.equal(applied.compilation.num_errors, 0);
   assert.equal(applied.compilation.num_warnings, 0);
   const routed = await verify('slot-routed');

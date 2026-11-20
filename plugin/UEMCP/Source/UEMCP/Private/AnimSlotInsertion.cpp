@@ -199,9 +199,10 @@ namespace UEMCP
 		if (bCompile)
 		{
 			auto Diagnostics = BuildBlueprintCompileDiagnosticResult(BP, Path, /*bSkipSave=*/true);
+			const bool bCompiledOk = Diagnostics->GetBoolField(TEXT("compiled_ok"));
 			Result->SetObjectField(TEXT("compilation"), Diagnostics);
-			Result->SetBoolField(TEXT("compiled"), true);
-			Result->SetStringField(TEXT("outcome"), Diagnostics->GetBoolField(TEXT("compiled_ok")) ? TEXT("applied_and_compiled") : TEXT("applied_compile_failed"));
+			Result->SetBoolField(TEXT("compiled"), bCompiledOk);
+			Result->SetStringField(TEXT("outcome"), bCompiledOk ? TEXT("applied_and_compiled") : TEXT("applied_compile_failed"));
 		}
 		else Result->SetStringField(TEXT("outcome"), TEXT("applied_compile_deferred"));
 		Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
