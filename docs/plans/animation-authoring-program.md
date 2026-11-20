@@ -117,6 +117,11 @@ live-test phases still share the machine serially.
 
 ## Starting implementation
 
+Use the [gameplay-driven character design](gameplay-driven-character-animation.md)
+as the next end-to-end target. It combines player intent, gameplay interruption,
+hand-authored locomotion and montage performance, and procedural target tracking
+on one possessed character. Time both initial authoring and reuse on a variation.
+
 [PR #67](https://github.com/noahbutcher97/UEMCP/pull/67) delivered the Event
 Graph blend, Slot insertion, sequence-backed states with numeric transitions,
 and shared cached poses. Completing animation authoring is the next feature
