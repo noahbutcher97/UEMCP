@@ -10,4 +10,10 @@ A usable tool lets someone describe an editor change in their own words, discove
 
 Use the provider the workflow is intended for. A second provider is useful when discovery, root attachment or approval handling may differ. Identify terminal interaction, non-interactive CLI runs, scripted MCP tests and observed human sessions separately. A provider login or service failure is an observed boundary for that run. Record the last successful step and verify the normal signed-in path when available.
 
+### When the first call fails
+
+- If the client blocks even `connection_info`, check its MCP tool approval settings. An unattended Codex session with approvals set to `never` can reject the call before UEMCP receives it. For an owned test, authorize the specific read or edit tools for that session. Keep a record of which approval was required.
+- If UEMCP reports an unresolved project, start the client in the folder containing the intended `.uproject`, or supply its full path for `attach_project`. An outside-root attachment requires explicit authorization for that exact project. Confirm the project identity before editing.
+- Treat project attachment and editor availability as separate results. An attached project can still have an unreachable editor. If the editor is closed, report which offline information was available and which live action is waiting for a running editor with the matching plugin.
+
 For interactive animation, a practical task is to open a Blueprint in an owned editor, ask which animation currently supplies its output pose, then ask to switch to the other existing sequence and save just that Blueprint. A successful read identifies the current source without mutating the asset. A successful edit leaves one reciprocal source, persists after reopening, and produces the expected evaluated pose. The [interactive fixture](../server/fixtures/interactive-animbp/README.md) supplies compatible sequences and an independent graph and bone sampler.
