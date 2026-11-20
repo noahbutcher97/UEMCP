@@ -68,38 +68,13 @@ let child,
   failure;
 const runner = createProcessRunner({
   defaultOutputLimitBytes: 16 * 1024 * 1024,
+  killTree: terminateProcessTree,
   spawnImpl: (...args) => {
     child = spawn(...args);
-    save('launch.json', {
-      pid: child.pid,
-      project,
-      port,
-      tcpPort,
-      editorArgs,
-      launchedAt: new Date().toISOString(),
-    });
     return child;
   },
 });
 const quitFile = resolve(runtime.runtimeRoot, 'quit-request');
-const execution = runner
-  .run(editorExe, editorArgs, {
-    cwd: resolve(stage, 'host'),
-    env: {
-      ...runtime.env,
-      UEMCP_OWNED_QUIT_FILE: quitFile,
-      U5_PREFIX: join(output, label),
-      U5_ASSET_LABEL: assetLabel,
-      U5_RELOAD: reload ? '1' : '0',
-      U5_SLOT_RUN: slotRun ? '1' : '0',
-      U5_FORMAT_ARGUMENT: family === 'disconnect' ? '1' : '0',
-    },
-    timeoutMs: 1200000,
-  })
-  .then((r) => {
-    exited = true;
-    return r;
-  });
 const env = {
   ...process.env,
   UNREAL_AUTO_DETECT: 'false',
@@ -143,7 +118,27 @@ async function call(name, args = {}) {
   if (payload.status === 'error') throw new Error(name + ': ' + JSON.stringify(payload));
   return payload.status === 'success' && Object.hasOwn(payload, 'result') ? payload.result : payload;
 }
+const execution = runner
+  .run(editorExe, editorArgs, {
+    cwd: resolve(stage, 'host'),
+    env: {
+      ...runtime.env,
+      UEMCP_OWNED_QUIT_FILE: quitFile,
+      U5_PREFIX: join(output, label),
+      U5_ASSET_LABEL: assetLabel,
+      U5_RELOAD: reload ? '1' : '0',
+      U5_SLOT_RUN: slotRun ? '1' : '0',
+      U5_FORMAT_ARGUMENT: family === 'disconnect' ? '1' : '0',
+    },
+    timeoutMs: 1200000,
+  })
+  .then((r) => {
+    exited = true;
+    return r;
+  });
 try {
+  assert.ok(child?.pid, 'Failed to launch ' + editorExe);
+  save('launch.json', { pid: child.pid, project, port, tcpPort, editorArgs, launchedAt: new Date().toISOString() });
   await client.connect(transport, { timeout: 15000 });
   await call('attach_project', { uproject_path: project });
   let identity, last;
@@ -526,10 +521,18 @@ try {
   failure = err;
   console.error(err.stack);
 } finally {
-  if (owned && !exited) writeFileSync(quitFile, 'quit');
+  let quitError;
+  if (owned && !exited) {
+    try {
+      writeFileSync(quitFile, 'quit');
+    } catch (err) {
+      quitError = err.message;
+      failure ??= err;
+    }
+  }
   await client.close().catch(() => {});
   await transport.close().catch(() => {});
-  if (!exited) await Promise.race([execution, delay(12000)]);
+  if (owned && !quitError && !exited) await Promise.race([execution, delay(12000, undefined, { ref: false })]);
   if (!exited && child) await terminateProcessTree(child);
   const result = await execution;
   if (result.status !== 'exited' || result.exitCode !== 0)
@@ -550,6 +553,7 @@ try {
   }
   save('results.json', {
     error: failure?.message ?? null,
+    quitError,
     phases,
     status: result.status,
     exitCode: result.exitCode,

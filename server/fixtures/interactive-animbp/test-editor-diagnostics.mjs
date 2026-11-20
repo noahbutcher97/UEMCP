@@ -34,7 +34,9 @@ assert.equal(repeated.unmatchedBannerCount, 0);
 assert.equal(classifyEditorEnsures(pre + pair + init + end, { ...version, Changelist: 1 }).passed, false);
 let checked = 0;
 for (const root of process.argv.slice(2)) {
-  for (const name of readdirSync(root).filter((n) => /^(final|qualified)(53|56|58)(_reload)?-editor\.log$/.test(n))) {
+  const names = readdirSync(root).filter((n) => /^(final|qualified)(53|56|58)(_reload)?-editor\.log$/.test(n));
+  assert.ok(names.length, 'No matching primary editor logs in ' + root);
+  for (const name of names) {
     const engine = name.includes('53') ? version : { MajorVersion: 5, MinorVersion: name.includes('56') ? 6 : 8 };
     const result = classifyEditorEnsures(readFileSync(root + '/' + name, 'utf8'), engine);
     assert.equal(result.passed, true, name);

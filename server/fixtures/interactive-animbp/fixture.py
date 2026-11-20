@@ -28,9 +28,9 @@ def tick(_):
         return
     request = Path(str(prefix) + "-request")
     if request.exists():
-        cmd = json.loads(request.read_text())
-        request.unlink()
         try:
+            cmd = json.loads(request.read_text(encoding="utf8"))
+            request.unlink()
             op = cmd["op"]
             if op in ("enable-save-on-compile", "restore-save-on-compile"):
                 result = probe.set_compile_save_policy(op == "enable-save-on-compile")
