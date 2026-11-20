@@ -10,14 +10,12 @@ readback remains shipped.
 
 ## Priority and broader authoring scope
 
-As of 2026-11-19, animation and Animation Blueprint authoring are the leading
-feature priority, based on the user's repeated need during the week. This file
-scopes one candidate delivery, not the entirety of U5. Before starting it, match
-recent blocked tasks to the appropriate slice: AnimBP creation for an existing
-Skeleton, pose-node configuration/wiring, state-machine and transition-rule
-editing, or supporting variables/update logic. Choose the smallest complete
-workflow that removes an actual blocker. Slot insertion may lead if it matches
-that need; otherwise scope the relevant slice first and retain this proposal.
+Animation Blueprint authoring is the leading U5 feature priority. The interactive
+branch delivers named Slot insertion, the Event Graph–driven blend, sequence-backed
+states with directed numeric transition rules, and shared cached poses. Remaining
+work includes additional transition expressions and layered bone masks. The
+[interactive fixture](../../server/fixtures/interactive-animbp/README.md) describes
+the implemented workflows.
 
 ## User outcome
 
@@ -128,16 +126,18 @@ outputs; identify the exact focused commands in the implementation handoff.
 
 Run `npm test` for the server/tool surface, compile the plugin and run focused
 native positive/negative cases, then run the owned MCP lifecycle runner serially.
-The first owned editor run used installed UE 5.8.4; other engine/client combinations remain explicit
-gaps until tested. No external projects. Fixture creation must not require
+UE 5.3.2, 5.6.1 and 5.8.4 on Win64 each passed MCP Slot authoring, independent
+Unreal graph and montage-pose readback, Undo/Redo and fresh-editor reload on
+UEMCP-owned projects. UE 5.7 and other client or platform combinations remain
+unverified. Fixture creation must not require
 consumer animation content or silently enable Python. Clean owned outputs after
 preserving concise source-bound receipts.
 
 ## Next choices, not bundled requirements
 
-After this workflow: update an existing Slot property; insert a selected blend
-node; sequence-player assignment; then state/transition authoring if requested.
-Each has different typing, Skeleton compatibility and persistence requirements.
+Follow-up work includes changing an existing Slot property, authoring masked
+montage playback and extending the supported transition-rule expressions. Each
+requires its own Skeleton compatibility, Undo and persistence checks.
 Control Rig, retargeting, arbitrary node creation, bulk graph import and runtime
 pose evaluation are separate units of scope. U4 Chooser support is not a blocker.
 

@@ -42,6 +42,8 @@ For Unreal C++, follow the existing UE style: tabs for indentation, PascalCase t
 
 ## Testing Guidelines
 
+Exercise user-facing changes through a real provider client using the [agent workflow usability protocol](docs/agent-workflow-usability.md). Record the user task, friction and independent editor result. Use the nearest real caller for internal changes that affect a user workflow.
+
 For engine-specific native or live qualification, locate the UEMCP-owned project
 through the [fixture host guide](docs/fixture-host.md#locate-an-owned-host-by-engine)
 and verify its engine manifest before selecting a deployment target.

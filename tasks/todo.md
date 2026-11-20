@@ -40,8 +40,11 @@ fixture recovery and a universal graph framework are not prerequisites.
   covering AnimBPs, sequences, montages, timelines, supporting assets, rigs and
   authoring feedback; distinguish missing tools from unverified existing tools.
 - [x] Qualify the first Event Graph–driven blend and the existing-Slot workflow.
-  The fixture seeds the sequence players. Nested state and rule graphs,
-  cached-pose references, and masked montage playback remain open.
+  The fixture seeds the sequence players.
+- [x] Qualify sequence-backed states, directed numeric transition rules and shared
+  cached poses through MCP, independent graph readback and fresh-editor motion sampling
+  on UE 5.3.2, 5.6.1 and 5.8.4. Additional rule expressions and masked montage
+  playback remain open.
 
 ## Checkpoint for every selected slice
 

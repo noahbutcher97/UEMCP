@@ -99,8 +99,9 @@ This does not require clearing every reliability or qualification backlog item.
 
 Updated 2026-11-19 from the user's repeated need for animation and Animation
 Blueprint authoring. **U5 is the leading feature priority.** The interactive task branch implements the first Event Graph–driven blend and
-the named Slot insertion workflow. State graphs, cached poses and layered bone
-masks remain follow-on work.
+named Slot insertion, sequence-backed states with directed numeric transition rules,
+and named Save/Use Cached Pose nodes. Additional transition expressions, pose
+node families and layered bone masks remain open.
 
 Use the [animation program](../docs/plans/animation-authoring-program.md) for the full
 sequence, montage, timeline, supporting-asset and rig scope. For AnimBPs this includes creating an AnimBlueprint
