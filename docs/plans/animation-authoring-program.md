@@ -117,7 +117,16 @@ live-test phases still share the machine serially.
 
 ## Starting implementation
 
-The [interactive design and owned-editor findings](animbp-interactive-authoring.md)
-specify the first complete delivery and a reproduced pose-wiring defect.
-Keep expanding the capability inventory as workflows are investigated. The
-first experiment covers selected AnimBP reads and writers on UE 5.8.4.
+[PR #67](https://github.com/noahbutcher97/UEMCP/pull/67) delivered the Event
+Graph blend, Slot insertion, sequence-backed states with numeric transitions,
+and shared cached poses. Completing animation authoring is the next feature
+priority. Remaining AnimBP work includes editing an existing Slot, masked
+montage playback, richer transition expressions, and additional pose nodes.
+
+Test each new authoring workflow from a plain-language request in a real
+provider CLI. Let the agent discover the tools and recover from a plausible
+mistake. Check the resulting graph, saved asset and any claimed change in
+motion independently in a UEMCP-owned editor. Use the existing pose-switch
+prompt as a baseline when testing changes to tool discovery. Schedule observed
+human usability sessions last, after the authoring workflows have passed
+agent-driven acceptance. [Agent workflow protocol](../agent-workflow-usability.md)
