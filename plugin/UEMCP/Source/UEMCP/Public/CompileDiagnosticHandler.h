@@ -35,7 +35,7 @@ namespace UEMCP
 	 * Compile a Blueprint and return the diagnostic/lifecycle payload shared by
 	 * bp_compile_and_report and blueprints-write.compile_blueprint.
 	 */
-	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name);
+	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name, bool bSkipSave = false);
 
 	/** Adds compile-diagnostic handlers to the registry. Call pre-thread-create. */
 	void RegisterCompileDiagnosticHandlers(FMCPCommandRegistry& Registry);

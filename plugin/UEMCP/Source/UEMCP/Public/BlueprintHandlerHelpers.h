@@ -34,6 +34,11 @@ class UK2Node_Event;
  */
 namespace UEMCP
 {
+	/** Fingerprint graph, node, pin and directed link identities for a conditional edit. */
+	FString GraphTopologyRevision(const UEdGraph* Graph);
+	bool IsWritableAnimPackage(const UPackage* Package);
+	bool HasConnectionBinding(const UEdGraphPin* Pin);
+
 	/** "input" for EGPD_Input, "output" for anything else. */
 	FString PinDirectionToString(EEdGraphPinDirection Direction);
 

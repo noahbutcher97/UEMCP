@@ -168,7 +168,7 @@
     },
     "native-blueprint": {
       "runner": "native",
-      "scope": "Fifteen native Blueprint helper, registry dispatch, parent resolution and in-memory graph mutation cases. Does not qualify socket/MCP sessions, persistence, PIE, rendering, or the remaining native inventory.",
+      "scope": "Native Blueprint helper, registry dispatch, parent resolution and graph mutation cases, including state graph naming isolation.",
       "capabilities": ["engine", "nullrhi"],
       "fixturePaths": [],
       "suites": [{
@@ -188,7 +188,11 @@
           "UEMCP.BlueprintHandlers.GhostBeginPlayEnabled",
           "UEMCP.BlueprintHandlers.EventNodeGhostSites",
           "UEMCP.BlueprintHandlers.AssignmentCompileFailed",
-          "UEMCP.BlueprintHandlers.CreateBlueprintParents"
+          "UEMCP.BlueprintHandlers.CreateBlueprintParents",
+          "UEMCP.BlueprintHandlers.FormatTextConnection",
+          "UEMCP.BlueprintHandlers.ClassPinConnections",
+          "UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation",
+          "UEMCP.BlueprintHandlers.StateNamingIsolation"
         ]
       }]
     },

@@ -11,6 +11,20 @@ pose snapshots. These examples exercise different editing and evaluation
 requirements. The [animation program](animation-authoring-program.md) describes
 how to extend support to new workflows, including ones outside the AnimBP editor.
 
+## Interactive blend operations
+
+Request `get_anim_graph` with `include_actions` and `include_pin_topology` to get the available top-level AnimGraph action, graph GUID, pin IDs and topology revision. Pass the returned action and graph GUID to `place_anim_graph_node`, with integer `node_position` and an optional float `alpha` in [0, 1]. The response includes the placed node GUID and visible pins. Connect them with `connect_nodes` and compile explicitly with `compile_blueprint`.
+
+For an occupied input, supply `source_pin_id`, `target_pin_id`, `replace_source_pin_id` (the old upstream pin) and `expected_revision` in addition to the existing node GUIDs and pin names. A successful replacement reports the displaced upstream pin, the previous target pin and the resulting endpoints. Unreal can reset a float input's literal when its driver connects. Read the returned pin default after wiring. Topology and pin-link reads go back to the editor so external Undo and reconstruction are visible. Save the completed AnimBP with `save_asset` and its explicit asset path.
+
+The [owned blend fixture](../../server/fixtures/interactive-animbp/README.md) includes the live MCP sequence, independent native reader, motion controls and fresh-process comparison.
+
+## State machines and cached poses
+
+Use `add_anim_state_machine` to place a machine and create its entry. Its response identifies the child graph for `add_anim_state` and `add_anim_transition`. A state can play a looping sequence on the AnimBP's Skeleton. A directed transition has its own rule graph, a numeric member comparison (`greater` or `less`), a threshold and a crossfade duration in seconds. Supply the current graph revision for each edit.
+
+Use `edit_anim_cached_pose` to create a Save in the top-level AnimGraph. Pass its node GUID to create each Use or rename the Save. Read back the serialized references, wire pose pins, compile and save the named AnimBP. The owned fixture exercises the state machine directly and through a cache, alongside a separate two-user cache workflow. [Fixture procedure](../../server/fixtures/interactive-animbp/README.md#state-machines-cached-poses-and-dynamic-disconnects)
+
 ## The first working edit
 
 Start with an owned AnimBP containing two compatible pose sources, one wired to
@@ -70,6 +84,11 @@ support Undo. Check existing ordinary K2 callers before changing shared wiring.
 | Undo and repeat | One editor transaction per advertised edit or grouped operation | A rejected mutation preserves unrelated nodes, links, bindings and layout. Undo/Redo restores the agreed semantic delta. Read back after a timeout before retrying. Reload the explicitly saved packages in a fresh editor to test persistence. |
 
 Use the existing graph GUIDs, node GUIDs and pin IDs from `get_anim_graph`.
+`connect_nodes` optionally accepts `graph_guid` to address a nested state pose
+graph in an AnimBP. When also supplied, `graph_name` must identify that same
+graph. GUID wiring requires a writable graph and package; transition rule and
+custom transition graphs are outside this connection surface. Other writers
+retain their existing graph selectors.
 Never infer a pin's continued existence from its display name after a compile.
 For multi-package work, return expected dirty packages during preflight,
 validate them together before mutation, and report each save outcome. Document

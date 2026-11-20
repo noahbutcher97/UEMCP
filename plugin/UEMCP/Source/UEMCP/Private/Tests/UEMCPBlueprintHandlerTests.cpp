@@ -12,13 +12,33 @@
 // file exists (hence FAssetRegistryModule::AssetCreated), and LoadObject
 // resolves a dot-less path by retrying it as "<path>.<short name>" (engine
 // StaticLoadObjectInternal), which is why the Blueprint's object name MUST equal
-// its package leaf. Nothing is ever saved: the package has no file, the sidecar
+// its package leaf. Except for AssignmentSavedFailureIsolation's explicitly
+// saved and deleted disposable package, nothing is saved: the package has no file, the sidecar
 // save hook ignores unsaved Blueprints, and a headless -unattended run saves
 // nothing.
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "CoreMinimal.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimSequence.h"
+#include "AnimationGraph.h"
+#include "AnimationGraphSchema.h"
+#include "Animation/Skeleton.h"
+#include "Factories/AnimBlueprintFactory.h"
+#include "AnimGraphNode_LocalRefPose.h"
+#include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_LinkedAnimGraph.h"
+#include "K2Node_FormatText.h"
+#include "K2Node_EaseFunction.h"
+#include "K2Node_SpawnActorFromClass.h"
+#include "K2Node_GetClassDefaults.h"
+#include "K2Node_IfThenElse.h"
+#include "Misc/ScopeExit.h"
+#include "BlueprintHandlerHelpers.h"
+#include "Editor.h"
+#include "Editor/TransBuffer.h"
+#include "UObject/StrongObjectPtr.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Misc/AutomationTest.h"
@@ -47,10 +67,17 @@
 
 #include "MCPCommandRegistry.h"
 #include "UEMCPTestObject.h"
+#include "AnimSlotInsertion.h"
+#include "ScopedTransaction.h"
+#include "BlueprintEditorSettings.h"
+#include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
+#include "HAL/FileManager.h"
+#include "UObject/SavePackage.h"
 
 namespace UEMCP::Blueprint::Tests
 {
-	/** Package root for fixture Blueprints. Never saved; unique leaf per call. */
+	/** Package root for fixture Blueprints. Unique leaf per call; ordinarily unsaved. */
 	static const TCHAR* FixtureRoot = TEXT("/Game/__UEMCPTests");
 
 	struct FFixtureBlueprint
@@ -2425,6 +2452,693 @@ bool FUEMCPBlueprintCreateParentsTest::RunTest(const FString& Parameters)
 	}
 	ContentParent.Blueprint->RemoveFromRoot();
 	DestroyFixtureBlueprint(ContentParent);
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFormatTextConnection, "UEMCP.BlueprintHandlers.FormatTextConnection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFormatTextConnection::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint);
+	auto CreateFormat = [&]()
+	{
+		FGraphNodeCreator<UK2Node_FormatText> Creator(*Graph);
+		auto* Node = Creator.CreateNode();
+		Creator.Finalize();
+		return Node;
+	};
+	auto* Target = CreateFormat();
+	auto* ArgumentSource = CreateFormat();
+	auto* FormatSource = CreateFormat();
+	auto* Format = Target->GetFormatPin();
+	Graph->GetSchema()->TrySetDefaultText(*Format, FText::FromString(TEXT("{User}")));
+	auto* Argument = Target->FindPin(TEXT("User"));
+	if (!TestNotNull(TEXT("Literal argument pin"), Argument)) return false;
+	auto* Value = ArgumentSource->FindPinChecked(TEXT("Result"));
+	if (!TestTrue(TEXT("Wire independent argument"), Graph->GetSchema()->TryCreateConnection(Value, Argument))) return false;
+	const auto Before = UEMCP::GraphTopologyRevision(Graph);
+	const auto Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Request->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Request->SetStringField(TEXT("source_node_id"), FormatSource->NodeGuid.ToString());
+	Request->SetStringField(TEXT("source_pin"), TEXT("Result"));
+	Request->SetStringField(TEXT("target_node_id"), Target->NodeGuid.ToString());
+	Request->SetStringField(TEXT("target_pin"), Format->PinName.ToString());
+	TestEqual(TEXT("Refuse dynamic argument removal"), ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Request)), FString(TEXT("UNSUPPORTED_REPLACEMENT")));
+	TestEqual(TEXT("All original pins and links survive"), UEMCP::GraphTopologyRevision(Graph), Before);
+	TestTrue(TEXT("Format expression survives"), Format->DefaultTextValue.ToString() == TEXT("{User}"));
+	if (!TestTrue(TEXT("Argument inherited connected text type"), Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Text)) return false;
+	if (!TestTrue(TEXT("Idle transaction buffer"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	const auto Disconnect = MakeShared<FJsonObject>();
+	Disconnect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Disconnect->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Disconnect->SetStringField(TEXT("node_id"), ArgumentSource->NodeGuid.ToString());
+	Disconnect->SetStringField(TEXT("pin"), Value->PinName.ToString());
+	Disconnect->SetStringField(TEXT("target_node_id"), Target->NodeGuid.ToString());
+	Disconnect->SetStringField(TEXT("target_pin"), Argument->PinName.ToString());
+	FString Code;
+	TestTrue(TEXT("Disconnect one dynamic argument"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Disconnect), Code));
+	Argument = Target->FindPin(TEXT("User"));
+	if (!TestNotNull(TEXT("Disconnected argument still exists"), Argument)) return false;
+	TestTrue(TEXT("Disconnected dynamic argument returns to wildcard"), Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard);
+	TestTrue(TEXT("Format value and argument survive disconnect"), Format->DefaultTextValue.ToString() == TEXT("{User}") && Argument->LinkedTo.IsEmpty());
+	if (!TestTrue(TEXT("Undo specific disconnect"), History->Undo())) return false;
+	Argument = Target->FindPinChecked(TEXT("User"));
+	TestTrue(TEXT("Restored link and type"), Argument->LinkedTo.Contains(ArgumentSource->FindPinChecked(TEXT("Result"))) && Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Text);
+	TestFalse(TEXT("One disconnect transaction"), History->CanUndo());
+	if (!TestTrue(TEXT("Redo specific disconnect"), History->Redo())) return false;
+	Argument = Target->FindPinChecked(TEXT("User"));
+	TestTrue(TEXT("Redo restores wildcard"), Argument->LinkedTo.IsEmpty() && Argument->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FClassPinConnections, "UEMCP.BlueprintHandlers.ClassPinConnections",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FClassPinConnections::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint);
+	auto AddGetter = [&](FName Name, const FEdGraphPinType& Type)
+	{
+		FBlueprintEditorUtils::AddMemberVariable(Fixture.Blueprint, Name, Type);
+		FGraphNodeCreator<UK2Node_VariableGet> Creator(*Graph);
+		auto* Node = Creator.CreateNode();
+		Node->VariableReference.SetSelfMember(Name);
+		Creator.Finalize();
+		return Node->FindPinChecked(Name);
+	};
+	FEdGraphPinType TransformType;
+	TransformType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+	TransformType.PinSubCategoryObject = TBaseStructure<FTransform>::Get();
+	auto* Transform = AddGetter(TEXT("TransformValue"), TransformType);
+	FEdGraphPinType ClassType;
+	ClassType.PinCategory = UEdGraphSchema_K2::PC_Class;
+	ClassType.PinSubCategoryObject = AActor::StaticClass();
+	auto* Class = AddGetter(TEXT("ActorClass"), ClassType);
+	FGraphNodeCreator<UK2Node_SpawnActorFromClass> SpawnCreator(*Graph);
+	auto* Spawn = SpawnCreator.CreateNode();
+	// SpawnActor initializes an existing scale pin during PostPlacedNewNode.
+	Spawn->AllocateDefaultPins();
+	SpawnCreator.Finalize();
+	auto* SpawnTransform = Spawn->FindPinChecked(TEXT("SpawnTransform"));
+	if (!TestTrue(TEXT("Wire the fixed transform input"), Graph->GetSchema()->TryCreateConnection(Transform, SpawnTransform))) return false;
+	auto Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Request->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Request->SetStringField(TEXT("source_node_id"), Class->GetOwningNode()->NodeGuid.ToString());
+	Request->SetStringField(TEXT("source_pin"), Class->PinName.ToString());
+	Request->SetStringField(TEXT("target_node_id"), Spawn->NodeGuid.ToString());
+	Request->SetStringField(TEXT("target_pin"), TEXT("Class"));
+	FString Code;
+	TestTrue(TEXT("Class connection preserves fixed input"), IsSuccess(Dispatch(TEXT("connect_blueprint_nodes"), Request), Code));
+	TestTrue(TEXT("Transform still wired"), Transform->LinkedTo.Contains(Spawn->FindPinChecked(TEXT("SpawnTransform"))));
+
+	FGraphNodeCreator<UK2Node_GetClassDefaults> DefaultsCreator(*Graph);
+	auto* Defaults = DefaultsCreator.CreateNode();
+	DefaultsCreator.Finalize();
+	Graph->GetSchema()->TrySetDefaultObject(*Defaults->FindPinChecked(TEXT("Class")), ACharacter::StaticClass());
+	auto* Crouched = Defaults->FindPin(TEXT("bIsCrouched"));
+	if (!TestNotNull(TEXT("Character-only defaults output"), Crouched)) return false;
+	FGraphNodeCreator<UK2Node_IfThenElse> BranchCreator(*Graph);
+	auto* Branch = BranchCreator.CreateNode();
+	BranchCreator.Finalize();
+	if (!TestTrue(TEXT("Connect subclass output to branch"), Graph->GetSchema()->TryCreateConnection(Crouched, Branch->FindPinChecked(TEXT("Condition"))))) return false;
+	const FString Before = UEMCP::GraphTopologyRevision(Graph);
+	Request->SetStringField(TEXT("target_node_id"), Defaults->NodeGuid.ToString());
+	TestEqual(TEXT("Refuse to orphan connected subclass property"), ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Request)), FString(TEXT("UNSUPPORTED_REPLACEMENT")));
+	TestEqual(TEXT("Class property and consumer survive"), UEMCP::GraphTopologyRevision(Graph), Before);
+
+	FGraphNodeCreator<UK2Node_EaseFunction> EaseCreator(*Graph);
+	auto* Ease = EaseCreator.CreateNode();
+	EaseCreator.Finalize();
+	auto* Selector = Ease->FindPinChecked(TEXT("Function"));
+	auto* Driver = AddGetter(TEXT("EaseMode"), Selector->PinType);
+	const auto* Schema = Graph->GetSchema();
+	Schema->TrySetDefaultValue(*Selector, TEXT("Linear"));
+	if (!TestTrue(TEXT("Drive easing function"), Schema->TryCreateConnection(Driver, Selector))) return false;
+	for (const FName Name : {FName(TEXT("BlendExp")), FName(TEXT("Steps"))})
+	{
+		auto* Option = Ease->FindPinChecked(Name);
+		TestFalse(TEXT("Driven selector exposes options"), Option->bHidden);
+		auto* Setting = AddGetter(FName(*(TEXT("Drive") + Name.ToString())), Option->PinType);
+		if (!TestTrue(TEXT("Wire independent option"), Schema->TryCreateConnection(Setting, Option))) return false;
+	}
+	const FString Wired = UEMCP::GraphTopologyRevision(Graph);
+	auto Remove = MakeShared<FJsonObject>();
+	Remove->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Remove->SetStringField(TEXT("node_id"), Driver->GetOwningNode()->NodeGuid.ToString());
+	Remove->SetStringField(TEXT("pin"), Driver->PinName.ToString());
+	Remove->SetStringField(TEXT("target_node_id"), Ease->NodeGuid.ToString());
+	Remove->SetStringField(TEXT("target_pin"), Selector->PinName.ToString());
+	TestEqual(TEXT("Specific disconnect protects both option wires"), ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Remove)), FString(TEXT("UNSUPPORTED_REPLACEMENT")));
+	Remove->RemoveField(TEXT("target_node_id"));
+	Remove->RemoveField(TEXT("target_pin"));
+	Remove->SetStringField(TEXT("node_id"), Ease->NodeGuid.ToString());
+	Remove->SetStringField(TEXT("pin"), Selector->PinName.ToString());
+	TestEqual(TEXT("Pin-wide disconnect protects option wires"), ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Remove)), FString(TEXT("UNSUPPORTED_REPLACEMENT")));
+	TestEqual(TEXT("Selector and dependent options remain wired"), UEMCP::GraphTopologyRevision(Graph), Wired);
+	// Exercise the stock editor operation independently on the disposable fixture.
+	Schema->BreakSinglePinLink(Driver, Selector);
+	for (const FName Name : {FName(TEXT("BlendExp")), FName(TEXT("Steps"))})
+	{
+		const auto* Option = Ease->FindPinChecked(Name);
+		TestTrue(TEXT("Stock Linear fallback removes the option wire"), Option->bHidden && Option->LinkedTo.IsEmpty());
+	}
+	FEdGraphPinType RotationType;
+	RotationType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+	RotationType.PinSubCategoryObject = TBaseStructure<FRotator>::Get();
+	auto* Rotation = AddGetter(TEXT("RotationValue"), RotationType);
+	auto* A = Ease->FindPinChecked(TEXT("A"));
+	if (!TestTrue(TEXT("Wire rotation input"), Schema->TryCreateConnection(Rotation, A))) return false;
+	auto* Shortest = Ease->FindPinChecked(TEXT("ShortestPath"));
+	if (!TestFalse(TEXT("Rotator exposes shortest path"), Shortest->bHidden)) return false;
+	auto* Bool = AddGetter(TEXT("UseShortest"), Shortest->PinType);
+	if (!TestTrue(TEXT("Wire shortest path option"), Schema->TryCreateConnection(Bool, Shortest))) return false;
+	Remove->SetStringField(TEXT("pin"), A->PinName.ToString());
+	const auto RotatorGraph = UEMCP::GraphTopologyRevision(Graph);
+	TestEqual(TEXT("Removing final rotation driver protects shortest path wire"), ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Remove)), FString(TEXT("UNSUPPORTED_REPLACEMENT")));
+	TestEqual(TEXT("Rotation graph unaffected"), UEMCP::GraphTopologyRevision(Graph), RotatorGraph);
+	Schema->BreakSinglePinLink(Rotation, A);
+	TestTrue(TEXT("Stock wildcard fallback hides shortest path and removes its wire"), Shortest->bHidden && Shortest->LinkedTo.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInteractivePoseConnection, "UEMCP.Animation.OccupiedPoseInput",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInteractivePoseConnection::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture;
+	const FString Leaf = TEXT("ABP_PinTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
+	Fixture.Package = CreatePackage(*Fixture.PackagePath);
+	auto* Factory = NewObject<UAnimBlueprintFactory>();
+	Factory->TargetSkeleton = LoadObject<USkeleton>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube_Skeleton.SkeletalCube_Skeleton"));
+	if (!TestNotNull(TEXT("Fixture skeleton"), Factory->TargetSkeleton.Get())) return false;
+	Fixture.Blueprint = Cast<UAnimBlueprint>(Factory->FactoryCreateNew(UAnimBlueprint::StaticClass(), Fixture.Package,
+		FName(*Leaf), RF_Public | RF_Standalone | RF_Transactional, nullptr, GWarn));
+	if (!TestNotNull(TEXT("Fixture AnimBP"), Fixture.Blueprint)) return false;
+	FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("AnimGraph"));
+	if (!TestNotNull(TEXT("AnimGraph"), Graph)) return false;
+	TArray<UAnimGraphNode_Root*> Roots;
+	Graph->GetNodesOfClass(Roots);
+	if (!TestEqual(TEXT("Root count"), Roots.Num(), 1)) return false;
+	auto NewPose = [&]()
+	{
+		FGraphNodeCreator<UAnimGraphNode_LocalRefPose> Creator(*Graph);
+		auto* Node = Creator.CreateNode();
+		Creator.Finalize();
+		return Node;
+	};
+	if (!TestTrue(TEXT("Idle editor transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	auto* Sentinel = NewPose();
+	Sentinel->NodePosX = -779;
+	auto* A = NewPose();
+	auto* B = NewPose();
+	auto* Root = Roots[0];
+	auto* Input = Root->FindPinChecked(TEXT("Result"));
+	auto* Old = A->FindPinChecked(TEXT("Pose"));
+	auto* Next = B->FindPinChecked(TEXT("Pose"));
+	if (!TestTrue(TEXT("Seed original edge"), Graph->GetSchema()->TryCreateConnection(Old, Input))) return false;
+	Fixture.Package->SetDirtyFlag(false);
+	auto Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("blueprint_name"), Leaf);
+	Request->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Request->SetStringField(TEXT("source_node_id"), B->NodeGuid.ToString());
+	Request->SetStringField(TEXT("source_pin"), TEXT("Pose"));
+	Request->SetStringField(TEXT("target_node_id"), Root->NodeGuid.ToString());
+	Request->SetStringField(TEXT("target_pin"), TEXT("Result"));
+	const auto Refusal = Dispatch(TEXT("connect_blueprint_nodes"), Request);
+	TestEqual(TEXT("Refuse implicit replacement"), ErrorCodeOf(Refusal), FString(TEXT("REPLACEMENT_REQUIRED")));
+	TestEqual(TEXT("Exactly one incoming edge"), Input->LinkedTo.Num(), 1);
+	TestTrue(TEXT("Both ends of original edge preserved"), Input->LinkedTo.Contains(Old) && Old->LinkedTo.Contains(Input));
+	TestTrue(TEXT("Spare remains disconnected"), Next->LinkedTo.IsEmpty());
+	TestFalse(TEXT("Rejected edit leaves package clean"), Fixture.Package->IsDirty());
+	Request->SetStringField(TEXT("source_pin_id"), Next->PinId.ToString());
+	Request->SetStringField(TEXT("target_pin_id"), Input->PinId.ToString());
+	Request->SetStringField(TEXT("replace_source_pin_id"), Old->PinId.ToString());
+	Request->SetStringField(TEXT("expected_revision"), TEXT("stale"));
+	TestEqual(TEXT("Reject stale revision"), ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Request)), FString(TEXT("STALE_GRAPH")));
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	FString Code;
+	if (!TestTrue(TEXT("Apply named replacement"), IsSuccess(Dispatch(TEXT("connect_blueprint_nodes"), Request), Code))) return false;
+	auto Check = [&](UAnimGraphNode_LocalRefPose* Connected, UAnimGraphNode_LocalRefPose* Disconnected)
+	{
+		UEdGraphPin* In = Root->FindPinChecked(TEXT("Result"));
+		UEdGraphPin* Out = Connected->FindPinChecked(TEXT("Pose"));
+		TestTrue(TEXT("One reciprocal edge"), In->LinkedTo.Num() == 1 && Out->LinkedTo.Num() == 1
+			&& In->LinkedTo.Contains(Out) && Out->LinkedTo.Contains(In));
+		TestTrue(TEXT("Other output disconnected"), Disconnected->FindPinChecked(TEXT("Pose"))->LinkedTo.IsEmpty());
+		TestEqual(TEXT("Unrelated node layout"), Sentinel->NodePosX, -779);
+		TestTrue(TEXT("Unrelated output untouched"), Sentinel->FindPinChecked(TEXT("Pose"))->LinkedTo.IsEmpty());
+	};
+	Check(B, A);
+	TestTrue(TEXT("Accepted edit dirties package"), Fixture.Package->IsDirty());
+	TestTrue(TEXT("Undo replacement"), History->Undo());
+	Check(A, B);
+	TestFalse(TEXT("Exactly one transaction"), History->CanUndo());
+	TestTrue(TEXT("Redo replacement"), History->Redo());
+	Check(B, A);
+
+	FGraphNodeCreator<UAnimGraphNode_LinkedAnimGraph> LinkedCreator(*Graph);
+	auto* Linked = LinkedCreator.CreateNode();
+	LinkedCreator.Finalize();
+	auto* CustomInput = Linked->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Struct, Input->PinType.PinSubCategoryObject.Get(), TEXT("CustomPose"));
+	const FName BindingName(*Linked->GetPinTargetVariableName(CustomInput));
+	UObject* Owner = Linked;
+	if (const auto* Prop = FindFProperty<FObjectPropertyBase>(Owner->GetClass(), TEXT("Binding")))
+		Owner = Prop->GetObjectPropertyValue_InContainer(Owner);
+	if (!TestNotNull(TEXT("Linked node binding owner"), Owner)) return false;
+	auto* Map = FindFProperty<FMapProperty>(Owner->GetClass(), TEXT("PropertyBindings"));
+	if (!TestNotNull(TEXT("Linked binding map"), Map)) return false;
+	FScriptMapHelper Bindings(Map, Map->ContainerPtrToValuePtr<void>(Owner));
+	const auto BeforeBinding = UEMCP::GraphTopologyRevision(Graph);
+	const int32 Index = Bindings.AddDefaultValue_Invalid_NeedsRehash();
+	CastFieldChecked<FNameProperty>(Map->KeyProp)->SetPropertyValue(Bindings.GetKeyPtr(Index), BindingName);
+	Bindings.Rehash();
+	TestNotEqual(TEXT("Generated binding key invalidates revision"), UEMCP::GraphTopologyRevision(Graph), BeforeBinding);
+	const auto Bound = MakeShared<FJsonObject>();
+	Bound->SetStringField(TEXT("blueprint_name"), Leaf);
+	Bound->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Bound->SetStringField(TEXT("source_node_id"), A->NodeGuid.ToString());
+	Bound->SetStringField(TEXT("source_pin"), TEXT("Pose"));
+	Bound->SetStringField(TEXT("target_node_id"), Linked->NodeGuid.ToString());
+	Bound->SetStringField(TEXT("target_pin"), CustomInput->PinName.ToString());
+	TestEqual(TEXT("Refuse generated custom-property binding"), ErrorCodeOf(Dispatch(TEXT("connect_blueprint_nodes"), Bound)), FString(TEXT("BOUND_PIN")));
+	TestTrue(TEXT("Generated binding survives"), Bindings.Num() == 1 && CustomInput->LinkedTo.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMontageSlotInsertion, "UEMCP.Animation.InsertMontageSlot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMontageSlotInsertion::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture;
+	const FString Leaf = TEXT("ABP_Slot_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
+	Fixture.Package = CreatePackage(*Fixture.PackagePath);
+	auto* Factory = NewObject<UAnimBlueprintFactory>();
+	auto* Template = LoadObject<USkeleton>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube_Skeleton.SkeletalCube_Skeleton"));
+	if (!TestNotNull(TEXT("Fixture skeleton"), Template)) return false;
+	auto* Skeleton = DuplicateObject<USkeleton>(Template, GetTransientPackage());
+	const FName Name(TEXT("FixtureMontage"));
+	Skeleton->RegisterSlotNode(Name);
+	Factory->TargetSkeleton = Skeleton;
+	Fixture.Blueprint = Cast<UAnimBlueprint>(Factory->FactoryCreateNew(UAnimBlueprint::StaticClass(), Fixture.Package,
+		FName(*Leaf), RF_Public | RF_Standalone | RF_Transactional, nullptr, GWarn));
+	if (!TestNotNull(TEXT("AnimBP"), Fixture.Blueprint)) return false;
+	FAssetRegistryModule::AssetCreated(Fixture.Blueprint);
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("AnimGraph"));
+	TArray<UAnimGraphNode_Root*> Roots;
+	Graph->GetNodesOfClass(Roots);
+	if (!TestEqual(TEXT("Root count"), Roots.Num(), 1)) return false;
+	FGraphNodeCreator<UAnimGraphNode_LocalRefPose> Creator(*Graph);
+	auto* Source = Creator.CreateNode();
+	Creator.Finalize();
+	auto* A = Source->FindPinChecked(TEXT("Pose"));
+	auto* B = Roots[0]->FindPinChecked(TEXT("Result"));
+	if (!TestTrue(TEXT("Original edge"), Graph->GetSchema()->TryCreateConnection(A, B))) return false;
+
+	if (!TestTrue(TEXT("Idle transaction history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> OriginalHistory(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	{
+		FScopedTransaction Sentinel(NSLOCTEXT("UEMCPTests","SlotSentinel","Previous independent edit"));
+		Source->Modify();
+		Source->NodePosY = 313;
+	}
+	Fixture.Package->SetDirtyFlag(false);
+	auto Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("asset_path"), Fixture.Blueprint->GetPathName());
+	Request->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Request->SetStringField(TEXT("source_node_id"), Source->NodeGuid.ToString());
+	Request->SetStringField(TEXT("source_pin_id"), A->PinId.ToString());
+	Request->SetStringField(TEXT("target_node_id"), Roots[0]->NodeGuid.ToString());
+	Request->SetStringField(TEXT("target_pin_id"), B->PinId.ToString());
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	Request->SetStringField(TEXT("slot_name"), Name.ToString());
+	Request->SetStringField(TEXT("mode"), TEXT("preview"));
+	auto Invoke = [&] { return Dispatch(TEXT("insert_anim_slot"), Request); };
+	FString Code;
+	TestTrue(TEXT("Preview"), IsSuccess(Invoke(), Code));
+	Request->SetStringField(TEXT("mode"), TEXT("apply"));
+	Request->SetStringField(TEXT("slot_name"), TEXT("NeverRegisteredSlot"));
+	TestEqual(TEXT("Unknown Slot"), ErrorCodeOf(Invoke()), FString(TEXT("UNKNOWN_SLOT")));
+	TestFalse(TEXT("Never registered unknown Slot"), Skeleton->ContainsSlotName(TEXT("NeverRegisteredSlot")));
+	Request->SetStringField(TEXT("slot_name"), Name.ToString());
+	Request->SetStringField(TEXT("target_pin_id"), FGuid::NewGuid().ToString());
+	TestEqual(TEXT("Stale pin"), ErrorCodeOf(Invoke()), FString(TEXT("INVALID_POSE_EDGE")));
+	Request->SetStringField(TEXT("target_pin_id"), B->PinId.ToString());
+
+	Graph->bEditable = false;
+	auto Place = MakeShared<FJsonObject>();
+	Place->SetStringField(TEXT("asset_path"), Fixture.PackagePath);
+	Place->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Place->SetStringField(TEXT("action"), TEXT("/Script/AnimGraph.AnimGraphNode_TwoWayBlend"));
+	Place->SetArrayField(TEXT("node_position"), {MakeShared<FJsonValueNumber>(10), MakeShared<FJsonValueNumber>(20)});
+	const FString ReadOnlyRevision = UEMCP::GraphTopologyRevision(Graph);
+	TestEqual(TEXT("Cannot place blend in read-only graph"), ErrorCodeOf(Dispatch(TEXT("place_anim_graph_node"), Place)), FString(TEXT("UNAVAILABLE_ACTION")));
+	TestEqual(TEXT("Read-only placement preserves topology"), UEMCP::GraphTopologyRevision(Graph), ReadOnlyRevision);
+	TestEqual(TEXT("Read-only graph"), ErrorCodeOf(Invoke()), FString(TEXT("UNSUPPORTED_GRAPH")));
+	Graph->bEditable = true;
+	auto* AnimBP = CastChecked<UAnimBlueprint>(Fixture.Blueprint);
+	AnimBP->bIsTemplate = true;
+	TestEqual(TEXT("Template rejected"), ErrorCodeOf(Invoke()), FString(TEXT("UNSUPPORTED_GRAPH")));
+	AnimBP->bIsTemplate = false;
+	const auto OriginalType = B->PinType;
+	B->PinType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+	TestEqual(TEXT("Non-pose pin"), ErrorCodeOf(Invoke()), FString(TEXT("INVALID_POSE_EDGE")));
+	B->PinType = OriginalType;
+	FGraphNodeCreator<UAnimGraphNode_LocalRefPose> SpareCreator(*Graph);
+	auto* Spare = SpareCreator.CreateNode();
+	SpareCreator.Finalize();
+	auto* Extra = Spare->FindPinChecked(TEXT("Pose"));
+	Extra->MakeLinkTo(B);
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	TestEqual(TEXT("Ambiguous input rejected"), ErrorCodeOf(Invoke()), FString(TEXT("INVALID_POSE_EDGE")));
+	TestTrue(TEXT("Ambiguous input preserved"), B->LinkedTo.Num() == 2 && Extra->LinkedTo.Contains(B));
+	Extra->BreakLinkTo(B);
+	Graph->RemoveNode(Spare);
+	Fixture.Package->SetDirtyFlag(false);
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	UObject* BindingOwner = Roots[0];
+	if (const auto* BindingProperty = FindFProperty<FObjectPropertyBase>(BindingOwner->GetClass(), TEXT("Binding")))
+		BindingOwner = BindingProperty->GetObjectPropertyValue_InContainer(BindingOwner);
+	if (!TestNotNull(TEXT("Binding owner"), BindingOwner)) return false;
+	auto* Map = FindFProperty<FMapProperty>(BindingOwner->GetClass(), TEXT("PropertyBindings"));
+	if (!TestNotNull(TEXT("Binding map"), Map)) return false;
+	FScriptMapHelper Bindings(Map, Map->ContainerPtrToValuePtr<void>(BindingOwner));
+	const int32 Entry = Bindings.AddDefaultValue_Invalid_NeedsRehash();
+	CastFieldChecked<FNameProperty>(Map->KeyProp)->SetPropertyValue(Bindings.GetKeyPtr(Entry), B->PinName);
+	Bindings.Rehash();
+	TestEqual(TEXT("Binding invalidates revision"), ErrorCodeOf(Invoke()), FString(TEXT("STALE_GRAPH")));
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	TestEqual(TEXT("Bound edge refused"), ErrorCodeOf(Invoke()), FString(TEXT("INVALID_POSE_EDGE")));
+	TestTrue(TEXT("Binding preserved"), UEMCP::HasConnectionBinding(B));
+	Bindings.RemoveAt(Entry);
+	Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	const FName OriginalGroup = Skeleton->GetSlotGroupName(Name);
+	Skeleton->SetSlotGroupName(Name, TEXT("Group_\u4e00"));
+	const auto FirstGroupRevision = UEMCP::GraphTopologyRevision(Graph);
+	Skeleton->SetSlotGroupName(Name, TEXT("Group_\u4e01"));
+	TestNotEqual(TEXT("Unicode slot groups have distinct revisions"), UEMCP::GraphTopologyRevision(Graph), FirstGroupRevision);
+	Skeleton->SetSlotGroupName(Name, OriginalGroup);
+	const auto Before = UEMCP::GraphTopologyRevision(Graph);
+	Request->SetStringField(TEXT("expected_revision"), Before);
+	const auto PriorStatus = Fixture.Blueprint->Status;
+	int32 Calls = 0;
+	TSharedPtr<FJsonObject> Failed;
+	UEMCP::InsertAnimSlot(Request, Failed, [&](const UEdGraphSchema* Schema, UEdGraphPin* One, UEdGraphPin* Two)
+	{
+		return ++Calls == 1 && Schema->TryCreateConnection(One, Two);
+	});
+	TestEqual(TEXT("Failure occurred on second wire"), Calls, 2);
+	TestEqual(TEXT("Rollback result"), ErrorCodeOf(Failed), FString(TEXT("SLOT_CONNECT_FAILED")));
+	TestEqual(TEXT("All original nodes and edges restored"), UEMCP::GraphTopologyRevision(Graph), Before);
+	TestEqual(TEXT("Blueprint status restored"), int32(Fixture.Blueprint->Status), int32(PriorStatus));
+	TestFalse(TEXT("Original package dirt restored"), Fixture.Package->IsDirty());
+	TestTrue(TEXT("Previous independent edit still undoable"), History->Undo());
+	TestNotEqual(TEXT("No spurious rollback transaction"), Source->NodePosY, 313);
+	TestTrue(TEXT("Redo previous edit"), History->Redo());
+	if (!TestTrue(TEXT("Apply Slot"), IsSuccess(Invoke(), Code))) return false;
+	const auto After = UEMCP::GraphTopologyRevision(Graph);
+	TestEqual(TEXT("Repeat is stale"), ErrorCodeOf(Invoke()), FString(TEXT("STALE_GRAPH")));
+	TestTrue(TEXT("Undo Slot"), History->Undo());
+	TestEqual(TEXT("Undo restores exact topology"), UEMCP::GraphTopologyRevision(Graph), Before);
+	TestTrue(TEXT("Redo Slot"), History->Redo());
+	TestEqual(TEXT("Redo restores exact topology"), UEMCP::GraphTopologyRevision(Graph), After);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAssignmentSavedFailureIsolation,
+	"UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAssignmentSavedFailureIsolation::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> PreviousHistory(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	auto* Settings = GetMutableDefault<UBlueprintEditorSettings>();
+	const auto OriginalPolicy = Settings->SaveOnCompile;
+	ON_SCOPE_EXIT { Settings->SaveOnCompile = OriginalPolicy; };
+
+	for (bool bOuter : { false, true }) for (bool bDirty : { false, true })
+	{
+		History->Reset(NSLOCTEXT("UEMCPTests", "AssignmentIsolationReset", "Assignment isolation case"));
+		FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+		if (!TestNotNull(TEXT("Ordinary Actor Blueprint"), Fixture.Blueprint)) return false;
+		const FString Filename = FPackageName::LongPackageNameToFilename(Fixture.PackagePath, FPackageName::GetAssetPackageExtension());
+		ON_SCOPE_EXIT
+		{
+			History->Reset(NSLOCTEXT("UEMCPTests", "AssignmentIsolationCleanup", "Assignment isolation cleanup"));
+			DestroyFixtureBlueprint(Fixture);
+			IFileManager::Get().Delete(*Filename, false, true);
+		};
+		AddFixtureVariable(Fixture.Blueprint, TEXT("Score"), UEdGraphSchema_K2::PC_Int);
+		AddFixtureVariable(Fixture.Blueprint, TEXT("SourceScore"), UEdGraphSchema_K2::PC_Int);
+		Settings->SaveOnCompile = SoC_Never;
+		FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+		if (!TestTrue(TEXT("Baseline compiles"), Fixture.Blueprint->Status == BS_UpToDate)) return false;
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		SaveArgs.SaveFlags = SAVE_NoError;
+		if (!TestTrue(TEXT("Saved fixture really exists"), UPackage::SavePackage(Fixture.Package, Fixture.Blueprint, *Filename, SaveArgs))) return false;
+		TArray<uint8> SavedBytes;
+		if (!TestTrue(TEXT("Read saved baseline"), FFileHelper::LoadFileToArray(SavedBytes, *Filename))) return false;
+		Settings->SaveOnCompile = SoC_Always;
+		UEdGraph* Graph = Fixture.Blueprint->UbergraphPages[0];
+		UK2Node_Event* Begin = nullptr;
+		UK2Node_Event* Tick = nullptr;
+		for (UEdGraphNode* Node : Graph->Nodes) if (auto* Event = Cast<UK2Node_Event>(Node))
+		{
+			if (Event->EventReference.GetMemberName() == TEXT("ReceiveBeginPlay")) Begin = Event;
+			if (Event->EventReference.GetMemberName() == TEXT("ReceiveTick")) Tick = Event;
+		}
+		if (!TestNotNull(TEXT("BeginPlay ghost"), Begin) || !TestNotNull(TEXT("Tick event"), Tick)) return false;
+		if (!TestTrue(TEXT("BeginPlay starts as ghost"), Begin->IsAutomaticallyPlacedGhostNode())) return false;
+		// The compile fault is on a separate enabled branch; assigning from BeginPlay
+		// must enable that ghost and then restore it when the real compile fails.
+		Tick->SetEnabledState(ENodeEnabledState::Enabled, false);
+		FGraphNodeCreator<UK2Node_CallFunction> Creator(*Graph);
+		auto* Broken = Creator.CreateNode();
+		const FName MissingFunction(*(TEXT("UEMCPMissingAssignment_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+		Broken->FunctionReference.SetExternalMember(MissingFunction, UKismetSystemLibrary::StaticClass());
+		Creator.Finalize();
+		auto* BrokenExec = Broken->CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
+		Tick->FindPinChecked(TEXT("then"))->MakeLinkTo(BrokenExec);
+		const int32 OriginalX = Begin->NodePosX;
+		const FString OriginalComment = Begin->NodeComment;
+		const bool bOriginalBubble = Begin->bCommentBubbleVisible;
+		const auto OriginalEnabled = Begin->GetDesiredEnabledState();
+		const auto PriorStatus = Fixture.Blueprint->Status;
+		auto Assignment = MakeShared<FJsonObject>();
+		Assignment->SetStringField(TEXT("kind"), TEXT("variable"));
+		Assignment->SetStringField(TEXT("source_variable"), TEXT("SourceScore"));
+		auto Exec = MakeShared<FJsonObject>();
+		Exec->SetStringField(TEXT("node_id"), Begin->NodeGuid.ToString());
+		Exec->SetStringField(TEXT("pin"), TEXT("then"));
+		auto Request = MakeShared<FJsonObject>();
+		Request->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+		Request->SetStringField(TEXT("target_variable"), TEXT("Score"));
+		Request->SetObjectField(TEXT("assignment"), Assignment);
+		Request->SetObjectField(TEXT("exec_from"), Exec);
+		Request->SetBoolField(TEXT("compile"), true);
+		auto InvokeAndCheck = [&]()
+		{
+			Fixture.Package->SetDirtyFlag(bDirty);
+			const FString Before = UEMCP::GraphTopologyRevision(Graph);
+			const int32 NodeCount = Graph->Nodes.Num();
+			const auto Response = Dispatch(TEXT("add_blueprint_variable_assignment"), Request);
+			TestEqual(TEXT("Failure contract"), ErrorCodeOf(Response), FString(bOuter ? TEXT("TRANSACTION_ACTIVE") : TEXT("COMPILE_FAILED")));
+			const TSharedPtr<FJsonObject>* Detail = nullptr;
+			const TSharedPtr<FJsonObject>* Compilation = nullptr;
+			if (bOuter)
+			{
+				TestFalse(TEXT("Active caller transaction rejected before compile diagnostics"), Response.IsValid() && Response->HasField(TEXT("detail")) &&
+					Response->TryGetObjectField(TEXT("detail"), Detail) && Detail && (*Detail)->HasField(TEXT("compile")));
+			}
+			else if (Response.IsValid() && Response->TryGetObjectField(TEXT("detail"), Detail) && Detail &&
+				(*Detail)->TryGetObjectField(TEXT("compile"), Compilation) && Compilation)
+			{
+				TestFalse(TEXT("Compiler reports actual failure"), (*Compilation)->GetBoolField(TEXT("compiled_ok")));
+				TestTrue(TEXT("Compiler recorded at least one real error"), (*Compilation)->GetNumberField(TEXT("num_errors")) > 0);
+				bool bFoundPlantedError = false;
+				for (const auto& Error : (*Compilation)->GetArrayField(TEXT("errors")))
+				{
+					const auto Object = Error->AsObject();
+					if (Object.IsValid() && Object->GetStringField(TEXT("message")).Contains(MissingFunction.ToString())) bFoundPlantedError = true;
+				}
+				TestTrue(TEXT("Compiler reached this fixture's unique missing function"), bFoundPlantedError);
+			}
+			else AddError(TEXT("Missing actual compiler diagnostics for saved assignment failure"));
+			TestEqual(TEXT("All nodes removed and all existing links preserved"), UEMCP::GraphTopologyRevision(Graph), Before);
+			TestEqual(TEXT("Node count restored"), Graph->Nodes.Num(), NodeCount);
+			TestTrue(TEXT("BeginPlay ghost restored"), Begin->IsAutomaticallyPlacedGhostNode());
+			TestEqual(TEXT("Ghost enabled state restored"), int32(Begin->GetDesiredEnabledState()), int32(OriginalEnabled));
+			TestEqual(TEXT("Ghost comment restored"), Begin->NodeComment, OriginalComment);
+			TestEqual(TEXT("Ghost bubble restored"), bool(Begin->bCommentBubbleVisible), bOriginalBubble);
+			TestEqual(TEXT("Prior package dirt restored"), Fixture.Package->IsDirty(), bDirty);
+			TestEqual(TEXT("Prior Blueprint status restored"), int32(Fixture.Blueprint->Status), int32(PriorStatus));
+			TArray<uint8> AfterBytes;
+			TestTrue(TEXT("Saved file still readable"), FFileHelper::LoadFileToArray(AfterBytes, *Filename));
+			TestTrue(TEXT("Save on Compile Always did not persist failed assignment"), AfterBytes == SavedBytes);
+		};
+		if (bOuter)
+		{
+			FScopedTransaction Outer(NSLOCTEXT("UEMCPTests", "AssignmentOuter", "Caller independent edit"));
+			Begin->Modify();
+			Begin->NodePosX = OriginalX + 91;
+			InvokeAndCheck();
+			TestTrue(TEXT("Failed inner operation preserves caller active transaction"), History->IsActive());
+			TestEqual(TEXT("Caller edit remains applied"), Begin->NodePosX, OriginalX + 91);
+		}
+		else
+		{
+			{
+				FScopedTransaction Previous(NSLOCTEXT("UEMCPTests", "AssignmentPrevious", "Previous independent edit"));
+				Begin->Modify();
+				Begin->NodePosX = OriginalX + 91;
+			}
+			InvokeAndCheck();
+		}
+		TestTrue(TEXT("Independent edit still undoable"), History->Undo());
+		TestEqual(TEXT("One Undo restores independent edit"), Begin->NodePosX, OriginalX);
+		TestFalse(TEXT("No spurious assignment transaction"), History->CanUndo());
+		TestTrue(TEXT("Independent edit still redoable"), History->Redo());
+		TestEqual(TEXT("Redo reapplies only independent edit"), Begin->NodePosX, OriginalX + 91);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStateNamingIsolation, "UEMCP.BlueprintHandlers.StateNamingIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStateNamingIsolation::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture;
+	const FString Leaf = TEXT("ABP_StateName_") + FGuid::NewGuid().ToString();
+	Fixture.PackagePath = FString(FixtureRoot) / Leaf;
+	Fixture.Package = CreatePackage(*Fixture.PackagePath);
+	auto* Factory = NewObject<UAnimBlueprintFactory>();
+	Factory->TargetSkeleton = LoadObject<USkeleton>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube_Skeleton.SkeletalCube_Skeleton"));
+	if (!TestNotNull(TEXT("Fixture skeleton"), Factory->TargetSkeleton.Get())) return false;
+	auto* BP = Cast<UAnimBlueprint>(Factory->FactoryCreateNew(UAnimBlueprint::StaticClass(), Fixture.Package,
+		FName(*Leaf), RF_Public | RF_Standalone | RF_Transactional, nullptr, GWarn));
+	if (!TestNotNull(TEXT("Fixture AnimBP"), BP)) return false;
+	Fixture.Blueprint = BP;
+	FAssetRegistryModule::AssetCreated(BP);
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Top = FindObject<UEdGraph>(BP, TEXT("AnimGraph"));
+	auto* Events = FBlueprintEditorUtils::FindEventGraph(BP);
+	if (!TestNotNull(TEXT("AnimGraph"), Top) || !TestNotNull(TEXT("EventGraph"), Events)) return false;
+	auto* Sequence = NewObject<UAnimSequence>(Fixture.Package, TEXT("StatePose"), RF_Public);
+	Sequence->SetSkeleton(Factory->TargetSkeleton);
+
+	// State is the initial internal name UE gives every newly-placed state.
+	auto* Function = FBlueprintEditorUtils::CreateNewGraph(BP, TEXT("State"), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	FBlueprintEditorUtils::AddFunctionGraph<UClass>(BP, Function, true, nullptr);
+	const FName LayerName(TEXT("ReservedLayer"));
+	auto* Layer = FBlueprintEditorUtils::CreateNewGraph(BP, LayerName, UAnimationGraph::StaticClass(), UAnimationGraphSchema::StaticClass());
+	FBlueprintEditorUtils::AddDomainSpecificGraph(BP, Layer);
+	AddFixtureVariable(BP, TEXT("KeepMember"), UEdGraphSchema_K2::PC_Boolean);
+	const int32 MemberIndex = FBlueprintEditorUtils::FindNewVariableIndex(BP, TEXT("KeepMember"));
+	if (!TestTrue(TEXT("Member created"), MemberIndex != INDEX_NONE)) return false;
+	const FGuid MemberGuid = BP->NewVariables[MemberIndex].VarGuid;
+	UFunction* StateFunction = BP->SkeletonGeneratedClass->FindFunctionByName(TEXT("State"));
+	if (!TestNotNull(TEXT("State function available"), StateFunction)) return false;
+	FGraphNodeCreator<UK2Node_CallFunction> Creator(*Events);
+	auto* Call = Creator.CreateNode(false);
+	Call->SetFromFunction(StateFunction);
+	Call->FunctionReference.SetSelfMember(TEXT("State"));
+	Creator.Finalize();
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UsePrivateHistory(GEditor->Trans, History.Get());
+	auto Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("asset_path"), Fixture.PackagePath);
+	Request->SetArrayField(TEXT("node_position"), {MakeShared<FJsonValueNumber>(0), MakeShared<FJsonValueNumber>(0)});
+	auto Target = [&](UEdGraph* Graph, const FString& Name)
+	{
+		Request->SetStringField(TEXT("name"), Name);
+		Request->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+		Request->SetStringField(TEXT("expected_revision"), UEMCP::GraphTopologyRevision(Graph));
+	};
+	auto CheckRefusal = [&](UEdGraph* Graph, const TCHAR* Command)
+	{
+		Target(Graph, LayerName.ToString());
+		Fixture.Package->SetDirtyFlag(false);
+		const auto Status = BP->Status;
+		const auto Revision = UEMCP::GraphTopologyRevision(Graph);
+		const auto Before = Graph->SubGraphs;
+		TestEqual(TEXT("Reject engine-reserved layer name"), ErrorCodeOf(Dispatch(Command, Request)), FString(TEXT("STATE_AUTHORING_FAILED")));
+		TestTrue(TEXT("No child added"), Graph->SubGraphs == Before);
+		TestEqual(TEXT("Nodes and links preserved"), UEMCP::GraphTopologyRevision(Graph), Revision);
+		TestTrue(TEXT("Blueprint status preserved"), BP->Status == Status);
+		TestFalse(TEXT("Package remains clean"), Fixture.Package->IsDirty());
+	};
+	for (const FString& Invalid : TArray<FString>{ TEXT(""), TEXT(" Leading"), TEXT("Trailing "), TEXT("Bad/Path"), FString::ChrN(NAME_SIZE, TEXT('A')) })
+	{
+		Target(Top, Invalid);
+		TestEqual(TEXT("Reject invalid title before creation"), ErrorCodeOf(Dispatch(TEXT("add_anim_state_machine"), Request)), FString(TEXT("INVALID_NAME")));
+	}
+	CheckRefusal(Top, TEXT("add_anim_state_machine"));
+	TestFalse(TEXT("Failed machine leaves no history"), History->CanUndo());
+	Target(Top, TEXT("Ground Movement"));
+	FString Code;
+	if (!TestTrue(TEXT("Create machine"), IsSuccess(Dispatch(TEXT("add_anim_state_machine"), Request), Code))) return false;
+	UEdGraph* Machine = nullptr;
+	for (UEdGraph* Child : Top->SubGraphs)
+	{
+		if (Child && Child->GetName() == TEXT("Ground Movement")) Machine = Child;
+	}
+	if (!TestNotNull(TEXT("New machine"), Machine)) return false;
+	Request->SetStringField(TEXT("sequence_path"), Sequence->GetPathName());
+	Request->SetBoolField(TEXT("initial"), true);
+	CheckRefusal(Machine, TEXT("add_anim_state"));
+	Target(Machine, TEXT("Idle Ready"));
+	if (!TestTrue(TEXT("Create state"), IsSuccess(Dispatch(TEXT("add_anim_state"), Request), Code))) return false;
+	TestTrue(TEXT("State keeps the requested interior space"), Machine->SubGraphs.ContainsByPredicate(
+		[](const auto& Child) { return Child && Child->GetName() == TEXT("Idle Ready"); }));
+	TestTrue(TEXT("Unrelated function graph preserved"), BP->FunctionGraphs.Contains(Function) && Function->GetFName() == TEXT("State"));
+	TestEqual(TEXT("Self call still targets State"), Call->FunctionReference.GetMemberName(), FName(TEXT("State")));
+	TestTrue(TEXT("Member name and GUID preserved"), BP->NewVariables.IsValidIndex(MemberIndex) &&
+		BP->NewVariables[MemberIndex].VarName == TEXT("KeepMember") && BP->NewVariables[MemberIndex].VarGuid == MemberGuid);
+	TestTrue(TEXT("Undo accepted state"), History->Undo());
+	TestTrue(TEXT("Undo accepted machine"), History->Undo());
+	TestFalse(TEXT("Rejected state did not add an undo entry"), History->CanUndo());
 	return true;
 }
 

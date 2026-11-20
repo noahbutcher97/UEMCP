@@ -97,15 +97,19 @@ try {
     'UEMCP.BlueprintHandlers.EventNodeGhostSites',
     'UEMCP.BlueprintHandlers.AssignmentCompileFailed',
     'UEMCP.BlueprintHandlers.CreateBlueprintParents',
+    'UEMCP.BlueprintHandlers.FormatTextConnection',
+    'UEMCP.BlueprintHandlers.ClassPinConnections',
+    'UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation',
+    'UEMCP.BlueprintHandlers.StateNamingIsolation',
   ];
   let blueprint;
   try { blueprint = loadTestProfile('native-blueprint'); } catch { /* Keep the missing-profile regression explicit. */ }
-  runner.assert(blueprint?.runner === 'native' && JSON.stringify(blueprint.suites) === JSON.stringify([{ name: 'native', cases: blueprintNames }]) && JSON.stringify(blueprint.fixturePaths) === '[]' && JSON.stringify(blueprint.capabilities) === JSON.stringify(['engine', 'nullrhi']), 'native blueprint requires the exact fifteen cases without saved fixture inputs');
+  runner.assert(blueprint?.runner === 'native' && JSON.stringify(blueprint.suites) === JSON.stringify([{ name: 'native', cases: blueprintNames }]) && JSON.stringify(blueprint.fixturePaths) === '[]' && JSON.stringify(blueprint.capabilities) === JSON.stringify(['engine', 'nullrhi']), 'native blueprint requires the exact registered cases without saved fixture inputs');
   const blueprintRegistrations = ['UEMCPBlueprintHelperTests.cpp', 'UEMCPBlueprintHandlerTests.cpp'].flatMap(file => {
     const source = readFileSync(new URL(`../plugin/UEMCP/Source/UEMCP/Private/Tests/${file}`, import.meta.url), 'utf8');
     return [...source.matchAll(/IMPLEMENT_SIMPLE_AUTOMATION_TEST\s*\(\s*\w+\s*,\s*"(UEMCP\.Blueprint(?:Helpers|Handlers)\.[A-Za-z]+)"/g)].map(match => match[1]);
   });
-  runner.assert(JSON.stringify(blueprintRegistrations) === JSON.stringify(blueprintNames), 'native blueprint expectations match three helper and twelve handler C++ registrations');
+  runner.assert(JSON.stringify(blueprintRegistrations) === JSON.stringify(blueprintNames), 'native blueprint expectations match helper and handler C++ registrations');
   if (blueprint) {
     const blueprintSource = collectSourceState(REPOSITORY_ROOT);
     const blueprintEvidence = {

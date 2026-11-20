@@ -1,7 +1,11 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "AnimationHandlers.h"
+#include "AnimSlotInsertion.h"
+#include "StateAuthoring.h"
+#include "CachePoseAuthoring.h"
 
 #include "HandlerCommon.h"
+#include "BlueprintHandlerHelpers.h"
 #include "MCPCommandRegistry.h"
 #include "MCPResponseBuilder.h"
 
@@ -17,6 +21,13 @@
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/Skeleton.h"
 #include "AnimationStateMachineGraph.h"
+#include "AnimationGraphSchema.h"
+#include "AnimGraphNode_TwoWayBlend.h"
+#include "BlueprintActionDatabase.h"
+#include "BlueprintActionFilter.h"
+#include "BlueprintNodeSpawner.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "ScopedTransaction.h"
 #include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_Slot.h"
 #include "AnimGraphNode_StateMachineBase.h"
@@ -837,6 +848,7 @@ namespace UEMCP
 			if (Graph->GraphGuid.IsValid())
 			{
 				Out->SetStringField(TEXT("graph_guid"), GuidToDigits(Graph->GraphGuid));
+				Out->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
 			}
 			else
 			{
@@ -999,6 +1011,8 @@ namespace UEMCP
 			Out->SetNumberField(TEXT("state_type"), static_cast<int32>(State->StateType.GetValue()));
 			Out->SetBoolField(TEXT("always_reset_on_entry"), State->bAlwaysResetOnEntry);
 			SetGraphNameOrNull(Out, TEXT("bound_graph"), State->GetBoundGraph());
+			if (const auto* Bound = State->GetBoundGraph())
+				Out->SetStringField(TEXT("bound_graph_guid"), GuidToDigits(Bound->GraphGuid));
 			return Out;
 		}
 
@@ -1013,6 +1027,7 @@ namespace UEMCP
 			if (const UAnimStateNodeBase* Previous = Transition->GetPreviousState())
 			{
 				Out->SetStringField(TEXT("previous_state"), Previous->GetStateName());
+				Out->SetStringField(TEXT("from_state_id"), GuidToDigits(Previous->NodeGuid));
 			}
 			else
 			{
@@ -1021,6 +1036,7 @@ namespace UEMCP
 			if (const UAnimStateNodeBase* Next = Transition->GetNextState())
 			{
 				Out->SetStringField(TEXT("next_state"), Next->GetStateName());
+				Out->SetStringField(TEXT("to_state_id"), GuidToDigits(Next->NodeGuid));
 			}
 			else
 			{
@@ -1036,6 +1052,8 @@ namespace UEMCP
 			Out->SetNumberField(TEXT("automatic_rule_trigger_time"), Transition->AutomaticRuleTriggerTime);
 			Out->SetStringField(TEXT("sync_group_name_to_require_valid_markers_rule"), Transition->SyncGroupNameToRequireValidMarkersRule.ToString());
 			SetGraphNameOrNull(Out, TEXT("rule_graph"), Transition->GetBoundGraph());
+			if (const auto* Rule = Transition->GetBoundGraph())
+				Out->SetStringField(TEXT("rule_graph_guid"), GuidToDigits(Rule->GraphGuid));
 			SetGraphNameOrNull(Out, TEXT("custom_transition_graph"), Transition->GetCustomTransitionGraph());
 			return Out;
 		}
@@ -1050,6 +1068,8 @@ namespace UEMCP
 			Out->SetStringField(TEXT("name"), MachineNode->GetStateMachineName());
 			UAnimationStateMachineGraph* MachineGraph = MachineNode->EditorStateMachineGraph;
 			SetGraphNameOrNull(Out, TEXT("state_machine_graph"), MachineGraph);
+			if (MachineGraph)
+				Out->SetStringField(TEXT("state_machine_graph_guid"), GuidToDigits(MachineGraph->GraphGuid));
 
 			TArray<TSharedPtr<FJsonValue>> States;
 			TArray<TSharedPtr<FJsonValue>> Transitions;
@@ -1453,6 +1473,96 @@ namespace UEMCP
 		// 4. get_anim_graph — read static UAnimBlueprint graph topology
 		// ═══════════════════════════════════════════════════════════════════════
 
+		UBlueprintNodeSpawner* FindTwoWayBlendAction(UAnimBlueprint* Blueprint, UEdGraph* Graph)
+		{
+			if (Graph->GetOuter() != Blueprint || Graph->GetFName() != TEXT("AnimGraph") ||
+				!Graph->GetSchema()->IsA<UAnimationGraphSchema>() || FBlueprintEditorUtils::IsGraphReadOnly(Graph) ||
+				!IsWritableAnimPackage(Blueprint->GetOutermost())) return nullptr;
+			UClass* NodeClass = UAnimGraphNode_TwoWayBlend::StaticClass();
+			const auto* Actions = FBlueprintActionDatabase::Get().GetAllActions().Find(FObjectKey(NodeClass));
+			if (!Actions) return nullptr;
+			FBlueprintActionFilter Filter;
+			Filter.Context.Blueprints.Add(Blueprint);
+			Filter.Context.Graphs.Add(Graph);
+			for (UBlueprintNodeSpawner* Action : *Actions)
+			{
+				if (!Action || Action->NodeClass != NodeClass) continue;
+				FBlueprintActionInfo Info(NodeClass, Action);
+				if (!Filter.IsFiltered(Info)) return Action;
+			}
+			return nullptr;
+		}
+
+		void HandlePlaceAnimGraphNode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString Path, GraphId, ActionId;
+			const TArray<TSharedPtr<FJsonValue>>* Position = nullptr;
+			double X = 0.0, Y = 0.0;
+			if (!RequireAssetPath(Params, TEXT("place_anim_graph_node"), Path, OutResponse)) return;
+			if (!Params->TryGetStringField(TEXT("graph_guid"), GraphId) ||
+				!Params->TryGetStringField(TEXT("action"), ActionId) ||
+				!Params->TryGetArrayField(TEXT("node_position"), Position) || Position->Num() != 2 ||
+				!(*Position)[0]->TryGetNumber(X) || !(*Position)[1]->TryGetNumber(Y) ||
+				!FMath::IsWithinInclusive(X, double(MIN_int32), double(MAX_int32)) ||
+				!FMath::IsWithinInclusive(Y, double(MIN_int32), double(MAX_int32)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected graph_guid, action and node_position"), TEXT("INVALID_PARAMS"));
+				return;
+			}
+			double Alpha = 0.0;
+			const bool bSetAlpha = Params->HasField(TEXT("alpha"));
+			if (bSetAlpha && (!Params->HasTypedField<EJson::Number>(TEXT("alpha")) ||
+				!Params->TryGetNumberField(TEXT("alpha"), Alpha) || !FMath::IsWithinInclusive(Alpha, 0.0, 1.0)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("alpha must be in [0, 1]"), TEXT("INVALID_PARAMS"));
+				return;
+			}
+			UAnimBlueprint* Blueprint = LoadObject<UAnimBlueprint>(nullptr, *ToObjectPath(Path));
+			UEdGraph* Graph = Blueprint ? FindObject<UEdGraph>(Blueprint, TEXT("AnimGraph")) : nullptr;
+			FGuid Guid;
+			if (!Graph || !FGuid::Parse(GraphId, Guid) || Guid != Graph->GraphGuid)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Top-level AnimGraph no longer resolves"), TEXT("STALE_GRAPH"));
+				return;
+			}
+			auto* Action = FindTwoWayBlendAction(Blueprint, Graph);
+			if (!Action || ActionId != Action->NodeClass->GetPathName())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Action unavailable for this graph"), TEXT("UNAVAILABLE_ACTION"));
+				return;
+			}
+			if (!CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "PlaceTwoWayBlend", "Place animation blend"));
+			Blueprint->Modify();
+			Graph->Modify();
+			auto* Node = Cast<UAnimGraphNode_TwoWayBlend>(Action->Invoke(Graph, {}, FVector2D(X, Y)));
+			if (!Node)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Node spawner failed"), TEXT("SPAWN_FAILED"));
+				return;
+			}
+			if (bSetAlpha)
+			{
+				auto* Pin = Node->FindPinChecked(TEXT("Alpha"), EGPD_Input);
+				Graph->GetSchema()->TrySetDefaultValue(*Pin, FString::SanitizeFloat(Alpha));
+			}
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			Graph->NotifyGraphChanged();
+			auto Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
+			Result->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+			Result->SetStringField(TEXT("action"), ActionId);
+			Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
+			Result->SetBoolField(TEXT("compiled"), false);
+			TArray<TSharedPtr<FJsonValue>> Pins;
+			for (auto* Pin : Node->Pins)
+			{
+				if (Pin && !Pin->bHidden) Pins.Add(MakeShared<FJsonValueObject>(PinToJson(Pin)));
+			}
+			Result->SetArrayField(TEXT("pins"), Pins);
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
 		void HandleGetAnimGraph(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			FString AssetPath;
@@ -1534,6 +1644,14 @@ namespace UEMCP
 				GraphJson->SetStringField(TEXT("name"), Graph->GetName());
 				GraphJson->SetStringField(TEXT("class"), Graph->GetClass()->GetPathName());
 				GraphJson->SetStringField(TEXT("graph_type"), ClassifyAnimBlueprintGraph(Graph));
+				if (GetOptionalBool(Params, TEXT("include_actions"), false))
+				{
+					TArray<TSharedPtr<FJsonValue>> Actions;
+					if (auto* Action = FindTwoWayBlendAction(AnimBlueprint, Graph))
+						Actions.Add(MakeShared<FJsonValueString>(Action->NodeClass->GetPathName()));
+					GraphJson->SetArrayField(TEXT("actions"), Actions);
+					GraphJson->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+				}
 				GraphJson->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
 				GraphJson->SetNumberField(TEXT("state_machine_count"), StateMachineCount);
 				GraphJson->SetNumberField(TEXT("slot_node_count"), SlotNodeCount);
@@ -1557,6 +1675,9 @@ namespace UEMCP
 			Result->SetArrayField(TEXT("graphs"), Graphs);
 			Result->SetArrayField(TEXT("state_machines"), StateMachines);
 			Result->SetArrayField(TEXT("slot_nodes"), SlotNodes);
+			TArray<TSharedPtr<FJsonValue>> CacheNodes;
+			for (const auto* CacheGraph : AllGraphs) CacheNodes.Append(ReadCachedPoseNodes(CacheGraph));
+			Result->SetArrayField(TEXT("cache_nodes"), CacheNodes);
 			Result->SetArrayField(TEXT("layered_blend_nodes"), LayeredBlendNodes);
 			if (bIncludePinTopology)
 			{
@@ -1756,6 +1877,10 @@ namespace UEMCP
 		Registry.Register(TEXT("add_montage_section"), &HandleAddMontageSection);
 		Registry.Register(TEXT("add_montage_notify"),  &HandleAddMontageNotify);
 		Registry.Register(TEXT("get_anim_graph"),      &HandleGetAnimGraph);
+		Registry.Register(TEXT("insert_anim_slot"), &HandleInsertAnimSlot);
+		StateAuthoring::Register(Registry);
+		Registry.Register(TEXT("edit_anim_cached_pose"), &HandleEditAnimCachedPose);
+		Registry.Register(TEXT("place_anim_graph_node"), &HandlePlaceAnimGraphNode);
 		Registry.Register(TEXT("get_montage_full"),    &HandleGetMontageFull);
 		Registry.Register(TEXT("get_anim_sequence_info"), &HandleGetAnimSequenceInfo);
 		// get_audio_asset_info: SUPERSEDED-as-offline per D101 (v) decision.

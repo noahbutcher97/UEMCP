@@ -6,7 +6,7 @@
 **Roadmap work units and available paths**: [work-unit map](../tasks/plan.md)
 **Animation authoring priority**: [U5 program](plans/animation-authoring-program.md)
 **Animation research and execution modes**: [ad hoc editing, recipes and offline support](plans/animation-authoring-execution.md)
-**Scoped component proposal**: [U5 Slot insertion](plans/u5-animation-authoring.md)
+**Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
@@ -105,7 +105,7 @@ public conclusions should remain discoverable through tracked documentation.
 |---|---|
 | [animation-authoring-program.md](plans/animation-authoring-program.md) | Proposed animation capability scope and delivery boundaries |
 | [animation-authoring-execution.md](plans/animation-authoring-execution.md) | Source research and proposed ad hoc, recipe, live and headless workflows |
-| [u5-animation-authoring.md](plans/u5-animation-authoring.md) | Scoped Slot-insertion proposal and acceptance requirements |
+| [u5-animation-authoring.md](plans/u5-animation-authoring.md) | Montage Slot insertion contract and qualification workflow |
 | [implementation.md](plans/implementation.md) | 6-phase build sequence |
 | [testing-strategy.md](plans/testing-strategy.md) | Phase-by-phase test cases (Tests 1-43+) |
 

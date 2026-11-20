@@ -1,7 +1,19 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
+#include "CachePoseAuthoring.h"
+#include "Animation/AnimBlueprint.h"
+#include "AnimationStateGraph.h"
 
 #include "BlueprintHandlerHelpers.h"
+#include "AnimGraphNode_Base.h"
+#include "AnimationGraphSchema.h"
+#include "K2Node_Knot.h"
+#include "K2Node_FormatText.h"
+#include "K2Node_EaseFunction.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "K2Node_ConstructObjectFromClass.h"
+#include "K2Node_GetClassDefaults.h"
+#include "ScopedTransaction.h"
 #include "BlueprintLookupHelper.h"
 #include "CompileDiagnosticHandler.h"
 #include "HandlerCommon.h"
@@ -219,9 +231,45 @@ namespace UEMCP
 		}
 
 		UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Params,
-			TSharedPtr<FJsonObject>& OutResponse)
+			TSharedPtr<FJsonObject>& OutResponse, bool bAllowGraphGuid = false)
 		{
 			FString GraphName;
+			if (bAllowGraphGuid && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
+			{
+				FString Text;
+				FGuid Id;
+				if (!Params->TryGetStringField(TEXT("graph_guid"), Text) || !FGuid::Parse(Text, Id) || !Id.IsValid())
+				{
+					BuildErrorResponse(OutResponse, TEXT("Expected a valid graph GUID"), TEXT("INVALID_GRAPH_ID"));
+					return nullptr;
+				}
+				TArray<UEdGraph*> Graphs;
+				Blueprint->GetAllGraphs(Graphs);
+				for (UEdGraph* Graph : Graphs)
+				{
+					if (!Graph || Graph->GraphGuid != Id) continue;
+					if (Params->TryGetStringField(TEXT("graph_name"), GraphName) && !GraphName.IsEmpty() && !GraphName.Equals(Graph->GetName(), ESearchCase::IgnoreCase))
+					{
+						BuildErrorResponse(OutResponse, TEXT("Graph name and GUID identify different graphs"), TEXT("GRAPH_IDENTITY_MISMATCH"));
+						return nullptr;
+					}
+					if (!Cast<UAnimBlueprint>(Blueprint) || !Graph->GetSchema() ||
+						!((Graph->GetFName() == TEXT("AnimGraph") && Graph->GetOuter() == Blueprint && Graph->GetSchema()->IsA<UAnimationGraphSchema>()) ||
+						Graph->IsA<UAnimationStateGraph>() || Graph->GetSchema()->GetClass() == UEdGraphSchema_K2::StaticClass()))
+					{
+						BuildErrorResponse(OutResponse, TEXT("GUID wiring supports top-level AnimGraph, state pose graphs and ordinary K2 AnimBP graphs"), TEXT("UNSUPPORTED_GRAPH"));
+						return nullptr;
+					}
+					if (FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost()))
+					{
+						BuildErrorResponse(OutResponse, TEXT("Graph or Animation Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
+						return nullptr;
+					}
+					return Graph;
+				}
+				BuildErrorResponse(OutResponse, TEXT("Graph GUID is stale or belongs to another Blueprint"), TEXT("GRAPH_NOT_FOUND"));
+				return nullptr;
+			}
 			if (!Params.IsValid() || !Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty()
 				|| GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
 			{
@@ -477,7 +525,7 @@ namespace UEMCP
 		}
 
 		bool TryLinkPins(UEdGraph* Graph, UEdGraphPin* SourcePin, UEdGraphPin* TargetPin,
-			TSharedPtr<FJsonObject>& OutResponse)
+			TSharedPtr<FJsonObject>& OutResponse, bool bRequireDirectConnection = false)
 		{
 			if (!SourcePin || !TargetPin)
 			{
@@ -501,6 +549,16 @@ namespace UEMCP
 				}
 			}
 
+			if (bRequireDirectConnection)
+			{
+				if (!K2Schema || K2Schema->CanCreateConnection(SourcePin, TargetPin).Response != CONNECT_RESPONSE_MAKE ||
+					!K2Schema->TryCreateConnection(SourcePin, TargetPin))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Assignment requires a direct connection without displacement or conversion"), TEXT("DIRECT_CONNECTION_REQUIRED"));
+					return false;
+				}
+				return true;
+			}
 			SourcePin->MakeLinkTo(TargetPin);
 			return true;
 		}
@@ -1729,6 +1787,9 @@ namespace UEMCP
 			// An auto-placed ghost is enabled first: reused as-is it compiles to nothing.
 			if (UK2Node_Event* Existing = FindExistingEventNode(EventGraph, EventName))
 			{
+				if (Existing->IsAutomaticallyPlacedGhostNode() && !CanStartGraphTransaction(OutResponse)) return;
+				FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "EnableEvent", "Enable Blueprint event"), Existing->IsAutomaticallyPlacedGhostNode());
+				if (Existing->IsAutomaticallyPlacedGhostNode()) Blueprint->Modify();
 				const bool bEnabledGhost = EnsureEventNodeEnabled(Existing);
 				if (bEnabledGhost)
 				{
@@ -1752,7 +1813,11 @@ namespace UEMCP
 				? Blueprint->GeneratedClass->FindFunctionByName(*EventName)
 				: nullptr;
 
-			UK2Node_Event* EventNode = NewObject<UK2Node_Event>(EventGraph);
+			if (!CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddEvent", "Add Blueprint event"));
+			Blueprint->Modify();
+			EventGraph->Modify();
+			UK2Node_Event* EventNode = NewObject<UK2Node_Event>(EventGraph, NAME_None, RF_Transactional);
 			if (!EventNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create event node"), TEXT("CREATE_FAILED"));
@@ -2224,7 +2289,14 @@ namespace UEMCP
 				return;
 			}
 
-			FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*VarName), PinType);
+			if (!CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddVariable", "Add Blueprint variable"));
+			if (!FBlueprintEditorUtils::AddMemberVariable(Blueprint, FName(*VarName), PinType))
+			{
+				Transaction.Cancel();
+				BuildErrorResponse(OutResponse, TEXT("Cannot add the requested member variable"), TEXT("VARIABLE_NOT_ADDED"));
+				return;
+			}
 
 			if (bExposed)
 			{
@@ -2318,7 +2390,11 @@ namespace UEMCP
 			if (!Graph) return;
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
-			UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(Graph);
+			if (!CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddGetter", "Add Blueprint variable getter"));
+			Blueprint->Modify();
+			Graph->Modify();
+			UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(Graph, NAME_None, RF_Transactional);
 			if (!GetNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create variable get node"), TEXT("CREATE_FAILED"));
@@ -2451,7 +2527,13 @@ namespace UEMCP
 			if (!Graph) return;
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
-			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph);
+			const bool bWasDirty = Blueprint->GetOutermost()->IsDirty();
+			const auto PriorStatus = Blueprint->Status;
+			if (!CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "VariableAssignment", "Assign Blueprint variable"));
+			Blueprint->Modify();
+			Graph->Modify();
+			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph, NAME_None, RF_Transactional);
 			if (!SetNode)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create variable set node"), TEXT("CREATE_FAILED"));
@@ -2468,11 +2550,32 @@ namespace UEMCP
 
 			UK2Node_VariableGet* GetNode = nullptr;
 			TArray<TSharedPtr<FJsonValue>> Links;
+			struct FGhostState
+			{
+				UEdGraphNode* Node;
+				FString Comment;
+				bool bBubbleVisible;
+			};
+			TArray<FGhostState> Ghosts;
+			auto Rollback = [&]()
+			{
+				RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+				for (const FGhostState& Ghost : Ghosts)
+				{
+					Ghost.Node->SetEnabledState(ENodeEnabledState::Disabled, false);
+					Ghost.Node->NodeComment = Ghost.Comment;
+					Ghost.Node->bCommentBubbleVisible = Ghost.bBubbleVisible;
+				}
+				Blueprint->Status = PriorStatus;
+				Transaction.Cancel();
+				Blueprint->GetOutermost()->SetDirtyFlag(bWasDirty);
+			};
+
 
 			UEdGraphPin* TargetValuePin = FindPin(SetNode, TargetVarName, EGPD_Input);
 			if (!TargetValuePin)
 			{
-				RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+				Rollback();
 				BuildErrorResponse(OutResponse, TEXT("Failed to resolve target variable input pin"), TEXT("PIN_NOT_FOUND"));
 				return;
 			}
@@ -2482,16 +2585,16 @@ namespace UEMCP
 				TSharedPtr<FJsonValue> LiteralValue = (*Assignment)->TryGetField(TEXT("value"));
 				if (!TryApplyLiteralAssignmentDefault(TargetValuePin, LiteralValue, OutResponse))
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+					Rollback();
 					return;
 				}
 			}
 			else
 			{
-				GetNode = NewObject<UK2Node_VariableGet>(Graph);
+				GetNode = NewObject<UK2Node_VariableGet>(Graph, NAME_None, RF_Transactional);
 				if (!GetNode)
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, nullptr);
+					Rollback();
 					BuildErrorResponse(OutResponse, TEXT("Failed to create variable get node"), TEXT("CREATE_FAILED"));
 					return;
 				}
@@ -2505,9 +2608,9 @@ namespace UEMCP
 				GetNode->ReconstructNode();
 
 				UEdGraphPin* SourceValuePin = FindPin(GetNode, SourceVarName, EGPD_Output);
-				if (!TryLinkPins(Graph, SourceValuePin, TargetValuePin, OutResponse))
+				if (!TryLinkPins(Graph, SourceValuePin, TargetValuePin, OutResponse, true))
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					Rollback();
 					return;
 				}
 				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("value"), GetNode, SourceValuePin, SetNode, TargetValuePin)));
@@ -2522,7 +2625,7 @@ namespace UEMCP
 					|| SourceNodeId.IsEmpty()
 					|| SourcePinName.IsEmpty())
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					Rollback();
 					BuildErrorResponse(OutResponse, TEXT("exec_from requires node_id and pin"), TEXT("MISSING_PARAMS"));
 					return;
 				}
@@ -2530,16 +2633,23 @@ namespace UEMCP
 				UEdGraphNode* SourceExecNode = FindNodeByGuid(Graph, SourceNodeId);
 				if (!SourceExecNode)
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					Rollback();
 					BuildErrorResponse(OutResponse, TEXT("exec_from node not found"), TEXT("NODE_NOT_FOUND"));
 					return;
 				}
 
 				UEdGraphPin* SourceExecPin = FindPin(SourceExecNode, SourcePinName, EGPD_Output);
 				UEdGraphPin* TargetExecPin = FindPin(SetNode, TEXT("execute"), EGPD_Input);
-				if (!TryLinkPins(Graph, SourceExecPin, TargetExecPin, OutResponse))
+				// MakeLinkTo recursively enables connected auto-placed ghost nodes.
+				if (SourceExecNode->IsAutomaticallyPlacedGhostNode())
 				{
-					RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+					for (UEdGraphNode* Node : Graph->Nodes)
+						if (Node && Node->IsAutomaticallyPlacedGhostNode())
+							Ghosts.Add({Node, Node->NodeComment, bool(Node->bCommentBubbleVisible)});
+				}
+				if (!TryLinkPins(Graph, SourceExecPin, TargetExecPin, OutResponse, true))
+				{
+					Rollback();
 					return;
 				}
 				Links.Add(MakeShared<FJsonValueObject>(LinkToJson(TEXT("exec"), SourceExecNode, SourceExecPin, SetNode, TargetExecPin)));
@@ -2552,7 +2662,7 @@ namespace UEMCP
 			bool bCompiledOk = false;
 			if (bCompile)
 			{
-				CompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName());
+				CompileResult = BuildBlueprintCompileDiagnosticResult(Blueprint, Blueprint->GetName(), /*bSkipSave=*/true);
 				CompileResult->TryGetBoolField(TEXT("compiled_ok"), bCompiledOk);
 			}
 
@@ -2597,7 +2707,7 @@ namespace UEMCP
 			{
 				// Same contract as add_blueprint_timer: a call whose compile failed
 				// leaves nothing behind and says so, instead of reporting success.
-				RemoveCreatedAssignmentNodes(Blueprint, SetNode, GetNode);
+				Rollback();
 				BuildErrorResponse(OutResponse,
 					FString::Printf(TEXT("Blueprint compile failed after adding an assignment to %s"), *TargetVarName),
 					TEXT("COMPILE_FAILED"),
@@ -2990,6 +3100,25 @@ namespace UEMCP
 		}
 
 		// ── 14. connect_blueprint_nodes ───────────────────────────────────────────
+		bool ConnectionChangeRebuildsOtherPins(UEdGraphPin* Input)
+		{
+			if (Input->Direction != EGPD_Input) return false;
+			auto* Node = Input->GetOwningNode();
+			if (const auto* Format = Cast<UK2Node_FormatText>(Node))
+				return Input == Format->GetFormatPin() && !Input->DefaultTextValue.IsEmpty() && Format->GetArgumentCount() > 0;
+			if (Input->PinName != TEXT("Class")) return false;
+			if (const auto* Construct = Cast<UK2Node_ConstructObjectFromClass>(Node))
+				return Node->Pins.ContainsByPredicate([Construct](UEdGraphPin* Pin)
+				{
+					return Pin && !Pin->LinkedTo.IsEmpty() &&
+						(Construct->IsSpawnVarPin(Pin) || Pin->PinName == UEdGraphSchema_K2::PN_ReturnValue);
+				});
+			return Node->IsA<UK2Node_GetClassDefaults>() && Node->Pins.ContainsByPredicate([](const UEdGraphPin* Pin)
+			{
+				return Pin && Pin->Direction == EGPD_Output && !Pin->LinkedTo.IsEmpty();
+			});
+		}
+
 		void HandleConnectBlueprintNodes(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
@@ -3005,7 +3134,7 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse, true);
 			if (!EventGraph) return;
 
 			UEdGraphNode* SourceNode = FindNodeByGuid(EventGraph, SourceId);
@@ -3026,29 +3155,141 @@ namespace UEMCP
 			}
 
 			const UEdGraphSchema_K2* K2Schema = Cast<const UEdGraphSchema_K2>(EventGraph->GetSchema());
-			if (K2Schema)
+			if (!K2Schema)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected a K2 graph schema"), TEXT("UNSUPPORTED_SCHEMA"));
+				return;
+			}
+			const bool bReplace = Params->HasField(TEXT("replace_source_pin_id"));
+			auto MatchesPin = [&](const TCHAR* Field, const UEdGraphPin* Pin)
+			{
+				FString Value;
+				FGuid Id;
+				return Params->TryGetStringField(Field, Value) && FGuid::Parse(Value, Id) && Pin && Pin->PinId == Id;
+			};
+			if (((bReplace || Params->HasField(TEXT("source_pin_id"))) && !MatchesPin(TEXT("source_pin_id"), SourcePin))
+				|| ((bReplace || Params->HasField(TEXT("target_pin_id"))) && !MatchesPin(TEXT("target_pin_id"), TargetPin)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Read the current source and target pin IDs"), TEXT("STALE_PIN"));
+				return;
+			}
+			FString Expected;
+			if ((bReplace || Params->HasField(TEXT("expected_revision"))) &&
+				(!Params->TryGetStringField(TEXT("expected_revision"), Expected) || Expected != GraphTopologyRevision(EventGraph)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Read the current graph topology revision"), TEXT("STALE_GRAPH"));
+				return;
+			}
+			if (SourcePin->bOrphanedPin || TargetPin->bOrphanedPin ||
+				(K2Schema->IsA<UAnimationGraphSchema>() && (SourcePin->bHidden || TargetPin->bHidden)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Pin is unavailable for wiring"), TEXT("UNAVAILABLE_PIN"));
+				return;
+			}
+			const bool bAlreadyLinked = SourcePin->LinkedTo.Contains(TargetPin);
+			FString CacheError;
+			if (!ValidateCachedPoseGraph(EventGraph, CacheError, SourcePin, TargetPin))
+			{
+				BuildErrorResponse(OutResponse, CacheError, TEXT("INVALID_CACHE_GRAPH"));
+				return;
+			}
+			if (TargetPin->LinkedTo.Contains(SourcePin) != bAlreadyLinked ||
+				(bAlreadyLinked && UAnimationGraphSchema::IsPosePin(TargetPin->PinType) &&
+				(SourcePin->LinkedTo.Num() != 1 || TargetPin->LinkedTo.Num() != 1)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Inconsistent existing links. Inspect and disconnect the unwanted edge."), TEXT("INVALID_TOPOLOGY"));
+				return;
+			}
+			UEdGraphPin* Old = nullptr;
+			if (!bAlreadyLinked || bReplace)
 			{
 				const FPinConnectionResponse Response = K2Schema->CanCreateConnection(SourcePin, TargetPin);
 				if (Response.Response == CONNECT_RESPONSE_DISALLOW)
 				{
-					TSharedPtr<FJsonObject> Detail = MakeShared<FJsonObject>();
-					Detail->SetObjectField(TEXT("source_pin"), PinToJson(SourcePin));
-					Detail->SetObjectField(TEXT("target_pin"), PinToJson(TargetPin));
-					Detail->SetObjectField(TEXT("source_pin_type"), PinTypeToJson(SourcePin->PinType));
-					Detail->SetObjectField(TEXT("target_pin_type"), PinTypeToJson(TargetPin->PinType));
-					BuildErrorResponse(OutResponse,
-						Response.Message.IsEmpty()
-							? TEXT("Pins are not compatible")
-							: Response.Message.ToString(),
-						TEXT("INCOMPATIBLE_PINS"),
-						Detail);
+					BuildPinCompatibilityError(OutResponse, Response.Message.IsEmpty()
+						? TEXT("Pins are not compatible") : Response.Message.ToString(), SourcePin, TargetPin);
+					return;
+				}
+				const bool bBreakSource = Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_A || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB;
+				const bool bBreakTarget = Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_B || Response.Response == CONNECT_RESPONSE_BREAK_OTHERS_AB;
+				if (Response.Response != CONNECT_RESPONSE_MAKE && !bBreakTarget && !bBreakSource)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Connection requires a conversion or promotion"), TEXT("IMPLICIT_CONVERSION"));
+					return;
+				}
+				if (HasConnectionBinding(TargetPin) || HasConnectionBinding(SourcePin))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Pin has an animation property binding"), TEXT("BOUND_PIN"));
+					return;
+				}
+				if (ConnectionChangeRebuildsOtherPins(TargetPin))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Connecting this input would reconfigure other graph pins"), TEXT("UNSUPPORTED_REPLACEMENT"));
+					return;
+				}
+				const bool bAnimKnot = K2Schema->IsA<UAnimationGraphSchema>() &&
+					(SourceNode->IsA<UK2Node_Knot>() || TargetNode->IsA<UK2Node_Knot>()) &&
+					(UAnimationGraphSchema::IsPosePin(SourcePin->PinType) || UAnimationGraphSchema::IsPosePin(TargetPin->PinType));
+				if (((bBreakSource || bAnimKnot) && !SourcePin->LinkedTo.IsEmpty()) || (bBreakTarget && TargetPin->LinkedTo.Num() > 1))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Connection would displace additional edges"), TEXT("UNSUPPORTED_REPLACEMENT"));
+					return;
+				}
+				if (bBreakTarget && TargetPin->LinkedTo.Num() == 1) Old = TargetPin->LinkedTo[0];
+				if (Old && Old->LinkedTo.Num() > 1 && HasConnectionBinding(Old))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Removing the edge would clear an existing binding"), TEXT("BOUND_PIN"));
+					return;
+				}
+				if (Old && !bReplace)
+				{
+					BuildErrorResponse(OutResponse, TEXT("Explicit approval required for occupied input"), TEXT("REPLACEMENT_REQUIRED"));
+					return;
+				}
+				if (bReplace && (bAlreadyLinked || !MatchesPin(TEXT("replace_source_pin_id"), Old) || !Old->LinkedTo.Contains(TargetPin)))
+				{
+					BuildErrorResponse(OutResponse, TEXT("The named edge is no longer current"), TEXT("STALE_EDGE"));
 					return;
 				}
 			}
-			SourcePin->MakeLinkTo(TargetPin);
-
-			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			const TSharedPtr<FJsonObject> PreviousTarget = PinToJson(TargetPin);
+			FString OldId;
+			if (!bAlreadyLinked)
+			{
+				if (!CanStartGraphTransaction(OutResponse)) return;
+				FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "ConnectGraphPins", "Connect Blueprint pins"));
+				Blueprint->Modify();
+				EventGraph->Modify();
+				SourceNode->Modify();
+				TargetNode->Modify();
+				if (Old)
+				{
+					OldId = Old->PinId.ToString();
+					Old->GetOwningNode()->Modify();
+				}
+				const FEdGraphPinReference SourceRef(SourcePin), TargetRef(TargetPin), OldRef(Old);
+				if (!K2Schema->TryCreateConnection(SourcePin, TargetPin))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Schema refused connection"), TEXT("CONNECT_FAILED"));
+					return;
+				}
+				EventGraph->NotifyGraphChanged();
+				SourcePin = SourceRef.Get();
+				TargetPin = TargetRef.Get();
+				const UEdGraphPin* Removed = OldRef.Get();
+				if (!SourcePin || !TargetPin || !SourcePin->LinkedTo.Contains(TargetPin) || !TargetPin->LinkedTo.Contains(SourcePin) ||
+					(!OldId.IsEmpty() && (TargetPin->LinkedTo.Num() != 1 || (Removed && Removed->LinkedTo.Contains(TargetPin)))))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Schema changed graph endpoints during connection. Read current topology before retrying or undoing."), TEXT("GRAPH_CHANGED"));
+					return;
+				}
+			}
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetBoolField(TEXT("changed"), !bAlreadyLinked);
+			Result->SetBoolField(TEXT("compiled"), false);
+			Result->SetStringField(TEXT("removed_source_pin_id"), OldId);
+			Result->SetObjectField(TEXT("previous_target_pin"), PreviousTarget);
+			Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(EventGraph));
 			Result->SetStringField(TEXT("source_node_id"), SourceId);
 			Result->SetStringField(TEXT("target_node_id"), TargetId);
 			Result->SetStringField(TEXT("graph_name"), EventGraph->GetName());
@@ -3150,6 +3391,7 @@ namespace UEMCP
 			Result->SetStringField(TEXT("node_id"), NodeId);
 			Result->SetStringField(TEXT("pin"), PinName);
 			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+			Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
 			Result->SetNumberField(TEXT("link_count"), Links.Num());
 			Result->SetArrayField(TEXT("links"), Links);
 			Result->SetObjectField(TEXT("pin_info"), PinToJson(Pin));
@@ -3160,6 +3402,35 @@ namespace UEMCP
 				Result->SetObjectField(TEXT("target_pin_info"), TargetPinJson);
 			}
 			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		// Ease hides curve options when its selector reverts to a literal, and hides
+		// ShortestPath when its last rotator connection reverts to wildcard.
+		bool EaseDisconnectDropsWire(UEdGraphPin* Endpoint, UEdGraphPin* Selected, UEdGraphPin* Peer)
+		{
+			auto* Node = Cast<UK2Node_EaseFunction>(Endpoint->GetOwningNode());
+			if (!Node) return false;
+			auto RemainsWired = [&](const UEdGraphPin* Pin)
+			{
+				return Pin && Pin->LinkedTo.ContainsByPredicate([&](const UEdGraphPin* Other)
+				{
+					return !((Pin == Selected && (!Peer || Peer == Other)) || (Other == Selected && (!Peer || Peer == Pin)));
+				});
+			};
+			if (Endpoint->PinName == TEXT("Function") && !RemainsWired(Endpoint))
+			{
+				const int64 Mode = StaticEnum<EEasingFunc::Type>()->GetValueByName(*Endpoint->DefaultValue);
+				if (Mode == INDEX_NONE) return false;
+				const bool bUsesExponent = Mode == EEasingFunc::EaseIn || Mode == EEasingFunc::EaseOut || Mode == EEasingFunc::EaseInOut;
+				return (!bUsesExponent && RemainsWired(Node->FindPin(TEXT("BlendExp")))) ||
+					(Mode != EEasingFunc::Step && RemainsWired(Node->FindPin(TEXT("Steps"))));
+			}
+			auto* A = Node->FindPin(TEXT("A"));
+			auto* B = Node->FindPin(TEXT("B"));
+			auto* Result = Node->FindPin(TEXT("Result"));
+			return A && B && (Endpoint == A || Endpoint == B || Endpoint == Result) &&
+				A->GetDefaultAsString().IsEmpty() && B->GetDefaultAsString().IsEmpty() &&
+				!RemainsWired(A) && !RemainsWired(B) && !RemainsWired(Result) && RemainsWired(Node->FindPin(TEXT("ShortestPath")));
 		}
 
 		void HandleDisconnectBlueprintPin(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
@@ -3243,6 +3514,25 @@ namespace UEMCP
 				}
 			}
 
+			FString Expected;
+			if (Params->HasField(TEXT("expected_revision")) &&
+				(!Params->TryGetStringField(TEXT("expected_revision"), Expected) || Expected != GraphTopologyRevision(Graph)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Read the current graph topology revision"), TEXT("STALE_GRAPH"));
+				return;
+			}
+			auto MatchesOptionalPin = [&](const TCHAR* Key, const UEdGraphPin* Candidate)
+			{
+				if (!Params->HasField(Key)) return true;
+				FString Value;
+				FGuid Id;
+				return Candidate && Params->TryGetStringField(Key, Value) && FGuid::Parse(Value, Id) && Candidate->PinId == Id;
+			};
+			if (!MatchesOptionalPin(TEXT("pin_id"), Pin) || !MatchesOptionalPin(TEXT("target_pin_id"), TargetPin))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Read the current pin IDs before disconnecting"), TEXT("STALE_PIN"));
+				return;
+			}
 			TArray<TSharedPtr<FJsonValue>> BrokenLinks = CollectPinLinksJson(Pin, TargetPin);
 			const int32 LinksMatched = BrokenLinks.Num();
 			if (bHasTargetNode && LinksMatched == 0)
@@ -3254,26 +3544,46 @@ namespace UEMCP
 			bool bDryRun = false;
 			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
 
+			const auto* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
+			auto DropsOtherWires = [&](UEdGraphPin* Endpoint)
+			{
+				return ConnectionChangeRebuildsOtherPins(Endpoint) || EaseDisconnectDropsWire(Endpoint, Pin, TargetPin);
+			};
+			if (Schema && LinksMatched > 0 && (DropsOtherWires(Pin) ||
+				Pin->LinkedTo.ContainsByPredicate([&](UEdGraphPin* Peer)
+				{
+					return Peer && (!TargetPin || TargetPin == Peer) && DropsOtherWires(Peer);
+				})))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Disconnecting this input would reconfigure other graph pins"), TEXT("UNSUPPORTED_REPLACEMENT"));
+				return;
+			}
+			const FEdGraphPinReference PinRef(Pin), PeerRef(TargetPin);
+			const FGuid PinGuid = Pin->PinId, PeerGuid = TargetPin ? TargetPin->PinId : FGuid();
+			const FString OriginalDirection = PinDirectionToString(Pin->Direction);
+			if (!bDryRun && LinksMatched > 0 && !CanStartGraphTransaction(OutResponse)) return;
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "DisconnectPins", "Disconnect Blueprint pins"), !bDryRun && LinksMatched > 0);
 			int32 LinksBroken = 0;
 			if (!bDryRun && LinksMatched > 0)
 			{
+				Blueprint->Modify();
+				Graph->Modify();
+				Node->Modify();
+				for (UEdGraphPin* Peer : Pin->LinkedTo)
+					if (Peer && (!TargetPin || Peer == TargetPin)) Peer->GetOwningNode()->Modify();
 				if (TargetPin)
 				{
-					const int32 Before = Pin->LinkedTo.Num();
-					Pin->BreakLinkTo(TargetPin);
-					LinksBroken = FMath::Max(0, Before - Pin->LinkedTo.Num());
+					if (Schema) Schema->BreakSinglePinLink(Pin, TargetPin);
+					else Pin->BreakLinkTo(TargetPin);
+					const auto* Current = PinRef.Get();
+					LinksBroken = !Current || !PeerRef.Get() || !Current->LinkedTo.Contains(PeerRef.Get()) ? 1 : 0;
 				}
 				else
 				{
-					Pin->BreakAllPinLinks(true);
+					if (Schema) Schema->BreakPinLinks(*Pin, true);
+					else Pin->BreakAllPinLinks(true);
 					LinksBroken = LinksMatched;
 				}
-			}
-			// Both pin blocks describe the graph after the break (or after nothing, on a dry
-			// run), so their link counts agree.
-			if (TargetPin)
-			{
-				TargetPinJson = PinToJson(TargetPin);
 			}
 
 			bool bCompile = false;
@@ -3290,18 +3600,31 @@ namespace UEMCP
 				}
 			}
 
+			// Both the schema notification and the optional compile can reconstruct pins.
+			auto CurrentPinInfo = [](const FEdGraphPinReference& Ref, const FGuid& Id)
+			{
+				const UEdGraphPin* Current = Ref.Get();
+				auto Info = PinToJson(Current);
+				if (!Current)
+				{
+					Info->SetStringField(TEXT("pin_id"), Id.ToString());
+					Info->SetBoolField(TEXT("removed"), true);
+				}
+				return Info;
+			};
+			if (bHasTargetNode) TargetPinJson = CurrentPinInfo(PeerRef, PeerGuid);
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
 			Result->SetStringField(TEXT("node_id"), NodeId);
 			Result->SetStringField(TEXT("pin"), PinName);
-			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+			Result->SetStringField(TEXT("direction"), OriginalDirection);
 			Result->SetBoolField(TEXT("dry_run"), bDryRun);
 			Result->SetNumberField(TEXT("links_matched"), LinksMatched);
 			Result->SetNumberField(TEXT("links_broken"), LinksBroken);
 			Result->SetArrayField(TEXT("broken_links"), BrokenLinks);
 			Result->SetBoolField(TEXT("would_modify"), LinksMatched > 0);
 			Result->SetBoolField(TEXT("would_require_compile"), LinksMatched > 0);
-			Result->SetObjectField(TEXT("pin_info"), PinToJson(Pin));
+			Result->SetObjectField(TEXT("pin_info"), CurrentPinInfo(PinRef, PinGuid));
 			Result->SetBoolField(TEXT("requires_compile"), !bDryRun && LinksBroken > 0 && (!bCompile || !bCompiledOk));
 			Result->SetBoolField(TEXT("compiled"), !bDryRun && LinksBroken > 0 && bCompile);
 			if (TargetPinJson.IsValid())

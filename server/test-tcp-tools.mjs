@@ -81,7 +81,8 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_function_node', 'add_variable', 'add_function_graph',
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
     'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
-    'add_component_reference', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+    'add_anim_state_machine', 'add_anim_state', 'add_anim_transition',
+    'add_component_reference', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
     'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   ];
 
@@ -393,7 +394,7 @@ console.log('\n── Group 15: Blueprints-write Caching ──');
   callCount = 0;
   await executeBlueprintsWriteTool('show_pin_links', { blueprint_name: 'BP', node_id: 'A', pin: 'Then' }, cm);
   await executeBlueprintsWriteTool('show_pin_links', { blueprint_name: 'BP', node_id: 'A', pin: 'Then' }, cm);
-  t.assert(callCount === 1, 'show_pin_links (read op) is cached — second call skips TCP');
+  t.assert(callCount === 2, 'show_pin_links returns fresh pin identities after external edits');
 
   callCount = 0;
   await executeBlueprintsWriteTool('create_blueprint', { name: 'BP1' }, cm);

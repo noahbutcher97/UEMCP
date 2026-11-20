@@ -53,6 +53,7 @@ const BLUEPRINTS_WRITE_INTERNAL_WIRE_MAP = {
 };
 const BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES = {
   compile_and_save_blueprint: 15_000,
+  insert_anim_slot: 15_000,
 };
 
 /**
@@ -79,6 +80,12 @@ export function initBlueprintsWriteTools(toolsData) {
 // depth validation runs here so bad shapes never reach the wire (where
 // the plugin's TryReadVector3 silently zeros them on shape mismatch).
 
+const stateGraphTarget = {
+  asset_path: z.string().min(1),
+  graph_guid: z.string().min(1),
+  expected_revision: z.string().min(1),
+  node_position: z.array(z.number().int().min(-2147483648).max(2147483647)).length(2),
+};
 export const BLUEPRINTS_WRITE_SCHEMAS = {
 
   create_blueprint: {
@@ -375,14 +382,96 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  edit_anim_cached_pose: {
+    description: 'Create a Save or reference-bound Use Cached Pose, or rename a Save and its users. Compile and save explicitly.',
+    schema: {
+      asset_path: z.string().min(1),
+      graph_guid: z.string().min(1),
+      expected_revision: z.string().min(1),
+      operation: z.enum(['create_save', 'create_use', 'rename']),
+      cache_node_id: z.string().min(1).optional(),
+      cache_name: z.string().min(1).optional(),
+      node_position: z.array(z.number().int().min(-2147483648).max(2147483647)).length(2).optional(),
+    },
+    isReadOp: false,
+  },
+
+  add_anim_state_machine: {
+    description: 'Place a state machine and its entry in the top-level AnimGraph. Returns the machine graph GUID. Compile and save explicitly.',
+    schema: {
+      ...stateGraphTarget,
+      name: z.string().min(1),
+    },
+    isReadOp: false,
+  },
+
+  add_anim_state: {
+    description: 'Add a state with a looping sequence on the target Skeleton. An initial state connects only to an unoccupied entry.',
+    schema: {
+      ...stateGraphTarget,
+      name: z.string().min(1),
+      sequence_path: z.string().min(1),
+      initial: z.boolean(),
+    },
+    isReadOp: false,
+  },
+
+  add_anim_transition: {
+    description: 'Create a directed state transition and its identified rule graph using a numeric member comparison. Compile and save explicitly.',
+    schema: {
+      ...stateGraphTarget,
+      from_state_id: z.string().min(1),
+      to_state_id: z.string().min(1),
+      variable: z.string().min(1),
+      comparison: z.enum(['greater', 'less']),
+      threshold: z.number().finite(),
+      duration: z.number().finite().nonnegative(),
+    },
+    isReadOp: false,
+  },
+  insert_anim_slot: {
+    description: 'Preview or apply a named montage Slot on one current local-space pose edge. Saving is explicit.',
+    schema: {
+      asset_path: z.string().min(1),
+      graph_guid: z.string().min(1),
+      source_node_id: z.string().min(1),
+      source_pin_id: z.string().min(1),
+      target_node_id: z.string().min(1),
+      target_pin_id: z.string().min(1),
+      expected_revision: z.string().min(1),
+      slot_name: z.string().min(1),
+      mode: z.enum(['preview', 'apply']),
+      node_position: z.array(z.number().int().min(-2147483648).max(2147483647)).length(2).optional(),
+      compile: z.boolean().optional(),
+    },
+    isReadOp: false,
+  },
+
+  place_anim_graph_node: {
+    description: 'Place a supported contextual animation node with deferred compilation.',
+    schema: {
+      asset_path: z.string(),
+      graph_guid: z.string(),
+      action: z.string(),
+      alpha: z.number().min(0).max(1).optional().describe('Default blend weight before a driver is connected'),
+      node_position: z.array(z.number().int()).length(2),
+    },
+    isReadOp: false,
+  },
+
   connect_nodes: {
-    description: 'Connect two Blueprint graph nodes by pin',
+    description: 'Connect compatible Blueprint pins. Replace an occupied input only with the current topology revision and all three pin IDs.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       source_node_id: z.string().describe('Source node GUID string'),
       target_node_id: z.string().describe('Target node GUID string'),
       source_pin: z.string().describe('Pin name on source node'),
       target_pin: z.string().describe('Pin name on target node'),
+      source_pin_id: z.string().optional().describe('Expected source pin GUID'),
+      target_pin_id: z.string().optional().describe('Expected target pin GUID'),
+      replace_source_pin_id: z.string().optional().describe('Current upstream pin GUID to displace'),
+      expected_revision: z.string().optional().describe('topology_revision from show_pin_links or get_anim_graph'),
+      graph_guid: z.string().min(1).optional().describe('Stable graph identity, including nested animation state graphs'),
       graph_name: GraphNameOptional,
     },
     isReadOp: false,
@@ -410,6 +499,9 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       node_id: z.string().describe('Node GUID string'),
       pin: z.string().describe('Pin name on node'),
       direction: z.enum(['input', 'output']).optional().describe('Pin direction. Omit to search both directions.'),
+      pin_id: z.string().optional().describe('Require this current pin GUID'),
+      target_pin_id: z.string().optional().describe('Require this current target pin GUID for a specific link'),
+      expected_revision: z.string().optional().describe('Require the topology revision returned by the graph read'),
       target_node_id: z.string().optional().describe('Optional target node GUID for a specific link'),
       target_pin: z.string().optional().describe('Optional target pin name for a specific link'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional target pin direction. Omit to infer the opposite direction.'),
@@ -476,7 +568,7 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
   // Wire-type translation: tools.yaml name → C++ type string.
   const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;
 
-  const sendOpts = { skipCache: !def.isReadOp };
+  const sendOpts = { skipCache: !def.isReadOp || toolName === 'show_pin_links' };
   const timeoutOverride = BLUEPRINTS_WRITE_TIMEOUT_OVERRIDES[toolName];
   if (timeoutOverride !== undefined) {
     sendOpts.timeoutMs = timeoutOverride;
