@@ -108,7 +108,8 @@ const expectedTools = [
   'add_timer', 'add_math_node',
   'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   'add_self_reference', 'add_component_reference',
-  'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+  'add_anim_state_machine', 'add_anim_state', 'add_anim_transition',
+  'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
 ];
 
 t.assert(Object.keys(defs).length === expectedTools.length, `${expectedTools.length} blueprints-write tools defined`);
@@ -255,6 +256,12 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   fake.on('add_blueprint_math_node',                       { status: 'success', result: { node_id: 'GUID-MATH', graph_name: 'MoveStep', pins: [] } });
   fake.on('add_blueprint_self_reference',                  { status: 'success', result: { node_id: 'GUID-SF' } });
   fake.on('add_blueprint_get_self_component_reference',    { status: 'success', result: { node_id: 'GUID-CR' } });
+  fake.on('insert_anim_slot', { status: 'success', result: { applied: false } });
+  fake.on('edit_anim_cached_pose', { status: 'success', result: { node_id: 'GUID-CACHE', cache_node_id: 'GUID-SAVE' } });
+  fake.on('place_anim_graph_node', { status: 'success', result: { node_id: 'GUID-BLEND' } });
+  for (const tool of ['add_anim_state_machine', 'add_anim_state', 'add_anim_transition']) {
+    fake.on(tool, { status: 'success', result: { compiled: false } });
+  }
   fake.on('connect_blueprint_nodes',                       { status: 'success', result: { source_node_id: 'A', target_node_id: 'B' } });
   fake.on('show_blueprint_pin_links',                      { status: 'success', result: { node_id: 'A', pin: 'Then', link_count: 1, links: [] } });
   fake.on('disconnect_blueprint_pin',                      { status: 'success', result: { node_id: 'A', pin: 'Then', links_broken: 1 } });
@@ -286,7 +293,13 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
     ['add_math_node',           { blueprint_name: 'BP_X', operation: 'Add', value_type: 'Vector', graph_name: 'MoveStep' }, 'add_blueprint_math_node'],
     ['add_self_reference',      { blueprint_name: 'BP_X' },                                                            'add_blueprint_self_reference'],
     ['add_component_reference', { blueprint_name: 'BP_X', component_name: 'Mesh' },                                    'add_blueprint_get_self_component_reference'],
-    ['connect_nodes',           { blueprint_name: 'BP_X', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec' }, 'connect_blueprint_nodes'],
+    ['insert_anim_slot', { asset_path: '/Game/BP', graph_guid: 'g', source_node_id: 's', source_pin_id: 'p', target_node_id: 't', target_pin_id: 'q', expected_revision: 'rev', slot_name: 'DefaultSlot', mode: 'preview' }, 'insert_anim_slot'],
+    ['edit_anim_cached_pose', { asset_path: '/Game/BP', graph_guid: 'g', expected_revision: 'rev', operation: 'create_use', cache_node_id: 'GUID-SAVE', node_position: [100, 200] }, 'edit_anim_cached_pose'],
+    ['place_anim_graph_node', { asset_path: '/Game/Blend', graph_guid: 'G', action: '/Script/AnimGraph.AnimGraphNode_TwoWayBlend', node_position: [16, 32] }, 'place_anim_graph_node'],
+    ['add_anim_state_machine', { asset_path: '/Game/Blend', graph_guid: 'g', expected_revision: 'r', node_position: [0, 0], name: 'Move' }, 'add_anim_state_machine'],
+    ['add_anim_state', { asset_path: '/Game/Blend', graph_guid: 'm', expected_revision: 'r', node_position: [0, 0], name: 'Idle', sequence_path: '/Game/Idle', initial: true }, 'add_anim_state'],
+    ['add_anim_transition', { asset_path: '/Game/Blend', graph_guid: 'm', expected_revision: 'r', node_position: [0, 0], from_state_id: 'a', to_state_id: 'b', variable: 'Drive', comparison: 'greater', threshold: 0.5, duration: 0.2 }, 'add_anim_transition'],
+    ['connect_nodes',           { blueprint_name: 'BP_X', source_node_id: 'A', target_node_id: 'B', source_pin: 'Then', target_pin: 'Exec', graph_guid: 'NESTED-GRAPH', graph_name: 'StatePose' }, 'connect_blueprint_nodes'],
     ['show_pin_links',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'show_blueprint_pin_links'],
     ['disconnect_pin',          { blueprint_name: 'BP_X', node_id: 'A', pin: 'Then', direction: 'output' },           'disconnect_blueprint_pin'],
     ['delete_nodes',            { blueprint_name: 'BP_X', node_ids: ['A'] },                                           'delete_blueprint_nodes'],
@@ -791,7 +804,7 @@ console.log('\n── Group 6: Caching ──');
     { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
   await executeBlueprintsWriteTool('show_pin_links',
     { blueprint_name: 'BP', node_id: 'A', pin: 'Then', direction: 'output' }, cm);
-  t.assert(calls === 1, 'show_pin_links (read) caches — second call served from cache');
+  t.assert(calls === 2, 'show_pin_links reads current editor topology on both calls');
 
   // Write op: every call hits wire
   calls = 0;

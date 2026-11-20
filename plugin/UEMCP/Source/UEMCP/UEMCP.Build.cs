@@ -34,6 +34,7 @@ public class UEMCP : ModuleRules
 		{
 			"UnrealEd",
 			"MaterialEditor", // Typed graph authoring helpers
+			"AssetTools", // Writable-folder permissions for graph insertion
 			"RHI", // Current shader platform/feature level for compile diagnostics
 			"Slate",
 			"SlateCore",

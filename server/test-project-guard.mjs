@@ -122,6 +122,9 @@ async function expectRejectCode(fn, code, label) {
     );
     t.assert(result.isError === true, 'live read without editor identity returns isError');
     t.assert(result.structuredContent.code === 'EDITOR_IDENTITY_UNKNOWN', `live read code EDITOR_IDENTITY_UNKNOWN (got ${result.structuredContent.code})`);
+    const next = result.structuredContent.next;
+    t.assert(next?.tool === 'connection_info' && next.arguments?.force_reconnect === true,
+      'the first blocked live read identifies the editor verification call');
   } finally {
     cleanup(root);
   }

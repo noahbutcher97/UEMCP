@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude when working with code in this repository.
 
+Before making capability claims or recommending roadmap work, follow the
+[question-based documentation routes](docs/README.md#find-information-by-question).
+Reconcile tool definitions, capability limits and backlog status during discussion
+as well as implementation; this overview is not a substitute for those sources.
+
 ## Project Overview
 
 **UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (**Project A** — primary/combat-game target — and **Project B** — secondary); tool itself is project-agnostic.
@@ -413,6 +418,8 @@ Five hygiene fixes shipped together:
 Three opt-in env flags (`UEMCP_RC_RECYCLE_AFTER_N`, `UEMCP_RC_RATE_CAP`, `UEMCP_RC_RELAUNCH_HINT_AFTER_N`) shipped against the then-presumed sustained-traffic NEW-2 hypothesis. Hypothesis was falsified by D125+D131. **Not recommended for general use post-fix**. `RELAUNCH_HINT_AFTER_N=15` retains marginal value as a session-length signal; the other two change connection-level shape with zero crash-prevention benefit. Implementation kept in case a future n=4+ reproduction surfaces a different connection-state corruption.
 
 ## Testing
+
+Exercise user-facing changes through a real provider client using the [agent workflow usability protocol](docs/agent-workflow-usability.md). Record the user task, friction and independent editor result. Use the nearest real caller for internal changes that affect a user workflow.
 
 Test cases defined in `docs/plans/testing-strategy.md` (Tests 1-43). **7838 unit-runnable assertions project-less (higher with a real `UNREAL_PROJECT_ROOT`; see Fixture-project default) across 81 rotation test files** (D-log tracks per-milestone deltas; do not duplicate the cadence list here). `test-m1-ping` is live-editor-gated and excluded from rotation count.
 

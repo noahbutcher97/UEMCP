@@ -293,6 +293,7 @@ export const MENHANCE_SCHEMAS = {
       asset_path: z.string().describe('/Game/... UAnimBlueprint path'),
       include_transitions: z.boolean().optional().describe('Include transition metadata and rule/custom graph names; default true in the plugin'),
       include_node_properties: z.boolean().optional().describe('Include per-graph node summaries; default false'),
+      include_actions: z.boolean().optional().describe('List supported placement actions for each graph'),
       include_pin_topology: z.boolean().optional().describe('Include full UEdGraph node/pin/LinkedTo visual topology; default false'),
       include_pin_defaults: z.boolean().optional().describe('Include safe UEdGraphPin default fields; requires include_pin_topology=true'),
     },
@@ -750,11 +751,16 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
     return waitForPIEActorStable(validated, connectionManager);
   }
 
+  // Undo and edits made in the asset editor can change pin identities between identical reads.
+  const skipCache = !def.isReadOp ||
+    (toolName === 'get_anim_graph' && (validated.include_pin_topology || validated.include_actions)) ||
+    (toolName === 'get_material_graph' && validated.representation === 'source');
+
   // PARTIAL-RC path: internal substrate + client transform.
   if (def.partialRc) {
     const { tcpWireType, transform } = def.partialRc;
     const raw = await connectionManager.send(
-      'tcp-55558', tcpWireType, validated, { skipCache: !def.isReadOp || (toolName === 'get_material_graph' && validated.representation === 'source') },
+      'tcp-55558', tcpWireType, validated, { skipCache },
     );
     const transformFn = TRANSFORMS[transform] || TRANSFORMS.identity;
     return transformFn(raw);
@@ -762,7 +768,7 @@ export async function executeMenhanceTool(toolName, args, connectionManager) {
 
   // FULL-TCP path: wire_type translation + direct dispatch.
   const wireType = MENHANCE_WIRE_MAP[toolName] || toolName;
-  return connectionManager.send('tcp-55558', wireType, validated, { skipCache: !def.isReadOp || (toolName === 'get_material_graph' && validated.representation === 'source') });
+  return connectionManager.send('tcp-55558', wireType, validated, { skipCache });
 }
 
 /** Export tool-def shape for server.mjs registration. */

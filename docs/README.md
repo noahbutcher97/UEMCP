@@ -4,7 +4,9 @@
 **Working conventions and implementation overview**: [CLAUDE.md](../CLAUDE.md)
 **Current triage and proof boundaries**: [backlog.md](tracking/backlog.md)
 **Roadmap work units and available paths**: [work-unit map](../tasks/plan.md)
-**Scoped animation authoring**: [U5 Slot insertion](plans/u5-animation-authoring.md)
+**Animation authoring priority**: [U5 program](plans/animation-authoring-program.md)
+**Animation research and execution modes**: [ad hoc editing, recipes and offline support](plans/animation-authoring-execution.md)
+**Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
@@ -35,13 +37,40 @@ docs/
 4. `../tools.yaml` — tool definitions (single source of truth per D44)
 5. `tracking/risks-and-decisions.md` — historical decisions (load-bearing context)
 
-**Quick reference during work**:
-- [Locate an owned fixture host by engine](fixture-host.md#locate-an-owned-host-by-engine) for native and live tests.
-- `tools.yaml` for tool lookup
-- `tracking/backlog.md` for current triage, retained reports and completion links
-- `../tasks/plan.md` for work-unit grouping, dependencies and selectable paths
-- `../tasks/todo.md` for bounded starting slices and verification gates
-- `tracking/risks-and-decisions.md` for decision rationale
+## Find information by question
+
+Use the relevant route before answering capability questions or proposing work,
+including during planning conversations. Read only the sources needed for the
+question; this is not a requirement to audit the whole repository each time.
+
+| Question | Start here | Follow through when needed |
+|---|---|---|
+| Where is the UEMCP-owned test project for a particular engine? | [Locate an owned fixture host](fixture-host.md#locate-an-owned-host-by-engine) | Check the workstation inventory and the host manifest for its engine, source revision and file hashes before choosing a build target. |
+| Is a capability shipped, and what are its limits? | [Tool definitions](../tools.yaml), then the relevant [capability contract](#specs--system-design) | Check [backlog](tracking/backlog.md) qualification gaps and completion links. Inspect the registered server tool and native handler if the contract does not settle the question. A shipped tool name does not imply unrestricted editing. |
+| What should we work on next? | [Backlog](tracking/backlog.md) for status, [work units](../tasks/plan.md) for grouping, [starting slices](../tasks/todo.md) for bounded candidates | Check the relevant contract and existing implementation before proposing a new capability or abstraction. Planning choices are not evidence that work is shipped or missing. |
+| Where is a tool implemented, and can we reuse it? | [Tool definitions](../tools.yaml) and [dynamic toolsets](specs/dynamic-toolsets.md) | Search the tool name in `server/` and its wire command in `plugin/UEMCP/Source/`; follow registration, handler and focused tests. See [working conventions](../CLAUDE.md) before changing code. |
+| What has actually been verified? | The capability contract's verification section and [backlog evidence](tracking/backlog.md) | Follow linked tests, PRs and receipts; check revision, engine, platform and whether evidence is mocked, native, live, persisted or rendered. Source inspection and a passing test on an older build do not establish current runtime behavior. |
+| How do attachment, transport, deployment and client support work? | [Architecture](specs/architecture.md), [configuration](specs/configuration.md), [deployment contract](specs/deployment-machine-interface.md), [client support](specs/client-adapters.md) | Use the [root setup guide](../README.md) for commands. Recheck the actual target/deployment when answering a project-specific question. |
+| Why was a decision made, or should we revisit peer research? | [Decision history](tracking/risks-and-decisions.md), [research freshness and ecosystem policy](tracking/ecosystem-watch.md) | Follow the underlying source or receipt and check for superseding decisions. Historical research and worker reports are pointers, not current implementation proof. |
+| Can a person complete the workflow through an agent CLI? | [Agent workflow usability protocol](agent-workflow-usability.md) | Exercise a plain-language task and verify the editor result independently. |
+| How should tests or fixtures change? | [Testing guidance](../AGENTS.md#testing-guidelines), [test hygiene](specs/test-hygiene.md), [test retirement](test-retirement.md) | Use the relevant owned-host workflow and existing tests; distinguish fixture/test changes from verified product behavior. |
+
+In an answer or recommendation, name the relevant sources and distinguish shipped
+behavior, shipped limitations, planned work and unverified claims. If documentation
+and code disagree, state the discrepancy and inspect the narrow implementation or
+evidence needed to resolve it; do not silently select the more convenient account.
+
+For example, material graph support requires both the tool entries and the
+[material-function contract](specs/material-function-authoring.md); material
+parameter editing has a [separate contract](specs/material-parameter-tools.md).
+Animation authoring's [program](plans/animation-authoring-program.md) describes
+target scope, not a list of already callable tools.
+
+When a capability or its status changes, update its existing contract and backlog
+entry, and add or repair the route here if needed. Keep capability details in their
+own contracts rather than copying them into agent instructions or another status
+inventory. Session-local research may be absent on another machine; durable
+public conclusions should remain discoverable through tracked documentation.
 
 **Historical phase-planning context**:
 - See `tracking/risks-and-decisions.md` D58/D77/D87 for historical Phase 3 sequencing; session-local research and handoffs (in `research/`, `handoffs/`) are not tracked.
@@ -58,12 +87,14 @@ docs/
 | File | Covers |
 |---|---|
 | [material-function-authoring.md](specs/material-function-authoring.md) | Typed scalar function graphs, revisions, Undo and host verification |
+| [material-parameter-tools.md](specs/material-parameter-tools.md) | Material parameter identity, values and mutation behavior; separate from expression graph authoring |
 | [architecture.md](specs/architecture.md) | Current transport architecture, auto-detection chain, caching |
 | [plugin-design.md](specs/plugin-design.md) | Custom C++ plugin design, TCP protocol, command routing |
 | [dynamic-toolsets.md](specs/dynamic-toolsets.md) | Always-loaded tools, ToolIndex scoring, alias expansion |
 | [tool-surface.md](specs/tool-surface.md) | Tool count summary, toolset registry |
 | [blueprint-introspection.md](specs/blueprint-introspection.md) | Graph serialization design, visual capture |
 | [configuration.md](specs/configuration.md) | `.mcp.json` config, env vars, ConnectionManager |
+| [test-hygiene.md](specs/test-hygiene.md) | Fixture metadata isolation, shell selection and hook regression checks |
 | [deployment-machine-interface.md](specs/deployment-machine-interface.md) | Transactional deployment CLI, plan/apply contract, receipts, and outcomes |
 | [client-adapters.md](specs/client-adapters.md) | Claude, Codex, Gemini, and VS Code support gates and proof boundaries |
 | [conformance-oracle-contracts.md](specs/conformance-oracle-contracts.md) | Archival Phase 2 conformance reference; not a current setup or runtime guide |
@@ -73,6 +104,9 @@ docs/
 ### plans/ — implementation
 | File | Covers |
 |---|---|
+| [animation-authoring-program.md](plans/animation-authoring-program.md) | Proposed animation capability scope and delivery boundaries |
+| [animation-authoring-execution.md](plans/animation-authoring-execution.md) | Source research and proposed ad hoc, recipe, live and headless workflows |
+| [u5-animation-authoring.md](plans/u5-animation-authoring.md) | Montage Slot insertion contract and qualification workflow |
 | [implementation.md](plans/implementation.md) | 6-phase build sequence |
 | [testing-strategy.md](plans/testing-strategy.md) | Phase-by-phase test cases (Tests 1-43+) |
 

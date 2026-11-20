@@ -11,8 +11,8 @@ already shipped capabilities. Each row is a starting slice, not the entire unit.
 | [x] U2a: stop/next-operation lifecycle (QA-1, F-14) | Verified identity, actor edits/readback and two ordinary PIE cycles per engine on UE 5.3.2, 5.6.1 and 5.8.4 Win64. All six first MCP queries after stop saw zero worlds, and all six following editor edits succeeded. | [Owned host results](../docs/owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |
 | [ ] U3a: capture confinement (EN-28) | Reproduce both screenshot/preview paths; reject invalid output locations and inspect valid rendered output. | None; capture handlers and focused tests. |
 | [ ] U4a: shipped AnimGraph read qualification | Owned AnimBP oracle agrees with properties, topology and defaults; document actual missing fields without treating existing tools as absent. | None; animation fixture, runner and read handler only if a defect is found. |
-| [x] U5a: scope the first AnimGraph edit | [Slot-insertion contract](../docs/plans/u5-animation-authoring.md) records identity, schema, failure, Undo and persistence requirements with engine-source findings. Runtime feasibility and upstream equivalence remain implementation gates. | Scoping complete; implementation not started. |
-| [ ] U5.1-U5.3: deliver the scoped Slot edit | Follow fixture/preflight, mutation and MCP lifecycle gates in the U5 contract; do not expose unfinished authoring. | U5a; upstream-equivalence check, then serial owned-host verification. |
+| [x] U5a: scope the first AnimGraph edit | [Slot insertion](../docs/plans/u5-animation-authoring.md) defines the identity, schema, Undo and persistence requirements. | Scoping complete. |
+| [x] U5.1–U5.3: insert an existing montage Slot | The [owned workflow](../server/fixtures/interactive-animbp/README.md#montage-slot-run) covers conditional edge replacement, Undo/Redo, compile diagnostics, explicit save/reload and evaluated playback. | Implemented on the interactive task branch. |
 | [ ] U6a: define one vector material workflow (EN-32) | Enumerate minimum typed inputs/nodes and expected compiled graph; specify independent oracle and lifecycle tests before implementation. | Workflow selection; material authoring contract. |
 | [ ] U7a: registry query reproduction (EN-8 P6) | Known corpus demonstrates filter/alias/output bounds and truncation; split unknown-parameter rejection into U1 if reproduced. | None; registry tools and fixtures. |
 | [ ] U8a: select one gameplay asset mutation (EN-30) | Define asset type, validation, write/readback, dirty/save, Undo and restart contract; identify an owned fixture. | Concrete authoring workflow; asset/GAS design. |
@@ -20,6 +20,31 @@ already shipped capabilities. Each row is a starting slice, not the entire unit.
 | [ ] U10a: support and desktop acceptance scope | Record intended supported combinations and one owned desktop-client/editor acceptance script, with separate transport/UI/rendered checks. | None for scope; native slot for execution; support/test docs. |
 | [ ] U11a: performance/fidelity decision brief, when triggered | Identify a user-visible problem, existing measurements and minimum missing experiment; explicitly defer redesign if no need is established. | Measured need; profiling/design docs. |
 | [ ] U12a: establish audit baseline | Apply AUD-1 organization reconciliation and capture upstream revisions/activity for the initial AUD-3 watchlist; refresh U5 decision-driving research under AUD-2. Record bounded actions or no relevant change. | [Audit policy](../docs/tracking/ecosystem-watch.md); initial discovery exists, full audit pending. |
+
+## Current selection gate (2026-11-19)
+
+Selected order after triage review: close the documentation checkpoint, then
+**U1a / BUG-3**, then the bounded **U2a / QA-1 and F-14** lifecycle check, then
+**U5 interactive AnimBP editing with its U4 readback oracle**. These are separate
+slices, not one large implementation change. Reproduce failures before fixing
+them; qualification gaps are not automatically confirmed defects. General
+fixture recovery and a universal graph framework are not prerequisites.
+
+- [x] Scope the [interactive AnimBP experiment and first regression](../docs/plans/animbp-interactive-authoring.md):
+  ad hoc node placement and wiring in both AnimGraph and Event Graph, incremental
+  compile feedback, Undo and persistence; deliver live qualification first and
+  follow with headless replay of the supported operations.
+  Recipes supplement these operations rather than gating access to them.
+
+- [ ] Inventory existing support across the [animation program](../docs/plans/animation-authoring-program.md),
+  covering AnimBPs, sequences, montages, timelines, supporting assets, rigs and
+  authoring feedback; distinguish missing tools from unverified existing tools.
+- [x] Qualify the first Event Graph–driven blend and the existing-Slot workflow.
+  The fixture seeds the sequence players.
+- [x] Qualify sequence-backed states, directed numeric transition rules and shared
+  cached poses through MCP, independent graph readback and fresh-editor motion sampling
+  on UE 5.3.2, 5.6.1 and 5.8.4. Additional rule expressions and masked montage
+  playback remain open.
 
 ## Checkpoint for every selected slice
 

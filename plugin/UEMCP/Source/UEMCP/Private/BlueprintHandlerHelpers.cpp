@@ -1,12 +1,88 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlerHelpers.h"
+#include "CachePoseAuthoring.h"
 
 #include "EdGraphSchema_K2.h"
+#include "AnimGraphNode_Slot.h"
+#include "AnimGraphNode_CustomProperty.h"
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
+#include "HAL/FileManager.h"
+#include "Misc/PackageName.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/Skeleton.h"
+#include "EdGraph/EdGraph.h"
+#include "Misc/SecureHash.h"
 #include "K2Node_Event.h"
 #include "UObject/UnrealType.h"
 
 namespace UEMCP
 {
+	bool IsWritableAnimPackage(const UPackage* Package)
+	{
+		FString Filename;
+		return !Package->HasAnyPackageFlags(PKG_Cooked | PKG_FilterEditorOnly) &&
+			FPackageName::IsValidLongPackageName(Package->GetName(), false) &&
+			FAssetToolsModule::GetModule().Get().AllPassWritableFolderFilter({FPackageName::GetLongPackagePath(Package->GetName())}) &&
+			(!FPackageName::DoesPackageExist(Package->GetName(), &Filename) || !IFileManager::Get().IsReadOnly(*Filename));
+	}
+
+	bool HasConnectionBinding(const UEdGraphPin* Pin)
+	{
+		const auto* Node = Cast<UAnimGraphNode_Base>(Pin->GetOwningNode());
+		if (!Node) return false;
+		// The schema clears the unnumbered property. Linked nodes also clear a generated key.
+		const auto* Custom = Cast<UAnimGraphNode_CustomProperty>(Node);
+		const FName Generated = Custom ? FName(*Custom->GetPinTargetVariableName(Pin)) : NAME_None;
+		const FName Name(Pin->PinName, 0);
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION <= 3
+		for (const auto& Binding : Node->PropertyBindings)
+			if (FName(Binding.Key, 0) == Name || (Custom && Binding.Key == Generated)) return true;
+		return false;
+#else
+		return Node->UAnimGraphNode_Base::HasBinding(Name) || (Custom && Node->HasBinding(Generated));
+#endif
+	}
+
+	FString GraphTopologyRevision(const UEdGraph* Graph)
+	{
+		TArray<FString> Rows;
+		Rows.Add(Graph->GraphGuid.ToString());
+		const auto* Blueprint = Cast<UAnimBlueprint>(Graph->GetOuter());
+		if (Blueprint && Blueprint->TargetSkeleton)
+		{
+			Rows.Add(Blueprint->TargetSkeleton->GetPathName());
+			for (const auto& Group : Blueprint->TargetSkeleton->GetSlotGroups())
+				for (FName Slot : Group.SlotNames)
+					Rows.Add(TEXT("slot|") + Group.GroupName.ToString() + TEXT("|") + Slot.ToString());
+		}
+		for (const UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (!Node) continue;
+			const FString NodeId = Node->NodeGuid.ToString();
+			Rows.Add(NodeId);
+			const FString CacheState = CachedPoseRevision(Node);
+			if (!CacheState.IsEmpty()) Rows.Add(NodeId + TEXT("|") + CacheState);
+			if (const auto* Slot = Cast<UAnimGraphNode_Slot>(Node))
+				Rows.Add(NodeId + TEXT("|slot|") + Slot->Node.SlotName.ToString());
+			for (const UEdGraphPin* Pin : Node->Pins)
+			{
+				if (!Pin) continue;
+				const FString Endpoint = NodeId + Pin->PinId.ToString();
+				Rows.Add(Endpoint);
+				if (HasConnectionBinding(Pin)) Rows.Add(Endpoint + TEXT("|bound"));
+				for (const UEdGraphPin* Peer : Pin->LinkedTo)
+				{
+					if (Peer) Rows.Add(Endpoint + Peer->PinId.ToString());
+				}
+			}
+		}
+		Rows.Sort();
+		const FString State = FString::Join(Rows, TEXT("\n"));
+		const FTCHARToUTF8 Encoded(*State);
+		return FMD5::HashBytes(reinterpret_cast<const uint8*>(Encoded.Get()), Encoded.Length());
+	}
+
 	FString PinDirectionToString(EEdGraphPinDirection Direction)
 	{
 		return Direction == EGPD_Input ? TEXT("input") : TEXT("output");

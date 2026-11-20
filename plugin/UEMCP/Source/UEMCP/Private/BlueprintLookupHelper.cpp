@@ -22,7 +22,7 @@ namespace UEMCP
 			AR.GetAssetsByPackageName(FName(*PackagePath), Assets);
 			for (const FAssetData& Asset : Assets)
 			{
-				if (Asset.AssetClassPath == UBlueprint::StaticClass()->GetClassPathName())
+				if (Asset.IsInstanceOf<UBlueprint>())
 				{
 					return true;
 				}

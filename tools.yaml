@@ -756,16 +756,99 @@ toolsets:
           component_name: { type: string, required: true, description: "Component variable name" }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:  { type: array, required: false, description: "[x, y] graph position, default [0,0]" }
+      edit_anim_cached_pose:
+        status: shipped
+        wire_type: edit_anim_cached_pose
+        mutates_asset: true
+        description: "Create top-level Save/Use Cached Pose by stable Save node GUID, or rename a Save and its bound users. Revision guarded; compilation and persistence are explicit."
+        params:
+          asset_path: { type: string, required: true, description: "Animation Blueprint package or object path" }
+          graph_guid: { type: string, required: true, description: "Top-level AnimGraph GUID" }
+          expected_revision: { type: string, required: true, description: "Current graph topology revision" }
+          operation: { type: string, required: true, description: "create_save, create_use, or rename" }
+          cache_node_id: { type: string, required: false, description: "Current Save node GUID, required for create_use and rename" }
+          cache_name: { type: string, required: false, description: "Unique cache name, required for create_save and rename" }
+          node_position: { type: array, required: false, description: "Integer graph coordinates [x,y] for creation" }
+      add_anim_state_machine:
+        mutates_asset: true
+        wire_type: add_anim_state_machine
+        description: "Place a state machine and its entry in the top-level AnimGraph. Returns the machine graph GUID. Compile and save explicitly."
+        params:
+          asset_path: { type: string, required: true, description: "Concrete Animation Blueprint package path" }
+          graph_guid: { type: string, required: true, description: "Current target graph GUID from get_anim_graph" }
+          expected_revision: { type: string, required: true, description: "Current target graph topology revision" }
+          node_position: { type: array, required: true, description: "Integer graph coordinates [x, y]" }
+          name: { type: string, required: true, description: "Unique machine name" }
+      add_anim_state:
+        mutates_asset: true
+        wire_type: add_anim_state
+        description: "Add a state with a looping sequence on the target Skeleton. An initial state connects only to an unoccupied entry."
+        params:
+          asset_path: { type: string, required: true, description: "Concrete Animation Blueprint package path" }
+          graph_guid: { type: string, required: true, description: "Current target graph GUID from get_anim_graph" }
+          expected_revision: { type: string, required: true, description: "Current target graph topology revision" }
+          node_position: { type: array, required: true, description: "Integer graph coordinates [x, y]" }
+          name: { type: string, required: true, description: "State name unique in this machine" }
+          sequence_path: { type: string, required: true, description: "Existing Animation Sequence on the same Skeleton" }
+          initial: { type: boolean, required: true, description: "Connect the machine entry to this state" }
+      add_anim_transition:
+        mutates_asset: true
+        wire_type: add_anim_transition
+        description: "Create a directed state transition and its identified rule graph using a numeric member comparison. Compile and save explicitly."
+        params:
+          asset_path: { type: string, required: true, description: "Concrete Animation Blueprint package path" }
+          graph_guid: { type: string, required: true, description: "Current target graph GUID from get_anim_graph" }
+          expected_revision: { type: string, required: true, description: "Current target graph topology revision" }
+          node_position: { type: array, required: true, description: "Integer graph coordinates [x, y]" }
+          from_state_id: { type: string, required: true, description: "Previous state node GUID in this machine" }
+          to_state_id: { type: string, required: true, description: "Next state node GUID in this machine" }
+          variable: { type: string, required: true, description: "Existing float or double member of this Animation Blueprint" }
+          comparison: { type: string, required: true, description: "Strict greater or less comparison" }
+          threshold: { type: number, required: true, description: "Finite comparison threshold" }
+          duration: { type: number, required: true, description: "Nonnegative crossfade duration in seconds" }
+      insert_anim_slot:
+        status: shipped
+        wire_type: insert_anim_slot
+        mutates_asset: true
+        description: "Preview or apply insertion of an existing Skeleton Slot into one direct local-space pose edge of a writable top-level AnimGraph. Apply validates current identities, replaces the edge in one transaction, and optionally compiles. Inspect outcome and compilation diagnostics before saving the named asset explicitly."
+        params:
+          asset_path: { type: string, required: true, description: "Animation Blueprint package or object path" }
+          graph_guid: { type: string, required: true, description: "Top-level AnimGraph GUID" }
+          source_node_id: { type: string, required: true, description: "Current upstream node GUID" }
+          source_pin_id: { type: string, required: true, description: "Current upstream pose output pin ID" }
+          target_node_id: { type: string, required: true, description: "Current downstream node GUID" }
+          target_pin_id: { type: string, required: true, description: "Current downstream pose input pin ID" }
+          expected_revision: { type: string, required: true, description: "Current topology_revision from get_anim_graph" }
+          slot_name: { type: string, required: true, description: "Existing Skeleton slot name" }
+          mode: { type: string, required: true, description: "preview or apply" }
+          node_position: { type: array, required: false, description: "Integer [x, y], defaults to edge midpoint" }
+          compile: { type: boolean, required: false, description: "Compile on apply and return diagnostics. Default false." }
+      place_anim_graph_node:
+        status: shipped
+        wire_type: place_anim_graph_node
+        mutates_asset: true
+        description: "Place a contextual two-way blend in the top-level AnimGraph with float alpha. Compile explicitly."
+        params:
+          asset_path: { type: string, required: true, description: "Animation Blueprint package path" }
+          graph_guid: { type: string, required: true, description: "Graph identity from get_anim_graph" }
+          action: { type: string, required: true, description: "Contextual action from get_anim_graph include_actions" }
+          alpha: { type: number, required: false, description: "Default float blend weight in [0, 1]." }
+          node_position: { type: array, required: true, description: "Graph coordinates [x, y]" }
       connect_nodes:
         mutates_asset: true
         wire_type: connect_blueprint_nodes
-        description: Connect two Blueprint graph nodes by pin after K2 schema compatibility validation. INCOMPATIBLE_PINS errors include both pin types.
+        description: Connect two compatible Blueprint pins in one undoable edit. Reads validate optional pin identities. Approve an occupied input with all three pin IDs and the current topology revision. Returns the prior target pin, displaced source pin ID, and resulting pins. Compilation is deferred.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           source_node_id: { type: string, required: true, description: "Source node GUID string" }
           target_node_id: { type: string, required: true, description: "Target node GUID string" }
           source_pin:     { type: string, required: true, description: "Pin name on source node" }
           target_pin:     { type: string, required: true, description: "Pin name on target node" }
+          source_pin_id: { type: string, required: false, description: "Expected source pin GUID. Required for replacement." }
+          target_pin_id: { type: string, required: false, description: "Expected target pin GUID. Required for replacement." }
+          replace_source_pin_id: { type: string, required: false, description: "Approve displacement of this upstream pin only." }
+          expected_revision: { type: string, required: false, description: "Observed graph topology_revision. Required for replacement." }
+          graph_guid: { type: string, required: false, description: "Stable target graph GUID; supports nested animation state graphs" }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
       show_pin_links:
         status: shipped
@@ -807,6 +890,9 @@ toolsets:
           node_id:           { type: string, required: true, description: "Node GUID string" }
           pin:               { type: string, required: true, description: "Pin name on node" }
           direction:         { type: string, required: false, description: "One of: input, output. Omit to search both directions." }
+          pin_id:            { type: string, required: false, description: "Require this current pin GUID" }
+          target_pin_id:     { type: string, required: false, description: "Require this target pin GUID for a specific link" }
+          expected_revision: { type: string, required: false, description: "Require the graph topology revision from readback" }
           target_node_id:    { type: string, required: false, description: "Optional target node GUID for a specific link" }
           target_pin:        { type: string, required: false, description: "Optional target pin name for a specific link" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
@@ -1175,6 +1261,7 @@ toolsets:
           asset_path: { type: string, required: true, description: "/Game/... path to a UAnimBlueprint asset" }
           include_transitions: { type: boolean, required: false, description: "Include transition metadata and rule/custom graph names; default true in the plugin." }
           include_node_properties: { type: boolean, required: false, description: "Include per-graph node summaries; default false." }
+          include_actions: { type: boolean, required: false, description: "List supported placement actions in each graph context." }
           include_pin_topology: { type: boolean, required: false, description: "Include full UEdGraph node/pin/linked_to visual topology with graph-scoped link endpoints; default false." }
           include_pin_defaults: { type: boolean, required: false, description: "Include safe UEdGraphPin default fields; requires include_pin_topology=true." }
       # reduced_scope: runtime interpolation evaluation; sample points + blend axes shipped offline

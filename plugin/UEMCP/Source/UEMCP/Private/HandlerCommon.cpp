@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "HandlerCommon.h"
+#include "MCPResponseBuilder.h"
 
 #include "Editor.h"
 #include "Engine/Blueprint.h"
@@ -11,6 +12,13 @@
 
 namespace UEMCP
 {
+	bool CanStartGraphTransaction(TSharedPtr<FJsonObject>& Response)
+	{
+		if (GEditor && !GEditor->IsTransactionActive()) return true;
+		BuildErrorResponse(Response, TEXT("Finish the active editor transaction before editing the graph"), TEXT("TRANSACTION_ACTIVE"));
+		return false;
+	}
+
 	UWorld* GetEditorWorld()
 	{
 		if (GEditor)

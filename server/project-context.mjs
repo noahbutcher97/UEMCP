@@ -197,6 +197,9 @@ export class ProjectContext {
           'Editor project identity has not been verified for the attached project.',
           {
             editorIdentityState: this.editorIdentityState,
+            ...(this.editorIdentityState === 'not_checked' && {
+              next: { tool: 'connection_info', arguments: { force_reconnect: true } },
+            }),
             projectContext: this.snapshot(),
           },
         ),

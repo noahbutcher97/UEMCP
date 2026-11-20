@@ -40,6 +40,13 @@ are enabled, exposed in a session, or equivalent to U5's proposed Slot edit.
 
 ## Evidence to capture for each useful finding
 
+The [2026-11-19 animation source review](../plans/animation-authoring-execution.md)
+pins db-lyon/ue-mcp and UECortex revisions and inspects graph, sequence and
+montage handlers plus selected peer test source. It recommends granular editing
+alongside recipes, qualified shared live/headless operations, and explicit
+compile/partial-save results. Peer runtime behavior, full CI and source-reuse
+licenses remain unverified; this does not complete the broader U12 baseline.
+
 Capture the repository/source URL; checked date; exact commit/release and engine
 version where available; license if considering reuse; relevant handler and
 tests; advertised versus source-inspected versus executed behavior; user benefit;

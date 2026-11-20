@@ -48,6 +48,9 @@ namespace UEMCP
 	 */
 	UWorld* GetEditorWorld();
 
+	/** Reject nesting a cancellable edit inside an editor gesture. */
+	bool CanStartGraphTransaction(TSharedPtr<FJsonObject>& Response);
+
 	/**
 	 * Resolve `/Game/Path/BP_Name` (or doubled object-path) → UBlueprint*.
 	 * Returns nullptr if the path doesn't load or doesn't resolve to a

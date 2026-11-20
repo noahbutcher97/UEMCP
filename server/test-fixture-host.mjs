@@ -20,6 +20,12 @@ let counter = 0;
 const options = () => ({ repoRoot, engineRoot, outputRoot: join(scratch, `stage-${counter++}`), sourceIdentityImpl: () => ({ digest: sourceDigest }) });
 async function check(name, fn) { try { await fn(); t.assert(true, name); } catch (error) { t.assert(false, name, error.stack); } }
 try {
+  await check('reviewed allowlist covers the tracked fixture and plugin sources', () => {
+    const root = join(import.meta.dirname, '..');
+    const tracked = execFileSync('git', ['-C', root, 'ls-files', '-z', '--', 'plugin/UEMCP', 'server/fixtures/uemcp-fixture'], { encoding: 'utf8' });
+    const allowlist = JSON.parse(readFileSync(join(root, 'server/fixtures/host-source-files.json'), 'utf8'));
+    assert.deepEqual([...allowlist.files].sort(), tracked.split('\0').filter(Boolean).sort());
+  });
   put(join(repoRoot, host), '{}');
   put(join(repoRoot, config), readFileSync(new URL('./fixtures/uemcp-fixture/Config/DefaultEngine.ini', import.meta.url)));
   put(join(repoRoot, resource), Buffer.from([0, 13, 10, 255]));

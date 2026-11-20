@@ -1,8 +1,21 @@
 # U5: bounded AnimGraph authoring
 
-Status: proposed first implementation slice, scoped 2026-11-07. No authoring
-tool has been implemented or live-qualified by this scoping pass.
-Parent: [roadmap U5](../../tasks/plan.md). Existing readback remains shipped.
+The November 7 proposal below defines the acceptance criteria. On the interactive
+authoring branch, `insert_anim_slot` implements preview and apply for an
+existing named Skeleton Slot in the top-level AnimGraph.
+Parent: [full animation authoring program](animation-authoring-program.md).
+This document covers only Slot insertion; its exclusions do not restrict the
+program's sequence, montage, rig or other AnimBP authoring scope. Existing
+readback remains shipped.
+
+## Priority and broader authoring scope
+
+Animation Blueprint authoring is the leading U5 feature priority. The interactive
+branch delivers named Slot insertion, the Event Graph–driven blend, sequence-backed
+states with directed numeric transition rules, and shared cached poses. Remaining
+work includes additional transition expressions and layered bone masks. The
+[interactive fixture](../../server/fixtures/interactive-animbp/README.md) describes
+the implemented workflows.
 
 ## User outcome
 
@@ -22,10 +35,19 @@ reroute nodes, bound pins and component-space conversions in this slice.
 The selected slot must already exist on the Skeleton; use FName-compatible
 comparison. Creating slots/groups or changing the Skeleton is separate scope.
 
-## Proposed tool contract
+## Caller contract
 
-Working name: `insert_anim_slot`. Final naming follows `tools.yaml` conventions;
-do not advertise a tool until its implementation and qualification land.
+Read `get_anim_graph` with `include_pin_topology=true`. Pass `asset_path`,
+`graph_guid`, `source_node_id`, `source_pin_id`, `target_node_id`,
+`target_pin_id`, `expected_revision` and `slot_name` to `insert_anim_slot`.
+Use `mode=preview` to see the removed edge and the proposed connections.
+The proposed endpoints `$slot.Source` and `$slot.Pose` refer to the new node.
+Use `mode=apply` with the same revision. The result contains the actual pin
+IDs and `node_id`. Optional `node_position` overrides the midpoint. With
+`compile=true`, inspect `outcome` and the nested `compilation` diagnostics.
+`applied_compile_failed` leaves the edit available for Undo and repair.
+With compilation deferred, the outcome is `applied_compile_deferred`.
+Compilation uses Unreal's SkipSave option. Save explicitly with `save_asset`. [Owned fixture and commands](../../server/fixtures/interactive-animbp/README.md#montage-slot-run)
 
 - Required identity: asset path, graph GUID, source node GUID/pin ID,
   destination node GUID/pin ID, expected graph revision and existing slot name.
@@ -43,6 +65,15 @@ do not advertise a tool until its implementation and qualification land.
   is not evidence it passed. Saving is explicit through the existing save path.
 - A stale/repeated request fails without another insertion. Following a timeout,
   inspect the graph before retrying; transport failure is not proof of rollback.
+
+## Implementation comparison
+
+The installed UE 5.8.4 experimental toolsets had no matching typed top-level
+edge insertion in the inspected C++ and Python sources. UnrealClaude's
+`AnimAssetManager` creates an identity pose and a Slot in a state graph. This implementation uses Unreal's typed Slot node and graph
+schema to preserve the caller's existing route. The peer comparison covered
+the [bridge at e7c96c6](https://github.com/Natfii/ue5-mcp-bridge/tree/e7c96c617143f43070d47e41d3783a449d2519a4)
+and its [native backend at 1f97837](https://github.com/Natfii/UnrealClaude/blob/1f978379f0ff9d3af2b3e4032131cc003fa04dcb/UnrealClaude/Source/UnrealClaude/Private/AnimAssetManager.cpp#L388).
 
 ## Implementation constraints discovered from source
 
@@ -95,16 +126,18 @@ outputs; identify the exact focused commands in the implementation handoff.
 
 Run `npm test` for the server/tool surface, compile the plugin and run focused
 native positive/negative cases, then run the owned MCP lifecycle runner serially.
-Start qualification on UE 5.8.3; other engine/client combinations remain explicit
-gaps until tested. No external projects. Fixture creation must not require
+UE 5.3.2, 5.6.1 and 5.8.4 on Win64 each passed MCP Slot authoring, independent
+Unreal graph and montage-pose readback, Undo/Redo and fresh-editor reload on
+UEMCP-owned projects. UE 5.7 and other client or platform combinations remain
+unverified. Fixture creation must not require
 consumer animation content or silently enable Python. Clean owned outputs after
 preserving concise source-bound receipts.
 
 ## Next choices, not bundled requirements
 
-After this workflow: update an existing Slot property; insert a selected blend
-node; sequence-player assignment; then state/transition authoring if requested.
-Each has different typing, Skeleton compatibility and persistence requirements.
+Follow-up work includes changing an existing Slot property, authoring masked
+montage playback and extending the supported transition-rule expressions. Each
+requires its own Skeleton compatibility, Undo and persistence checks.
 Control Rig, retargeting, arbitrary node creation, bulk graph import and runtime
 pose evaluation are separate units of scope. U4 Chooser support is not a blocker.
 

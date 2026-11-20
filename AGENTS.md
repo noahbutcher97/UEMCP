@@ -4,6 +4,8 @@
 
 UEMCP is a Windows-focused monorepo for an Unreal Engine MCP bridge. The Node.js MCP server lives in `server/` and uses ES modules (`*.mjs`). The Unreal Engine editor plugin lives in `plugin/UEMCP/`, with public headers in `Source/UEMCP/Public/`, implementation files in `Source/UEMCP/Private/`, and C++ automation tests in `Source/UEMCP/Private/Tests/`. Project documentation is under `docs/`; start with `docs/README.md`, `docs/specs/architecture.md`, and `tools.yaml`, the source of truth for tool definitions. Session-local docs are split by purpose: `docs/handoffs/` for orchestrator-authored task specs, `docs/reports/` for worker returns, and `docs/audits/` for point-in-time audit artifacts.
 
+Before making capability claims or recommending roadmap work, use the [question-based documentation routes](docs/README.md#find-information-by-question) to reconcile the relevant tool definition, capability contract and backlog status. Apply the same lookup during discussion as during implementation; do not infer missing functionality from recent conversation alone.
+
 ## Build, Test, and Development Commands
 
 Run server commands from `server/` unless noted.
@@ -39,6 +41,8 @@ Keep JavaScript as ES modules and follow the existing `*.mjs` style: two-space i
 For Unreal C++, follow the existing UE style: tabs for indentation, PascalCase types/functions, UE-prefixed types where applicable, and headers in `Public/` only for cross-file interfaces. Prefer shared helpers such as `HandlerCommon` over duplicated anonymous-namespace utilities.
 
 ## Testing Guidelines
+
+Exercise user-facing changes through a real provider client using the [agent workflow usability protocol](docs/agent-workflow-usability.md). Record the user task, friction and independent editor result. Use the nearest real caller for internal changes that affect a user workflow.
 
 For engine-specific native or live qualification, locate the UEMCP-owned project
 through the [fixture host guide](docs/fixture-host.md#locate-an-owned-host-by-engine)

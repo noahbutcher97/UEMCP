@@ -105,7 +105,7 @@ namespace UEMCP
 		}
 	} // anonymous namespace
 
-	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name)
+	TSharedPtr<FJsonObject> BuildBlueprintCompileDiagnosticResult(UBlueprint* BP, const FString& Name, bool bSkipSave)
 	{
 			// Pre-compile: configure results log. bSilentMode=true keeps the compiler from spamming
 			// the Message Log UI; we capture what we need programmatically.
@@ -115,10 +115,9 @@ namespace UEMCP
 
 			// Compile — D66 critical path: this is the signature with the out-param.
 			// EBlueprintCompileOptions::SkipGarbageCollection avoids a full GC pass on every tool call.
-			FKismetEditorUtilities::CompileBlueprint(
-				BP,
-				EBlueprintCompileOptions::SkipGarbageCollection,
-				&Results);
+			EBlueprintCompileOptions Options = EBlueprintCompileOptions::SkipGarbageCollection;
+			if (bSkipSave) Options |= EBlueprintCompileOptions::SkipSave;
+			FKismetEditorUtilities::CompileBlueprint(BP, Options, &Results);
 
 			// Aggregate into 4 buckets. Unknown severities default to "info".
 			TArray<TSharedPtr<FJsonValue>> Errors, Warnings, Notes, Info;
