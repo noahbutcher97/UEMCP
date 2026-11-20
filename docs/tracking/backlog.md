@@ -63,10 +63,10 @@ priority; archived fixture recovery is not a gate for unrelated product work.
 
 | ID | Status | Work / acceptance |
 |---|---|---|
-| U5 | Scoped proposal; implementation pending | [Insert a named Slot into an existing pose edge](../plans/u5-animation-authoring.md), with explicit identities/revision, no Skeleton changes, truthful compile results and owned Undo/persistence proof. |
+| U5 | Leading feature priority (2026-11-19); implementation pending | [Animation authoring program](../plans/animation-authoring-program.md): Animation Blueprints, sequences, montages, shared timeline editing, supporting assets, rig/retarget/bake workflows and authoring feedback, prioritized against blocked user workflows. The [Slot-insertion proposal](../plans/u5-animation-authoring.md) is one candidate slice; broader scope includes AnimBP creation, pose nodes/wiring, states/transitions/rules and supporting variables/update logic. Each selected slice needs its own compile, Undo and persistence proof. |
 | AUD-1 | Recurring organization audit; baseline pending | Reconcile docs, roadmap, tool status, test ownership and retained linked checkouts and artifacts at slice closure and release checkpoints. |
 | AUD-2 | Recurring research audit | Refresh decision-driving engine/API assumptions before implementation and after relevant changes; preserve historical evidence and record superseding decisions. |
-| AUD-3 | Ecosystem discovery started; revision/activity baseline pending | Maintain a bounded primary-source watchlist and adopt/experiment/defer/reject findings. See [U12 audit policy](ecosystem-watch.md); no monitoring automation is configured. |
+| AUD-3 | Animation-focused source/revision review recorded 2026-11-19; broader baseline pending | Maintain a bounded primary-source watchlist and adopt/experiment/defer/reject findings. See [U12 audit policy](ecosystem-watch.md); peer runtime/CI and broader activity review remain unverified; no monitoring automation is configured. |
 
 ## Archived fixture recovery readiness
 

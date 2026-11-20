@@ -21,6 +21,29 @@ already shipped capabilities. Each row is a starting slice, not the entire unit.
 | [ ] U11a: performance/fidelity decision brief, when triggered | Identify a user-visible problem, existing measurements and minimum missing experiment; explicitly defer redesign if no need is established. | Measured need; profiling/design docs. |
 | [ ] U12a: establish audit baseline | Apply AUD-1 organization reconciliation and capture upstream revisions/activity for the initial AUD-3 watchlist; refresh U5 decision-driving research under AUD-2. Record bounded actions or no relevant change. | [Audit policy](../docs/tracking/ecosystem-watch.md); initial discovery exists, full audit pending. |
 
+## Current selection gate (2026-11-19)
+
+Selected order after triage review: close the documentation checkpoint, then
+**U1a / BUG-3**, then the bounded **U2a / QA-1 and F-14** lifecycle check, then
+**U5 interactive AnimBP editing with its U4 readback oracle**. These are separate
+slices, not one large implementation change. Reproduce failures before fixing
+them; qualification gaps are not automatically confirmed defects. General
+fixture recovery and a universal graph framework are not prerequisites.
+
+- [x] Scope the [interactive AnimBP experiment and first regression](../docs/plans/animbp-interactive-authoring.md):
+  ad hoc node placement and wiring in both AnimGraph and Event Graph, incremental
+  compile feedback, Undo and persistence; deliver live qualification first and
+  follow with headless replay of the supported operations.
+  Recipes supplement these operations rather than gating access to them.
+
+- [ ] Inventory existing support across the [animation program](../docs/plans/animation-authoring-program.md),
+  covering AnimBPs, sequences, montages, timelines, supporting assets, rigs and
+  authoring feedback; distinguish missing tools from unverified existing tools.
+- [ ] Capture recent blocked animation authoring tasks and select the first
+  complete U5 workflow. Slot insertion remains a scoped candidate, not an assumed
+  match. Prioritize authoring over unrelated fixture recovery; use U4 readback
+  where it supplies verification and U10 release foundations for delivery.
+
 ## Checkpoint for every selected slice
 
 - [ ] Bound the implementation handoff, exact verification commands and resources.

@@ -2,7 +2,21 @@
 
 Status: proposed first implementation slice, scoped 2026-11-07. No authoring
 tool has been implemented or live-qualified by this scoping pass.
-Parent: [roadmap U5](../../tasks/plan.md). Existing readback remains shipped.
+Parent: [full animation authoring program](animation-authoring-program.md).
+This document covers only Slot insertion; its exclusions do not restrict the
+program's sequence, montage, rig or other AnimBP authoring scope. Existing
+readback remains shipped.
+
+## Priority and broader authoring scope
+
+As of 2026-11-19, animation and Animation Blueprint authoring are the leading
+feature priority, based on the user's repeated need during the week. This file
+scopes one candidate delivery, not the entirety of U5. Before starting it, match
+recent blocked tasks to the appropriate slice: AnimBP creation for an existing
+Skeleton, pose-node configuration/wiring, state-machine and transition-rule
+editing, or supporting variables/update logic. Choose the smallest complete
+workflow that removes an actual blocker. Slot insertion may lead if it matches
+that need; otherwise scope the relevant slice first and retain this proposal.
 
 ## User outcome
 

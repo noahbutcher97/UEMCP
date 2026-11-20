@@ -4,6 +4,9 @@ A monorepo that gives Claude (via MCP) read + write access to Unreal Engine 5.6 
 
 Built for Unreal Engine 5 projects; the tool itself is project-agnostic. In normal MCP sessions it attaches from the client workspace roots when there is exactly one unambiguous `.uproject`, or by an explicit `attach_project` call.
 
+For capability limits, roadmap status, architecture and verification guidance,
+use the [documentation lookup guide](docs/README.md#find-information-by-question).
+
 ---
 
 ## Quick start — onboard a new machine

@@ -30,7 +30,7 @@ There are three different commitments here:
 | U2 — Reliable editor sessions | Attach, play, stop and continue predictably. QA-1; F-14; OWN-1a/1b. | Current-source owned-host smoke with identity, representative read/write and stop-followed-by-operation. Recover ordinary PIE machinery only if useful to this check. | Actual teardown precedes the next operation; two ordinary cycles pass. Late-callback injection has a separate timeout/fence/drain gate. |
 | U3 — Useful and contained visual inspection | Screenshots, previews and Details reads are usable. EN-28; OWN-4; visual portion of QA-3. | Reproduce screenshot/preview path confinement and inspect an actual output image. Details paging is a separate slice. | Out-of-root writes rejected, valid output inspected; paging later requires actual native/editor/rendered proof, not mocked controls alone. |
 | U4 — Animation diagnosis | Agents can explain an AnimBP and selection logic. Animation/Chooser residual. | Qualify shipped `get_anim_graph` properties, topology and defaults on an owned AnimBP; identify specific missing fields. | Returned state/transition/slot/blend/pin data matches an independent fixture oracle. Chooser row/result mapping gets a separate contract and oracle. |
-| U5 — Bounded animation authoring | Insert an existing named Slot into an exact top-level local-space pose edge. New scope; see the [U5 contract](../docs/plans/u5-animation-authoring.md). | Owned fixture and revision/preflight checks, then transactional insertion and MCP lifecycle qualification. Check upstream equivalents first. | Exact edge delta, no Skeleton mutation, truthful compile failures, one-step Undo/Redo and explicit save/restart; details and negative cases are in the scoped contract. |
+| U5 — Animation authoring program | Leading feature priority: Animation Blueprints, sequences, montages, timeline data and supporting rig/assets. See the [program scope](../docs/plans/animation-authoring-program.md). | Inventory existing capabilities and select a complete blocked workflow; Slot insertion is one component candidate. | Workflow-specific validation, mutation results, Undo/save/restart and evaluated-motion checks where required; no claim of completeness from a single tool. |
 | U6 — Material authoring expansion | Complete a material workflow beyond scalar functions. EN-32. | Select one typed vector workflow and its required nodes; texture inputs, function instances, layers/blends and interface migration are later independent slices. | Independent topology/value oracle, successful compile, Undo/Redo and save/restart for that exact workflow; retain documented allocation/propagation/timeout boundaries. |
 | U7 — Asset and gameplay understanding | Find assets, explain references and inspect gameplay data. EN-1; EN-8 P2/P3/P4/P6/P7. | Reproduce bounded registry queries and choose one useful search/filter improvement. Reverse-reference search and GameplayEffect reads are separate follow-ups. | Known corpus yields correct bounded results and explicit truncation/fidelity; reference and gameplay slices each need their own positive/negative oracle. |
 | U8 — Data-asset and GAS authoring | Safely change gameplay content through purpose-built operations. EN-30. | Choose one asset type and one supported mutation rather than a generic GAS authoring system. | Correct readback, validation, dirty/save behavior, Undo/Redo and restart persistence. U7 read support is needed only if it supplies the chosen mutation's oracle. |
@@ -85,18 +85,37 @@ committing to a new implementation, and keep documentation/cleanup within each s
 | Path | Useful combination | What it unlocks |
 |---|---|---|
 | Everyday dependable use | U1 timer correctness + U2 lifecycle smoke + U3 confinement/output | Trustworthy existing commands and fewer interrupted sessions. |
-| Animation user support | U4 existing-read qualification, then choose missing read/Chooser support or U5 authoring | Immediate diagnostic usefulness, with a deliberate choice about editing scope. |
+| Animation user support — current feature priority | U5 Animation Blueprint authoring driven by recent blocked tasks, with the necessary U4 readback oracle | Deliver a usable authoring workflow; Slot insertion alone does not complete the feature. |
 | Content creation | One U6 material workflow **or** one U8 gameplay asset mutation, then relevant U10 delivery checks | A complete usable authoring feature instead of a broad half-finished API surface. |
 | Developer confidence | Selected U9 fixture + its parser consumer; U1 schema checks when useful | Portable failure reproduction and less reliance on external projects. |
 | Release readiness | U10 supported-environment checks + relevant U1/U2/U3 findings | An honest support statement and a reproducible deployment. |
 
-My suggested initial portfolio is **the BUG-3 fix**, **one animation readback
-qualification slice**, and **the engine-free OWN-3a provenance audit**. They
-address correctness, visible user value and recoverable developer investment.
-Choose which native slice gets the machine first; this is not a mandate to run
-three concurrent editors. A confirmed unsafe write or silently widened mutation
-supersedes this suggestion. If a consumer rollout is imminent, move the relevant
-U10 acceptance ahead of feature expansion.
+## Current feature priority
+
+The 2026-11-19 triage review selected a short reliability lead-in: BUG-3 result
+correction, then bounded owned-host PIE lifecycle qualification, then interactive
+AnimBP authoring with its readback oracle. See [current selection](todo.md#current-selection-gate-2026-11-19).
+This does not require clearing every reliability or qualification backlog item.
+
+Updated 2026-11-19 from the user's repeated need for animation and Animation
+Blueprint authoring. **U5 is the leading feature priority.** The Slot-insertion
+contract is a candidate first vertical slice, not the complete feature or proof
+that it addresses the user's recent blocked workflows.
+
+Use the [animation program](../docs/plans/animation-authoring-program.md) for the full
+sequence, montage, timeline, supporting-asset and rig scope. For AnimBPs this includes creating an AnimBlueprint
+for an existing Skeleton, adding/configuring pose nodes, wiring poses, authoring
+state machines/states/transitions and their rules, and defining the variables or
+update logic those rules need. These are capability slices to bound and qualify,
+not a promise to implement arbitrary graph editing in one change. Capture recent
+blocked examples before choosing which slice leads; reuse U4 reads as its oracle.
+
+Keep U10's small release foundation alongside feature delivery. It should make
+the next useful authoring feature installable, not defer implementation until a
+full updater exists. General fixture recovery, unrelated inspection extensions
+and broad audits do not precede U5 by default. Confirmed correctness defects that
+block or invalidate the chosen workflow still take precedence. U12 research is
+bounded to decisions needed for the slice; serialize native verification phases.
 
 ## Resource and change coordination
 

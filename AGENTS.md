@@ -4,6 +4,8 @@
 
 UEMCP is a Windows-focused monorepo for an Unreal Engine MCP bridge. The Node.js MCP server lives in `server/` and uses ES modules (`*.mjs`). The Unreal Engine editor plugin lives in `plugin/UEMCP/`, with public headers in `Source/UEMCP/Public/`, implementation files in `Source/UEMCP/Private/`, and C++ automation tests in `Source/UEMCP/Private/Tests/`. Project documentation is under `docs/`; start with `docs/README.md`, `docs/specs/architecture.md`, and `tools.yaml`, the source of truth for tool definitions. Session-local docs are split by purpose: `docs/handoffs/` for orchestrator-authored task specs, `docs/reports/` for worker returns, and `docs/audits/` for point-in-time audit artifacts.
 
+Before making capability claims or recommending roadmap work, use the [question-based documentation routes](docs/README.md#find-information-by-question) to reconcile the relevant tool definition, capability contract and backlog status. Apply the same lookup during discussion as during implementation; do not infer missing functionality from recent conversation alone.
+
 ## Build, Test, and Development Commands
 
 Run server commands from `server/` unless noted.

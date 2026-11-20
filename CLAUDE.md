@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude when working with code in this repository.
 
+Before making capability claims or recommending roadmap work, follow the
+[question-based documentation routes](docs/README.md#find-information-by-question).
+Reconcile tool definitions, capability limits and backlog status during discussion
+as well as implementation; this overview is not a substitute for those sources.
+
 ## Project Overview
 
 **UEMCP** (Unreal Engine MCP) is a monorepo containing a Node.js MCP server and a C++ UE5 editor plugin that together give Claude full read/write access to Unreal Engine 5.6 projects. Built for a pair of private UE5 projects (**Project A** — primary/combat-game target — and **Project B** — secondary); tool itself is project-agnostic.
