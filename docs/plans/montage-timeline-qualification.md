@@ -37,3 +37,5 @@ To reproduce native acceptance, run the exact automation filter `UEMCP.Animation
 Persona reads each notify class's default trigger weight and calls its editor creation hook in `SAnimNotifyPanel.cpp`. The MCP writer initializes the event directly. The fixture cue and built-in timed state exercised here do not establish how a custom notify that overrides either method behaves. That case needs a custom class and an editor-created control.
 
 The standalone server rotation on the montage branch passed 9,566 assertions across 129 files. Nine environment-gated files skipped. The source inventory included the new native test, and the all-enabled MCP tool inventory included the route writer.
+
+The [integrated qualification](animation-inspection-and-montage-decisions.md#qualification) adds UE 5.3.2 and 5.6.1, a second 5.8.4 fixture and a fresh CLI-authored route on each engine.

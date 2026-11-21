@@ -107,3 +107,5 @@ For both, verify placement Undo/Redo and named save followed by fresh-editor rea
 The first implementation decision follows the native probe: if both families can be resolved and placed from the same context, implement the shared resolver and the two readback checks. If either family needs a different registration path, keep the same client contract and document the engine-specific lookup demonstrated by the probe.
 
 The [qualification record](animation-authoring-qualification.md) follows these write and inspection paths through real agents, public MCP calls and independent Unreal execution.
+
+The [first native placement experiment](graph-action-experiment.md) verified asset identity and exposed different repeat-placement behavior in cold and warm editors on UE 5.8.4. Its results inform the event reuse rules.
