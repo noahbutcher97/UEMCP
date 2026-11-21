@@ -197,6 +197,16 @@ await runCase('describe_tool matches the native tools/list entry', async () => {
     const mutating = (await callTool(transport, 'describe_tool', { tool: 'create_montage' })).result.structuredContent;
     t.assert(mutating.dispatcher === 'call_mutating_tool', 'mutation tool names call_mutating_tool as its dispatcher');
 
+    const compile = (await callTool(transport, 'describe_tool', { tool: 'bp_compile_and_report' })).result.structuredContent;
+    t.assert(compile.toolset === 'blueprint-read' && compile.dispatcher === 'call_mutating_tool'
+      && compile.annotations.readOnlyHint === false, 'diagnostic compile in blueprint-read is classified as a mutation');
+    const found = (await callTool(transport, 'find_tools', { query: 'bp_compile_and_report', max_results: 5 })).result.structuredContent;
+    t.assert(found.results.find(row => row.tool === 'bp_compile_and_report')?.dispatcher === 'call_mutating_tool',
+      'search exposes the mutation dispatcher beside the diagnostic compile');
+    const refused = await dispatch(transport, 'bp_compile_and_report', { asset_path: ANIM_BP });
+    t.assert(refused.result.isError && text(refused).includes('WRONG_DISPATCHER'),
+      'read dispatcher refuses diagnostic compile even after discovery enables its toolset');
+
     const unknown = (await callTool(transport, 'describe_tool', { tool: 'no_such_tool' })).result.structuredContent;
     t.assert(unknown.ok === false && unknown.code === 'TOOL_NOT_FOUND', 'unknown tool is TOOL_NOT_FOUND');
 

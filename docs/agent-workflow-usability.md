@@ -19,3 +19,26 @@ Score the engine and agent results independently. For example, an editor can rep
 - Treat project attachment and editor availability as separate results. An attached project can still have an unreachable editor. If the editor is closed, report which offline information was available and which live action is waiting for a running editor with the matching plugin.
 
 For interactive animation, a practical task is to open a Blueprint in an owned editor, ask which animation currently supplies its output pose, then ask to switch to the other existing sequence and save just that Blueprint. A successful read identifies the current source without mutating the asset. A successful edit leaves one reciprocal source, persists after reopening, and produces the expected evaluated pose. The [interactive fixture](../server/fixtures/interactive-animbp/README.md) supplies compatible sequences and an independent graph and bone sampler.
+
+### OpenCode permissions for an inspection-only session
+
+With a local MCP server named `uemcp`, add the following `permission` field to the task's OpenCode configuration. This grants project attachment, discovery and reads through the public dispatcher. Searching may register additional direct tool names during the session. The initial deny rule applies to those names, including `uemcp_bp_compile_and_report`, and to `uemcp_call_mutating_tool`. Keep this scope specific to an inspection task.
+
+```json
+{
+  "permission": {
+    "*": "deny",
+    "uemcp_attach_project": "allow",
+    "uemcp_connection_info": "allow",
+    "uemcp_describe_tool": "allow",
+    "uemcp_find_tools": "allow",
+    "uemcp_call_tool": "allow",
+    "uemcp_list_toolsets": "allow",
+    "uemcp_wait_for_editor": "allow",
+    "uemcp_refresh_project_context": "allow",
+    "uemcp_inspect_blueprint_inputs": "allow"
+  }
+}
+```
+
+An unrestricted `uemcp_*` permission let one OpenCode inspection run recompile a Blueprint through its directly registered diagnostic tool. The package and sidecar hashes remained equal. Check the tool transcript as well as file hashes when assessing side effects.

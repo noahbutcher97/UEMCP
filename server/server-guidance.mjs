@@ -96,7 +96,7 @@ export const TOOLSET_TIPS = deepFreeze({
       'Plugin-backed (tcp-55558) - full flag surface including Category/Replicated/EditAnywhere that RC\'s SanitizeMetadata allowlist strips out. Prefer these over rc_describe_object when you need reflection fidelity.',
       'get_blueprint_info returns summary {super_class, interfaces, property_count, function_count}. Follow up with get_blueprint_variables or get_blueprint_functions for the full lists.',
       'get_blueprint_components filters get_blueprint_variables down to component-class properties (heuristic: property_class contains "Component" OR name ends _GEN_VARIABLE SCS suffix). Conservative - may miss exotic cases.',
-      'bp_compile_and_report triggers a fresh compile and captures FCompilerResultsLog with node_guid attribution. blueprints-write.compile_blueprint now also returns diagnostic counts/messages, but bp_compile_and_report remains the richer read-focused graph diagnostic surface.',
+      'bp_compile_and_report recompiles the Blueprint and regenerates its generated class. Use it when the user requests compilation and needs per-node diagnostics. For an inspection-only task read the pins with inspect_blueprint_inputs.',
       'get_widget_blueprint walks UWidgetTree root recursively. Empty widget trees return root_widget:null (valid, not an error).',
     ].join(' '),
     workflows: [
