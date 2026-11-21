@@ -29,6 +29,7 @@ import {
   MUTATING_DISPATCHER,
   READ_DISPATCHER,
   ToolDispatchRegistry,
+  dispatcherFor,
 } from './tool-dispatch.mjs';
 import { listEditorProcesses } from './editor-processes.mjs';
 import { clampWaitTimeout, createEditorProbe, readinessHint, waitForEditorReady } from './editor-readiness.mjs';
@@ -700,14 +701,18 @@ export async function createUemcpServer(options = {}) {
         ok: true,
         query,
         resultCount: results.length,
-        results: results.map(r => ({
-          tool: r.toolName,
-          toolset: r.toolsetName,
-          description: r.description,
-          layer: r.layer,
-          score: r.score,
-          ...(projectContext.identity ? {} : { blocked: PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED }),
-        })),
+        results: results.map(r => {
+          const entry = dispatchRegistry.get(r.toolName);
+          return {
+            tool: r.toolName,
+            toolset: r.toolsetName,
+            description: r.description,
+            layer: r.layer,
+            score: r.score,
+            ...(entry ? { dispatcher: dispatcherFor(entry.requirement) } : {}),
+            ...(projectContext.identity ? {} : { blocked: PROJECT_ERROR_CODES.PROJECT_NOT_ATTACHED }),
+          };
+        }),
         autoEnabled: summary.autoEnabled,
         projectContext: projectContext.snapshot(),
       };

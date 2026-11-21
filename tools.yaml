@@ -1156,7 +1156,7 @@ toolsets:
       # cannot — void return per D66 / FA-ε §Q1.4).
       bp_compile_and_report:
         compiles_asset: true
-        description: Compile a Blueprint and return errors + warnings + notes + info with per-entry node_guid.
+        description: Recompile a Blueprint, regenerating its generated class, and return errors, warnings, notes and info with per-entry node_guid. Requires mutation permission.
         params:
           asset_path: { type: string, required: true }
       # reduced_scope: widget hierarchy tree + property bindings only — EventGraph + functions subset MOVE-TO-SIDECAR (3F) per D56/§Q1.2
