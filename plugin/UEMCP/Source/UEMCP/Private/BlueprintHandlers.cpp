@@ -1,6 +1,8 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
 #include "Misc/DefaultValueHelper.h"
+#include "Internationalization/Regex.h"
+#include "Misc/Parse.h"
 #include "CachePoseAuthoring.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimationStateGraph.h"
@@ -788,6 +790,65 @@ namespace UEMCP
 		// A supplied default must describe a real input literal on the new node. Use
 		// K2's value/object/text representation so class and asset references are
 		// validated against their pin type as well as resolved by name.
+		// FParse::Value considers a named field present even when Atod silently
+		// converts its value to zero. Require each numeric token to parse in full
+		// before asking K2 to interpret vector, rotation, transform or color text.
+		bool HasFiniteNumericFields(FString Input, int32 MinCount, int32 MaxCount, const FString& AllowedKeys)
+		{
+			Input.TrimStartAndEndInline();
+			if (Input.StartsWith(TEXT("(")) && Input.EndsWith(TEXT(")")))
+			{
+				Input = Input.Mid(1, Input.Len() - 2).TrimStartAndEnd();
+			}
+			static const FRegexPattern Field(TEXT(R"((?:([A-Za-z]+)\s*=\s*)?([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)[fF]?)"));
+			FRegexMatcher Matcher(Field, Input);
+			int32 End = 0;
+			int32 Count = 0;
+			TSet<FString> Keys;
+			while (Matcher.FindNext())
+			{
+				const FString Gap = Input.Mid(End, Matcher.GetMatchBeginning() - End);
+				const FString Key = Matcher.GetCaptureGroup(1).ToUpper();
+				// Positional components use commas. Named forms also admit e.g.
+				// "X=2 Y=3 Z=4" from FVector::ToString().
+				if (Count == 0 ? !Gap.IsEmpty() : !(Gap.TrimStartAndEnd() == TEXT(",") ||
+					(!Key.IsEmpty() && !Gap.IsEmpty() && Gap.TrimStartAndEnd().IsEmpty()))) return false;
+				if (!Key.IsEmpty())
+				{
+					if (Keys.Num() != Count || Keys.Contains(Key) || !AllowedKeys.Contains(TEXT("|") + Key + TEXT("|"))) return false;
+					Keys.Add(Key);
+				}
+				else if (!Keys.IsEmpty()) return false;
+				if (++Count > MaxCount || !FMath::IsFinite(FCString::Atod(*Matcher.GetCaptureGroup(2)))) return false;
+				End = Matcher.GetMatchEnding();
+			}
+			return End == Input.Len() && Count >= MinCount;
+		}
+
+		// The VM emits integers from decimal text. Resolve any explicit hex
+		// form and verify the target range before handing the literal to K2.
+		bool NormalizeIntegerText(FString& Text, const int64 Min, const int64 Max)
+		{
+			FString Digits = Text.TrimStartAndEnd();
+			const bool bNegative = Digits.RemoveFromStart(TEXT("-"));
+			if (!bNegative) Digits.RemoveFromStart(TEXT("+"));
+			const int32 Base = Digits.RemoveFromStart(TEXT("0x"), ESearchCase::IgnoreCase) ? 16 : 10;
+			if (Digits.IsEmpty()) return false;
+			uint64 Magnitude = 0;
+			const uint64 Limit = bNegative ? (uint64(0) - static_cast<uint64>(Min)) : static_cast<uint64>(Max);
+			for (const TCHAR Character : Digits)
+			{
+				if (!FChar::IsHexDigit(Character)) return false;
+				const uint64 Digit = FParse::HexDigit(Character);
+				if (Digit >= static_cast<uint64>(Base) || Digit > Limit || Magnitude > (Limit - Digit) / Base) return false;
+				Magnitude = Magnitude * Base + Digit;
+			}
+			const int64 Result = bNegative && Magnitude == Limit ? Min :
+				(bNegative ? -static_cast<int64>(Magnitude) : static_cast<int64>(Magnitude));
+			Text = LexToString(Result);
+			return true;
+		}
+
 		bool PreparePinDefault(UEdGraphPin& Pin, const TSharedPtr<FJsonValue>& Value, const UEdGraphSchema_K2& Schema,
 			FString& Error)
 		{
@@ -835,7 +896,7 @@ namespace UEMCP
 						}
 						Vector = FVector(XYZ[0]->AsNumber(), XYZ[1]->AsNumber(), XYZ[2]->AsNumber());
 					}
-					else if (Value->Type != EJson::String ||
+					else if (Value->Type != EJson::String || !HasFiniteNumericFields(Value->AsString(), 3, 3, TEXT("|X|Y|Z|")) ||
 						(!FDefaultValueHelper::ParseVector(Value->AsString(), Vector) && !Vector.InitFromString(Value->AsString())))
 					{
 						Error = TEXT("Expected a vector literal");
@@ -846,6 +907,45 @@ namespace UEMCP
 				else if (Value->Type == EJson::String)
 				{
 					Input = Value->AsString();
+					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
+					const bool bByte = Category == UEdGraphSchema_K2::PC_Byte && !StructType;
+					if ((Category == UEdGraphSchema_K2::PC_Int && !NormalizeIntegerText(Input, MIN_int32, MAX_int32)) ||
+						(Category == UEdGraphSchema_K2::PC_Int64 && !NormalizeIntegerText(Input, MIN_int64, MAX_int64)) ||
+						(bByte && !NormalizeIntegerText(Input, 0, 255)))
+					{
+						Error = TEXT("Expected an integer within the pin's range");
+						return false;
+					}
+					if (!Input.IsEmpty() && Category == UEdGraphSchema_K2::PC_Struct)
+					{
+						bool bValid = true;
+						if (StructType == TVariantStructure<FVector3f>::Get() || StructType == TBaseStructure<FRotator>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 3, StructType == TBaseStructure<FRotator>::Get() ? TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|") : TEXT("|X|Y|Z|"));
+						}
+						else if (StructType == TBaseStructure<FLinearColor>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 4, TEXT("|R|G|B|A|"));
+						}
+						else if (StructType == TBaseStructure<FTransform>::Get())
+						{
+							TArray<FString> Parts;
+							Input.ParseIntoArray(Parts, TEXT("|"), false);
+							bValid = Parts.Num() == 3 && HasFiniteNumericFields(Parts[0], 3, 3, TEXT("|X|Y|Z|")) &&
+								HasFiniteNumericFields(Parts[1], 3, 3, TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|")) && HasFiniteNumericFields(Parts[2], 3, 3, TEXT("|X|Y|Z|"));
+						}
+						if (!bValid)
+						{
+							Error = TEXT("Expected finite numeric components");
+							return false;
+						}
+					}
+					if ((Category == UEdGraphSchema_K2::PC_Real || Category == UEdGraphSchema_K2::PC_Float)
+						&& !HasFiniteNumericFields(Input, 1, 1, TEXT("")))
+					{
+						Error = TEXT("Expected a finite number");
+						return false;
+					}
 					if (Category == UEdGraphSchema_K2::PC_Boolean && !Input.Equals(TEXT("true"), ESearchCase::IgnoreCase)
 						&& !Input.Equals(TEXT("false"), ESearchCase::IgnoreCase) && Input != TEXT("0") && Input != TEXT("1"))
 					{
