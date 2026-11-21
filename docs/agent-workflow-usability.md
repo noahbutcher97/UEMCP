@@ -20,6 +20,13 @@ Score the engine and agent results independently. For example, an editor can rep
 
 For interactive animation, a practical task is to open a Blueprint in an owned editor, ask which animation currently supplies its output pose, then ask to switch to the other existing sequence and save just that Blueprint. A successful read identifies the current source without mutating the asset. A successful edit leaves one reciprocal source, persists after reopening, and produces the expected evaluated pose. The [interactive fixture](../server/fixtures/interactive-animbp/README.md) supplies compatible sequences and an independent graph and bone sampler.
 
+### Checks that transfer to other workflows
+
+- When a tool reads several states, give the agent a case where they diverge. An unsaved graph edit, for example, lets the evaluator check whether the answer distinguishes the saved file, open editor and observed runtime. Require evidence for each state the answer claims to know.
+- For inspection tasks, check the calls the client could make and the calls it actually made. A compile can change editor state while leaving every monitored file byte identical.
+- For an edit a user may retry, define the requested outcome first. Repeating “ensure this binding exists” should leave one binding. Asking for another player instance should create a second instance. Read back the exact targets and their counts after recovery.
+- Record separately what the tool did, what the agent concluded and whether the user's intended outcome occurred. Choose an independent observation appropriate to that outcome, such as actual cue delivery for a playback claim. The [three-engine qualification](plans/animation-inspection-and-montage-decisions.md#agent-workflow-results) shows how these judgments can differ on the same task.
+
 ### OpenCode permissions for an inspection-only session
 
 With a local MCP server named `uemcp`, add the following `permission` field to the task's OpenCode configuration. This grants project attachment, discovery and reads through the public dispatcher. Searching may register additional direct tool names during the session. The initial deny rule applies to those names, including `uemcp_bp_compile_and_report`, and to `uemcp_call_mutating_tool`. Keep this scope specific to an inspection task.
