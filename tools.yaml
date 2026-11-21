@@ -241,10 +241,10 @@ toolsets:
         aliases: ["actual arguments", "function inputs", "pin values", "saved and live pins", "Blueprint function graph"]
         description: >-
           Inspect the actual input arguments of a Blueprint function call in a named graph, including saved pin literals,
-          links and current live editor values. Give the Blueprint path and graph name. Optionally narrow by member_name
+          links and current live editor pin fields. Give the Blueprint path and graph name. Optionally narrow by member_name
           or input pin name. Reports ambiguous calls with candidate export indices. Default compare reads the saved
           package and the same node GUID in the attached editor, with independent statuses. Use source saved for disk
-          only. Linked inputs take their value from a connection. Runtime execution is unobserved.
+          only. Current function identity, implicit arguments, live split-pin flags and runtime execution are unverified.
         params:
           asset_path: { type: string, required: true, description: "Blueprint package /Game/... or supported saved asset path" }
           graph_name: { type: string, required: true, description: "Exact name of the function graph or EventGraph" }
