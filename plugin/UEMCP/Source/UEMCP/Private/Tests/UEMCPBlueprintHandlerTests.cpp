@@ -3188,6 +3188,11 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
 	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
 	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
 	auto Params = MakeShared<FJsonObject>();
@@ -3203,11 +3208,7 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 	auto* To = Place();
 	if (!TestNotNull(TEXT("Function output node"), From) || !TestNotNull(TEXT("Function input node"), To)) return false;
 	TestTrue(TEXT("Placed calls participate in editor transactions"), From->HasAnyFlags(RF_Transactional) && To->HasAnyFlags(RF_Transactional));
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
-	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
-	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
-	History->Initialize(8 * 1024 * 1024);
-	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
+	History->Reset(FText::FromString(TEXT("Fixture setup complete")));
 	auto Connect = MakeShared<FJsonObject>();
 	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
 	Connect->SetStringField(TEXT("source_node_id"), From->NodeGuid.ToString());
@@ -3255,9 +3256,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPWriterPinDefaultsTest, "UEMCP.BlueprintHa
 bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
 	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> Previous(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> History(NewObject<UTransBuffer>());
+	History->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
 	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
@@ -3285,6 +3290,11 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	Defaults->RemoveField(TEXT("NewScale3"));
 	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3)});
 	TestEqual(TEXT("function rejects malformed vector"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	for (const TCHAR* Invalid : { TEXT("(X=2,Y=garbage,Z=4)"), TEXT("(X=2,Y=3oops,Z=4)"), TEXT("2,1e,4"), TEXT("1,2,3,4") })
+	{
+		Defaults->SetStringField(TEXT("NewScale3D"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
 	Defaults->RemoveField(TEXT("NewScale3D"));
 	Params->SetStringField(TEXT("target"), TEXT("MissingUEMCPWriterOwner"));
 	TestEqual(TEXT("explicit missing owner cannot select self"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("TARGET_CLASS_NOT_FOUND")));
@@ -3293,6 +3303,16 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("rejections preserve Undo history"), GEditor->Trans->GetQueueLength(), QueueLength);
 
 	Params->RemoveField(TEXT("target"));
+	for (const TCHAR* Valid : { TEXT("2,3,4"), TEXT("(X=2,Y=3,Z=4)"), TEXT("X=2e0 Y=3.0 Z=+4") })
+	{
+		Defaults->SetStringField(TEXT("NewScale3D"), Valid);
+		const auto ValidResult = ResultOf(Dispatch(Call, Params));
+		auto* ValidNode = FindNodeByGuid(Graph, StringFieldOr(ValidResult, TEXT("node_id")));
+		if (!TestNotNull(Valid, ValidNode)) return false;
+		FVector Observed;
+		const auto* Input = ValidNode->FindPinChecked(TEXT("NewScale3D"), EGPD_Input);
+		TestTrue(Valid, FDefaultValueHelper::ParseVector(Input->DefaultValue, Observed) && Observed.Equals(FVector(2, 3, 4)));
+	}
 	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3), MakeShared<FJsonValueNumber>(4)});
 	const TSharedPtr<FJsonObject> CallResult = ResultOf(Dispatch(Call, Params));
 	UK2Node_CallFunction* Function = Cast<UK2Node_CallFunction>(FindNodeByGuid(Graph, StringFieldOr(CallResult, TEXT("node_id"))));

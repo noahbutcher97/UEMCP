@@ -1,6 +1,7 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
 #include "Misc/DefaultValueHelper.h"
+#include "Internationalization/Regex.h"
 #include "CachePoseAuthoring.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimationStateGraph.h"
@@ -788,6 +789,41 @@ namespace UEMCP
 		// A supplied default must describe a real input literal on the new node. Use
 		// K2's value/object/text representation so class and asset references are
 		// validated against their pin type as well as resolved by name.
+		// FParse::Value considers a named field present even when Atod silently
+		// converts its value to zero. Require each numeric token to parse in full
+		// before asking K2 to interpret vector, rotation, transform or color text.
+		bool HasFiniteNumericFields(FString Input, int32 MinCount, int32 MaxCount, const FString& AllowedKeys)
+		{
+			Input.TrimStartAndEndInline();
+			if (Input.StartsWith(TEXT("(")) && Input.EndsWith(TEXT(")")))
+			{
+				Input = Input.Mid(1, Input.Len() - 2).TrimStartAndEnd();
+			}
+			static const FRegexPattern Field(TEXT(R"((?:([A-Za-z]+)\s*=\s*)?([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)[fF]?)"));
+			FRegexMatcher Matcher(Field, Input);
+			int32 End = 0;
+			int32 Count = 0;
+			TSet<FString> Keys;
+			while (Matcher.FindNext())
+			{
+				const FString Gap = Input.Mid(End, Matcher.GetMatchBeginning() - End);
+				const FString Key = Matcher.GetCaptureGroup(1).ToUpper();
+				// Positional components use commas. Named forms also admit e.g.
+				// "X=2 Y=3 Z=4" from FVector::ToString().
+				if (Count == 0 ? !Gap.IsEmpty() : !(Gap.TrimStartAndEnd() == TEXT(",") ||
+					(!Key.IsEmpty() && !Gap.IsEmpty() && Gap.TrimStartAndEnd().IsEmpty()))) return false;
+				if (!Key.IsEmpty())
+				{
+					if (Keys.Num() != Count || Keys.Contains(Key) || !AllowedKeys.Contains(TEXT("|") + Key + TEXT("|"))) return false;
+					Keys.Add(Key);
+				}
+				else if (!Keys.IsEmpty()) return false;
+				if (++Count > MaxCount || !FMath::IsFinite(FCString::Atod(*Matcher.GetCaptureGroup(2)))) return false;
+				End = Matcher.GetMatchEnding();
+			}
+			return End == Input.Len() && Count >= MinCount;
+		}
+
 		bool PreparePinDefault(UEdGraphPin& Pin, const TSharedPtr<FJsonValue>& Value, const UEdGraphSchema_K2& Schema,
 			FString& Error)
 		{
@@ -835,7 +871,7 @@ namespace UEMCP
 						}
 						Vector = FVector(XYZ[0]->AsNumber(), XYZ[1]->AsNumber(), XYZ[2]->AsNumber());
 					}
-					else if (Value->Type != EJson::String ||
+					else if (Value->Type != EJson::String || !HasFiniteNumericFields(Value->AsString(), 3, 3, TEXT("|X|Y|Z|")) ||
 						(!FDefaultValueHelper::ParseVector(Value->AsString(), Vector) && !Vector.InitFromString(Value->AsString())))
 					{
 						Error = TEXT("Expected a vector literal");
@@ -846,6 +882,37 @@ namespace UEMCP
 				else if (Value->Type == EJson::String)
 				{
 					Input = Value->AsString();
+					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
+					if (!Input.IsEmpty() && Category == UEdGraphSchema_K2::PC_Struct)
+					{
+						bool bValid = true;
+						if (StructType == TVariantStructure<FVector3f>::Get() || StructType == TBaseStructure<FRotator>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 3, StructType == TBaseStructure<FRotator>::Get() ? TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|") : TEXT("|X|Y|Z|"));
+						}
+						else if (StructType == TBaseStructure<FLinearColor>::Get())
+						{
+							bValid = HasFiniteNumericFields(Input, 3, 4, TEXT("|R|G|B|A|"));
+						}
+						else if (StructType == TBaseStructure<FTransform>::Get())
+						{
+							TArray<FString> Parts;
+							Input.ParseIntoArray(Parts, TEXT("|"), false);
+							bValid = Parts.Num() == 3 && HasFiniteNumericFields(Parts[0], 3, 3, TEXT("|X|Y|Z|")) &&
+								HasFiniteNumericFields(Parts[1], 3, 3, TEXT("|X|Y|Z|P|R|PITCH|YAW|ROLL|")) && HasFiniteNumericFields(Parts[2], 3, 3, TEXT("|X|Y|Z|"));
+						}
+						if (!bValid)
+						{
+							Error = TEXT("Expected finite numeric components");
+							return false;
+						}
+					}
+					if ((Category == UEdGraphSchema_K2::PC_Real || Category == UEdGraphSchema_K2::PC_Float)
+						&& !HasFiniteNumericFields(Input, 1, 1, TEXT("")))
+					{
+						Error = TEXT("Expected a finite number");
+						return false;
+					}
 					if (Category == UEdGraphSchema_K2::PC_Boolean && !Input.Equals(TEXT("true"), ESearchCase::IgnoreCase)
 						&& !Input.Equals(TEXT("false"), ESearchCase::IgnoreCase) && Input != TEXT("0") && Input != TEXT("1"))
 					{
