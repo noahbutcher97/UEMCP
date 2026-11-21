@@ -364,6 +364,29 @@ function canonicalNodeName(exportEntry) {
   );
 }
 
+// Object names are unique only within their outer. A saved Blueprint may
+// have K2Node_CallFunction_0 in several graphs.
+function resolveNodeExportIndex(exports, rawId) {
+  const index = Number(rawId);
+  if (Number.isInteger(index) && index > 0 && index <= exports.length) return index;
+  const exact = [];
+  const base = [];
+  for (const [offset, entry] of exports.entries()) {
+    if (entry.objectName === rawId || canonicalNodeName(entry) === rawId) exact.push(offset + 1);
+    else if (entry.objectNameBase === rawId) base.push(offset + 1);
+  }
+  const matches = exact.length ? exact : base;
+  if (matches.length > 1) {
+    const candidates = matches.map(id => {
+      const entry = exports[id - 1];
+      const outer = exports[entry.outerIndex - 1];
+      return `${outer ? canonicalNodeName(outer) + '.' : ''}${canonicalNodeName(entry)} (export index ${id})`;
+    });
+    throw new Error(`Ambiguous node name "${rawId}". Use the numeric export index for the intended node: ${candidates.join(', ')}`);
+  }
+  return matches[0] ?? null;
+}
+
 /**
  * Classify an EdGraph by its objectName. Heuristic — UE doesn't serialize
  * a type enum on UEdGraph; graph membership on the UBlueprint (UbergraphPages,
@@ -697,25 +720,7 @@ async function bpSubgraphInComment(projectRoot, params) {
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const { diskPath, exports, imports } = ctx;
 
-  // Resolve comment_node_id — integer/numeric-string matches export_index;
-  // plain string matches canonicalNodeName or objectName.
-  // Resolve any node id first (integer export_index OR string objectName),
-  // then verify it's a comment. Two-phase lookup gives callers a precise
-  // "not a comment" message when they pass a valid non-comment id, vs a
-  // generic "not found" when the id is bogus.
-  const asNum = Number(rawId);
-  let commentExportIndex = null;
-  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
-    commentExportIndex = asNum;
-  } else {
-    for (let i = 0; i < exports.length; i++) {
-      const e = exports[i];
-      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
-        commentExportIndex = i + 1;
-        break;
-      }
-    }
-  }
+  const commentExportIndex = resolveNodeExportIndex(exports, rawId);
   if (commentExportIndex === null) {
     throw new Error(`Comment node not found: ${rawId}`);
   }
@@ -848,19 +853,7 @@ async function bpShowNode(projectRoot, params) {
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
   const { diskPath, exports, imports } = ctx;
 
-  const asNum = Number(rawId);
-  let nodeExportIndex = null;
-  if (Number.isInteger(asNum) && asNum > 0 && asNum <= exports.length) {
-    nodeExportIndex = asNum;
-  } else {
-    for (let i = 0; i < exports.length; i++) {
-      const e = exports[i];
-      if (e.objectName === rawId || e.objectNameBase === rawId || canonicalNodeName(e) === rawId) {
-        nodeExportIndex = i + 1;
-        break;
-      }
-    }
-  }
+  const nodeExportIndex = resolveNodeExportIndex(exports, rawId);
   if (nodeExportIndex === null) {
     throw new Error(`Node not found: ${rawId}`);
   }

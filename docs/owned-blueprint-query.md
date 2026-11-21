@@ -83,7 +83,9 @@ Discovery and inspection compare node GUIDs directly with Unreal's recorded
 
 Use `bp_find_in_graph` with the graph name. Take the matching row’s numeric
 `node_id` into `bp_show_node` for a saved-file read. Its `node_guid` is the
-32-digit engine identifier accepted by live Blueprint tools. The generic
+32-digit engine identifier accepted by live Blueprint tools. When a node name
+appears in two graphs, name-only inspection reports both qualified names and
+export indices. Pass the intended numeric index to disambiguate. The generic
 `node.properties.NodeGuid` field preserves its property-reader representation.
 
 If `pin_block` is unavailable, an empty pin array leaves the pin count and
