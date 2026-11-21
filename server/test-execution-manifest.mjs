@@ -102,6 +102,8 @@ try {
     'UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation',
     'UEMCP.BlueprintHandlers.StateNamingIsolation',
     'UEMCP.BlueprintHandlers.FunctionConnectionUndo',
+    'UEMCP.BlueprintHandlers.WriterPinDefaults',
+    'UEMCP.BlueprintHandlers.FunctionGraphIdentity',
   ];
   let blueprint;
   try { blueprint = loadTestProfile('native-blueprint'); } catch { /* Keep the missing-profile regression explicit. */ }

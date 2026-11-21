@@ -199,20 +199,20 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_function_node: {
-    description: 'Add function call node to a Blueprint graph. Supports graph_name, target class, default pin values, and returns pin metadata. Use KismetMathLibrary/GameplayStatics/etc. for math, vector, comparison, and timer calls.',
+    description: 'Add function call node to a Blueprint graph. Resolves the supplied owner or the Blueprint class when omitted. Returns the reflected function path and pin metadata. Use KismetMathLibrary/GameplayStatics/etc. for math, vector, comparison, and timer calls.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function name to call'),
       target: z.string().optional().describe('Target class (e.g. GameplayStatics, KismetMathLibrary). Omit to search BP\'s own class.'),
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
-      params: z.record(z.any()).optional().describe('Default values for function input pins'),
+      params: z.record(z.any()).optional().describe('Input pin literals by name. Unknown inputs or invalid defaults reject the edit.'),
     },
     isReadOp: false,
   },
 
   add_function_graph: {
-    description: 'Create a Blueprint function graph and return the generated FunctionEntry node with pin metadata. Idempotent by graph/function name.',
+    description: 'Create a Blueprint function graph and return the generated FunctionEntry node with pin metadata. Reuses a matching function with one entry. A name collision with another graph kind rejects the edit.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       function_name: z.string().describe('Function graph name to create'),
@@ -238,7 +238,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       variable_name: z.string().describe('Member variable name'),
       graph_name: GraphNameOptional,
       node_position: Vec2Optional,
-      params: z.record(z.any()).optional().describe('Default values for input pins, keyed by pin name'),
+      params: z.record(z.any()).optional().describe('Input pin literals by name. Unknown inputs or invalid defaults reject the edit.'),
     },
     isReadOp: false,
   },
