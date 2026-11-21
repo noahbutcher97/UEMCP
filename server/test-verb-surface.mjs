@@ -613,7 +613,7 @@ if (HAS_BP_DENSE) {
   assert(traceExec.available !== false,
     `bp_trace_exec accepts discovered GUID (was ${traceExec.reason ?? 'OK'})`);
   assert(Array.isArray(traceExec.chain) && traceExec.chain.length >= 1,
-    'bp_trace_exec with M-spatial input returns non-empty chain');
+    'bp_trace_exec with discovered GUID returns non-empty chain');
   // Response echoes canonical form (normalization is observable).
   assert(traceExec.start_node_id === canonical,
     `bp_trace_exec echoes canonical start_node_id (got ${traceExec.start_node_id})`);
@@ -628,18 +628,18 @@ if (HAS_BP_DENSE) {
     start_node_id: seed.node_guid,
   }, PROJECT_ROOT);
   assert(traceData.available !== false,
-    `bp_trace_data accepts M-spatial raw form (was ${traceData.reason ?? 'OK'})`);
+    `bp_trace_data accepts discovered GUID (was ${traceData.reason ?? 'OK'})`);
   assert(traceData.start_node_id === canonical,
     'bp_trace_data echoes canonical start_node_id');
 
-  // bp_neighbors accepts raw M-spatial form via node_id.
+  // bp_neighbors accepts the discovered GUID via node_id.
   const neighbors = await executeOfflineTool('bp_neighbors', {
     asset_path: BP_DENSE,
     graph_name: seed.graph_name,
     node_id: seed.node_guid,
   }, PROJECT_ROOT);
   assert(neighbors.available !== false,
-    `bp_neighbors accepts M-spatial raw form (was ${neighbors.reason ?? 'OK'})`);
+    `bp_neighbors accepts discovered GUID (was ${neighbors.reason ?? 'OK'})`);
   assert(neighbors.node_id === canonical,
     'bp_neighbors echoes canonical node_id');
 } else {
