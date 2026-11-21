@@ -42,6 +42,7 @@ public class UEMCP : ModuleRules
 			"AnimGraph",        // UAnimGraphNode_* editor nodes and state-machine graph types
 			"AnimGraphRuntime", // FAnimNode_Slot / FAnimNode_LayeredBoneBlend payload structs
 			"BlueprintGraph",
+			"InputBlueprintNodes",
 			"Kismet",
 			"GameplayTags",
 			"Json",
