@@ -3368,8 +3368,15 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
-			if (!Graph) return;
+			Params->TryGetStringField(TEXT("graph_name"), GraphName);
+			const bool bEventGraph = GraphName.IsEmpty() || GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase);
+			UEdGraph* Graph = bEventGraph ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : FindGraphByName(Blueprint, GraphName);
+			if (!Graph)
+			{
+				BuildErrorResponse(OutResponse, FString::Printf(TEXT("Cannot find graph '%s'"), bEventGraph ? TEXT("EventGraph") : *GraphName),
+					bEventGraph ? TEXT("NO_GRAPH") : TEXT("GRAPH_NOT_FOUND"));
+				return;
+			}
 
 			UEdGraphNode* Node = nullptr;
 			if (bByName)

@@ -3224,6 +3224,15 @@ bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 	Read->SetStringField(TEXT("node_name"), Node->GetName());
 	Read->RemoveField(TEXT("graph_name"));
 	TestEqual(TEXT("Object name requires graph scope"), ErrorCodeOf(Inspect()), FString(TEXT("MISSING_PARAMS")));
+	Read->RemoveField(TEXT("node_name"));
+	Read->SetStringField(TEXT("node_id"), Id);
+	{
+		TGuardValue<decltype(Fixture.Blueprint->UbergraphPages)> RestorePages(Fixture.Blueprint->UbergraphPages, decltype(Fixture.Blueprint->UbergraphPages)());
+		auto* Decoy = NewObject<UEdGraph>(Fixture.Blueprint, TEXT("BackupEventGraph"));
+		Fixture.Blueprint->UbergraphPages.Add(Decoy);
+		TestEqual(TEXT("Missing EventGraph cannot select a substring match"), ErrorCodeOf(Inspect()), FString(TEXT("NO_GRAPH")));
+		TestEqual(TEXT("No graph created by inspection"), Fixture.Blueprint->UbergraphPages.Num(), 1);
+	}
 	TestEqual(TEXT("Inspection preserves node count"), Graph->Nodes.Num(), Before);
 	TestFalse(TEXT("Inspection leaves package clean"), Fixture.Blueprint->GetOutermost()->IsDirty());
 	return true;
