@@ -43,6 +43,7 @@
 #include "Dom/JsonValue.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Guid.h"
+#include "Misc/DefaultValueHelper.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EdGraph/EdGraph.h"
@@ -3305,6 +3306,94 @@ bool FFunctionConnectionUndo::RunTest(const FString& Parameters)
 		To->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
 	TestTrue(TEXT("Undo legacy disconnect"), History->Undo());
 	TestTrue(TEXT("Undo restores both legacy links"), Connected());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPWriterPinDefaultsTest, "UEMCP.BlueprintHandlers.WriterPinDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
+	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("event graph"), Graph)) return false;
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("function_name"), TEXT("SetActorScale3D"));
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
+	TSharedPtr<FJsonObject> Defaults = MakeShared<FJsonObject>();
+	Params->SetObjectField(TEXT("params"), Defaults);
+
+	const int32 NodeCount = Graph->Nodes.Num();
+	const int32 QueueLength = GEditor->Trans->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	const TCHAR* Call = TEXT("add_blueprint_function_node");
+	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
+	Defaults->SetNumberField(TEXT("Amoun"), 27);
+	TestEqual(TEXT("setter rejects typo"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->RemoveField(TEXT("Amoun"));
+	Defaults->SetStringField(TEXT("NewScale3"), TEXT("2,3,4"));
+	TestEqual(TEXT("function rejects typo"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->RemoveField(TEXT("NewScale3"));
+	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3)});
+	TestEqual(TEXT("function rejects malformed vector"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	Defaults->RemoveField(TEXT("NewScale3D"));
+	Params->SetStringField(TEXT("target"), TEXT("MissingUEMCPWriterOwner"));
+	TestEqual(TEXT("explicit missing owner cannot select self"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("TARGET_CLASS_NOT_FOUND")));
+	TestEqual(TEXT("rejections preserve membership"), Graph->Nodes.Num(), NodeCount);
+	TestFalse(TEXT("rejections preserve clean package"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("rejections preserve Undo history"), GEditor->Trans->GetQueueLength(), QueueLength);
+
+	Params->RemoveField(TEXT("target"));
+	Defaults->SetArrayField(TEXT("NewScale3D"), {MakeShared<FJsonValueNumber>(2), MakeShared<FJsonValueNumber>(3), MakeShared<FJsonValueNumber>(4)});
+	const TSharedPtr<FJsonObject> CallResult = ResultOf(Dispatch(Call, Params));
+	UK2Node_CallFunction* Function = Cast<UK2Node_CallFunction>(FindNodeByGuid(Graph, StringFieldOr(CallResult, TEXT("node_id"))));
+	if (!TestNotNull(TEXT("omitted owner resolves real self member"), Function)) return false;
+	TestEqual(TEXT("member identity"), Function->GetTargetFunction()->GetName(), FString(TEXT("SetActorScale3D")));
+	UEdGraphPin* Scale = Function->FindPin(TEXT("NewScale3D"), EGPD_Input);
+	if (!TestNotNull(TEXT("native scale pin"), Scale)) return false;
+	FVector Parsed;
+	TestTrue(TEXT("retains requested vector"), FDefaultValueHelper::ParseVector(Scale->DefaultValue, Parsed) && Parsed.Equals(FVector(2, 3, 4)));
+	Defaults->RemoveField(TEXT("NewScale3D"));
+	Defaults->SetNumberField(TEXT("Amount"), 27);
+	const TSharedPtr<FJsonObject> SetResult = ResultOf(Dispatch(Set, Params));
+	UEdGraphNode* Setter = FindNodeByGuid(Graph, StringFieldOr(SetResult, TEXT("node_id")));
+	if (!TestNotNull(TEXT("valid setter"), Setter)) return false;
+	TestEqual(TEXT("native variable pin literal"), Setter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("27")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPFunctionGraphIdentityTest, "UEMCP.BlueprintHandlers.FunctionGraphIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Params->SetStringField(TEXT("function_name"), TEXT("ReadAmount"));
+	const TCHAR* Command = TEXT("add_blueprint_function_graph");
+	const TSharedPtr<FJsonObject> Created = ResultOf(Dispatch(Command, Params));
+	const FString EntryId = StringFieldOr(Created, TEXT("node_id"));
+	if (!TestFalse(TEXT("created function entry identity"), EntryId.IsEmpty())) return false;
+	const int32 Count = Fixture.Blueprint->FunctionGraphs.Num();
+	const int32 QueueLength = GEditor->Trans->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	const TSharedPtr<FJsonObject> Reused = ResultOf(Dispatch(Command, Params));
+	TestEqual(TEXT("reuses exact function entry"), StringFieldOr(Reused, TEXT("node_id")), EntryId);
+	TestFalse(TEXT("idempotent reuse"), Reused->GetBoolField(TEXT("created")));
+	Params->SetStringField(TEXT("function_name"), TEXT("EventGraph"));
+	TestEqual(TEXT("rejects a non-function graph"), ErrorCodeOf(Dispatch(Command, Params)), FString(TEXT("GRAPH_KIND_MISMATCH")));
+	TestEqual(TEXT("no additional graph"), Fixture.Blueprint->FunctionGraphs.Num(), Count);
+	TestFalse(TEXT("package stays clean"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("Undo history stays intact"), GEditor->Trans->GetQueueLength(), QueueLength);
 	return true;
 }
 
