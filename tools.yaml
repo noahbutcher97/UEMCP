@@ -583,7 +583,7 @@ toolsets:
       add_function_node:
         mutates_asset: true
         wire_type: add_blueprint_function_node
-        description: Add function call node to a target graph. Use a class name or omit it for self or supported library lookup. Unknown input names and invalid defaults reject the edit. Returns the reflected function path and pin metadata.
+        description: Add function call node to a target graph. Name the library or target class explicitly. Omit the owner to search the Blueprint class and its parents. Unknown input names and invalid defaults reject the edit. Returns the reflected function path and pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function name to call" }
