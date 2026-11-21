@@ -22,12 +22,9 @@ const graphName = 'OwnedGraph';
 const oracleNodes = oracle.graphs[graphName].nodes;
 const eventGuid = '00000001ABCDEF1280000000FFFFFFFF';
 const callGuid = '12345678000000020000000300000004';
-// Public spatial GUIDs contain four little-endian words; do not use the
-// production conversion helper to validate production output.
-const spatialGuid = guid => Buffer.from(guid, 'hex').swap32().toString('hex');
 const expected = [
-  { node_name: 'OwnedPrint', class_name: oracleNodes[callGuid].class_name, node_guid: spatialGuid(callGuid), member_name: 'PrintString', target_class: '/Script/Engine.KismetSystemLibrary', node_pos_x: 300, node_pos_y: 0 },
-  { node_name: 'OwnedEvent', class_name: oracleNodes[eventGuid].class_name, node_guid: spatialGuid(eventGuid), member_name: 'OwnedSignal', target_class: null, node_pos_x: 0, node_pos_y: 0 },
+  { node_name: 'OwnedPrint', class_name: oracleNodes[callGuid].class_name, node_guid: callGuid, member_name: 'PrintString', target_class: '/Script/Engine.KismetSystemLibrary', node_pos_x: 300, node_pos_y: 0 },
+  { node_name: 'OwnedEvent', class_name: oracleNodes[eventGuid].class_name, node_guid: eventGuid, member_name: 'OwnedSignal', target_class: null, node_pos_x: 0, node_pos_y: 0 },
 ];
 const query = (name, params = {}) => executeOfflineTool(name, { asset_path: oracle.asset_path, ...params }, root);
 const find = params => query('bp_find_in_graph', { graph_name: graphName, ...params });
@@ -157,7 +154,7 @@ await check('owned query: unknown node rejected', async () => assert.rejects(() 
 // make a negative control green. Only response clones and scratch copies change.
 for (const [label, mutate] of [
   ['dropped discovery node', row => { row.nodes.pop(); }],
-  ['wrong discovery GUID', row => { row.nodes[0].node_guid = spatialGuid(eventGuid); }],
+  ['wrong discovery GUID', row => { row.nodes[0].node_guid = eventGuid; }],
   ['wrong pagination total', row => { row.total_matched++; }],
 ]) await check(`owned query controls: rejects ${label}`, async () => {
   const result = await find();

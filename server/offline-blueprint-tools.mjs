@@ -6,6 +6,7 @@
 
 import {
   resolvePackageIndex,
+  guidBytesToOracleHex,
   readExportProperties,
   pinBlockLayoutForPackage,
   propertyTagLayoutForPackage,
@@ -139,7 +140,7 @@ export async function findBlueprintNodes(projectRoot, params) {
   const offset = Math.max(0, params.offset ?? 0);
 
   const ctx = await parseAssetForPropertyRead(projectRoot, assetPath);
-  const { diskPath, buf, names, exports, imports, resolve, structHandlers, containerHandlers } = ctx;
+  const { diskPath, buf, names, exports, imports } = ctx;
   const header = await parseAssetHeader(projectRoot, assetPath);
   const primary = header.data.assetRegistry.objects[0] || null;
 
@@ -162,8 +163,7 @@ export async function findBlueprintNodes(projectRoot, params) {
     // Parse the node's tagged properties to extract FMemberReference / etc.
     let nodeProps;
     try {
-      nodeProps = readExportProperties(buf, e, names,
-        { resolve, structHandlers, containerHandlers });
+      nodeProps = readExportProperties(buf, e, names, ctx);
     } catch {
       nodeProps = { properties: {} };
     }
@@ -479,7 +479,6 @@ function extractSpatial(props) {
   if (props.EnabledState !== undefined) out.enabled_state = props.EnabledState;
   if (typeof props.bCommentBubblePinned === 'boolean') out.comment_bubble_pinned = props.bCommentBubblePinned;
   if (typeof props.bCommentBubbleVisible === 'boolean') out.comment_bubble_visible = props.bCommentBubbleVisible;
-  if (typeof props.NodeGuid === 'string') out.node_guid = props.NodeGuid;
   return out;
 }
 
@@ -606,10 +605,10 @@ async function bpListGraphs(projectRoot, params) {
  * bp_list_entry_points. Returns null if the node's serial range is invalid.
  */
 function parseNodeShape(ctx, exportEntry, exportIndex) {
-  const { buf, names, resolve, structHandlers, containerHandlers } = ctx;
+  const { buf, names } = ctx;
   let parsed;
   try {
-    parsed = readExportProperties(buf, exportEntry, names, { resolve, structHandlers, containerHandlers });
+    parsed = readExportProperties(buf, exportEntry, names, ctx);
   } catch {
     parsed = { properties: {} };
   }
@@ -619,6 +618,7 @@ function parseNodeShape(ctx, exportEntry, exportIndex) {
     node_id: exportIndex,
     node_name: canonicalNodeName(exportEntry),
     class_name: className,
+    ...(parsed.nodeGuid ? { node_guid: parsed.nodeGuid } : {}),
     ...extractSpatial(props),
   };
   if (className === 'EdGraphNode_Comment') Object.assign(row, extractCommentExtras(props));
@@ -804,7 +804,7 @@ async function bpListEntryPoints(projectRoot, params) {
     const shape = parseNodeShape(ctx, e, i + 1);
     const semantics = extractNodeSemantics(cls, shape.rawProps);
     const gName = graphNameByPi.get(e.outerIndex) ?? null;
-    const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+    const oracleGuid = shape.row.node_guid ?? null;
     const hasNoExecIn = gName !== null && oracleGuid !== null
       ? !incomingExecByGraphGuid.has(`${gName}|${oracleGuid}`)
       : null;
@@ -884,7 +884,7 @@ async function bpShowNode(projectRoot, params) {
   // coincident-guid node in the wrong graph (audit F-10).
   let pinsOut = [];
   let pinBlockAvailable = false;
-  const oracleGuid = toOracleHexGuid(shape.row.node_guid);
+  const oracleGuid = shape.row.node_guid ?? null;
   if (oracleGuid && graph) {
     const topology = extractBPEdgeTopologyFromCtx(ctx, assetPath);
     const match = topology.graphs?.[graph.name]?.nodes?.[oracleGuid];
@@ -909,6 +909,16 @@ async function bpShowNode(projectRoot, params) {
     asset_path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     node,
+    ...(!pinBlockAvailable && graph && graph._nodes.some(row => row.export_index === nodeExportIndex) ? {
+      live_pin_lookup: {
+        tool: 'show_pin_links',
+        arguments: {
+          blueprint_name: assetPath,
+          graph_name: graph.name,
+          ...(shape.row.node_guid ? { node_id: shape.row.node_guid } : { node_name: shape.row.node_name }),
+        },
+      },
+    } : {}),
     ...faBetaManifest(
       pinBlockAvailable ? [] : ['pin_block', 'pin_defaults'],
       pinBlockAvailable ? ['pin_block', 'pin_defaults'] : [],
@@ -996,38 +1006,8 @@ function isExecPin(pin) {
   return EXEC_PIN_NAME_RE.test(pin.name);
 }
 
-/**
- * Convert the raw NodeGuid emitted by the tagged-fallback FGuid handler
- * (32-char lowercase, byte-LE) into Oracle-A-v2 format (32-char uppercase,
- * BE-per-uint32). Mirrors the parser-internal `extractNodeGuid` transform.
- * Returns null when input isn't a 32-char hex string.
- */
-function toOracleHexGuid(rawGuid) {
-  if (typeof rawGuid !== 'string' || rawGuid.length !== 32) return null;
-  let out = '';
-  for (let g = 0; g < 4; g++) {
-    const chunk = rawGuid.substr(g * 8, 8);
-    const beHex = chunk.match(/../g).reverse().join('');
-    out += beHex.toUpperCase();
-  }
-  return out;
-}
-
-/**
- * Bridge a NodeGuid input to whichever form is keyed in `nodes`. Verb-surface
- * handlers (bp_trace_exec/bp_trace_data/bp_neighbors) key topology by the
- * Oracle-A-v2 canonical form (uppercase BE-per-uint32) but agents commonly
- * pipe NodeGuids straight from M-spatial-output verbs (bp_list_entry_points,
- * bp_find_in_graph, bp_list_graphs.comment_ids[]) which emit the raw
- * tagged-fallback FGuid form (lowercase byte-LE). Without this bridge the
- * lookup silently fails with `node_not_found` even though the node exists
- * (audit F-2). Tries in order:
- *   1. as-is — caller already canonical OR happens to be keyed verbatim.
- *   2. uppercase — caller passed canonical form with mixed case.
- *   3. toOracleHexGuid(lowercase) — caller passed M-spatial raw form.
- * Returns the form present in `nodes`, or rawInput unchanged when nothing
- * matches (downstream surfaces `node_not_found` per existing contract).
- */
+// Older spatial queries returned the four uint32 words in file order. Keep
+// stored inputs usable while preferring the engine GUID for new requests.
 function normalizeNodeGuidInput(rawInput, nodes) {
   if (typeof rawInput !== 'string' || rawInput.length !== 32) return rawInput;
   if (!nodes) return rawInput;
@@ -1035,7 +1015,7 @@ function normalizeNodeGuidInput(rawInput, nodes) {
   const upper = rawInput.toUpperCase();
   if (upper !== rawInput && nodes[upper]) return upper;
   if (/^[0-9a-fA-F]{32}$/.test(rawInput)) {
-    const oracle = toOracleHexGuid(rawInput.toLowerCase());
+    const oracle = guidBytesToOracleHex(Buffer.from(rawInput, 'hex'));
     if (oracle && nodes[oracle]) return oracle;
   }
   return rawInput;
