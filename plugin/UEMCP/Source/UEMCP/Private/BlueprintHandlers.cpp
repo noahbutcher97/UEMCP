@@ -940,11 +940,34 @@ namespace UEMCP
 							return false;
 						}
 					}
-					if ((Category == UEdGraphSchema_K2::PC_Real || Category == UEdGraphSchema_K2::PC_Float)
-						&& !HasFiniteNumericFields(Input, 1, 1, TEXT("")))
+				if (Category == UEdGraphSchema_K2::PC_Real || Category == UEdGraphSchema_K2::PC_Float)
+					{
+					if (!HasFiniteNumericFields(Input, 1, 1, TEXT("")))
 					{
 						Error = TEXT("Expected a finite number");
 						return false;
+					}
+					const bool bSinglePrecision = Category == UEdGraphSchema_K2::PC_Float ||
+						Pin.PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float;
+					const double Number = FCString::Atod(*Input);
+					if (!IsRepresentableRealPinValue(Number, bSinglePrecision))
+					{
+						Error = TEXT("Numeric literal exceeds the pin's finite range");
+						return false;
+					}
+					if (Number == 0.0)
+					{
+						// Once decimal text underflows double, a cast alone cannot distinguish it from a literal zero.
+						for (const TCHAR Digit : Input)
+						{
+							if (Digit == TCHAR('e') || Digit == TCHAR('E')) break;
+							if (Digit >= TCHAR('1') && Digit <= TCHAR('9'))
+							{
+								Error = TEXT("Nonzero numeric literal underflows the pin's range");
+								return false;
+							}
+						}
+					}
 					}
 					if (Category == UEdGraphSchema_K2::PC_Boolean && !Input.Equals(TEXT("true"), ESearchCase::IgnoreCase)
 						&& !Input.Equals(TEXT("false"), ESearchCase::IgnoreCase) && Input != TEXT("0") && Input != TEXT("1"))
