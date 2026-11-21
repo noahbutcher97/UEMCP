@@ -235,11 +235,13 @@ namespace UEMCP
 			return nullptr;
 		}
 
+		enum class EGraphTarget { Name, Read, Wire };
+
 		UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Params,
-			TSharedPtr<FJsonObject>& OutResponse, bool bAllowGraphGuid = false)
+			TSharedPtr<FJsonObject>& OutResponse, EGraphTarget Target = EGraphTarget::Name)
 		{
 			FString GraphName;
-			if (bAllowGraphGuid && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
+			if (Target != EGraphTarget::Name && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
 			{
 				FString Text;
 				FGuid Id;
@@ -250,24 +252,40 @@ namespace UEMCP
 				}
 				TArray<UEdGraph*> Graphs;
 				Blueprint->GetAllGraphs(Graphs);
+				UEdGraph* Match = nullptr;
 				for (UEdGraph* Graph : Graphs)
 				{
 					if (!Graph || Graph->GraphGuid != Id) continue;
+					if (Match && Match != Graph)
+					{
+						BuildErrorResponse(OutResponse, TEXT("Multiple graphs have the supplied GUID"), TEXT("GRAPH_AMBIGUOUS"));
+						return nullptr;
+					}
+					Match = Graph;
+				}
+				if (UEdGraph* Graph = Match)
+				{
 					if (Params->TryGetStringField(TEXT("graph_name"), GraphName) && !GraphName.IsEmpty() && !GraphName.Equals(Graph->GetName(), ESearchCase::IgnoreCase))
 					{
 						BuildErrorResponse(OutResponse, TEXT("Graph name and GUID identify different graphs"), TEXT("GRAPH_IDENTITY_MISMATCH"));
 						return nullptr;
 					}
-					if (!Cast<UAnimBlueprint>(Blueprint) || !Graph->GetSchema() ||
-						!((Graph->GetFName() == TEXT("AnimGraph") && Graph->GetOuter() == Blueprint && Graph->GetSchema()->IsA<UAnimationGraphSchema>()) ||
-						Graph->IsA<UAnimationStateGraph>() || Graph->GetSchema()->GetClass() == UEdGraphSchema_K2::StaticClass()))
+					if (Target == EGraphTarget::Read) return Graph;
+					const auto* Schema = Graph->GetSchema();
+					const bool bPlainK2 = Schema && Schema->GetClass() == UEdGraphSchema_K2::StaticClass();
+					const bool bPawnEvent = bPlainK2 && Blueprint->ParentClass && Blueprint->ParentClass->IsChildOf(APawn::StaticClass()) &&
+						Blueprint->BlueprintType == BPTYPE_Normal && Graph->GetOuter() == Blueprint && Blueprint->UbergraphPages.Contains(Graph);
+					const bool bAnimGraph = Cast<UAnimBlueprint>(Blueprint) && Schema &&
+						((Graph->GetFName() == TEXT("AnimGraph") && Graph->GetOuter() == Blueprint && Schema->IsA<UAnimationGraphSchema>()) ||
+						Graph->IsA<UAnimationStateGraph>() || bPlainK2);
+					if (!bPawnEvent && !bAnimGraph)
 					{
-						BuildErrorResponse(OutResponse, TEXT("GUID wiring supports top-level AnimGraph, state pose graphs and ordinary K2 AnimBP graphs"), TEXT("UNSUPPORTED_GRAPH"));
+						BuildErrorResponse(OutResponse, TEXT("GUID wiring requires an owned Pawn Event Graph or a supported AnimBP graph"), TEXT("UNSUPPORTED_GRAPH"));
 						return nullptr;
 					}
 					if (FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost()))
 					{
-						BuildErrorResponse(OutResponse, TEXT("Graph or Animation Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
+						BuildErrorResponse(OutResponse, TEXT("Graph or Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
 						return nullptr;
 					}
 					return Graph;
@@ -278,7 +296,7 @@ namespace UEMCP
 			if (!Params.IsValid() || !Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty()
 				|| GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
 			{
-				UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+				UEdGraph* EventGraph = Target == EGraphTarget::Read ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : FindOrCreateEventGraph(Blueprint);
 				if (!EventGraph)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
@@ -3341,7 +3359,7 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse, true);
+			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Wire);
 			if (!EventGraph) return;
 
 			UEdGraphNode* SourceNode = FindNodeByGuid(EventGraph, SourceId);
@@ -3567,15 +3585,8 @@ namespace UEMCP
 				return;
 			}
 
-			Params->TryGetStringField(TEXT("graph_name"), GraphName);
-			const bool bEventGraph = GraphName.IsEmpty() || GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase);
-			UEdGraph* Graph = bEventGraph ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : FindGraphByName(Blueprint, GraphName);
-			if (!Graph)
-			{
-				BuildErrorResponse(OutResponse, FString::Printf(TEXT("Cannot find graph '%s'"), bEventGraph ? TEXT("EventGraph") : *GraphName),
-					bEventGraph ? TEXT("NO_GRAPH") : TEXT("GRAPH_NOT_FOUND"));
-				return;
-			}
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Read);
+			if (!Graph) return;
 
 			UEdGraphNode* Node = nullptr;
 			if (bByName)
@@ -3729,7 +3740,7 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Wire);
 			if (!Graph) return;
 
 			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);

@@ -3454,4 +3454,56 @@ bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnGraphGuidWiring, "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprintOfType(APawn::StaticClass(), BPTYPE_Normal);
+	if (!TestNotNull(TEXT("Pawn Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("Pawn Event Graph"), Graph)) return false;
+	auto Call = MakeShared<FJsonObject>();
+	Call->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Call->SetStringField(TEXT("function_name"), TEXT("Not_PreBool"));
+	Call->SetStringField(TEXT("target"), TEXT("KismetMathLibrary"));
+	auto PlaceCall = [&]()
+	{
+		return FindNodeByGuid(Graph, StringFieldOr(ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Call)), TEXT("node_id")));
+	};
+	UEdGraphNode* Source = PlaceCall();
+	UEdGraphNode* Target = PlaceCall();
+	if (!TestNotNull(TEXT("Source"), Source) || !TestNotNull(TEXT("Target"), Target)) return false;
+	auto Connect = MakeShared<FJsonObject>();
+	Connect->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Connect->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Connect->SetStringField(TEXT("source_node_id"), Source->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("source_pin"), TEXT("ReturnValue"));
+	Connect->SetStringField(TEXT("target_node_id"), Target->NodeGuid.ToString());
+	Connect->SetStringField(TEXT("target_pin"), TEXT("A"));
+	FString Code;
+	if (!TestTrue(TEXT("Wire the owned pawn graph by GUID"), IsSuccess(Dispatch(TEXT("connect_blueprint_nodes"), Connect), Code))) return false;
+	auto Pin = MakeShared<FJsonObject>();
+	Pin->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Pin->SetStringField(TEXT("node_id"), Target->NodeGuid.ToString());
+	Pin->SetStringField(TEXT("pin"), TEXT("A"));
+	Pin->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	Pin->SetStringField(TEXT("graph_name"), TEXT("WrongGraph"));
+	for (const TCHAR* Op : {TEXT("show_blueprint_pin_links"), TEXT("disconnect_blueprint_pin")})
+	{
+		TestEqual(TEXT("Name and GUID must agree"), ErrorCodeOf(Dispatch(Op, Pin)), FString(TEXT("GRAPH_IDENTITY_MISMATCH")));
+	}
+	Pin->RemoveField(TEXT("graph_name"));
+	Pin->SetStringField(TEXT("graph_guid"), Source->NodeGuid.ToString());
+	TestEqual(TEXT("Unknown graph cannot inspect the default graph"), ErrorCodeOf(Dispatch(TEXT("show_blueprint_pin_links"), Pin)), FString(TEXT("GRAPH_NOT_FOUND")));
+	Pin->SetStringField(TEXT("graph_guid"), Graph->GraphGuid.ToString());
+	TestTrue(TEXT("Inspect by graph GUID"), IsSuccess(Dispatch(TEXT("show_blueprint_pin_links"), Pin), Code));
+	TestTrue(TEXT("Read leaves reciprocal wire intact"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.Contains(Target->FindPinChecked(TEXT("A"))));
+	TestTrue(TEXT("Disconnect by graph GUID"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Pin), Code));
+	TestTrue(TEXT("Disconnect removed both ends"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() && Target->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
