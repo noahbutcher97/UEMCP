@@ -267,7 +267,7 @@ toolsets:
           handlers.
         params:
           asset_path:      { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
-          comment_node_id: { type: string, required: true, description: "Comment node identifier — either the export_index as a string/integer, or the node's full objectName." }
+          comment_node_id: { type: string|integer, required: true, description: "Comment node identifier — either the export_index as a string/integer, or the node's full objectName." }
       bp_list_entry_points:
         description: >-
           Enumerate graph entry points — K2Node_Event, K2Node_CustomEvent, and
@@ -302,7 +302,7 @@ toolsets:
           export_index (integer or numeric string) or full node objectName.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
-          node_id:    { type: string, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
+          node_id:    { type: string|integer, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }
       bp_trace_exec:
         description: >-
           Walk the outgoing exec chain from a starting node in a specific
