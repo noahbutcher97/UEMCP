@@ -47,6 +47,7 @@ t.assert(inputRanking.indexOf('find_graph_actions') < inputRanking.indexOf('add_
   'Enhanced Input discovery precedes the legacy writer', inputRanking.join(', '));
 assertTopIncludes('play animation sequence in AnimGraph', 'find_graph_actions', 3);
 assertTopIncludes('add legacy named input mapping event', 'add_input_action_node', 3);
+assertTopIncludes('hold trigger Started Completed Canceled early release', 'place_graph_action', 3);
 
 const animGraphNames = topToolNames(index, 'AnimGraph state machine slot layered blend', 8);
 t.assert(

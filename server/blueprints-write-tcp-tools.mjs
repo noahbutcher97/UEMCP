@@ -14,7 +14,7 @@
 // tools.yaml (`blueprints-write:` toolset), ConnectionManager.send dispatch.
 
 import { z } from 'zod';
-import { graphActionAssetPath } from './graph-action-session.mjs';
+import { graphActionAssetPath, holdTriggerWiring } from './graph-action-session.mjs';
 
 // ── Common Zod shapes ──────────────────────────────────────────
 
@@ -462,7 +462,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   place_graph_action: {
-    description: 'Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Each Sequence Player placement adds an instance. After a lost reply, rediscover and inspect placed_nodes before retrying.',
+    description: `Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Each Sequence Player placement adds an instance. After a lost reply, rediscover and inspect placed_nodes before retrying. ${holdTriggerWiring}`,
     schema: {
       asset_path: graphActionAssetPath.describe('Target Blueprint package path used for discovery'),
       graph_guid: stateGraphTarget.graph_guid.describe('Resolved graph_guid from discovery'),

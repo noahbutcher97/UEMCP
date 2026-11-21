@@ -849,7 +849,10 @@ toolsets:
         status: shipped
         wire_type: place_graph_action
         mutates_asset: true
-        description: Place the exact asset-backed action selected by find_graph_actions. Reuses one matching input event or adds a new Sequence Player. After a lost response inspect placed_nodes before retrying. Wire, compile and save explicitly.
+        description: >-
+          Place the exact asset-backed action selected by find_graph_actions. Reuses one matching input event or adds a new Sequence Player.
+          After a lost response inspect placed_nodes before retrying. Wire, compile and save explicitly.
+          For a repeating Hold trigger, set a held flag on Started (press). Clear it on both Completed (release after the hold triggers) and Canceled (early release).
         params:
           asset_path: { type: string, required: true, description: "Target Blueprint package path used during discovery" }
           graph_guid: { type: string, required: true, description: "Resolved target graph GUID" }

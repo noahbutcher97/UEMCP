@@ -367,6 +367,13 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       if (type === 'place_graph_action' && params.expected_revision === 'previous') {
         return { status: 'error', code: 'STALE_GRAPH_REVISION', error: 'Refresh the graph', detail: { source_asset_path: '/Game/Walk.Walk' } };
       }
+      if (type === 'place_graph_action') {
+        const input = params.action_id === 'selected-input';
+        return { status: 'success', result: {
+          node_class: input ? '/Script/InputBlueprintNodes.K2Node_EnhancedInputAction' : '/Script/AnimGraph.AnimGraphNode_SequencePlayer',
+          pins: input ? [{ name: 'Completed', pin_id: 'completed-output' }] : [],
+        } };
+      }
       return reply;
     } });
     app = wire.app;
@@ -394,6 +401,10 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       t.assert(described.dispatcher === dispatcher, `${name} advertises correct dispatcher`);
       const direct = await callTool(transport, name, args);
       const viaDispatcher = await dispatch(transport, name, args, dispatcher);
+      if (name === 'place_graph_action') {
+        t.assert(/Started.*Completed.*Canceled/.test(described.description), 'placement help names all three repeating Hold branches');
+        t.assert(!Object.hasOwn(JSON.parse(text(direct)).result, 'hold_trigger_wiring'), 'Sequence Player results omit input-event guidance');
+      }
       t.assert(direct.result && viaDispatcher.result && !direct.result.isError && !viaDispatcher.result.isError && text(direct) === text(viaDispatcher),
         `${name} has direct and dispatcher result parity`);
       const pair = calls.filter(call => call.type === name);
@@ -402,6 +413,17 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       t.assert(typeof discoveredScope === 'string' && discoveredScope.length > 0 && pair.every(call =>
         resolve(call.params.expected_project_file) === resolve(project.uprojectPath) && call.params.attachment_id === discoveredScope),
         `${name} supplies the attached project file and shared MCP session scope`);
+    }
+    const pawn = '/Game/Pawns/BP_Player';
+    await dispatch(transport, 'find_graph_actions', { asset_path: pawn, graph_name: 'EventGraph', source_asset_path: '/Game/Input/IA_Interact' });
+    const inputArgs = { ...place, asset_path: pawn, graph_guid: 'pawn-event-graph', action_id: 'selected-input' };
+    for (const response of [
+      await callTool(transport, 'place_graph_action', inputArgs),
+      await dispatch(transport, 'place_graph_action', inputArgs, 'call_mutating_tool'),
+    ]) {
+      const result = JSON.parse(text(response)).result;
+      t.assert(/repeating Hold.*Started \(press\).*both Completed \(release after the hold triggers\) and Canceled \(early release\)/.test(result.hold_trigger_wiring)
+        && result.pins[0].pin_id === 'completed-output', 'event placement explains both release pins alongside actual engine pin IDs');
     }
     losePlacementReply = true;
     const lost = await dispatch(transport, 'place_graph_action', place, 'call_mutating_tool');

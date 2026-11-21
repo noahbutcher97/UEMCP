@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
+export const holdTriggerWiring = 'For a repeating Hold trigger, set a held flag on Started (press). Clear it on both Completed (release after the hold triggers) and Canceled (early release).';
+
 export const graphActionAssetPath = z.string().regex(/^\/[^/]+\/[^/].*$/, 'Supply an absolute Unreal asset path, for example /Game/Characters/BP_Player.');
 
 const rediscoverableErrors = new Set([
@@ -27,7 +29,11 @@ export function createGraphActionSender(projectContext, connectionManager) {
       dispatched = true;
     };
     try {
-      return await connectionManager.send('tcp-55558', toolName, params, { skipCache: true, beforeDispatch });
+      const reply = await connectionManager.send('tcp-55558', toolName, params, { skipCache: true, beforeDispatch });
+      if (toolName === 'place_graph_action' && reply?.result?.node_class === '/Script/InputBlueprintNodes.K2Node_EnhancedInputAction') {
+        return { ...reply, result: { hold_trigger_wiring: holdTriggerWiring, ...reply.result } };
+      }
+      return reply;
     } catch (error) {
       if (!error.wireError && (!dispatched || toolName !== 'place_graph_action')) throw error;
       const { code, message, detail } = error.wireError ?? {
