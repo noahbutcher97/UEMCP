@@ -115,6 +115,10 @@ namespace UEMCP
 			Obj->SetStringField(TEXT("subcategory_object"), Pin->PinType.PinSubCategoryObject->GetName());
 		}
 		Obj->SetStringField(TEXT("default"), Pin->DefaultValue);
+		if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Text || !Pin->DefaultTextValue.IsEmpty())
+		{
+			Obj->SetStringField(TEXT("default_text_value"), Pin->DefaultTextValue.ToString());
+		}
 		if (Pin->DefaultObject)
 		{
 			Obj->SetStringField(TEXT("default_object"), Pin->DefaultObject->GetPathName());

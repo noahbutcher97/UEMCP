@@ -163,6 +163,21 @@ try {
     JSON.stringify(absent.live_pin_lookup) === JSON.stringify({ tool: 'show_pin_links',
       arguments: { blueprint_name: '/Game/MissingGuid', graph_name: 'EventGraph', node_name: 'First' } }),
     'missing saved GUID gives a scoped read-only live lookup');
+  for (const asset_path of ['Content/MissingGuid.uasset', '/Game/MissingGuid.uasset']) {
+    const located = await bpShowNodeSafe(root, { asset_path, node_id: 2 });
+    t.assert(located.live_pin_lookup?.arguments.blueprint_name === '/Game/MissingGuid',
+      'disk and extension-bearing paths return the mounted game package: ' + asset_path);
+  }
+  const extra = join(root, 'Plugins', 'Probe', 'Content');
+  mkdirSync(extra, { recursive: true });
+  writeFileSync(join(root, 'Plugins', 'Probe', 'Probe.uplugin'), '{}');
+  writeFileSync(join(extra, 'MissingGuid.uasset'), missing);
+  for (const asset_path of ['/Probe/MissingGuid', 'Plugins/Probe/Content/MissingGuid.uasset']) {
+    const mounted = await bpShowNodeSafe(root, { asset_path, node_id: 2 });
+    t.assert(!mounted.live_pin_lookup && mounted.live_pin_lookup_unavailable?.includes('/Game'),
+      'a package outside game content explains unavailable live lookup: ' + asset_path);
+  }
+
 } finally {
   cleanupCanonicalScratchRoot(root, prefix);
 }

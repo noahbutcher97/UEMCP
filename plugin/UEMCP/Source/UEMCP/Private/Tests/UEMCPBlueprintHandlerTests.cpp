@@ -61,6 +61,7 @@
 #include "K2Node_VariableSet.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/KismetTextLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/Package.h"
@@ -3200,6 +3201,16 @@ bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 	Creator.Finalize();
 	const FString Id = Node->NodeGuid.ToString();
 
+	UFunction* TextFunction = UKismetTextLibrary::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UKismetTextLibrary, Conv_TextToString));
+	if (!TestNotNull(TEXT("Text conversion function"), TextFunction)) return false;
+	FGraphNodeCreator<UK2Node_CallFunction> TextCreator(*Graph);
+	UK2Node_CallFunction* TextNode = TextCreator.CreateNode();
+	TextNode->SetFromFunction(TextFunction);
+	TextCreator.Finalize();
+	auto* TextPin = TextNode->FindPin(TEXT("InText"), EGPD_Input);
+	if (!TestNotNull(TEXT("Text input"), TextPin)) return false;
+	TextPin->DefaultTextValue = NSLOCTEXT("UEMCPTests", "PinInspectorText", "Visible text default");
+
 	auto Read = MakeShared<FJsonObject>();
 	Read->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
 	Read->SetStringField(TEXT("graph_name"), Graph->GetName());
@@ -3215,6 +3226,12 @@ bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("Actual scale pin"), ScalePin)) return false;
 	TestEqual(TEXT("Current scale pin default"), StringFieldOr(Scale, TEXT("default")), ScalePin->DefaultValue);
 	TestEqual(TEXT("Current scale pin identity"), StringFieldOr(Scale, TEXT("pin_id")), ScalePin->PinId.ToString());
+
+	Read->SetStringField(TEXT("node_name"), TextNode->GetName());
+	const auto TextEntry = FindEntryByField(ResultOf(Inspect()), TEXT("pins"), TEXT("name"), TEXT("InText"));
+	TestEqual(TEXT("Text channel from Unreal pin"), StringFieldOr(TextEntry, TEXT("default_text_value")), TextPin->DefaultTextValue.ToString());
+	TestEqual(TEXT("Separate string literal preserved"), StringFieldOr(TextEntry, TEXT("default")), TextPin->DefaultValue);
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
 
 	Read->SetStringField(TEXT("node_id"), Id);
 	TestEqual(TEXT("Conflicting selectors refused"), ErrorCodeOf(Inspect()), FString(TEXT("INVALID_NODE_SELECTOR")));

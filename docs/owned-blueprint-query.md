@@ -93,7 +93,12 @@ values unknown. For graph nodes, `bp_show_node.live_pin_lookup` supplies the
 exact `show_pin_links` arguments for an attached editor. Omit `pin` to list
 current pins, types and literal defaults. Supply a pin name to inspect its
 connections. If saved identity is missing, the lookup uses the exact graph and
-node object names. Both live reads work without generating a sidecar.
+node object names. Literal text pins expose their current display string in
+`default_text_value`. Both live reads work without generating a sidecar.
+
+A project-relative disk path inside Content resolves to its extensionless `/Game`
+package. The live Blueprint resolver requires game content. An inspected asset
+outside that mount returns `live_pin_lookup_unavailable` with the reason.
 
 ## Explicit qualification limits
 
