@@ -3285,6 +3285,12 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("one valid literal cannot mask an unknown input"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
 	Defaults->RemoveField(TEXT("Amount"));
 	Defaults->RemoveField(TEXT("Amoun"));
+	for (const TCHAR* Invalid : { TEXT("2147483648"), TEXT("-2147483649"), TEXT("0x100000000"), TEXT("32no") })
+	{
+		Defaults->SetStringField(TEXT("Amount"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
+	Defaults->RemoveField(TEXT("Amount"));
 	Defaults->SetStringField(TEXT("NewScale3"), TEXT("2,3,4"));
 	TestEqual(TEXT("function rejects typo"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("PIN_NOT_FOUND")));
 	Defaults->RemoveField(TEXT("NewScale3"));
@@ -3329,6 +3335,11 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	UEdGraphNode* Setter = FindNodeByGuid(Graph, StringFieldOr(SetResult, TEXT("node_id")));
 	if (!TestNotNull(TEXT("valid setter"), Setter)) return false;
 	TestEqual(TEXT("native variable pin literal"), Setter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("27")));
+	Defaults->SetStringField(TEXT("Amount"), TEXT("0x10"));
+	const auto HexResult = ResultOf(Dispatch(Set, Params));
+	auto* HexSetter = FindNodeByGuid(Graph, StringFieldOr(HexResult, TEXT("node_id")));
+	if (!TestNotNull(TEXT("hexadecimal integer"), HexSetter)) return false;
+	TestEqual(TEXT("VM receives the decimal integer"), HexSetter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("16")));
 	return true;
 }
 

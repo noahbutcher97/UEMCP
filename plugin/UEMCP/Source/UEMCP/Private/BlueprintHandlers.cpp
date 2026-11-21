@@ -2,6 +2,7 @@
 #include "BlueprintHandlers.h"
 #include "Misc/DefaultValueHelper.h"
 #include "Internationalization/Regex.h"
+#include "Misc/Parse.h"
 #include "CachePoseAuthoring.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimationStateGraph.h"
@@ -824,6 +825,30 @@ namespace UEMCP
 			return End == Input.Len() && Count >= MinCount;
 		}
 
+		// The VM emits integers from decimal text. Resolve any explicit hex
+		// form and verify the target range before handing the literal to K2.
+		bool NormalizeIntegerText(FString& Text, const int64 Min, const int64 Max)
+		{
+			FString Digits = Text.TrimStartAndEnd();
+			const bool bNegative = Digits.RemoveFromStart(TEXT("-"));
+			if (!bNegative) Digits.RemoveFromStart(TEXT("+"));
+			const int32 Base = Digits.RemoveFromStart(TEXT("0x"), ESearchCase::IgnoreCase) ? 16 : 10;
+			if (Digits.IsEmpty()) return false;
+			uint64 Magnitude = 0;
+			const uint64 Limit = bNegative ? (uint64(0) - static_cast<uint64>(Min)) : static_cast<uint64>(Max);
+			for (const TCHAR Character : Digits)
+			{
+				if (!FChar::IsHexDigit(Character)) return false;
+				const uint64 Digit = FParse::HexDigit(Character);
+				if (Digit >= static_cast<uint64>(Base) || Digit > Limit || Magnitude > (Limit - Digit) / Base) return false;
+				Magnitude = Magnitude * Base + Digit;
+			}
+			const int64 Result = bNegative && Magnitude == Limit ? Min :
+				(bNegative ? -static_cast<int64>(Magnitude) : static_cast<int64>(Magnitude));
+			Text = LexToString(Result);
+			return true;
+		}
+
 		bool PreparePinDefault(UEdGraphPin& Pin, const TSharedPtr<FJsonValue>& Value, const UEdGraphSchema_K2& Schema,
 			FString& Error)
 		{
@@ -883,6 +908,14 @@ namespace UEMCP
 				{
 					Input = Value->AsString();
 					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
+					const bool bByte = Category == UEdGraphSchema_K2::PC_Byte && !StructType;
+					if ((Category == UEdGraphSchema_K2::PC_Int && !NormalizeIntegerText(Input, MIN_int32, MAX_int32)) ||
+						(Category == UEdGraphSchema_K2::PC_Int64 && !NormalizeIntegerText(Input, MIN_int64, MAX_int64)) ||
+						(bByte && !NormalizeIntegerText(Input, 0, 255)))
+					{
+						Error = TEXT("Expected an integer within the pin's range");
+						return false;
+					}
 					if (!Input.IsEmpty() && Category == UEdGraphSchema_K2::PC_Struct)
 					{
 						bool bValid = true;
