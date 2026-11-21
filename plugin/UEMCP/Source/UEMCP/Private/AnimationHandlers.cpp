@@ -1205,7 +1205,7 @@ namespace UEMCP
 				return;
 			}
 
-			UAnimMontage* Montage = NewObject<UAnimMontage>(Package, *Name, RF_Public | RF_Standalone);
+			UAnimMontage* Montage = NewObject<UAnimMontage>(Package, *Name, RF_Public | RF_Standalone | RF_Transactional);
 			if (!Montage)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to create UAnimMontage"), TEXT("MONTAGE_CREATE_FAILED"));
@@ -1246,7 +1246,7 @@ namespace UEMCP
 			// Default section at time 0 (no auto-advance).
 			FCompositeSection DefaultSection;
 			DefaultSection.SectionName = FName(TEXT("Default"));
-			DefaultSection.SetTime(0.0f);
+			DefaultSection.Link(Montage, 0.f);
 			DefaultSection.NextSectionName = NAME_None;
 			Montage->CompositeSections.Add(DefaultSection);
 
@@ -1273,6 +1273,30 @@ namespace UEMCP
 		// Refuses to overwrite an existing section by name (the legacy oracle
 		// silently overwrote, per the animation TOOLSET_TIPS quirk). Loud failure
 		// is preferable to silent collision.
+
+		// Link to a real animation segment even when a different slot owns this part of the timeline.
+		bool FindMontageLink(UAnimMontage& Montage, double Time, bool bAllowEnd,
+			int32& OutSlot, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			const float End = Montage.CalculateSequenceLength();
+			const float StoredTime = static_cast<float>(Time);
+			if (FMath::IsFinite(Time) && Time >= 0.0 && Time <= End && End > 0.f && (bAllowEnd || StoredTime < End))
+			{
+				for (int32 Index = 0; Index < Montage.SlotAnimTracks.Num(); ++Index)
+				{
+					const FAnimSegment* Segment = Montage.SlotAnimTracks[Index].AnimTrack.GetSegmentAtTime(StoredTime);
+					if (Segment && Segment->GetAnimReference() && Segment->GetLength() > 0.f)
+					{
+						OutSlot = Index;
+						return true;
+					}
+				}
+			}
+			BuildErrorResponse(OutResponse, FString::Printf(
+				TEXT("Time %.9g requires animation segment coverage in [0, %.9g%s seconds"),
+				Time, End, bAllowEnd ? TEXT("]") : TEXT(")")), TEXT("MONTAGE_TIME_OUT_OF_RANGE"));
+			return false;
+		}
 
 		void HandleAddMontageSection(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
@@ -1309,7 +1333,14 @@ namespace UEMCP
 				return;
 			}
 
+			int32 Slot = INDEX_NONE;
+			if (!FindMontageLink(*Montage, Time, false, Slot, OutResponse)) return;
 			const FName SectionFName(*SectionName);
+			if (SectionFName.IsNone())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Section name cannot be None"), TEXT("INVALID_SECTION_NAME"));
+				return;
+			}
 			for (const FCompositeSection& Existing : Montage->CompositeSections)
 			{
 				if (Existing.SectionName == SectionFName)
@@ -1319,13 +1350,25 @@ namespace UEMCP
 						TEXT("SECTION_EXISTS"));
 					return;
 				}
+				if (Existing.GetTime() == static_cast<float>(Time))
+				{
+					BuildErrorResponse(OutResponse, TEXT("A section already starts at that time"), TEXT("SECTION_TIME_OCCUPIED"));
+					return;
+				}
 			}
 
+			const FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddMontageSection", "Add montage section"));
+			Montage->SetFlags(RF_Transactional);
+			Montage->Modify();
 			FCompositeSection NewSection;
 			NewSection.SectionName = SectionFName;
-			NewSection.SetTime(static_cast<float>(Time));
+			NewSection.Link(Montage, static_cast<float>(Time), Slot);
 			NewSection.NextSectionName = NAME_None;
 			Montage->CompositeSections.Add(NewSection);
+			Montage->CompositeSections.Sort([](const FCompositeSection& A, const FCompositeSection& B)
+			{
+				return A.GetTime() < B.GetTime();
+			});
 			Montage->RefreshCacheData();
 			Montage->PostEditChange();
 			Montage->MarkPackageDirty();
@@ -1335,6 +1378,51 @@ namespace UEMCP
 			Result->SetStringField(TEXT("section_name"), SectionName);
 			Result->SetNumberField(TEXT("time"), Time);
 			Result->SetNumberField(TEXT("section_count"), Montage->CompositeSections.Num());
+			BuildSuccessResponse(OutResponse, Result);
+		}
+
+		void HandleSetMontageNextSection(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
+		{
+			FString AssetPath, Section, Next;
+			if (!RequireAssetPath(Params, TEXT("set_montage_next_section"), AssetPath, OutResponse)) return;
+			if (!Params->TryGetStringField(TEXT("section_name"), Section) || Section.IsEmpty() ||
+				!Params->TryGetStringField(TEXT("next_section"), Next))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Supply section_name and next_section. An empty next_section ends playback."),
+					TEXT("MISSING_PARAMS"));
+				return;
+			}
+			UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, *ToObjectPath(AssetPath));
+			if (!Montage)
+			{
+				BuildErrorResponse(OutResponse, TEXT("Montage asset was not found"), TEXT("MONTAGE_NOT_FOUND"));
+				return;
+			}
+			const int32 Index = Montage->GetSectionIndex(FName(*Section));
+			const FName Destination(*Next);
+			if (Index == INDEX_NONE || (!Next.IsEmpty() && (Destination.IsNone() || Montage->GetSectionIndex(Destination) == INDEX_NONE)))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Both section names must exist in the montage. Use an empty next_section to stop."),
+					TEXT("MONTAGE_SECTION_NOT_FOUND"));
+				return;
+			}
+			FCompositeSection& Source = Montage->CompositeSections[Index];
+			const FName Previous = Source.NextSectionName;
+			if (Previous != Destination)
+			{
+				const FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "SetMontageNextSection", "Set next montage section"));
+				Montage->SetFlags(RF_Transactional);
+				Montage->Modify();
+				Source.NextSectionName = Destination;
+				Montage->PostEditChange();
+				Montage->MarkPackageDirty();
+			}
+			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+			Result->SetStringField(TEXT("asset_path"), AssetPath);
+			Result->SetStringField(TEXT("section_name"), Section);
+			Result->SetStringField(TEXT("previous_next_section"), Previous.ToString());
+			Result->SetStringField(TEXT("next_section"), Destination.ToString());
+			Result->SetBoolField(TEXT("changed"), Previous != Destination);
 			BuildSuccessResponse(OutResponse, Result);
 		}
 
@@ -1425,29 +1513,37 @@ namespace UEMCP
 				return;
 			}
 
+			const float StartTime = static_cast<float>(Time);
+			constexpr float StateDuration = 0.1f;
+			int32 Slot = INDEX_NONE, EndSlot = INDEX_NONE;
+			if (!FindMontageLink(*Montage, Time, !bIsStateful, Slot, OutResponse)) return;
+			if (bIsStateful && !FindMontageLink(*Montage, StartTime + StateDuration, true, EndSlot, OutResponse)) return;
+
+			const FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddMontageNotify", "Add montage notify"));
+			Montage->SetFlags(RF_Transactional);
+			Montage->Modify();
 			FAnimNotifyEvent NewEvent;
+			NewEvent.Guid = FGuid::NewGuid();
 			NewEvent.NotifyName = NotifyClass->GetFName();
-			// Pass EAnimLinkMethod::Absolute explicitly — relative links require a
-			// section anchor and add complexity for no current consumer. NotifyName
-			// is set explicitly above (auto-assignment inside Link/PostEditChange
-			// is not guaranteed across UE 5.x revisions).
-			NewEvent.Link(Montage, static_cast<float>(Time), EAnimLinkMethod::Absolute);
-			NewEvent.TriggerTimeOffset = 0.0f;
+			NewEvent.Link(Montage, StartTime, Slot);
+			NewEvent.TriggerTimeOffset = GetTriggerTimeOffsetForType(Montage->CalculateOffsetForNotify(StartTime));
 
 			if (bIsStateful)
 			{
-				UAnimNotifyState* StatefulInst = NewObject<UAnimNotifyState>(Montage, NotifyClass);
+				UAnimNotifyState* StatefulInst = NewObject<UAnimNotifyState>(Montage, NotifyClass, NAME_None, RF_Transactional);
 				if (!StatefulInst)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to instantiate UAnimNotifyState"), TEXT("NOTIFY_CREATE_FAILED"));
 					return;
 				}
 				NewEvent.NotifyStateClass = StatefulInst;
-				NewEvent.SetDuration(0.1f);
+				NewEvent.SetDuration(StateDuration);
+				NewEvent.EndLink.Link(Montage, StartTime + StateDuration, EndSlot);
+				NewEvent.EndTriggerTimeOffset = GetTriggerTimeOffsetForType(Montage->CalculateOffsetForNotify(StartTime + StateDuration));
 			}
 			else
 			{
-				UAnimNotify* NotifyInst = NewObject<UAnimNotify>(Montage, NotifyClass);
+				UAnimNotify* NotifyInst = NewObject<UAnimNotify>(Montage, NotifyClass, NAME_None, RF_Transactional);
 				if (!NotifyInst)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to instantiate UAnimNotify"), TEXT("NOTIFY_CREATE_FAILED"));
@@ -1875,6 +1971,7 @@ namespace UEMCP
 	{
 		Registry.Register(TEXT("create_montage"),      &HandleCreateMontage);
 		Registry.Register(TEXT("add_montage_section"), &HandleAddMontageSection);
+		Registry.Register(TEXT("set_montage_next_section"), &HandleSetMontageNextSection);
 		Registry.Register(TEXT("add_montage_notify"),  &HandleAddMontageNotify);
 		Registry.Register(TEXT("get_anim_graph"),      &HandleGetAnimGraph);
 		Registry.Register(TEXT("insert_anim_slot"), &HandleInsertAnimSlot);
