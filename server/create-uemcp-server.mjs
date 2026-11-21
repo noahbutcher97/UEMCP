@@ -282,6 +282,7 @@ function buildOfflineSchemaShape(def) {
 }
 
 function buildTcpSchemaShape(def) {
+  if (def.unknownArgumentMessage) return z.object(def.schema).strict(def.unknownArgumentMessage);
   const shape = {};
   for (const [paramName, zodField] of Object.entries(def.schema)) {
     shape[paramName] = zodField;

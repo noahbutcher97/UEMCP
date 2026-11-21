@@ -233,7 +233,8 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   add_variable_set: {
-    description: 'Add member variable set node to a target Blueprint graph. Returns pin metadata.',
+    description: 'Add a setter for a member variable. To set Interacting true, pass params: { Interacting: true }. Use graph_name to choose the graph. Returns the created input pins and their defaults.',
+    unknownArgumentMessage: 'Unknown setter argument. Choose the graph with graph_name and put the literal in params keyed by variable_name, for example params: { Interacting: true }.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       variable_name: z.string().describe('Member variable name'),
@@ -579,7 +580,8 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
   // P0-9 (required-param) / P0-10 (vector shape) — Zod here so bad shapes
   // never hit the wire. The SDK already parses at tools/call, but direct
   // callers (tests, internal reuse) bypass that layer.
-  const validated = z.object(def.schema).parse(args);
+  const schema = z.object(def.schema);
+  const validated = (def.unknownArgumentMessage ? schema.strict(def.unknownArgumentMessage) : schema).parse(args);
   if (toolName === 'place_graph_action') return sendGraphAction(toolName, validated);
 
   // Wire-type translation: tools.yaml name → C++ type string.

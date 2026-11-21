@@ -644,7 +644,10 @@ toolsets:
       add_variable_set:
         mutates_asset: true
         wire_type: add_blueprint_variable_set_node
-        description: Add member variable set node to a target Blueprint graph. Returns pin metadata. Unknown input names and invalid defaults reject the edit.
+        description: >-
+          Add a setter for a member variable. To set Interacting true, pass params keyed by the
+          member name, for example { Interacting: true }. Choose the graph with graph_name.
+          Unknown arguments, unknown input pins and invalid defaults reject the edit.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           variable_name:  { type: string, required: true, description: "Member variable name" }
