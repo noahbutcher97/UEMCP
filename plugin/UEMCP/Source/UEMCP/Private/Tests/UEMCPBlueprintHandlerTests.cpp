@@ -3361,7 +3361,8 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	const TCHAR* Call = TEXT("add_blueprint_function_node");
 	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
 	Params->SetStringField(TEXT("variable_name"), TEXT("Single"));
-	for (const TCHAR* Invalid : { TEXT("1e39"), TEXT("-1e39"), TEXT("1e-46"), TEXT("1e-9999") })
+	for (const TCHAR* Invalid : { TEXT("1e39"), TEXT("-1e39"), TEXT("1e-46"), TEXT("1e-9999"),
+		TEXT("3.4028236e38"), TEXT("-3.4028236e38") })
 	{
 		Defaults->SetStringField(TEXT("Single"), Invalid);
 		TestEqual(Invalid, ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
@@ -3429,16 +3430,19 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	auto* HexSetter = FindNodeByGuid(Graph, StringFieldOr(HexResult, TEXT("node_id")));
 	if (!TestNotNull(TEXT("hexadecimal integer"), HexSetter)) return false;
 	TestEqual(TEXT("VM receives the decimal integer"), HexSetter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("16")));
-	for (const TCHAR* Name : { TEXT("Single"), TEXT("Wide") })
+	struct FRealControl { const TCHAR* Name; const TCHAR* Literal; };
+	const FRealControl Controls[] = { { TEXT("Single"), TEXT("1e-7") }, { TEXT("Wide"), TEXT("1e39") },
+		{ TEXT("Single"), TEXT("3.4028235e38") }, { TEXT("Single"), TEXT("-3.4028235e38") } };
+	for (const FRealControl& Control : Controls)
 	{
-		Params->SetStringField(TEXT("variable_name"), Name);
+		Params->SetStringField(TEXT("variable_name"), Control.Name);
 		Defaults->Values.Empty();
-		const FString Literal = FString(Name) == TEXT("Wide") ? TEXT("1e39") : TEXT("1e-7");
-		Defaults->SetStringField(Name, Literal);
+		Defaults->SetStringField(Control.Name, Control.Literal);
 		const auto Accepted = ResultOf(Dispatch(Set, Params));
 		const auto* SetterNode = FindNodeByGuid(Graph, StringFieldOr(Accepted, TEXT("node_id")));
-		if (!TestNotNull(Name, SetterNode)) return false;
-		TestEqual(TEXT("Retains representable real text"), SetterNode->FindPinChecked(FName(Name), EGPD_Input)->DefaultValue, Literal);
+		if (!TestNotNull(Control.Literal, SetterNode)) return false;
+		TestEqual(TEXT("Retains representable real text"),
+			SetterNode->FindPinChecked(FName(Control.Name), EGPD_Input)->DefaultValue, FString(Control.Literal));
 	}
 	return true;
 }
