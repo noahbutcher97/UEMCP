@@ -20,6 +20,8 @@ Start with a Two Bone IK implementation for the reference arm. A later variant c
 
 ### Current public authoring coverage
 
+The [asset-backed graph action design](asset-backed-graph-actions.md) addresses the confirmed pawn binding gap and defines a second proof using a Sequence Player in the AnimGraph.
+
 This inventory compares the public server contracts and native registrations with the owned fixture on the PR #67 baseline. “No dedicated writer found” means the catalog exposes no animation-specific operation for that task. The input binding row includes a live test through the public server. The combined playable character still needs a real CLI run.
 
 | Authoring task | Current coverage | Gap for an agent |
