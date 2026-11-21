@@ -82,7 +82,7 @@ console.log('\n── Group 12: Blueprints-write Tool Definitions ──');
     'add_variable_get', 'add_variable_set', 'set_variable_default', 'add_variable_assignment',
     'add_timer', 'add_control_node', 'add_math_node', 'add_self_reference',
     'add_anim_state_machine', 'add_anim_state', 'add_anim_transition',
-    'add_component_reference', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+    'add_component_reference', 'place_graph_action', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
     'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   ];
 

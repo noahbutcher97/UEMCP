@@ -44,7 +44,7 @@ export const TOOLSET_TIPS = deepFreeze({
       'compile_blueprint returns diagnostic-quality lifecycle output: succeeded/compiled/compiled_ok, error and warning counts, messages, generated-class status, dirty status, and package path.',
       'add_variable_assignment authors target_variable = literal or target_variable = source_variable in a target graph, returning node/pin/link metadata and requires_compile.',
       'set_pawn_props returns per-property results - partial success is possible. Check the results object.',
-      'Node graph commands return node GUIDs. Use connect_nodes with source/target GUIDs + pin names to wire them together.',
+      'Use find_graph_actions to discover an Enhanced Input event or Sequence Player, then place_graph_action to place it. Wire the returned nodes and pins with connect_nodes.',
       'find_nodes currently supports only node_type="Event". Other types are not yet searchable.',
       'add_function_node has complex resolution: specify target class (e.g., "GameplayStatics") to find library functions, or omit for BP-local functions.',
       'add_variable supports only 5 types: Boolean, Integer/Int, Float, String, Vector.',
@@ -72,7 +72,7 @@ export const TOOLSET_TIPS = deepFreeze({
     ].join(' '),
     workflows: [{
       requires: ['blueprints-write'],
-      tip: 'add_input_action_node (in this toolset) uses legacy Input Actions, NOT Enhanced Input. For Enhanced Input, use the input-and-pie toolset instead.',
+      tip: 'Use add_input_action_node for legacy named mappings. To bind an Enhanced Input Action asset, run find_graph_actions on the pawn EventGraph and place_graph_action with the selected ID.',
     }],
   },
 
@@ -135,7 +135,7 @@ export const TOOLSET_TIPS = deepFreeze({
 
   'input-and-pie': {
     core: [
-      'Enhanced Input tools (create_input_action, create_mapping_context, add_mapping) are asset-creation only - they do NOT bind runtime input. Binding happens in BP graph or C++.',
+      'Create and map Enhanced Input assets here. Bind one to a pawn with find_graph_actions on its EventGraph followed by place_graph_action.',
       'start_pie accepts mode: "viewport" (default), "standalone" (new process), "new_window" (in-process). Async request - IsPlaySessionInProgress may not flip immediately.',
       'stop_pie returns {was_running, requested_stop} - success means the request was issued, not that teardown completed. PIE teardown is async and may leave references briefly.',
       'execute_console_command runs against PlayWorld if PIE is active, else editor world. Commands like "stat fps" need PIE; "listassets *" works editor-side.',

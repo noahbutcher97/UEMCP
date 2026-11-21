@@ -57,14 +57,11 @@ This does not qualify live socket/MCP sessions, renderer/UI behavior, all native
 tests, or BuildPlugin packaging. The one-case `native-smoke` profile remains
 available separately; neither profile replaces retained consumer coverage.
 
-The `native-blueprint` profile requires exactly fifteen cases: three
-`UEMCP.BlueprintHelpers.*` registrations (PinTypeToJson, VariableDefaults,
-LiteralDefaults) and twelve `UEMCP.BlueprintHandlers.*` registrations
-(AddVariableAssignment, AddTimer, DisconnectPin, AssignmentVariableKind,
-AssignmentExecFrom, DisconnectPinEdges, CompilePaths, TimerFailures,
-GhostBeginPlayEnabled, EventNodeGhostSites, AssignmentCompileFailed,
-CreateBlueprintParents). After
-building a fresh source-only stage, run:
+The `native-blueprint` profile runs 25 cases in one editor. Its three Blueprint
+helper tests, 21 Blueprint handler tests and `UEMCP.GraphActions.AssetPlacement`
+are listed in the [profile manifest](../server/fixtures/test-profiles.json).
+It covers GUID wiring on a pawn Event Graph and retrying an asset-backed placement
+through the native command registry. To replay it, build a fresh owned stage and run
 
 ```powershell
 node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-blueprint --timeout-ms 900000
@@ -74,10 +71,12 @@ The helpers exercise native pin/default conversion. Handler cases dispatch throu
 `FMCPCommandRegistry` and inspect real in-memory graph mutations and compilation
 outcomes under NullRHI. An expected compilation failure asserted by a successful
 native test remains valid; an Automation Error event on a Success record fails
-the required profile. All fifteen full names must run exactly once, with fresh
+the required profile. Each listed full name must run exactly once, with fresh
 source-bound evidence and a successful process exit.
 
-No saved fixture is required (`fixturePaths: []`). The handlers create unsaved
+The profile has no repository-owned saved fixture (`fixturePaths: []`). Asset
+placement uses the editor installation's `Tutorial_Walk_Fwd` sequence and
+`SkeletalCube_Skeleton` for its compatible and incompatible controls. The handlers create unsaved
 packages under `/Game/__UEMCPTests/`; their teardown is best effort within a
 disposable process, not a guarantee of complete object reclamation after every
 early return. Use a fresh owned host/process, retain source and lifecycle checks,

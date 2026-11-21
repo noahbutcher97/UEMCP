@@ -14,6 +14,7 @@
 // tools.yaml (`blueprints-write:` toolset), ConnectionManager.send dispatch.
 
 import { z } from 'zod';
+import { graphActionAssetPath } from './graph-action-session.mjs';
 
 // ── Common Zod shapes ──────────────────────────────────────────
 
@@ -459,6 +460,18 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
     isReadOp: false,
   },
 
+  place_graph_action: {
+    description: 'Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Each Sequence Player placement adds an instance. After a lost reply, rediscover and inspect placed_nodes before retrying.',
+    schema: {
+      asset_path: graphActionAssetPath.describe('Target Blueprint package path used for discovery'),
+      graph_guid: stateGraphTarget.graph_guid.describe('Resolved graph_guid from discovery'),
+      expected_revision: stateGraphTarget.expected_revision.describe('Current topology_revision returned by find_graph_actions'),
+      node_position: stateGraphTarget.node_position.describe('Integer graph coordinates [x, y]'),
+      action_id: z.string().min(1).describe('Opaque action ID returned by find_graph_actions for this attachment, editor and graph'),
+    },
+    isReadOp: false,
+  },
+
   connect_nodes: {
     description: 'Connect compatible Blueprint pins. Replace an occupied input only with the current topology revision and all three pin IDs.',
     schema: {
@@ -471,7 +484,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin_id: z.string().optional().describe('Expected target pin GUID'),
       replace_source_pin_id: z.string().optional().describe('Current upstream pin GUID to displace'),
       expected_revision: z.string().optional().describe('topology_revision from show_pin_links or get_anim_graph'),
-      graph_guid: z.string().min(1).optional().describe('Stable graph identity, including nested animation state graphs'),
+      graph_guid: z.string().min(1).optional().describe('Target pawn EventGraph or animation graph GUID, including nested state graphs. A supplied graph name must match.'),
       graph_name: GraphNameOptional,
     },
     isReadOp: false,
@@ -489,6 +502,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin: z.string().optional().describe('Optional linked pin name filter'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional linked pin direction filter. Omit to infer the opposite direction.'),
       graph_name: GraphNameOptional,
+      graph_guid: z.string().min(1).optional().describe('Current graph GUID. A supplied graph name must match.'),
     },
     isReadOp: true,
   },
@@ -507,6 +521,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
       target_pin: z.string().optional().describe('Optional target pin name for a specific link'),
       target_direction: z.enum(['input', 'output']).optional().describe('Optional target pin direction. Omit to infer the opposite direction.'),
       graph_name: GraphNameOptional,
+      graph_guid: z.string().min(1).optional().describe('Current graph GUID. A supplied graph name must match.'),
       dry_run: z.boolean().optional().default(false)
         .describe('If true, report matching links without disconnecting or compiling. Default false.'),
       compile: z.boolean().optional().default(false)
@@ -557,7 +572,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
  * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
  * @returns {Promise<object>} — wire response (Bridge envelope, normalized by ConnectionManager)
  */
-export async function executeBlueprintsWriteTool(toolName, args, connectionManager) {
+export async function executeBlueprintsWriteTool(toolName, args, connectionManager, sendGraphAction) {
   const def = BLUEPRINTS_WRITE_SCHEMAS[toolName];
   if (!def) throw new Error(`blueprints-write-tcp-tools: unknown tool "${toolName}"`);
 
@@ -565,6 +580,7 @@ export async function executeBlueprintsWriteTool(toolName, args, connectionManag
   // never hit the wire. The SDK already parses at tools/call, but direct
   // callers (tests, internal reuse) bypass that layer.
   const validated = z.object(def.schema).parse(args);
+  if (toolName === 'place_graph_action') return sendGraphAction(toolName, validated);
 
   // Wire-type translation: tools.yaml name → C++ type string.
   const typeString = BLUEPRINTS_WRITE_WIRE_MAP[toolName] || toolName;

@@ -196,7 +196,9 @@
           "UEMCP.BlueprintHandlers.GraphNodePinInspection",
           "UEMCP.BlueprintHandlers.FunctionConnectionUndo",
           "UEMCP.BlueprintHandlers.WriterPinDefaults",
-          "UEMCP.BlueprintHandlers.FunctionGraphIdentity"
+          "UEMCP.BlueprintHandlers.FunctionGraphIdentity",
+          "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
+          "UEMCP.GraphActions.AssetPlacement"
         ]
       }]
     },

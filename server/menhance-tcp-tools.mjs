@@ -21,6 +21,7 @@
 // wire_type translation via tools.yaml, ConnectionManager.send dispatching.
 
 import { z } from 'zod';
+import { graphActionAssetPath } from './graph-action-session.mjs';
 
 // ── Wire-type map (populated by initMenhanceTools from tools.yaml) ──
 let MENHANCE_WIRE_MAP = {};
@@ -48,6 +49,18 @@ export function initMenhanceTools(toolsData) {
 // ── Schemas (name → {description, schema, isReadOp}) ──────────────
 
 export const MENHANCE_SCHEMAS = {
+  find_graph_actions: {
+    description: 'Discover Enhanced Input events for a pawn Event Graph or Sequence Players for an AnimGraph. Supply a graph name or GUID. If the scan is incomplete, give the exact source asset path. Exact lookup also shows existing nodes for retries.',
+    schema: {
+      asset_path: graphActionAssetPath.describe('Target Blueprint package path'),
+      graph_name: z.string().min(1).optional().describe('Target EventGraph or AnimGraph name'),
+      graph_guid: z.string().min(1).optional().describe('Target graph GUID. If supplied with a name, both must match.'),
+      source_asset_path: z.union([graphActionAssetPath, z.literal('')]).optional().describe('Exact source asset path. Use an empty string for the empty Sequence Player variant.'),
+      query: z.string().min(1).optional().describe('Search graph actions by text'),
+      limit: z.number().int().min(1).max(100).optional().describe('Maximum number of matches, default 25'),
+    },
+    isReadOp: true,
+  },
   bp_compile_and_report: {
     description: 'Compile a Blueprint and capture full FCompilerResultsLog — errors, warnings, notes, info with per-entry node_guid',
     schema: {
@@ -737,11 +750,16 @@ function applyToolSpecificValidation(toolName, validated) {
  * @param {import('./connection-manager.mjs').ConnectionManager} connectionManager
  * @returns {Promise<object>}
  */
-export async function executeMenhanceTool(toolName, args, connectionManager) {
+export async function executeMenhanceTool(toolName, args, connectionManager, sendGraphAction) {
   const def = MENHANCE_SCHEMAS[toolName];
   if (!def) throw new Error(`menhance-tcp-tools: unknown tool "${toolName}"`);
 
   const validated = applyToolSpecificValidation(toolName, z.object(def.schema).parse(args));
+
+  if (toolName === 'find_graph_actions') {
+    if (!validated.graph_name && !validated.graph_guid) throw new Error('Supply graph_name or graph_guid to find_graph_actions.');
+    return sendGraphAction(toolName, validated);
+  }
 
   if (toolName === 'sample_pie_actor_state') {
     return samplePIEActorState(validated, connectionManager);

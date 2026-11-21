@@ -40,6 +40,13 @@ assertTopIncludes('who references this asset', 'get_asset_references');
 assertTopIncludesAny('PIE actor runtime state', ['get_pie_actor_state', 'sample_pie_actor_state']);
 assertTopIncludes('Python command', 'run_python_command');
 assertTopIncludes('list exports choose export', 'list_asset_exports');
+const enhancedQuery = 'bind Enhanced Input action to pawn';
+assertTopIncludes(enhancedQuery, 'find_graph_actions', 3);
+const inputRanking = topToolNames(index, enhancedQuery, 30);
+t.assert(inputRanking.indexOf('find_graph_actions') < inputRanking.indexOf('add_input_action_node'),
+  'Enhanced Input discovery precedes the legacy writer', inputRanking.join(', '));
+assertTopIncludes('play animation sequence in AnimGraph', 'find_graph_actions', 3);
+assertTopIncludes('add legacy named input mapping event', 'add_input_action_node', 3);
 
 const animGraphNames = topToolNames(index, 'AnimGraph state machine slot layered blend', 8);
 t.assert(

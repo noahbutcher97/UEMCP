@@ -10,7 +10,7 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { z } from 'zod';
 
@@ -72,13 +72,13 @@ function makeEditor(project, tcpCalls) {
   };
 }
 
-async function createWireApp({ root, project, tcpCalls, env = {} }) {
+async function createWireApp({ root, project, tcpCalls, env = {}, tcpCommandFn }) {
   const app = await createUemcpServer({
     env,
     cwd: root,
     workspaceRoots: [],
     processInspector: () => [],
-    tcpCommandFn: project ? makeEditor(project, tcpCalls) : undefined,
+    tcpCommandFn: tcpCommandFn ?? (project ? makeEditor(project, tcpCalls) : undefined),
     httpCommandFn: async () => ({ status: 'success', result: {} }),
     // Never register scratch fixtures as codenames in the per-checkout token list.
     writeProjectCodenames: false,
@@ -335,6 +335,93 @@ await runCase('add_variable advertises and dispatches a tracked Blueprint mutati
       'both add_variable mutation scopes close');
     t.assert(tcpCalls.filter(call => call.type === 'add_blueprint_variable').length === 2,
       'only the accepted add_variable calls reach the editor stub');
+  } finally {
+    await app?.server.close();
+    cleanup(root);
+  }
+});
+
+await runCase('graph action tools share scoped dispatch, retry diagnostics and fresh reads', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(join(root, 'ActionCase'), 'ActionCase');
+    const calls = [];
+    const editor = makeEditor(project, calls);
+    let discoveredScope;
+    let pluginAvailable = true;
+    let losePlacementReply = false;
+    const wire = await createWireApp({ root, project, tcpCommandFn: async (port, type, params) => {
+      const reply = await editor(port, type, params);
+      if (type === 'find_graph_actions') {
+        if (!pluginAvailable) return { status: 'error', code: 'UNKNOWN_COMMAND', error: 'Unknown command' };
+        discoveredScope = params.attachment_id;
+      }
+      if (type === 'place_graph_action' && params.attachment_id !== discoveredScope) {
+        return { status: 'error', code: 'STALE_GRAPH_ACTION', error: 'Selection expired', detail: { candidates: ['node-a'] } };
+      }
+      if (type === 'place_graph_action' && losePlacementReply) {
+        losePlacementReply = false;
+        throw new Error('Connection closed without a reply');
+      }
+      if (type === 'place_graph_action' && params.expected_revision === 'previous') {
+        return { status: 'error', code: 'STALE_GRAPH_REVISION', error: 'Refresh the graph', detail: { source_asset_path: '/Game/Walk.Walk' } };
+      }
+      return reply;
+    } });
+    app = wire.app;
+    const { transport } = wire;
+    const query = { asset_path: ANIM_BP, graph_name: 'AnimGraph', source_asset_path: '/Game/Walk' };
+    const place = { asset_path: ANIM_BP, graph_guid: 'graph-1', expected_revision: 'rev', action_id: 'selected', node_position: [10, 20] };
+    const unattached = await dispatch(transport, 'find_graph_actions', query);
+    t.assert(text(unattached).includes('PROJECT_NOT_ATTACHED'), 'graph discovery requires a project');
+    await attachAndVerify(transport, project);
+    await callTool(transport, 'enable_toolset', { toolsets: ['blueprint-read', 'blueprints-write'] });
+    const beforeRefusals = calls.length;
+    const missingGraph = await dispatch(transport, 'find_graph_actions', { asset_path: ANIM_BP });
+    const refused = await dispatch(transport, 'place_graph_action', place);
+    const badLimit = await dispatch(transport, 'find_graph_actions', { ...query, limit: 101 });
+    const shortName = await dispatch(transport, 'place_graph_action', { ...place, asset_path: 'BP_Player' }, 'call_mutating_tool');
+    t.assert(text(missingGraph).includes('graph_name or graph_guid'), 'discovery requires an explicit graph selector');
+    t.assert(text(refused).includes('WRONG_DISPATCHER'), 'read-only graph catalog cannot place a node');
+    t.assert(badLimit.result?.isError === true || !!badLimit.error, 'discovery rejects oversized result limit');
+    t.assert(shortName.result?.isError === true || !!shortName.error, 'placement requires the full target asset path');
+    t.assert(calls.length === beforeRefusals, 'invalid selectors, limits and read-only edits never reached the editor');
+    for (const [name, args, dispatcher] of [
+      ['find_graph_actions', query, 'call_tool'], ['place_graph_action', place, 'call_mutating_tool'],
+    ]) {
+      const described = (await callTool(transport, 'describe_tool', { tool: name })).result.structuredContent;
+      t.assert(described.dispatcher === dispatcher, `${name} advertises correct dispatcher`);
+      const direct = await callTool(transport, name, args);
+      const viaDispatcher = await dispatch(transport, name, args, dispatcher);
+      t.assert(direct.result && viaDispatcher.result && !direct.result.isError && !viaDispatcher.result.isError && text(direct) === text(viaDispatcher),
+        `${name} has direct and dispatcher result parity`);
+      const pair = calls.filter(call => call.type === name);
+      t.assert(pair.length === 2 && JSON.stringify(pair[0].params) === JSON.stringify(pair[1].params),
+        `${name} always reaches the plugin, with identical scoped payloads`);
+      t.assert(typeof discoveredScope === 'string' && discoveredScope.length > 0 && pair.every(call =>
+        resolve(call.params.expected_project_file) === resolve(project.uprojectPath) && call.params.attachment_id === discoveredScope),
+        `${name} supplies the attached project file and shared MCP session scope`);
+    }
+    losePlacementReply = true;
+    const lost = await dispatch(transport, 'place_graph_action', place, 'call_mutating_tool');
+    t.assert(lost.result?.isError && lost.result.structuredContent?.code === 'PLACEMENT_OUTCOME_UNCONFIRMED'
+      && lost.result.structuredContent.rediscover.instruction.includes('pre-edit node GUIDs'),
+      'a lost reply reports unknown placement outcome and calls for exact-source inspection');
+    const revision = await dispatch(transport, 'place_graph_action', { ...place, expected_revision: 'previous' }, 'call_mutating_tool');
+    t.assert(revision.result?.isError && revision.result.structuredContent?.rediscover?.arguments?.source_asset_path === '/Game/Walk.Walk',
+      'an expired revision returns the original exact-source query for inspecting placed_nodes');
+    await callTool(transport, 'detach_project');
+    await attachAndVerify(transport, project);
+    const stale = await dispatch(transport, 'place_graph_action', place, 'call_mutating_tool');
+    const failure = stale.result?.structuredContent;
+    t.assert(stale.result?.isError && failure?.code === 'STALE_GRAPH_ACTION', 'reattachment changes scope even when attaching the same project');
+    t.assert(failure?.detail?.candidates[0] === 'node-a' && failure?.rediscover?.arguments?.graph_guid === place.graph_guid,
+      'native details and scoped rediscovery survive MCP error reporting');
+    pluginAvailable = false;
+    const legacy = await dispatch(transport, 'find_graph_actions', query);
+    t.assert(legacy.result?.isError && legacy.result.structuredContent?.code === 'UNKNOWN_COMMAND' && /rebuild.*restart/i.test(text(legacy)),
+      'an older plugin gives a sync, rebuild and restart diagnostic');
   } finally {
     await app?.server.close();
     cleanup(root);

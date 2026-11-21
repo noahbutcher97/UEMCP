@@ -109,7 +109,7 @@ const expectedTools = [
   'add_cast_node', 'add_parent_function_call', 'override_parent_member',
   'add_self_reference', 'add_component_reference',
   'add_anim_state_machine', 'add_anim_state', 'add_anim_transition',
-  'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
+  'place_graph_action', 'place_anim_graph_node', 'insert_anim_slot', 'edit_anim_cached_pose', 'connect_nodes', 'show_pin_links', 'disconnect_pin', 'delete_nodes', 'find_nodes',
 ];
 
 t.assert(Object.keys(defs).length === expectedTools.length, `${expectedTools.length} blueprints-write tools defined`);
@@ -381,6 +381,13 @@ console.log('\n── Group 3: Wire-type Translation ──');
     'disconnect_pin → disconnect_blueprint_pin');
   t.assert(fake.lastCall('disconnect_pin') === undefined,
     'disconnect_pin tools.yaml name NOT used as wire type when wire_type is set');
+
+  for (const [tool, command] of [['show_pin_links', 'show_blueprint_pin_links'], ['disconnect_pin', 'disconnect_blueprint_pin']]) {
+    await executeBlueprintsWriteTool(tool,
+      { blueprint_name: 'BP', node_id: 'A', pin: 'Then', graph_name: 'EventGraph', graph_guid: 'GUID' }, cm);
+    t.assert(fake.lastCall(command).params.graph_guid === 'GUID' && fake.lastCall(command).params.graph_name === 'EventGraph',
+      `${tool} forwards both graph identifiers for matching`);
+  }
 
   await executeBlueprintsWriteTool('delete_nodes',
     { blueprint_name: 'BP', node_ids: ['A'] }, cm);

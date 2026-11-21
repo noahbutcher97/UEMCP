@@ -842,6 +842,17 @@ toolsets:
           mode: { type: string, required: true, description: "preview or apply" }
           node_position: { type: array, required: false, description: "Integer [x, y], defaults to edge midpoint" }
           compile: { type: boolean, required: false, description: "Compile on apply and return diagnostics. Default false." }
+      place_graph_action:
+        status: shipped
+        wire_type: place_graph_action
+        mutates_asset: true
+        description: Place the exact asset-backed action selected by find_graph_actions. Reuses one matching input event or adds a new Sequence Player. After a lost response inspect placed_nodes before retrying. Wire, compile and save explicitly.
+        params:
+          asset_path: { type: string, required: true, description: "Target Blueprint package path used during discovery" }
+          graph_guid: { type: string, required: true, description: "Resolved target graph GUID" }
+          expected_revision: { type: string, required: true, description: "Current topology_revision returned by discovery" }
+          action_id: { type: string, required: true, description: "Opaque ID from find_graph_actions on this attachment, editor and graph" }
+          node_position: { type: array, required: true, description: "Integer graph coordinates [x, y]" }
       place_anim_graph_node:
         status: shipped
         wire_type: place_anim_graph_node
@@ -867,7 +878,7 @@ toolsets:
           target_pin_id: { type: string, required: false, description: "Expected target pin GUID. Required for replacement." }
           replace_source_pin_id: { type: string, required: false, description: "Approve displacement of this upstream pin only." }
           expected_revision: { type: string, required: false, description: "Observed graph topology_revision. Required for replacement." }
-          graph_guid: { type: string, required: false, description: "Stable target graph GUID; supports nested animation state graphs" }
+          graph_guid: { type: string, required: false, description: "Target graph GUID for the pawn EventGraph or animation graph, including nested state graphs. A supplied graph name must match." }
           graph_name:     { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
       show_pin_links:
         status: shipped
@@ -892,6 +903,7 @@ toolsets:
           target_pin:        { type: string, required: false, description: "Optional linked pin name filter" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
           graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          graph_guid:        { type: string, required: false, description: "Current graph GUID. A supplied graph name must match." }
       disconnect_pin:
         status: shipped
         availability_layer: tcp-55558
@@ -917,6 +929,7 @@ toolsets:
           target_pin:        { type: string, required: false, description: "Optional target pin name for a specific link" }
           target_direction:  { type: string, required: false, description: "One of: input, output. Omit to infer the opposite direction." }
           graph_name:        { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
+          graph_guid:        { type: string, required: false, description: "Current graph GUID. A supplied graph name must match." }
           dry_run:           { type: boolean, required: false, default: false, description: "If true, report matching links without disconnecting or compiling. Default false." }
           compile:           { type: boolean, required: false, default: false, description: "If true, compile after disconnecting. Default false." }
       delete_nodes:
@@ -1061,7 +1074,8 @@ toolsets:
       add_input_action_node:
         mutates_asset: true
         wire_type: add_blueprint_input_action_node
-        description: Add input action event node (legacy Input Actions, NOT Enhanced Input). Only marks BP modified — call compile_blueprint to materialize the new node into the generated class.
+        aliases: ["legacy input mapping"]
+        description: Add a legacy named input mapping event. Only marks BP modified. Call compile_blueprint before using the generated class. For asset-backed events use find_graph_actions.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name (works on any BP, not just widgets)" }
           action_name:    { type: string, required: true, description: "Input action name" }
@@ -1120,6 +1134,19 @@ toolsets:
     # milestone (M2-Phase-A). The 9 sidecar traversal verbs (bp_list_graphs,
     # bp_trace_exec, etc.) will land in the offline toolset, not here.
     tools:
+      find_graph_actions:
+        status: shipped
+        wire_type: find_graph_actions
+        mutates_asset: false
+        aliases: ["bind Enhanced Input action to pawn", "play animation sequence in AnimGraph", "asset-specific Blueprint graph action"]
+        description: Discover graph actions to bind an Enhanced Input action to a pawn Event Graph or play an Animation Sequence in an AnimGraph. Search by exact source asset path to inspect existing nodes. Pass the selected ID and graph revision to place_graph_action.
+        params:
+          asset_path: { type: string, required: true, description: "Target Blueprint package path" }
+          graph_name: { type: string, required: false, description: "Target EventGraph or AnimGraph. Supply either its name or its GUID." }
+          graph_guid: { type: string, required: false, description: "Target graph GUID. A supplied graph name must match." }
+          source_asset_path: { type: string, required: false, description: "Exact Enhanced Input Action or Animation Sequence path. An empty string selects the empty Sequence Player variant." }
+          query: { type: string, required: false, description: "Search text for the supported graph actions" }
+          limit: { type: number, required: false, description: "Integer result limit from 1 to 100, default 25" }
       # reduced_scope: runtime-reflected interface list + UClass flags only (structural fields shipped offline per D37)
       # displaced_by: inspect_blueprint, query_asset_registry, read_asset_properties
       get_blueprint_info:

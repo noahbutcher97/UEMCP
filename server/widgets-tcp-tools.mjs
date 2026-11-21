@@ -120,7 +120,7 @@ export const WIDGETS_SCHEMAS = {
   },
 
   add_input_action_node: {
-    description: 'Add input action event node (legacy Input Actions, NOT Enhanced Input)',
+    description: 'Add a legacy named input mapping event. Only marks BP modified. Call compile_blueprint to update the generated class. For an Enhanced Input Action asset use find_graph_actions.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name (works on any BP, not just widgets)'),
       action_name:    z.string().describe('Input action name'),

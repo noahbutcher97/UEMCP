@@ -61,6 +61,7 @@ import {
   executeWidgetsTool,
 } from './widgets-tcp-tools.mjs';
 import { getRcToolDefs, executeRcTool } from './rc-tools.mjs';
+import { createGraphActionSender } from './graph-action-session.mjs';
 import { SERVER_INSTRUCTIONS, TOOLSET_TIPS } from './server-guidance.mjs';
 import {
   initMenhanceTools,
@@ -321,6 +322,7 @@ function registerToolGroup(server, toolsetManager, projectContext, log, dispatch
             }
           );
         } catch (err) {
+          if (err.graphActionResult) return structuredResult(err.graphActionResult);
           return {
             content: [{ type: 'text', text: `Error in ${name}: ${err.message}` }],
             isError: true,
@@ -964,6 +966,7 @@ export async function createUemcpServer(options = {}) {
   }
 
   function registerDynamicTools() {
+    const sendGraphAction = createGraphActionSender(projectContext, connectionManager);
     registerToolGroup(
       server, toolsetManager, projectContext, log, dispatchRegistry, 'offline', 'offline',
       TOOLS_YAML.toolsets.offline.tools,
@@ -987,7 +990,7 @@ export async function createUemcpServer(options = {}) {
       server, toolsetManager, projectContext, log, dispatchRegistry, 'blueprints-write', 'blueprints-write',
       getBlueprintsWriteToolDefs(),
       buildTcpSchemaShape,
-      (name, args) => executeBlueprintsWriteTool(name, args, connectionManager)
+      (name, args) => executeBlueprintsWriteTool(name, args, connectionManager, sendGraphAction)
     );
 
     registerToolGroup(
@@ -1008,7 +1011,7 @@ export async function createUemcpServer(options = {}) {
       server, toolsetManager, projectContext, log, dispatchRegistry, 'm-enhance', 'm-enhance',
       getMenhanceToolDefs(),
       buildTcpSchemaShape,
-      (name, args) => executeMenhanceTool(name, args, connectionManager)
+      (name, args) => executeMenhanceTool(name, args, connectionManager, sendGraphAction)
     );
 
     const m5ToolsetGroups = [
