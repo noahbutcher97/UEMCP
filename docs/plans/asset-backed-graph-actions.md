@@ -105,3 +105,5 @@ Run the first native experiment in a UEMCP-owned editor using UE 5.8.4, with a p
 For both, verify placement Undo/Redo and named save followed by fresh-editor readback and replay. Exercise a stale selection without creating a duplicate. Record the plain-language prompts, discovery calls, retries, time to completion, editor version and unintended changes. Use the retained legacy/generic event result as the negative control. Report 5.3.2 and 5.6.1 separately when exercised. Observed human sessions come after agent-driven acceptance.
 
 The first implementation decision follows the native probe: if both families can be resolved and placed from the same context, implement the shared resolver and the two readback checks. If either family needs a different registration path, keep the same client contract and document the engine-specific lookup demonstrated by the probe.
+
+The [qualification record](animation-authoring-qualification.md) follows these write and inspection paths through real agents, public MCP calls and independent Unreal execution.

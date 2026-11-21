@@ -4,7 +4,7 @@ A fresh Codex CLI session built a possessable character that responds to W and E
 
 ## What the client received
 
-The [gameplay design](../plans/gameplay-driven-character-animation.md) gives the complete task and tolerances. The normal public stdio client used an isolated, manifest-verified UEMCP project, UE 5.8.4 CL58902052 on Windows, with plugin/server sources identical between `c15aec3` and design commit `82cd4e6`. These observations describe the baseline before the montage timing repair.
+The [gameplay design](../plans/gameplay-driven-character-animation.md) gives the complete task and tolerances. The normal public stdio client used an isolated, manifest-verified UEMCP project, UE 5.8.4 CL58902052 on Windows, with plugin/server sources identical between `c15aec3` and design commit `82cd4e6`. Montage timeline validation and section routing remain open.
 
 The task folder contained a Character Blueprint possessed by player zero, a skeleton-bound AnimBP with a single Idle player, a compatible mesh, Idle and Walk sequences, and a Reach clip prepared by rotating the right upper arm. The map contained a floor and a moving handle. The fixture assigned the mesh and animation class. The character started without movement bindings, interaction logic, a locomotion machine, a layer or a solver. Separate control assets and instrumentation lived outside the task folder. The agent received the project and task folder, W and E, a named-save boundary and this request:
 

@@ -67,6 +67,7 @@ For example, material graph support requires both the tool entries and the
 parameter editing has a [separate contract](specs/material-parameter-tools.md).
 Animation authoring's [program](plans/animation-authoring-program.md) describes
 target scope, not a list of already callable tools.
+The [animation qualification record](plans/animation-authoring-qualification.md) lists tested engine and CLI behavior. The [playable character audit](audits/2026-11-21-playable-animation.md) records evaluated motion and remaining authoring gaps.
 
 When a capability or its status changes, update its existing contract and backlog
 entry, and add or repair the route here if needed. Keep capability details in their
