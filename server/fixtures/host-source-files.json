@@ -62,6 +62,7 @@
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPBlueprintHelperTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPCachePoseTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPMaterialParameterTests.cpp",
+    "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPMontageTimelineTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPOwnedComponentEditTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPPieViewportPixelsTests.cpp",
     "plugin/UEMCP/Source/UEMCP/Private/Tests/UEMCPTestObject.cpp",
