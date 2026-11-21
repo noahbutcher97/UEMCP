@@ -3189,13 +3189,15 @@ bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
-	auto Place = MakeShared<FJsonObject>();
-	Place->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
-	Place->SetStringField(TEXT("function_name"), TEXT("SetActorScale3D"));
-	auto Placed = ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Place));
-	const FString Id = StringFieldOr(Placed, TEXT("node_id"));
-	UEdGraphNode* Node = FindNodeByGuid(Graph, Id);
-	if (!TestNotNull(TEXT("Scale call"), Node)) return false;
+	// Construct the read fixture through Unreal itself. A user-facing placement
+	// transaction would retain the disposable graph in the editor's undo history.
+	UFunction* Function = AActor::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(AActor, SetActorScale3D));
+	if (!TestNotNull(TEXT("Scale function"), Function)) return false;
+	FGraphNodeCreator<UK2Node_CallFunction> Creator(*Graph);
+	UK2Node_CallFunction* Node = Creator.CreateNode();
+	Node->SetFromFunction(Function);
+	Creator.Finalize();
+	const FString Id = Node->NodeGuid.ToString();
 
 	auto Read = MakeShared<FJsonObject>();
 	Read->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
