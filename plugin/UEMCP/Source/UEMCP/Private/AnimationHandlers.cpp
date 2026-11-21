@@ -1298,6 +1298,30 @@ namespace UEMCP
 			return false;
 		}
 
+		// States may span adjacent segments and slots. Both endpoint links can exist
+		// even if the montage contains no source animation between those links.
+		bool MontageCoversInterval(const UAnimMontage& Montage, float Start, float End)
+		{
+			float Covered = Start;
+			while (Covered < End)
+			{
+				float Next = Covered;
+				for (const FSlotAnimationTrack& Slot : Montage.SlotAnimTracks)
+				{
+					for (const FAnimSegment& Segment : Slot.AnimTrack.AnimSegments)
+					{
+						if (Segment.GetAnimReference() && Segment.StartPos <= Covered)
+						{
+							Next = FMath::Max(Next, Segment.GetEndPos());
+						}
+					}
+				}
+				if (Next <= Covered) return false;
+				Covered = Next;
+			}
+			return true;
+		}
+
 		void HandleAddMontageSection(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResponse)
 		{
 			if (!Params.IsValid())
@@ -1517,7 +1541,17 @@ namespace UEMCP
 			constexpr float StateDuration = 0.1f;
 			int32 Slot = INDEX_NONE, EndSlot = INDEX_NONE;
 			if (!FindMontageLink(*Montage, Time, !bIsStateful, Slot, OutResponse)) return;
-			if (bIsStateful && !FindMontageLink(*Montage, StartTime + StateDuration, true, EndSlot, OutResponse)) return;
+			if (bIsStateful)
+			{
+				const float StateEnd = StartTime + StateDuration;
+				if (!FindMontageLink(*Montage, StateEnd, true, EndSlot, OutResponse)) return;
+				if (!MontageCoversInterval(*Montage, StartTime, StateEnd))
+				{
+					BuildErrorResponse(OutResponse, TEXT("The notify state crosses a gap with no animation segments"),
+						TEXT("MONTAGE_TIME_OUT_OF_RANGE"));
+					return;
+				}
+			}
 
 			const FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddMontageNotify", "Add montage notify"));
 			Montage->SetFlags(RF_Transactional);
