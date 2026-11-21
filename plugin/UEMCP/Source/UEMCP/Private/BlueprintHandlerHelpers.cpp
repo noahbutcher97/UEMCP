@@ -276,8 +276,11 @@ namespace UEMCP
 
 	bool IsRepresentableRealPinValue(double Value, bool bSinglePrecision)
 	{
-		return FMath::IsFinite(Value) && (!bSinglePrecision ||
-			(FMath::Abs(Value) <= MAX_flt && (Value == 0.0 || static_cast<float>(Value) != 0.f)));
+		if (!FMath::IsFinite(Value)) return false;
+		if (!bSinglePrecision) return true;
+		// A decimal just beyond FLT_MAX can still round to the largest finite float.
+		const float Rounded = static_cast<float>(Value);
+		return FMath::IsFinite(Rounded) && (Value == 0.0 || Rounded != 0.f);
 	}
 
 	bool FormatLiteralForPinCategory(const FEdGraphPinType& PinType,
