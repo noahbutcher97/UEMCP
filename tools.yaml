@@ -245,7 +245,8 @@ toolsets:
           disambiguation. Node class and member filters share semantics with
           find_blueprint_nodes. Use bp_list_graphs first to discover graph names.
           Offline (no editor/plugin/sidecar). Spatial fields (position,
-          comment, enabled_state) are first-class in match rows.
+          comment, enabled_state) are first-class in match rows. Pass node_id
+          (export index) to bp_show_node or node_guid to live show_pin_links.
         params:
           asset_path:   { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:   { type: string, required: true, description: "Graph objectName as returned by bp_list_graphs (e.g., EventGraph, UserConstructionScript, MyFunctionName)." }
@@ -295,7 +296,9 @@ toolsets:
           the node's NodeGuid resolves in the topology, response advertises
           `pin_block` and `pin_defaults` in available_fields; otherwise
           (non-graph-node, malformed pin-block, no NodeGuid) pins=[] with
-          pin_block and pin_defaults in not_available. node_id accepts
+          pin_block and pin_defaults in not_available. For a graph node with
+          missing pin data, follow live_pin_lookup with an attached editor
+          to inspect current pins and defaults without writing a sidecar. node_id accepts
           export_index (integer or numeric string) or full node objectName.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
@@ -320,7 +323,7 @@ toolsets:
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name (EventGraph, ExecuteAbility, etc.) as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points.entry_points[].node_guid or bp_show_node.node.node_guid without reformatting." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points.entry_points[].node_guid or bp_show_node.node.node_guid without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500). Chain entries at depth=max_depth are included; their outgoing links are not followed." }
           pin_name:      { type: string, required: false, description: "Restrict walk to a single exec pin name (e.g., 'then', 'else'). Omit to follow all exec outputs." }
       bp_trace_data:
@@ -333,12 +336,12 @@ toolsets:
           depth. Exec classification (to exclude exec pins) is name-convention
           — see bp_trace_exec for the vocabulary. Offline. Missing graph
           returns `reason: "graph_not_found"`; missing node returns
-          `reason: "node_not_found"`. start_node_id accepts either Oracle-A
-          canonical or M-spatial raw NodeGuid form (see bp_trace_exec).
+          `reason: "node_not_found"`. start_node_id accepts either engine-format
+          or historical file-order NodeGuid digits (see bp_trace_exec).
         params:
           asset_path:    { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name:    { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
+          start_node_id: { type: string, required: true, description: "NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           max_depth:     { type: number, required: false, description: "BFS depth cap (default 50, range 1-500)." }
       bp_neighbors:
         description: >-
@@ -350,12 +353,12 @@ toolsets:
           to avoid double-counting). Offline — uses Oracle-A-v2 topology.
           Use this for "what nodes connect to X" queries without walking a
           full chain; chain bp_trace_exec/bp_trace_data for deeper traversal.
-          node_id accepts either Oracle-A canonical or M-spatial raw
-          NodeGuid form (see bp_trace_exec).
+          node_id accepts either engine-format or historical file-order
+          NodeGuid digits (see bp_trace_exec).
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           graph_name: { type: string, required: true, description: "Graph name as returned by bp_list_graphs." }
-          node_id:    { type: string, required: true, description: "Target NodeGuid (32 hex chars, no dashes). Accepts Oracle-A canonical (uppercase BE-per-uint32) OR M-spatial raw (lowercase byte-LE) — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
+          node_id:    { type: string, required: true, description: "Target NodeGuid (32 hex chars, no dashes). Accepts engine-format digits or historical file-order digits — pipe directly from bp_list_entry_points / bp_find_in_graph / bp_show_node output without reformatting." }
           direction:  { type: string, required: false, description: "Edge direction: 'incoming' | 'outgoing' | 'both' (default 'both')." }
       list_data_sources:
         description: Aggregate CSV-backed data sources under Content/ — classifies DataTable vs StringTable CSVs
@@ -862,11 +865,12 @@ toolsets:
         compiles_asset: false
         offline_fallback: false
         wire_type: show_blueprint_pin_links
-        description: Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.
+        description: Inspect live Blueprint node pins, defaults and link counts. Omit pin to list all pins. Supply pin to read its links. Use this read-only lookup when saved pin data is unavailable.
         params:
           blueprint_name:    { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
-          node_id:           { type: string, required: true, description: "Node GUID string" }
-          pin:               { type: string, required: true, description: "Pin name on node" }
+          node_id:           { type: string, required: false, description: "Engine GUID. Supply either node_id or node_name." }
+          node_name:         { type: string, required: false, description: "Exact node object name from the saved graph. Requires graph_name." }
+          pin:               { type: string, required: false, description: "Named pin for link inspection. Omit to list all pins and their defaults." }
           direction:         { type: string, required: false, description: "One of: input, output. Omit to search both directions." }
           target_node_id:    { type: string, required: false, description: "Optional linked node GUID filter" }
           target_pin:        { type: string, required: false, description: "Optional linked pin name filter" }

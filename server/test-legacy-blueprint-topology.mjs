@@ -3,14 +3,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cursor, readPropertyTag, readExportProperties, propertyTagLayoutForPackage } from './uasset-parser.mjs';
 import { buildStructHandlers } from './uasset-structs.mjs';
-import { extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
+import { bpFindInGraphSafe, bpShowNodeSafe, extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
 
 const t = new TestRunner('Legacy Blueprint topology');
 const i32 = n => { const b = Buffer.alloc(4); b.writeInt32LE(n | 0); return b; };
 const i64 = n => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; };
 const str = s => Buffer.concat([i32(s.length + 1), Buffer.from(s + '\0')]);
-const names = ['None', 'NodeGuid', 'StructProperty', 'Guid', 'K2Node_Knot', 'EventGraph', 'First', 'Second', 'Link', 'A', 'B', 'C', 'D', 'UInt32Property', 'Location', 'Vector'];
+const names = ['None', 'NodeGuid', 'StructProperty', 'Guid', 'K2Node_Knot', 'EventGraph', 'First', 'Second', 'Link', 'A', 'B', 'C', 'D', 'UInt32Property', 'Location', 'Vector', 'EdGraph'];
 const fn = s => Buffer.concat([i32(names.indexOf(s)), i32(0)]);
 const guid = hex => Buffer.concat(hex.match(/.{8}/g).map(v => i32(parseInt(v, 16))));
 const nodeIds = ['00000001ABCDEF1280000000FFFFFFFF', '12345678000000020000000300000004'];
@@ -59,7 +59,7 @@ function packageBytes(version) {
   const chunks = [i32(0x9e2a83c1), i32(-8), i32(0), i32(522), i32(version), i32(0),
     i32(0), i32(dataOffset), str(''), i32(0), i32(names.length), i32(nameOffset)];
   if (version >= 1008) chunks.push(i32(0), i32(0)); // soft object paths
-  chunks.push(str(''), i32(0), i32(0), i32(3), i32(exportOffset), i32(1), i32(importOffset),
+  chunks.push(str(''), i32(0), i32(0), i32(3), i32(exportOffset), i32(2), i32(importOffset),
     i32(0), i32(0), i32(0), i32(0), i32(0), // depends, soft refs, searchable names, thumbnails
     Buffer.alloc(32), i32(0), // legacy/persistent GUIDs, generations
     Buffer.alloc(10), str(''), Buffer.alloc(10), str(''), // engine versions
@@ -70,10 +70,10 @@ function packageBytes(version) {
   const buf = Buffer.alloc(dataOffset + bodies[1].length + bodies[2].length);
   Buffer.concat(chunks).copy(buf);
   Buffer.concat(names.map(n => Buffer.concat([str(n), Buffer.alloc(4)]))).copy(buf, nameOffset);
-  Buffer.concat([fn('None'), fn('None'), i32(0), fn('K2Node_Knot'), fn('None'), i32(0)]).copy(buf, importOffset);
+  Buffer.concat(['K2Node_Knot', 'EdGraph'].flatMap(name => [fn('None'), fn('None'), i32(0), fn(name), fn('None'), i32(0)])).copy(buf, importOffset);
   let offset = dataOffset;
   const exports = bodies.map((body, index) => {
-    const row = [i32(index ? -1 : 0), i32(0), i32(0), i32(index ? 1 : 0),
+    const row = [i32(index ? -1 : -2), i32(0), i32(0), i32(index ? 1 : 0),
       fn(['EventGraph', 'First', 'Second'][index]), i32(0), i64(body.length), i64(offset),
       i32(0), i32(0), i32(0)];
     if (version < 1005) row.push(Buffer.alloc(16));
@@ -96,12 +96,14 @@ for (const version of [1004, 1011, 1012]) {
   const buf = Buffer.concat([...(version >= 1012 ? [Buffer.from([0])] : []), stream]);
   const result = readExportProperties(buf, { serialOffset: 0, serialSize: buf.length }, names,
     { ...layout(version), structHandlers: buildStructHandlers() });
+  t.assert(result.nodeGuid === nodeIds[0], `${version}: public node identity retains word order`);
   t.assert(result.properties.NodeGuid === guid(nodeIds[0]).toString('hex'), `${version}: native Guid preserves raw-byte contract including leading zeros`);
   t.assert(result.bytesConsumed === buf.length && result.unsupported.length === 0, `${version}: exact property stream consumed`);
 }
 const tagged = Buffer.concat([Buffer.from([0]), guidProperty(1012, nodeIds[1], { tagged: true })]);
 const taggedResult = readExportProperties(tagged, { serialOffset: 0, serialSize: tagged.length }, names,
   { ...layout(1012), structHandlers: buildStructHandlers() });
+t.assert(taggedResult.nodeGuid === nodeIds[1], 'tagged A/B/C/D node GUID uses canonical word order');
 t.assert(taggedResult.properties.NodeGuid === nodeIds[1].toLowerCase(), 'modern non-native Guid still decodes tagged A/B/C/D fields');
 
 // Retaining legacy StructName must not enable modern flag-based handlers for
@@ -123,6 +125,13 @@ try {
     const result = await extractBPEdgeTopologySafe(root, { asset_path: `/Game/Graph${version}` });
     t.assert(result.stats.nodesEmitted === 2 && result.stats.malformedNodes === 0, `${version}: public extractor reads both graph nodes`, JSON.stringify(result.stats));
     t.assert(result.stats.edgesEmitted === 2 && result.stats.danglingEdges === 0, `${version}: public extractor resolves both directed links`, JSON.stringify(result.stats));
+    const args = { asset_path: `/Game/Graph${version}`, graph_name: 'EventGraph' };
+    const found = await bpFindInGraphSafe(root, args);
+    t.assert(JSON.stringify(found.nodes.map(n => n.node_guid)) === JSON.stringify(nodeIds),
+      `${version}: public discovery returns the engine GUIDs for both nodes`);
+    const shown = await bpShowNodeSafe(root, { ...args, node_id: found.nodes[0].node_id });
+    t.assert(shown.node.node_guid === nodeIds[0] && shown.node.pins[0]?.pin_id === pinIds[0] && !shown.live_pin_lookup,
+      `${version}: discovered export reads matching saved pin data without an editor`);
     const expectedNodes = Object.fromEntries(nodeIds.map((id, index) => [id, {
       class_name: 'K2Node_Knot', pins: { [pinIds[index]]: {
         name: 'Link', direction: index === 0 ? 'EGPD_Output' : 'EGPD_Input',
@@ -132,6 +141,15 @@ try {
     t.assert(JSON.stringify(result.graphs) === JSON.stringify({ EventGraph: { nodes: expectedNodes } }),
       `${version}: exact graph membership, GUIDs, pins and edges through public extractor`, JSON.stringify(result.graphs));
   }
+  // Remove NodeGuid from this export's metadata. Its graph and object name remain readable.
+  const missing = packageBytes(1012);
+  missing.writeInt32LE(names.indexOf('Location'), 4096 + 1);
+  writeFileSync(join(root, 'Content', 'MissingGuid.uasset'), missing);
+  const absent = await bpShowNodeSafe(root, { asset_path: '/Game/MissingGuid', node_id: 2 });
+  t.assert(!absent.node.node_guid && absent.not_available.includes('pin_defaults') &&
+    JSON.stringify(absent.live_pin_lookup) === JSON.stringify({ tool: 'show_pin_links',
+      arguments: { blueprint_name: '/Game/MissingGuid', graph_name: 'EventGraph', node_name: 'First' } }),
+    'missing saved GUID gives a scoped read-only live lookup');
 } finally {
   cleanupCanonicalScratchRoot(root, prefix);
 }

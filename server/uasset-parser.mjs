@@ -1149,6 +1149,7 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
   const unsupported = [];
   let propertyCount = 0;
   let responseBytes = 0;
+  let nodeGuid = null;
   let truncated = false;
   let terminated = false;
 
@@ -1221,12 +1222,17 @@ export function readTaggedPropertyStream(cur, endOffset, names, opts = {}) {
       unsupported.push({ name: tag.name, ...entry, unsupported: undefined });
     } else {
       properties[tag.name] = tag.arrayIndex > 0 ? { __arrayIndex: tag.arrayIndex, value } : value;
+      // Preserve the raw property value. Blueprint graph identities use FGuid::ToString(Digits).
+      if (tag.name === 'NodeGuid' && tag.typeParams?.[0]?.name === 'Guid' && typeof value === 'string' && /^[a-fA-F0-9]{32}$/.test(value)) {
+        nodeGuid = opts.legacyPropertyTags || (tag.flags & PTAG_BINARY_OR_NATIVE_SER)
+          ? guidBytesToOracleHex(Buffer.from(value, 'hex')) : value.toUpperCase();
+      }
     }
     propertyCount += 1;
     responseBytes += tag.size;
   }
 
-  return { properties, unsupported, propertyCount, truncated, terminated };
+  return { properties, unsupported, propertyCount, truncated, terminated, nodeGuid };
 }
 
 /**
@@ -1473,7 +1479,7 @@ export function isGraphNodeExportClass(className) {
 export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   const tagResult = readExportProperties(buf, exportEntry, names, opts);
   const postTagOffset = exportEntry.serialOffset + tagResult.bytesConsumed;
-  const nodeGuid = extractNodeGuid(tagResult.properties);
+  const nodeGuid = tagResult.nodeGuid ?? null;
 
   if (postTagOffset + 8 > buf.length) {
     return {
@@ -1638,7 +1644,7 @@ function readPinBody(cur, names, exportEnd, opts = {}) {
  * @param {Buffer} bytes
  * @returns {string}
  */
-function guidBytesToOracleHex(bytes) {
+export function guidBytesToOracleHex(bytes) {
   // FGuid stores 4 little-endian uint32s. ToString(Digits) prints them as
   // 8-hex BE per uint32. So read each uint32 LE and emit as %08X.
   let out = '';
@@ -1837,31 +1843,6 @@ function consumePinReferenceSingle(cur) {
   const bNullPtr = cur.readInt32() !== 0;
   if (bNullPtr) return;
   cur.skip(4 + 16);
-}
-
-/**
- * Extract the NodeGuid FGuid from the tagged-property result as an
- * Oracle-A-compatible hex string (32 upper-hex chars, no dashes).
- *
- * The tagged-fallback FGuid handler emits the raw 16 bytes as a little-endian
- * hex string via Buffer.toString('hex'). Oracle-A emits via UE's
- * FGuid::ToString(EGuidFormats::Digits) which prints the 4 uint32 fields
- * A-B-C-D each as big-endian hex. Convert by reversing byte pair order
- * within each 8-hex-char group.
- *
- * @param {Record<string, any>} properties
- * @returns {string | null}  32 upper-hex chars, or null if NodeGuid absent/malformed
- */
-function extractNodeGuid(properties) {
-  const v = properties?.NodeGuid;
-  if (typeof v !== 'string' || v.length !== 32) return null;
-  const groups = [];
-  for (let g = 0; g < 4; g++) {
-    const chunk = v.substr(g * 8, 8);
-    const beHex = chunk.match(/../g).reverse().join('');
-    groups.push(beHex.toUpperCase());
-  }
-  return groups.join('');
 }
 
 /**

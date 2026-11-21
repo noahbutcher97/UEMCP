@@ -76,8 +76,22 @@ Oracle pin/link ordering is ignored; identities, multiplicity and endpoints are
 compared exactly. Pin IDs qualify this immutable save/oracle pair only: a future
 UE resave or pin reconstruction needs separate review. Numeric export IDs are
 obtained through discovery instead of being pinned to incidental table offsets.
-The spatial GUID conversion used in expectations is local to the test and does
-not call the production conversion helper.
+Discovery and inspection compare node GUIDs directly with Unreal's recorded
+`FGuid::ToString(EGuidFormats::Digits)` values.
+
+## Inspecting a saved graph through a live editor
+
+Use `bp_find_in_graph` with the graph name. Take the matching row’s numeric
+`node_id` into `bp_show_node` for a saved-file read. Its `node_guid` is the
+32-digit engine identifier accepted by live Blueprint tools. The generic
+`node.properties.NodeGuid` field preserves its property-reader representation.
+
+If `pin_block` is unavailable, an empty pin array leaves the pin count and
+values unknown. For graph nodes, `bp_show_node.live_pin_lookup` supplies the
+exact `show_pin_links` arguments for an attached editor. Omit `pin` to list
+current pins, types and literal defaults. Supply a pin name to inspect its
+connections. If saved identity is missing, the lookup uses the exact graph and
+node object names. Both live reads work without generating a sidecar.
 
 ## Explicit qualification limits
 

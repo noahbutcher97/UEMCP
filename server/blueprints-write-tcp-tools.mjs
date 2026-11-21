@@ -478,11 +478,12 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   show_pin_links: {
-    description: 'Read link identities from a named Blueprint graph pin. Returns source/target node and pin metadata without mutating the asset.',
+    description: 'Inspect live Blueprint node pins, defaults and link counts. Omit pin to list all pins. Supply pin to read its links. Use this read-only lookup when saved pin data is unavailable.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
-      node_id: z.string().describe('Node GUID string'),
-      pin: z.string().describe('Pin name on node'),
+      node_id: z.string().min(1).optional().describe('Engine GUID from the node. Supply either node_id or node_name.'),
+      node_name: z.string().min(1).optional().describe('Exact node object name in graph_name, e.g. K2Node_CallFunction_0. Use if the saved GUID is unavailable.'),
+      pin: z.string().min(1).optional().describe('Pin name. Omit for node identity and all pin names, defaults, IDs and link counts.'),
       direction: z.enum(['input', 'output']).optional().describe('Pin direction. Omit to search both directions.'),
       target_node_id: z.string().optional().describe('Optional linked node GUID filter'),
       target_pin: z.string().optional().describe('Optional linked pin name filter'),

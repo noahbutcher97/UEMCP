@@ -347,6 +347,13 @@ console.log('\n── Group 14: Blueprints-write Param Pass-through ──');
   t.assert(showLinksCall.params.node_id === 'guid-1', 'show_pin_links: node_id passed');
   t.assert(showLinksCall.params.target_pin === 'execute', 'show_pin_links: target_pin filter passed');
   t.assert(showLinksCall.params.graph_name === 'MoveStep', 'show_pin_links: graph_name passed');
+  await executeBlueprintsWriteTool('show_pin_links', {
+    blueprint_name: 'BP_Test', graph_name: 'MoveStep', node_name: 'K2Node_CallFunction_0',
+  }, cm);
+  const listedNode = fake.lastCall('show_blueprint_pin_links').params;
+  t.assert(listedNode.node_name === 'K2Node_CallFunction_0' && listedNode.graph_name === 'MoveStep'
+    && listedNode.pin === undefined && listedNode.node_id === undefined,
+  'show_pin_links: exact graph/object lookup lists pins without inventing a pin or GUID');
 
   await executeBlueprintsWriteTool('disconnect_pin', {
     blueprint_name: 'BP_Test', node_id: 'guid-1', pin: 'then', direction: 'output',

@@ -1845,8 +1845,8 @@ if (!HAS_REAL_ASSETS) {
     assert(graphsWithComments.length > 0,
       'EN-8: bp_list_graphs surfaces at least one graph with non-empty comment_ids (BP_OSPlayerR has comments)');
     const allIds = graphsWithComments.flatMap(g => g.comment_ids);
-    assert(allIds.every(id => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id)),
-      'EN-8: every comment_id is a 32-char lowercase hex NodeGuid (FGuid format)');
+    assert(allIds.every(id => typeof id === 'string' && /^[0-9A-F]{32}$/.test(id)),
+      'EN-8: every comment_id is a 32-char engine NodeGuid');
     // comment_count agrees with comment_ids length when every comment has a decoded NodeGuid.
     assert(graphsWithComments.every(g => g.comment_ids.length <= g.comment_count),
       'EN-8: comment_ids length never exceeds comment_count (filter drops undecoded guids)');
