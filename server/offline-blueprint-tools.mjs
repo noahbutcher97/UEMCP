@@ -1077,9 +1077,7 @@ async function bpTraceExec(projectRoot, params) {
   if (g.envelope) return g.envelope;
 
   const nodes = g.graph.nodes;
-  // F-2 input bridge: agents commonly pipe `bp_list_entry_points.entry_points
-  // [].node_guid` (M-spatial raw lowercase-LE) straight into start_node_id.
-  // Normalize against topology key form (Oracle-A canonical uppercase-BE).
+  // Persisted file-order inputs from older readers still resolve to the engine GUID.
   const startGuid = normalizeNodeGuidInput(rawStartGuid, nodes);
   if (!nodes[startGuid]) {
     return {

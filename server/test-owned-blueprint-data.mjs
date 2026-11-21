@@ -74,28 +74,30 @@ for (const [input, expected] of [[-1, 1], [0, 1], [1, 1], [500, 500], [501, 500]
     assertEmpty(await trace({ max_depth: input }), eventId, expected);
   });
 }
-await check('raw entry-point GUID feeds data query and echoes oracle canonical identity', async () => {
+await check('entry-point and historical file-order GUIDs resolve the oracle event', async () => {
   const entries = await query('bp_list_entry_points');
   assert.equal(entries.entry_points.length, 1);
   const seed = entries.entry_points[0];
   assert.equal(seed.graph_name, graphName);
-  assert.equal(seed.node_guid, rawGuid(eventId));
-  assert.notEqual(seed.node_guid, eventId, 'fixture must exercise nontrivial byte order');
+  assert.equal(seed.node_guid, eventId);
+  assert.notEqual(rawGuid(eventId), eventId, 'fixture must exercise nontrivial byte order');
   const canonical = await trace();
   assertEmpty(canonical);
   const fromEntry = await trace({ graph_name: seed.graph_name, start_node_id: seed.node_guid });
   assertEmpty(fromEntry);
   assert.deepEqual(fromEntry, canonical);
+  assert.deepEqual(await trace({ start_node_id: rawGuid(eventId) }), canonical);
 });
-await check('raw inspected call GUID echoes its distinct oracle canonical identity', async () => {
+await check('inspected and historical file-order GUIDs resolve the oracle call', async () => {
   const shown = await query('bp_show_node', { node_id: 'OwnedPrint' });
-  assert.equal(shown.node.node_guid, rawGuid(callId));
-  assert.notEqual(shown.node.node_guid, callId);
+  assert.equal(shown.node.node_guid, callId);
+  assert.notEqual(rawGuid(callId), callId);
   const canonical = await trace({ start_node_id: callId });
   assertEmpty(canonical, callId);
   const fromInspection = await trace({ start_node_id: shown.node.node_guid });
   assertEmpty(fromInspection, callId);
   assert.deepEqual(fromInspection, canonical);
+  assert.deepEqual(await trace({ start_node_id: rawGuid(callId) }), canonical);
 });
 await check('unknown graph returns exact unavailable envelope', async () => {
   assertEmpty(await trace());
