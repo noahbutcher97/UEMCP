@@ -9,6 +9,7 @@
 #include "BlueprintHandlerHelpers.h"
 #include "Editor.h"
 #include "Editor/TransBuffer.h"
+#include "EdGraphUtilities.h"
 #include "EdGraphSchema_K2.h"
 #include "Factories/AnimBlueprintFactory.h"
 #include "GameFramework/Pawn.h"
@@ -143,6 +144,52 @@ bool FUEMCPGraphActionPlacement::RunTest(const FString&)
 	TestTrue(TEXT("Independent exact references"), (Events[0]->InputAction == Left && Events[1]->InputAction == Right) ||
 		(Events[0]->InputAction == Right && Events[1]->InputAction == Left));
 	auto* VectorEvent = Events[0]->InputAction == Right ? Events[0] : Events[1];
+	auto TestCompileMode = [&](ENodeEnabledState Mode, const TCHAR* ExpectedMode)
+	{
+		VectorEvent->SetEnabledState(Mode);
+		const FString BeforeRevision = UEMCP::GraphTopologyRevision(EventGraph);
+		const int32 BeforeUndo = History->GetQueueLength();
+		Pawn->GetOutermost()->SetDirtyFlag(false);
+		auto Existing = Find(Pawn, EventGraph, Right->GetPathName());
+		if (!Existing) return false;
+		const auto& Placed = Existing->GetArrayField(TEXT("placed_nodes"));
+		if (!TestEqual(TEXT("One exact event regardless of compile mode"), Placed.Num(), 1)) return false;
+		FString ReportedMode;
+		Placed[0]->AsObject()->TryGetStringField(TEXT("compile_mode"), ReportedMode);
+		TestEqual(TEXT("Exact read reports actual compile mode"), ReportedMode, FString(ExpectedMode));
+		TestEqual(TEXT("Exact read identifies the changed event"), Placed[0]->AsObject()->GetStringField(TEXT("node_guid")), VectorEvent->NodeGuid.ToString());
+		FJson Response;
+		UEMCP::FMCPCommandRegistry::Get().Dispatch(TEXT("place_graph_action"), Edit(Pawn, EventGraph, RightId), Response);
+		if (!TestTrue(TEXT("Placement returned a response"), Response.IsValid())) return false;
+		FString Code;
+		Response->TryGetStringField(TEXT("code"), Code);
+		if (Mode == ENodeEnabledState::Enabled)
+		{
+			if (!TestEqual(TEXT("Enabled binding is reusable"), Response->GetStringField(TEXT("status")), FString(TEXT("success")))) return false;
+			TestTrue(TEXT("Enabled binding was reused"), Response->GetObjectField(TEXT("result"))->GetBoolField(TEXT("reused")));
+		}
+		else if (TestEqual(TEXT("Restricted binding is refused"), Code, FString(TEXT("CONFLICTING_INPUT_BINDING"))))
+		{
+			const auto& Matches = Response->GetObjectField(TEXT("detail"))->GetArrayField(TEXT("matching_nodes"));
+			if (!TestEqual(TEXT("One event in refusal"), Matches.Num(), 1)) return false;
+			TestEqual(TEXT("Refusal identifies exact event"), Matches[0]->AsObject()->GetStringField(TEXT("node_guid")), VectorEvent->NodeGuid.ToString());
+			TestEqual(TEXT("Refusal identifies exact compile mode"), Matches[0]->AsObject()->GetStringField(TEXT("compile_mode")), FString(ExpectedMode));
+		}
+		TestTrue(TEXT("Compile mode preserved"), VectorEvent->GetDesiredEnabledState() == Mode);
+		TestEqual(TEXT("No new Undo step"), History->GetQueueLength(), BeforeUndo);
+		TestFalse(TEXT("Package remains clean"), Pawn->GetOutermost()->IsDirty());
+		TestEqual(TEXT("Membership and links preserved"), UEMCP::GraphTopologyRevision(EventGraph), BeforeRevision);
+		UEdGraph* CompiledCopy = FEdGraphUtilities::CloneGraph(EventGraph, nullptr, nullptr, true);
+		if (!TestNotNull(TEXT("Compile graph clone"), CompiledCopy)) return false;
+		const bool bInCompiledGraph = CompiledCopy->Nodes.ContainsByPredicate([&](const UEdGraphNode* N) { return N && N->NodeGuid == VectorEvent->NodeGuid; });
+		TestEqual(TEXT("Compiler observes effective mode"), bInCompiledGraph, VectorEvent->IsNodeEnabled());
+		return true;
+	};
+	const bool bPreviouslyDirty = Pawn->GetOutermost()->IsDirty();
+	if (!TestCompileMode(ENodeEnabledState::Disabled, TEXT("Disabled")) ||
+		!TestCompileMode(ENodeEnabledState::DevelopmentOnly, TEXT("DevelopmentOnly")) ||
+		!TestCompileMode(ENodeEnabledState::Enabled, TEXT("Enabled"))) return false;
+	Pawn->GetOutermost()->SetDirtyFlag(bPreviouslyDirty);
 	auto* ValuePin = VectorEvent->FindPin(TEXT("ActionValue"), EGPD_Output);
 	if (!TestNotNull(TEXT("Vector input value pin"), ValuePin)) return false;
 	const auto OriginalType = ValuePin->PinType;

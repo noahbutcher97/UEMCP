@@ -245,6 +245,7 @@ static FJson DescribeNode(UEdGraphNode* Node)
 	Out->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
 	Out->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
 	Out->SetStringField(TEXT("node_class"), Node->GetClass()->GetPathName());
+	Out->SetStringField(TEXT("compile_mode"), LexToString(Node->GetDesiredEnabledState()));
 	Out->SetStringField(TEXT("graph_guid"), Node->GetGraph()->GraphGuid.ToString());
 	Out->SetStringField(TEXT("graph_name"), Node->GetGraph()->GetName());
 	const UObject* Asset = BoundAsset(Node);
@@ -274,7 +275,8 @@ static const UEdGraphPin* UniqueOutput(const UEdGraphNode* Node, FName Name)
 static bool ValidNode(const FTarget& T, UEdGraphNode* Node, const FString& Path)
 {
 	if (!Node || Node->GetClass() != T.NodeClass() || !Node->NodeGuid.IsValid() ||
-		Node->GetGraph() != T.Graph || !T.Graph->Nodes.Contains(Node)) return false;
+		Node->GetGraph() != T.Graph || !T.Graph->Nodes.Contains(Node) ||
+		Node->GetDesiredEnabledState() != ENodeEnabledState::Enabled) return false;
 	const UObject* Source = BoundAsset(Node);
 	if ((Source ? Source->GetPathName() : FString()) != Path) return false;
 	if (T.bInput)
@@ -473,7 +475,10 @@ static void Place(const FJson& Params, FJson& Response)
 		if (Matches.Num() > 1 || (ResultNode && !ValidNode(Target, ResultNode, Selection.Path)))
 		{
 			Before->SetArrayField(TEXT("matching_nodes"), Matches);
-			BuildErrorResponse(Response, TEXT("Inspect the existing event bindings before placing this action"), TEXT("CONFLICTING_INPUT_BINDING"), Before);
+			const bool bRestrictedMode = Matches.Num() == 1 && ResultNode->GetDesiredEnabledState() != ENodeEnabledState::Enabled;
+			BuildErrorResponse(Response, bRestrictedMode
+				? TEXT("The existing event has a restricted compile mode. Inspect matching_nodes and enable that event in the Blueprint editor if it should run in all builds.")
+				: TEXT("Inspect the existing event bindings before placing this action"), TEXT("CONFLICTING_INPUT_BINDING"), Before);
 			return;
 		}
 	}
