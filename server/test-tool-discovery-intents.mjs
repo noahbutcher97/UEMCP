@@ -34,6 +34,8 @@ function assertTopIncludesAny(query, expectedAny, maxResults = 5) {
   );
 }
 
+assertTopIncludes('blueprint graph pins saved function inspect', 'inspect_blueprint_inputs');
+assertTopIncludes('blueprint node pins function call arguments', 'inspect_blueprint_inputs');
 assertTopIncludes('who references this asset', 'get_asset_references');
 assertTopIncludesAny('PIE actor runtime state', ['get_pie_actor_state', 'sample_pie_actor_state']);
 assertTopIncludes('Python command', 'run_python_command');

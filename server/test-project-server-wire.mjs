@@ -241,6 +241,76 @@ await runCase('Blueprint readers accept discovered numeric export indices over M
   }
 });
 
+await runCase('Blueprint function arguments distinguish saved bytes, live links and unavailable observations', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(root, 'InputProbe');
+    const fixture = new URL('./fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset', import.meta.url);
+    const assetFile = join(root, 'Content', 'BP_OwnedLink.uasset');
+    copyFileSync(fixture, assetFile);
+    const before = readFileSync(assetFile);
+    const requests = [];
+    let owner = project.uprojectPath;
+    let missing = false;
+    const instance = await createWireApp({
+      cwd: root,
+      tcpCommandFn: async (_port, type, args) => {
+        requests.push(type);
+        if (type === 'get_editor_state') return { status: 'success', result: { uproject_path: owner } };
+        if (type !== 'show_blueprint_pin_links') throw new Error('Unexpected command ' + type);
+        if (missing) return { status: 'error', message: 'Node has been removed', error_code: 'NODE_NOT_FOUND' };
+        t.assert(args.graph_name === 'OwnedGraph' && args.blueprint_name === '/Game/BP_OwnedLink'
+          && args.node_id === '12345678000000020000000300000004', 'editor lookup uses the saved owner, graph and engine GUID');
+        return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
+          pin_info: { name: args.pin, pin_id: 'LivePin', direction: 'input', default: 'Changed', link_count: 1 },
+          links: [{ node_id: 'Producer', pin: 'Result' }] } };
+      },
+    });
+    app = instance.app;
+    const { transport } = instance;
+    await initialize(transport);
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+    await callTool(transport, 'enable_toolset', { toolsets: ['offline'] });
+    const query = { asset_path: '/Game/BP_OwnedLink', graph_name: 'OwnedGraph', pin: 'InString' };
+    const inspect = async (options = {}) => parseTextResult(await callTool(transport, 'inspect_blueprint_inputs', { ...query, ...options }));
+    requests.length = 0;
+    const disk = await inspect({ source: 'saved' });
+    t.assert(disk.node.member_name === 'PrintString' && disk.saved.inputs[0].stored_default.value === 'UEMCP owned serialization fixture',
+      'plain graph name selects one real saved function call and its actual text argument');
+    t.assert(disk.live.status === 'not_requested' && requests.length === 0, 'saved-only inspection issues zero TCP commands');
+    const linked = await inspect({ source: 'saved', pin: 'execute' });
+    t.assert(linked.saved.inputs[0].binding === 'linked' && linked.saved.inputs[0].linked_to[0].owning_node_package_index === 8,
+      'saved connected input preserves its source reference');
+    const compared = await inspect({ member_name: 'PrintString' });
+    t.assert(compared.saved.inputs[0].binding === 'unlinked' && compared.live.inputs[0].binding === 'linked'
+      && compared.live.inputs[0].stored_default.value === 'Changed' && compared.live.inputs[0].linked_to[0].node_id === 'Producer'
+      && compared.runtime === 'not_evaluated', 'live linked default stays separate from the saved literal and runtime evaluation');
+    t.assert(requests.join(',') === 'get_editor_state,show_blueprint_pin_links', 'comparison performs a fresh handshake then one read');
+    owner = join(root, 'Another.uproject');
+    requests.length = 0;
+    const wrong = await inspect();
+    t.assert(wrong.saved.status === 'observed' && wrong.live.reason === 'EDITOR_PROJECT_MISMATCH'
+      && requests.join(',') === 'get_editor_state', 'another editor cannot receive the scoped graph query');
+    owner = project.uprojectPath;
+    missing = true;
+    const removed = await inspect();
+    t.assert(removed.saved.status === 'observed' && removed.live.reason === 'NODE_NOT_FOUND',
+      'deleted live node preserves independent saved observation');
+    requests.length = 0;
+    const onlyLive = await inspect({ member_name: 'UnsavedMember' });
+    t.assert(onlyLive.saved.status === 'node_not_found' && onlyLive.live.status === 'no_unique_saved_node'
+      && requests.length === 0, 'missing saved match cannot be mistaken for proof about a live-only addition');
+    const missingPin = await inspect({ source: 'saved', pin: 'BadInput' });
+    t.assert(missingPin.saved.status === 'pin_not_found' && missingPin.saved.input_names.includes('InString'),
+      'misspelled pin returns available input names');
+    t.assert(readFileSync(assetFile).equals(before), 'all inspections preserve saved asset bytes');
+  } finally {
+    if (app) await app.server.close();
+    cleanup(root);
+  }
+});
+
 await runCase('multiple root candidates remain unresolved', async () => {
   const root = makeTempRoot();
   try {

@@ -941,16 +941,34 @@ export async function createUemcpServer(options = {}) {
     server.server.sendToolListChanged();
   });
 
+  // The package reader can work alone. For a comparison, bind the read to
+  // the current TCP endpoint using its own uncached project handshake.
+  async function readLiveBlueprintPins(args, generation) {
+    function requireSameAttachment() {
+      if (generation !== projectContext.generation) throw new Error('Project attachment changed during pin inspection');
+    }
+    const options = { skipCache: true, beforeDispatch: requireSameAttachment };
+    requireSameAttachment();
+    const state = await connectionManager.send('tcp-55558', 'get_editor_state', {}, options);
+    requireSameAttachment();
+    const verified = projectContext.refreshEditorHandshake(state);
+    if (verified.state !== 'verified') {
+      throw Object.assign(new Error(verified.message), { code: verified.code });
+    }
+    return connectionManager.send('tcp-55558', 'show_blueprint_pin_links', args, options);
+  }
+
   function registerDynamicTools() {
     registerToolGroup(
       server, toolsetManager, projectContext, log, dispatchRegistry, 'offline', 'offline',
       TOOLS_YAML.toolsets.offline.tools,
       buildOfflineSchemaShape,
-      (name, args) => executeOfflineTool(
-        name,
-        args,
-        projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot()
-      )
+      (name, args) => {
+        const generation = projectContext.generation;
+        return executeOfflineTool(name, args,
+          projectContext.identity?.projectRoot || connectionManager.getAttachedProjectRoot(),
+          pins => readLiveBlueprintPins(pins, generation));
+      }
     );
 
     registerToolGroup(
