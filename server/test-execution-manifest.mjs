@@ -101,6 +101,7 @@ try {
     'UEMCP.BlueprintHandlers.ClassPinConnections',
     'UEMCP.BlueprintHandlers.AssignmentSavedFailureIsolation',
     'UEMCP.BlueprintHandlers.StateNamingIsolation',
+    'UEMCP.BlueprintHandlers.GraphNodePinInspection',
     'UEMCP.BlueprintHandlers.FunctionConnectionUndo',
     'UEMCP.BlueprintHandlers.WriterPinDefaults',
     'UEMCP.BlueprintHandlers.FunctionGraphIdentity',
