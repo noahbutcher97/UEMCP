@@ -1,12 +1,12 @@
-// Tests for M5-animation — 3 montage-mutation tools live on TCP:55558.
+// Tests for M5-animation — 4 montage-mutation tools live on TCP:55558.
 //
 // Companion to docs/handoffs/m5-animation-materials.md. Mirrors the
 // test-m3-actors.mjs shape. Coverage:
-//   - Tool definition completeness (3 tools — get_audio_asset_info SUPERSEDED)
+//   - Tool definition completeness (4 tools — get_audio_asset_info SUPERSEDED)
 //   - Port routing → 55558
 //   - Wire-type identity (no wire_type: in tools.yaml for these)
 //   - P0-9 / P0-10 defense-in-depth Zod validation
-//   - isReadOp = false for all 3 (writes skip cache)
+//   - isReadOp = false for all 4 (writes skip cache)
 //
 // Run: cd /d D:\DevTools\UEMCP\server && node test-m5-animation.mjs
 
@@ -21,13 +21,14 @@ import {
 } from './m5-animation-tools.mjs';
 
 // ── Initialize wire_type maps from a fake YAML structure ──────────
-// All 3 tools use identity wire-types (no wire_type: field in tools.yaml).
+// All 4 tools use identity wire-types (no wire_type: field in tools.yaml).
 const fakeToolsYaml = {
   toolsets: {
     animation: {
       tools: {
         create_montage:      {},
         add_montage_section: {},
+        set_montage_next_section: {},
         add_montage_notify:  {},
       },
     },
@@ -44,10 +45,10 @@ const t = new TestRunner('M5-animation — TCP:55558 montage mutations');
 console.log('\n── Group 1: Tool Definitions ──');
 
 const defs = getM5AnimationToolDefs();
-const expectedTools = ['create_montage', 'add_montage_section', 'add_montage_notify'];
+const expectedTools = ['create_montage', 'add_montage_section', 'set_montage_next_section', 'add_montage_notify'];
 
-t.assert(Object.keys(defs).length === 3,
-  `3 animation mutation tools defined (got ${Object.keys(defs).length})`);
+t.assert(Object.keys(defs).length === 4,
+  `4 animation mutation tools defined (got ${Object.keys(defs).length})`);
 t.assert(defs === M5_ANIMATION_SCHEMAS, 'getM5AnimationToolDefs returns M5_ANIMATION_SCHEMAS');
 
 // SUPERSEDED disposition for get_audio_asset_info — not a registered tool
@@ -80,6 +81,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
       skeleton: '/Game/Skel/SK_Hero.SK_Hero', length: 1.5,
     },
   });
+  fake.on('set_montage_next_section', {status: 'success', result: {}});
   fake.on('add_montage_section', {
     status: 'success',
     result: { asset_path: '/Game/Animations/AM_Test', section_name: 'Hit', time: 0.5, section_count: 2 },
@@ -95,6 +97,7 @@ console.log('\n── Group 2: Port Routing → 55558 ──');
   const checks = [
     ['create_montage',      { name: 'AM_Test', anim_sequence: '/Game/Anims/A_Test' }, 'create_montage'],
     ['add_montage_section', { asset_path: '/Game/Animations/AM_Test', section_name: 'Hit', time: 0.5 }, 'add_montage_section'],
+    ['set_montage_next_section', { asset_path: '/Game/Animations/AM_Test', section_name: 'Default', next_section: 'Hit' }, 'set_montage_next_section'],
     ['add_montage_notify',  { asset_path: '/Game/Animations/AM_Test', notify_class: 'AnimNotify_PlaySound', time: 0.25 }, 'add_montage_notify'],
   ];
 

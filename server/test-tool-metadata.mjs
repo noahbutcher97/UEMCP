@@ -133,6 +133,7 @@ const REQUIRED_ANNOTATED_TOOLS = new Set([
   'add_mapping',
   'create_montage',
   'add_montage_section',
+  'set_montage_next_section',
   'add_montage_notify',
 ]);
 

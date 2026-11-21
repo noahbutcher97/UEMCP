@@ -74,6 +74,18 @@ bool FUEMCPMontageTimeline::RunTest(const FString&)
 	Args->SetNumberField(TEXT("time"), End * 0.25);
 	if (!TestEqual(TEXT("Interior state accepted"), Status(TEXT("add_montage_notify")), FString(TEXT("success")))) return false;
 	TestTrue(TEXT("State end linked"), Montage->Notifies.Num() == 1 && Montage->Notifies[0].EndLink.GetSegmentIndex() != INDEX_NONE);
+	// A notify state can begin and end on real segments while crossing an empty stretch.
+	auto& First = Montage->SlotAnimTracks[0].AnimTrack.AnimSegments[0];
+	First.AnimEndTime = 0.2f;
+	FAnimSegment Second = First;
+	Second.StartPos = 0.24f;
+	Montage->AddSlot(TEXT("Other")).AnimTrack.AnimSegments.Add(Second);
+	const int32 BeforeGap = Montage->Notifies.Num();
+	Args->SetNumberField(TEXT("time"), 0.175);
+	TestEqual(TEXT("Empty interval between state endpoints refused"), Status(TEXT("add_montage_notify")), FString(TEXT("error")));
+	TestEqual(TEXT("Refusal preserved cue count"), Montage->Notifies.Num(), BeforeGap);
+	Montage->SlotAnimTracks.Last().AnimTrack.AnimSegments[0].StartPos = 0.2f;
+	TestEqual(TEXT("Adjacent animation on different slots covers the state"), Status(TEXT("add_montage_notify")), FString(TEXT("success")));
 	return true;
 }
 #endif

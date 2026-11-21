@@ -1224,11 +1224,27 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Add named section to montage at specified time
+        description: Add a uniquely named section at an unoccupied time strictly before the animation ends. Playback links are edited separately.
         params:
           asset_path:    { type: string, required: true }
           section_name:  { type: string, required: true }
           time:          { type: number, required: true }
+      set_montage_next_section:
+        status: shipped
+        availability_layer: tcp-55558
+        transport_layer: tcp-55558
+        requires_editor: true
+        requires_pie: false
+        mutates_asset: true
+        mutates_level: false
+        saves_asset: false
+        compiles_asset: false
+        offline_fallback: false
+        description: Set the outgoing playback link of an existing montage section. Read links with get_montage_full.
+        params:
+          asset_path:   { type: string, required: true }
+          section_name: { type: string, required: true, description: Existing source section }
+          next_section: { type: string, required: true, description: "Existing destination section, including self for a loop, or an empty string to end playback." }
       add_montage_notify:
         status: shipped
         availability_layer: tcp-55558
@@ -1240,7 +1256,7 @@ toolsets:
         saves_asset: false
         compiles_asset: false
         offline_fallback: false
-        description: Add AnimNotify/AnimNotifyState at specified time
+        description: Add an instantaneous cue through the animation endpoint or a state whose 0.1 second duration fits. Near-end delivery depends on blend-out.
         params:
           asset_path:    { type: string, required: true }
           notify_class:  { type: string, required: true }
