@@ -253,6 +253,8 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     const requests = [];
     let owner = project.uprojectPath;
     let missing = false;
+    let nodeClass = 'K2Node_CallFunction';
+    let namedRevision = 'rev1';
     const instance = await createWireApp({
       cwd: root,
       tcpCommandFn: async (_port, type, args) => {
@@ -262,7 +264,10 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
         if (missing) return { status: 'error', message: 'Node has been removed', error_code: 'NODE_NOT_FOUND' };
         t.assert(args.graph_name === 'OwnedGraph' && args.blueprint_name === '/Game/BP_OwnedLink'
           && args.node_id === '12345678000000020000000300000004', 'editor lookup uses the saved owner, graph and engine GUID');
-        return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
+        if (!args.pin) return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
+          node_class: nodeClass, topology_revision: 'rev1',
+          pins: [{ name: 'InString', direction: 'input', pin_id: 'LivePin', link_count: 1, default: 'Changed' }] } };
+        return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id, topology_revision: namedRevision,
           pin_info: { name: args.pin, pin_id: 'LivePin', direction: 'input', default: 'Changed', link_count: 1 },
           links: [{ node_id: 'Producer', pin: 'Result' }] } };
       },
@@ -286,7 +291,17 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     t.assert(compared.saved.inputs[0].binding === 'unlinked' && compared.live.inputs[0].binding === 'linked'
       && compared.live.inputs[0].stored_default.value === 'Changed' && compared.live.inputs[0].linked_to[0].node_id === 'Producer'
       && compared.runtime === 'not_evaluated', 'live linked default stays separate from the saved literal and runtime evaluation');
-    t.assert(requests.join(',') === 'get_editor_state,show_blueprint_pin_links', 'comparison performs a fresh handshake then one read');
+    t.assert(requests.join(',') === 'get_editor_state,show_blueprint_pin_links,get_editor_state,show_blueprint_pin_links',
+      'named connected pin checks ownership for class and endpoint reads');
+    t.assert(compared.argument_evaluation === 'not_performed' && compared.live.member_identity === 'not_reported_by_editor'
+      && compared.live.pin_semantics === 'split_and_default_flags_not_reported',
+      'matching pin identity preserves unknown editor member, split-pin state and argument evaluation');
+    nodeClass = 'K2Node_VariableSet';
+    t.assert((await inspect()).live.status === 'unexpected_node_reply', 'contradictory live class cannot supply the saved function argument');
+    nodeClass = 'K2Node_CallFunction';
+    namedRevision = 'rev2';
+    t.assert((await inspect()).live.status === 'inconsistent_pin_reply', 'a changed graph revision cannot contribute named link endpoints');
+    namedRevision = 'rev1';
     owner = join(root, 'Another.uproject');
     requests.length = 0;
     const wrong = await inspect();
