@@ -1,6 +1,6 @@
 # Discovering and placing asset-backed graph nodes
 
-**Proposed first delivery.** An agent can bind a pawn to a named Enhanced Input action or play a named sequence in an AnimBP by discovering and invoking the same contextual action Unreal offers in the graph editor. The two operations share discovery, placement and Undo. Each family supplies its own compatibility check and verifies the referenced asset on the placed node.
+**Implemented on the graph placement task branch.** An agent can bind a pawn to a named Enhanced Input action or play a named sequence in an AnimBP by discovering and invoking the same contextual action Unreal offers in the graph editor. The two operations share discovery, placement and Undo. Each family supplies its own compatibility check and verifies the referenced asset on the placed node.
 
 ## Why the asset belongs in the action identity
 
@@ -8,7 +8,19 @@ On UE 5.8.4, a CLI agent asked to bind a mapped action through public UEMCP tool
 
 The installed engine source identifies a reusable mechanism. In `UK2Node_EnhancedInputAction::GetMenuActions`, Unreal registers a spawner for each input action and sets the new node's `InputAction` reference. For a Sequence Player, `UAnimGraphNode_AssetPlayerBase::GetMenuActionsHelper` registers asset data with a spawner and applies asset-specific initialization. The helper also supports an empty player. An empty player, a player for Walk and a player for Run can share a class. UEMCP's existing two-way-blend discovery returns that class path as the action identifier. [Current discovery and placement](../../plugin/UEMCP/Source/UEMCP/Private/AnimationHandlers.cpp)
 
-## Proposed public contract
+## Using the public operations
+
+A client can start with a gameplay request such as “Use UEMCP in this project. While I hold the Interact action from the Right folder, set the pawn's Interacting flag. Clear it on release or cancellation. Save only that pawn.” If the client offers manual steps without calling UEMCP, ask it to attach with `attach_project` and search with `find_tools`. In a Copilot trial this reached the editor. A later gameplay check identified an unwired release path. [Client trials](graph-action-placement-qualification.md)
+
+Start with the exact Blueprint package and a graph name such as `EventGraph` or `AnimGraph`. Call `find_graph_actions` with `asset_path`, `graph_name` and, if known, `source_asset_path`. The read can also search by `query`. If the search is incomplete, narrow it to the intended source path. Inspect the full paths when two assets share a name. An empty source path explicitly requests an empty Sequence Player.
+
+Use the returned graph GUID, topology revision and action ID for `place_graph_action`. Pass `node_position` as two integer coordinates. After a lost reply, repeat the exact-source read and inspect `placed_nodes` before deciding whether another placement is necessary. Repeating an enabled Enhanced Input binding in the requested graph reuses its event. If the binding is Disabled, DevelopmentOnly, or belongs to another graph, inspect the reported compile mode and graph GUID before choosing how to proceed. Intentionally placing the same Sequence Player again should create another player. If the project reattaches or the engine rejects a stale selection, rediscover it in the current session.
+
+For a repeating Hold trigger, set a held flag on Started (press). Clear it on both Completed (release after the hold triggers) and Canceled (early release).
+
+Inspect links using `show_pin_links`. Use the actual node, pin and graph identities for `connect_nodes`. Replacing an occupied input also requires its current source pin ID and topology revision. Compile and save the named Blueprint if the task calls for persistence. For a gameplay claim, possess the pawn and exercise the mapped input. For an animation claim, sample the evaluated bones after reopening.
+
+## Contract
 
 | Operation | Agent supplies | Agent receives |
 | --- | --- | --- |
@@ -23,7 +35,7 @@ The ID is opaque to clients. Resolve it against the current editor session, targ
 
 Use the existing editor transaction and graph revision helpers. Verify that the returned node belongs to the target graph's node list, references the exact selected asset and exposes the family's expected pins. Record any unexpected changes if verification fails after invocation, including whether Undo can restore the previous graph. A cancelled transaction alone is insufficient evidence of rollback. If a reply is lost, refresh graph membership and inspect node GUIDs and asset references before retrying. Multiple Sequence Players can legitimately reference the same clip.
 
-Keep the legacy input writer's action-name argument and the two-way-blend writer's class-path argument. The proposed interface will advertise each new family once its acceptance cases pass.
+Keep the legacy input writer's action-name argument and the two-way-blend writer's class-path argument. The public catalog describes both supported families. The [qualification record](graph-action-placement-qualification.md) identifies the engines and clients exercised.
 
 ## Impact and adoption decisions
 
@@ -39,7 +51,7 @@ Keep the legacy input writer's action-name argument and the two-way-blend writer
 
 ### Discovery, deployment and editor lifecycle
 
-**Graph targeting is an implementation dependency.** Today `connect_nodes` accepts a graph GUID but its GUID branch explicitly requires a `UAnimBlueprint`. Passing the discovered pawn Event Graph GUID to it would return `UNSUPPORTED_GRAPH`. The name-based resolver can also call `FindOrCreateEventGraph`, which is inappropriate for discovery on an asset missing that graph. Provide a lookup-only resolver for the two target contexts. Extend GUID wiring to the pawn's owned Event Graph, and add an optional matching GUID to `show_pin_links` and `disconnect_pin` for that same round trip. Include graph and pin names alongside GUIDs because existing wiring payloads require names. Preserve name-only callers; reject a name/GUID mismatch. Test that reading an absent graph leaves the Blueprint and package untouched. [Current resolver and callers](../../plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp)
+The pre-change graph GUID resolver required a `UAnimBlueprint` and returned `UNSUPPORTED_GRAPH` for a pawn Event Graph. Discovery now uses a lookup-only path. Wiring accepts a pawn-owned Event Graph GUID, checks the supplied graph name and verifies pin identities. Inspection and disconnection can use the same graph and pin IDs. [Resolver and callers](../../plugin/UEMCP/Source/UEMCP/Private/BlueprintHandlers.cpp)
 
 - Register discovery once in `blueprint-read` as a live read and placement once in `blueprints-write` as a live asset mutation. Include input and animation vocabulary in the catalog and existing toolset guidance. Both direct tools and the `describe_tool` dispatcher route must agree on schema, project and editor identity, and mutation permissions. A read-only client can discover and inspect. Only an authorized writer can invoke. [Tool requirements](../../server/tool-requirements.mjs) · [Dispatch](../../server/tool-dispatch.mjs)
 - The existing [search index](../../server/tool-index.mjs), run against the merged catalog, ranked `add_input_action_node` first for “bind Enhanced Input action to pawn” and `bp_list_graphs` first for “play animation sequence in AnimGraph”. At release, require the appropriate discovery tool in the first three results for both prompts, and make the Enhanced Input path rank ahead of the legacy writer for the first prompt. Test a legacy-input prompt as a control. Update the [widgets guidance](../../server/server-guidance.mjs), which currently sends Enhanced Input users only to the asset-creation toolset.
@@ -50,7 +62,7 @@ Keep the legacy input writer's action-name argument and the two-way-blend writer
 
 For an Enhanced Input event, return an existing exact match as `reused` only when its live graph membership, event kind, bound asset and required pins match. Report multiple existing matches for selection; leave their wiring intact. Two Sequence Players for the same clip can legitimately have different wiring and playback settings. An explicit placement creates another player. A retry after a lost response first compares the exact-asset node set with the pre-edit set. If another client placed an equivalent node concurrently, report the ambiguity with node GUIDs. Never infer ownership from asset and position alone. A reused result adds no Undo entry.
 
-Alongside the two live tasks below, test refusal with an old revision, the same ID against a different Blueprint, an attached project switch, immediate Undo/Redo, and a lost reply after a successful edit. Compare graph membership, asset references, edges and dirty packages. Test the MCP catalog, direct/dispatcher parity and old payloads with the server rotation. Use real Codex and Claude prompts for discovery and placement and report provider/engine coverage individually. The two proposed tools remain design-only until implementation and owned-editor acceptance.
+Alongside the two live tasks below, test refusal with an old revision, the same ID against a different Blueprint, an attached project switch, immediate Undo/Redo, and a lost reply after a successful edit. Compare graph membership, asset references, edges and dirty packages. Test the MCP catalog, direct/dispatcher parity and old payloads with the server rotation. Use real Codex and Claude prompts for discovery and placement and report provider/engine coverage individually. The [qualification record](graph-action-placement-qualification.md) lists the completed implementation checks and remaining coverage.
 
 ## Existing writers that can report a different result than requested
 

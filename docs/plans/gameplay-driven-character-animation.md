@@ -18,9 +18,13 @@ Start with a Two Bone IK implementation for the reference arm. A later variant c
 
 ## What the first agent experiment must establish
 
+### Next playable character check
+
+Give a fresh agent a possessed Character Blueprint with its actual SkeletalMeshComponent, compatible AnimBP and the two distinguishable clips. The placement fixture proved the input event on a pawn and the selected clip on a separate mesh. On the character, drive the saved AnimBP from the owning pawn's `Interacting` value through its normal update path. Sample the pawn flag, the live mesh AnimInstance value and the evaluated bones together for J, sustained E, release and an early cancelled press. Confirm the expected state and pose changes on that same mesh after reopening. Then add an authored upper-body overlay and procedural hand target using the locomotion-only and IK-disabled controls described below. [Placement results and client failure cases](graph-action-placement-qualification.md)
+
 ### Current public authoring coverage
 
-The [asset-backed graph action design](asset-backed-graph-actions.md) addresses the confirmed pawn binding gap and defines a second proof using a Sequence Player in the AnimGraph.
+The [graph placement qualification](graph-action-placement-qualification.md) updates the PR #67 baseline below. It covers the authored pawn binding and the selected Sequence Player. The combined character still needs a verified gameplay-to-AnimInstance update, masked upper-body overlay and procedural reach.
 
 This inventory compares the public server contracts and native registrations with the owned fixture on the PR #67 baseline. “No dedicated writer found” means the catalog exposes no animation-specific operation for that task. The input binding row includes a live test through the public server. The subsequent [playable character audit](../audits/2026-11-21-playable-animation.md) follows a real Codex CLI task through cold PIE replay. It records the partially authored character, downstream controls, runtime failures and remaining gates on UE 5.8.4.
 

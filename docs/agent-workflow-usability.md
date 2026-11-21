@@ -24,6 +24,7 @@ For interactive animation, a practical task is to open a Blueprint in an owned e
 
 - When a tool reads several states, give the agent a case where they diverge. An unsaved graph edit, for example, lets the evaluator check whether the answer distinguishes the saved file, open editor and observed runtime. Require evidence for each state the answer claims to know.
 - For inspection tasks, check the calls the client could make and the calls it actually made. A compile can change editor state while leaving every monitored file byte identical.
+- For an operation with optional defaults, exercise a plausible misspelled or misplaced value through the normal client. Inspect the saved value and the resulting behavior. An OpenCode run wired the right input event but a stripped setter argument left the pawn false on press. [Graph placement qualification](plans/graph-action-placement-qualification.md)
 - For an edit a user may retry, define the requested outcome first. Repeating “ensure this binding exists” should leave one binding. Asking for another player instance should create a second instance. Read back the exact targets and their counts after recovery.
 - Record separately what the tool did, what the agent concluded and whether the user's intended outcome occurred. Choose an independent observation appropriate to that outcome, such as actual cue delivery for a playback claim. The [three-engine qualification](plans/animation-inspection-and-montage-decisions.md#agent-workflow-results) shows how these judgments can differ on the same task.
 

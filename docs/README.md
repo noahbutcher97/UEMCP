@@ -8,7 +8,7 @@
 **Animation research and execution modes**: [ad hoc editing, recipes and offline support](plans/animation-authoring-execution.md)
 **Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
 
-For the proposed Enhanced Input and Sequence Player workflow, see the [asset-backed graph action design and adoption decisions](plans/asset-backed-graph-actions.md#impact-and-adoption-decisions).
+To bind an Enhanced Input action or play a named sequence, see the [public graph operations](plans/asset-backed-graph-actions.md#using-the-public-operations) and [engine and agent results](plans/graph-action-placement-qualification.md).
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
