@@ -118,7 +118,7 @@ export const TOOLSET_TIPS = deepFreeze({
   'animation': {
     core: [
       'get_montage_full, get_anim_sequence_info, and get_anim_graph are full tcp-55558 asset-instance reads - they load UAnimMontage/UAnimSequence/UAnimBlueprint and return montage sections, notifies, slot tracks, sequence skeleton/rate data, and static AnimGraph topology. Use get_anim_graph include_pin_topology=true when you need visual UEdGraph node/pin/LinkedTo wiring. get_blend_space and get_anim_curve_data remain reflection-backed reads; pair with read_asset_properties (offline) for batch file-level inspection.',
-      'Mutation tools (create_montage, add_montage_section, add_montage_notify) live on tcp-55558 (UEMCP plugin, M5-anim+mat per D105). create_montage emits a single DefaultSlot (D119 NEW-1 fix); section_name in add_montage_section must not collide with existing sections - API silently overwrites.',
+      'Create a montage, add named sections before the clip ends, and set their playback links with set_montage_next_section. get_montage_full shows section times and next_section. An empty next_section in the writer ends the route. Add instantaneous or state notifies within the playable clip and save when ready.',
     ].join(' '),
     workflows: [{ requires: ['offline'], tip: 'For montage sections / notifies / curve keyframes without editor, use read_asset_properties - D50 tagged-fallback covers their struct-typed fields via FPropertyTag iteration.' }],
   },
