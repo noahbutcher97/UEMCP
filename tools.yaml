@@ -580,7 +580,7 @@ toolsets:
       add_function_node:
         mutates_asset: true
         wire_type: add_blueprint_function_node
-        description: Add function call node to a target graph. Supports target class, default pin values, and KismetMathLibrary vector/math/comparison functions. Returns pin metadata.
+        description: Add function call node to a target graph. Use a class name or omit it for self or supported library lookup. Unknown input names and invalid defaults reject the edit. Returns the reflected function path and pin metadata.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function name to call" }
@@ -609,7 +609,7 @@ toolsets:
       add_function_graph:
         mutates_asset: true
         wire_type: add_blueprint_function_graph
-        description: Create a Blueprint function graph and return its FunctionEntry node with pin metadata. Idempotent by graph/function name.
+        description: Create a Blueprint function graph and return its FunctionEntry node with pin metadata. Reuses a matching function with one entry. A name collision with another graph kind rejects the edit.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           function_name:  { type: string, required: true, description: "Function graph name to create" }
@@ -625,7 +625,7 @@ toolsets:
       add_variable_set:
         mutates_asset: true
         wire_type: add_blueprint_variable_set_node
-        description: Add member variable set node to a target Blueprint graph. Returns pin metadata.
+        description: Add member variable set node to a target Blueprint graph. Returns pin metadata. Unknown input names and invalid defaults reject the edit.
         params:
           blueprint_name: { type: string, required: true, description: "Blueprint asset name" }
           variable_name:  { type: string, required: true, description: "Member variable name" }
