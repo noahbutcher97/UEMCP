@@ -22,7 +22,7 @@ Start with a Two Bone IK implementation for the reference arm. A later variant c
 
 The [asset-backed graph action design](asset-backed-graph-actions.md) addresses the confirmed pawn binding gap and defines a second proof using a Sequence Player in the AnimGraph.
 
-This inventory compares the public server contracts and native registrations with the owned fixture on the PR #67 baseline. “No dedicated writer found” means the catalog exposes no animation-specific operation for that task. The input binding row includes a live test through the public server. The combined playable character still needs a real CLI run.
+This inventory compares the public server contracts and native registrations with the owned fixture on the PR #67 baseline. “No dedicated writer found” means the catalog exposes no animation-specific operation for that task. The input binding row includes a live test through the public server. The subsequent [playable character audit](../audits/2026-11-21-playable-animation.md) follows a real Codex CLI task through cold PIE replay. It records the partially authored character, downstream controls, runtime failures and remaining gates on UE 5.8.4.
 
 | Authoring task | Current coverage | Gap for an agent |
 | --- | --- | --- |
