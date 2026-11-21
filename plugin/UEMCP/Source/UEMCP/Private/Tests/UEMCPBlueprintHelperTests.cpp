@@ -254,7 +254,7 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("int mismatch code"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
 	TestEqual(TEXT("int mismatch message"), Error, FString(TEXT("Integer variable assignment requires a numeric literal")));
 
-	// --- float and real share one branch; the formatter is SanitizeFloat ---
+	// --- float and real share round-trip formatting ---
 	TestTrue(TEXT("real literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(
 			MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float), JsonNumber(2.5), Default, Error, Code));
@@ -263,6 +263,16 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("float literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Float), JsonNumber(2.5), Default, Error, Code));
 	TestEqual(TEXT("float literal formatting"), Default, FString::SanitizeFloat(2.5));
+
+	const double Small = 1.e-7;
+	TestTrue(TEXT("small float literal accepted"), UEMCP::FormatLiteralForPinCategory(
+		MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float), JsonNumber(Small), Default, Error, Code));
+	TestTrue(TEXT("small literal survives VM float conversion"), FCString::Atof(*Default) == static_cast<float>(Small));
+
+	const double Precise = 1.23456789012345;
+	TestTrue(TEXT("precise double literal accepted"), UEMCP::FormatLiteralForPinCategory(
+		MakePinType(UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double), JsonNumber(Precise), Default, Error, Code));
+	TestTrue(TEXT("double literal retains precision"), FCString::Atod(*Default) == Precise);
 
 	TestFalse(TEXT("float literal rejects bool"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Float), JsonBool(true), Default, Error, Code));

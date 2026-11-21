@@ -301,7 +301,24 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::SanitizeFloat(Value->AsNumber());
+			const double Number = Value->AsNumber();
+			const bool bSinglePrecision = Category == UEdGraphSchema_K2::PC_Float || PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float;
+			if (!FMath::IsFinite(Number) || (bSinglePrecision && (FMath::Abs(Number) > MAX_flt ||
+				(Number != 0.0 && static_cast<float>(Number) == 0.f))))
+			{
+				OutError = TEXT("Numeric literal exceeds the pin's finite range");
+				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
+				return false;
+			}
+			// Preserve established pin text when it already represents the value.
+			// SanitizeFloat starts from %f, so small values can otherwise become 0.
+			OutDefaultValue = FString::SanitizeFloat(Number);
+			const bool bRoundTrips = bSinglePrecision ? FCString::Atof(*OutDefaultValue) == static_cast<float>(Number) :
+				FCString::Atod(*OutDefaultValue) == Number;
+			if (!bRoundTrips)
+			{
+				OutDefaultValue = FString::Printf(TEXT("%.17g"), Number);
+			}
 			return true;
 		}
 		if (Category == UEdGraphSchema_K2::PC_Boolean)
