@@ -7,6 +7,8 @@
 **Animation authoring priority**: [U5 program](plans/animation-authoring-program.md)
 **Animation research and execution modes**: [ad hoc editing, recipes and offline support](plans/animation-authoring-execution.md)
 **Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
+
+For the proposed Enhanced Input and Sequence Player workflow, see the [asset-backed graph action design and adoption decisions](plans/asset-backed-graph-actions.md#impact-and-adoption-decisions).
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
