@@ -15,6 +15,7 @@
 #include "GameFramework/Pawn.h"
 #include "InputAction.h"
 #include "K2Node_EnhancedInputAction.h"
+#include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "MCPCommandRegistry.h"
 #include "Misc/AutomationTest.h"
@@ -189,6 +190,34 @@ bool FUEMCPGraphActionPlacement::RunTest(const FString&)
 	if (!TestCompileMode(ENodeEnabledState::Disabled, TEXT("Disabled")) ||
 		!TestCompileMode(ENodeEnabledState::DevelopmentOnly, TEXT("DevelopmentOnly")) ||
 		!TestCompileMode(ENodeEnabledState::Enabled, TEXT("Enabled"))) return false;
+	auto* SecondPage = FBlueprintEditorUtils::CreateNewGraph(Pawn, TEXT("AdditionalEvents"), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	FBlueprintEditorUtils::AddUbergraphPage(Pawn, SecondPage);
+	const FString SecondPageId = Id(Find(Pawn, SecondPage, Right->GetPathName()));
+	if (SecondPageId.IsEmpty()) return false;
+	VectorEvent->SetEnabledState(ENodeEnabledState::Disabled);
+	Pawn->GetOutermost()->SetDirtyFlag(false);
+	const FString OriginalPageRevision = UEMCP::GraphTopologyRevision(EventGraph);
+	const FString SecondPageRevision = UEMCP::GraphTopologyRevision(SecondPage);
+	const int32 CrossGraphUndo = History->GetQueueLength();
+	FJson OtherPageConflict;
+	UEMCP::FMCPCommandRegistry::Get().Dispatch(TEXT("place_graph_action"), Edit(Pawn, SecondPage, SecondPageId), OtherPageConflict);
+	if (!TestTrue(TEXT("Other graph conflict reported"), OtherPageConflict.IsValid()) ||
+		!TestEqual(TEXT("Other graph binding refused"), OtherPageConflict->GetStringField(TEXT("code")), FString(TEXT("CONFLICTING_INPUT_BINDING")))) return false;
+	const FString Recovery = OtherPageConflict->GetStringField(TEXT("error"));
+	TestTrue(TEXT("Recovery identifies another graph"), Recovery.Contains(TEXT("another graph")));
+	TestFalse(TEXT("Recovery does not tell the user to enable an event on a different graph"), Recovery.Contains(TEXT("enable that event")));
+	const auto& OtherMatches = OtherPageConflict->GetObjectField(TEXT("detail"))->GetArrayField(TEXT("matching_nodes"));
+	if (!TestEqual(TEXT("One existing binding on the other graph"), OtherMatches.Num(), 1)) return false;
+	const FJson OtherMatch = OtherMatches[0]->AsObject();
+	TestEqual(TEXT("Conflict identifies the original graph"), OtherMatch->GetStringField(TEXT("graph_guid")), EventGraph->GraphGuid.ToString());
+	TestEqual(TEXT("Conflict identifies the disabled event"), OtherMatch->GetStringField(TEXT("node_guid")), VectorEvent->NodeGuid.ToString());
+	TestEqual(TEXT("Other graph retains disabled mode"), OtherMatch->GetStringField(TEXT("compile_mode")), FString(TEXT("Disabled")));
+	TestTrue(TEXT("Other graph event remains disabled"), VectorEvent->GetDesiredEnabledState() == ENodeEnabledState::Disabled);
+	TestEqual(TEXT("Neither graph changed: original page"), UEMCP::GraphTopologyRevision(EventGraph), OriginalPageRevision);
+	TestEqual(TEXT("Neither graph changed: second page"), UEMCP::GraphTopologyRevision(SecondPage), SecondPageRevision);
+	TestEqual(TEXT("Other graph refusal adds no Undo step"), History->GetQueueLength(), CrossGraphUndo);
+	TestFalse(TEXT("Other graph refusal leaves package clean"), Pawn->GetOutermost()->IsDirty());
+	VectorEvent->SetEnabledState(ENodeEnabledState::Enabled);
 	Pawn->GetOutermost()->SetDirtyFlag(bPreviouslyDirty);
 	auto* ValuePin = VectorEvent->FindPin(TEXT("ActionValue"), EGPD_Output);
 	if (!TestNotNull(TEXT("Vector input value pin"), ValuePin)) return false;

@@ -475,10 +475,15 @@ static void Place(const FJson& Params, FJson& Response)
 		if (Matches.Num() > 1 || (ResultNode && !ValidNode(Target, ResultNode, Selection.Path)))
 		{
 			Before->SetArrayField(TEXT("matching_nodes"), Matches);
-			const bool bRestrictedMode = Matches.Num() == 1 && ResultNode->GetDesiredEnabledState() != ENodeEnabledState::Enabled;
-			BuildErrorResponse(Response, bRestrictedMode
-				? TEXT("The existing event has a restricted compile mode. Inspect matching_nodes and enable that event in the Blueprint editor if it should run in all builds.")
-				: TEXT("Inspect the existing event bindings before placing this action"), TEXT("CONFLICTING_INPUT_BINDING"), Before);
+			const TCHAR* Recovery = TEXT("Inspect the existing event bindings before placing this action");
+			if (Matches.Num() == 1)
+			{
+				if (ResultNode->GetGraph() != Target.Graph)
+					Recovery = TEXT("The existing event belongs to another graph. Inspect its graph_guid in matching_nodes and choose which graph should handle the input.");
+				else if (ResultNode->GetDesiredEnabledState() != ENodeEnabledState::Enabled)
+					Recovery = TEXT("The existing event has a restricted compile mode. Inspect matching_nodes and enable that event in the Blueprint editor if it should always run.");
+			}
+			BuildErrorResponse(Response, Recovery, TEXT("CONFLICTING_INPUT_BINDING"), Before);
 			return;
 		}
 	}
