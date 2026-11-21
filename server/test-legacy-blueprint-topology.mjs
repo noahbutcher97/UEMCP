@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cursor, readPropertyTag, readExportProperties, propertyTagLayoutForPackage } from './uasset-parser.mjs';
 import { buildStructHandlers } from './uasset-structs.mjs';
-import { bpFindInGraphSafe, bpShowNodeSafe, extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
+import { bpFindInGraphSafe, bpShowNodeSafe, bpSubgraphInCommentSafe, extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
 
 const t = new TestRunner('Legacy Blueprint topology');
@@ -54,12 +54,12 @@ function nodeBytes(version, index) {
 
 // Minimal uncooked UE4=522 package, with versions immediately below/at the
 // complete-type-name gate as well as the installed fixtures' older 1004 form.
-function packageBytes(version) {
+function packageBytes(version, { duplicateNames = false } = {}) {
   const nameOffset = 512, importOffset = 2048, exportOffset = 2200, dataOffset = 4096;
   const chunks = [i32(0x9e2a83c1), i32(-8), i32(0), i32(522), i32(version), i32(0),
     i32(0), i32(dataOffset), str(''), i32(0), i32(names.length), i32(nameOffset)];
   if (version >= 1008) chunks.push(i32(0), i32(0)); // soft object paths
-  chunks.push(str(''), i32(0), i32(0), i32(3), i32(exportOffset), i32(2), i32(importOffset),
+  chunks.push(str(''), i32(0), i32(0), i32(duplicateNames ? 4 : 3), i32(exportOffset), i32(2), i32(importOffset),
     i32(0), i32(0), i32(0), i32(0), i32(0), // depends, soft refs, searchable names, thumbnails
     Buffer.alloc(32), i32(0), // legacy/persistent GUIDs, generations
     Buffer.alloc(10), str(''), Buffer.alloc(10), str(''), // engine versions
@@ -67,14 +67,18 @@ function packageBytes(version) {
     i32(names.length), i64(0));
   if (version >= 1009) chunks.push(i32(0)); // data resource offset
   const bodies = [Buffer.alloc(0), nodeBytes(version, 0), nodeBytes(version, 1)];
+  if (duplicateNames) bodies.push(Buffer.alloc(0));
   const buf = Buffer.alloc(dataOffset + bodies[1].length + bodies[2].length);
   Buffer.concat(chunks).copy(buf);
   Buffer.concat(names.map(n => Buffer.concat([str(n), Buffer.alloc(4)]))).copy(buf, nameOffset);
   Buffer.concat(['K2Node_Knot', 'EdGraph'].flatMap(name => [fn('None'), fn('None'), i32(0), fn(name), fn('None'), i32(0)])).copy(buf, importOffset);
   let offset = dataOffset;
   const exports = bodies.map((body, index) => {
-    const row = [i32(index ? -1 : -2), i32(0), i32(0), i32(index ? 1 : 0),
-      fn(['EventGraph', 'First', 'Second'][index]), i32(0), i64(body.length), i64(offset),
+    const isNode = index === 1 || index === 2;
+    const name = ['EventGraph', 'First', duplicateNames ? 'First' : 'Second', 'Second'][index];
+    const outer = index === 2 && duplicateNames ? 4 : (isNode ? 1 : 0);
+    const row = [i32(isNode ? -1 : -2), i32(0), i32(0), i32(outer),
+      fn(name), i32(0), i64(body.length), i64(offset),
       i32(0), i32(0), i32(0)];
     if (version < 1005) row.push(Buffer.alloc(16));
     if (version >= 1006) row.push(i32(0));
@@ -141,6 +145,15 @@ try {
     t.assert(JSON.stringify(result.graphs) === JSON.stringify({ EventGraph: { nodes: expectedNodes } }),
       `${version}: exact graph membership, GUIDs, pins and edges through public extractor`, JSON.stringify(result.graphs));
   }
+  const ambiguousPath = '/Game/Duplicate';
+  writeFileSync(join(root, 'Content', 'Duplicate.uasset'), packageBytes(1012, { duplicateNames: true }));
+  const candidates = /Ambiguous node name.+EventGraph\.First \(export index 2\).+Second\.First \(export index 3\)/;
+  await t.assertRejects(() => bpShowNodeSafe(root, { asset_path: ambiguousPath, node_id: 'First' }),
+    candidates, 'ambiguous node name identifies both graphs and usable export indices');
+  await t.assertRejects(() => bpSubgraphInCommentSafe(root, { asset_path: ambiguousPath, comment_node_id: 'First' }),
+    candidates, 'comment lookup also rejects ambiguous names before class inspection');
+  const selected = await bpShowNodeSafe(root, { asset_path: ambiguousPath, node_id: '3' });
+  t.assert(selected.node.node_guid === nodeIds[1], 'numeric export index selects the intended duplicate');
   // Remove NodeGuid from this export's metadata. Its graph and object name remain readable.
   const missing = packageBytes(1012);
   missing.writeInt32LE(names.indexOf('Location'), 4096 + 1);
