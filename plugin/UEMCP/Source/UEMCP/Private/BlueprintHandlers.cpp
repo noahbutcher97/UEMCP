@@ -1,5 +1,6 @@
 // Copyright Noah Butcher. All Rights Reserved.
 #include "BlueprintHandlers.h"
+#include "Misc/DefaultValueHelper.h"
 #include "CachePoseAuthoring.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimationStateGraph.h"
@@ -177,6 +178,8 @@ namespace UEMCP
 		// ConnectGraphNodes, and FindPin. These local helpers avoid a dependency on
 		// another plugin while preserving the established behavior modulo style.
 
+		UClass* ResolveBlueprintTargetClassByName(const FString& Identifier);
+
 		UEdGraph* FindOrCreateEventGraph(UBlueprint* Blueprint)
 		{
 			if (!Blueprint) return nullptr;
@@ -187,7 +190,7 @@ namespace UEMCP
 					return Graph;
 				}
 			}
-			// No EventGraph yet — let the editor utility find one (creating if needed).
+			// The engine fallback scans existing ubergraph pages for the canonical EventGraph.
 			return FBlueprintEditorUtils::FindEventGraph(Blueprint);
 		}
 
@@ -781,70 +784,163 @@ namespace UEMCP
 		 * add_blueprint_function_node pin-default coercion (Section 3.4).
 		 * Quietly skips pins not found (oracle warns then continues).
 		 */
-		void ApplyNodePinDefaults(UEdGraphNode* Node, UEdGraph* Graph,
-			const TSharedPtr<FJsonObject>& ParamsObj)
+		// The comment above describes the original reference behavior.
+		// A supplied default must describe a real input literal on the new node. Use
+		// K2's value/object/text representation so class and asset references are
+		// validated against their pin type as well as resolved by name.
+		bool PreparePinDefault(UEdGraphPin& Pin, const TSharedPtr<FJsonValue>& Value, const UEdGraphSchema_K2& Schema,
+			FString& Error)
 		{
-			if (!Node || !ParamsObj.IsValid()) return;
-			const UEdGraphSchema_K2* K2Schema = Cast<const UEdGraphSchema_K2>(Graph ? Graph->GetSchema() : nullptr);
-
-			for (const auto& Param : ParamsObj->Values)
+			const FName Category = Pin.PinType.PinCategory;
+			if (Pin.bDefaultValueIsIgnored || Pin.bDefaultValueIsReadOnly || Category == UEdGraphSchema_K2::PC_Exec)
 			{
-				const FString PinName(*Param.Key);
-				const TSharedPtr<FJsonValue>& PinValue = Param.Value;
-				UEdGraphPin* Pin = FindPin(Node, PinName, EGPD_Input);
-				if (!Pin) continue;
+				Error = TEXT("This pin does not accept a literal");
+				return false;
+			}
 
-				// Class reference — only meaningful when value is a string.
-				if (PinValue->Type == EJson::String && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class)
+			FString Literal;
+			TObjectPtr<UObject> Object = nullptr;
+			FText Text;
+			if (Category == UEdGraphSchema_K2::PC_Class)
+			{
+				if (Value->Type != EJson::String)
 				{
-					const FString ClassName = PinValue->AsString();
-					UClass* Class = UEMCP::ResolveClass(ClassName);
-					if (!Class)
+					Error = TEXT("Expected a class name or path");
+					return false;
+				}
+				const FString Identifier = Value->AsString();
+				if (!Identifier.IsEmpty() && !Identifier.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+				{
+					Object = ResolveBlueprintTargetClassByName(Identifier);
+					if (!Object)
 					{
-						Class = UEMCP::ResolveClass(FString::Printf(TEXT("/Script/Engine.%s"), *ClassName));
+						Error = TEXT("Unknown class ") + Identifier;
+						return false;
 					}
-					if (Class && K2Schema)
-					{
-						K2Schema->TrySetDefaultObject(*Pin, Class);
-					}
-					continue;
-				}
-
-				// Vector struct — array of 3 numbers → "(X=..,Y=..,Z=..)".
-				if (PinValue->Type == EJson::Array && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct
-					&& Pin->PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
-				{
-					const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-					if (PinValue->TryGetArray(Arr) && Arr && Arr->Num() == 3)
-					{
-						const float X = (*Arr)[0]->AsNumber();
-						const float Y = (*Arr)[1]->AsNumber();
-						const float Z = (*Arr)[2]->AsNumber();
-						Pin->DefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), X, Y, Z);
-					}
-					continue;
-				}
-
-				// Scalar coercions by pin category.
-				if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Int)
-				{
-					Pin->DefaultValue = FString::FromInt(FMath::RoundToInt(PinValue->AsNumber()));
-				}
-				else if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Float
-					|| Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Real)
-				{
-					Pin->DefaultValue = FString::SanitizeFloat(PinValue->AsNumber());
-				}
-				else if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
-				{
-					Pin->DefaultValue = PinValue->AsBool() ? TEXT("true") : TEXT("false");
-				}
-				else if (PinValue->Type == EJson::String)
-				{
-					Pin->DefaultValue = PinValue->AsString();
 				}
 			}
+			else
+			{
+				FString Input;
+				if (Pin.PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
+				{
+					FVector Vector;
+					if (Value->Type == EJson::Array)
+					{
+						const TArray<TSharedPtr<FJsonValue>>& XYZ = Value->AsArray();
+						if (XYZ.Num() != 3 || XYZ[0]->Type != EJson::Number || XYZ[1]->Type != EJson::Number || XYZ[2]->Type != EJson::Number)
+						{
+							Error = TEXT("Expected three numeric vector components");
+							return false;
+						}
+						Vector = FVector(XYZ[0]->AsNumber(), XYZ[1]->AsNumber(), XYZ[2]->AsNumber());
+					}
+					else if (Value->Type != EJson::String ||
+						(!FDefaultValueHelper::ParseVector(Value->AsString(), Vector) && !Vector.InitFromString(Value->AsString())))
+					{
+						Error = TEXT("Expected a vector literal");
+						return false;
+					}
+					Input = FString::Printf(TEXT("%.17g,%.17g,%.17g"), Vector.X, Vector.Y, Vector.Z);
+				}
+				else if (Value->Type == EJson::String)
+				{
+					Input = Value->AsString();
+					if (Category == UEdGraphSchema_K2::PC_Boolean && !Input.Equals(TEXT("true"), ESearchCase::IgnoreCase)
+						&& !Input.Equals(TEXT("false"), ESearchCase::IgnoreCase) && Input != TEXT("0") && Input != TEXT("1"))
+					{
+						Error = TEXT("Expected a boolean");
+						return false;
+					}
+				}
+				else
+				{
+					if (Category == UEdGraphSchema_K2::PC_Int && Value->Type == EJson::Number)
+					{
+						const double Number = Value->AsNumber();
+						if (!FMath::IsFinite(Number) || Number < MIN_int32 || Number > MAX_int32 || Number != static_cast<int32>(Number))
+						{
+							Error = TEXT("Expected an integral int32");
+							return false;
+						}
+					}
+					FString Code;
+					if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
+				}
+				Schema.GetPinDefaultValuesFromString(Pin.PinType, Pin.GetOwningNode(), Input, Literal, Object, Text, false);
+				if ((Category == UEdGraphSchema_K2::PC_Object || Category == UEdGraphSchema_K2::PC_Interface)
+					&& !Input.IsEmpty() && !Input.Equals(TEXT("None"), ESearchCase::IgnoreCase) && !Object)
+				{
+					Error = TEXT("Unknown object ") + Input;
+					return false;
+				}
+			}
+			Error = Schema.IsPinDefaultValid(&Pin, Literal, Object, Text);
+			if (!Error.IsEmpty()) return false;
+			Pin.DefaultValue = Literal;
+			Pin.DefaultObject = Object;
+			Pin.DefaultTextValue = Text;
+			return true;
 		}
+
+		bool PublishWriterNode(UK2Node* Node, UBlueprint* Blueprint, UEdGraph* Graph, const TSharedPtr<FJsonObject>& Params,
+			TSharedPtr<FJsonObject>& OutResponse)
+		{
+			// The outer graph supplies the Blueprint context for pin allocation and
+			// schema validation. The node becomes a graph member only after every
+			// requested literal is valid.
+			Node->CreateNewGuid();
+			Node->PostPlacedNewNode();
+			Node->AllocateDefaultPins();
+			TArray<UEdGraphPin*> Changed;
+			if (Params->HasField(TEXT("params")))
+			{
+				const TSharedPtr<FJsonObject>* Defaults = nullptr;
+				if (!Params->TryGetObjectField(TEXT("params"), Defaults) || !Defaults || !Defaults->IsValid())
+				{
+					BuildErrorResponse(OutResponse, TEXT("Expected an object mapping input pin names to literals"), TEXT("INVALID_PIN_DEFAULT"));
+					Node->MarkAsGarbage();
+					return false;
+				}
+				const UEdGraphSchema_K2* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
+				for (const auto& Pair : (*Defaults)->Values)
+				{
+					UEdGraphPin* Pin = Node->FindPin(FName(*Pair.Key), EGPD_Input);
+					if (!Pin)
+					{
+						TArray<FString> Names;
+						for (const UEdGraphPin* Input : Node->Pins)
+						{
+							if (Input && Input->Direction == EGPD_Input && Input->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+								Names.Add(Input->PinName.ToString());
+						}
+						BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unknown input '%s'. Available inputs: %s"),
+							*Pair.Key, *FString::Join(Names, TEXT(", "))), TEXT("PIN_NOT_FOUND"));
+						Node->MarkAsGarbage();
+						return false;
+					}
+					FString Error;
+					if (!Schema || Changed.Contains(Pin) || !PreparePinDefault(*Pin, Pair.Value, *Schema, Error))
+					{
+						if (!Schema) Error = TEXT("Expected a K2 graph schema");
+						else if (Changed.Contains(Pin)) Error = TEXT("Input pin was supplied twice");
+						BuildErrorResponse(OutResponse, FString::Printf(TEXT("Invalid default for input '%s': %s"), *Pair.Key, *Error),
+							TEXT("INVALID_PIN_DEFAULT"));
+						Node->MarkAsGarbage();
+						return false;
+					}
+					Changed.Add(Pin);
+				}
+			}
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddBlueprintWriterNode", "Add Blueprint node"));
+			Blueprint->Modify();
+			Graph->Modify();
+			Graph->AddNode(Node);
+			for (UEdGraphPin* Pin : Changed) Node->PinDefaultValueChanged(Pin);
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			return true;
+		}
+
 
 		/**
 		 * Find an existing UK2Node_Event in Graph whose member name matches EventName.
@@ -2161,29 +2257,18 @@ namespace UEMCP
 			UEdGraph* EventGraph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!EventGraph) return;
 
-			// Resolve target class — try as-is, U-prefixed, common Engine paths.
-			UClass* TargetClass = nullptr;
-			if (!Target.IsEmpty())
+			UClass* SearchClass = Blueprint->GeneratedClass.Get();
+			if (Params->HasField(TEXT("target")))
 			{
-				TArray<FString> Candidates;
-				Candidates.Add(Target);
-				if (!Target.StartsWith(TEXT("U")))
+				SearchClass = ResolveBlueprintTargetClassByName(Target);
+				if (!SearchClass)
 				{
-					Candidates.Add(TEXT("U") + Target);
-				}
-				Candidates.Add(FString::Printf(TEXT("/Script/Engine.%s"), *Target));
-				for (const FString& Candidate : Candidates)
-				{
-					TargetClass = UEMCP::ResolveClass(Candidate);
-					if (TargetClass) break;
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Unknown target class '%s'"), *Target),
+						TEXT("TARGET_CLASS_NOT_FOUND"));
+					return;
 				}
 			}
-
-			// Resolve the UFunction — walk the target class hierarchy or the BP class.
 			UFunction* Function = nullptr;
-			// Blueprint->GeneratedClass is TSubclassOf<UObject> in UE 5.6;
-			// .Get() to UClass* so the ternary types match TargetClass (UClass*).
-			UClass* SearchClass = TargetClass ? TargetClass : Blueprint->GeneratedClass.Get();
 			while (SearchClass && !Function)
 			{
 				Function = SearchClass->FindFunctionByName(*FunctionName);
@@ -2210,6 +2295,7 @@ namespace UEMCP
 				return;
 			}
 
+			if (!CanStartGraphTransaction(OutResponse)) return;
 			UK2Node_CallFunction* FuncNode = NewObject<UK2Node_CallFunction>(EventGraph, NAME_None, RF_Transactional);
 			if (!FuncNode)
 			{
@@ -2219,20 +2305,10 @@ namespace UEMCP
 			FuncNode->FunctionReference.SetExternalMember(Function->GetFName(), Function->GetOwnerClass());
 			FuncNode->NodePosX = NodePos.X;
 			FuncNode->NodePosY = NodePos.Y;
-			EventGraph->AddNode(FuncNode);
-			FuncNode->CreateNewGuid();
-			FuncNode->PostPlacedNewNode();
-			FuncNode->AllocateDefaultPins();
-
-			// Apply pin defaults if a `params` object was provided.
-			const TSharedPtr<FJsonObject>* PinDefaults = nullptr;
-			if (Params->TryGetObjectField(TEXT("params"), PinDefaults) && PinDefaults && PinDefaults->IsValid())
-			{
-				ApplyNodePinDefaults(FuncNode, EventGraph, *PinDefaults);
-			}
-
-			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-			BuildSuccessResponse(OutResponse, NodeResultToJson(FuncNode, EventGraph));
+			if (!PublishWriterNode(FuncNode, Blueprint, EventGraph, Params, OutResponse)) return;
+			TSharedPtr<FJsonObject> Result = NodeResultToJson(FuncNode, EventGraph);
+			Result->SetStringField(TEXT("resolved_function"), Function->GetPathName());
+			BuildSuccessResponse(OutResponse, Result);
 		}
 
 		// ── 11. add_blueprint_variable ────────────────────────────────────────────
@@ -2331,11 +2407,22 @@ namespace UEMCP
 
 			if (UEdGraph* Existing = FindGraphByName(Blueprint, FunctionName))
 			{
+				if (!Blueprint->FunctionGraphs.Contains(Existing) || !Existing->GetSchema() ||
+					Existing->GetSchema()->GetGraphType(Existing) != GT_Function)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("'%s' already names a non-function graph"), *Existing->GetName()),
+						TEXT("GRAPH_KIND_MISMATCH"));
+					return;
+				}
 				TArray<UK2Node_FunctionEntry*> EntryNodes;
 				Existing->GetNodesOfClass<UK2Node_FunctionEntry>(EntryNodes);
-				TSharedPtr<FJsonObject> Result = EntryNodes.Num() > 0
-					? NodeResultToJson(EntryNodes[0], Existing)
-					: MakeShared<FJsonObject>();
+				if (EntryNodes.Num() != 1)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Function graph '%s' requires exactly one entry node"), *Existing->GetName()),
+						TEXT("INVALID_FUNCTION_ENTRY"));
+					return;
+				}
+				TSharedPtr<FJsonObject> Result = NodeResultToJson(EntryNodes[0], Existing);
 				Result->SetStringField(TEXT("function_name"), FunctionName);
 				Result->SetStringField(TEXT("graph_name"), Existing->GetName());
 				Result->SetBoolField(TEXT("created"), false);
@@ -2435,6 +2522,7 @@ namespace UEMCP
 			if (!Graph) return;
 			const FVector2D NodePos = ReadVector2DOrZero(Params, TEXT("node_position"));
 
+			if (!CanStartGraphTransaction(OutResponse)) return;
 			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph, NAME_None, RF_Transactional);
 			if (!SetNode)
 			{
@@ -2444,19 +2532,7 @@ namespace UEMCP
 			SetNode->VariableReference.SetSelfMember(FName(*VarName));
 			SetNode->NodePosX = NodePos.X;
 			SetNode->NodePosY = NodePos.Y;
-			Graph->AddNode(SetNode);
-			SetNode->CreateNewGuid();
-			SetNode->PostPlacedNewNode();
-			SetNode->AllocateDefaultPins();
-			SetNode->ReconstructNode();
-
-			const TSharedPtr<FJsonObject>* PinDefaults = nullptr;
-			if (Params->TryGetObjectField(TEXT("params"), PinDefaults) && PinDefaults && PinDefaults->IsValid())
-			{
-				ApplyNodePinDefaults(SetNode, Graph, *PinDefaults);
-			}
-
-			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+			if (!PublishWriterNode(SetNode, Blueprint, Graph, Params, OutResponse)) return;
 			BuildSuccessResponse(OutResponse, NodeResultToJson(SetNode, Graph));
 		}
 
