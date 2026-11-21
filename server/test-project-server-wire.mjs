@@ -2,7 +2,7 @@
 //
 // Run: cd server && node test-project-server-wire.mjs
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -197,6 +197,46 @@ await runCase('one direct project root auto-attaches and emits one tool-list not
 
     await app.server.close();
   } finally {
+    cleanup(root);
+  }
+});
+
+await runCase('Blueprint readers accept discovered numeric export indices over MCP', async () => {
+  const root = makeTempRoot();
+  let app;
+  try {
+    const project = writeProject(root, 'OwnedNumeric');
+    const directory = join(root, 'Content', 'Serialization');
+    mkdirSync(directory);
+    copyFileSync(new URL('./fixtures/serialization/ue5.6-owned-v1/Content/Serialization/BP_OwnedLink.uasset', import.meta.url),
+      join(directory, 'BP_OwnedLink.uasset'));
+    const instance = await createWireApp({ cwd: root });
+    app = instance.app;
+    const { transport } = instance;
+    await initialize(transport);
+    await callTool(transport, 'attach_project', { uproject_path: project.uprojectPath });
+    await callTool(transport, 'enable_toolset', { toolsets: ['offline'] });
+    const asset_path = '/Game/Serialization/BP_OwnedLink';
+    const found = parseTextResult(await callTool(transport, 'bp_find_in_graph', {
+      asset_path, graph_name: 'OwnedGraph', node_class: 'K2Node_CallFunction',
+    }));
+    const node = found.nodes[0];
+    t.assert(Number.isInteger(node.node_id), 'wire graph discovery returns a numeric export index');
+    const inspected = await callTool(transport, 'bp_show_node', { asset_path, node_id: node.node_id });
+    t.assert(parseTextResult(inspected).node?.node_guid === node.node_guid,
+      'wire node inspection accepts the discovered integer and returns the same engine GUID');
+    const byStringIndex = parseTextResult(await callTool(transport, 'bp_show_node', { asset_path, node_id: String(node.node_id) }));
+    t.assert(byStringIndex.node?.node_guid === node.node_guid, 'wire node inspection still accepts numeric strings');
+    const byName = parseTextResult(await callTool(transport, 'bp_show_node', { asset_path, node_id: node.node_name }));
+    t.assert(byName.node?.node_guid === node.node_guid, 'wire node inspection still accepts object names');
+    const comment = await callTool(transport, 'bp_subgraph_in_comment', { asset_path, comment_node_id: node.node_id });
+    t.assert(comment.result?.isError && /not a comment/i.test(comment.result.content[0].text),
+      'wire comment reader reaches the class check with the same numeric index');
+    const invalid = await callTool(transport, 'bp_show_node', { asset_path, node_id: 1.5 });
+    t.assert(invalid.error?.code === -32602 || (invalid.result?.isError && /integer/i.test(invalid.result.content[0].text)),
+      'wire node inspection rejects fractional indices during validation');
+  } finally {
+    if (app) await app.server.close();
     cleanup(root);
   }
 });

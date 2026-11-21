@@ -38,6 +38,9 @@ export function buildZodSchema(params) {
       case 'string':
         field = z.string();
         break;
+      case 'string|integer':
+        field = z.union([z.string(), z.number().int().positive()]);
+        break;
       case 'integer':
       case 'number':
         field = z.coerce.number();
