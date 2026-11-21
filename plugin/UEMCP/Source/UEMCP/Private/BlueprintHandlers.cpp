@@ -3324,11 +3324,38 @@ namespace UEMCP
 			UBlueprint* Blueprint = ResolveBlueprint(Params, OutResponse);
 			if (!Blueprint) return;
 
-			FString NodeId, PinName;
-			if (!Params->TryGetStringField(TEXT("node_id"), NodeId) || NodeId.IsEmpty()
-				|| !Params->TryGetStringField(TEXT("pin"), PinName) || PinName.IsEmpty())
+			FString NodeId, NodeName, GraphName, PinName;
+			const bool bByName = Params->HasField(TEXT("node_name"));
+			if (bByName == Params->HasField(TEXT("node_id")))
 			{
-				BuildErrorResponse(OutResponse, TEXT("Missing required parameter (node_id, pin)"), TEXT("MISSING_PARAMS"));
+				BuildErrorResponse(OutResponse, TEXT("Supply exactly one of node_id or node_name"), TEXT("INVALID_NODE_SELECTOR"));
+				return;
+			}
+			if (bByName)
+			{
+				if (!Params->TryGetStringField(TEXT("node_name"), NodeName) || NodeName.IsEmpty() ||
+					!Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty())
+				{
+					BuildErrorResponse(OutResponse, TEXT("node_name requires an exact object name and graph_name"), TEXT("MISSING_PARAMS"));
+					return;
+				}
+			}
+			else if (!Params->TryGetStringField(TEXT("node_id"), NodeId) || NodeId.IsEmpty())
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected a non-empty node_id"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+
+			const bool bInspectAllPins = !Params->HasField(TEXT("pin"));
+			if (!bInspectAllPins && (!Params->TryGetStringField(TEXT("pin"), PinName) || PinName.IsEmpty()))
+			{
+				BuildErrorResponse(OutResponse, TEXT("Expected a non-empty pin name"), TEXT("MISSING_PARAMS"));
+				return;
+			}
+			if (bInspectAllPins && (Params->HasField(TEXT("direction")) || Params->HasField(TEXT("target_node_id")) ||
+				Params->HasField(TEXT("target_pin")) || Params->HasField(TEXT("target_direction"))))
+			{
+				BuildErrorResponse(OutResponse, TEXT("A pin name is required with link filters"), TEXT("MISSING_PARAMS"));
 				return;
 			}
 
@@ -3344,10 +3371,34 @@ namespace UEMCP
 			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse);
 			if (!Graph) return;
 
-			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);
+			UEdGraphNode* Node = nullptr;
+			if (bByName)
+			{
+				for (UEdGraphNode* Candidate : Graph->Nodes)
+				{
+					if (Candidate && Candidate->GetName() == NodeName)
+					{
+						Node = Candidate;
+						break;
+					}
+				}
+			}
+			else
+			{
+				Node = FindNodeByGuid(Graph, NodeId);
+			}
 			if (!Node)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Node not found"), TEXT("NODE_NOT_FOUND"));
+				return;
+			}
+
+			if (bInspectAllPins)
+			{
+				TSharedPtr<FJsonObject> Result = NodeResultToJson(Node, Graph);
+				Result->SetStringField(TEXT("node_name"), Node->GetName());
+				Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));
+				BuildSuccessResponse(OutResponse, Result);
 				return;
 			}
 
@@ -3405,7 +3456,7 @@ namespace UEMCP
 
 			TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 			Result->SetStringField(TEXT("graph_name"), Graph->GetName());
-			Result->SetStringField(TEXT("node_id"), NodeId);
+			Result->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
 			Result->SetStringField(TEXT("pin"), PinName);
 			Result->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
 			Result->SetStringField(TEXT("topology_revision"), GraphTopologyRevision(Graph));

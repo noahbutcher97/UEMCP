@@ -3178,6 +3178,57 @@ bool FStateNamingIsolation::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGraphNodePinInspection, "UEMCP.BlueprintHandlers.GraphNodePinInspection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGraphNodePinInspection::RunTest(const FString& Parameters)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
+	if (!TestNotNull(TEXT("Actor Blueprint"), Fixture.Blueprint)) return false;
+	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
+	auto* Graph = FixtureEventGraph(Fixture.Blueprint);
+	if (!TestNotNull(TEXT("EventGraph"), Graph)) return false;
+	auto Place = MakeShared<FJsonObject>();
+	Place->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Place->SetStringField(TEXT("function_name"), TEXT("SetActorScale3D"));
+	auto Placed = ResultOf(Dispatch(TEXT("add_blueprint_function_node"), Place));
+	const FString Id = StringFieldOr(Placed, TEXT("node_id"));
+	UEdGraphNode* Node = FindNodeByGuid(Graph, Id);
+	if (!TestNotNull(TEXT("Scale call"), Node)) return false;
+
+	auto Read = MakeShared<FJsonObject>();
+	Read->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Read->SetStringField(TEXT("graph_name"), Graph->GetName());
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
+	auto Inspect = [&]() { return Dispatch(TEXT("show_blueprint_pin_links"), Read); };
+	Fixture.Blueprint->GetOutermost()->SetDirtyFlag(false);
+	const int32 Before = Graph->Nodes.Num();
+	auto Result = ResultOf(Inspect());
+	TestEqual(TEXT("Live node identity"), StringFieldOr(Result, TEXT("node_id")), Id);
+	TestEqual(TEXT("Live object name"), StringFieldOr(Result, TEXT("node_name")), Node->GetName());
+	auto Scale = FindEntryByField(Result, TEXT("pins"), TEXT("name"), TEXT("NewScale3D"));
+	auto* ScalePin = Node->FindPin(TEXT("NewScale3D"), EGPD_Input);
+	if (!TestNotNull(TEXT("Actual scale pin"), ScalePin)) return false;
+	TestEqual(TEXT("Current scale pin default"), StringFieldOr(Scale, TEXT("default")), ScalePin->DefaultValue);
+	TestEqual(TEXT("Current scale pin identity"), StringFieldOr(Scale, TEXT("pin_id")), ScalePin->PinId.ToString());
+
+	Read->SetStringField(TEXT("node_id"), Id);
+	TestEqual(TEXT("Conflicting selectors refused"), ErrorCodeOf(Inspect()), FString(TEXT("INVALID_NODE_SELECTOR")));
+	Read->RemoveField(TEXT("node_name"));
+	Read->SetStringField(TEXT("direction"), TEXT("input"));
+	TestEqual(TEXT("Link filter requires pin"), ErrorCodeOf(Inspect()), FString(TEXT("MISSING_PARAMS")));
+	Read->SetStringField(TEXT("pin"), TEXT("NewScale3D"));
+	TestEqual(TEXT("Named pin lookup still works"), StringFieldOr(ResultOf(Inspect()), TEXT("pin")), FString(TEXT("NewScale3D")));
+	Read->RemoveField(TEXT("node_id"));
+	Read->SetStringField(TEXT("node_name"), Node->GetName());
+	Read->RemoveField(TEXT("graph_name"));
+	TestEqual(TEXT("Object name requires graph scope"), ErrorCodeOf(Inspect()), FString(TEXT("MISSING_PARAMS")));
+	TestEqual(TEXT("Inspection preserves node count"), Graph->Nodes.Num(), Before);
+	TestFalse(TEXT("Inspection leaves package clean"), Fixture.Blueprint->GetOutermost()->IsDirty());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFunctionConnectionUndo, "UEMCP.BlueprintHandlers.FunctionConnectionUndo",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
