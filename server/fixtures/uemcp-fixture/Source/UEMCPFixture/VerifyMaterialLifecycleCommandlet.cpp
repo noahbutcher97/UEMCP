@@ -160,7 +160,7 @@ UVerifyMaterialLifecycleCommandlet::UVerifyMaterialLifecycleCommandlet()
 
 FString UVerifyMaterialLifecycleCommandlet::LiveControl(const FString& Operation)
 {
-#if WITH_EDITOR
+#if WITH_EDITOR && __has_include("RCAllowedRemoteFunctionCall.h")
 	if (FString(FApp::GetProjectName()) != TEXT("UEMCPFixture") || !GEditor || !FParse::Param(FCommandLine::Get(), TEXT("UEMCPMaterialLive"))) return TEXT("{\"success\":false}");
 	bool Success = false;
 	if (Operation == TEXT("identity")) Success = true;
@@ -204,6 +204,8 @@ FString UVerifyMaterialLifecycleCommandlet::LiveControl(const FString& Operation
 	Result->SetBoolField(TEXT("pythonEnabled"), GetDefault<URemoteControlSettings>()->bEnableRemotePythonExecution);
 	FString Json; auto Writer = TJsonWriterFactory<>::Create(&Json); FJsonSerializer::Serialize(Result, Writer);
 	return Json;
+#elif WITH_EDITOR
+	return TEXT("{\"success\":false,\"error\":\"Material live control requires the engine's Remote Control function allowlist\"}");
 #else
 	return TEXT("{\"success\":false}");
 #endif
