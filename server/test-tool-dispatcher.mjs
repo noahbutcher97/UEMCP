@@ -363,6 +363,33 @@ await runCase('project guard and python gate survive dispatch', async () => {
   }
 });
 
+await runCase('a setter cannot silently discard the requested value or graph', async () => {
+  const root = makeTempRoot();
+  try {
+    const project = writeProject(join(root, 'SetterInputs'), 'SetterInputs');
+    const tcpCalls = [];
+    const { app, transport } = await createWireApp({ root, project, tcpCalls });
+    await attachAndVerify(transport, project);
+    await callTool(transport, 'enable_toolset', { toolsets: ['blueprints-write'] });
+    const endpoint = 'add_variable_set';
+    const fields = { blueprint_name: '/Game/BP_Player', variable_name: 'Interacting' };
+    for (const send of [
+      args => callTool(transport, endpoint, args),
+      args => dispatch(transport, endpoint, args, 'call_mutating_tool'),
+    ]) {
+      const before = tcpCalls.length;
+      const bad = await send({ ...fields, target_graph: 'OtherGraph', value: 'true' });
+      t.assert(bad.result?.isError && /graph_name/.test(text(bad)) && /params/.test(text(bad)), 'reject with the correct graph and literal fields');
+      t.assert(tcpCalls.length === before, 'invalid setter never reaches the editor');
+      const good = await send({ ...fields, graph_name: 'OtherGraph', params: { Interacting: true } });
+      t.assert(!good.result?.isError && tcpCalls.at(-1)?.params?.params?.Interacting === true, 'canonical Boolean true reaches the editor');
+      await send(fields);
+      t.assert(tcpCalls.at(-1)?.params?.variable_name === 'Interacting' && !Object.hasOwn(tcpCalls.at(-1).params, 'params'), 'a setter with an intentionally omitted default still works');
+    }
+    await app.server.close();
+  } finally { cleanup(root); }
+});
+
 await runCase('dispatch never reads the SDK handle callback field', async () => {
   // The SDK has renamed the registered-tool callback field before (callback ->
   // handler). The registry must run its own recorded closure, so a handle that
