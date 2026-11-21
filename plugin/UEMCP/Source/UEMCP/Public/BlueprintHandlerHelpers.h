@@ -68,6 +68,9 @@ namespace UEMCP
 	bool SetSupportedVariableDefault(UObject* CDO, FProperty* Property,
 		const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage);
 
+	/** Reject values that overflow or round a nonzero magnitude to zero at the pin's precision. */
+	bool IsRepresentableRealPinValue(double Value, bool bSinglePrecision);
+
 	/**
 	 * Renders a JSON literal as the string a pin's DefaultValue expects, for the
 	 * categories literal assignment supports: int, float/real, boolean, string,

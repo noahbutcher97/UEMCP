@@ -3344,6 +3344,8 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	TGuardValue<decltype(GEditor->Trans)> UseHistory(GEditor->Trans, History.Get());
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Single"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Wide"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double);
 	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("event graph"), Graph)) return false;
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
@@ -3358,6 +3360,14 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	Fixture.Package->SetDirtyFlag(false);
 	const TCHAR* Call = TEXT("add_blueprint_function_node");
 	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
+	Params->SetStringField(TEXT("variable_name"), TEXT("Single"));
+	for (const TCHAR* Invalid : { TEXT("1e39"), TEXT("-1e39"), TEXT("1e-46"), TEXT("1e-9999") })
+	{
+		Defaults->SetStringField(TEXT("Single"), Invalid);
+		TestEqual(Invalid, ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+	}
+	Defaults->RemoveField(TEXT("Single"));
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
 	Defaults->SetNumberField(TEXT("Amoun"), 27);
 	TestEqual(TEXT("setter rejects typo"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
 	Defaults->SetNumberField(TEXT("Amount"), 32);
@@ -3419,6 +3429,17 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	auto* HexSetter = FindNodeByGuid(Graph, StringFieldOr(HexResult, TEXT("node_id")));
 	if (!TestNotNull(TEXT("hexadecimal integer"), HexSetter)) return false;
 	TestEqual(TEXT("VM receives the decimal integer"), HexSetter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("16")));
+	for (const TCHAR* Name : { TEXT("Single"), TEXT("Wide") })
+	{
+		Params->SetStringField(TEXT("variable_name"), Name);
+		Defaults->Values.Empty();
+		const FString Literal = FString(Name) == TEXT("Wide") ? TEXT("1e39") : TEXT("1e-7");
+		Defaults->SetStringField(Name, Literal);
+		const auto Accepted = ResultOf(Dispatch(Set, Params));
+		const auto* SetterNode = FindNodeByGuid(Graph, StringFieldOr(Accepted, TEXT("node_id")));
+		if (!TestNotNull(Name, SetterNode)) return false;
+		TestEqual(TEXT("Retains representable real text"), SetterNode->FindPinChecked(FName(Name), EGPD_Input)->DefaultValue, Literal);
+	}
 	return true;
 }
 

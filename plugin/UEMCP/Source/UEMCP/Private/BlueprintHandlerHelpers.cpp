@@ -274,6 +274,12 @@ namespace UEMCP
 		return false;
 	}
 
+	bool IsRepresentableRealPinValue(double Value, bool bSinglePrecision)
+	{
+		return FMath::IsFinite(Value) && (!bSinglePrecision ||
+			(FMath::Abs(Value) <= MAX_flt && (Value == 0.0 || static_cast<float>(Value) != 0.f)));
+	}
+
 	bool FormatLiteralForPinCategory(const FEdGraphPinType& PinType,
 		const TSharedPtr<FJsonValue>& Value, FString& OutDefaultValue,
 		FString& OutError, FString& OutErrorCode)
@@ -307,8 +313,7 @@ namespace UEMCP
 			}
 			const double Number = Value->AsNumber();
 			const bool bSinglePrecision = Category == UEdGraphSchema_K2::PC_Float || PinType.PinSubCategory == UEdGraphSchema_K2::PC_Float;
-			if (!FMath::IsFinite(Number) || (bSinglePrecision && (FMath::Abs(Number) > MAX_flt ||
-				(Number != 0.0 && static_cast<float>(Number) == 0.f))))
+			if (!IsRepresentableRealPinValue(Number, bSinglePrecision))
 			{
 				OutError = TEXT("Numeric literal exceeds the pin's finite range");
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
