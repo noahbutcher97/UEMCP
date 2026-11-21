@@ -863,9 +863,13 @@ namespace UEMCP
 							Error = TEXT("Expected an integral int32");
 							return false;
 						}
+						Input = FString::FromInt(static_cast<int32>(Number));
 					}
-					FString Code;
-					if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
+					else
+					{
+						FString Code;
+						if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
+					}
 				}
 				Schema.GetPinDefaultValuesFromString(Pin.PinType, Pin.GetOwningNode(), Input, Literal, Object, Text, false);
 				if ((Category == UEdGraphSchema_K2::PC_Object || Category == UEdGraphSchema_K2::PC_Interface)
@@ -892,7 +896,7 @@ namespace UEMCP
 			Node->CreateNewGuid();
 			Node->PostPlacedNewNode();
 			Node->AllocateDefaultPins();
-			TArray<UEdGraphPin*> Changed;
+			TMap<FName, FString> ExpectedDefaults;
 			if (Params->HasField(TEXT("params")))
 			{
 				const TSharedPtr<FJsonObject>* Defaults = nullptr;
@@ -920,23 +924,42 @@ namespace UEMCP
 						return false;
 					}
 					FString Error;
-					if (!Schema || Changed.Contains(Pin) || !PreparePinDefault(*Pin, Pair.Value, *Schema, Error))
+					if (!Schema || ExpectedDefaults.Contains(Pin->PinName) || !PreparePinDefault(*Pin, Pair.Value, *Schema, Error))
 					{
 						if (!Schema) Error = TEXT("Expected a K2 graph schema");
-						else if (Changed.Contains(Pin)) Error = TEXT("Input pin was supplied twice");
+						else if (ExpectedDefaults.Contains(Pin->PinName)) Error = TEXT("Input pin was supplied twice");
 						BuildErrorResponse(OutResponse, FString::Printf(TEXT("Invalid default for input '%s': %s"), *Pair.Key, *Error),
 							TEXT("INVALID_PIN_DEFAULT"));
 						Node->MarkAsGarbage();
 						return false;
 					}
-					Changed.Add(Pin);
+					ExpectedDefaults.Add(Pin->PinName, Pin->GetDefaultAsString());
+				}
+			}
+			// Resolve inputs afresh across notifications. A node can change its pins
+			// in response to another default, including a class picker.
+			for (const auto& Pair : ExpectedDefaults)
+			{
+				if (UEdGraphPin* Pin = Node->FindPin(Pair.Key, EGPD_Input))
+				{
+					Node->PinDefaultValueChanged(Pin);
+				}
+			}
+			for (const auto& Pair : ExpectedDefaults)
+			{
+				const UEdGraphPin* Pin = Node->FindPin(Pair.Key, EGPD_Input);
+				if (!Pin || Pin->GetDefaultAsString() != Pair.Value)
+				{
+					BuildErrorResponse(OutResponse, FString::Printf(TEXT("Node did not retain the requested default for '%s'"), *Pair.Key.ToString()),
+						TEXT("INVALID_PIN_DEFAULT"));
+					Node->MarkAsGarbage();
+					return false;
 				}
 			}
 			FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "AddBlueprintWriterNode", "Add Blueprint node"));
 			Blueprint->Modify();
 			Graph->Modify();
 			Graph->AddNode(Node);
-			for (UEdGraphPin* Pin : Changed) Node->PinDefaultValueChanged(Pin);
 			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 			return true;
 		}
