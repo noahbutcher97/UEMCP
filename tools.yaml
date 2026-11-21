@@ -297,7 +297,7 @@ toolsets:
           `pin_block` and `pin_defaults` in available_fields; otherwise
           (non-graph-node, malformed pin-block, no NodeGuid) pins=[] with
           pin_block and pin_defaults in not_available. For a graph node with
-          missing pin data, follow live_pin_lookup with an attached editor
+          missing pin data under /Game, follow live_pin_lookup with an attached editor
           to inspect current pins and defaults without writing a sidecar. node_id accepts
           export_index (integer or numeric string) or full node objectName.
         params:

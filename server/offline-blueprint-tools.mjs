@@ -4,6 +4,7 @@
 // parser. Every public verb is wrapped by withAssetExistenceCheck so a missing
 // asset returns {available:false} instead of throwing.
 
+import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   resolvePackageIndex,
   guidBytesToOracleHex,
@@ -898,20 +899,29 @@ async function bpShowNode(projectRoot, params) {
     pins: pinsOut,
   };
 
+  const lookup = {};
+  if (!pinBlockAvailable && graph && graph._nodes.some(row => row.export_index === nodeExportIndex)) {
+    // The native resolver takes /Game package names. Rebuild that name from
+    // the resolved file when the caller supplies a project-relative path.
+    const inContent = relative(join(projectRoot, 'Content'), diskPath);
+    if (!isAbsolute(inContent) && !inContent.startsWith('..' + sep) && inContent.toLowerCase().endsWith('.uasset')) {
+      lookup.live_pin_lookup = {
+        tool: 'show_pin_links',
+        arguments: {
+          blueprint_name: '/Game/' + inContent.slice(0, -'.uasset'.length).split(sep).join('/'),
+          graph_name: graph.name,
+          ...(shape.row.node_guid ? { node_id: shape.row.node_guid } : { node_name: shape.row.node_name }),
+        },
+      };
+    } else {
+      lookup.live_pin_lookup_unavailable = 'Live Blueprint inspection requires a package in the attached project’s /Game content directory.';
+    }
+  }
   return stripPackageIndex({
     asset_path: assetPath,
     diskPath: diskPath.replace(/\\/g, '/'),
     node,
-    ...(!pinBlockAvailable && graph && graph._nodes.some(row => row.export_index === nodeExportIndex) ? {
-      live_pin_lookup: {
-        tool: 'show_pin_links',
-        arguments: {
-          blueprint_name: assetPath,
-          graph_name: graph.name,
-          ...(shape.row.node_guid ? { node_id: shape.row.node_guid } : { node_name: shape.row.node_name }),
-        },
-      },
-    } : {}),
+    ...lookup,
     ...faBetaManifest(
       pinBlockAvailable ? [] : ['pin_block', 'pin_defaults'],
       pinBlockAvailable ? ['pin_block', 'pin_defaults'] : [],
