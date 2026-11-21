@@ -3315,6 +3315,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPWriterPinDefaultsTest, "UEMCP.BlueprintHa
 bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
 	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
@@ -3335,6 +3336,9 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
 	Defaults->SetNumberField(TEXT("Amoun"), 27);
 	TestEqual(TEXT("setter rejects typo"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->SetNumberField(TEXT("Amount"), 32);
+	TestEqual(TEXT("one valid literal cannot mask an unknown input"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("PIN_NOT_FOUND")));
+	Defaults->RemoveField(TEXT("Amount"));
 	Defaults->RemoveField(TEXT("Amoun"));
 	Defaults->SetStringField(TEXT("NewScale3"), TEXT("2,3,4"));
 	TestEqual(TEXT("function rejects typo"), ErrorCodeOf(Dispatch(Call, Params)), FString(TEXT("PIN_NOT_FOUND")));
@@ -3353,6 +3357,7 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	const TSharedPtr<FJsonObject> CallResult = ResultOf(Dispatch(Call, Params));
 	UK2Node_CallFunction* Function = Cast<UK2Node_CallFunction>(FindNodeByGuid(Graph, StringFieldOr(CallResult, TEXT("node_id"))));
 	if (!TestNotNull(TEXT("omitted owner resolves real self member"), Function)) return false;
+	if (!TestNotNull(TEXT("resolved function member"), Function->GetTargetFunction())) return false;
 	TestEqual(TEXT("member identity"), Function->GetTargetFunction()->GetName(), FString(TEXT("SetActorScale3D")));
 	UEdGraphPin* Scale = Function->FindPin(TEXT("NewScale3D"), EGPD_Input);
 	if (!TestNotNull(TEXT("native scale pin"), Scale)) return false;
@@ -3373,6 +3378,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUEMCPFunctionGraphIdentityTest, "UEMCP.Bluepri
 bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 {
 	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle transaction system"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
 	FFixtureBlueprint Fixture = CreateFixtureBlueprint();
 	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
@@ -3388,6 +3394,7 @@ bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 	Fixture.Package->SetDirtyFlag(false);
 	const TSharedPtr<FJsonObject> Reused = ResultOf(Dispatch(Command, Params));
 	TestEqual(TEXT("reuses exact function entry"), StringFieldOr(Reused, TEXT("node_id")), EntryId);
+	if (!TestTrue(TEXT("reuse result"), Reused.IsValid())) return false;
 	TestFalse(TEXT("idempotent reuse"), Reused->GetBoolField(TEXT("created")));
 	Params->SetStringField(TEXT("function_name"), TEXT("EventGraph"));
 	TestEqual(TEXT("rejects a non-function graph"), ErrorCodeOf(Dispatch(Command, Params)), FString(TEXT("GRAPH_KIND_MISMATCH")));
