@@ -137,7 +137,7 @@ toolsets:
           max_scan:    { type: number, required: false, description: "Max files walked (default 5000, cap 20000). Response sets truncated:true when hit." }
           verbose:     { type: boolean, required: false, default: false, description: "When false, strips blob tags exceeding 1KB. When true, returns all tags." }
       inspect_blueprint:
-        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns export table with resolved class/super/outer names, parent class, generated class. With include_defaults=true, also returns CDO UPROPERTY values (scalars, 10 engine structs, simple-element TArray/TSet; custom structs and complex containers marked unsupported). Use this for structural view + a convenience CDO dump in one call; use read_asset_properties when you need values on a non-CDO export or a filtered subset. NOTE - tags removed; use get_asset_info for asset-registry metadata. The old `verbose` param is no longer accepted (renamed to include_defaults with new semantics). Pointed query — not cached.
+        description: Deep introspection of a .uasset (BP, UMG widget, AnimBP, DataAsset). Returns export table with resolved class/super/outer names, parent class, generated class. With include_defaults=true, also returns CDO UPROPERTY values (scalars, 10 engine structs, simple-element TArray/TSet; custom structs and complex containers marked unsupported). Use this for structural view + a convenience CDO dump in one call; use read_asset_properties when you need values on a non-CDO export or a filtered subset. NOTE - tags removed; use get_asset_info for asset-registry metadata. The old `verbose` param is no longer accepted (renamed to include_defaults with new semantics). Pointed query — not cached. For actual function-call arguments use inspect_blueprint_inputs with the graph name.
         params:
           asset_path:       { type: string, required: true, description: "/Game/... path (with or without .uasset extension) or project-relative Content/... path" }
           include_defaults: { type: boolean, required: false, default: false, description: "When true, include variable_defaults (decoded CDO UPROPERTYs) and an unsupported_defaults list." }
@@ -237,6 +237,21 @@ toolsets:
           spatial/comment fields are first-class here.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset (with or without extension)" }
+      inspect_blueprint_inputs:
+        aliases: ["actual arguments", "function inputs", "pin values", "saved and live pins", "Blueprint function graph"]
+        description: >-
+          Inspect the actual input arguments of a Blueprint function call in a named graph, including saved pin literals,
+          links and current live editor values. Give the Blueprint path and graph name. Optionally narrow by member_name
+          or input pin name. Reports ambiguous calls with candidate export indices. Default compare reads the saved
+          package and the same node GUID in the attached editor, with independent statuses. Use source saved for disk
+          only. Linked inputs take their value from a connection. Runtime execution is unobserved.
+        params:
+          asset_path: { type: string, required: true, description: "Blueprint package /Game/... or supported saved asset path" }
+          graph_name: { type: string, required: true, description: "Exact name of the function graph or EventGraph" }
+          member_name: { type: string, required: false, description: "Exact called Blueprint or native function member, e.g. SetActorScale3D" }
+          pin: { type: string, required: false, description: "Exact input pin name. Omit for all inputs." }
+          node_id: { type: string|integer, required: false, description: "Positive export index from the candidates if multiple calls match (number or numeric string)" }
+          source: { type: string, required: false, default: compare, description: "compare returns saved and verified editor observations. saved reads only package bytes." }
       bp_find_in_graph:
         description: >-
           Scope variant of find_blueprint_nodes — filter K2Nodes within a single
@@ -300,6 +315,7 @@ toolsets:
           missing pin data under /Game, follow live_pin_lookup with an attached editor
           to inspect current pins and defaults without writing a sidecar. node_id accepts
           export_index (integer or numeric string) or full node objectName.
+          For actual function arguments, inspect_blueprint_inputs compares saved and verified live inputs in one read.
         params:
           asset_path: { type: string, required: true, description: "/Game/... path to a Blueprint .uasset" }
           node_id:    { type: string|integer, required: true, description: "Node identifier — export_index (integer or numeric string) or full node objectName." }

@@ -12,7 +12,7 @@ function deepFreeze(value) {
 export const SERVER_INSTRUCTIONS = [
   'UEMCP provides Unreal Engine project, asset, Blueprint, level, animation, editor, and runtime tools. Use it for UE-specific inspection or mutation that ordinary filesystem and search tools cannot perform. Start with connection_info to verify project, deployment, and editor context. Call find_tools(query) to discover and enable the smallest relevant toolset. Offline tools read project files without an editor; live tools require the matching editor.',
   'If a tool find_tools reports is missing from your tool list, get its schema with describe_tool and run it with call_tool (reads) or call_mutating_tool (writes).',
-  'Disable unused toolsets to reduce context. list_config_values is progressive: call with no arguments for files, with a file for sections, and with a file and section for keys and values. search_gameplay_tags accepts * for one path level and ** across levels.',
+  'For actual Blueprint function-call arguments, inspect_blueprint_inputs reads the saved graph and compares current pins in the matching editor. Report the observed values and uncertainty before optional toolset cleanup. list_config_values is progressive: call with no arguments for files, with a file for sections, and with a file and section for keys and values. search_gameplay_tags accepts * for one path level and ** across levels.',
 ].join(' ');
 
 export const TOOLSET_TIPS = deepFreeze({

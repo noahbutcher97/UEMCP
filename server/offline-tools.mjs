@@ -33,6 +33,7 @@ import {
   bpSubgraphInCommentSafe,
   bpListEntryPointsSafe,
   bpShowNodeSafe,
+  inspectBlueprintInputs,
   bpTraceExecSafe,
   bpTraceDataSafe,
   bpNeighborsSafe,
@@ -58,7 +59,7 @@ export {
   extractBPEdgeTopologySafe,
 } from './offline-blueprint-tools.mjs';
 
-export async function executeOfflineTool(toolName, params, projectRoot) {
+export async function executeOfflineTool(toolName, params, projectRoot, readLiveBlueprintPins) {
   if (!projectRoot) {
     throw new Error('Project root not configured — offline tools require an attached project path');
   }
@@ -123,6 +124,8 @@ export async function executeOfflineTool(toolName, params, projectRoot) {
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await bpListEntryPointsSafe(projectRoot, params);
 
+    case 'inspect_blueprint_inputs':
+      return inspectBlueprintInputs(projectRoot, params, readLiveBlueprintPins);
     case 'bp_show_node':
       if (!params.asset_path) throw new Error('Missing required parameter: asset_path');
       return await bpShowNodeSafe(projectRoot, params);

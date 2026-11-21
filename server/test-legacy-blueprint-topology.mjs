@@ -3,14 +3,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cursor, readPropertyTag, readExportProperties, propertyTagLayoutForPackage } from './uasset-parser.mjs';
 import { buildStructHandlers } from './uasset-structs.mjs';
-import { bpFindInGraphSafe, bpShowNodeSafe, bpSubgraphInCommentSafe, extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
+import { inspectBlueprintInputs, bpFindInGraphSafe, bpShowNodeSafe, bpSubgraphInCommentSafe, extractBPEdgeTopologySafe } from './offline-blueprint-tools.mjs';
 import { TestRunner, createCanonicalScratchRoot, cleanupCanonicalScratchRoot } from './test-helpers.mjs';
 
 const t = new TestRunner('Legacy Blueprint topology');
 const i32 = n => { const b = Buffer.alloc(4); b.writeInt32LE(n | 0); return b; };
 const i64 = n => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; };
 const str = s => Buffer.concat([i32(s.length + 1), Buffer.from(s + '\0')]);
-const names = ['None', 'NodeGuid', 'StructProperty', 'Guid', 'K2Node_Knot', 'EventGraph', 'First', 'Second', 'Link', 'A', 'B', 'C', 'D', 'UInt32Property', 'Location', 'Vector', 'EdGraph'];
+const names = ['None', 'NodeGuid', 'StructProperty', 'Guid', 'K2Node_Knot', 'EventGraph', 'First', 'Second', 'Link', 'A', 'B', 'C', 'D', 'UInt32Property', 'Location', 'Vector', 'EdGraph', 'K2Node_CallFunction'];
 const fn = s => Buffer.concat([i32(names.indexOf(s)), i32(0)]);
 const guid = hex => Buffer.concat(hex.match(/.{8}/g).map(v => i32(parseInt(v, 16))));
 const nodeIds = ['00000001ABCDEF1280000000FFFFFFFF', '12345678000000020000000300000004'];
@@ -54,7 +54,7 @@ function nodeBytes(version, index) {
 
 // Minimal uncooked UE4=522 package, with versions immediately below/at the
 // complete-type-name gate as well as the installed fixtures' older 1004 form.
-function packageBytes(version, { duplicateNames = false } = {}) {
+function packageBytes(version, { duplicateNames = false, nodeClass = 'K2Node_Knot' } = {}) {
   const nameOffset = 512, importOffset = 2048, exportOffset = 2200, dataOffset = 4096;
   const chunks = [i32(0x9e2a83c1), i32(-8), i32(0), i32(522), i32(version), i32(0),
     i32(0), i32(dataOffset), str(''), i32(0), i32(names.length), i32(nameOffset)];
@@ -71,7 +71,7 @@ function packageBytes(version, { duplicateNames = false } = {}) {
   const buf = Buffer.alloc(dataOffset + bodies[1].length + bodies[2].length);
   Buffer.concat(chunks).copy(buf);
   Buffer.concat(names.map(n => Buffer.concat([str(n), Buffer.alloc(4)]))).copy(buf, nameOffset);
-  Buffer.concat(['K2Node_Knot', 'EdGraph'].flatMap(name => [fn('None'), fn('None'), i32(0), fn(name), fn('None'), i32(0)])).copy(buf, importOffset);
+  Buffer.concat([nodeClass, 'EdGraph'].flatMap(name => [fn('None'), fn('None'), i32(0), fn(name), fn('None'), i32(0)])).copy(buf, importOffset);
   let offset = dataOffset;
   const exports = bodies.map((body, index) => {
     const isNode = index === 1 || index === 2;
@@ -146,6 +146,14 @@ try {
       `${version}: exact graph membership, GUIDs, pins and edges through public extractor`, JSON.stringify(result.graphs));
   }
   const ambiguousPath = '/Game/Duplicate';
+  writeFileSync(join(root, 'Content', 'CallChoices.uasset'), packageBytes(1012, { nodeClass: 'K2Node_CallFunction' }));
+  const choose = { asset_path: '/Game/CallChoices', graph_name: 'EventGraph', pin: 'Link' };
+  const ambiguous = await inspectBlueprintInputs(root, choose, () => { throw new Error('unexpected live read'); });
+  t.assert(ambiguous.saved.status === 'ambiguous_node' && ambiguous.saved.candidate_count === 2
+    && ambiguous.live.status === 'no_unique_saved_node', 'two calls require an explicit selection');
+  const chosen = await inspectBlueprintInputs(root, { ...choose, node_id: ambiguous.saved.candidates[1].node_id, source: 'saved' });
+  t.assert(chosen.node.node_guid === nodeIds[1] && chosen.saved.inputs[0].binding === 'linked',
+    'candidate export index selects a specific linked call without treating its default as an effective argument');
   writeFileSync(join(root, 'Content', 'Duplicate.uasset'), packageBytes(1012, { duplicateNames: true }));
   const candidates = /Ambiguous node name.+EventGraph\.First \(export index 2\).+Second\.First \(export index 3\)/;
   await t.assertRejects(() => bpShowNodeSafe(root, { asset_path: ambiguousPath, node_id: 'First' }),
