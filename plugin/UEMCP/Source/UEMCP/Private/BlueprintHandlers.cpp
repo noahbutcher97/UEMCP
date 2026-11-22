@@ -176,25 +176,11 @@ namespace UEMCP
 
 		// ── Graph helpers ────────────────────────────────────────────────────────
 		//
-		// Mirror the shared graph-helper behavior for FindOrCreateEventGraph,
-		// ConnectGraphNodes, and FindPin. These local helpers avoid a dependency on
+		// Mirror the shared graph-helper behavior for ConnectGraphNodes and
+		// FindPin. These local helpers avoid a dependency on
 		// another plugin while preserving the established behavior modulo style.
 
 		UClass* ResolveBlueprintTargetClassByName(const FString& Identifier);
-
-		UEdGraph* FindOrCreateEventGraph(UBlueprint* Blueprint)
-		{
-			if (!Blueprint) return nullptr;
-			for (UEdGraph* Graph : Blueprint->UbergraphPages)
-			{
-				if (Graph && Graph->GetName().Contains(TEXT("EventGraph")))
-				{
-					return Graph;
-				}
-			}
-			// The engine fallback scans existing ubergraph pages for the canonical EventGraph.
-			return FBlueprintEditorUtils::FindEventGraph(Blueprint);
-		}
 
 		UEdGraph* FindGraphByName(UBlueprint* Blueprint, const FString& GraphName)
 		{
@@ -296,7 +282,7 @@ namespace UEMCP
 			if (!Params.IsValid() || !Params->TryGetStringField(TEXT("graph_name"), GraphName) || GraphName.IsEmpty()
 				|| GraphName.Equals(TEXT("EventGraph"), ESearchCase::IgnoreCase))
 			{
-				UEdGraph* EventGraph = Target == EGraphTarget::Read ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : FindOrCreateEventGraph(Blueprint);
+				UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 				if (!EventGraph)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
@@ -2309,7 +2295,7 @@ namespace UEMCP
 			// flag-based read of what the editor's Override list offers.
 			if (ParentFunction->HasAnyFunctionFlags(FUNC_BlueprintEvent))
 			{
-				UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+				UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 				if (!EventGraph)
 				{
 					BuildErrorResponse(OutResponse, TEXT("Blueprint has no event graph"), TEXT("NO_GRAPH"));
@@ -2986,7 +2972,7 @@ namespace UEMCP
 			bool bCompile = false;
 			Params->TryGetBoolField(TEXT("compile"), bCompile);
 
-			UEdGraph* EventGraph = FindOrCreateEventGraph(Blueprint);
+			UEdGraph* EventGraph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
 			if (!EventGraph)
 			{
 				BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));

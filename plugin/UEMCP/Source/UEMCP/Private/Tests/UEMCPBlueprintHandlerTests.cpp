@@ -280,18 +280,7 @@ namespace UEMCP::Blueprint::Tests
 	/** The fixture's event graph. CreateBlueprint gives an Actor Blueprint one. */
 	UEdGraph* FixtureEventGraph(UBlueprint* Blueprint)
 	{
-		if (!Blueprint)
-		{
-			return nullptr;
-		}
-		for (UEdGraph* Graph : Blueprint->UbergraphPages)
-		{
-			if (Graph && Graph->GetName().Contains(TEXT("EventGraph")))
-			{
-				return Graph;
-			}
-		}
-		return nullptr;
+		return Blueprint ? FBlueprintEditorUtils::FindEventGraph(Blueprint) : nullptr;
 	}
 
 	/**
@@ -3444,6 +3433,43 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 		TestEqual(TEXT("Retains representable real text"),
 			SetterNode->FindPinChecked(FName(Control.Name), EGPD_Input)->DefaultValue, FString(Control.Literal));
 	}
+	auto AssignmentParams = MakeShared<FJsonObject>();
+	AssignmentParams->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	AssignmentParams->SetStringField(TEXT("target_variable"), TEXT("Amount"));
+	auto Literal = MakeShared<FJsonObject>();
+	Literal->SetStringField(TEXT("kind"), TEXT("literal"));
+	Literal->SetNumberField(TEXT("value"), 2147483648.0);
+	AssignmentParams->SetObjectField(TEXT("assignment"), Literal);
+	const int32 BeforeAssignment = Graph->Nodes.Num();
+	const int32 BeforeUndo = History->GetQueueLength();
+	Fixture.Package->SetDirtyFlag(false);
+	TestEqual(TEXT("refuse overflowing assignment"), ErrorCodeOf(Dispatch(TEXT("add_blueprint_variable_assignment"), AssignmentParams)),
+		FString(TEXT("LITERAL_TYPE_MISMATCH")));
+	TestEqual(TEXT("refusal preserves graph membership"), Graph->Nodes.Num(), BeforeAssignment);
+	TestEqual(TEXT("refusal preserves Undo history"), History->GetQueueLength(), BeforeUndo);
+	TestFalse(TEXT("refusal preserves clean package"), Fixture.Package->IsDirty());
+
+	// A user can reorder the event pages independently of their names.
+	UEdGraph* OtherPage = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("OtherEventGraph"),
+		UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	FBlueprintEditorUtils::AddUbergraphPage(Fixture.Blueprint, OtherPage);
+	Fixture.Blueprint->UbergraphPages.Swap(0, Fixture.Blueprint->UbergraphPages.IndexOfByKey(OtherPage));
+	if (!TestTrue(TEXT("canonical event graph differs from first page"), FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint) == Graph && Graph != OtherPage)) return false;
+	Params->SetStringField(TEXT("variable_name"), TEXT("Amount"));
+	Defaults->Values.Empty();
+	Defaults->SetNumberField(TEXT("Amount"), 19);
+	const int32 OtherCount = OtherPage->Nodes.Num();
+	for (const bool ExplicitGraph : {false, true})
+	{
+		if (ExplicitGraph) Params->SetStringField(TEXT("graph_name"), TEXT("EventGraph"));
+		const auto Write = ResultOf(Dispatch(Set, Params));
+		TestNotNull(TEXT("setter lands in canonical EventGraph"), FindNodeByGuid(Graph, StringFieldOr(Write, TEXT("node_id"))));
+	}
+	TestEqual(TEXT("similarly named page unchanged"), OtherPage->Nodes.Num(), OtherCount);
+	Params->SetStringField(TEXT("graph_name"), OtherPage->GetName());
+	const auto Named = ResultOf(Dispatch(Set, Params));
+	TestNotNull(TEXT("an explicitly named secondary page remains selectable"),
+		FindNodeByGuid(OtherPage, StringFieldOr(Named, TEXT("node_id"))));
 	return true;
 }
 
@@ -3476,6 +3502,16 @@ bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 	TestEqual(TEXT("no additional graph"), Fixture.Blueprint->FunctionGraphs.Num(), Count);
 	TestFalse(TEXT("package stays clean"), Fixture.Package->IsDirty());
 	TestEqual(TEXT("Undo history stays intact"), GEditor->Trans->GetQueueLength(), QueueLength);
+	UEdGraph* SavedFunction = FindObject<UEdGraph>(Fixture.Blueprint, TEXT("ReadAmount"));
+	if (!TestNotNull(TEXT("created function graph"), SavedFunction)) return false;
+	UEdGraphNode* Entry = FindNodeByGuid(SavedFunction, EntryId);
+	if (!TestNotNull(TEXT("created entry belongs to this graph"), Entry)) return false;
+	SavedFunction->RemoveNode(Entry);
+	Fixture.Package->SetDirtyFlag(false);
+	Params->SetStringField(TEXT("function_name"), TEXT("ReadAmount"));
+	TestEqual(TEXT("refuse reuse of graph missing its entry"), ErrorCodeOf(Dispatch(Command, Params)), FString(TEXT("INVALID_FUNCTION_ENTRY")));
+	TestFalse(TEXT("invalid entry leaves package clean"), Fixture.Package->IsDirty());
+	TestEqual(TEXT("invalid entry leaves the graph in place"), Fixture.Blueprint->FunctionGraphs.Num(), Count);
 	return true;
 }
 
