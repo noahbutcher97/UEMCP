@@ -5,6 +5,118 @@ Planning snapshot: 2026-11-07, main through PR #64. The
 groups that work by outcome. [Starting slices](todo.md) are planning choices,
 not an execution queue or a claim that implementation has begun.
 
+## Core correctness before the next character experiment (2026-11-22)
+
+Pause new animation experiments while two owners qualify the transport decoder
+and shared Blueprint writers. The coordinator owns the integrated build,
+independent review and final agent replay. Use the [execution checklist](todo.md#core-correctness-execution-checklist-2026-11-22)
+to record revisions, results and open findings. The earlier U1/U2/U5 selection
+below remains the history of the preceding animation milestone.
+
+**Transport.** Start a task worktree from local main at `0d7ec96`. The
+[decoder issue](../docs/tracking/backlog.md#current-work-and-next-qualification)
+has a retained UE 5.3.2 Win64 package. The earlier nine-test run failed one
+test with two assertions. Framed and legacy JSON both failed the expected
+one-code-unit readback for escaped U+0000. The same suite passed on 5.6.1 and
+5.8.4. Reuse the native regression and a working copy of the owned fixture.
+Compare the engine JSON reader's value with UEMCP's decoded value before
+choosing a repair. Use the original fixture and package fingerprints as evidence
+through closeout.
+
+**Blueprint writers.** Start with a read-only comparison of local main and
+`task/graph-action-placement` at `f0901ce`, which contains the reviewed setter
+work from `task/animation-authoring` at `e6e9c35`. Inventory writer, schema,
+dispatcher and regression dependencies before choosing commits for a focused
+core review. Preserve existing animation worktrees and prior evidence. Trace
+`add_variable_assignment` separately from `add_variable_set`. The recorded
+assignment rounding, vector formatting, ambiguous graph selection and function
+entry concerns each need a control. Use native object and graph observations,
+freshly compiled actor behavior, and affected package hashes to judge the public
+MCP result. Record a passing control as a bounded result. Give each reproduced
+failure its own repair and rerun.
+
+**Workstation coordination.** Use task branches under `.worktrees/` and one
+coordinator-allocated run directory with per-engine and per-task children.
+Follow the [fixture guide](../docs/fixture-host.md#stage-a-fresh-host) for external
+staging if creating a fresh owned host. Check the installed engine manifest,
+editor and build tool before booking each engine. Serialize builds, deployments
+and editor runs. Give the first slot to the 5.3.2 decoder reproduction while
+the writer owner reviews source and prepares cases. Then give the writer owner
+5.8.4 for public MCP reproduction while the decoder owner works from the
+captured values.
+
+### Cleanup ownership before the first run
+
+The coordinator chooses one run root before either owner stages a fixture.
+From the repository root, use `.\new-task-root.ps1 -Task core-correctness` for a repo-local run, or add
+`-ExternalFixture` if this run requires a fresh external stage. Pass that same
+path to both owners. On resumption, use the recorded path. Create each child
+only when its caller needs it.
+
+At allocation, copy the applicable rows below into the root's `RUN.md`.
+Record the exact paths, owners, expected peak bytes, available disk space and
+receipt destination before the first large copy. Include simultaneous source,
+staged and packaged copies in the estimate. If they will not fit, serialize
+the copies or narrow the staged inputs. Record owned process IDs as they start.
+
+| Output and owner | Evidence to keep | Earliest removal point |
+| --- | --- | --- |
+| Decoder working fixture and diagnostic build — decoder owner | Baseline and repaired code units for each transport, test output and build fingerprints | After the last comparison that needs that copy, once its receipt is readable and the process has exited. The original `.scratch/retained/ue53-decoder` has its own one-time release at issue closeout. |
+| Blueprint fixtures and temporary assets — writer owner | Requested and observed values, graph identities, Undo and dirty-state results, reopened asset and actor observations | After the last dependent replay. Inventory test-created packages before editing a reused owned host so cleanup touches only those packages. |
+| Package stages, build intermediates, caches and any private toolchain copy — owner running that engine | Native test list and results, packaging log, manifest and DLL/corpus hashes | After that engine's final consumer has run. Before a retry, extract the failure evidence, release superseded output and recalculate the next attempt's peak. |
+| Agent trial profiles, transcripts and test processes — replay owner | Sanitized prompt, client and engine versions, relevant calls and independent result | Once the replay receipt is verified and the owned processes have exited. Keep account configuration and credentials out of the receipt. |
+| New core worktrees and branches — coordinator | Reviewed commits and any unique untracked or ignored evidence | After merge and recovery checks, remove clean task worktrees with Git, then retire their merged branches. The two pre-existing animation worktrees belong to the continuing animation task. |
+
+At each engine handoff, the outgoing owner records what was removed and the
+exact path, size, next consumer and release condition of anything still needed.
+After an interruption, reconcile that inventory and live processes before
+allocating a retry. For an unresolved defect, retain the smallest verified
+reproducer with an owner and a backlog release condition. For final closeout,
+copy the concise receipts and disposition into the primary checkout's local
+report, verify they can be read there, and remove the empty run root. Use the
+[repository cleanup checks](../AGENTS.md#worktree-and-scratch-cleanup) for
+process ownership, resolved paths and shared links at every removal.
+
+### When removal is denied
+
+Pair `new-task-root.ps1` with an on-demand PowerShell cleanup command for
+future runs. Have the allocator record a machine-readable run identity. Give
+the cleanup command a run and its explicitly retired outputs. Its default
+preview lists the resolved paths, ownership, sizes and reasons for skipping
+anything. On explicit apply, revalidate the preview, remove only unchanged,
+inactive outputs within that run and record what remains. Leave retained issue
+fixtures and Git worktrees to their own closeout procedures. Use the existing
+decoder helper's inventory checks where applicable. A code review of the
+helper and action review of a particular invocation are separate decisions.
+
+Plan each large stage using measured free space with the prior output still
+present. Exclude unnecessary third-party content before copying and reuse the
+installed toolchain where possible. A successful scratch smoke test establishes
+its own outcome only. Approval for a later deletion depends on that action.
+
+If automatic approval review rejects cleanup, the owner records the attempted
+action and review reason in `RUN.md`, then inventories the exact surviving paths
+and bytes. Apply the [repository denial procedure](../AGENTS.md#worktree-and-scratch-cleanup).
+The coordinator reports the path, size, why it is disposable or still needed,
+and what the denial holds up. Where manual disposition is appropriate, give the
+user the verified path and leave the choice with them. After any manual removal,
+recheck path existence and volume free space before changing the ledger.
+
+Proceed with another engine stage only if it fits alongside the leftovers.
+Otherwise pause that allocation and continue source review, receipt analysis or
+other work that fits. Carry outstanding cleanup in the closeout until actual
+removal is verified or the owner explicitly accepts retention.
+
+**Integration and release.** The previous nine-test package included two graph
+regressions from the placement branch. Run the seven transport tests on the
+core candidate, then run the original nine named tests on a candidate containing
+the placement tests and both core repairs. Record both revisions and test lists.
+Review confirmed fixes independently and run the final real-client trial on the
+integrated revision. Resume the same-character experiment after the checklist
+passes. Keep the UE 5.7 installation deferred and human sessions after the
+agent-driven animation milestone. Capture, registry and PIE lifecycle reports
+retain their own backlog entries.
+
 ## How to use this map
 
 A unit is a coherent investment area, not one large PR. Pick a starting slice,

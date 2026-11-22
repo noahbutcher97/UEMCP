@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude when working with code in this repository.
 
+For local builds, editor fixtures and provider trials, use the coordinator's
+shared task directory and follow the [worktree and scratch cleanup protocol](AGENTS.md#worktree-and-scratch-cleanup).
+
 Before making capability claims or recommending roadmap work, follow the
 [question-based documentation routes](docs/README.md#find-information-by-question).
 Reconcile tool definitions, capability limits and backlog status during discussion
