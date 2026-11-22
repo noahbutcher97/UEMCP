@@ -15,6 +15,14 @@ projects. Historical rationale is retained in the [September notes preserved at 
 
 ## Current work and next qualification
 
+- [ ] **TRANSPORT-53-NUL** — On UE 5.3.2 Win64, reproduce and resolve the
+  `UEMCP.Transport.DecoderBoundaries` failures for escaped U+0000 in framed
+  and legacy JSON. Keep the packaged reproducer in
+  `.scratch/retained/ue53-decoder/` until the passing 5.3.2 result is recorded
+  or the maintainer explicitly retires the investigation. Check this item on
+  main when releasing the reproducer and link the result or retirement decision.
+  The workstation cleanup task watches this checkbox.
+
 | ID | Status | Work / acceptance |
 |---|---|---|
 | QA-1 | Owned actor and ordinary PIE slice passed; broader qualification open | Live MCP identity, actor writes/readback and two stop/next-operation cycles per engine passed on UE 5.3.2, 5.6.1 and 5.8.4 Win64. [Execution and limits](../owned-pie-lifecycle.md#live-stop-and-next-operation-check-2026-11-19) |

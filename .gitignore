@@ -54,6 +54,9 @@ server/.test-rotation-snapshot.json
 # Local linked worktrees for isolated feature work.
 .worktrees/
 
+# Local qualification runs and retained issue reproducers.
+/.scratch/
+
 # Local superpowers workflow scratch files.
 .superpowers/
 

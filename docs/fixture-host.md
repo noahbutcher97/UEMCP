@@ -25,13 +25,16 @@ example uses one engine. Additional engines use sibling directories inside the
 same task directory.
 
 ```powershell
-$taskRoot = ./new-task-root.ps1 -Task graph-placement
+$taskRoot = ./new-task-root.ps1 -Task graph-placement -ExternalFixture
 $engineRun = New-Item -ItemType Directory -Path (Join-Path $taskRoot 'ue56')
 $stage = Join-Path $engineRun.FullName 'stage'
 node server/prepare-fixture-host.mjs --output-root $stage --engine-root 'C:/Program Files/Epic Games/UE_5.6'
 ```
 
-The helper places the task under `<checkout drive>:\Scratch\UEMCP`. If a task
+The external-fixture switch places the task under `<checkout drive>:\Scratch\UEMCP`.
+For a package-only run, omit the switch to use the primary checkout's
+ignored `.scratch/runs/`. Retained issue fixtures live in `.scratch/retained/`.
+If a task
 directory already exists, inspect its run record and use the coordinator's path.
 The staging command needs a fresh, absent leaf outside the source checkout.
 Use `Join-Path $stage 'host/UEMCPFixture.uproject'` to locate the project. Build its

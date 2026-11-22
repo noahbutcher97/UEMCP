@@ -72,9 +72,13 @@ an appropriate clean checkout when isolation is unnecessary.
 Keep the directory containing the repositories clear of task output. For local
 qualification, the coordinator runs `./new-task-root.ps1 -Task <short-name>` once
 and gives the returned path to every worker. It creates one task directory under
-`<checkout drive>:\Scratch\UEMCP`, shared by all engine versions, CLI clients and
-retries. Use it for fixture stages, matrix output, private tool profiles, caches
-and temporary compiler copies. Create child directories only as callers need
+`.scratch/runs/` in the primary checkout, shared by all engine versions, CLI
+clients and retries. Use it for matrix output, private tool profiles and caches.
+Pass `-ExternalFixture` for a run that stages a fresh host, since the staging
+tool requires a root outside its source checkout. Store an issue's retained
+reproducer under `.scratch/retained/<issue>/` with its release condition in the
+backlog and its verification receipt outside the disposable tree.
+Create child directories only as callers need
 them. Attach to the supplied task path when resuming. Ordinary tests that already
 use and clean their own temporary directories can continue doing so.
 

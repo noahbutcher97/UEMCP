@@ -2,13 +2,22 @@
 param(
     [Parameter(Mandatory)]
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')]
-    [string]$Task
+    [string]$Task,
+    [switch]$ExternalFixture
 )
 
 $ErrorActionPreference = 'Stop'
-$volume = [IO.Path]::GetPathRoot($PSScriptRoot)
-$scratch = Join-Path $volume 'Scratch'
-$projectScratch = Join-Path $scratch 'UEMCP'
+if ($ExternalFixture) {
+    $scratch = Join-Path ([IO.Path]::GetPathRoot($PSScriptRoot)) 'Scratch'
+    $projectScratch = Join-Path $scratch 'UEMCP'
+} else {
+    $worktrees = @(git -C $PSScriptRoot worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0 -or !$worktrees -or !$worktrees[0].StartsWith('worktree ')) {
+        throw 'Cannot locate the primary checkout'
+    }
+    $scratch = Join-Path $worktrees[0].Substring(9) '.scratch'
+    $projectScratch = Join-Path $scratch 'runs'
+}
 foreach ($parent in @($scratch, $projectScratch)) {
     $directory = [IO.Directory]::CreateDirectory($parent)
     if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
