@@ -114,6 +114,13 @@ roots. At task completion or merge:
   exact remaining path and reason if cleanup is blocked. When nothing needs
   retention, remove the task directory itself. See the
   [fixture and packaging examples](docs/fixture-host.md#stage-a-fresh-host).
+- When automatic approval review rejects removal, record the exact target,
+  attempted action and stated reason. Recheck what remains and report its
+  measured size to the user. Respect the denial across tools and workers.
+  Use a narrower cleanup only when it addresses the stated objection and falls
+  within the approved scope. For an explicit denial on the target itself,
+  leave it in place for owner disposition. Budget the next step using measured
+  free space and count reclaimed space only after filesystem readback.
 - End with `git status --short` and `git worktree list`, and report anything
   intentionally retained. Do not claim the repository is fully cleaned merely
   because the primary checkout is clean.

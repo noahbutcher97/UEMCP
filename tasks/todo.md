@@ -5,6 +5,81 @@ not a sequential checklist. The [backlog](../docs/tracking/backlog.md) retains
 status and historical evidence. Checkboxes track planning/delivery milestones, not a reset of
 already shipped capabilities. Each row is a starting slice, not the entire unit.
 
+## Core correctness execution checklist (2026-11-22)
+
+Follow the [work order and branch bases](plan.md#core-correctness-before-the-next-character-experiment-2026-11-22).
+
+- [ ] **Coordinator, before the first bulky output.** Implement and exercise
+  the on-demand cleanup helper on a disposable allocator-created run. Prove
+  preview leaves files intact, apply removes the selected retired output, and
+  repeat apply reports it gone. Verify changed, active, linked and outside-run
+  targets are preserved and an unrelated sibling survives. Save the receipt.
+- [ ] **Coordinator, before staging or building.** Reserve one shared run root.
+  Fill in the [cleanup inventory](plan.md#cleanup-ownership-before-the-first-run)
+  in its `RUN.md` with both owners. Record the expected artifacts, exact paths,
+  peak disk budget, receipt destinations and removal triggers. Identify the
+  original reproducer, reused hosts and existing animation worktrees separately
+  from disposable working copies.
+- [ ] **Coordinator, before execution.** Record branch heads, owned host
+  manifests, editor/build availability, package fingerprints, process ownership
+  and run directory. Pin the original package report and the identical set of
+  nine tests for the later comparison.
+- [ ] **Decoder owner, first editor slot.** Reproduce both 5.3.2 assertions on
+  a working copy. For each transport record the parsed string length and code
+  units at engine readback and at the UEMCP result. Include an ordinary string
+  control. Identify the first divergent boundary and document the expected
+  behavior before changing code.
+- [ ] **Writer owner, in parallel.** Map the existing setter changes and their
+  dependencies against main. Review direct and dispatcher argument rejection,
+  omitted defaults for wired inputs, numeric limits and the actor readback.
+  Mark each repair as already present on main, ready for review, or needing a
+  dependency. Preserve the original failing evidence.
+- [ ] **Writer owner, next editor slot.** On 5.8.4 exercise a representable
+  integer that exposes precision loss, a vector with distinguishable components,
+  a misspelled argument, two similarly named graph pages and function entry
+  creation/reuse. Use exact graph identities and execute the compiled actor.
+  For a refusal, compare graph links, defaults, dirty state and Undo history.
+  Record observed behavior separately for each case. If an engine invariant
+  prevents a proposed fixture, record the evidence and narrow the claim.
+- [ ] **Each owner, at every retry and engine handoff.** Verify the saved
+  receipts, stop owned processes that have finished, reclaim superseded output,
+  and record actual paths and sizes still needed by the next consumer.
+  Reconcile the same inventory on interruption or cancellation. On a review
+  denial, follow the [denial procedure](plan.md#when-removal-is-denied), report
+  the surviving paths and size, and remeasure free space before the next build.
+- [ ] **Each owner, after reproduction.** Add focused regression coverage
+  wherever the existing tests miss a confirmed defect. Reuse the decoder
+  regression. Verify each repair against its original failing input and a
+  valid neighboring input. Record native test names, public call results where
+  applicable, independent observations and the tested source and binary.
+- [ ] **Coordinator, integrated qualification.** Check exact deployed plugin
+  and corpus hashes. Require all seven transport tests on the decoder candidate,
+  then 9/9 in the original packaged suite on integrated UE 5.3.2 Win64.
+  Repeat the decoder regression and affected writer checks on 5.6.1 and 5.8.4,
+  and run the affected writers on 5.3.2. Run the server rotation for server or
+  tool-surface edits. Have an independent reviewer check the diff, compatibility,
+  refusal behavior and readback receipts. Requalify any fixes from review.
+- [ ] **Coordinator, final agent replay.** Give a fresh real CLI an owned
+  Blueprint, a requested assignment and named save scope. Let the agent
+  discover tools and recover from an ambiguous target or mistaken argument.
+  Record the prompt, client/model, engine, calls, interventions and claimed
+  result. Reopen in a fresh editor, identify the graph by GUID, invoke the
+  compiled actor and compare its value and unrelated package hashes. Repeat
+  the same task for each client/engine combination claimed as supported;
+  list unexercised combinations explicitly.
+- [ ] **Coordinator, closeout.** Publish the per-engine and per-client results
+  in the work record. Resume the character experiment when the integrated
+  checks pass, the CLI result matches independent readback, and each confirmed
+  writer defect in scope has passed its regression. Record any remaining
+  source-only concerns with their next check. Close TRANSPORT-53-NUL and remove
+  its retained fixture once its verified result is recorded. Check the final
+  filesystem inventory against `RUN.md`, verify receipts outside scratch and
+  remove the empty run root. Record each surviving path, owner, size and release
+  condition in the local report. Capture Git status and the worktree list after
+  retiring any merged core worktrees.
+
+## Roadmap slices
+
 | Task | Acceptance and verification | Dependency / likely area |
 |---|---|---|
 | [x] U1a: truthful timer failures (BUG-3) | Reproduced both failures on UE 5.8.4. The fix passed all 15 native Blueprint cases on UE 5.3.2, 5.6.1 and 5.8.4 Win64. | [BUG-3 evidence](../docs/tracking/backlog.md#retained-correctness-and-workflow-reports) |
