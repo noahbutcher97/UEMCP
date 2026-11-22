@@ -1732,10 +1732,10 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 
 	for (const bool bFramed : {false, true})
 	{
-		// Exercise keys, nested values and literal text together. FString's
-		// C-string comparisons cannot distinguish characters after a NUL.
+		// A literal backslash followed by u0000 is a valid name. Its array
+		// contains actual NUL values as well as an escaped backslash.
 		const TArray<uint8> Body = MakeAsciiBytes(TEXT(
-			"{\"\\u0000k\":[\"\\u0000B\",\"A\\u0000B\",\"\\\\u0000\",\"a\\\"b\",\"_\",\"\"],\"\":true}"));
+			"{\"\\\\u0000k\":[\"\\u0000B\",\"A\\u0000B\",\"\\\\u0000\",\"a\\\"b\",\"_\",\"\"],\"\":true,\"ax\":1,\"ay\":2,\"ax\":3}"));
 		TArray<uint8> Request;
 		if (bFramed)
 		{
@@ -1749,14 +1749,13 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 		{
 			continue;
 		}
-		TestEqual(Mode + TEXT(" retains both field names"), Snapshot.Object->Values.Num(), 2);
+		TestEqual(Mode + TEXT(" retains distinct field names"), Snapshot.Object->Values.Num(), 4);
+		TestEqual(Mode + TEXT(" exact duplicate takes its final value"), Snapshot.Object->GetNumberField(TEXT("ax")), 3.0);
+		TestEqual(Mode + TEXT(" distinct name keeps its value"), Snapshot.Object->GetNumberField(TEXT("ay")), 2.0);
 		bool bEmptyField = false;
 		TestTrue(Mode + TEXT(" retains empty field"), Snapshot.Object->TryGetBoolField(TEXT(""), bEmptyField) && bEmptyField);
-		const TCHAR KeyUnits[] = {0, TEXT('k')};
-		FString Key;
-		Key.AppendChars(KeyUnits, UE_ARRAY_COUNT(KeyUnits));
 		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
-		if (!TestTrue(Mode + TEXT(" finds the NUL-prefixed key"), Snapshot.Object->TryGetArrayField(Key, Values)))
+		if (!TestTrue(Mode + TEXT(" finds the literal backslash key"), Snapshot.Object->TryGetArrayField(TEXT("\\u0000k"), Values)))
 		{
 			continue;
 		}
@@ -1776,6 +1775,97 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 					TestEqual(Label + TEXT(" code unit"), static_cast<uint16>(Value[Unit]), Expected[Index][Unit]);
 				}
 			}
+		}
+	}
+
+	for (const bool bFramed : {false, true})
+	{
+		for (const TCHAR* Json : {
+			TEXT("{\"\\u0000\":1}"),
+			TEXT("{\"a\\u0000\" \t\r\n : null}"),
+			TEXT("{\"params\":[{\"escaped\\\"\\\\\\u0000x\":true}]}"),
+			TEXT("{\"n\":{\"A\\u0000x\":1,\"A\\u0000y\":2}}"),
+			TEXT("{\"n\":{\"\\u0000x\":1,\"\\u0000y\":2},\"n\":{}}")})
+		{
+			const TArray<uint8> Body = MakeAsciiBytes(Json);
+			TArray<uint8> Request;
+			if (bFramed) Request = MakeFramingHeader(Body.Num());
+			Request.Append(Body);
+			FMCPRequestDecoder Decoder;
+			for (uint8 Byte : Request) Decoder.Consume(&Byte, 1);
+			const FMCPDecodeSnapshot& Snapshot = Decoder.Snapshot();
+			const FString Label = FString::Printf(TEXT("%s %s"), bFramed ? TEXT("framed") : TEXT("legacy"), Json);
+			TestTrue(Label + TEXT(" rejected before object construction"),
+				Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("nul_in_object_key")
+				&& !Snapshot.Object.IsValid() && Decoder.GetJsonParseCountForTests() == 0);
+		}
+	}
+
+	// Compare with actual storage on this engine. Unicode folding and key
+	// representation can differ between engine branches.
+	for (const bool bFramed : {false, true})
+	{
+		auto Decode = [bFramed](const FString& Json, FMCPRequestDecoder& Decoder) -> const FMCPDecodeSnapshot&
+		{
+			FTCHARToUTF8 Utf8(*Json);
+			TArray<uint8> Request;
+			if (bFramed) Request = MakeFramingHeader(Utf8.Length());
+			Request.Append(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+			return Decoder.Consume(Request.GetData(), Request.Num());
+		};
+
+		struct FKeyPair
+		{
+			const TCHAR* First;
+			const TCHAR* Second;
+			const TCHAR* Json;
+		};
+		for (const FKeyPair& Pair : {
+			FKeyPair{TEXT("Ax"), TEXT("ax"), TEXT("{\"Ax\":1,\"ax\":2}")},
+			FKeyPair{TEXT("Ax"), TEXT("ax"), TEXT("{\"A\\u0078\":1,\"\\u0061x\":2}")},
+			FKeyPair{TEXT("\u00c4x"), TEXT("\u00e4x"), TEXT("{\"\u00c4x\":1,\"\u00e4x\":2}")},
+			FKeyPair{TEXT("\u00c4x"), TEXT("\u00e4x"), TEXT("{\"\\u00c4x\":1,\"\\u00e4x\":2}")}})
+		{
+			FJsonObject NativeObject;
+			NativeObject.SetNumberField(Pair.First, 1.0);
+			NativeObject.SetNumberField(Pair.Second, 2.0);
+			FMCPRequestDecoder Decoder;
+			const FMCPDecodeSnapshot& Snapshot = Decode(Pair.Json, Decoder);
+			const FString Label = FString::Printf(TEXT("%s %s"), bFramed ? TEXT("framed") : TEXT("legacy"), Pair.Json);
+			if (NativeObject.Values.Num() == 1)
+			{
+				TestTrue(Label + TEXT(" rejects ambiguous members"),
+					Snapshot.Status == EMCPDecodeStatus::Malformed && Snapshot.ReasonCode == TEXT("ambiguous_object_keys") && !Snapshot.Object.IsValid());
+			}
+			else
+			{
+				TestTrue(Label + TEXT(" preserves both native keys"), Snapshot.Object.IsValid() && Snapshot.Object->Values.Num() == 2
+					&& Snapshot.Object->GetNumberField(Pair.First) == 1.0 && Snapshot.Object->GetNumberField(Pair.Second) == 2.0);
+			}
+			TestEqual(Label + TEXT(" parses once"), Decoder.GetJsonParseCountForTests(), 1);
+		}
+
+		FMCPRequestDecoder Decoder;
+		const FMCPDecodeSnapshot& Siblings = Decode(TEXT(
+			"{\"\\u0041x\":1,\"Ax\":2,\"values\":[{\"Bx\":1},{\"bx\":2}],\"left\":{\"Cx\":1},\"right\":{\"cx\":2}}"), Decoder);
+		if (TestTrue(TEXT("exact and escape-equivalent duplicates and separate objects complete"), Siblings.Object.IsValid()))
+		{
+			TestEqual(TEXT("duplicate decoded key keeps last value"), Siblings.Object->GetNumberField(TEXT("Ax")), 2.0);
+			auto HasMember = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* Name, double Value)
+			{
+				if (!Object.IsValid() || Object->Values.Num() != 1) return false;
+				const auto Member = Object->Values.CreateConstIterator();
+				return FStringView(*Member.Key(), Member.Key().Len()).Equals(Name, ESearchCase::CaseSensitive)
+					&& Member.Value()->AsNumber() == Value;
+			};
+			TestTrue(TEXT("sibling objects preserve independent key spellings"),
+				HasMember(Siblings.Object->GetObjectField(TEXT("left")), TEXT("Cx"), 1.0)
+				&& HasMember(Siblings.Object->GetObjectField(TEXT("right")), TEXT("cx"), 2.0));
+			const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+			TestTrue(TEXT("adjacent array elements preserve independent key spellings"),
+				Siblings.Object->TryGetArrayField(TEXT("values"), Values) && Values->Num() == 2
+				&& HasMember((*Values)[0]->AsObject(), TEXT("Bx"), 1.0)
+				&& HasMember((*Values)[1]->AsObject(), TEXT("bx"), 2.0));
 		}
 	}
 

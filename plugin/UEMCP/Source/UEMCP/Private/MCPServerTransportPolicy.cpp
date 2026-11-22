@@ -60,15 +60,80 @@ void PrefixStringsForLeadingNul(FString& JsonText)
 	JsonText = MoveTemp(Prefixed);
 }
 
-class FPrefixedStringReader final : public TJsonReader<>
+#endif
+
+class FRequestJsonReader final : public TJsonReader<>
 {
 public:
-	explicit FPrefixedStringReader(FArchive* InStream) : TJsonReader<>(InStream) {}
+	FRequestJsonReader(FArchive* InStream, bool bCheckCase, bool bPrefixed)
+		: TJsonReader<>(InStream), bCheckKeyCase(bCheckCase), bPrefixedStrings(bPrefixed) {}
 
-	const FString& GetIdentifier() const override { return Unprefix(TJsonReader<>::GetIdentifier(), Key); }
-	const FString& GetValueAsString() const override { return Unprefix(TJsonReader<>::GetValueAsString(), Value); }
+	const FString& GetIdentifier() const override
+	{
+		const FString& Token = TJsonReader<>::GetIdentifier();
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+		const FString& Name = bPrefixedStrings ? Unprefix(Token, Key) : Token;
+#else
+		const FString& Name = Token;
+#endif
+		if (bCheckKeyCase && !bAmbiguousKey)
+		{
+			ObserveMemberName(Name);
+		}
+		return Name;
+	}
+
+	bool HasAmbiguousKey() const { return bAmbiguousKey; }
+
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+	const FString& GetValueAsString() const override
+	{
+		const FString& Token = TJsonReader<>::GetValueAsString();
+		return bPrefixedStrings ? Unprefix(Token, Value) : Token;
+	}
+#endif
 
 private:
+	// Use the same key representation and equality as this engine's FJsonObject.
+	using FNativeKey = decltype(FJsonObject::Values)::KeyType;
+	struct FObjectNames
+	{
+		explicit FObjectNames(int32 InDepth) : Depth(InDepth) {}
+		int32 Depth;
+		TSet<FNativeKey> Names;
+	};
+
+	void ObserveMemberName(const FString& Name) const
+	{
+		if (CurrentToken == EJsonToken::CurlyClose)
+		{
+			if (!Objects.IsEmpty() && Objects.Last().Depth > ParseState.Num()) Objects.Pop();
+			return;
+		}
+		// Structural tokens and array elements have no identifier. Empty names
+		// cannot have a different spelling with the same decoded key.
+		if (Name.IsEmpty()) return;
+		const bool bOpeningContainer = CurrentToken == EJsonToken::CurlyOpen || CurrentToken == EJsonToken::SquareOpen;
+		const int32 Depth = ParseState.Num() - (bOpeningContainer ? 1 : 0);
+		if (Objects.IsEmpty() || Objects.Last().Depth < Depth) Objects.Emplace(Depth);
+
+		TSet<FNativeKey>& Names = Objects.Last().Names;
+		FNativeKey NativeKey{FStringView(Name)};
+		if (const FNativeKey* Prior = Names.Find(NativeKey))
+		{
+			bAmbiguousKey = !FStringView(**Prior, Prior->Len()).Equals(Name, ESearchCase::CaseSensitive);
+		}
+		else
+		{
+			Names.Add(MoveTemp(NativeKey));
+		}
+	}
+
+	bool bCheckKeyCase;
+	bool bPrefixedStrings;
+	mutable bool bAmbiguousKey = false;
+	mutable TArray<FObjectNames> Objects;
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
 	static const FString& Unprefix(const FString& Token, FString& Result)
 	{
 		if (Token.IsEmpty())
@@ -82,8 +147,8 @@ private:
 
 	mutable FString Key;
 	mutable FString Value;
-};
 #endif
+};
 
 template <typename ArrayType>
 auto PopWithoutShrinking(ArrayType& Array)
@@ -384,7 +449,14 @@ bool HasTruncatedUtf8Tail(const TArray<uint8>& Body)
 	return Expected > Continuations;
 }
 
-FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
+bool IsEscapedNulAt(const TArray<uint8>& Body, int32 Index)
+{
+	constexpr ANSICHAR EscapedNul[] = "\\u0000";
+	constexpr int32 Length = UE_ARRAY_COUNT(EscapedNul) - 1;
+	return Body.Num() - Index >= Length && FMemory::Memcmp(Body.GetData() + Index, EscapedNul, Length) == 0;
+}
+
+FString ValidateRequestObject(const TArray<uint8>& Body, int32 StartOffset, bool& bCheckKeyCase)
 {
 	int32 Index = StartOffset;
 	while (Index < Body.Num() && IsJsonWhitespace(Body[Index]))
@@ -400,14 +472,43 @@ FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
 	Delimiters.Add('{');
 	bool bInString = false;
 	bool bEscaped = false;
+	bool bStringContainsNul = false;
+	bool bStringMayFold = false;
 	for (++Index; Index < Body.Num(); ++Index)
 	{
 		const uint8 Byte = Body[Index];
 		if (bInString)
 		{
 			if (bEscaped) bEscaped = false;
-			else if (Byte == '\\') bEscaped = true;
-			else if (Byte == '"') bInString = false;
+			else if (Byte == '\\')
+			{
+				bEscaped = true;
+				bStringMayFold = true;
+				bStringContainsNul |= IsEscapedNulAt(Body, Index);
+			}
+			else if (Byte == '"')
+			{
+				bInString = false;
+				if (bStringContainsNul || (bStringMayFold && !bCheckKeyCase))
+				{
+					// Only an object member name is followed by a colon in JSON.
+					// Reject it before FString-keyed storage can alias another name.
+					int32 Next = Index + 1;
+					while (Next < Body.Num() && IsJsonWhitespace(Body[Next])) ++Next;
+					if (Next < Body.Num() && Body[Next] == ':')
+					{
+						if (bStringContainsNul) return TEXT("nul_in_object_key");
+						bCheckKeyCase = true;
+					}
+				}
+				bStringContainsNul = false;
+				bStringMayFold = false;
+			}
+			else if ((Byte >= 'A' && Byte <= 'Z') || Byte >= 0x80)
+			{
+				// Distinct unescaped lowercase ASCII names cannot alias under case folding.
+				bStringMayFold = true;
+			}
 			continue;
 		}
 		if (Byte == '"')
@@ -482,10 +583,7 @@ bool HasNodeJsonCompatibilityViolation(const TArray<uint8>& Body, int32 StartOff
 		if (Byte == '"')
 		{
 #if UE_VERSION_OLDER_THAN(5, 4, 0)
-			constexpr ANSICHAR EscapedNul[] = "\\u0000";
-			constexpr int32 EscapeLength = UE_ARRAY_COUNT(EscapedNul) - 1;
-			if (Body.Num() - Index - 1 >= EscapeLength && Body[Index + 1] == '\\'
-				&& FMemory::Memcmp(Body.GetData() + Index + 1, EscapedNul, EscapeLength) == 0)
+			if (IsEscapedNulAt(Body, Index + 1))
 			{
 				bHasLeadingNul = true;
 			}
@@ -1209,10 +1307,11 @@ struct FMCPRequestDecoder::FImpl
 			return;
 		}
 
-		const FString BoundaryError = Private::ValidateObjectBoundary(Body, BodyOffset);
-		if (!BoundaryError.IsEmpty())
+		bool bCheckKeyCase = false;
+		const FString ObjectError = Private::ValidateRequestObject(Body, BodyOffset, bCheckKeyCase);
+		if (!ObjectError.IsEmpty())
 		{
-			SetMalformed(*BoundaryError);
+			SetMalformed(*ObjectError);
 			return;
 		}
 		bool bHasLeadingNul = false;
@@ -1249,18 +1348,17 @@ struct FMCPRequestDecoder::FImpl
 		FMemoryReader JsonStream(JsonTextBytes);
 		++JsonParseCount;
 		TSharedPtr<FJsonValue> RootValue;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(&JsonStream);
-#if UE_VERSION_OLDER_THAN(5, 4, 0)
-		if (bHasLeadingNul)
-		{
-			Reader = MakeShared<Private::FPrefixedStringReader>(&JsonStream);
-		}
-#endif
-		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid() && JsonStream.AtEnd();
+		Private::FRequestJsonReader Reader(&JsonStream, bCheckKeyCase, bHasLeadingNul);
+		const bool bUnrealParsed = FJsonSerializer::Deserialize<TCHAR>(Reader, RootValue) && RootValue.IsValid() && JsonStream.AtEnd();
 		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
 		if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot || bHasNodeJsonCompatibilityViolation)
 		{
 			SetMalformed(TEXT("invalid_json"));
+			return;
+		}
+		if (Reader.HasAmbiguousKey())
+		{
+			SetMalformed(TEXT("ambiguous_object_keys"));
 			return;
 		}
 		if (bScalarCandidate)
