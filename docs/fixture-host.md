@@ -70,8 +70,11 @@ file handle for deletion. Windows also refuses removal of a directory if a new
 child appears after the preview.
 The coordinator also checks the run ledger for callers that use indirect paths.
 Entries with named streams, links or read-only, hidden or system attributes
-are left for review. If an output changes or a
-removal is interrupted, inspect the remaining entries and generate a new preview.
+are left for review. After hashing a file's primary data, the helper checks for
+named streams again immediately before deletion. Keep all writers stopped
+through cleanup because a new stream can still appear after this final check.
+If an output changes or a removal is interrupted, inspect the remaining entries
+and generate a new preview.
 Only runs created with the allocator's identity marker support this command.
 The run record, retained fixtures, and Git worktrees have separate closeout steps.
 
