@@ -21,6 +21,10 @@ function Assert-Refused([scriptblock]$Action, [string]$Expected) {
     throw "Expected refusal matching '$Expected'"
 }
 
+$allocator = Join-Path $PSScriptRoot 'new-task-root.ps1'
+$uppercaseTask = 'A' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+Assert-Refused { & $allocator -Task $uppercaseTask } 'pattern'
+
 $preview = & $helper $RunRoot $leaf
 if ($preview.State -ne 'Preview' -or $preview.Entries -ne 2 -or
     $preview.Bytes -ne (Get-Item $sample).Length -or (Get-Content $sample) -ne 'first') {
