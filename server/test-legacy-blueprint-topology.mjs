@@ -62,7 +62,7 @@ function nodeBytes(version, index, splitPins = false) {
 
 // Minimal uncooked UE4=522 package, with versions immediately below/at the
 // complete-type-name gate as well as the installed fixtures' older 1004 form.
-function packageBytes(version, { duplicateNames = false, nodeClass = 'K2Node_Knot', splitPins = false } = {}) {
+function packageBytes(version, { duplicateNames = false, nodeClass = 'K2Node_Knot', splitPins = false, scriptPrefixSize = 0 } = {}) {
   const nameOffset = 512, importOffset = 2048, exportOffset = 2200, dataOffset = 4096;
   const chunks = [i32(0x9e2a83c1), i32(-8), i32(0), i32(522), i32(version), i32(0),
     i32(0), i32(dataOffset), str(''), i32(0), i32(names.length), i32(nameOffset)];
@@ -74,7 +74,8 @@ function packageBytes(version, { duplicateNames = false, nodeClass = 'K2Node_Kno
     i32(0), i32(0), i32(0), i32(0), i32(0), i64(0), i32(0), i32(0), i32(0), i32(0),
     i32(names.length), i64(0));
   if (version >= 1009) chunks.push(i32(0)); // data resource offset
-  const bodies = [Buffer.alloc(0), nodeBytes(version, 0, splitPins), nodeBytes(version, 1, splitPins)];
+  const bodies = [Buffer.alloc(0), ...[0, 1].map(index =>
+    Buffer.concat([Buffer.alloc(scriptPrefixSize, 0x5a), nodeBytes(version, index, splitPins)]))];
   if (duplicateNames) bodies.push(Buffer.alloc(0));
   const buf = Buffer.alloc(dataOffset + bodies[1].length + bodies[2].length);
   Buffer.concat(chunks).copy(buf);
@@ -91,7 +92,11 @@ function packageBytes(version, { duplicateNames = false, nodeClass = 'K2Node_Kno
     if (version < 1005) row.push(Buffer.alloc(16));
     if (version >= 1006) row.push(i32(0));
     row.push(i32(0), i32(0), i32(0), i32(0), i32(-1), i32(0), i32(0), i32(0), i32(0));
-    if (version >= 1010) row.push(i64(0), i64(0));
+    if (version >= 1010) {
+      const prefix = isNode ? scriptPrefixSize : 0;
+      const tagSize = isNode ? guidProperty(version, nodeIds[index - 1]).length + (version >= 1012 ? 1 : 0) : 0;
+      row.push(i64(prefix), i64(prefix ? prefix + tagSize : 0));
+    }
     body.copy(buf, offset);
     offset += body.length;
     return Buffer.concat(row);
@@ -108,6 +113,24 @@ for (const version of [1004, 1011, 1012]) {
   });
   const [parent, child] = splitBlock.pins;
   t.assert(!splitBlock.malformed && splitBlock.bytesConsumed === splitBytes.length, `${version}: complete split pin block decoded`);
+  if (version >= 1010) {
+    const opts = { ...layout(version), ...pinBlockLayoutForPackage({}), structHandlers: buildStructHandlers() };
+    const incomplete = parsePinBlock(splitBytes, {
+      serialOffset: 0, serialSize: splitBytes.length, scriptSerializationStartOffset: 17, scriptSerializationEndOffset: 17,
+    }, names, opts);
+    t.assert(!incomplete.malformed && incomplete.pins[1]?.pin_id === childId,
+      `${version}: incomplete recorded range keeps the export base`);
+    const serialOffset = 5, prefixSize = 17;
+    const serialSize = prefixSize + splitBlock.tagBytesConsumed;
+    const short = Buffer.concat([Buffer.alloc(serialOffset + prefixSize), splitBytes]);
+    const bounded = parsePinBlock(short, {
+      serialOffset, serialSize, scriptSerializationStartOffset: prefixSize, scriptSerializationEndOffset: serialSize,
+    }, names, opts);
+    t.assert(bounded.malformed && bounded.sentinel === null && bounded.pins.length === 0
+      && bounded.tagBytesConsumed === splitBlock.tagBytesConsumed && bounded.bytesConsumed === serialSize
+      && bounded.postTagOffset === serialOffset + serialSize,
+    `${version}: missing pin header stops at export end with separate tag and export byte counts`);
+  }
   t.assert(parent?.linked_to_raw.length === 0 && parent.default_value === '(X=9,Y=9,Z=9)'
     && parent.sub_pins_raw?.[0]?.pin_id === childId && parent.sub_pins_raw[0].owning_node_package_index === 3
     && parent.parent_pin_raw === null && parent.default_is_ignored === false, `${version}: parent retains child reference beside stale stored default`);
@@ -166,6 +189,19 @@ try {
       `${version}: exact graph membership, GUIDs, pins and edges through public extractor`, JSON.stringify(result.graphs));
   }
   const ambiguousPath = '/Game/Duplicate';
+  for (const version of [1011, 1012]) {
+    const asset = `RangedCall${version}`;
+    writeFileSync(join(root, 'Content', `${asset}.uasset`), packageBytes(version, {
+      nodeClass: 'K2Node_CallFunction', splitPins: true, scriptPrefixSize: 17,
+    }));
+    const inspected = await inspectBlueprintInputs(root, {
+      asset_path: `/Game/${asset}`, graph_name: 'EventGraph', node_id: 3, source: 'saved',
+    });
+    const child = inspected.saved.inputs?.find(pin => pin.pin_id === childId);
+    t.assert(inspected.saved.status === 'observed' && child?.stored_default.value === '7'
+      && child.linked_to?.[0].pin_id === pinIds[0],
+    `${version}: saved call reads linked split pin after a recorded property prefix`, JSON.stringify(inspected.saved));
+  }
   writeFileSync(join(root, 'Content', 'SplitCall.uasset'), packageBytes(1012, { nodeClass: 'K2Node_CallFunction', splitPins: true }));
   const split = await inspectBlueprintInputs(root, {
     asset_path: '/Game/SplitCall', graph_name: 'EventGraph', node_id: 3, source: 'saved',

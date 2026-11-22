@@ -1062,6 +1062,13 @@ function readScalarPropertyValue(cur, tag, names, opts) {
   }
 }
 
+// Script ranges are relative to the export. Incomplete or zero ranges use
+// the export base for the property reader and everything following its tags.
+function propertyStreamPrefix(exportEntry) {
+  const { scriptSerializationStartOffset: start, scriptSerializationEndOffset: end } = exportEntry;
+  return start > 0 && end > start ? start : 0;
+}
+
 /**
  * Walk the FPropertyTag stream of an export and return a map of property
  * name → decoded value (or `{unsupported, reason, ...}` marker).
@@ -1098,11 +1105,10 @@ export function readExportProperties(buf, exportEntry, names, opts = {}) {
   // range there. Measured on a real project: of 84,113 exports, 2,422 carry a
   // non-zero start and ALL of them decode with these bounds while none decode
   // without.
-  const hasScriptRange = exportEntry.scriptSerializationStartOffset > 0
-    && exportEntry.scriptSerializationEndOffset > exportEntry.scriptSerializationStartOffset;
-  const start = exportEntry.serialOffset + (hasScriptRange ? exportEntry.scriptSerializationStartOffset : 0);
+  const prefix = propertyStreamPrefix(exportEntry);
+  const start = exportEntry.serialOffset + prefix;
   const serialEnd = exportEntry.serialOffset + exportEntry.serialSize;
-  const end = hasScriptRange
+  const end = prefix
     ? Math.min(exportEntry.serialOffset + exportEntry.scriptSerializationEndOffset, serialEnd)
     : serialEnd;
   if (end > buf.length || start + 1 > buf.length) {
@@ -1481,15 +1487,16 @@ export function isGraphNodeExportClass(className) {
  */
 export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   const tagResult = readExportProperties(buf, exportEntry, names, opts);
-  const postTagOffset = exportEntry.serialOffset + tagResult.bytesConsumed;
+  const postTagOffset = exportEntry.serialOffset + propertyStreamPrefix(exportEntry) + tagResult.bytesConsumed;
+  const exportEnd = exportEntry.serialOffset + exportEntry.serialSize;
   const nodeGuid = tagResult.nodeGuid ?? null;
 
-  if (postTagOffset + 8 > buf.length) {
+  if (!tagResult.terminated || postTagOffset + 8 > Math.min(exportEnd, buf.length)) {
     return {
       postTagOffset, sentinel: null, pinBlockOffset: postTagOffset,
       arrayCount: 0, pins: [], nodeGuid,
       tagBytesConsumed: tagResult.bytesConsumed,
-      bytesConsumed: tagResult.bytesConsumed,
+      bytesConsumed: postTagOffset - exportEntry.serialOffset,
       malformed: true,
     };
   }
@@ -1510,7 +1517,6 @@ export function parsePinBlock(buf, exportEntry, names, opts = {}) {
   // Walk pin bodies. Cursor starts AFTER the int32 PinCount.
   const cur = new Cursor(buf);
   cur.seek(pinBlockOffset + 4);
-  const exportEnd = exportEntry.serialOffset + exportEntry.serialSize;
   const pins = [];
   let blockMalformed = false;
 
