@@ -221,7 +221,7 @@ namespace UEMCP
 			return nullptr;
 		}
 
-		enum class EGraphTarget { Name, Read, Wire };
+		enum class EGraphTarget { Name, Read, WirePreview, Wire };
 
 		UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Params,
 			TSharedPtr<FJsonObject>& OutResponse, EGraphTarget Target = EGraphTarget::Name)
@@ -892,6 +892,8 @@ namespace UEMCP
 			else
 			{
 				FString Input;
+				const bool bPlainByte = Category == UEdGraphSchema_K2::PC_Byte && !Pin.PinType.PinSubCategoryObject.Get();
+				const bool bInteger = bPlainByte || Category == UEdGraphSchema_K2::PC_Int || Category == UEdGraphSchema_K2::PC_Int64;
 				if (Pin.PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
 				{
 					FVector Vector;
@@ -913,18 +915,35 @@ namespace UEMCP
 					}
 					Input = FString::Printf(TEXT("%.17g,%.17g,%.17g"), Vector.X, Vector.Y, Vector.Z);
 				}
-				else if (Value->Type == EJson::String)
+				else if (bInteger && (Value->Type == EJson::Number || Value->Type == EJson::String))
 				{
-					Input = Value->AsString();
-					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
-					const bool bByte = Category == UEdGraphSchema_K2::PC_Byte && !StructType;
-					if ((Category == UEdGraphSchema_K2::PC_Int && !NormalizeIntegerText(Input, MIN_int32, MAX_int32)) ||
-						(Category == UEdGraphSchema_K2::PC_Int64 && !NormalizeIntegerText(Input, MIN_int64, MAX_int64)) ||
-						(bByte && !NormalizeIntegerText(Input, 0, 255)))
+					if (Value->Type == EJson::Number)
+					{
+						constexpr double MaxSafeInteger = 9007199254740991.0; // 2^53 - 1
+						const double Number = Value->AsNumber();
+						if (!FMath::IsFinite(Number) || FMath::Abs(Number) > MaxSafeInteger || Number != static_cast<int64>(Number))
+						{
+							Error = TEXT("Expected a safe integral JSON number; use an integer string for larger values");
+							return false;
+						}
+						Input = LexToString(static_cast<int64>(Number));
+					}
+					else
+					{
+						Input = Value->AsString();
+					}
+					const int64 Min = bPlainByte ? 0 : (Category == UEdGraphSchema_K2::PC_Int ? MIN_int32 : MIN_int64);
+					const int64 Max = bPlainByte ? 255 : (Category == UEdGraphSchema_K2::PC_Int ? MAX_int32 : MAX_int64);
+					if (!NormalizeIntegerText(Input, Min, Max))
 					{
 						Error = TEXT("Expected an integer within the pin's range");
 						return false;
 					}
+				}
+				else if (Value->Type == EJson::String)
+				{
+					Input = Value->AsString();
+					const UObject* StructType = Pin.PinType.PinSubCategoryObject.Get();
 					if (!Input.IsEmpty() && Category == UEdGraphSchema_K2::PC_Struct)
 					{
 						bool bValid = true;
@@ -987,21 +1006,8 @@ namespace UEMCP
 				}
 				else
 				{
-					if (Category == UEdGraphSchema_K2::PC_Int && Value->Type == EJson::Number)
-					{
-						const double Number = Value->AsNumber();
-						if (!FMath::IsFinite(Number) || Number < MIN_int32 || Number > MAX_int32 || Number != static_cast<int32>(Number))
-						{
-							Error = TEXT("Expected an integral int32");
-							return false;
-						}
-						Input = FString::FromInt(static_cast<int32>(Number));
-					}
-					else
-					{
-						FString Code;
-						if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
-					}
+					FString Code;
+					if (!FormatLiteralForPinCategory(Pin.PinType, Value, Input, Error, Code)) return false;
 				}
 				Schema.GetPinDefaultValuesFromString(Pin.PinType, Pin.GetOwningNode(), Input, Literal, Object, Text, false);
 				if ((Category == UEdGraphSchema_K2::PC_Object || Category == UEdGraphSchema_K2::PC_Interface)
@@ -3607,7 +3613,7 @@ namespace UEMCP
 			{
 				for (UEdGraphNode* Candidate : Graph->Nodes)
 				{
-					if (Candidate && Candidate->GetName() == NodeName)
+					if (Candidate && Candidate->GetName().Equals(NodeName, ESearchCase::CaseSensitive))
 					{
 						Node = Candidate;
 						break;
@@ -3754,7 +3760,9 @@ namespace UEMCP
 				return;
 			}
 
-			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, EGraphTarget::Wire);
+			bool bDryRun = false;
+			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
+			UEdGraph* Graph = ResolveTargetGraph(Blueprint, Params, OutResponse, bDryRun ? EGraphTarget::WirePreview : EGraphTarget::Wire);
 			if (!Graph) return;
 
 			UEdGraphNode* Node = FindNodeByGuid(Graph, NodeId);
@@ -3839,9 +3847,6 @@ namespace UEMCP
 				BuildErrorResponse(OutResponse, TEXT("Requested pin link was not found"), TEXT("LINK_NOT_FOUND"));
 				return;
 			}
-
-			bool bDryRun = false;
-			Params->TryGetBoolField(TEXT("dry_run"), bDryRun);
 
 			const auto* Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
 			auto DropsOtherWires = [&](UEdGraphPin* Endpoint)

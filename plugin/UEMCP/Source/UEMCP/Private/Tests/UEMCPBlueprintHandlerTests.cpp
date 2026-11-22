@@ -3212,6 +3212,8 @@ bool FGraphNodePinInspection::RunTest(const FString& Parameters)
 	auto Result = ResultOf(Inspect());
 	TestEqual(TEXT("Live node identity"), StringFieldOr(Result, TEXT("node_id")), Id);
 	TestEqual(TEXT("Live object name"), StringFieldOr(Result, TEXT("node_name")), Node->GetName());
+	Read->SetStringField(TEXT("node_name"), Node->GetName().ToLower());
+	TestEqual(TEXT("Case-only object name mismatch"), ErrorCodeOf(Inspect()), FString(TEXT("NODE_NOT_FOUND")));
 	auto Scale = FindEntryByField(Result, TEXT("pins"), TEXT("name"), TEXT("NewScale3D"));
 	auto* ScalePin = Node->FindPin(TEXT("NewScale3D"), EGPD_Input);
 	if (!TestNotNull(TEXT("Actual scale pin"), ScalePin)) return false;
@@ -3341,6 +3343,8 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	if (!TestNotNull(TEXT("fixture"), Fixture.Blueprint)) return false;
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Amount"), UEdGraphSchema_K2::PC_Int);
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Single"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Float);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Big"), UEdGraphSchema_K2::PC_Int64);
+	AddFixtureVariable(Fixture.Blueprint, TEXT("Octet"), UEdGraphSchema_K2::PC_Byte);
 	AddFixtureVariable(Fixture.Blueprint, TEXT("Wide"), UEdGraphSchema_K2::PC_Real, UEdGraphSchema_K2::PC_Double);
 	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("event graph"), Graph)) return false;
@@ -3356,6 +3360,15 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	Fixture.Package->SetDirtyFlag(false);
 	const TCHAR* Call = TEXT("add_blueprint_function_node");
 	const TCHAR* Set = TEXT("add_blueprint_variable_set_node");
+	struct FInvalidInteger { const TCHAR* Name; double Value; };
+	for (const FInvalidInteger& Bad : { FInvalidInteger{TEXT("Big"), 2.5}, {TEXT("Big"), 9007199254740992.0},
+		{TEXT("Big"), -9007199254740992.0}, {TEXT("Octet"), 0.5}, {TEXT("Octet"), -1.0}, {TEXT("Octet"), 256.0} })
+	{
+		Params->SetStringField(TEXT("variable_name"), Bad.Name);
+		Defaults->SetNumberField(Bad.Name, Bad.Value);
+		TestEqual(TEXT("Invalid numeric integer pin default"), ErrorCodeOf(Dispatch(Set, Params)), FString(TEXT("INVALID_PIN_DEFAULT")));
+		Defaults->RemoveField(Bad.Name);
+	}
 	Params->SetStringField(TEXT("variable_name"), TEXT("Single"));
 	for (const TCHAR* Invalid : { TEXT("1e39"), TEXT("-1e39"), TEXT("1e-46"), TEXT("1e-9999"),
 		TEXT("3.4028236e38"), TEXT("-3.4028236e38") })
@@ -3426,6 +3439,28 @@ bool FUEMCPWriterPinDefaultsTest::RunTest(const FString&)
 	auto* HexSetter = FindNodeByGuid(Graph, StringFieldOr(HexResult, TEXT("node_id")));
 	if (!TestNotNull(TEXT("hexadecimal integer"), HexSetter)) return false;
 	TestEqual(TEXT("VM receives the decimal integer"), HexSetter->FindPinChecked(TEXT("Amount"), EGPD_Input)->DefaultValue, FString(TEXT("16")));
+	struct FIntegerControl { const TCHAR* Name; TSharedPtr<FJsonValue> Value; const TCHAR* Expected; };
+	const FIntegerControl Integers[] = {
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(27), TEXT("27")},
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(9007199254740991.0), TEXT("9007199254740991")},
+		{TEXT("Big"), MakeShared<FJsonValueNumber>(-9007199254740991.0), TEXT("-9007199254740991")},
+		{TEXT("Big"), MakeShared<FJsonValueString>(TEXT("9223372036854775807")), TEXT("9223372036854775807")},
+		{TEXT("Big"), MakeShared<FJsonValueString>(TEXT("-9223372036854775808")), TEXT("-9223372036854775808")},
+		{TEXT("Octet"), MakeShared<FJsonValueNumber>(0), TEXT("0")},
+		{TEXT("Octet"), MakeShared<FJsonValueNumber>(255), TEXT("255")}
+	};
+	for (const FIntegerControl& Control : Integers)
+	{
+		Params->SetStringField(TEXT("variable_name"), Control.Name);
+		Defaults->Values.Empty();
+		Defaults->SetField(Control.Name, Control.Value);
+		const auto Accepted = ResultOf(Dispatch(Set, Params));
+		const auto* Node = FindNodeByGuid(Graph, StringFieldOr(Accepted, TEXT("node_id")));
+		if (TestNotNull(Control.Expected, Node))
+		{
+			TestEqual(TEXT("Integer pin retains exact decimal text"), Node->FindPinChecked(FName(Control.Name), EGPD_Input)->DefaultValue, FString(Control.Expected));
+		}
+	}
 	struct FRealControl { const TCHAR* Name; const TCHAR* Literal; };
 	const FRealControl Controls[] = { { TEXT("Single"), TEXT("1e-7") }, { TEXT("Wide"), TEXT("1e39") },
 		{ TEXT("Single"), TEXT("3.4028235e38") }, { TEXT("Single"), TEXT("-3.4028235e38") } };
@@ -3683,6 +3718,13 @@ bool FReadOnlyGraphWiring::RunTest(const FString&)
 			FString Code;
 			TestTrue(*FString::Printf(TEXT("Inspect frozen graph %s"), *Label),
 				IsSuccess(Dispatch(TEXT("show_blueprint_pin_links"), Wire), Code));
+			Wire->SetBoolField(TEXT("dry_run"), true);
+			Wire->SetBoolField(TEXT("compile"), true);
+			const auto Preview = ResultOf(Dispatch(TEXT("disconnect_blueprint_pin"), Wire));
+			TestEqual(*FString::Printf(TEXT("Preview frozen link %s"), *Label), NumberFieldOr(Preview, TEXT("links_matched"), -1), 1.0);
+			TestTrue(TEXT("Preview neither breaks links nor compiles"), Preview.IsValid() && !Preview->GetBoolField(TEXT("compiled")) &&
+				Preview->GetNumberField(TEXT("links_broken")) == 0);
+			Wire->RemoveField(TEXT("dry_run"));
 			TestEqual(*FString::Printf(TEXT("Refuse disconnect %s"), *Label),
 				ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Wire)), FString(TEXT("READ_ONLY_GRAPH")));
 			Wire->RemoveField(TEXT("node_id"));
@@ -3701,6 +3743,16 @@ bool FReadOnlyGraphWiring::RunTest(const FString&)
 			TestEqual(TEXT("Undo cursor stays intact"), Pawn.History->GetUndoCount(), Cursor);
 		}
 	}
+	UEdGraph* FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(Fixture.Blueprint, TEXT("OtherFunction"), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+	if (!TestNotNull(TEXT("Unsupported graph for GUID wiring"), FunctionGraph)) return false;
+	Fixture.Blueprint->FunctionGraphs.Add(FunctionGraph);
+	auto Preview = MakeShared<FJsonObject>();
+	Preview->SetStringField(TEXT("blueprint_name"), Fixture.PackagePath);
+	Preview->SetStringField(TEXT("graph_guid"), FunctionGraph->GraphGuid.ToString());
+	Preview->SetStringField(TEXT("node_id"), FunctionGraph->GraphGuid.ToString());
+	Preview->SetStringField(TEXT("pin"), TEXT("A"));
+	Preview->SetBoolField(TEXT("dry_run"), true);
+	TestEqual(TEXT("Preview preserves GUID wiring graph restrictions"), ErrorCodeOf(Dispatch(TEXT("disconnect_blueprint_pin"), Preview)), FString(TEXT("UNSUPPORTED_GRAPH")));
 	return true;
 }
 
