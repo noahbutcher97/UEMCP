@@ -255,6 +255,7 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     let missing = false;
     let nodeClass = 'K2Node_CallFunction';
     let namedRevision = 'rev1';
+    let namedOrphaned = false;
     const instance = await createWireApp({
       cwd: root,
       tcpCommandFn: async (_port, type, args) => {
@@ -266,9 +267,12 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
           && args.node_id === '12345678000000020000000300000004', 'editor lookup uses the saved owner, graph and engine GUID');
         if (!args.pin) return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
           node_class: nodeClass, topology_revision: 'rev1',
-          pins: [{ name: 'InString', direction: 'input', pin_id: 'LivePin', link_count: 1, default: 'Changed' }] } };
+          pins: [
+            { name: 'InString', direction: 'input', pin_id: 'LivePin', link_count: 1, default: 'Changed' },
+            { name: 'RemovedArgument', direction: 'input', orphaned: true, pin_id: 'OldPin', link_count: 0, default: 'Old' },
+          ] } };
         return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id, topology_revision: namedRevision,
-          pin_info: { name: args.pin, pin_id: 'LivePin', direction: 'input', default: 'Changed', link_count: 1 },
+          pin_info: { name: args.pin, pin_id: 'LivePin', direction: 'input', orphaned: namedOrphaned, default: 'Changed', link_count: 1 },
           links: [{ node_id: 'Producer', pin: 'Result' }] } };
       },
     });
@@ -296,12 +300,22 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     t.assert(compared.argument_evaluation === 'not_performed' && compared.live.member_identity === 'not_reported_by_editor'
       && compared.live.pin_semantics === 'split_and_default_flags_not_reported',
       'matching pin identity preserves unknown editor member, split-pin state and argument evaluation');
+    const all = await inspect({ pin: undefined });
+    t.assert(all.live.inputs.length === 1 && all.live.inputs[0].name === 'InString',
+      'live function arguments omit retained orphan pins');
+    const orphan = await inspect({ pin: 'RemovedArgument' });
+    t.assert(orphan.live.status === 'pin_not_found' && !orphan.live.input_names.includes('RemovedArgument'),
+      'a removed input cannot be selected as a current function argument');
     nodeClass = 'K2Node_VariableSet';
     t.assert((await inspect()).live.status === 'unexpected_node_reply', 'contradictory live class cannot supply the saved function argument');
     nodeClass = 'K2Node_CallFunction';
     namedRevision = 'rev2';
     t.assert((await inspect()).live.status === 'inconsistent_pin_reply', 'a changed graph revision cannot contribute named link endpoints');
     namedRevision = 'rev1';
+    namedOrphaned = true;
+    t.assert((await inspect()).live.status === 'inconsistent_pin_reply',
+      'an input orphaned before endpoint readback cannot supply a current binding');
+    namedOrphaned = false;
     owner = join(root, 'Another.uproject');
     requests.length = 0;
     const wrong = await inspect();

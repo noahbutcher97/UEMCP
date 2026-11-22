@@ -226,6 +226,16 @@ namespace UEMCP
 		UEdGraph* ResolveTargetGraph(UBlueprint* Blueprint, const TSharedPtr<FJsonObject>& Params,
 			TSharedPtr<FJsonObject>& OutResponse, EGraphTarget Target = EGraphTarget::Name)
 		{
+			auto CheckWireAccess = [&](UEdGraph* Graph) -> UEdGraph*
+			{
+				if (Graph && Target == EGraphTarget::Wire &&
+					(FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost())))
+				{
+					BuildErrorResponse(OutResponse, TEXT("Graph or Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
+					return nullptr;
+				}
+				return Graph;
+			};
 			FString GraphName;
 			if (Target != EGraphTarget::Name && Params.IsValid() && Params->HasField(TEXT("graph_guid")))
 			{
@@ -269,12 +279,7 @@ namespace UEMCP
 						BuildErrorResponse(OutResponse, TEXT("GUID wiring requires an owned Pawn Event Graph or a supported AnimBP graph"), TEXT("UNSUPPORTED_GRAPH"));
 						return nullptr;
 					}
-					if (FBlueprintEditorUtils::IsGraphReadOnly(Graph) || !IsWritableAnimPackage(Blueprint->GetOutermost()))
-					{
-						BuildErrorResponse(OutResponse, TEXT("Graph or Blueprint package is read-only"), TEXT("READ_ONLY_GRAPH"));
-						return nullptr;
-					}
-					return Graph;
+					return CheckWireAccess(Graph);
 				}
 				BuildErrorResponse(OutResponse, TEXT("Graph GUID is stale or belongs to another Blueprint"), TEXT("GRAPH_NOT_FOUND"));
 				return nullptr;
@@ -287,7 +292,7 @@ namespace UEMCP
 				{
 					BuildErrorResponse(OutResponse, TEXT("Failed to get event graph"), TEXT("NO_GRAPH"));
 				}
-				return EventGraph;
+				return CheckWireAccess(EventGraph);
 			}
 
 			UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
@@ -297,7 +302,7 @@ namespace UEMCP
 					FString::Printf(TEXT("Blueprint graph not found: %s"), *GraphName),
 					TEXT("GRAPH_NOT_FOUND"));
 			}
-			return Graph;
+			return CheckWireAccess(Graph);
 		}
 
 		TArray<TSharedPtr<FJsonValue>> PinsToJson(const UEdGraphNode* Node)

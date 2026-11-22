@@ -108,6 +108,7 @@ namespace UEMCP
 		Obj->SetStringField(TEXT("pin_id"), Pin->PinId.ToString());
 		Obj->SetStringField(TEXT("name"), Pin->PinName.ToString());
 		Obj->SetStringField(TEXT("direction"), PinDirectionToString(Pin->Direction));
+		Obj->SetBoolField(TEXT("orphaned"), Pin->bOrphanedPin);
 		Obj->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
 		Obj->SetStringField(TEXT("subcategory"), Pin->PinType.PinSubCategory.ToString());
 		if (Pin->PinType.PinSubCategoryObject.IsValid())

@@ -949,7 +949,7 @@ export async function inspectBlueprintInputs(projectRoot, params, readLive) {
       result.live = { status: 'unexpected_node_reply' };
       return result;
     }
-    result.live = inspectInputLiterals(detail.pins.filter(p => p.direction === 'input'), pin, args);
+    result.live = inspectInputLiterals(detail.pins.filter(p => p.direction === 'input' && !p.orphaned), pin, args);
     Object.assign(result.live, {
       node_class: detail.node_class, member_identity: 'not_reported_by_editor',
       pin_semantics: 'split_and_default_flags_not_reported',
@@ -961,7 +961,7 @@ export async function inspectBlueprintInputs(projectRoot, params, readLive) {
       if (!matchesNode(named) || (named.node_class !== undefined && named.node_class !== detail.node_class) ||
           !detail.topology_revision || named.topology_revision !== detail.topology_revision ||
           !input.pin_id || named.pin_info?.pin_id !== input.pin_id || named.pin_info.direction !== 'input' ||
-          named.pin_info.name !== pin || !Array.isArray(named.links) || named.links.length !== input.link_count) {
+          named.pin_info.name !== pin || named.pin_info.orphaned || !Array.isArray(named.links) || named.links.length !== input.link_count) {
         result.live = { status: 'inconsistent_pin_reply' };
       } else {
         input.linked_to = named.links;

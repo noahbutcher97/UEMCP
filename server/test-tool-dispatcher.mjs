@@ -351,17 +351,30 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
     let discoveredScope;
     let pluginAvailable = true;
     let losePlacementReply = false;
+    const actions = [
+      { action_id: 'selected', source_asset_path: '/Game/Walk.Walk' },
+      { action_id: 'empty', source_asset_path: '' },
+    ];
+    const placedPlayers = [];
     const wire = await createWireApp({ root, project, tcpCommandFn: async (port, type, params) => {
       const reply = await editor(port, type, params);
       if (type === 'find_graph_actions') {
         if (!pluginAvailable) return { status: 'error', code: 'UNKNOWN_COMMAND', error: 'Unknown command' };
         discoveredScope = params.attachment_id;
+        const exact = params.source_asset_path;
+        return { status: 'success', result: {
+          graph_guid: 'graph-1',
+          actions: exact === undefined ? actions : actions.filter(row => row.source_asset_path === exact),
+          placed_nodes: placedPlayers.filter(node => node.source_asset_path === exact),
+        } };
       }
       if (type === 'place_graph_action' && params.attachment_id !== discoveredScope) {
         return { status: 'error', code: 'STALE_GRAPH_ACTION', error: 'Selection expired', detail: { candidates: ['node-a'] } };
       }
       if (type === 'place_graph_action' && losePlacementReply) {
         losePlacementReply = false;
+        placedPlayers.push({ node_guid: `placed-${params.action_id}`,
+          source_asset_path: actions.find(row => row.action_id === params.action_id)?.source_asset_path });
         throw new Error('Connection closed without a reply');
       }
       if (type === 'place_graph_action' && params.expected_revision === 'previous') {
@@ -425,11 +438,20 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       t.assert(/repeating Hold.*Started \(press\).*both Completed \(release after the hold triggers\) and Canceled \(early release\)/.test(result.hold_trigger_wiring)
         && result.pins[0].pin_id === 'completed-output', 'event placement explains both release pins alongside actual engine pin IDs');
     }
-    losePlacementReply = true;
-    const lost = await dispatch(transport, 'place_graph_action', place, 'call_mutating_tool');
-    t.assert(lost.result?.isError && lost.result.structuredContent?.code === 'PLACEMENT_OUTCOME_UNCONFIRMED'
-      && lost.result.structuredContent.rediscover.instruction.includes('pre-edit node GUIDs'),
-      'a lost reply reports unknown placement outcome and calls for exact-source inspection');
+    await dispatch(transport, 'find_graph_actions', { asset_path: ANIM_BP, graph_name: 'AnimGraph', query: 'player' });
+    for (const { action_id, source_asset_path } of actions) {
+      losePlacementReply = true;
+      const writes = calls.filter(call => call.type === 'place_graph_action').length;
+      const lost = await dispatch(transport, 'place_graph_action', { ...place, action_id }, 'call_mutating_tool');
+      const recovery = lost.result?.structuredContent?.rediscover;
+      t.assert(lost.result?.isError && lost.result.structuredContent.code === 'PLACEMENT_OUTCOME_UNCONFIRMED'
+        && recovery?.arguments?.source_asset_path === source_asset_path && recovery.instruction.includes('pre-edit node GUIDs'),
+        `lost ${action_id} placement returns an executable exact-source read`);
+      const inspected = await dispatch(transport, recovery.tool, recovery.arguments);
+      t.assert(JSON.parse(text(inspected)).result.placed_nodes.some(node => node.node_guid === `placed-${action_id}`)
+        && calls.filter(call => call.type === 'place_graph_action').length === writes + 1,
+        `recovery finds the placed ${action_id} player without issuing a second placement`);
+    }
     const revision = await dispatch(transport, 'place_graph_action', { ...place, expected_revision: 'previous' }, 'call_mutating_tool');
     t.assert(revision.result?.isError && revision.result.structuredContent?.rediscover?.arguments?.source_asset_path === '/Game/Walk.Walk',
       'an expired revision returns the original exact-source query for inspecting placed_nodes');
@@ -438,8 +460,10 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
     const stale = await dispatch(transport, 'place_graph_action', place, 'call_mutating_tool');
     const failure = stale.result?.structuredContent;
     t.assert(stale.result?.isError && failure?.code === 'STALE_GRAPH_ACTION', 'reattachment changes scope even when attaching the same project');
-    t.assert(failure?.detail?.candidates[0] === 'node-a' && failure?.rediscover?.arguments?.graph_guid === place.graph_guid,
-      'native details and scoped rediscovery survive MCP error reporting');
+    t.assert(failure?.detail?.candidates[0] === 'node-a' && !failure.rediscover.arguments
+      && failure.rediscover.known_arguments?.graph_guid === place.graph_guid
+      && failure.rediscover.required_arguments?.includes('source_asset_path'),
+      'expired attachment requires the selected source before providing a runnable read');
     pluginAvailable = false;
     const legacy = await dispatch(transport, 'find_graph_actions', query);
     t.assert(legacy.result?.isError && legacy.result.structuredContent?.code === 'UNKNOWN_COMMAND' && /rebuild.*restart/i.test(text(legacy)),
