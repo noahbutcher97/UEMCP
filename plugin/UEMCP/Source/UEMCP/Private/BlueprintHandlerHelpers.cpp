@@ -303,8 +303,21 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::FromInt(FMath::RoundToInt(Value->AsNumber()));
-			return true;
+			const double Number = Value->AsNumber();
+			// Keep Unreal's original rounding in the int32 neighborhood. Larger
+			// inputs cannot round into range and could overflow the int64 conversion.
+			if (Number >= double(MIN_int32) - 1.0 && Number <= double(MAX_int32) + 1.0)
+			{
+				const int64 Rounded = FMath::RoundToInt64(Number);
+				if (Rounded >= MIN_int32 && Rounded <= MAX_int32)
+				{
+					OutDefaultValue = FString::FromInt(static_cast<int32>(Rounded));
+					return true;
+				}
+			}
+			OutError = TEXT("Rounded assignment is outside the Integer variable's int32 range");
+			OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
+			return false;
 		}
 		if (Category == UEdGraphSchema_K2::PC_Float || Category == UEdGraphSchema_K2::PC_Real)
 		{
@@ -375,7 +388,12 @@ namespace UEMCP
 				OutErrorCode = TEXT("LITERAL_TYPE_MISMATCH");
 				return false;
 			}
-			OutDefaultValue = FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), X, Y, Z);
+			auto FormatComponent = [](double Component)
+			{
+				const FString Fixed = FString::Printf(TEXT("%f"), Component);
+				return FCString::Atod(*Fixed) == Component ? Fixed : FString::Printf(TEXT("%.17g"), Component);
+			};
+			OutDefaultValue = FString::Printf(TEXT("(X=%s,Y=%s,Z=%s)"), *FormatComponent(X), *FormatComponent(Y), *FormatComponent(Z));
 			return true;
 		}
 

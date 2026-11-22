@@ -248,6 +248,20 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("int literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Int), JsonNumber(4.6), Default, Error, Code));
 	TestEqual(TEXT("int literal rounds"), Default, FString(TEXT("5")));
+	const FEdGraphPinType IntPin = MakePinType(UEdGraphSchema_K2::PC_Int);
+	TestTrue(TEXT("largest rounded int32 accepted"), UEMCP::FormatLiteralForPinCategory(
+		IntPin, JsonNumber(2147483647.4), Default, Error, Code));
+	TestEqual(TEXT("largest rounded value"), Default, FString(TEXT("2147483647")));
+	const double BelowHalf = 0.49999999999999994;
+	TestTrue(TEXT("input immediately below half accepted"), UEMCP::FormatLiteralForPinCategory(
+		IntPin, JsonNumber(BelowHalf), Default, Error, Code));
+	TestEqual(TEXT("near-half assignment keeps Unreal rounding"), Default, FString::FromInt(static_cast<int32>(FMath::RoundToInt(BelowHalf))));
+	for (const double Number : { 2147483647.5, -2147483648.6, 1.e100 })
+	{
+		TestFalse(TEXT("rounded int32 overflow refused"), UEMCP::FormatLiteralForPinCategory(
+			IntPin, JsonNumber(Number), Default, Error, Code));
+		TestEqual(TEXT("integer range error"), Code, FString(TEXT("LITERAL_TYPE_MISMATCH")));
+	}
 
 	TestFalse(TEXT("int literal rejects string"),
 		UEMCP::FormatLiteralForPinCategory(MakePinType(UEdGraphSchema_K2::PC_Int), JsonString(TEXT("5")), Default, Error, Code));
@@ -305,6 +319,11 @@ bool FUEMCPBlueprintHelpersLiteralDefaultsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("vector literal accepted"),
 		UEMCP::FormatLiteralForPinCategory(VectorPin, JsonNumberArray({1.0, 2.0, 3.0}), Default, Error, Code));
 	TestEqual(TEXT("vector literal formatting"), Default, FString::Printf(TEXT("(X=%f,Y=%f,Z=%f)"), 1.0, 2.0, 3.0));
+	const FVector PreciseVector(1.e-7, -1.23456789012345, 12.5);
+	TestTrue(TEXT("small and precise components accepted"), UEMCP::FormatLiteralForPinCategory(
+		VectorPin, JsonNumberArray({PreciseVector.X, PreciseVector.Y, PreciseVector.Z}), Default, Error, Code));
+	FVector Parsed;
+	TestTrue(TEXT("vector components survive formatting"), Parsed.InitFromString(Default) && Parsed == PreciseVector);
 
 	TArray<TSharedPtr<FJsonValue>> Mixed;
 	Mixed.Add(JsonNumber(1.0));

@@ -688,7 +688,7 @@ toolsets:
         params:
           blueprint_name:   { type: string, required: true, description: "Blueprint asset name or fully-qualified /Game/... path" }
           target_variable:  { type: string, required: true, description: "Member variable written by the assignment set node" }
-          assignment:       { type: object, required: true, description: "{kind:'literal', value:<scalar/vector>} or {kind:'variable', source_variable:<name>}" }
+          assignment:       { type: object, required: true, description: "{kind:'literal', value:<scalar/vector>} or {kind:'variable', source_variable:<name>}. Numeric variables accept JSON numbers. Integer assignments use Unreal rounding and reject results outside int32." }
           exec_from:        { type: object, required: false, description: "Optional existing source exec pin: {node_id, pin}" }
           graph_name:       { type: string, required: false, description: "Target graph name. Omit for EventGraph." }
           node_position:    { type: array, required: false, description: "[x, y] graph position, default [0,0]" }

@@ -495,6 +495,18 @@ await runCase('a setter cannot silently discard the requested value or graph', a
       await send(fields);
       t.assert(tcpCalls.at(-1)?.params?.variable_name === 'Interacting' && !Object.hasOwn(tcpCalls.at(-1).params, 'params'), 'a setter with an intentionally omitted default still works');
     }
+    const assignment = { blueprint_name: '/Game/BP_Player', target_variable: 'Interacting', assignment: { kind: 'literal', value: true } };
+    for (const send of [
+      args => callTool(transport, 'add_variable_assignment', args),
+      args => dispatch(transport, 'add_variable_assignment', args, 'call_mutating_tool'),
+    ]) {
+      const before = tcpCalls.length;
+      const bad = await send({ ...assignment, target_graph: 'OtherGraph' });
+      t.assert(bad.result?.isError && /graph_name/.test(text(bad)), 'assignment gives the correct graph argument');
+      t.assert(tcpCalls.length === before, 'mistyped assignment graph never reaches the editor');
+      await send({ ...assignment, graph_name: 'OtherGraph' });
+      t.assert(tcpCalls.at(-1)?.params?.graph_name === 'OtherGraph', 'assignment reaches the exact requested graph');
+    }
     await app.server.close();
   } finally { cleanup(root); }
 });

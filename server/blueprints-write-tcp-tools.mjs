@@ -26,7 +26,7 @@ const AssignmentLiteralValue = z.union([z.number(), z.boolean(), z.string(), Vec
 const VariableAssignment = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('literal'),
-    value: AssignmentLiteralValue.describe('Literal value for the target variable pin. Supports Number, Boolean, String, and Vector [x,y,z].'),
+    value: AssignmentLiteralValue.describe('Number, Boolean, String, or Vector [x,y,z]. Supply JSON numbers for numeric variables. Integer assignments use Unreal rounding and reject results outside int32.'),
   }),
   z.object({
     kind: z.literal('variable'),
@@ -260,6 +260,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
 
   add_variable_assignment: {
     description: 'Add an ergonomic Blueprint variable assignment in a target graph. Supports target_variable = literal and target_variable = source_variable, optional exec wiring, node/pin/link metadata, and requires_compile.',
+    unknownArgumentMessage: 'Unknown assignment argument. Choose the graph with graph_name and supply assignment as {kind:"literal", value:...} or {kind:"variable", source_variable:...}.',
     schema: {
       blueprint_name: z.string().describe('Blueprint asset name'),
       target_variable: z.string().describe('Member variable written by the assignment set node'),
