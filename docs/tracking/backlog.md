@@ -33,11 +33,14 @@ projects. Historical rationale is retained in the [September notes preserved at 
   Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
   5.3.2 content-only editors passed the original nine-case suite with the same
   project-built DLL.
-- **Watch for a recurrence of the historical packaged GC crash.** Its precise
-  UObject remains unidentified. The minidump contains partial memory and
-  matching editor CoreUObject symbols were unavailable locally. If the fault recurs, capture
-  a full process dump, matching symbols and the pre-collection transaction and
-  object identities. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- **Investigate the intermittent UE 5.3.2 fixture GC crash.** During integration
+  one 38-case run crashed in a CoreUObject worker while the game thread tore
+  down the AssignmentExecFrom fixture. Three subsequent full runs passed with
+  the same binaries. The earlier packaged crash occurred during PawnGraphGuidWiring.
+  Both crashes read address 0xc and share 15 trailing frames. Their top frames
+  differ, and the invalid UObject and common cause remain unknown. Preserve the
+  dumps and match engine symbols, then capture pre-collection transaction and
+  object identities in a diagnostic run. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
 
 | ID | Status | Work / acceptance |
 |---|---|---|
