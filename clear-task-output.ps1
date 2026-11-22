@@ -14,8 +14,7 @@ Set-StrictMode -Version Latest
 
 function Assert-PlainPath([string]$Path) {
     for ($part = $Path; $part; $part = [IO.Path]::GetDirectoryName($part)) {
-        $item = Get-Item -LiteralPath $part -Force -ErrorAction Stop
-        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ([IO.File]::GetAttributes($part) -band [IO.FileAttributes]::ReparsePoint) {
             throw "Linked path requires owner review: $part"
         }
     }
@@ -49,26 +48,27 @@ function Get-Entry([IO.FileSystemInfo]$Item) {
     $extra = @(Get-Item -LiteralPath $Item.FullName -Stream * -ErrorAction Stop |
         Where-Object Stream -ne ':$DATA')
     if ($extra.Count) { throw "Named stream requires owner review: $($Item.FullName)" }
-    if (!$Item.PSIsContainer) {
+    if ($Item -is [IO.FileInfo]) {
         $size = $Item.Length
         $stream = [IO.File]::Open($Item.FullName, 'Open', 'Read', 'None')
+        $sha = [Security.Cryptography.SHA256]::Create()
         try {
-            $digest = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
-        } finally { $stream.Dispose() }
+            $digest = [Convert]::ToHexString($sha.ComputeHash($stream))
+        } finally { $sha.Dispose(); $stream.Dispose() }
     }
     [pscustomobject][ordered]@{path=$Item.FullName; created=$Item.CreationTimeUtc.Ticks; bytes=$size; digest=$digest}
 }
 
 function Get-Inventory {
-    $pending = [Collections.Generic.Stack[string]]::new()
-    $pending.Push($target)
+    $pending = [Collections.Generic.Stack[IO.FileSystemInfo]]::new()
+    $pending.Push((Get-Item -LiteralPath $target -Force))
     while ($pending.Count) {
-        $item = Get-Item -LiteralPath $pending.Pop() -Force
+        $item = $pending.Pop()
         Assert-PlainPath $item.FullName
         Get-Entry $item
-        if ($item.PSIsContainer) {
-            foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force) {
-                $pending.Push($child.FullName)
+        if ($item -is [IO.DirectoryInfo]) {
+            foreach ($child in $item.EnumerateFileSystemInfos()) {
+                $pending.Push($child)
             }
         }
     }
