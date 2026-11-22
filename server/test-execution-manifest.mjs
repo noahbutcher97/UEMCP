@@ -106,6 +106,7 @@ try {
     'UEMCP.BlueprintHandlers.WriterPinDefaults',
     'UEMCP.BlueprintHandlers.FunctionGraphIdentity',
     'UEMCP.BlueprintHandlers.PawnGraphGuidWiring',
+    'UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn',
     'UEMCP.GraphActions.AssetPlacement',
   ];
   let blueprint;

@@ -65,6 +65,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectHash.h"
 #include "UObject/UObjectGlobals.h"
 
 #include "MCPCommandRegistry.h"
@@ -3515,15 +3516,69 @@ bool FUEMCPFunctionGraphIdentityTest::RunTest(const FString&)
 	return true;
 }
 
+namespace UEMCP::Blueprint::Tests
+{
+	/** Owns the transactions and the one unsaved package used by the pawn wiring fixture. */
+	struct FScopedPawnFixture
+	{
+		TStrongObjectPtr<UTransactor> EditorHistory{GEditor->Trans.Get()};
+		TStrongObjectPtr<UTransBuffer> History{NewObject<UTransBuffer>()};
+		TGuardValue<decltype(GEditor->Trans)> UseHistory{GEditor->Trans, History.Get()};
+		FFixtureBlueprint Asset;
+
+		FScopedPawnFixture()
+		{
+			History->Initialize(8 * 1024 * 1024);
+			Asset = CreateFixtureBlueprintOfType(APawn::StaticClass(), BPTYPE_Normal);
+		}
+
+		~FScopedPawnFixture()
+		{
+			// Transaction records keep graph objects alive across collection.
+			History->Reset(NSLOCTEXT("UEMCPTests", "PawnFixtureCleanup", "Release pawn fixture transactions"));
+			if (Asset.Blueprint)
+			{
+				FAssetRegistryModule::AssetDeleted(Asset.Blueprint);
+				Asset.Blueprint->ClearFlags(RF_Public | RF_Standalone);
+			}
+			if (Asset.Package)
+			{
+				Asset.Package->SetDirtyFlag(false);
+				Asset.Package->ClearFlags(RF_Standalone);
+				// As in package unloading, include standalone metadata and other owned objects.
+				ForEachObjectWithPackage(Asset.Package, [](UObject* Object)
+				{
+					Object->ClearFlags(RF_Standalone);
+					return true;
+				});
+			}
+			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		}
+	};
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnGraphGuidWiring, "UEMCP.BlueprintHandlers.PawnGraphGuidWiring",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
 {
 	using namespace UEMCP::Blueprint::Tests;
-	FFixtureBlueprint Fixture = CreateFixtureBlueprintOfType(APawn::StaticClass(), BPTYPE_Normal);
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
+	const int32 PreviousQueueLength = EditorHistory->GetQueueLength();
+	const int32 PreviousUndoCount = EditorHistory->GetUndoCount();
+	TWeakObjectPtr<UBlueprint> RetiredBlueprint;
+	ON_SCOPE_EXIT
+	{
+		TestTrue(TEXT("Restore editor transaction buffer after teardown"), GEditor->Trans.Get() == EditorHistory.Get());
+		TestEqual(TEXT("Pawn fixture preserves the editor Undo queue"), EditorHistory->GetQueueLength(), PreviousQueueLength);
+		TestEqual(TEXT("Pawn fixture preserves the editor Undo cursor"), EditorHistory->GetUndoCount(), PreviousUndoCount);
+		TestFalse(TEXT("Ordinary collection released the wired Blueprint"), RetiredBlueprint.IsValid());
+	};
+	FScopedPawnFixture PawnFixture;
+	FFixtureBlueprint& Fixture = PawnFixture.Asset;
+	RetiredBlueprint = Fixture.Blueprint;
 	if (!TestNotNull(TEXT("Pawn Blueprint"), Fixture.Blueprint)) return false;
-	ON_SCOPE_EXIT { DestroyFixtureBlueprint(Fixture); };
 	UEdGraph* Graph = FixtureEventGraph(Fixture.Blueprint);
 	if (!TestNotNull(TEXT("Pawn Event Graph"), Graph)) return false;
 	auto Call = MakeShared<FJsonObject>();
@@ -3564,6 +3619,64 @@ bool FPawnGraphGuidWiring::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Read leaves reciprocal wire intact"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.Contains(Target->FindPinChecked(TEXT("A"))));
 	TestTrue(TEXT("Disconnect by graph GUID"), IsSuccess(Dispatch(TEXT("disconnect_blueprint_pin"), Pin), Code));
 	TestTrue(TEXT("Disconnect removed both ends"), Source->FindPinChecked(TEXT("ReturnValue"))->LinkedTo.IsEmpty() && Target->FindPinChecked(TEXT("A"))->LinkedTo.IsEmpty());
+	TestTrue(TEXT("Pawn edits are recorded in the fixture history"), PawnFixture.History->IsObjectInTransactionBuffer(Source));
+	TestFalse(TEXT("Editor Undo history holds no pawn fixture node"), EditorHistory->IsObjectInTransactionBuffer(Source));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPawnFixtureEarlyReturn, "UEMCP.BlueprintHandlers.PawnFixtureEarlyReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPawnFixtureEarlyReturn::RunTest(const FString&)
+{
+	using namespace UEMCP::Blueprint::Tests;
+	if (!TestTrue(TEXT("Idle editor history"), GEditor && GEditor->Trans && !GEditor->Trans->IsActive() && !GUndo)) return false;
+	TStrongObjectPtr<UTransactor> EditorHistory(GEditor->Trans.Get());
+	TStrongObjectPtr<UTransBuffer> CallerHistory(NewObject<UTransBuffer>());
+	CallerHistory->Initialize(8 * 1024 * 1024);
+	TGuardValue<decltype(GEditor->Trans)> UseCaller(GEditor->Trans, CallerHistory.Get());
+	TStrongObjectPtr<UUEMCPTestObject> Unrelated(NewObject<UUEMCPTestObject>(GetTransientPackage(), NAME_None, RF_Transactional));
+	{
+		FScopedTransaction Transaction(NSLOCTEXT("UEMCPTests", "UnrelatedPawnEdit", "Edit unrelated test object"));
+		Unrelated->Modify();
+		Unrelated->IntValue = 19;
+	}
+	if (!TestTrue(TEXT("Seed unrelated redo entry"), CallerHistory->Undo())) return false;
+
+	TWeakObjectPtr<UBlueprint> RetiredBlueprint;
+	TWeakObjectPtr<UTransBuffer> RetiredHistory;
+	auto AbortEdit = [&]()
+	{
+		FScopedPawnFixture PawnFixture;
+		RetiredHistory = PawnFixture.History.Get();
+		RetiredBlueprint = PawnFixture.Asset.Blueprint;
+		if (!TestNotNull(TEXT("Created pawn for interrupted edit"), PawnFixture.Asset.Blueprint)) return false;
+		{
+			FScopedTransaction Transaction(NSLOCTEXT("UEMCPTests", "PawnInterruptedEdit", "Edit pawn before interruption"));
+			PawnFixture.Asset.Blueprint->Modify();
+			PawnFixture.Asset.Blueprint->BlueprintDescription = TEXT("Interrupted fixture edit");
+		}
+		TestTrue(TEXT("Private Undo record references the pawn before early return"),
+			PawnFixture.History->IsObjectInTransactionBuffer(PawnFixture.Asset.Blueprint));
+		auto Request = MakeShared<FJsonObject>();
+		Request->SetStringField(TEXT("blueprint_name"), PawnFixture.Asset.PackagePath);
+		Request->SetStringField(TEXT("graph_guid"), FGuid::NewGuid().ToString());
+		Request->SetStringField(TEXT("node_id"), FGuid::NewGuid().ToString());
+		Request->SetStringField(TEXT("pin"), TEXT("A"));
+		const auto Response = Dispatch(TEXT("show_blueprint_pin_links"), Request);
+		TestEqual(TEXT("Missing graph interrupts the edit"), ErrorCodeOf(Response), FString(TEXT("GRAPH_NOT_FOUND")));
+		FString Code;
+		return IsSuccess(Response, Code);
+	};
+	TestFalse(TEXT("Edit exits before completion"), AbortEdit());
+	TestTrue(TEXT("Return restores caller buffer"), GEditor->Trans.Get() == CallerHistory.Get());
+	if (UTransBuffer* History = RetiredHistory.Get())
+	{
+		TestEqual(TEXT("Fixture transactions released at scope exit"), History->GetQueueLength(), 0);
+	}
+	TestFalse(TEXT("Ordinary collection released the interrupted Blueprint"), RetiredBlueprint.IsValid());
+	if (!TestTrue(TEXT("Unrelated redo remains executable"), CallerHistory->Redo())) return false;
+	TestEqual(TEXT("Redo restored unrelated property"), Unrelated->IntValue, 19);
 	return true;
 }
 
