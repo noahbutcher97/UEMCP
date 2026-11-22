@@ -256,6 +256,7 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     let nodeClass = 'K2Node_CallFunction';
     let namedRevision = 'rev1';
     let namedOrphaned = false;
+    let reportOrphans = true;
     const instance = await createWireApp({
       cwd: root,
       tcpCommandFn: async (_port, type, args) => {
@@ -268,7 +269,8 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
         if (!args.pin) return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id,
           node_class: nodeClass, topology_revision: 'rev1',
           pins: [
-            { name: 'InString', direction: 'input', pin_id: 'LivePin', link_count: 1, default: 'Changed' },
+            { name: 'InString', direction: 'input', ...(reportOrphans ? { orphaned: false } : {}),
+              pin_id: 'LivePin', link_count: 1, default: 'Changed' },
             { name: 'RemovedArgument', direction: 'input', orphaned: true, pin_id: 'OldPin', link_count: 0, default: 'Old' },
           ] } };
         return { status: 'success', result: { graph_name: args.graph_name, node_id: args.node_id, topology_revision: namedRevision,
@@ -316,6 +318,12 @@ await runCase('Blueprint function arguments distinguish saved bytes, live links 
     t.assert((await inspect()).live.status === 'inconsistent_pin_reply',
       'an input orphaned before endpoint readback cannot supply a current binding');
     namedOrphaned = false;
+    reportOrphans = false;
+    const legacy = await inspect();
+    t.assert(legacy.saved.status === 'observed' && legacy.live.status === 'pin_metadata_unavailable'
+      && legacy.live.missing_field === 'orphaned' && !legacy.live.inputs && /rebuild/i.test(legacy.live.message),
+      'an older editor preserves the saved observation and explains how to restore current input inspection');
+    reportOrphans = true;
     owner = join(root, 'Another.uproject');
     requests.length = 0;
     const wrong = await inspect();

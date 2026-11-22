@@ -391,7 +391,7 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
     } });
     app = wire.app;
     const { transport } = wire;
-    const query = { asset_path: ANIM_BP, graph_name: 'AnimGraph', source_asset_path: '/Game/Walk' };
+    const query = { asset_path: ANIM_BP, graph_name: 'AnimGraph', source_asset_path: '/Game/Walk.Walk' };
     const place = { asset_path: ANIM_BP, graph_guid: 'graph-1', expected_revision: 'rev', action_id: 'selected', node_position: [10, 20] };
     const unattached = await dispatch(transport, 'find_graph_actions', query);
     t.assert(text(unattached).includes('PROJECT_NOT_ATTACHED'), 'graph discovery requires a project');
@@ -416,6 +416,8 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       const viaDispatcher = await dispatch(transport, name, args, dispatcher);
       if (name === 'place_graph_action') {
         t.assert(/Started.*Completed.*Canceled/.test(described.description), 'placement help names all three repeating Hold branches');
+        t.assert(described.description.includes('source_asset_path ("" for an empty Sequence Player)'),
+          'placement help exposes the exact-source recovery read to the client');
         t.assert(!Object.hasOwn(JSON.parse(text(direct)).result, 'hold_trigger_wiring'), 'Sequence Player results omit input-event guidance');
       }
       t.assert(direct.result && viaDispatcher.result && !direct.result.isError && !viaDispatcher.result.isError && text(direct) === text(viaDispatcher),
