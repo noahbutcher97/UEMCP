@@ -38,7 +38,7 @@ function Assert-Inactive {
     }
 }
 
-function Get-Entry([IO.FileSystemInfo]$Item) {
+function Get-Entry([IO.FileSystemInfo]$Item, [IO.FileStream]$LockedStream) {
     $protected = [IO.FileAttributes]'ReparsePoint,ReadOnly,Hidden,System'
     if ($Item.Attributes -band $protected) {
         throw "Linked or protected entry requires owner review: $($Item.FullName) ($($Item.Attributes))"
@@ -50,11 +50,15 @@ function Get-Entry([IO.FileSystemInfo]$Item) {
     if ($extra.Count) { throw "Named stream requires owner review: $($Item.FullName)" }
     if ($Item -is [IO.FileInfo]) {
         $size = $Item.Length
-        $stream = [IO.File]::Open($Item.FullName, 'Open', 'Read', 'None')
+        $stream = $LockedStream
+        if (!$stream) { $stream = [IO.File]::Open($Item.FullName, 'Open', 'Read', 'None') }
         $sha = [Security.Cryptography.SHA256]::Create()
         try {
             $digest = [Convert]::ToHexString($sha.ComputeHash($stream))
-        } finally { $sha.Dispose(); $stream.Dispose() }
+        } finally {
+            $sha.Dispose()
+            if (!$LockedStream) { $stream.Dispose() }
+        }
     }
     [pscustomobject][ordered]@{path=$Item.FullName; created=$Item.CreationTimeUtc.Ticks; bytes=$size; digest=$digest}
 }
@@ -75,12 +79,8 @@ function Get-Inventory {
 }
 
 $run = [IO.Path]::GetFullPath($RunRoot).TrimEnd('\','/')
-$worktrees = @(git -C $PSScriptRoot worktree list --porcelain)
-if ($LASTEXITCODE -or !$worktrees.Count -or !$worktrees[0].StartsWith('worktree ')) {
-    throw 'Cannot locate primary checkout'
-}
-$primary = [IO.Path]::GetFullPath($worktrees[0].Substring(9))
-$roots = @((Join-Path $primary '.scratch\runs'), (Join-Path ([IO.Path]::GetPathRoot($primary)) 'Scratch\UEMCP'))
+$paths = & (Join-Path $PSScriptRoot 'get-task-root-paths.ps1') -Checkout $PSScriptRoot
+$roots = @($paths.PrimaryRuns, $paths.PrimaryExternal, $paths.CheckoutExternal)
 if ([IO.Path]::GetDirectoryName($run) -notin $roots) { throw "Outside allocator roots: $run" }
 $marker = Join-Path $run '.uemcp-run.json'
 Assert-PlainPath $marker
@@ -126,23 +126,68 @@ $result = [ordered]@{State='Preview'; Task=$identity.task; RunId=$identity.runId
 if (!$Apply) { return [pscustomobject]$result }
 if ($Apply -ne $preview) { throw "Output changed or preview belongs to a different target: $target" }
 Assert-Inactive
-foreach ($entry in $entries | Where-Object digest -ne 'directory') {
-    Assert-PlainPath $entry.path
-    $current = Get-Entry (Get-Item -LiteralPath $entry.path -Force)
-    if ($current.created -ne $entry.created -or $current.digest -ne $entry.digest) {
-        throw "File changed during removal: $($entry.path)"
+if (!('Uemcp.CleanupHandle' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+namespace Uemcp {
+    public static class CleanupHandle {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
+        private static extern SafeFileHandle CreateFileW(string path, uint access, uint share,
+            IntPtr security, uint creation, uint flags, IntPtr template);
+
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        private static extern bool SetFileInformationByHandle(SafeFileHandle file, int infoClass,
+            ref byte disposition, uint length);
+
+        public static SafeFileHandle Open(string path, bool directory) {
+            const uint delete = 0x10000, read = 0x80000000, readAttributes = 0x80;
+            const uint openExisting = 3, openReparsePoint = 0x200000, backupSemantics = 0x2000000;
+            var handle = CreateFileW(path, delete | (directory ? readAttributes : read), 0,
+                IntPtr.Zero, openExisting, openReparsePoint | (directory ? backupSemantics : 0u), IntPtr.Zero);
+            if (handle.IsInvalid) {
+                var error = new Win32Exception(Marshal.GetLastWin32Error());
+                handle.Dispose();
+                throw error;
+            }
+            return handle;
+        }
+
+        public static void MarkForDeletion(SafeFileHandle file) {
+            const int fileDispositionInfo = 4;
+            byte delete = 1;
+            if (!SetFileInformationByHandle(file, fileDispositionInfo, ref delete, 1))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
     }
-    Remove-Item -LiteralPath $entry.path -ErrorAction Stop
 }
-# Nonrecursive directory removal preserves entries created after the preflight.
-foreach ($entry in $entries | Where-Object digest -eq 'directory' | Sort-Object { $_.path.Length } -Descending) {
+'@
+}
+
+function Remove-ApprovedEntry($entry) {
     Assert-PlainPath $entry.path
-    $current = Get-Entry (Get-Item -LiteralPath $entry.path -Force)
-    if ($current.created -ne $entry.created -or $current.digest -ne 'directory') {
-        throw "Directory changed during removal: $($entry.path)"
+    $directory = $entry.digest -eq 'directory'
+    $handle = [Uemcp.CleanupHandle]::Open($entry.path, $directory)
+    $stream = $null
+    try {
+        Assert-PlainPath $entry.path
+        if (!$directory) { $stream = [IO.FileStream]::new($handle, [IO.FileAccess]::Read) }
+        $current = Get-Entry (Get-Item -LiteralPath $entry.path -Force) $stream
+        if ($current.created -ne $entry.created -or $current.digest -ne $entry.digest) {
+            throw "Entry changed during removal: $($entry.path)"
+        }
+        # Mark the exact open entry; Windows rejects a directory that gained a child.
+        [Uemcp.CleanupHandle]::MarkForDeletion($handle)
+    } finally {
+        if ($stream) { $stream.Dispose() }
+        $handle.Dispose()
     }
-    [IO.Directory]::Delete($entry.path, $false)
 }
+foreach ($entry in $entries | Where-Object digest -ne 'directory') { Remove-ApprovedEntry $entry }
+foreach ($entry in $entries | Where-Object digest -eq 'directory' | Sort-Object { $_.path.Length } -Descending) { Remove-ApprovedEntry $entry }
 if (Test-Path -LiteralPath $target) { throw "Output still present: $target" }
 $result.State = 'Removed'
 [pscustomobject]$result

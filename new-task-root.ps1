@@ -7,18 +7,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$paths = & (Join-Path $PSScriptRoot 'get-task-root-paths.ps1') -Checkout $PSScriptRoot
 if ($ExternalFixture) {
-    $scratch = Join-Path ([IO.Path]::GetPathRoot($PSScriptRoot)) 'Scratch'
-    $projectScratch = Join-Path $scratch 'UEMCP'
+    $projectScratch = $paths.CheckoutExternal
 } else {
-    $worktrees = @(git -C $PSScriptRoot worktree list --porcelain)
-    if ($LASTEXITCODE -ne 0 -or !$worktrees -or !$worktrees[0].StartsWith('worktree ')) {
-        throw 'Cannot locate the primary checkout'
-    }
-    $scratch = Join-Path $worktrees[0].Substring(9) '.scratch'
-    $projectScratch = Join-Path $scratch 'runs'
+    $projectScratch = $paths.PrimaryRuns
 }
-foreach ($parent in @($scratch, $projectScratch)) {
+foreach ($parent in @([IO.Path]::GetDirectoryName($projectScratch), $projectScratch)) {
     $directory = [IO.Directory]::CreateDirectory($parent)
     if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         throw "Scratch parent is a reparse point: $parent"
@@ -26,15 +21,15 @@ foreach ($parent in @($scratch, $projectScratch)) {
 }
 
 $run = Join-Path $projectScratch ("{0}-{1}" -f (Get-Date -Format 'yyMMdd'), $Task)
-# New-Item without -Force refuses an existing directory, including a concurrent allocation.
-New-Item -Path $run -ItemType Directory -ErrorAction Stop | Out-Null
-[ordered]@{
+$id = [guid]::NewGuid()
+$staging = Join-Path $projectScratch ('.allocating-' + $id.ToString('N'))
+$marker = [ordered]@{
     schema = 1
-    runId = [guid]::NewGuid().ToString()
-    path = (Get-Item -LiteralPath $run).FullName
+    runId = $id.ToString()
+    path = $run
     task = $Task
-} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $run '.uemcp-run.json') -Encoding utf8
-@"
+} | ConvertTo-Json
+$notes = @"
 # $Task
 
 Created $(Get-Date -Format o) from $PSScriptRoot.
@@ -49,5 +44,22 @@ Owned processes:
 ## Closeout
 
 Record live paths, sizes, receipts, removals and the next use of each retained output.
-"@ | Set-Content -LiteralPath (Join-Path $run 'RUN.md') -Encoding utf8
+"@
+# Publish both records together. A same-volume directory move refuses an
+# existing destination, including one just published by another coordinator.
+New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+try {
+    Set-Content -LiteralPath (Join-Path $staging '.uemcp-run.json') -Value $marker -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $staging 'RUN.md') -Value $notes -Encoding utf8
+    [IO.Directory]::Move($staging, $run)
+} catch {
+    [IO.File]::Delete((Join-Path $staging '.uemcp-run.json'))
+    [IO.File]::Delete((Join-Path $staging 'RUN.md'))
+    [IO.Directory]::Delete($staging, $false)
+    $cause = $_.Exception.GetBaseException()
+    if ($cause -is [IO.IOException] -and ($cause.HResult -band 0xffff) -in 80,183) {
+        throw [IO.IOException]::new("Task path already exists: $run. Inspect it before resuming, or choose another task name.", $cause)
+    }
+    throw
+}
 $run

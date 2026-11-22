@@ -25,6 +25,23 @@ $allocator = Join-Path $PSScriptRoot 'new-task-root.ps1'
 $uppercaseTask = 'A' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 Assert-Refused { & $allocator -Task $uppercaseTask } 'pattern'
 
+# Supply a primary checkout on another volume without allocating another run.
+# A nonexistent run on this checkout's external root must reach marker lookup.
+& {
+    function git {
+        'worktree //localhost/test-share/UEMCP'
+        Set-Variable -Name LASTEXITCODE -Scope 1 -Value 0
+    }
+    $external = Join-Path ([IO.Path]::GetPathRoot($PSScriptRoot)) 'Scratch\UEMCP'
+    $missing = Join-Path $external ('unallocated-' + [guid]::NewGuid().ToString('N'))
+    try { & $helper $missing 'example' | Out-Null }
+    catch {
+        if ($_.Exception.GetBaseException() -is [IO.DirectoryNotFoundException]) { return }
+        throw
+    }
+    throw 'Accepted a run without an allocator marker'
+}
+
 $preview = & $helper $RunRoot $leaf
 if ($preview.State -ne 'Preview' -or $preview.Entries -ne 2 -or
     $preview.Bytes -ne (Get-Item $sample).Length -or (Get-Content $sample) -ne 'first') {
@@ -73,9 +90,30 @@ Set-Content $sample 'other'
 Assert-Refused { & $helper $RunRoot $leaf -Apply $preview.PreviewId } 'changed or preview'
 if ((Get-Content $sample) -ne 'other') { throw 'Changed file lost' }
 $fresh = & $helper $RunRoot $leaf
-if ((& $helper $RunRoot $leaf -Apply $fresh.PreviewId).State -ne 'Removed' -or
+$mark = (Get-Command $helper).ScriptBlock.Ast.Find({
+    param($ast)
+    $ast -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $ast.Member.Value -eq 'MarkForDeletion'
+}, $true)
+$access = @{ checked = $false; sharingViolation = $false }
+# Observe the real helper immediately before it marks the file for deletion.
+# A competing ordinary writer must still be refused after the digest matches.
+$probe = Set-PSBreakpoint -Script $helper -Line $mark.Extent.StartLineNumber -Action {
+    if ($entry.path -eq $sample) {
+        $access.checked = $true
+        try {
+            $writer = [IO.File]::Open($sample, 'Open', 'Write', 'None')
+            $writer.Dispose()
+        } catch [IO.IOException] {
+            $access.sharingViolation = ($_.Exception.GetBaseException().HResult -band 0xffff) -eq 32
+        }
+    }
+}
+try { $removed = & $helper $RunRoot $leaf -Apply $fresh.PreviewId }
+finally { Remove-PSBreakpoint $probe }
+if (!$access.checked -or !$access.sharingViolation) { throw 'File was not locked at the deletion boundary' }
+if ($removed.State -ne 'Removed' -or
     (Test-Path $target) -or (Get-Content $control) -ne 'unchanged') { throw 'Incorrect removal scope' }
 if ((& $helper $RunRoot $leaf -Apply $fresh.PreviewId).State -ne 'Absent') { throw 'Repeat apply failed' }
 $rest = & $helper $RunRoot $name
 & $helper $RunRoot $name -Apply $rest.PreviewId | Out-Null
-'PASS: preview, changed file, active owner, open handle, junction, outside path, marker protection, apply, sibling preservation and repeat apply.'
+'PASS: lowercase allocation, cross-volume checkout, preview, changed file, active owner, open handle, junction, outside path, marker protection, locked deletion, sibling preservation and repeat apply.'
