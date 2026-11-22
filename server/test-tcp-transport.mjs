@@ -2960,7 +2960,7 @@ const compatibilityGuardDefinitionIndex = nativePolicySource.indexOf(
   'bool HasNodeJsonCompatibilityViolation(',
 );
 const compatibilityGuardUseIndex = finalizationSource.indexOf(
-  'const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset);',
+  'const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset, bHasLeadingNul);',
 );
 const parserStreamIndex = finalizationSource.indexOf('FMemoryReader JsonStream(JsonTextBytes);');
 const deserializeIndex = finalizationSource.indexOf('FJsonSerializer::Deserialize');
