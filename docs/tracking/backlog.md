@@ -23,17 +23,22 @@ projects. Historical rationale is retained in the [September notes preserved at 
   passed the original nine tests with the integrated package. Native change
   `651e80e`, integrated plugin at `8672b93`. After the passing run, the
   coordinator verified and removed the retained reproducer. [Qualification record](../../tasks/todo.md#core-correctness-results-2026-11-22)
-- [ ] **Transport object key identity.** On UE 5.3.2, 5.6.1 and 5.8.4,
-  distinct equal-length JSON keys that differ after an embedded NUL can
-  coalesce even when inserted directly into Unreal's native object map.
-  Ordinary distinct names remained distinct and exact duplicates kept the
-  last value in the controls. Define the supported key contract before
-  changing request handling. [Native observations](../../tasks/todo.md#core-correctness-results-2026-11-22)
-- [ ] **UE 5.3.2 pawn graph fixture teardown.** The first packaged editor
-  crashed in garbage collection during `PawnGraphGuidWiring` teardown before
-  exporting a result. The next process passed 9/9 on the same DLL. Identify
-  the invalid reference and verify any fixture repair in repeated fresh
-  processes. [Package and teardown evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- [x] **Transport object key identity.** Fixed locally in `dfaad30` on
+  `task/core-findings`. Framed and legacy intake refuse keys containing NUL
+  and differently spelled sibling keys the engine would collapse. A corrected
+  request succeeds. UE 5.3.2, 5.6.1 and 5.8.4 Win64 each passed 18 live wire
+  checks and all seven native transport tests. Integration into main is pending.
+- [x] **Pawn fixture transaction ownership.** The old UE 5.3.2 fixture added
+  four entries to editor Undo and retained the source node. Local fix `ee3f848`
+  gives the fixture its own history. Normal teardown and early return release the
+  Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
+  5.3.2 content-only editors passed the original nine-case suite with the same
+  project-built DLL. Integration into main is pending.
+- **Watch for a recurrence of the historical packaged GC crash.** Its precise
+  UObject remains unidentified. The minidump contains partial memory and
+  matching editor CoreUObject symbols were unavailable locally. If the fault recurs, capture
+  a full process dump, matching symbols and the pre-collection transaction and
+  object identities. [Original package evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
 
 | ID | Status | Work / acceptance |
 |---|---|---|
