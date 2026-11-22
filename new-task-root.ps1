@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')]
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$', Options = 'None')]
     [string]$Task,
     [switch]$ExternalFixture
 )
