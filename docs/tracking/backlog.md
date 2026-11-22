@@ -15,13 +15,25 @@ projects. Historical rationale is retained in the [September notes preserved at 
 
 ## Current work and next qualification
 
-- [ ] **TRANSPORT-53-NUL** — On UE 5.3.2 Win64, reproduce and resolve the
-  `UEMCP.Transport.DecoderBoundaries` failures for escaped U+0000 in framed
-  and legacy JSON. Keep the packaged reproducer in
-  `.scratch/retained/ue53-decoder/` until the passing 5.3.2 result is recorded
-  or the maintainer explicitly retires the investigation. At closeout, the
-  maintainer removes the retained fixture, keeps the verification receipts,
-  links the passing result or retirement decision, and checks off this item.
+- [x] **TRANSPORT-53-NUL** — Fixed and qualified on the local core branch,
+  pending integration into main. UE 5.3.2 dropped JSON string contents when
+  the first decoded code unit was NUL. The repair preserves those contents in
+  both framed and legacy requests. All seven native transport tests passed
+  on UE 5.3.2, 5.6.1 and 5.8.4 Win64. A fresh installed UE 5.3.2 editor
+  passed the original nine tests with the integrated package. Native change
+  `651e80e`, integrated plugin at `8672b93`. After the passing run, the
+  coordinator verified and removed the retained reproducer. [Qualification record](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- [ ] **Transport object key identity.** On UE 5.3.2, 5.6.1 and 5.8.4,
+  distinct equal-length JSON keys that differ after an embedded NUL can
+  coalesce even when inserted directly into Unreal's native object map.
+  Ordinary distinct names remained distinct and exact duplicates kept the
+  last value in the controls. Define the supported key contract before
+  changing request handling. [Native observations](../../tasks/todo.md#core-correctness-results-2026-11-22)
+- [ ] **UE 5.3.2 pawn graph fixture teardown.** The first packaged editor
+  crashed in garbage collection during `PawnGraphGuidWiring` teardown before
+  exporting a result. The next process passed 9/9 on the same DLL. Identify
+  the invalid reference and verify any fixture repair in repeated fresh
+  processes. [Package and teardown evidence](../../tasks/todo.md#core-correctness-results-2026-11-22)
 
 | ID | Status | Work / acceptance |
 |---|---|---|

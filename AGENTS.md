@@ -92,6 +92,10 @@ outputs would exceed available space. For a failed attempt, extract its log,
 manifest and relevant hashes before allocating the retry. Retain the smallest
 reproducer that still exercises an outstanding defect.
 
+Before staging a toolchain with read-only inputs, copy one representative file
+using the intended method. Verify its digest and attributes on both ends and
+exercise cleanup on the copy before scaling up.
+
 At task start, record the worktree, branch, owned processes and temporary output
 roots. At task completion or merge:
 
