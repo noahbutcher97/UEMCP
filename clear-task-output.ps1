@@ -79,12 +79,8 @@ function Get-Inventory {
 }
 
 $run = [IO.Path]::GetFullPath($RunRoot).TrimEnd('\','/')
-$worktrees = @(git -C $PSScriptRoot worktree list --porcelain)
-if ($LASTEXITCODE -or !$worktrees.Count -or !$worktrees[0].StartsWith('worktree ')) {
-    throw 'Cannot locate primary checkout'
-}
-$primary = [IO.Path]::GetFullPath($worktrees[0].Substring(9))
-$roots = @((Join-Path $primary '.scratch\runs'), (Join-Path ([IO.Path]::GetPathRoot($primary)) 'Scratch\UEMCP'))
+$paths = & (Join-Path $PSScriptRoot 'get-task-root-paths.ps1') -Checkout $PSScriptRoot
+$roots = @($paths.PrimaryRuns, $paths.PrimaryExternal, $paths.CheckoutExternal)
 if ([IO.Path]::GetDirectoryName($run) -notin $roots) { throw "Outside allocator roots: $run" }
 $marker = Join-Path $run '.uemcp-run.json'
 Assert-PlainPath $marker

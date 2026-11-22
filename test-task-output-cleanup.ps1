@@ -25,6 +25,23 @@ $allocator = Join-Path $PSScriptRoot 'new-task-root.ps1'
 $uppercaseTask = 'A' + [guid]::NewGuid().ToString('N').Substring(0, 12)
 Assert-Refused { & $allocator -Task $uppercaseTask } 'pattern'
 
+# Supply a primary checkout on another volume without allocating another run.
+# A nonexistent run on this checkout's external root must reach marker lookup.
+& {
+    function git {
+        'worktree //localhost/test-share/UEMCP'
+        Set-Variable -Name LASTEXITCODE -Scope 1 -Value 0
+    }
+    $external = Join-Path ([IO.Path]::GetPathRoot($PSScriptRoot)) 'Scratch\UEMCP'
+    $missing = Join-Path $external ('unallocated-' + [guid]::NewGuid().ToString('N'))
+    try { & $helper $missing 'example' | Out-Null }
+    catch {
+        if ($_.Exception.GetBaseException() -is [IO.DirectoryNotFoundException]) { return }
+        throw
+    }
+    throw 'Accepted a run without an allocator marker'
+}
+
 $preview = & $helper $RunRoot $leaf
 if ($preview.State -ne 'Preview' -or $preview.Entries -ne 2 -or
     $preview.Bytes -ne (Get-Item $sample).Length -or (Get-Content $sample) -ne 'first') {
@@ -99,4 +116,4 @@ if ($removed.State -ne 'Removed' -or
 if ((& $helper $RunRoot $leaf -Apply $fresh.PreviewId).State -ne 'Absent') { throw 'Repeat apply failed' }
 $rest = & $helper $RunRoot $name
 & $helper $RunRoot $name -Apply $rest.PreviewId | Out-Null
-'PASS: lowercase allocation, preview, changed file, active owner, open handle, junction, outside path, marker protection, locked deletion, sibling preservation and repeat apply.'
+'PASS: lowercase allocation, cross-volume checkout, preview, changed file, active owner, open handle, junction, outside path, marker protection, locked deletion, sibling preservation and repeat apply.'
