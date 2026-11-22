@@ -19,20 +19,43 @@ under test into the new stage. Record the host and plugin revisions separately.
 
 ## Stage a fresh host
 
-From the repository root, stage into a new, absent directory whose parent exists:
+From the repository root, allocate the task directory once. Enter the coordinator
+and revision in its `RUN.md` and share the returned path with the workers. The
+example uses one engine. Additional engines use sibling directories inside the
+same task directory.
 
 ```powershell
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --engine-root 'C:/Program Files/Epic Games/UE_5.6'
+$taskRoot = ./new-task-root.ps1 -Task graph-placement
+$engineRun = New-Item -ItemType Directory -Path (Join-Path $taskRoot 'ue56')
+$stage = Join-Path $engineRun.FullName 'stage'
+node server/prepare-fixture-host.mjs --output-root $stage --engine-root 'C:/Program Files/Epic Games/UE_5.6'
 ```
 
-The project is `../host-run-001/host/UEMCPFixture.uproject`. Build its
+The helper places the task under `<checkout drive>:\Scratch\UEMCP`. If a task
+directory already exists, inspect its run record and use the coordinator's path.
+The staging command needs a fresh, absent leaf outside the source checkout.
+Use `Join-Path $stage 'host/UEMCPFixture.uproject'` to locate the project. Build its
 `UEMCPFixtureEditor Win64 Development` target with the selected engine's existing
 `Engine/Build/BatchFiles/Build.bat`, using a bounded process runner. No build or
 editor starts during staging. Do not use a live consumer project.
 
+For a packaging run, pass a fresh output leaf to the existing matrix command.
+Keep subsequent attempts in this task, for example `pkg-2`. Put CLI trials or
+private tool profiles under the same engine directory when they are needed.
+
 ```powershell
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --validate
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-smoke --timeout-ms 900000
+./test-plugin-build-matrix.ps1 -VersionsCsv '5.6' -OutputRoot (Join-Path $engineRun.FullName 'pkg-1')
+```
+
+For a multi-engine matrix invocation, use a single fresh child of `$taskRoot`;
+the matrix already creates its per-engine layout. A retained stage manifest
+records an absolute root. Keep runnable stages at that path until retired.
+When archiving an inactive attempt, record its original and archive paths and
+verify its contents after the move.
+
+```powershell
+node server/prepare-fixture-host.mjs --output-root $stage --validate
+node server/prepare-fixture-host.mjs --output-root $stage --native --test-profile native-smoke --timeout-ms 900000
 ```
 
 The `native-transport` profile selects the seven existing `UEMCP.Transport.*`
@@ -43,7 +66,7 @@ It requires their exact names once each and binds the raw hash of
 After building the staged host, run:
 
 ```powershell
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-transport --timeout-ms 900000
+node server/prepare-fixture-host.mjs --output-root $stage --native --test-profile native-transport --timeout-ms 900000
 ```
 
 These tests exercise native transport policy and decoder behavior under NullRHI.
@@ -67,7 +90,7 @@ CreateBlueprintParents). After
 building a fresh source-only stage, run:
 
 ```powershell
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-blueprint --timeout-ms 900000
+node server/prepare-fixture-host.mjs --output-root $stage --native --test-profile native-blueprint --timeout-ms 900000
 ```
 
 The helpers exercise native pin/default conversion. Handler cases dispatch through
@@ -93,7 +116,7 @@ The `native-core` profile requires eight existing cases from `UEMCPTests.cpp`:
 `MCPCommandRegistry.CustomRegister` (each prefixed `UEMCP.`).
 
 ```powershell
-node server/prepare-fixture-host.mjs --output-root ../host-run-001 --native --test-profile native-core --timeout-ms 900000
+node server/prepare-fixture-host.mjs --output-root $stage --native --test-profile native-core --timeout-ms 900000
 ```
 
 All eight full names must succeed exactly once, without labelled skips or Error

@@ -9,6 +9,8 @@
 **Interactive animation authoring**: [Event Graph blend](plans/animbp-interactive-authoring.md) and [montage Slot insertion](plans/u5-animation-authoring.md)
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
+For local build and editor output, start with the [shared task directory and fixture examples](fixture-host.md#stage-a-fresh-host) and follow the [cleanup protocol](../AGENTS.md#worktree-and-scratch-cleanup).
+
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
 
 ---

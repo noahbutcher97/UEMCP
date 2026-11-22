@@ -28,11 +28,14 @@ sync-plugin.bat "path\to\Project.uproject" -y
 verify-deploy.bat
 test-uemcp-gate.bat
 smoke-live.bat
-powershell -NoProfile -File .\test-plugin-build-matrix.ps1
 ```
 
 Use `sync-plugin.bat` to copy `plugin/UEMCP/` into a target project. Use local `.uemcp-targets.json` profiles, based on `.uemcp-targets.json.example`, for repeated `attach_project`, `verify-deploy`, and live-smoke workflows; run `migrate-targets.bat` to convert an existing legacy `.uemcp-targets.txt`. After plugin C++ changes, close the editor, sync, run Unreal `Build.bat`, relaunch the editor, and restart the MCP client.
-Use `test-plugin-build-matrix.ps1` for the fail-fast UE 5.3/5.6/5.7 Win64 BuildPlugin and packaged-fixture gate; pass `-VersionsCsv` to narrow an intentional local rerun. Each result reports a retained `staged_source` below the new output root for diagnostics; remove the output root when that evidence is no longer needed.
+For the Win64 BuildPlugin and packaged-fixture gate, follow the
+[local matrix example](docs/fixture-host.md#stage-a-fresh-host) and pass a fresh
+`-OutputRoot` inside the task directory. The default matrix covers UE 5.3/5.6/5.7.
+Use `-VersionsCsv` for a narrower run. Preserve the relevant diagnostic receipt
+before removing its staged source and package.
 
 ## Coding Style & Naming Conventions
 
@@ -66,6 +69,25 @@ Use `.worktrees/<task-name>` under this repository for new worktrees. The older
 sibling worktree directory is legacy; do not create another worktree root. Reuse
 an appropriate clean checkout when isolation is unnecessary.
 
+Keep the directory containing the repositories clear of task output. For local
+qualification, the coordinator runs `./new-task-root.ps1 -Task <short-name>` once
+and gives the returned path to every worker. It creates one task directory under
+`<checkout drive>:\Scratch\UEMCP`, shared by all engine versions, CLI clients and
+retries. Use it for fixture stages, matrix output, private tool profiles, caches
+and temporary compiler copies. Create child directories only as callers need
+them. Attach to the supplied task path when resuming. Ordinary tests that already
+use and clean their own temporary directories can continue doing so.
+
+The coordinator owns cleanup across workers. Fill in `RUN.md` at allocation.
+Before a large copy, check free space and the size of the selected files. Prefer
+the installed toolchain and a private profile. Record why any engine copy is
+needed, what can be excluded, and when it will be removed. Keep only one active
+copy per required engine within a task. Apply exclusions before copying and
+budget peak space across concurrent workers. Serialize builds when their combined
+outputs would exceed available space. For a failed attempt, extract its log,
+manifest and relevant hashes before allocating the retry. Retain the smallest
+reproducer that still exercises an outstanding defect.
+
 At task start, record the worktree, branch, owned processes and temporary output
 roots. At task completion or merge:
 
@@ -81,6 +103,13 @@ roots. At task completion or merge:
 - Remove retired checkouts with `git worktree remove`; do not force removal to
   bypass unexplained dirty files. Delete merged task branches after verifying
   recovery through the merged commit. Clean owned fixtures and disposable outputs.
+- Reconcile the live task directory with `RUN.md` after the last process exits.
+  Remove generated files and empty directories as each lane finishes. Copy the
+  concise closeout to the primary checkout's local report. For every retained
+  path record its owner, size, specific next use and removal trigger. Record the
+  exact remaining path and reason if cleanup is blocked. When nothing needs
+  retention, remove the task directory itself. See the
+  [fixture and packaging examples](docs/fixture-host.md#stage-a-fresh-host).
 - End with `git status --short` and `git worktree list`, and report anything
   intentionally retained. Do not claim the repository is fully cleaned merely
   because the primary checkout is clean.
