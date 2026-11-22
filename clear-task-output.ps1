@@ -38,6 +38,12 @@ function Assert-Inactive {
     }
 }
 
+function Assert-NoNamedStream([string]$Path) {
+    $extra = @(Get-Item -LiteralPath $Path -Stream * -ErrorAction Stop |
+        Where-Object Stream -ne ':$DATA')
+    if ($extra.Count) { throw "Named stream requires owner review: $Path" }
+}
+
 function Get-Entry([IO.FileSystemInfo]$Item, [IO.FileStream]$LockedStream) {
     $protected = [IO.FileAttributes]'ReparsePoint,ReadOnly,Hidden,System'
     if ($Item.Attributes -band $protected) {
@@ -45,9 +51,6 @@ function Get-Entry([IO.FileSystemInfo]$Item, [IO.FileStream]$LockedStream) {
     }
     $size = 0L
     $digest = 'directory'
-    $extra = @(Get-Item -LiteralPath $Item.FullName -Stream * -ErrorAction Stop |
-        Where-Object Stream -ne ':$DATA')
-    if ($extra.Count) { throw "Named stream requires owner review: $($Item.FullName)" }
     if ($Item -is [IO.FileInfo]) {
         $size = $Item.Length
         $stream = $LockedStream
@@ -69,7 +72,9 @@ function Get-Inventory {
     while ($pending.Count) {
         $item = $pending.Pop()
         Assert-PlainPath $item.FullName
-        Get-Entry $item
+        $entry = Get-Entry $item
+        Assert-NoNamedStream $item.FullName
+        $entry
         if ($item -is [IO.DirectoryInfo]) {
             foreach ($child in $item.EnumerateFileSystemInfos()) {
                 $pending.Push($child)
@@ -179,6 +184,7 @@ function Remove-ApprovedEntry($entry) {
         if ($current.created -ne $entry.created -or $current.digest -ne $entry.digest) {
             throw "Entry changed during removal: $($entry.path)"
         }
+        Assert-NoNamedStream $entry.path
         # Mark the exact open entry; Windows rejects a directory that gained a child.
         [Uemcp.CleanupHandle]::MarkForDeletion($handle)
     } finally {

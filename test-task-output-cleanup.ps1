@@ -90,7 +90,37 @@ Set-Content $sample 'other'
 Assert-Refused { & $helper $RunRoot $leaf -Apply $preview.PreviewId } 'changed or preview'
 if ((Get-Content $sample) -ne 'other') { throw 'Changed file lost' }
 $fresh = & $helper $RunRoot $leaf
-$mark = (Get-Command $helper).ScriptBlock.Ast.Find({
+$scriptAst = (Get-Command $helper).ScriptBlock.Ast
+$open = $scriptAst.Find({
+    param($ast)
+    $ast -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+        $ast.Expression.Extent.Text -eq '[Uemcp.CleanupHandle]' -and $ast.Member.Value -eq 'Open'
+}, $true)
+$hash = $scriptAst.Find({
+    param($ast)
+    $ast -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $ast.Member.Value -eq 'ComputeHash'
+}, $true)
+# Add an owned stream after the apply inventory but before opening the file.
+# Verify the final stream inspection still runs after hashing the primary data.
+$late = @{ created = $false; hashed = $false }
+$writeReceipt = Set-PSBreakpoint -Script $helper -Line $open.Extent.StartLineNumber -Action {
+    if ($entry.path -eq $sample) {
+        Set-Content -LiteralPath $sample -Stream receipt -Value 'late fixture receipt'
+        $late.created = $true
+    }
+}
+$observeHash = Set-PSBreakpoint -Script $helper -Line $hash.Extent.StartLineNumber -Action {
+    if ($late.created -and $LockedStream -and $Item.FullName -eq $sample) { $late.hashed = $true }
+}
+try {
+    Assert-Refused { & $helper $RunRoot $leaf -Apply $fresh.PreviewId } 'Named stream'
+    if (!$late.hashed -or (Get-Content -LiteralPath $sample -Stream receipt) -ne 'late fixture receipt' -or
+        (Get-Content -LiteralPath $sample) -ne 'other') { throw 'Late stream and its file must survive the final hash check' }
+} finally {
+    Remove-PSBreakpoint $writeReceipt, $observeHash
+    if ($late.created -and (Test-Path -LiteralPath $sample)) { Remove-Item -LiteralPath $sample -Stream receipt }
+}
+$mark = $scriptAst.Find({
     param($ast)
     $ast -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $ast.Member.Value -eq 'MarkForDeletion'
 }, $true)
@@ -116,4 +146,4 @@ if ($removed.State -ne 'Removed' -or
 if ((& $helper $RunRoot $leaf -Apply $fresh.PreviewId).State -ne 'Absent') { throw 'Repeat apply failed' }
 $rest = & $helper $RunRoot $name
 & $helper $RunRoot $name -Apply $rest.PreviewId | Out-Null
-'PASS: lowercase allocation, cross-volume checkout, preview, changed file, active owner, open handle, junction, outside path, marker protection, locked deletion, sibling preservation and repeat apply.'
+'PASS: lowercase allocation, cross-volume checkout, preview, changed file, active owner, open handle, junction, outside path, marker protection, late named stream after final hashing, locked deletion, sibling preservation and repeat apply.'
