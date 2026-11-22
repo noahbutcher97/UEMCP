@@ -48,7 +48,7 @@ captured values.
 ### Cleanup ownership before the first run
 
 The coordinator chooses one run root before either owner stages a fixture.
-Use `new-task-root.ps1 -Task core-correctness` for a repo-local run, or add
+From the repository root, use `.\new-task-root.ps1 -Task core-correctness` for a repo-local run, or add
 `-ExternalFixture` if this run requires a fresh external stage. Pass that same
 path to both owners. On resumption, use the recorded path. Create each child
 only when its caller needs it.

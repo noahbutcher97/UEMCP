@@ -21,8 +21,10 @@ under test into the new stage. Record the host and plugin revisions separately.
 
 From the repository root, allocate the task directory once. Enter the coordinator
 and revision in its `RUN.md` and share the returned path with the workers. The
-example uses one engine. Additional engines use sibling directories inside the
-same task directory.
+example uses a checkout at `\src\UEMCP` and a separate `\Scratch\UEMCP`
+directory on the same drive. If the checkout contains that scratch directory,
+run this example from a checkout outside it. Additional engines use sibling
+directories inside the same task directory.
 
 ```powershell
 $taskRoot = ./new-task-root.ps1 -Task graph-placement -ExternalFixture
@@ -63,6 +65,9 @@ Check its resolved path, byte count and run identity against the run's
 
 Pass any still-recorded owner PIDs with `-OwnerProcessId`. The command checks
 visible process paths and opens files exclusively while reading their hashes.
+During apply it keeps each checked file locked until Windows marks that same
+file handle for deletion. Windows also refuses removal of a directory if a new
+child appears after the preview.
 The coordinator also checks the run ledger for callers that use indirect paths.
 Entries with named streams, links or read-only, hidden or system attributes
 are left for review. If an output changes or a
