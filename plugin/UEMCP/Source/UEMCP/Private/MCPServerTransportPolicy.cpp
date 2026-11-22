@@ -27,6 +27,64 @@ constexpr ANSICHAR FramingPrefix[] = "content-length:";
 constexpr uint8 HeaderTerminator[] = {'\r', '\n', '\r', '\n'};
 constexpr uint8 Utf8Bom[] = {0xef, 0xbb, 0xbf};
 
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+// UE 5.3's counted FString constructor discards a whole token if its first
+// code unit is NUL. Keep strings nonempty through TJsonReader's construction,
+// then expose the original counted range to the ordinary object serializer.
+void PrefixStringsForLeadingNul(FString& JsonText)
+{
+	FString Prefixed;
+	Prefixed.Reserve(JsonText.Len());
+	int32 Start = 0;
+	bool bInString = false;
+	for (int32 Index = 0; Index < JsonText.Len(); ++Index)
+	{
+		const TCHAR Char = JsonText[Index];
+		if (bInString && Char == TEXT('\\'))
+		{
+			++Index;
+			continue;
+		}
+		if (Char == TEXT('"'))
+		{
+			bInString = !bInString;
+			if (bInString)
+			{
+				Prefixed.AppendChars(*JsonText + Start, Index + 1 - Start);
+				Prefixed.AppendChar(TEXT('_'));
+				Start = Index + 1;
+			}
+		}
+	}
+	Prefixed.AppendChars(*JsonText + Start, JsonText.Len() - Start);
+	JsonText = MoveTemp(Prefixed);
+}
+
+class FPrefixedStringReader final : public TJsonReader<>
+{
+public:
+	explicit FPrefixedStringReader(FArchive* InStream) : TJsonReader<>(InStream) {}
+
+	const FString& GetIdentifier() const override { return Unprefix(TJsonReader<>::GetIdentifier(), Key); }
+	const FString& GetValueAsString() const override { return Unprefix(TJsonReader<>::GetValueAsString(), Value); }
+
+private:
+	static const FString& Unprefix(const FString& Token, FString& Result)
+	{
+		if (Token.IsEmpty())
+		{
+			return Token; // Array elements and structural tokens have no identifier.
+		}
+		Result.Reset(Token.Len() - 1);
+		Result.AppendChars(*Token + 1, Token.Len() - 1);
+		return Result;
+	}
+
+	mutable FString Key;
+	mutable FString Value;
+};
+#endif
+
 template <typename ArrayType>
 auto PopWithoutShrinking(ArrayType& Array)
 {
@@ -388,7 +446,7 @@ FString ValidateObjectBoundary(const TArray<uint8>& Body, int32 StartOffset)
 	return {};
 }
 
-bool HasNodeJsonCompatibilityViolation(const TArray<uint8>& Body, int32 StartOffset)
+bool HasNodeJsonCompatibilityViolation(const TArray<uint8>& Body, int32 StartOffset, bool& bHasLeadingNul)
 {
 	// Unreal's JSON reader deliberately accepts a few extensions. This byte-level
 	// compatibility guard covers only the known Node JSON.parse differences; it
@@ -423,6 +481,15 @@ bool HasNodeJsonCompatibilityViolation(const TArray<uint8>& Body, int32 StartOff
 
 		if (Byte == '"')
 		{
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+			constexpr ANSICHAR EscapedNul[] = "\\u0000";
+			constexpr int32 EscapeLength = UE_ARRAY_COUNT(EscapedNul) - 1;
+			if (Body.Num() - Index - 1 >= EscapeLength && Body[Index + 1] == '\\'
+				&& FMemory::Memcmp(Body.GetData() + Index + 1, EscapedNul, EscapeLength) == 0)
+			{
+				bHasLeadingNul = true;
+			}
+#endif
 			bInString = true;
 			continue;
 		}
@@ -1148,7 +1215,8 @@ struct FMCPRequestDecoder::FImpl
 			SetMalformed(*BoundaryError);
 			return;
 		}
-		const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset);
+		bool bHasLeadingNul = false;
+		const bool bHasNodeJsonCompatibilityViolation = Private::HasNodeJsonCompatibilityViolation(Body, BodyOffset, bHasLeadingNul);
 
 		FString JsonText;
 		const int32 JsonBytes = Body.Num() - BodyOffset;
@@ -1161,6 +1229,12 @@ struct FMCPRequestDecoder::FImpl
 			FPlatformString::Convert(JsonCharacters.GetData(), JsonTCharCount, JsonUtf8, JsonBytes);
 			JsonText.Append(JsonCharacters);
 		}
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+		if (bHasLeadingNul)
+		{
+			Private::PrefixStringsForLeadingNul(JsonText);
+		}
+#endif
 		FString ScalarWrapper;
 		if (bScalarCandidate)
 		{
@@ -1175,7 +1249,13 @@ struct FMCPRequestDecoder::FImpl
 		FMemoryReader JsonStream(JsonTextBytes);
 		++JsonParseCount;
 		TSharedPtr<FJsonValue> RootValue;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(&JsonStream);
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(&JsonStream);
+#if UE_VERSION_OLDER_THAN(5, 4, 0)
+		if (bHasLeadingNul)
+		{
+			Reader = MakeShared<Private::FPrefixedStringReader>(&JsonStream);
+		}
+#endif
 		const bool bUnrealParsed = FJsonSerializer::Deserialize(Reader, RootValue) && RootValue.IsValid() && JsonStream.AtEnd();
 		const bool bHasNonFiniteNumber = bUnrealParsed && Private::HasNonFiniteJsonNumber(RootValue);
 		if (!bUnrealParsed || bHasNonFiniteNumber || bMissingRoot || bHasNodeJsonCompatibilityViolation)

@@ -1730,6 +1730,55 @@ bool FUEMCPTransportDecoderBoundariesTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	for (const bool bFramed : {false, true})
+	{
+		// Exercise keys, nested values and literal text together. FString's
+		// C-string comparisons cannot distinguish characters after a NUL.
+		const TArray<uint8> Body = MakeAsciiBytes(TEXT(
+			"{\"\\u0000k\":[\"\\u0000B\",\"A\\u0000B\",\"\\\\u0000\",\"a\\\"b\",\"_\",\"\"],\"\":true}"));
+		TArray<uint8> Request;
+		if (bFramed)
+		{
+			Request = MakeFramingHeader(Body.Num());
+		}
+		Request.Append(Body);
+		FMCPRequestDecoder Decoder;
+		const FMCPDecodeSnapshot& Snapshot = Decoder.Consume(Request.GetData(), Request.Num());
+		const FString Mode = bFramed ? TEXT("framed") : TEXT("legacy");
+		if (!TestTrue(Mode + TEXT(" nested NUL object completes"), Snapshot.Object.IsValid()))
+		{
+			continue;
+		}
+		TestEqual(Mode + TEXT(" retains both field names"), Snapshot.Object->Values.Num(), 2);
+		bool bEmptyField = false;
+		TestTrue(Mode + TEXT(" retains empty field"), Snapshot.Object->TryGetBoolField(TEXT(""), bEmptyField) && bEmptyField);
+		const TCHAR KeyUnits[] = {0, TEXT('k')};
+		FString Key;
+		Key.AppendChars(KeyUnits, UE_ARRAY_COUNT(KeyUnits));
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (!TestTrue(Mode + TEXT(" finds the NUL-prefixed key"), Snapshot.Object->TryGetArrayField(Key, Values)))
+		{
+			continue;
+		}
+		const TArray<TArray<uint16>> Expected = {{0,'B'}, {'A',0,'B'}, {'\\','u','0','0','0','0'}, {'a','"','b'}, {'_'}, {}};
+		if (!TestEqual(Mode + TEXT(" array count"), Values->Num(), Expected.Num()))
+		{
+			continue;
+		}
+		for (int32 Index = 0; Index < Expected.Num(); ++Index)
+		{
+			const FString Value = (*Values)[Index]->AsString();
+			const FString Label = FString::Printf(TEXT("%s NUL array element %d"), *Mode, Index);
+			if (TestEqual(Label + TEXT(" length"), Value.Len(), Expected[Index].Num()))
+			{
+				for (int32 Unit = 0; Unit < Value.Len(); ++Unit)
+				{
+					TestEqual(Label + TEXT(" code unit"), static_cast<uint16>(Value[Unit]), Expected[Index][Unit]);
+				}
+			}
+		}
+	}
+
 	for (const TPair<const TCHAR*, const TCHAR*>& CompatibilityGuardCase : {
 		TPair<const TCHAR*, const TCHAR*>(TEXT("missing object value"), TEXT("{\"x\":}")),
 		TPair<const TCHAR*, const TCHAR*>(TEXT("capitalized true"), TEXT("{\"x\":True}")),
