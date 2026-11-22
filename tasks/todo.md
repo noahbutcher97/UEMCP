@@ -5,6 +5,134 @@ not a sequential checklist. The [backlog](../docs/tracking/backlog.md) retains
 status and historical evidence. Checkboxes track planning/delivery milestones, not a reset of
 already shipped capabilities. Each row is a starting slice, not the entire unit.
 
+## Core correctness execution checklist (2026-11-22)
+
+Follow the [work order and branch bases](plan.md#core-correctness-before-the-next-character-experiment-2026-11-22).
+
+- [x] **Coordinator, before the first bulky output.** Implement and exercise
+  the on-demand cleanup helper on a disposable allocator-created run. Prove
+  preview leaves files intact, apply removes the selected retired output, and
+  repeat apply reports it gone. Verify changed, active, linked and outside-run
+  targets are preserved and an unrelated sibling survives. Save the receipt.
+- [x] **Coordinator, before staging or building.** Reserve one shared run root.
+  Fill in the [cleanup inventory](plan.md#cleanup-ownership-before-the-first-run)
+  in its `RUN.md` with both owners. Record the expected artifacts, exact paths,
+  peak disk budget, receipt destinations and removal triggers. Identify the
+  original reproducer, reused hosts and existing animation worktrees separately
+  from disposable working copies.
+- [x] **Coordinator, before execution.** Record branch heads, owned host
+  manifests, editor/build availability, package fingerprints, process ownership
+  and run directory. Pin the original package report and the identical set of
+  nine tests for the later comparison.
+- [x] **Decoder owner, first editor slot.** Reproduce both 5.3.2 assertions on
+  a working copy. For each transport record the parsed string length and code
+  units at engine readback and at the UEMCP result. Include an ordinary string
+  control. Identify the first divergent boundary and document the expected
+  behavior before changing code.
+- [x] **Writer owner, in parallel.** Map the existing setter changes and their
+  dependencies against main. Review direct and dispatcher argument rejection,
+  omitted defaults for wired inputs, numeric limits and the actor readback.
+  Mark each repair as already present on main, ready for review, or needing a
+  dependency. Preserve the original failing evidence.
+- [x] **Writer owner, next editor slot.** On 5.8.4 exercise a representable
+  integer that exposes precision loss, a vector with distinguishable components,
+  a misspelled argument, two similarly named graph pages and function entry
+  creation/reuse. Use exact graph identities and execute the compiled actor.
+  For a refusal, compare graph links, defaults, dirty state and Undo history.
+  Record observed behavior separately for each case. If an engine invariant
+  prevents a proposed fixture, record the evidence and narrow the claim.
+- [x] **Each owner, at every retry and engine handoff.** Verify the saved
+  receipts, stop owned processes that have finished, reclaim superseded output,
+  and record actual paths and sizes still needed by the next consumer.
+  Reconcile the same inventory on interruption or cancellation. On a review
+  denial, follow the [denial procedure](plan.md#when-removal-is-denied), report
+  the surviving paths and size, and remeasure free space before the next build.
+- [x] **Each owner, after reproduction.** Add focused regression coverage
+  wherever the existing tests miss a confirmed defect. Reuse the decoder
+  regression. Verify each repair against its original failing input and a
+  valid neighboring input. Record native test names, public call results where
+  applicable, independent observations and the tested source and binary.
+- [x] **Coordinator, integrated qualification.** Check exact deployed plugin
+  and corpus hashes. Require all seven transport tests on the decoder candidate,
+  then 9/9 in the original packaged suite on integrated UE 5.3.2 Win64.
+  Repeat the decoder regression and affected writer checks on 5.6.1 and 5.8.4,
+  and run the affected writers on 5.3.2. Run the server rotation for server or
+  tool-surface edits. Have an independent reviewer check the diff, compatibility,
+  refusal behavior and readback receipts. Requalify any fixes from review.
+- [x] **Coordinator, final agent replay.** Give a fresh real CLI an owned
+  Blueprint, a requested assignment and named save scope. Let the agent
+  discover tools and recover from an ambiguous target or mistaken argument.
+  Record the prompt, client/model, engine, calls, interventions and claimed
+  result. Reopen in a fresh editor, identify the graph by GUID, invoke the
+  compiled actor and compare its value and unrelated package hashes. Repeat
+  the same task for each client/engine combination claimed as supported;
+  list unexercised combinations explicitly.
+- [x] **Coordinator, closeout.** Publish the per-engine and per-client results
+  in the work record. Resume the character experiment when the integrated
+  checks pass, the CLI result matches independent readback, and each confirmed
+  writer defect in scope has passed its regression. Record any remaining
+  source-only concerns with their next check. Close TRANSPORT-53-NUL and remove
+  its retained fixture once its verified result is recorded. Check the final
+  filesystem inventory against `RUN.md`, verify receipts outside scratch and
+  remove the empty run root. Record each surviving path, owner, size and release
+  condition in the local report. Capture Git status and the worktree list after
+  retiring any merged core worktrees.
+
+## Core correctness results (2026-11-22)
+
+The integrated native code is at `8672b93` on `task/writer-core`.
+`a8f61a0` updates a server source-guard assertion on that same plugin tree.
+The full rotation passed 9,668 assertions across 129 files with nine
+environment-gated skips. UE 5.7 remains deferred.
+
+The retained UE 5.3.2 package reproduced the framed and legacy failures.
+The native JSON reader and both transport paths produced zero code units
+for leading escaped NUL, including a string with a following printable
+character. The ordinary and interior-NUL controls preserved their values.
+The repaired decoder passed all seven transport tests on UE 5.3.2, 5.6.1 and
+5.8.4 Win64. On all three engines, a separate native object-map observer
+showed that distinct equal-length keys can coalesce when they differ after NUL.
+
+The original nine-test suite passed in an installed UE 5.3.2 editor using
+the integrated Win64 package. The first process crashed before exporting
+results. Symbols matched the game thread to the pawn graph test's scope-exit
+cleanup and garbage collection; the specific invalid reference remains unknown.
+The passing run used a fresh editor with the same DLL and corpus. Raw local
+receipts, including both attempts, live under
+`docs/reports/2026-11-22-core-correctness/` in the primary checkout.
+
+| Win64 engine | Integrated native checks | Codex CLI 0.171.0 assignment and fresh-editor actor readback |
+| --- | --- | --- |
+| UE 5.3.2 CL29314046 | 11/11 | Passed, 33 public calls; recovered from a mistaken tool name and unverified editor identity |
+| UE 5.6.1 CL44394996 | 11/11 | Passed, 22 calls; recovered from unverified editor identity |
+| UE 5.8.4 CL58902052 | 11/11 | Passed, 33 calls; recovered from unverified editor identity |
+
+The original UE 5.8.4 assignment wrapped overflowing signed integers, reduced
+vector precision and accepted a misspelled top-level graph argument. On the
+integrated build, both overflow directions were refused, the exact integer
+16777217 survived, and Unreal's established fractional rounding was preserved.
+The three vector components `[1e-7, -1.23456789012345, 12.5]` survived
+compilation, saving, reopening and execution. Tests with reordered graph pages
+verified implicit and explicit canonical Event Graph selection and explicit
+secondary-page selection by independently checking the actual node GUIDs.
+Function creation and reuse preserved the original entry. Each client run
+changed one requested asset. Independent review confirmed the observations.
+Other client workflows and human sessions remain unexercised for this change.
+
+The cleanup helper on `task/run-cleanup` at `416862d` passed disposable-run
+and independent controls on PowerShell 7.6.10, including changed content,
+alternate streams, live processes, junctions and idempotent removal. Windows
+PowerShell 5.1 refused before accessing the target. The minimum 7.2 runtime
+was checked for API compatibility and has no separate runtime trial.
+
+At closeout the coordinator verified removal of all five private build
+profiles, the 19.42 GiB compiler copy, the run directory and the original
+decoder reproducer. All 55,170 read-only compiler inputs matched the installed
+originals before their copied attributes were cleared. The integrated core
+and cleanup helper checkouts remain for review and merge.
+
+## Roadmap slices
+
 | Task | Acceptance and verification | Dependency / likely area |
 |---|---|---|
 | [x] U1a: truthful timer failures (BUG-3) | Reproduced both failures on UE 5.8.4. The fix passed all 15 native Blueprint cases on UE 5.3.2, 5.6.1 and 5.8.4 Win64. | [BUG-3 evidence](../docs/tracking/backlog.md#retained-correctness-and-workflow-reports) |

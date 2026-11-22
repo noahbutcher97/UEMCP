@@ -11,6 +11,8 @@
 To bind an Enhanced Input action or play a named sequence, see the [public graph operations](plans/asset-backed-graph-actions.md#using-the-public-operations) and [engine and agent results](plans/graph-action-placement-qualification.md).
 **Organization and research upkeep**: [ecosystem watch and audits](tracking/ecosystem-watch.md)
 
+For local build and editor output, start with the [shared task directory and fixture examples](fixture-host.md#stage-a-fresh-host) and follow the [cleanup protocol](../AGENTS.md#worktree-and-scratch-cleanup).
+
 For new-machine onboarding see the main [README.md](../README.md) at repo root.
 
 ---
