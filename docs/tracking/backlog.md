@@ -19,9 +19,9 @@ projects. Historical rationale is retained in the [September notes preserved at 
   `UEMCP.Transport.DecoderBoundaries` failures for escaped U+0000 in framed
   and legacy JSON. Keep the packaged reproducer in
   `.scratch/retained/ue53-decoder/` until the passing 5.3.2 result is recorded
-  or the maintainer explicitly retires the investigation. Check this item on
-  main when releasing the reproducer and link the result or retirement decision.
-  The workstation cleanup task watches this checkbox.
+  or the maintainer explicitly retires the investigation. At closeout, the
+  maintainer removes the retained fixture, keeps the verification receipts,
+  links the passing result or retirement decision, and checks off this item.
 
 | ID | Status | Work / acceptance |
 |---|---|---|
