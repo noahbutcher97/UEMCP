@@ -28,6 +28,12 @@ foreach ($parent in @($scratch, $projectScratch)) {
 $run = Join-Path $projectScratch ("{0}-{1}" -f (Get-Date -Format 'yyMMdd'), $Task)
 # New-Item without -Force refuses an existing directory, including a concurrent allocation.
 New-Item -Path $run -ItemType Directory -ErrorAction Stop | Out-Null
+[ordered]@{
+    schema = 1
+    runId = [guid]::NewGuid().ToString()
+    path = (Get-Item -LiteralPath $run).FullName
+    task = $Task
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $run '.uemcp-run.json') -Encoding utf8
 @"
 # $Task
 

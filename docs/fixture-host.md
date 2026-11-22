@@ -42,6 +42,34 @@ Use `Join-Path $stage 'host/UEMCPFixture.uproject'` to locate the project. Build
 `Engine/Build/BatchFiles/Build.bat`, using a bounded process runner. No build or
 editor starts during staging. Do not use a live consumer project.
 
+### Retire an output from a completed run step
+
+After the last consumer exits, keep the log, manifest and verification receipt
+outside the retired output. In PowerShell 7.2 or newer (`pwsh`), preview one
+literal path relative to the run. This version can enumerate NTFS streams on
+directories as well as files.
+
+```powershell
+$preview = ./clear-task-output.ps1 -RunRoot $taskRoot -Output 'ue56/pkg-1'
+$preview
+```
+
+Check its resolved path, byte count and run identity against the run's
+`RUN.md`. Supply the preview ID to apply this retirement:
+
+```powershell
+./clear-task-output.ps1 -RunRoot $taskRoot -Output 'ue56/pkg-1' -Apply $preview.PreviewId
+```
+
+Pass any still-recorded owner PIDs with `-OwnerProcessId`. The command checks
+visible process paths and opens files exclusively while reading their hashes.
+The coordinator also checks the run ledger for callers that use indirect paths.
+Entries with named streams, links or read-only, hidden or system attributes
+are left for review. If an output changes or a
+removal is interrupted, inspect the remaining entries and generate a new preview.
+Only runs created with the allocator's identity marker support this command.
+The run record, retained fixtures, and Git worktrees have separate closeout steps.
+
 For a packaging run, pass a fresh output leaf to the existing matrix command.
 Keep subsequent attempts in this task, for example `pkg-2`. Put CLI trials or
 private tool profiles under the same engine directory when they are needed.
