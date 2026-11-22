@@ -463,7 +463,7 @@ export const BLUEPRINTS_WRITE_SCHEMAS = {
   },
 
   place_graph_action: {
-    description: `Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Each Sequence Player placement adds an instance. After a lost reply, call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player). Compare placed_nodes to the pre-edit node GUIDs before retrying. ${holdTriggerWiring}`,
+    description: `Place the action selected by find_graph_actions in its original graph. An exact input event is reused. Before placing a Sequence Player, call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player) and record the GUIDs in placed_nodes. Each placement adds an instance. After a lost reply repeat the lookup. Retry only if comparing the GUIDs confirms the requested node is missing. ${holdTriggerWiring}`,
     schema: {
       asset_path: graphActionAssetPath.describe('Target Blueprint package path used for discovery'),
       graph_guid: stateGraphTarget.graph_guid.describe('Resolved graph_guid from discovery'),

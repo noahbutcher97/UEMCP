@@ -355,7 +355,7 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
       { action_id: 'selected', source_asset_path: '/Game/Walk.Walk' },
       { action_id: 'empty', source_asset_path: '' },
     ];
-    const placedPlayers = [];
+    const placedPlayers = actions.map(row => ({ node_guid: `existing-${row.action_id}`, source_asset_path: row.source_asset_path }));
     const wire = await createWireApp({ root, project, tcpCommandFn: async (port, type, params) => {
       const reply = await editor(port, type, params);
       if (type === 'find_graph_actions') {
@@ -365,7 +365,7 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
         return { status: 'success', result: {
           graph_guid: 'graph-1',
           actions: exact === undefined ? actions : actions.filter(row => row.source_asset_path === exact),
-          placed_nodes: placedPlayers.filter(node => node.source_asset_path === exact),
+          ...(exact === undefined ? {} : { placed_nodes: placedPlayers.filter(node => node.source_asset_path === exact) }),
         } };
       }
       if (type === 'place_graph_action' && params.attachment_id !== discoveredScope) {
@@ -418,6 +418,8 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
         t.assert(/Started.*Completed.*Canceled/.test(described.description), 'placement help names all three repeating Hold branches');
         t.assert(described.description.includes('source_asset_path ("" for an empty Sequence Player)'),
           'placement help exposes the exact-source recovery read to the client');
+        t.assert(/before placing.*record.*placed_nodes/i.test(described.description),
+          'placement help requests the exact-source node list before writing');
         t.assert(!Object.hasOwn(JSON.parse(text(direct)).result, 'hold_trigger_wiring'), 'Sequence Player results omit input-event guidance');
       }
       t.assert(direct.result && viaDispatcher.result && !direct.result.isError && !viaDispatcher.result.isError && text(direct) === text(viaDispatcher),
@@ -442,6 +444,10 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
     }
     await dispatch(transport, 'find_graph_actions', { asset_path: ANIM_BP, graph_name: 'AnimGraph', query: 'player' });
     for (const { action_id, source_asset_path } of actions) {
+      const beforePlacement = await dispatch(transport, 'find_graph_actions',
+        { asset_path: ANIM_BP, graph_guid: place.graph_guid, source_asset_path });
+      const original = JSON.parse(text(beforePlacement)).result.placed_nodes.map(node => node.node_guid);
+      t.assert(original.length === 1 && original[0] === `existing-${action_id}`, 'record the matching player that already exists');
       losePlacementReply = true;
       const writes = calls.filter(call => call.type === 'place_graph_action').length;
       const lost = await dispatch(transport, 'place_graph_action', { ...place, action_id }, 'call_mutating_tool');
@@ -450,7 +456,8 @@ await runCase('graph action tools share scoped dispatch, retry diagnostics and f
         && recovery?.arguments?.source_asset_path === source_asset_path && recovery.instruction.includes('pre-edit node GUIDs'),
         `lost ${action_id} placement returns an executable exact-source read`);
       const inspected = await dispatch(transport, recovery.tool, recovery.arguments);
-      t.assert(JSON.parse(text(inspected)).result.placed_nodes.some(node => node.node_guid === `placed-${action_id}`)
+      const added = JSON.parse(text(inspected)).result.placed_nodes.filter(node => !original.includes(node.node_guid));
+      t.assert(added.length === 1 && added[0].node_guid === `placed-${action_id}`
         && calls.filter(call => call.type === 'place_graph_action').length === writes + 1,
         `recovery finds the placed ${action_id} player without issuing a second placement`);
     }

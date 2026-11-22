@@ -221,6 +221,8 @@ await runCase('Blueprint readers accept discovered numeric export indices over M
       asset_path, graph_name: 'OwnedGraph', node_class: 'K2Node_CallFunction',
     }));
     const node = found.nodes[0];
+    t.assert(node.node_guid === '12345678000000020000000300000004',
+      'discovery returns the function-call GUID recorded in the owned fixture oracle');
     t.assert(Number.isInteger(node.node_id), 'wire graph discovery returns a numeric export index');
     const inspected = await callTool(transport, 'bp_show_node', { asset_path, node_id: node.node_id });
     t.assert(parseTextResult(inspected).node?.node_guid === node.node_guid,

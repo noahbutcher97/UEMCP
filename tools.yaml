@@ -851,8 +851,8 @@ toolsets:
         mutates_asset: true
         description: >-
           Place the exact asset-backed action selected by find_graph_actions. Reuses one matching input event or adds a new Sequence Player.
-          After a lost response call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player).
-          Compare placed_nodes to the pre-edit node GUIDs before retrying. Wire, compile and save explicitly.
+          Before placing a Sequence Player, call find_graph_actions with the selected action's exact source_asset_path ("" for an empty Sequence Player) and record the GUIDs in placed_nodes.
+          After a lost response repeat the lookup. Retry only if comparing the GUIDs confirms the requested node is missing. Wire, compile and save explicitly.
           For a repeating Hold trigger, set a held flag on Started (press). Clear it on both Completed (release after the hold triggers) and Canceled (early release).
         params:
           asset_path: { type: string, required: true, description: "Target Blueprint package path used during discovery" }
