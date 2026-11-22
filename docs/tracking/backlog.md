@@ -15,25 +15,24 @@ projects. Historical rationale is retained in the [September notes preserved at 
 
 ## Current work and next qualification
 
-- [x] **TRANSPORT-53-NUL** — Fixed and qualified on the local core branch,
-  pending integration into main. UE 5.3.2 dropped JSON string contents when
+- [x] **TRANSPORT-53-NUL** — UE 5.3.2 dropped JSON string contents when
   the first decoded code unit was NUL. The repair preserves those contents in
   both framed and legacy requests. All seven native transport tests passed
   on UE 5.3.2, 5.6.1 and 5.8.4 Win64. A fresh installed UE 5.3.2 editor
   passed the original nine tests with the integrated package. Native change
   `651e80e`, integrated plugin at `8672b93`. After the passing run, the
   coordinator verified and removed the retained reproducer. [Qualification record](../../tasks/todo.md#core-correctness-results-2026-11-22)
-- [x] **Transport object key identity.** Fixed locally in `dfaad30` on
-  `task/core-findings`. Framed and legacy intake refuse keys containing NUL
+- [x] **Transport object key identity.** Since `dfaad30`, framed and legacy
+  intake refuse keys containing NUL
   and differently spelled sibling keys the engine would collapse. A corrected
   request succeeds. UE 5.3.2, 5.6.1 and 5.8.4 Win64 each passed 18 live wire
-  checks and all seven native transport tests. Integration into main is pending.
+  checks and all seven native transport tests.
 - [x] **Pawn fixture transaction ownership.** The old UE 5.3.2 fixture added
-  four entries to editor Undo and retained the source node. Local fix `ee3f848`
+  four entries to editor Undo and retained the source node. Commit `ee3f848`
   gives the fixture its own history. Normal teardown and early return release the
   Blueprint and preserve an unrelated redo on all three engines. Five fresh UE
   5.3.2 content-only editors passed the original nine-case suite with the same
-  project-built DLL. Integration into main is pending.
+  project-built DLL.
 - **Watch for a recurrence of the historical packaged GC crash.** Its precise
   UObject remains unidentified. The minidump contains partial memory and
   matching editor CoreUObject symbols were unavailable locally. If the fault recurs, capture
